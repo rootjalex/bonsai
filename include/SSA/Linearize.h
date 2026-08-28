@@ -2,10 +2,12 @@
 
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/SSA.h"
+#include "SSA/UniformizeLoops.h"
 
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace bonsai {
 namespace ir {
@@ -44,9 +46,21 @@ namespace ssa {
 // block inside it is predicated by that mask -- including the ones whose own
 // predicate is uniform, which would otherwise need no mask at all.
 //
-// Requires reducible control flow and, for now, a region without loops: a
-// divergent loop has to be turned into a uniform one first (section 3.3 of
-// the paper), which is not implemented yet.
+// Requires reducible control flow, and that every loop in the region be
+// uniform -- a divergent one has to be folded into data flow first, by
+// SSA/UniformizeLoops.h, whose result is passed back in as `loops`. Uniform
+// loops are handled as section 3.3 of the paper describes: figure 5 is run
+// with the back edges deleted, and each back edge is re-inserted at its latch
+// afterwards. That is sound because a uniform loop has no divergent exit that
+// could defer a block past the latch, so reaching the latch means no lane left
+// the loop this iteration.
+//
+// A uniformized loop is uniform in that sense, but its header still needs a
+// mask: the live mask says which lanes have not left yet, and it is what stops
+// a lane that finished on an earlier iteration from storing anything now.
+// `loops` supplies it, and gets back the mask its loop is entered under, which
+// is only known once mask generation reaches the preheader.
+//
 // Returns the execution mask of each block that has one. A block that is
 // absent runs with every lane of the gang enabled and needs no predication;
 // callers use this to predicate anything linearization does not handle
@@ -55,7 +69,8 @@ using BlockMasks = std::map<std::string, std::shared_ptr<Value>>;
 
 BlockMasks linearize(Function &func, const std::string &entry,
                      const Divergence &divergence,
-                     const std::shared_ptr<Value> &entry_mask = nullptr);
+                     const std::shared_ptr<Value> &entry_mask = nullptr,
+                     const std::vector<UniformLoop> &loops = {});
 
 } // namespace ssa
 } // namespace ir

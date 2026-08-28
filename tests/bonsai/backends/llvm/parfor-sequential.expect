@@ -1,5 +1,118 @@
----CODE---
-1
----STDERR---
-[internal] Error: include/CodeGen/CodeGen_LLVM.h:177
-Restricted Visitor class does not handle: N6bonsai2ir6ParForE
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @add_one(ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+add_one_entry:
+  %extract = load float, ptr %a, align 4
+  %0 = fadd float %extract, 1.000000e+00
+  store float %0, ptr %out, align 4, !tbaa !0
+  %extract_ptr.1 = getelementptr inbounds i8, ptr %a, i64 4
+  %extract.1 = load float, ptr %extract_ptr.1, align 4
+  %1 = fadd float %extract.1, 1.000000e+00
+  %out1.1 = getelementptr inbounds i8, ptr %out, i64 4
+  store float %1, ptr %out1.1, align 4, !tbaa !0
+  %extract_ptr.2 = getelementptr inbounds i8, ptr %a, i64 8
+  %extract.2 = load float, ptr %extract_ptr.2, align 4
+  %2 = fadd float %extract.2, 1.000000e+00
+  %out1.2 = getelementptr inbounds i8, ptr %out, i64 8
+  store float %2, ptr %out1.2, align 4, !tbaa !0
+  %extract_ptr.3 = getelementptr inbounds i8, ptr %a, i64 12
+  %extract.3 = load float, ptr %extract_ptr.3, align 4
+  %3 = fadd float %extract.3, 1.000000e+00
+  %out1.3 = getelementptr inbounds i8, ptr %out, i64 12
+  store float %3, ptr %out1.3, align 4, !tbaa !0
+  %extract_ptr.4 = getelementptr inbounds i8, ptr %a, i64 16
+  %extract.4 = load float, ptr %extract_ptr.4, align 4
+  %4 = fadd float %extract.4, 1.000000e+00
+  %out1.4 = getelementptr inbounds i8, ptr %out, i64 16
+  store float %4, ptr %out1.4, align 4, !tbaa !0
+  %extract_ptr.5 = getelementptr inbounds i8, ptr %a, i64 20
+  %extract.5 = load float, ptr %extract_ptr.5, align 4
+  %5 = fadd float %extract.5, 1.000000e+00
+  %out1.5 = getelementptr inbounds i8, ptr %out, i64 20
+  store float %5, ptr %out1.5, align 4, !tbaa !0
+  %extract_ptr.6 = getelementptr inbounds i8, ptr %a, i64 24
+  %extract.6 = load float, ptr %extract_ptr.6, align 4
+  %6 = fadd float %extract.6, 1.000000e+00
+  %out1.6 = getelementptr inbounds i8, ptr %out, i64 24
+  store float %6, ptr %out1.6, align 4, !tbaa !0
+  %extract_ptr.7 = getelementptr inbounds i8, ptr %a, i64 28
+  %extract.7 = load float, ptr %extract_ptr.7, align 4
+  %7 = fadd float %extract.7, 1.000000e+00
+  %out1.7 = getelementptr inbounds i8, ptr %out, i64 28
+  store float %7, ptr %out1.7, align 4, !tbaa !0
+  ret void
+}
+
+; Function Attrs: nofree norecurse nosync nounwind memory(argmem: readwrite)
+define void @scale(i32 noundef %n, ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #1 {
+scale_entry:
+  %0 = icmp sgt i32 %n, 0
+  br i1 %0, label %i1_for.preheader, label %i1_for_end, !prof !3
+
+i1_for.preheader:                                 ; preds = %scale_entry
+  %out2 = ptrtoint ptr %out to i64
+  %a3 = ptrtoint ptr %a to i64
+  %min.iters.check = icmp ult i32 %n, 8
+  %1 = sub i64 %out2, %a3
+  %diff.check = icmp ult i64 %1, 32
+  %or.cond = or i1 %min.iters.check, %diff.check
+  br i1 %or.cond, label %i1_for.preheader5, label %vector.ph
+
+vector.ph:                                        ; preds = %i1_for.preheader
+  %n.vec = and i32 %n, 2147483640
+  br label %vector.body
+
+vector.body:                                      ; preds = %vector.body, %vector.ph
+  %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %2 = zext nneg i32 %index to i64
+  %3 = getelementptr inbounds float, ptr %a, i64 %2
+  %4 = getelementptr inbounds i8, ptr %3, i64 16
+  %wide.load = load <4 x float>, ptr %3, align 4
+  %wide.load4 = load <4 x float>, ptr %4, align 4
+  %5 = fmul <4 x float> %wide.load, <float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00>
+  %6 = fmul <4 x float> %wide.load4, <float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00>
+  %7 = getelementptr inbounds float, ptr %out, i64 %2
+  %8 = getelementptr inbounds i8, ptr %7, i64 16
+  store <4 x float> %5, ptr %7, align 4, !tbaa !0
+  store <4 x float> %6, ptr %8, align 4, !tbaa !0
+  %index.next = add nuw i32 %index, 8
+  %9 = icmp eq i32 %index.next, %n.vec
+  br i1 %9, label %middle.block, label %vector.body, !llvm.loop !4
+
+middle.block:                                     ; preds = %vector.body
+  %cmp.n = icmp eq i32 %n.vec, %n
+  br i1 %cmp.n, label %i1_for_end, label %i1_for.preheader5
+
+i1_for.preheader5:                                ; preds = %middle.block, %i1_for.preheader
+  %.ph = phi i32 [ 0, %i1_for.preheader ], [ %n.vec, %middle.block ]
+  br label %i1_for
+
+i1_for:                                           ; preds = %i1_for.preheader5, %i1_for
+  %10 = phi i32 [ %13, %i1_for ], [ %.ph, %i1_for.preheader5 ]
+  %11 = zext nneg i32 %10 to i64
+  %extract_ptr = getelementptr inbounds float, ptr %a, i64 %11
+  %extract = load float, ptr %extract_ptr, align 4
+  %12 = fmul float %extract, 3.000000e+00
+  %out1 = getelementptr inbounds float, ptr %out, i64 %11
+  store float %12, ptr %out1, align 4, !tbaa !0
+  %13 = add nuw nsw i32 %10, 1
+  %.not = icmp slt i32 %13, %n
+  br i1 %.not, label %i1_for, label %i1_for_end, !llvm.loop !7
+
+i1_for_end:                                       ; preds = %i1_for, %middle.block, %scale_entry
+  ret void
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #1 = { nofree norecurse nosync nounwind memory(argmem: readwrite) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}
+!3 = !{!"branch_weights", i32 1073741824, i32 0}
+!4 = distinct !{!4, !5, !6}
+!5 = !{!"llvm.loop.isvectorized", i32 1}
+!6 = !{!"llvm.loop.unroll.runtime.disable"}
+!7 = distinct !{!7, !5}

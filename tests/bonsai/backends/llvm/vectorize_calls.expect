@@ -5,9 +5,9 @@ source_filename = "bonsai_module"
 define void @both_ways(ptr nocapture noundef readonly %a, float noundef %k, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
 both_ways_entry:
   %extract = load <8 x float>, ptr %a, align 32
-  %.splatinsert.i = insertelement <8 x float> poison, float %k, i64 0
-  %.splat.i = shufflevector <8 x float> %.splatinsert.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %0 = fmul <8 x float> %.splat.i, %extract
+  %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
+  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
+  %0 = fmul <8 x float> %.splat, %extract
   store <8 x float> %0, ptr %out, align 32
   %extract2 = load <8 x float>, ptr %a, align 32
   %1 = fcmp ogt <8 x float> %extract2, zeroinitializer
@@ -34,30 +34,12 @@ scale_entry:
   ret float %0
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define <8 x float> @"scale$gang8_v0"(<8 x float> noundef %x, float noundef %k) local_unnamed_addr #2 {
-"scale$gang8_v0_entry":
-  %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
-  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
-  %0 = fmul <8 x float> %.splat, %x
-  ret <8 x float> %0
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef %k, <8 x i1> noundef %"!mask") local_unnamed_addr #2 {
-"scale$gang8_v0$masked_entry":
-  %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
-  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
-  %0 = fmul <8 x float> %.splat, %x
-  ret <8 x float> %0
-}
-
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @store_to(ptr nocapture noundef writeonly %out, i32 noundef %i, float noundef %v) local_unnamed_addr #3 {
 store_to_entry:
   %0 = sext i32 %i to i64
   %out1 = getelementptr inbounds float, ptr %out, i64 %0
-  store float %v, ptr %out1, align 4
+  store float %v, ptr %out1, align 4, !tbaa !0
   ret void
 }
 
@@ -83,3 +65,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 attributes #4 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write) }
 attributes #5 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
 attributes #6 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}

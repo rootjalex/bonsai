@@ -280,6 +280,43 @@ vector<string> successors(const Block &block) {
         block.terminator.data);
 }
 
+void refresh_preds(Function &func) {
+    const BlockMap blocks = make_block_map(func);
+    const AdjacencyMap preds = compute_predecessors(compute_successors(func));
+    for (const auto &block : func.blocks) {
+        block->preds.clear();
+        const auto it = preds.find(block->name);
+        if (it == preds.end()) {
+            continue;
+        }
+        for (const string &p : it->second) {
+            block->preds.push_back(blocks.at(p));
+        }
+    }
+}
+
+vector<Terminator::Jump *> jumps_of(Block &block) {
+    vector<Terminator::Jump *> jumps;
+    std::visit(overloads{
+                   [&](std::monostate &) {},
+                   [&](Terminator::Jump &j) { jumps.push_back(&j); },
+                   [&](Terminator::Dispatch &d) {
+                       for (auto &t : d.targets) {
+                           jumps.push_back(&t);
+                       }
+                   },
+                   [&](Terminator::Return &) {},
+                   [&](Terminator::ParFor &p) {
+                       jumps.push_back(&p.body);
+                       jumps.push_back(&p.cont);
+                   },
+                   [&](Terminator::Yield &) {},
+                   [&](Terminator::Call &c) { jumps.push_back(&c.cont); },
+               },
+               block.terminator.data);
+    return jumps;
+}
+
 AdjacencyMap compute_successors(const Function &func) {
     AdjacencyMap succs;
     for (const auto &block : func.blocks) {

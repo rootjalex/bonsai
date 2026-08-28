@@ -142,6 +142,13 @@ vector<Candidate> find_candidates(Function &func, const set<string> &region) {
             if (instr->op != Instruction::Op::Alloca) {
                 continue;
             }
+            // An array's name is bound to its elements rather than to a slot
+            // holding a handle (see Type::is_reference), so it is registered
+            // under the array type. There is nothing to promote either way:
+            // a register cannot hold an array.
+            if (instr->type.is_reference()) {
+                continue;
+            }
             const Ptr_t *ptr = instr->type.as<Ptr_t>();
             internal_assert(ptr) << "Alloca " << instr->name
                                  << " is not pointer-typed: " << instr->type;

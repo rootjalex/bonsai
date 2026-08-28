@@ -25,7 +25,13 @@ bool Divergence::is_varying(const string &block, const Value &v) const {
                 return instrs.count(i.get()) > 0;
             },
             [&](const Constant &) { return false; },
-            [&](const Argument &a) { return args.count({block, a.name}) > 0; },
+            [&](const Argument &a) {
+                if (args.count({block, a.name})) {
+                    return true;
+                }
+                const auto it = in_scope.find(block);
+                return it != in_scope.end() && it->second.count(a.name) > 0;
+            },
         },
         v.data);
 }
@@ -103,9 +109,10 @@ const T &lookup_or(const map<string, T> &m, const string &key, const T &fallback
 
 } // namespace
 
-Divergence analyze_divergence(const Function &func, const string &entry,
-                              const set<string> &varying_seeds,
-                              const set<const Instruction *> &varying_instrs) {
+Divergence analyze_divergence(
+    const Function &func, const string &entry, const set<string> &varying_seeds,
+    const set<const Instruction *> &varying_instrs,
+    const set<std::pair<string, string>> &varying_args) {
     const BlockMap all_blocks = make_block_map(func);
     const AdjacencyMap all_succs = compute_successors(func);
 
@@ -124,6 +131,7 @@ Divergence analyze_divergence(const Function &func, const string &entry,
     }
     const AdjacencyMap preds = compute_predecessors(succs);
     const vector<string> rpo = reverse_postorder(entry, succs);
+    const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
     const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
     const ControlDependence cdep = compute_control_dependence(succs, pdom);
 
@@ -137,6 +145,7 @@ Divergence analyze_divergence(const Function &func, const string &entry,
         result.args.insert({entry, seed});
     }
     result.instrs.insert(varying_instrs.begin(), varying_instrs.end());
+    result.args.insert(varying_args.begin(), varying_args.end());
 
     const set<Edge> no_edges;
     const vector<string> no_names;
@@ -149,6 +158,29 @@ Divergence analyze_divergence(const Function &func, const string &entry,
         auto mark = [&](auto &s, const auto &key) {
             changed |= s.insert(key).second;
         };
+
+        // What each block can name, which is its own arguments plus whatever
+        // its dominators define. Reverse postorder visits a block after every
+        // block that dominates it, so one pass suffices.
+        result.in_scope.clear();
+        for (const string &name : rpo) {
+            set<string> &scope = result.in_scope[name];
+            const auto idom = dom.idom.find(name);
+            if (idom != dom.idom.end() && idom->second != name) {
+                const auto outer = result.in_scope.find(idom->second);
+                if (outer != result.in_scope.end()) {
+                    scope = outer->second;
+                }
+            }
+            for (const Argument &arg : all_blocks.at(name)->args) {
+                if (result.args.count({name, arg.name})) {
+                    scope.insert(arg.name);
+                } else {
+                    // Shadows whatever a dominator called it.
+                    scope.erase(arg.name);
+                }
+            }
+        }
 
         for (const string &name : rpo) {
             const Block &block = *all_blocks.at(name);
@@ -196,6 +228,14 @@ Divergence analyze_divergence(const Function &func, const string &entry,
             }
 
             for (const shared_ptr<Instruction> &instr : block.instrs) {
+                // A cross-lane reduction asks a question about the gang as a
+                // whole, so its answer is the same for every lane however
+                // much its operand varies. This is what makes the latch of a
+                // uniformized divergent loop a branch the gang can take
+                // together (Moll & Hack section 5).
+                if (instr->op == Instruction::Op::Any) {
+                    continue;
+                }
                 const bool varying =
                     std::any_of(instr->operands.begin(), instr->operands.end(),
                                 [&](const shared_ptr<Value> &v) {

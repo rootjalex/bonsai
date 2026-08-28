@@ -60,7 +60,8 @@ using LinearEdges = map<string, vector<CfgEdge>>;
 LinearEdges partial_linearize(const BlockMap &blocks,
                               const vector<string> &by_index,
                               const map<string, size_t> &index,
-                              const set<string> &divergent_branches) {
+                              const set<string> &divergent_branches,
+                              const set<Edge> &back_edges) {
     LinearEdges linear;
     // The deferral relation, as (block, target) pairs.
     set<std::pair<string, string>> deferred;
@@ -83,8 +84,20 @@ LinearEdges partial_linearize(const BlockMap &blocks,
             }
         }
 
-        const vector<CfgEdge> edges = outgoing_edges(*blocks.at(b));
+        // Figure 5 wants an acyclic graph, so the back edges are left out and
+        // put back at their latches afterwards (section 3.3).
+        vector<CfgEdge> edges;
+        for (const CfgEdge &e : outgoing_edges(*blocks.at(b))) {
+            if (back_edges.count({b, e.to}) == 0) {
+                edges.push_back(e);
+            }
+        }
         if (edges.empty()) {
+            // Either an exit of the region, or a latch whose only edge is the
+            // back edge. Both must have nothing outstanding: an exit has
+            // nowhere left to go, and a latch that had something deferred
+            // would mean a lane left the loop this iteration, which a uniform
+            // loop cannot do.
             internal_assert(T.empty())
                 << "Block " << b << " has deferred successors but no way to "
                 << "reach them: the region's exits are not post-dominated by "
@@ -221,8 +234,9 @@ shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
 
 BlockMasks linearize(Function &func, const string &entry,
                      const Divergence &divergence,
-                     const shared_ptr<Value> &entry_mask) {
-    if (divergence.branches.empty() && !entry_mask) {
+                     const shared_ptr<Value> &entry_mask,
+                     const vector<UniformLoop> &loops_in) {
+    if (divergence.branches.empty() && !entry_mask && loops_in.empty()) {
         return {}; // nothing diverges; the control flow is already uniform
     }
 
@@ -246,10 +260,37 @@ BlockMasks linearize(Function &func, const string &entry,
     const ControlDependence cdep = compute_control_dependence(succs, pdom);
     const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
 
-    internal_assert(loops.empty())
-        << "TODO: linearize a region with loops; a divergent loop has to be "
-        << "made uniform first (Moll & Hack section 5), and a uniform one "
-        << "needs its back edge removed and re-inserted at the latch";
+    // The edges figure 5 is not allowed to see, and that the rewiring below
+    // must leave exactly as they are.
+    set<Edge> back_edges;
+    for (const auto &[header, loop] : loops) {
+        for (const string &latch : loop.latches) {
+            back_edges.insert({latch, header});
+        }
+    }
+
+    // Every loop still standing has to be uniform, which after
+    // uniformize_loops() means every loop: its exits are folded into the live
+    // mask and the only branch left is the one on `any`.
+    for (const auto &[header, loop] : loops) {
+        for (const Edge &exit : loop.exits) {
+            internal_assert(divergence.branches.count(exit.first) == 0)
+                << "Loop " << header << " still leaves divergently from "
+                << exit.first << "; it has to be uniformized first (Moll & "
+                << "Hack section 5)";
+        }
+    }
+
+    // The live mask governing each block of a uniformized loop, and where each
+    // loop's mask is seeded.
+    map<string, shared_ptr<Value>> loop_masks;
+    map<string, const UniformLoop *> loop_seeds;
+    for (const UniformLoop &loop : loops_in) {
+        for (const string &block : loop.blocks) {
+            loop_masks[block] = loop.live;
+        }
+        loop_seeds[loop.preheader] = &loop;
+    }
 
     // The index the algorithm walks in, which has to be dominance compact and
     // loop compact for the result to be correct (figure 8 of the paper).
@@ -274,8 +315,8 @@ BlockMasks linearize(Function &func, const string &entry,
         }
     }
 
-    const LinearEdges linear =
-        partial_linearize(blocks, by_index, index, divergence.branches);
+    const LinearEdges linear = partial_linearize(
+        blocks, by_index, index, divergence.branches, back_edges);
 
     //===------------------------------------------------------------===//
     // Masks
@@ -298,12 +339,23 @@ BlockMasks linearize(Function &func, const string &entry,
     for (const string &b : by_index) {
         auto block = blocks.at(b);
 
-        // Everything in the region runs under the mask the region was
-        // entered with, so a block whose own predicate is uniform still
-        // carries it. Blocks that are control dependent on a divergent branch
-        // get a narrower mask, computed below; the entry mask is already
-        // folded into it, since the edge masks start from the entry's.
-        if (entry_mask && !divergence.masked.count(b)) {
+        // A block of a uniformized loop runs under that loop's live mask.
+        // Control dependence cannot say this: after the transform the only
+        // branch deciding whether the loop body runs is the uniform one on
+        // `any`, and yet a lane that left on an earlier iteration is still
+        // not executing. Blocks that a divergent branch inside the loop does
+        // decide get a narrower mask below, which already has the live mask
+        // folded into it -- the edge masks inside the loop all start from it.
+        const auto loop_mask = loop_masks.find(b);
+        if (loop_mask != loop_masks.end() && !divergence.masked.count(b)) {
+            masks.block[b] = loop_mask->second;
+        } else if (entry_mask && !divergence.masked.count(b)) {
+            // Everything in the region runs under the mask the region was
+            // entered with, so a block whose own predicate is uniform still
+            // carries it. Blocks that are control dependent on a divergent
+            // branch get a narrower mask, computed below; the entry mask is
+            // already folded into it, since the edge masks start from the
+            // entry's.
             masks.block[b] = entry_mask;
         }
 
@@ -323,6 +375,25 @@ BlockMasks linearize(Function &func, const string &entry,
             internal_assert(mask) << "Masked block " << b
                                   << " has no control dependences";
             masks.block[b] = mask;
+        }
+
+        // A loop is entered under the mask of the block that jumps into it,
+        // which is only known now. The transform seeded it with `true`,
+        // standing for "every lane that got here".
+        const auto seed = loop_seeds.find(b);
+        if (seed != loop_seeds.end()) {
+            if (auto m = mask_of(b)) {
+                for (Terminator::Jump *jump : jumps_of(*block)) {
+                    if (jump->name != seed->second->header) {
+                        continue;
+                    }
+                    internal_assert(seed->second->seed_arg < jump->args.size())
+                        << "Loop " << seed->second->header << " has no live "
+                        << "mask seed at index " << seed->second->seed_arg
+                        << " in the jump from " << b;
+                    jump->args[seed->second->seed_arg] = *m;
+                }
+            }
         }
 
         // The masks of the edges leaving this block.
@@ -373,6 +444,11 @@ BlockMasks linearize(Function &func, const string &entry,
     // join's incoming value is the inner join's argument.
     map<std::pair<string, string>, shared_ptr<Value>> replaced;
 
+    // Blocks that still merge values through their arguments -- a loop header,
+    // say. An edge into one of these has to go on carrying what it passes;
+    // dropping it would leave the phi with nothing to merge.
+    set<string> keeps_args;
+
     for (const string &b : by_index) {
         auto block = blocks.at(b);
         if (block->args.empty() || b == entry) {
@@ -386,7 +462,9 @@ BlockMasks linearize(Function &func, const string &entry,
 
         // How many predecessors does this block still have of its own? If the
         // branch into it survived linearization, the argument is still a real
-        // phi and has to stay.
+        // phi and has to stay. Back edges count: they were kept out of figure
+        // 5 but are still edges, and a loop header reached both from its
+        // preheader and from its latch is exactly such a join.
         size_t remaining = 0;
         for (const auto &[from, edges] : linear) {
             for (const CfgEdge &e : edges) {
@@ -395,12 +473,40 @@ BlockMasks linearize(Function &func, const string &entry,
                 }
             }
         }
+        for (const Edge &back : back_edges) {
+            if (back.second == b) {
+                remaining++;
+            }
+        }
         if (remaining > 1) {
             internal_assert(remaining == sources.size())
                 << "TODO: blend the arguments of " << b
                 << ", which keeps several predecessors but had some of its "
                 << "incoming edges folded";
-            continue; // a genuine join, still selected by control flow
+
+            // A genuine join, still selected by control flow. Whether the
+            // values it merges have to keep being passed depends on what they
+            // are: an argument every edge hands the same definition to is only
+            // threading that definition onwards under its own name, and the
+            // blocks below can go on naming it whether or not the edges say
+            // so. One that really does merge different values -- what a loop
+            // carries, above all -- has nowhere else to get them from.
+            for (size_t j = 0; j < block->args.size(); j++) {
+                for (const Incoming &source : sources) {
+                    const size_t offset =
+                        block->args.size() - source.values.size();
+                    if (j < offset) {
+                        continue;
+                    }
+                    if (!std::holds_alternative<Argument>(
+                            source.values[j - offset]->data) ||
+                        std::get<Argument>(source.values[j - offset]->data)
+                                .name != block->args[j].name) {
+                        keeps_args.insert(b);
+                    }
+                }
+            }
+            continue;
         }
 
         // A call continuation is handed the returned value as its first
@@ -555,11 +661,28 @@ BlockMasks linearize(Function &func, const string &entry,
     // Rewiring
     //===------------------------------------------------------------===//
 
+    // Retargets one jump, keeping the values it carries only when the block it
+    // now goes to still has arguments to bind them to.
+    auto rewire = [&](const string &b, Terminator::Jump &jump,
+                      const CfgEdge &edge) {
+        if (!keeps_args.count(edge.to)) {
+            jump.name = edge.to;
+            jump.args.clear();
+            return;
+        }
+        internal_assert(jump.name == edge.to)
+            << "Linearization sent " << b << " to " << edge.to
+            << ", which kept its arguments, but the edge used to go to "
+            << jump.name << ": there are no values for the arguments of "
+            << edge.to << " on this path";
+        jump.name = edge.to;
+    };
+
     for (const string &b : by_index) {
         auto block = blocks.at(b);
         const auto it = linear.find(b);
         if (it == linear.end()) {
-            continue; // an exit: nothing to rewire
+            continue; // an exit, or a latch whose only edge goes back
         }
         const vector<CfgEdge> &edges = it->second;
 
@@ -567,29 +690,34 @@ BlockMasks linearize(Function &func, const string &entry,
             internal_assert(edges.size() == 1)
                 << "A folded branch in " << b << " kept " << edges.size()
                 << " edges";
+            // A block that still merges values cannot be the target of a fold:
+            // the folded branch has no values to hand it.
+            internal_assert(!keeps_args.count(edges[0].to))
+                << "A folded branch in " << b << " goes to " << edges[0].to
+                << ", which still merges values through its arguments";
             block->terminator.data = Terminator::Jump{edges[0].to};
             continue;
         }
 
         if (auto *d = std::get_if<Terminator::Dispatch>(&block->terminator.data)) {
-            internal_assert(edges.size() == d->targets.size());
-            for (size_t i = 0; i < edges.size(); i++) {
-                d->targets[edges[i].index].name = edges[i].to;
-                d->targets[edges[i].index].args.clear();
+            // Fewer edges than targets means one of them is a back edge, kept
+            // out of figure 5 and re-inserted here by being left alone
+            // (section 3.3).
+            internal_assert(edges.size() <= d->targets.size());
+            for (const CfgEdge &e : edges) {
+                rewire(b, d->targets[e.index], e);
             }
             continue;
         }
         if (auto *j = std::get_if<Terminator::Jump>(&block->terminator.data)) {
             internal_assert(edges.size() == 1);
-            j->name = edges[0].to;
-            j->args.clear();
+            rewire(b, *j, edges[0]);
         }
         if (auto *c = std::get_if<Terminator::Call>(&block->terminator.data)) {
             // Only the continuation moves: where the call goes is a matter of
             // which function is called, not of this region's control flow.
             internal_assert(edges.size() == 1);
-            c->cont.name = edges[0].to;
-            c->cont.args.clear();
+            rewire(b, c->cont, edges[0]);
         }
     }
 

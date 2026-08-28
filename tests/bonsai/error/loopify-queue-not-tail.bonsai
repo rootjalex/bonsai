@@ -1,0 +1,26 @@
+//! flags: -p ssa
+
+// `loopify(N)` puts a branching recursion on a stack by not making the calls
+// at all: it writes down what each one would have been and comes back to it
+// later (SSA/QueueRecursion.h). That only works if nothing was waiting on the
+// call to finish -- once the call is a note on a stack, the caller's frame is
+// gone by the time it happens, and there is nowhere for the work after it to
+// go.
+//
+// Here the store happens *after* the two recursive calls, so it depends on
+// them having run. Deferring the calls would move it before them instead of
+// after, which is a different program, so this is rejected rather than
+// quietly reordered.
+func visit(node : i32, out : mut array[i32, 16], depth : i32) -> void {
+  if (depth <= 0) {
+    return;
+  }
+  visit(node * 2, out, depth - 1);
+  visit(node * 2 + 1, out, depth - 1);
+  out[node] = depth;
+  return;
+}
+
+schedule {
+  visit.loopify(64);
+}

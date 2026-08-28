@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS correctness llvm
     FILES
+    address-of.bonsai
     bitwise.bonsai
     collapse.bonsai
     dce.bonsai
@@ -10,15 +11,21 @@ add_bonsai_tests(
     exported-recursive-function.bonsai
     extrema.bonsai
     function-type.bonsai
+    if-else-returns.bonsai
+    loopify.bonsai
+    loopify-queue.bonsai
     nested-exported-function.bonsai
     option.bonsai
+    parfor-sequential.bonsai
     print-str.bonsai
     print-float.bonsai
     print.bonsai
+    ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
     map-func.bonsai
     map.bonsai
     mut-array-param.bonsai
     mutability.bonsai
     struct.bonsai
+    void-fallthrough.bonsai
 )

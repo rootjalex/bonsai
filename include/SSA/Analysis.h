@@ -44,12 +44,23 @@ using AdjacencyMap = std::map<std::string, std::vector<std::string>>;
 // successor of the body. A ParFor's successors are its body and continuation.
 std::vector<std::string> successors(const Block &block);
 
+// Every jump out of `block`, in terminator order, as mutable references so
+// that an edge can be retargeted or given more arguments in place. A Call's
+// jump to its callee is not one of them: where a call goes is a matter of
+// which function is called, not of this function's control flow.
+std::vector<Terminator::Jump *> jumps_of(Block &block);
+
 // Successors of every block, keyed by block name.
 AdjacencyMap compute_successors(const Function &func);
 
 // Inverts `succs`. Predecessors are always recomputed this way rather than
 // read from Block::preds, which rewrites are free to leave stale.
 AdjacencyMap compute_predecessors(const AdjacencyMap &succs);
+
+// Rebuilds every Block::preds from the terminators. Rewrites that retarget
+// edges have to call this before anything reads those lists again --
+// Block::get_value walks them to thread a value back to where it is defined.
+void refresh_preds(Function &func);
 
 // Blocks reachable from `entry`, in reverse postorder. Every analysis below
 // iterates in this order, which is what makes the iterative dataflow solvers

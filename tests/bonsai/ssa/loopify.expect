@@ -1,0 +1,35 @@
+func countdown(n : i32, acc : i32) -> i32 {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @1 = (*n!loop) - 1 in
+    let @2 = (*acc!loop) + (*n!loop) in
+    n!loop = @1
+    acc!loop = @2
+  }
+  return (*acc!loop)
+}
+
+func fill(n : i32, acc : i32, out : mut i32[4], i : i32) -> void {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @2 = (*n!loop) - 1 in
+    let @3 = (*acc!loop) + (*n!loop) in
+    n!loop = @2
+    acc!loop = @3
+  }
+  out[i] = (*acc!loop)
+  return
+}
+
+
+schedule host {
+    countdown.loopify()
+    fill.loopify()
+
+}

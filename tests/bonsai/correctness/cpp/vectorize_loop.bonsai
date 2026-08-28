@@ -1,0 +1,78 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_loop
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_loop.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_loop.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_loop.o tests/bonsai/correctness/cpp/vectorize_loop.o -o tests/bonsai/correctness/cpp/vectorize_loop, ./tests/bonsai/correctness/cpp/vectorize_loop, rm tests/bonsai/correctness/cpp/vectorize_loop, rm tests/bonsai/correctness/cpp/main_vectorize_loop.o, rm tests/bonsai/correctness/cpp/vectorize_loop.h, rm tests/bonsai/correctness/cpp/vectorize_loop.o
+
+// A loop the lanes of a gang leave at different iterations -- a divergent
+// loop, and the case ISPC-style vectorization is really for: the gang has to
+// keep going until the *last* lane is done, with the ones that have finished
+// masked off, and each lane has to keep the value it had when it finished.
+//
+// The trip count here is the lane's own element of `n`, so no two lanes agree
+// about it. Running it is the point: a live mask that is updated a step early
+// or late, or a captured value taken from the wrong iteration, still produces
+// perfectly plausible numbers.
+
+// Sums n + (n-1) + ... + 1, as a recursion that the schedule turns into a
+// loop. Written this way because a loop is what `loopify` leaves behind, and
+// because the accumulator being carried out of the loop -- read after it, at
+// whichever iteration this lane stopped -- is the part worth checking.
+func sum_to(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  sum_to(n - 1, acc + n, out, i);
+  return;
+}
+
+func [[export]] triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    sum_to(n[i], 0, out, i);
+  }
+  return;
+}
+
+// The same, but reached only by some lanes: the loop then runs under the mask
+// of the call as well as its own live mask, and a lane that never entered it
+// must come out untouched.
+func [[export]] triangles_if_positive(n : array[i32, 8],
+                                      out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    if (n[i] > 0) {
+      sum_to(n[i], 0, out, i);
+    }
+  }
+  return;
+}
+
+// Two ways out of the same loop, taken by different lanes at different
+// iterations: one when the count runs out and one when the running total goes
+// over. Each destination gets its own mask of the lanes that left that way,
+// and the code after the loop dispatches on them -- so the two stores below
+// are the same store site reached by disjoint sets of lanes.
+func walk(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  if (acc > 20) {
+    out[i] = 0 - 1;
+    return;
+  }
+  walk(n - 1, acc + n, out, i);
+  return;
+}
+
+func [[export]] capped_triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    walk(n[i], 0, out, i);
+  }
+  return;
+}
+
+schedule {
+  sum_to.loopify();
+  walk.loopify();
+  triangles.vectorize(i);
+  triangles_if_positive.vectorize(i);
+  capped_triangles.vectorize(i);
+}

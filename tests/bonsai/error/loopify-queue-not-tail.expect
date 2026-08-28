@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/QueueRecursion.cpp:160
+
+--> instr->op != Instruction::Op::Store && instr->op != Instruction::Op::Print && instr->op != Instruction::Op::Append
+Cannot put the recursion of visit on a stack: !visit_call_cont_3 has an effect that happens after the recursive call in !merge_1, which would be deferred past it

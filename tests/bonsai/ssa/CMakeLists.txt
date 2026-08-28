@@ -3,9 +3,11 @@ add_bonsai_tests(
     FILES
     calls.bonsai
     divergence.bonsai
-    known-limitation-parfor-codegen.bonsai
+    forall.bonsai
     known-limitation-two-parfors.bonsai
     linearize.bonsai
+    loopify.bonsai
+    loopify-queue.bonsai
     mut-local.bonsai
     paper_example.bonsai
     parfor.bonsai
@@ -14,5 +16,6 @@ add_bonsai_tests(
     traverse.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
+    vectorize-loop.bonsai
     vectorize-soa.bonsai
 )

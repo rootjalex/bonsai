@@ -1,0 +1,27 @@
+//! flags: -p ssa
+
+// The IR `loopify(N)` produces: a branching recursion turned into a loop over
+// an explicit stack (SSA/QueueRecursion.h).
+//
+// What to read for in the golden:
+//
+//   * `!stack` and `!stack0`, one per parameter the recursion changes. `out`
+//     is the same at every node, so it stays a parameter rather than being
+//     pushed sixteen times over.
+//   * `!count`, and the loop `while ((*!count) != 0u)`, which takes the top
+//     of the stack and visits it.
+//   * no call to `visit` anywhere in `visit`: where the calls were, the
+//     arguments are written to the top of the stack and the count stepped.
+func visit(node : i32, out : mut array[i32, 16], depth : i32) -> void {
+  if (depth <= 0) {
+    return;
+  }
+  out[node] = depth;
+  visit(node * 2, out, depth - 1);
+  visit(node * 2 + 1, out, depth - 1);
+  return;
+}
+
+schedule {
+  visit.loopify(64);
+}

@@ -38,7 +38,7 @@ _parfunc0_entry:
   %ctx0__alloc0_ld = load ptr, ptr %ctx0, align 8
   %27 = sext i32 %8 to i64
   %ctx0__alloc0_ld1 = getelementptr inbounds float, ptr %ctx0__alloc0_ld, i64 %27
-  store float %26, ptr %ctx0__alloc0_ld1, align 4
+  store float %26, ptr %ctx0__alloc0_ld1, align 4, !tbaa !0
   ret void
 }
 
@@ -47,8 +47,7 @@ _traverse_array0_entry:
   %ctx = alloca %struct._ctx0, align 8
   %_alloc0_untyped = tail call dereferenceable_or_null(64) ptr @malloc(i64 64)
   store ptr %_alloc0_untyped, ptr %ctx, align 8
-  %0 = tail call ptr @dispatch_get_global_queue(i64 0, i64 0)
-  call void @dispatch_apply_f(i64 16, ptr %0, ptr nonnull %ctx, ptr nonnull @_parfunc0)
+  call void @bonsai_parallel_for(i64 16, ptr nonnull %ctx, ptr nonnull @_parfunc0)
   ret ptr %_alloc0_untyped
 }
 
@@ -58,57 +57,56 @@ main_entry:
   call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %ctx.i)
   %_alloc0_untyped.i = tail call dereferenceable_or_null(64) ptr @malloc(i64 64)
   store ptr %_alloc0_untyped.i, ptr %ctx.i, align 8
-  %0 = tail call ptr @dispatch_get_global_queue(i64 0, i64 0)
-  call void @dispatch_apply_f(i64 16, ptr %0, ptr nonnull %ctx.i, ptr nonnull @_parfunc0)
+  call void @bonsai_parallel_for(i64 16, ptr nonnull %ctx.i, ptr nonnull @_parfunc0)
   call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %ctx.i)
   %extract = load float, ptr %_alloc0_untyped.i, align 4
-  %1 = fpext float %extract to double
+  %0 = fpext float %extract to double
   %extract_ptr1 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 4
   %extract2 = load float, ptr %extract_ptr1, align 4
-  %2 = fpext float %extract2 to double
+  %1 = fpext float %extract2 to double
   %extract_ptr3 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 8
   %extract4 = load float, ptr %extract_ptr3, align 4
-  %3 = fpext float %extract4 to double
+  %2 = fpext float %extract4 to double
   %extract_ptr5 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 12
   %extract6 = load float, ptr %extract_ptr5, align 4
-  %4 = fpext float %extract6 to double
+  %3 = fpext float %extract6 to double
   %extract_ptr7 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 16
   %extract8 = load float, ptr %extract_ptr7, align 4
-  %5 = fpext float %extract8 to double
+  %4 = fpext float %extract8 to double
   %extract_ptr9 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 20
   %extract10 = load float, ptr %extract_ptr9, align 4
-  %6 = fpext float %extract10 to double
+  %5 = fpext float %extract10 to double
   %extract_ptr11 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 24
   %extract12 = load float, ptr %extract_ptr11, align 4
-  %7 = fpext float %extract12 to double
+  %6 = fpext float %extract12 to double
   %extract_ptr13 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 28
   %extract14 = load float, ptr %extract_ptr13, align 4
-  %8 = fpext float %extract14 to double
+  %7 = fpext float %extract14 to double
   %extract_ptr15 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 32
   %extract16 = load float, ptr %extract_ptr15, align 4
-  %9 = fpext float %extract16 to double
+  %8 = fpext float %extract16 to double
   %extract_ptr17 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 36
   %extract18 = load float, ptr %extract_ptr17, align 4
-  %10 = fpext float %extract18 to double
+  %9 = fpext float %extract18 to double
   %extract_ptr19 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 40
   %extract20 = load float, ptr %extract_ptr19, align 4
-  %11 = fpext float %extract20 to double
+  %10 = fpext float %extract20 to double
   %extract_ptr21 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 44
   %extract22 = load float, ptr %extract_ptr21, align 4
-  %12 = fpext float %extract22 to double
+  %11 = fpext float %extract22 to double
   %extract_ptr23 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 48
   %extract24 = load float, ptr %extract_ptr23, align 4
-  %13 = fpext float %extract24 to double
+  %12 = fpext float %extract24 to double
   %extract_ptr25 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 52
   %extract26 = load float, ptr %extract_ptr25, align 4
-  %14 = fpext float %extract26 to double
+  %13 = fpext float %extract26 to double
   %extract_ptr27 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 56
   %extract28 = load float, ptr %extract_ptr27, align 4
-  %15 = fpext float %extract28 to double
+  %14 = fpext float %extract28 to double
   %extract_ptr29 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 60
   %extract30 = load float, ptr %extract_ptr29, align 4
-  %16 = fpext float %extract30 to double
-  %17 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %1, double %2, double %3, double %4, double %5, double %6, double %7, double %8, double %9, double %10, double %11, double %12, double %13, double %14, double %15, double %16)
+  %15 = fpext float %extract30 to double
+  %16 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %0, double %1, double %2, double %3, double %4, double %5, double %6, double %7, double %8, double %9, double %10, double %11, double %12, double %13, double %14, double %15)
   ret i32 0
 }
 
@@ -145,8 +143,7 @@ test_rand_all_entry:
   call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %ctx.i)
   %_alloc0_untyped.i = tail call dereferenceable_or_null(64) ptr @malloc(i64 64)
   store ptr %_alloc0_untyped.i, ptr %ctx.i, align 8
-  %0 = tail call ptr @dispatch_get_global_queue(i64 0, i64 0)
-  call void @dispatch_apply_f(i64 16, ptr %0, ptr nonnull %ctx.i, ptr nonnull @_parfunc0)
+  call void @bonsai_parallel_for(i64 16, ptr nonnull %ctx.i, ptr nonnull @_parfunc0)
   call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %ctx.i)
   ret ptr %_alloc0_untyped.i
 }
@@ -156,9 +153,7 @@ declare i32 @rand() local_unnamed_addr
 ; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
 declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
 
-declare ptr @dispatch_get_global_queue(i64, i64) local_unnamed_addr
-
-declare void @dispatch_apply_f(i64, ptr, ptr, ptr) local_unnamed_addr
+declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
 
 ; Function Attrs: nofree nounwind
 declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #0
@@ -176,3 +171,7 @@ attributes #0 = { nofree nounwind }
 attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
 attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}

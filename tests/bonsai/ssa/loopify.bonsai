@@ -1,0 +1,36 @@
+//! flags: -p ssa
+
+// `loopify()` as an SSA rewrite (ssa::loopify in SSA/Rewrite.cpp): a self tail
+// call becomes a back edge, and the function becomes a loop.
+//
+// Both shapes a tail call takes are here. `fill` discards the result, so the
+// call's continuation returns nothing; `countdown` is written `return f(...)`,
+// so the continuation is handed the result and returns it. The second is a
+// tail call just as much as the first -- returning exactly what the call
+// produced is not a use of it -- and both must come out as `while` loops with
+// no call to themselves left.
+//
+// What to read for: the parameters are copied into `!loop`-suffixed variables
+// and reassigned round the loop, and only the parameters the loop actually
+// changes are (`out` and `i` in `fill` are passed straight back, so they stay
+// parameters and are not copied).
+func fill(n : i32, acc : i32, out : mut array[i32, 4], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  fill(n - 1, acc + n, out, i);
+  return;
+}
+
+func countdown(n : i32, acc : i32) -> i32 {
+  if (n <= 0) {
+    return acc;
+  }
+  return countdown(n - 1, acc + n);
+}
+
+schedule {
+  fill.loopify();
+  countdown.loopify();
+}

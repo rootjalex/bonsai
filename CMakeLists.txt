@@ -153,11 +153,14 @@ target_sources(
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/Convert.cpp
     src/SSA/DumpAnalysis.cpp
+    src/SSA/InsertPreheader.cpp
     src/SSA/Linearize.cpp
     src/SSA/PromoteAllocas.cpp
+    src/SSA/QueueRecursion.cpp
     src/SSA/SplitAggregates.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
+    src/SSA/UniformizeLoops.cpp
     src/SSA/Vectorize.cpp
     src/Utils.cpp
 )
@@ -251,11 +254,14 @@ target_sources(
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
     include/SSA/DumpAnalysis.h
+    include/SSA/InsertPreheader.h
     include/SSA/Linearize.h
     include/SSA/PromoteAllocas.h
+    include/SSA/QueueRecursion.h
     include/SSA/SplitAggregates.h
     include/SSA/Rewrite.h
     include/SSA/SSA.h
+    include/SSA/UniformizeLoops.h
     include/RefCount.h
     include/RuntimeABI.h
     include/Scope.h

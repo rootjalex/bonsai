@@ -1,0 +1,104 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @sum_to(i32 noundef %n, i32 noundef %acc, ptr nocapture noundef writeonly %out, i32 noundef %i) local_unnamed_addr #0 {
+sum_to_entry:
+  %0 = icmp slt i32 %n, 1
+  br i1 %0, label %while.end, label %while.body.preheader
+
+while.body.preheader:                             ; preds = %sum_to_entry
+  %1 = add nsw i32 %n, -1
+  %2 = mul i32 %1, %1
+  %3 = zext nneg i32 %1 to i33
+  %4 = add nsw i32 %n, -2
+  %5 = zext i32 %4 to i33
+  %6 = mul i33 %3, %5
+  %7 = lshr i33 %6, 1
+  %8 = trunc nuw i33 %7 to i32
+  %9 = add i32 %acc, %n
+  %10 = add i32 %9, %2
+  %11 = sub i32 %10, %8
+  br label %while.end
+
+while.end:                                        ; preds = %while.body.preheader, %sum_to_entry
+  %"acc!loop.0.lcssa" = phi i32 [ %acc, %sum_to_entry ], [ %11, %while.body.preheader ]
+  %12 = sext i32 %i to i64
+  %out5 = getelementptr inbounds i32, ptr %out, i64 %12
+  store i32 %"acc!loop.0.lcssa", ptr %out5, align 4, !tbaa !0
+  ret void
+}
+
+; Function Attrs: nofree norecurse nosync nounwind memory(write)
+define void @"sum_to$gang8_v0_v3"(<8 x i32> noundef %n, i32 noundef %acc, ptr noundef %out, <8 x i32> noundef %i) local_unnamed_addr #1 {
+"sum_to$gang8_v0_v3_entry":
+  %.splatinsert = insertelement <8 x i32> poison, i32 %acc, i64 0
+  %.splat = shufflevector <8 x i32> %.splatinsert, <8 x i32> poison, <8 x i32> zeroinitializer
+  br label %while.body
+
+while.body:                                       ; preds = %"sum_to$gang8_v0_v3_entry", %while.body
+  %"n!loop!loop.025" = phi <8 x i32> [ %n, %"sum_to$gang8_v0_v3_entry" ], [ %3, %while.body ]
+  %"acc!loop!loop.024" = phi <8 x i32> [ %.splat, %"sum_to$gang8_v0_v3_entry" ], [ %5, %while.body ]
+  %"!live.023" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %"sum_to$gang8_v0_v3_entry" ], [ %6, %while.body ]
+  %"!track.then_0.0.021" = phi <8 x i32> [ zeroinitializer, %"sum_to$gang8_v0_v3_entry" ], [ %7, %while.body ]
+  %0 = icmp slt <8 x i32> %"n!loop!loop.025", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %1 = and <8 x i1> %0, %"!live.023"
+  %not. = xor <8 x i1> %1, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
+  %2 = sext <8 x i1> %not. to <8 x i32>
+  %3 = add <8 x i32> %"n!loop!loop.025", %2
+  %4 = select <8 x i1> %1, <8 x i32> zeroinitializer, <8 x i32> %"n!loop!loop.025"
+  %5 = add <8 x i32> %4, %"acc!loop!loop.024"
+  %6 = xor <8 x i1> %1, %"!live.023"
+  %7 = select <8 x i1> %1, <8 x i32> %"acc!loop!loop.024", <8 x i32> %"!track.then_0.0.021"
+  %8 = bitcast <8 x i1> %6 to i8
+  %.not = icmp eq i8 %8, 0
+  br i1 %.not, label %while.end, label %while.body
+
+while.end:                                        ; preds = %while.body
+  %9 = sext <8 x i32> %i to <8 x i64>
+  %store_ptrs = getelementptr inbounds i32, ptr %out, <8 x i64> %9
+  tail call void @llvm.masked.scatter.v8i32.v8p0(<8 x i32> %7, <8 x ptr> %store_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>)
+  ret void
+}
+
+; Function Attrs: nofree norecurse nosync nounwind memory(write, argmem: readwrite)
+define void @triangles(ptr nocapture noundef readonly %n, ptr noundef %out) local_unnamed_addr #2 {
+triangles_entry:
+  %extract = load <8 x i32>, ptr %n, align 32
+  br label %while.body.i
+
+while.body.i:                                     ; preds = %while.body.i, %triangles_entry
+  %"n!loop!loop.025.i" = phi <8 x i32> [ %extract, %triangles_entry ], [ %3, %while.body.i ]
+  %"acc!loop!loop.024.i" = phi <8 x i32> [ zeroinitializer, %triangles_entry ], [ %5, %while.body.i ]
+  %"!live.023.i" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %triangles_entry ], [ %6, %while.body.i ]
+  %"!track.then_0.0.021.i" = phi <8 x i32> [ zeroinitializer, %triangles_entry ], [ %7, %while.body.i ]
+  %0 = icmp slt <8 x i32> %"n!loop!loop.025.i", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %1 = and <8 x i1> %"!live.023.i", %0
+  %not..i = xor <8 x i1> %1, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
+  %2 = sext <8 x i1> %not..i to <8 x i32>
+  %3 = add <8 x i32> %"n!loop!loop.025.i", %2
+  %4 = select <8 x i1> %1, <8 x i32> zeroinitializer, <8 x i32> %"n!loop!loop.025.i"
+  %5 = add <8 x i32> %4, %"acc!loop!loop.024.i"
+  %6 = xor <8 x i1> %1, %"!live.023.i"
+  %7 = select <8 x i1> %1, <8 x i32> %"acc!loop!loop.024.i", <8 x i32> %"!track.then_0.0.021.i"
+  %8 = bitcast <8 x i1> %6 to i8
+  %.not.i = icmp eq i8 %8, 0
+  br i1 %.not.i, label %"sum_to$gang8_v0_v3.exit", label %while.body.i
+
+"sum_to$gang8_v0_v3.exit":                        ; preds = %while.body.i
+  %store_ptrs.i = getelementptr inbounds i32, ptr %out, <8 x i64> <i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7>
+  tail call void @llvm.masked.scatter.v8i32.v8p0(<8 x i32> %7, <8 x ptr> %store_ptrs.i, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>)
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
+declare void @llvm.masked.scatter.v8i32.v8p0(<8 x i32>, <8 x ptr>, i32 immarg, <8 x i1>) #3
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { nofree norecurse nosync nounwind memory(write) }
+attributes #2 = { nofree norecurse nosync nounwind memory(write, argmem: readwrite) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"i32", !2, i64 0}
+!2 = !{!"bonsai"}

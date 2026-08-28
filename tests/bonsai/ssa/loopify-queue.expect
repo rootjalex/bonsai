@@ -1,0 +1,43 @@
+func visit(node : i32, out : mut i32[16], depth : i32) -> void {
+  !stack : mut i32[64]
+  !stack0 : mut i32[64]
+  !count : mut u32
+  !stack[0u] = node
+  !stack0[0u] = depth
+  !count = 1u
+  while ((*!count) != 0u) {
+    let @11 = (*!count) in
+    let @12 = @11 - 1u in
+    !count = @12
+    let @13 = !stack[@12] in
+    let @14 = !stack0[@12] in
+    let node!top = @13 in
+    let depth!top = @14 in
+    let @0 = depth!top <= 0 in
+    if (!@0) {
+      out[node!top] = depth!top
+      let @2 = node!top << 1 in
+      let @3 = depth!top - 1 in
+      let @15 = (*!count) in
+      !stack[@15] = @2
+      !stack0[@15] = @3
+      let @18 = @15 + 1u in
+      !count = @18
+      let @4 = node!top << 1 in
+      let @5 = @4 + 1 in
+      let @6 = depth!top - 1 in
+      let @19 = (*!count) in
+      !stack[@19] = @5
+      !stack0[@19] = @6
+      let @22 = @19 + 1u in
+      !count = @22
+    }
+  }
+  return
+}
+
+
+schedule host {
+    visit.loopify((i32)64)
+
+}

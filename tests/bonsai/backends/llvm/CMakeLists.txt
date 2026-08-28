@@ -9,26 +9,31 @@ add_bonsai_tests(
     dynamic-array.bonsai
     exported-function.bonsai
     float.bonsai
+    forall.bonsai
     index.bonsai
     isel.bonsai
     ivector.bonsai
+    known-limitation-ssa-mut-array-local.bonsai
     lambda.bonsai
     map-func.bonsai
     mut-basic.bonsai
     nested-exported-function.bonsai
     option.bonsai
     packed-struct.bonsai
+    parfor-sequential.bonsai
     rand-par.bonsai
     rand.bonsai
     short-circuit.bonsai
     simple.bonsai
     struct_defaults.bonsai
     tail-call.bonsai
+    tree-traversal.bonsai
     type_coercion_primitive.bonsai
     vectorize_add_one.bonsai
     vectorize_calls.bonsai
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
+    vectorize_loop.bonsai
     vectorize_scale.bonsai
     vectorize_soa.bonsai
 )

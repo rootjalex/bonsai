@@ -1,6 +1,8 @@
 #include "SSA/Convert.h"
 
 #include "SSA/Analysis.h"
+#include "SSA/InsertPreheader.h"
+#include "SSA/QueueRecursion.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
@@ -557,17 +559,84 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
     f->blocks = std::move(blocks);
 }
 
-void loopify(FuncMap &funcs, std::string func, int size) {
-    internal_assert(size == 0)
-        << "TODO: support queue-based loopify on: " << func;
+namespace {
 
+// Does `func` call itself?
+bool is_recursive(const Function &func) {
+    for (const auto &block : func.blocks) {
+        const auto *call =
+            std::get_if<Terminator::Call>(&block->terminator.data);
+        if (call != nullptr && call->call.name == func.blocks.front()->name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The functions that call themselves, among those `start` can reach.
+//
+// The schedule names the function the programmer wrote, but the recursion is
+// not always in it. A tree query is lowered into a traversal function of its
+// own before any of this runs, so `trace.loopify(64)` names a function whose
+// body is a call to the traversal, and it is the traversal that recurses.
+std::set<std::string> recursive_functions_from(const FuncMap &funcs,
+                                               const std::string &start) {
+    std::set<std::string> found;
+    std::set<std::string> seen;
+    std::vector<std::string> work{start};
+    while (!work.empty()) {
+        const std::string name = work.back();
+        work.pop_back();
+        if (!seen.insert(name).second) {
+            continue;
+        }
+        const auto it = funcs.find(name);
+        if (it == funcs.end()) {
+            continue; // an extern, or something not compiled here
+        }
+        if (is_recursive(*it->second)) {
+            found.insert(name);
+        }
+        for (const auto &block : it->second->blocks) {
+            if (const auto *call =
+                    std::get_if<Terminator::Call>(&block->terminator.data)) {
+                work.push_back(call->call.name);
+            }
+        }
+    }
+    return found;
+}
+
+} // namespace
+
+void loopify(FuncMap &funcs, std::string func, int size) {
     internal_assert(funcs.contains(func)) << "loopify applied to unknown func:" << func;
     auto f = funcs[func];
+
+    if (size > 0) {
+        // A recursion that branches cannot become a loop by itself, since the
+        // second call has to happen after the first one comes back. It is put
+        // on an explicit stack instead (see SSA/QueueRecursion.h).
+        const std::set<std::string> targets =
+            recursive_functions_from(funcs, func);
+        internal_assert(!targets.empty())
+            << "loopify(" << size << ") on " << func << ": neither it nor "
+            << "anything it calls is recursive, so there is nothing to put on "
+            << "a stack";
+        for (const std::string &target : targets) {
+            queue_recursion(*funcs[target], size_t(size));
+        }
+        return;
+    }
 
     // Find any tail calls with empty return continuations and convert them into
     // jumps.
 
     BlockMap bmap = make_block_map(f);
+
+    // The blocks whose tail call becomes a back edge, i.e. the latches of the
+    // loop this leaves behind.
+    std::set<std::string> latches;
 
     for (auto &block : f->blocks) {
         if (!std::holds_alternative<Terminator::Call>(block->terminator.data)) {
@@ -581,7 +650,7 @@ void loopify(FuncMap &funcs, std::string func, int size) {
             continue;
         }
 
-        internal_assert(call.cont.args.empty() && call.drop)
+        internal_assert(call.cont.args.empty())
             << "Cannot loopify tail-call in: " << func
             << ", has continuation arguments to: " << call.cont.name;
 
@@ -591,14 +660,31 @@ void loopify(FuncMap &funcs, std::string func, int size) {
 
         const auto cont = bmap.at(call.cont.name);
 
-        internal_assert(
-            cont->instrs.empty() &&
-            std::holds_alternative<Terminator::Return>(cont->terminator.data))
-            << "Cannot loopify tail-call in: " << func
-            << ", has non-empty continuation: " << call.cont.name;
+        // The call has to be the last thing the function does, so that going
+        // round the loop again is the same as making it. That means a
+        // continuation which does nothing but return -- either returning
+        // nothing, or returning exactly what the call produced, which is
+        // `return f(...)` and is just as much a tail call.
+        const auto *returns =
+            std::get_if<Terminator::Return>(&cont->terminator.data);
+        bool is_tail = cont->instrs.empty() && returns != nullptr;
+        if (is_tail && !call.drop) {
+            // A call whose result is kept hands it to the continuation as a
+            // leading argument; returning that argument, and nothing else, is
+            // what makes this a tail call rather than a use of the result.
+            is_tail = cont->args.size() == 1 && returns->value != nullptr &&
+                      std::holds_alternative<Argument>(returns->value->data) &&
+                      std::get<Argument>(returns->value->data).name ==
+                          cont->args[0].name;
+        }
+        internal_assert(is_tail)
+            << "Cannot loopify the call to " << func << " in " << block->name
+            << ": its continuation " << call.cont.name << " does more than "
+            << "return, so the call is not in tail position";
 
         // Replace call terminator with direct jump.
         block->terminator.data = call.call;
+        latches.insert(block->name);
 
         // Remove block as predecessor to continuation block.
         std::erase_if(cont->preds, [&](const auto &p) {
@@ -610,6 +696,17 @@ void loopify(FuncMap &funcs, std::string func, int size) {
         // Add block as predecessor to entry block.
         f->blocks[0]->preds.push_back(block);
     }
+
+    if (latches.empty()) {
+        return;
+    }
+
+    // The back edges close on the entry block, which makes the entry the loop
+    // header -- and then the values carried around the loop are the function's
+    // own parameters, reassigned on every iteration. A parameter is not
+    // storage, so nothing can be assigned to it; the loop needs a header of
+    // its own, entered from a preheader (see SSA/InsertPreheader.h).
+    insert_preheader(*f, f->blocks[0]->name, latches);
 }
 
 // TODO: make this accept non-constant sizes!

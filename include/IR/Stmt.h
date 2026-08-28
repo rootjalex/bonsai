@@ -167,8 +167,23 @@ struct Allocate : StmtNode<Allocate> {
     };
     Memory memory;
 
+    // Storage that nothing else can refer to.
+    //
+    // Set by lowering for the objects it invents -- the accumulator a tree
+    // query folds into, say -- which the program never names and so can never
+    // hold a second reference to. It is not something a `mut` local of the
+    // program gets: two arguments of a call may perfectly well be the same
+    // variable, and are.
+    //
+    // The point of saying it is what happens when such an object is passed to
+    // a generated function: without it, a traversal that reads a ray through
+    // one pointer and writes its answer through another has to assume the
+    // write may have changed the ray, and re-reads it at every node.
+    bool unaliased = false;
+
     static Stmt make(WriteLoc loc, Memory memory = Heap);
-    static Stmt make(WriteLoc loc, Expr value, Memory memory = Heap);
+    static Stmt make(WriteLoc loc, Expr value, Memory memory = Heap,
+                     bool unaliased = false);
 
     static const IRStmtEnum node_type = IRStmtEnum::Allocate;
 };

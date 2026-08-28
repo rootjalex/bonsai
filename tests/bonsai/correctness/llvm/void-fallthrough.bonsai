@@ -1,0 +1,43 @@
+//! flags: -b llvm -e
+
+// A `void` function that runs off the end without returning, which is how
+// most of them are written: there is nothing to return, so nothing says so.
+//
+// The backend used to emit no terminator for the block such a body leaves
+// open, and LLVM's verifier rejected the function -- "Basic Block in function
+// 'fill' does not have terminator!". Writing `return;` at the end avoided it,
+// so it went unnoticed. Lower/TypeInference.cpp requires every path of a
+// value-returning function to return and exempts void from that check, which
+// is precisely why void is the case that reaches the end of a body.
+
+// Nothing after the write at all.
+func fill(out : mut array[i32, 4]) -> void {
+    out[0] = 1;
+}
+
+// An early return on one path, falling off the end on the other.
+func maybe(x : i32, out : mut array[i32, 4]) -> void {
+    if (x > 0) {
+        out[1] = 10;
+        return;
+    }
+    out[2] = 20;
+}
+
+// A call statement as the last thing in the body, which is the shape that
+// found this: there is no `return` after it.
+func outer(x : i32, out : mut array[i32, 4]) -> void {
+    maybe(x, out);
+}
+
+func main() -> i32 {
+    a : mut array[i32, 4] = {0, 0, 0, 0};
+    fill(a);
+    outer(1, a);
+    print(a);
+
+    b : mut array[i32, 4] = {0, 0, 0, 0};
+    outer(-1, b);
+    print(b);
+    return 0;
+}

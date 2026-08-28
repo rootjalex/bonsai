@@ -1,0 +1,53 @@
+//! flags: -p ssa -b llvm
+
+// A tree query through the SSA pipeline, end to end.
+//
+// This is `tests/bonsai/lower/trace.bonsai` compiled the other way, and it is
+// the only place several things meet: a tree lowered into a traversal, that
+// traversal loopified onto an explicit stack by the SSA rewriter, and the
+// aliasing facts that decide whether the result is any good.
+//
+// The one to look for in the golden is `noalias` on `_recloop_func0`'s
+// accumulator. A query folds into an object lowering invents, which the
+// program cannot name and so cannot hold a second reference to; saying so is
+// what lets the traversal keep the ray it is testing against in registers
+// instead of re-reading it at every node. It reaches here from
+// `Allocate::unaliased`, set in tree lowering, through the recursion lowering,
+// the SSA form and back, and more than one pass along the way rebuilds the
+// argument it rides on -- so it is worth pinning that it still arrives.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r), rays);
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : TriangleBVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

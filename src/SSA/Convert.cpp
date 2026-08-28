@@ -9,6 +9,7 @@
 #include "IR/Visitor.h"
 
 #include "Lower/Intrinsics.h"
+#include "Lower/Random.h"
 
 #include "Utils.h"
 
@@ -50,13 +51,27 @@ struct FunctionBuilder : Visitor {
             if (arg.mutating) {
                 mut_names.insert(arg.name);
             }
-            Argument a = {arg.type, arg.name, arg.mutating};
+            Argument a = {arg.type, arg.name, arg.mutating, arg.unaliased};
             block->args.push_back(a);
             auto [_, inserted] = block->lookups.insert(
                 {arg.name, std::make_shared<Value>(std::move(a))});
             internal_assert(inserted)
                 << "Failed to insert argument: " << arg.name
                 << " of function: " << func.name;
+        }
+
+        // A function that seeds the random generator is handed its state by
+        // its own prologue rather than by a caller (Lower/Random.cpp gives it
+        // the setup_rng attribute instead of an extra parameter, and the
+        // backend allocates the state on entry). So the name exists without
+        // being an argument: bind it, so that the calls which pass it on can
+        // find it, but leave it out of the signature.
+        if (func.must_setup_rng()) {
+            const Argument state{Ptr_t::make(Rand_State_t::make()),
+                                 lower::rng_state_name, /*mutating=*/true};
+            mut_names.insert(state.name);
+            block->lookups.insert(
+                {state.name, std::make_shared<Value>(state)});
         }
 
         function->blocks.push_back(block);
@@ -329,9 +344,17 @@ struct FunctionBuilder : Visitor {
 
     void visit(const Store *node) override {
         if (node->loc.accesses.empty()) {
-            internal_assert(node->loc.type.is_stack_allocatable())
-                << "TODO: handle non-primitive (heap) stores in SSA: "
-                << Stmt(node);
+            // Assigning a whole name. Either it is backed by storage, and the
+            // value is written through the pointer, or it is not, and the
+            // name is simply rebound -- neither of which cares what the type
+            // is, so a struct or a tuple is written the same way a float is.
+            //
+            // An array is the exception: its name is bound to its elements
+            // rather than to a slot holding a handle (see Type::is_reference),
+            // so there is nothing to write a handle into.
+            internal_assert(!node->loc.type.is_reference())
+                << "TODO: assign a whole array in SSA, whose name is bound to "
+                << "its elements and not to a slot holding it: " << Stmt(node);
             auto v = get_value(node->value);
 
             if (mut_names.contains(node->loc.base)) {
@@ -496,6 +519,85 @@ struct FunctionBuilder : Visitor {
         block = cont_block;
     }
 
+    // A sequential loop, as a loop in the control-flow graph: a header that
+    // carries the index and decides whether to go round again, a body, and a
+    // latch that steps the index and closes the back edge.
+    //
+    //     preheader:  jmp head(begin)
+    //     head(i):    c = i < end;  dispatch c [exit, body]
+    //     body/latch: ...body...;   n = i + stride;  jmp head(n)
+    //     exit:
+    //
+    // The test is at the top, so a loop whose range is empty runs zero times.
+    void visit(const ForAll *node) override {
+        const Type index_type = node->index_type();
+
+        auto end = get_value(node->slice.end);
+        auto stride = get_value(node->slice.stride);
+        auto begin = get_value(node->slice.begin);
+
+        auto head_block = make_block("for_" + node->index);
+        auto body_block = make_block("for_" + node->index + "_body");
+        auto exit_block = make_block("for_" + node->index + "_end");
+
+        internal_assert(!block->terminator.defined());
+        auto preheader = std::move(block);
+        preheader->terminator.data =
+            Terminator::Jump{.name = head_block->name, .args = {begin}};
+        head_block->preds.push_back(preheader);
+
+        // The index is the header's first argument -- the phi between where
+        // the loop starts and what the latch hands back.
+        Argument loop_idx{.type = index_type, .name = node->index};
+        head_block->args.push_back(loop_idx);
+        auto [_, inserted] = head_block->lookups.insert(
+            {node->index, std::make_shared<Value>(loop_idx)});
+        internal_assert(inserted)
+            << node->index << " already exists in block!\n";
+
+        block = head_block;
+        // Building this threads `end` in from the preheader, which is what
+        // gives the header the rest of its arguments.
+        auto cond = block->make_instruction(
+            Bool_t::make(), Instruction::Op::Lt,
+            {block->lookups.at(node->index), std::move(end)});
+        block->terminator.data = Terminator::Dispatch{
+            .cond = std::move(cond),
+            .targets = {Terminator::Jump{.name = exit_block->name},
+                        Terminator::Jump{.name = body_block->name}}};
+        body_block->preds.push_back(head_block);
+        exit_block->preds.push_back(head_block);
+
+        block = body_block;
+        node->body.accept(this);
+        internal_assert(!block->terminator.defined())
+            << "The body of loop " << node->index << " ends in " << block->name
+            << ", which already has a terminator: a loop body that leaves "
+            << "early is not supported here";
+
+        // Whatever block the body ended in is the latch.
+        auto latch = std::move(block);
+        auto next = latch->make_instruction(
+            index_type, Instruction::Op::Add,
+            {latch->get_value(node->index, index_type), std::move(stride)});
+
+        // Snapshot after the step, which may have threaded `stride` in and so
+        // given the header another argument.
+        const std::vector<Argument> carried = head_block->args;
+        std::vector<std::shared_ptr<Value>> back{next};
+        for (size_t i = 1; i < carried.size(); i++) {
+            back.push_back(latch->get_value(carried[i].name, carried[i].type));
+        }
+        internal_assert(head_block->args.size() == carried.size())
+            << "Closing the back edge of loop " << node->index
+            << " gave its header more arguments";
+        latch->terminator.data =
+            Terminator::Jump{.name = head_block->name, .args = std::move(back)};
+        head_block->preds.push_back(latch);
+
+        block = exit_block;
+    }
+
     template <typename T>
     std::shared_ptr<Value> make_constant(ir::Type type, T data) {
         Constant c{.type = std::move(type), .data = data};
@@ -549,8 +651,8 @@ struct FunctionBuilder : Visitor {
             return Instruction::Op::Sub;
         case BinOp::Mod:
             return Instruction::Op::Mod;
-        // case BinOp::Neq:
-        //     return Instruction::Op::Neq;
+        case BinOp::Neq:
+            return Instruction::Op::Ne;
         case BinOp::Eq:
             return Instruction::Op::Eq;
         case BinOp::Le:
@@ -596,6 +698,33 @@ struct FunctionBuilder : Visitor {
         auto lanes = make_constant(u32, (uint64_t)node->lanes);
         value = block->make_instruction(node->type, Instruction::Op::Bc,
                                         {std::move(v), std::move(lanes)});
+    }
+
+    // A shuffle is a vector built from lanes picked out of another one, which
+    // is how the backends lower it too -- an extract per index, gathered into
+    // a build. Doing it here rather than carrying a shuffle opcode keeps the
+    // shuffled value to a single evaluation and needs nothing the SSA form
+    // does not already have.
+    void visit(const VectorShuffle *node) override {
+        auto v = get_value(node->value);
+        const Type lane_type = node->value.type().element_of();
+        std::vector<std::shared_ptr<Value>> lanes;
+        lanes.reserve(node->idxs.size());
+        for (const auto &idx : node->idxs) {
+            auto i = get_value(idx);
+            lanes.push_back(block->make_instruction(
+                lane_type, Instruction::Op::ExtractIdx, {v, std::move(i)}));
+        }
+        value = block->make_instruction(node->type, Instruction::Op::MakeStruct,
+                                        std::move(lanes));
+    }
+
+    // A vector literal is a vector built from its components, which is what
+    // Build already is -- `Build` of a vector type and `VecImm` differ only in
+    // spelling (compare lower::cross_product, which builds a vector that way).
+    // Rewriting it here means the SSA form has one way to make a vector.
+    void visit(const VecImm *node) override {
+        ir::Build::make(node->type, node->values).accept(this);
     }
 
     void visit(const Build *node) override {
@@ -663,45 +792,26 @@ struct FunctionBuilder : Visitor {
                                         {std::move(vec), std::move(idx)});
     }
 
-    Instruction::Op get_intrinsic(const Intrinsic::OpType &op) {
+    // The intrinsics that have an SSA opcode of their own, because the passes
+    // downstream reason about them rather than only passing them on. The rest
+    // ride on Op::Intrinsic (see the enum in SSA/SSA.h).
+    std::optional<Instruction::Op> get_intrinsic(const Intrinsic::OpType &op) {
         switch (op) {
         case Intrinsic::abs:
             return Instruction::Op::Abs;
-        // case Intrinsic::cos:
-        //     return "cos";
-        // case Intrinsic::cross:
-        //     return "cross";
-        // case Intrinsic::dot:
-        //     return "dot";
-        // case Intrinsic::fma:
-        //     return "fma";
         case Intrinsic::max:
             return Instruction::Op::Max;
         case Intrinsic::min:
             return Instruction::Op::Min;
-        // case Intrinsic::norm:
-        //     return "norm";
-        // case Intrinsic::pow:
-        //     return "pow";
-        // case Intrinsic::rand:
-        //     return "rand";
-        // case Intrinsic::round:
-        //     return "round";
-        // case Intrinsic::sin:
-        //     return "sin";
-        // case Intrinsic::sqr:
-        //     return "sqr";
-        // case Intrinsic::sqrt:
-        //     return "sqrt";
-        // case Intrinsic::tan:
-        //     return "tan";
-        default: {
-            internal_error << "TODO: handle: " << to_string(op);
-        }
+        default:
+            return std::nullopt;
         }
     }
 
     void visit(const Intrinsic *node) override {
+        // A few are defined in terms of the others rather than being
+        // primitive. Rewriting them here means the SSA form -- and every pass
+        // that reads it -- only ever sees the pieces.
         if (node->op == Intrinsic::dot) {
             internal_assert(node->args.size() == 2);
             ir::Expr e = lower::dot_product(node->args[0], node->args[1]);
@@ -712,14 +822,38 @@ struct FunctionBuilder : Visitor {
             ir::Expr e = lower::cross_product(node->args[0], node->args[1]);
             e.accept(this);
             return;
+        } else if (node->op == Intrinsic::norm) {
+            internal_assert(node->args.size() == 1);
+            ir::Expr e = lower::norm(node->args[0]);
+            e.accept(this);
+            return;
+        } else if (node->op == Intrinsic::sqr) {
+            internal_assert(node->args.size() == 1);
+            // Squaring is a multiplication, and naming the operand first
+            // keeps it to one evaluation.
+            auto a = get_value(node->args[0]);
+            value = block->make_instruction(node->type, Instruction::Op::Mul,
+                                            {a, a});
+            return;
         }
+
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
         }
-        auto op = get_intrinsic(node->op);
-        value = block->make_instruction(node->type, op, std::move(args));
+
+        if (const auto op = get_intrinsic(node->op)) {
+            value = block->make_instruction(node->type, *op, std::move(args));
+            return;
+        }
+
+        // Everything else is carried through as it is, for the backend to
+        // lower the same way it would have without the SSA form in between.
+        value = block->make_instruction(node->type, Instruction::Op::Intrinsic,
+                                        std::move(args));
+        std::get<std::shared_ptr<Instruction>>(value->data)->intrinsic =
+            node->op;
     }
 
     void visit(const Var *node) override {
@@ -737,19 +871,36 @@ struct FunctionBuilder : Visitor {
         // is a subtraction from zero, and a not is a select between the two
         // boolean constants, both of which the backends already lower.
         auto a = get_value(node->a);
+
+        // A constant holds one value, so the constants below are of the
+        // element type and broadcast when the operand is a vector. Giving a
+        // constant a vector type instead makes something that says it is
+        // three floats while holding one.
+        const Type elem = node->type.is_vector() ? node->type.element_of()
+                                                 : node->type;
+        auto splat = [&](Constant c) {
+            auto v = std::make_shared<Value>(std::move(c));
+            if (!node->type.is_vector()) {
+                return v;
+            }
+            auto lanes = std::make_shared<Value>(
+                Constant{UInt_t::make(32), uint64_t(node->type.lanes())});
+            return block->make_instruction(node->type, Instruction::Op::Bc,
+                                           {std::move(v), std::move(lanes)});
+        };
+
         switch (node->op) {
         case UnOp::Neg: {
-            auto zero = std::make_shared<Value>(
-                node->type.is_float()
-                    ? Constant{node->type, 0.0}
-                    : Constant{node->type, static_cast<int64_t>(0)});
+            auto zero = splat(elem.is_float()
+                                  ? Constant{elem, 0.0}
+                                  : Constant{elem, static_cast<int64_t>(0)});
             value = block->make_instruction(node->type, Instruction::Op::Sub,
                                             {std::move(zero), std::move(a)});
             return;
         }
         case UnOp::Not: {
-            auto true_ = std::make_shared<Value>(Constant{node->type, true});
-            auto false_ = std::make_shared<Value>(Constant{node->type, false});
+            auto true_ = splat(Constant{elem, true});
+            auto false_ = splat(Constant{elem, false});
             value = block->make_instruction(
                 node->type, Instruction::Op::Select,
                 {std::move(a), std::move(false_), std::move(true_)});
@@ -771,6 +922,15 @@ struct FunctionBuilder : Visitor {
             return;
         }
 
+        // The random generator's state is storage from the start -- the
+        // prologue allocates it -- so its address is that storage, not a copy
+        // of what it holds. The backends make the same exception.
+        if (const Var *var = node->expr.as<Var>();
+            var != nullptr && var->name == lower::rng_state_name) {
+            value = block->get_value(var->name, Ptr_t::make(var->type));
+            return;
+        }
+
         // An element of an array: the address is an offset from the array,
         // which is what GEP computes.
         if (const Extract *extract = node->expr.as<Extract>();
@@ -782,18 +942,23 @@ struct FunctionBuilder : Visitor {
             return;
         }
 
-        // Anything else is a value that has no address yet, so it needs
-        // storage to point at: give it a stack slot and put it there. This is
-        // how a struct passed by pointer reaches a callee that expects one.
-        internal_assert(!node->expr.type().is<Struct_t>() ||
-                        !node->expr.is<Access>())
-            << "TODO: address of a struct field in SSA: " << Expr(node);
-
+        // Anything else is carried as what it is -- the address of a value --
+        // and where that address comes from is settled when the code is
+        // generated, not here.
+        //
+        // This used to allocate a stack slot and store the value into it,
+        // which is one of the answers but rarely the right one. `&(*p).field`
+        // names a field of a struct that is already in memory, and the
+        // backends turn that into a GEP; a value that came from a load can
+        // reuse the pointer it was loaded through. Only a value with no
+        // storage anywhere actually needs a copy. Committing to the copy here
+        // hid the other cases, and it could not be undone downstream, because
+        // the pointer escapes into the call it was made for and
+        // SSA/PromoteAllocas.h will not promote an allocation that escapes.
         auto v = get_value(node->expr);
-        auto slot = block->make_instruction(
-            Ptr_t::make(node->expr.type()), Instruction::Op::Alloca, {});
-        block->make_side_effect(Instruction::Op::Store, {slot, std::move(v)});
-        value = slot;
+        value = block->make_instruction(Ptr_t::make(node->expr.type()),
+                                        Instruction::Op::AddressOf,
+                                        {std::move(v)});
     }
 
     void visit(const Deref *node) override {
@@ -805,34 +970,15 @@ struct FunctionBuilder : Visitor {
                                         {std::move(ptr)});
     }
 
-    Instruction::Op get_vreduce(const VectorReduce::OpType &op) {
-        switch (op) {
-        case VectorReduce::Add:
-            return Instruction::Op::Add;
-        // case VectorReduce::Idxmin:
-        //     return "idxmin";
-        // case VectorReduce::Idxmax:
-        //     return "idxmax";
-        case VectorReduce::Mul:
-            return Instruction::Op::Mul;
-        case VectorReduce::Min:
-            return Instruction::Op::Min;
-        case VectorReduce::Max:
-            return Instruction::Op::Max;
-        // case VectorReduce::Or:
-        //     return "any";
-        // case VectorReduce::And:
-        //     return "all";
-        default: {
-            internal_error << "TODO: handle: " << to_string(op);
-        }
-        }
-    }
-
+    // A reduction over the lanes of one value. It used to be mapped onto the
+    // binary opcodes -- Add for a sum, Min for a minimum -- which gave those a
+    // one-operand form that nothing downstream expected; a reduction is its
+    // own operation and is carried as one.
     void visit(const VectorReduce *node) override {
         auto a = get_value(node->value);
-        auto op = get_vreduce(node->op);
-        value = block->make_instruction(node->type, op, {std::move(a)});
+        value = block->make_instruction(node->type, Instruction::Op::Reduce,
+                                        {std::move(a)});
+        std::get<std::shared_ptr<Instruction>>(value->data)->reduce = node->op;
     }
 
     void visit(const Select *node) override {
@@ -848,7 +994,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(UIntImm);
     // RESTRICT_VISITOR(FloatImm);
     // RESTRICT_VISITOR(BoolImm);
-    RESTRICT_VISITOR(VecImm);
+    // RESTRICT_VISITOR(VecImm);
     RESTRICT_VISITOR(StringImm);
     // RESTRICT_VISITOR(Extrema);
     // RESTRICT_VISITOR(Var);
@@ -858,7 +1004,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Cast);
     // RESTRICT_VISITOR(Broadcast);
     // RESTRICT_VISITOR(VectorReduce);
-    RESTRICT_VISITOR(VectorShuffle);
+    // RESTRICT_VISITOR(VectorShuffle);
     RESTRICT_VISITOR(Ramp);
     // RESTRICT_VISITOR(Extract);
     // RESTRICT_VISITOR(Build);
@@ -894,7 +1040,7 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(Iterate);
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
-    RESTRICT_VISITOR(ForAll);
+    // RESTRICT_VISITOR(ForAll);
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Continue);
     RESTRICT_VISITOR(Launch);
@@ -927,6 +1073,29 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         fmap[name] = std::move(f);
     }
 
+    // Loopify first, whichever order the schedule names the functions in: it
+    // turns a function's self tail-calls into a loop, and vectorizing a caller
+    // has to see the callee in its final shape -- as a loop it can make
+    // uniform, rather than as a recursion it would specialize forever.
+    for (const auto &[name, ts] : transforms) {
+        if (!fmap.contains(name)) {
+            continue;
+        }
+        for (const auto &t : ts) {
+            if (const auto *l = std::get_if<ir::Loopify>(&t)) {
+                int size = 0;
+                if (l->queue_size.has_value()) {
+                    const auto n = get_constant_value<int64_t>(*l->queue_size);
+                    internal_assert(n.has_value() && *n > 0)
+                        << "loopify(" << *l->queue_size << ") on " << name
+                        << " needs a constant, positive stack depth";
+                    size = int(*n);
+                }
+                loopify(fmap, name, size);
+            }
+        }
+    }
+
     for (const auto &[name, ts] : transforms) {
         if (!fmap.contains(name)) {
             continue;
@@ -941,7 +1110,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                            },
                            [&](const auto &) {
                                // Not (yet) applied at the SSA level; handled
-                               // by the Stmt-level LoopTransforms pass.
+                               // by the Stmt-level LoopTransforms pass (or, for
+                               // Loopify, by the loop above).
                            },
                        },
                        t);

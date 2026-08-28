@@ -1,0 +1,26 @@
+//! flags: -p ssa -b llvm
+
+// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
+// When the bug is fixed this test will fail; re-bless it with the IR it then
+// produces and move it out of "known-limitation".
+//
+// A `mut` array local with an initializer is miscompiled through the SSA
+// pipeline. The declaration allocates storage for four integers, and then the
+// initializer builds a second array and stores a *handle* to it into the
+// first, so the array begins with a pointer where its first two elements
+// should be and the two after that are never written at all.
+//
+// The golden below says so outright: the first two values printed are
+// `ptrtoint` of the array's own address, split into halves, and the other two
+// are `undef`. It should be printing 5, 6, 7, 8, which is what the same
+// program compiled without `-p ssa` does.
+//
+// It is diffed as IR rather than run because what it prints is an address and
+// uninitialized memory, neither of which is the same twice. Nothing here
+// involves parfor, vectorization or loops; it is the SSA lowering of the
+// declaration itself.
+func main() -> i32 {
+    a : mut array[i32, 4] = {5, 6, 7, 8};
+    print(a[0], a[1], a[2], a[3]);
+    return 0;
+}

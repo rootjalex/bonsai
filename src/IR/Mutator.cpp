@@ -565,7 +565,11 @@ Stmt Mutator::visit(const Allocate *node) {
     if (not_changed && value.same_as(node->value)) {
         return node;
     }
-    return Allocate::make(std::move(loc), std::move(value), node->memory);
+    // Rebuilding the node must not lose what is known about the storage:
+    // whether anything else can refer to it does not depend on the
+    // expressions inside it (see Allocate::unaliased).
+    return Allocate::make(std::move(loc), std::move(value), node->memory,
+                          node->unaliased);
 }
 
 Stmt Mutator::visit(const Free *node) {

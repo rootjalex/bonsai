@@ -1,0 +1,166 @@
+func capped_triangles(n : i32[8], out : mut i32[8]) -> void {
+  let @0 = n[ramp(0, 1, 8)] in
+  walk$gang8_v0_v3(@0, 0, out, ramp(0, 1, 8))
+  return
+}
+
+func sum_to(n : i32, acc : i32, out : mut i32[8], i : i32) -> void {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @2 = (*n!loop) - 1 in
+    let @3 = (*acc!loop) + (*n!loop) in
+    n!loop = @2
+    acc!loop = @3
+  }
+  out[i] = (*acc!loop)
+  return
+}
+
+func sum_to$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void {
+  n!loop!loop : mut i32x8
+  acc!loop!loop : mut i32x8
+  !live : mut boolx8
+  !exit.then_0 : mut boolx8
+  !track.then_0.0 : mut i32x8
+  let @19 = i32x8(acc) in
+  let @20 = boolx8(true) in
+  let @21 = boolx8(false) in
+  let @22 = i32x8(0) in
+  n!loop!loop = n
+  acc!loop!loop = @19
+  !live = @20
+  !exit.then_0 = @21
+  !track.then_0.0 = @22
+  while (reduce<any>((*!live))) {
+    let @13 = i32x8(0) in
+    let @0 = (*n!loop!loop) <= @13 in
+    let @14 = boolx8(false) in
+    let @15 = boolx8(true) in
+    let @5 = select(@0, @14, @15) in
+    let @6 = (*!live) && @5 in
+    let @7 = (*!live) && @0 in
+    let @16 = i32x8(1) in
+    let @2 = (*n!loop!loop) - @16 in
+    let @3 = (*acc!loop!loop) + (*n!loop!loop) in
+    let @8 = select(@7, (*n!loop!loop), @2) in
+    let @9 = select(@7, (*acc!loop!loop), @3) in
+    let @17 = boolx8(false) in
+    let @10 = select(@7, @17, (*!live)) in
+    let @18 = boolx8(true) in
+    let @11 = select(@7, @18, (*!exit.then_0)) in
+    let @12 = select(@7, (*acc!loop!loop), (*!track.then_0.0)) in
+    n!loop!loop = @8
+    acc!loop!loop = @9
+    !live = @10
+    !exit.then_0 = @11
+    !track.then_0.0 = @12
+  }
+  out[i] = (*!track.then_0.0)
+  return
+}
+
+func triangles(n : i32[8], out : mut i32[8]) -> void {
+  let @0 = n[ramp(0, 1, 8)] in
+  sum_to$gang8_v0_v3(@0, 0, out, ramp(0, 1, 8))
+  return
+}
+
+func walk(n : i32, acc : i32, out : mut i32[8], i : i32) -> void {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @2 = 20 < (*acc!loop) in
+    if (@2) {
+      out[i] = -1
+      return
+    } else {
+      let @4 = (*n!loop) - 1 in
+      let @5 = (*acc!loop) + (*n!loop) in
+      n!loop = @4
+      acc!loop = @5
+    }
+  }
+  out[i] = (*acc!loop)
+  return
+}
+
+func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void {
+  n!loop!loop : mut i32x8
+  acc!loop!loop : mut i32x8
+  !live : mut boolx8
+  !exit.then_2 : mut boolx8
+  !exit.then_0 : mut boolx8
+  !track.then_0.0 : mut i32x8
+  let @39 = i32x8(acc) in
+  let @40 = boolx8(true) in
+  let @41 = boolx8(false) in
+  let @42 = boolx8(false) in
+  let @43 = i32x8(0) in
+  n!loop!loop = n
+  acc!loop!loop = @39
+  !live = @40
+  !exit.then_2 = @41
+  !exit.then_0 = @42
+  !track.then_0.0 = @43
+  while (reduce<any>((*!live))) {
+    let @25 = i32x8(0) in
+    let @0 = (*n!loop!loop) <= @25 in
+    let @26 = boolx8(false) in
+    let @27 = boolx8(true) in
+    let @7 = select(@0, @26, @27) in
+    let @8 = (*!live) && @7 in
+    let @9 = (*!live) && @0 in
+    let @28 = i32x8(20) in
+    let @2 = @28 < (*acc!loop!loop) in
+    let @29 = boolx8(false) in
+    let @30 = boolx8(true) in
+    let @10 = select(@2, @29, @30) in
+    let @11 = @8 && @10 in
+    let @12 = @8 && @2 in
+    let @31 = i32x8(1) in
+    let @4 = (*n!loop!loop) - @31 in
+    let @5 = (*acc!loop!loop) + (*n!loop!loop) in
+    let @14 = select(@9, (*n!loop!loop), @4) in
+    let @15 = select(@12, (*n!loop!loop), @14) in
+    let @16 = select(@9, (*acc!loop!loop), @5) in
+    let @17 = select(@12, (*acc!loop!loop), @16) in
+    let @32 = boolx8(false) in
+    let @18 = select(@9, @32, (*!live)) in
+    let @33 = boolx8(false) in
+    let @19 = select(@12, @33, @18) in
+    let @34 = boolx8(true) in
+    let @20 = select(@12, @34, (*!exit.then_2)) in
+    let @35 = boolx8(true) in
+    let @21 = select(@9, @35, (*!exit.then_0)) in
+    let @22 = select(@12, (*!exit.then_0), @21) in
+    let @23 = select(@9, (*acc!loop!loop), (*!track.then_0.0)) in
+    let @24 = select(@12, (*!track.then_0.0), @23) in
+    n!loop!loop = @15
+    acc!loop!loop = @17
+    !live = @19
+    !exit.then_2 = @20
+    !exit.then_0 = @22
+    !track.then_0.0 = @24
+  }
+  let @36 = boolx8(false) in
+  let @37 = boolx8(true) in
+  let @13 = select((*!exit.then_2), @36, @37) in
+  let @38 = i32x8(-1) in
+  masked_store(out[i], @38, (*!exit.then_2))
+  masked_store(out[i], (*!track.then_0.0), @13)
+  return
+}
+
+
+schedule host {
+    capped_triangles.vectorize(i)
+    sum_to.loopify()
+    triangles.vectorize(i)
+    walk.loopify()
+
+}

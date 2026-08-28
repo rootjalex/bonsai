@@ -383,6 +383,11 @@ bool Struct_t::is_packed() const {
                      Attribute::packed) != attributes.cend();
 }
 
+bool Struct_t::is_layout() const {
+    return std::find(attributes.cbegin(), attributes.cend(),
+                     Attribute::layout) != attributes.cend();
+}
+
 Type Tuple_t::make(std::vector<Type> etypes) {
     Tuple_t *node = new Tuple_t;
     node->etypes = std::move(etypes);

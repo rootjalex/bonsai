@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm -e
+
+// `loopify()` applied through the SSA rewriter, and run.
+//
+// The trip counts are large enough that the recursion would overflow the
+// stack if it were still a recursion, which is the point of the transform:
+// what it buys is not speed but not running out of stack. A value-returning
+// tail call (`return f(...)`) is converted as well as one whose result is
+// discarded -- the Stmt-level loopify this replaces miscompiled the first
+// shape into LLVM with an unterminated block.
+func countdown(n : i32, acc : i32) -> i32 {
+  if (n <= 0) {
+    return acc;
+  }
+  return countdown(n - 1, acc + n);
+}
+
+func fill(n : i32, acc : i32, out : mut array[i32, 4], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  fill(n - 1, acc + n, out, i);
+  return;
+}
+
+func main() -> i32 {
+  // n(n+1)/2 for n = 5, 0 and 100000. The last would be 100000 stack frames
+  // deep before the transform.
+  print(countdown(5, 0));
+  print(countdown(0, 7));
+  print(countdown(100000, 0));
+
+  o : mut array[i32, 4] = {0, 0, 0, 0};
+  fill(5, 0, o, 2);
+  fill(100000, 0, o, 3);
+  print(o[2]);
+  print(o[3]);
+  return 0;
+}
+
+schedule {
+  countdown.loopify();
+  fill.loopify();
+}

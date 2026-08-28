@@ -1,19 +1,32 @@
 //! flags: -p ssa -b llvm
 
-// KNOWN LIMITATION -- this golden records a bug, not the behaviour we want.
-// When the bug is fixed this test will fail; re-bless it and move it out of
-// "known-limitation".
+// A `parfor` that no schedule placed on any hardware, which is a loop.
 //
-// No backend implements ir::ParFor: CodeGen_LLVM, CodeGen_CUDA and the C++
-// backend all declare it with RESTRICT_VISITOR, which errors unconditionally.
-// So a parfor can only be compiled if a schedule removes it first -- today
-// that means vectorize(), which folds the loop into a single gang. The same
-// function *with* `add_one.vectorize(i)` in a schedule compiles and runs
-// correctly (see backends/llvm/vectorize_add_one.bonsai); without one, there
-// is no lowering at all, not even a sequential fallback.
+// `parfor` says the iterations may run in any order, and one after another is
+// one of those orders, so an unplaced one is emitted as the counted loop it
+// is -- by the same code that emits a sequential one, see
+// CodeGen_LLVM::codegen_counted_loop. A `parfor` a schedule *did* place has
+// become something else long before here: `vectorize()` folds it into a
+// single gang (backends/llvm/vectorize_add_one.bonsai), and `cpu_thread()`
+// turns it into a Launch.
+//
+// This used to be a known limitation: every backend declared ir::ParFor with
+// RESTRICT_VISITOR, so a parfor could not be compiled at all without a
+// schedule to remove it first -- there was no sequential fallback.
+// A constant trip count, which LLVM unrolls away.
 func add_one(a : array[f32, 8], out : mut array[f32, 8]) {
   parfor i in 0:8 {
     out[i] = a[i] + 1.0;
+  }
+  return;
+}
+
+// A trip count only known at run time, so the loop survives to the golden and
+// what codegen_counted_loop emits -- the guard on the entry, the index phi,
+// the increment and the exit test -- is actually pinned by this test.
+func scale(n : i32, a : array[f32, n], out : mut array[f32, n]) {
+  parfor i in 0:n {
+    out[i] = a[i] * 3.0;
   }
   return;
 }

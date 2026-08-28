@@ -263,6 +263,30 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     llvm::FunctionType *ftype =
         llvm::FunctionType::get(ret_type, arg_types, /*isVarArg=*/false);
 
+    // TODO(ajr): a function the program does not export cannot be called from
+    // outside this module, and giving it internal linkage lets LLVM fold it
+    // into its only caller and delete it -- on the tree query in
+    // tests/bonsai/backends/llvm/tree-traversal.bonsai that is 35 functions
+    // and 1650 lines of IR down to 4 and 580, either way it is compiled. But
+    // it also lets LLVM inline a loopified traversal, stack and all, into a
+    // recursive caller, and the SSA pipeline does not survive that: rtiow goes
+    // from 4004ms to 7695ms, because that path materializes struct temporaries
+    // into allocas (the `@N = alloca %struct.Ray` in its output) which are
+    // already costing it loads and which the extra register pressure then
+    // makes much worse. Worth turning on once those are gone.
+    // TODO(ajr): a function the program does not export cannot be called from
+    // outside this module, and giving it internal linkage lets LLVM fold it
+    // into its only caller and delete it -- on the tree query in
+    // tests/bonsai/backends/llvm/tree-traversal.bonsai that is 35 functions
+    // and 1650 lines of IR down to 4 and 580, either way it is compiled.
+    //
+    // What stops it is that LLVM then inlines a loopified traversal into a
+    // caller that is itself recursive, and a loopified traversal owns a
+    // fixed-size stack: rtiow ends up with the `[64 x i16]` inside `sample`,
+    // which recurses once per bounce, and goes from 3983ms to 7542ms. The
+    // inliner does not charge for an alloca it duplicates down a recursion.
+    // Loopifying the recursive caller as well avoids it, but that is the
+    // schedule's choice to make, not something to assume here.
     llvm::Function *fn = llvm::Function::Create(
         ftype, llvm::GlobalValue::ExternalLinkage, func.name, module.get());
 
@@ -277,6 +301,15 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
 
             if (!arg_info.mutating) {
                 attrs.addAttribute(llvm::Attribute::ReadOnly);
+            }
+
+            // Nothing else this function can reach refers to it, so a write
+            // through it cannot have changed anything read through the
+            // others (see Function::Argument::unaliased). Only set for
+            // objects lowering invented; two of a program's own arguments may
+            // be the same object.
+            if (arg_info.unaliased) {
+                attrs.addAttribute(llvm::Attribute::NoAlias);
             }
 
             // TODO: Add dereferenceable + alignment if we can figure that out.
@@ -346,6 +379,23 @@ void CodeGen_LLVM::compile_function(const Function &func,
     }
 
     codegen_stmt(func.body);
+
+    // A body that runs off the end without returning. For a void function
+    // that is simply how most of them are written -- there is nothing to
+    // return, so nothing says so -- and the block it leaves open still needs
+    // a terminator. A function that returns a value cannot get here by
+    // falling off the end, because Lower/TypeInference.cpp rejects one whose
+    // paths do not all return (and exempts void from that check for exactly
+    // this reason); what is left open there is a block nothing reaches, such
+    // as the join made for an `if` whose arms all returned.
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        if (func.ret_type.is<Void_t>()) {
+            builder->CreateRetVoid();
+        } else {
+            builder->CreateUnreachable();
+        }
+    }
+
     frames.pop_frame();
 
     // Restore previous insertion point
@@ -369,6 +419,21 @@ CodeGen_LLVM::compile_program(const Program &program,
                               const CompilerOptions &options) {
     init_module(); // TODO: init_codegen()?
 
+    // Remembered rather than stamped on the module: what a parallel loop
+    // lowers to depends on the platform, so generating one has to be able to
+    // ask what it is -- but the module is deliberately left without a triple
+    // for the LLVM backend, so that the code it prints is the same whatever
+    // machine printed it.
+    target_triple = options.target_triple.empty()
+                        ? llvm::sys::getDefaultTargetTriple()
+                        : options.target_triple;
+    // Made up front rather than after the code is generated: generating it
+    // needs to know how the target lays a struct out, and what a parallel
+    // loop is called there. For the backends that want them, this also puts
+    // the triple and data layout on the module before anything asks it for
+    // an alignment, which it was being asked for beforehand.
+    target_machine = make_target_machine(*module, options);
+
     const auto struct_types = gather_struct_types(program);
     declare_struct_types(struct_types);
 
@@ -383,8 +448,7 @@ CodeGen_LLVM::compile_program(const Program &program,
     }
     frames.pop_frame();
 
-    std::unique_ptr<llvm::TargetMachine> tm =
-        make_target_machine(*module, options);
+    llvm::TargetMachine *tm = target_machine.get();
 
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] compilation resulted in an invalid module";
@@ -1779,11 +1843,8 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
     if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
         value = load->getPointerOperand();
     } else if (node->expr.type().is<Struct_t>()) {
-        llvm::Type *llvm_type = pointee->getType();
-        llvm::Value *alloca = create_alloca_at_entry(
-            llvm_type, node->expr.type().as<Struct_t>()->name + "_ptrto");
-        builder->CreateStore(pointee, alloca);
-        value = alloca;
+        value = materialize_for_address(
+            pointee, node->expr.type().as<Struct_t>()->name);
     } else if (node->expr.is<Extract, Access>()) {
         // Build a pointer via accesses, similar to codegen_writeloc.
         std::vector<std::variant<std::string, Expr>> accesses; // backwards
@@ -1848,13 +1909,23 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
 
         value = ptr;
     } else {
-        pointee->print(llvm::errs());
-        llvm::errs() << "\n";
-        pointee->getType()->print(llvm::errs());
-        llvm::errs() << "\n";
-        llvm::errs().flush();
-        internal_error << "Cannot generate ptr to: " << node->expr;
+        // A value that is not in memory and has no piece of anything in
+        // memory to point into -- the result of an arithmetic expression
+        // handed to a parameter taken by pointer, say. There is nothing to
+        // name, so the only thing its address can mean is a copy.
+        value = materialize_for_address(pointee, "value");
     }
+}
+
+// Somewhere to point at, for a value that is not anywhere. The slot goes in
+// the entry block and is named after what it holds, so that repeated uses of
+// the same type reuse one slot rather than growing the frame per occurrence.
+llvm::Value *CodeGen_LLVM::materialize_for_address(llvm::Value *pointee,
+                                                   const std::string &name) {
+    llvm::Value *alloca =
+        create_alloca_at_entry(pointee->getType(), name + "_ptrto");
+    builder->CreateStore(pointee, alloca);
+    return alloca;
 }
 
 void CodeGen_LLVM::visit(const Deref *node) {
@@ -1886,7 +1957,10 @@ void CodeGen_LLVM::visit(const Deref *node) {
     if (pointer_value->getType()->isPointerTy()) {
         llvm::Type *loaded_type = codegen_type(node->type);
         // Dereference the pointer (load the value at the pointer address)
-        value = create_aligned_load(loaded_type, pointer_value, "deref_temp");
+        llvm::LoadInst *load =
+            create_aligned_load(loaded_type, pointer_value, "deref_temp");
+        add_tbaa(load, node->type);
+        value = load;
     } else {
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
@@ -2111,8 +2185,13 @@ void CodeGen_LLVM::visit(const IfElse *node) {
         next_if = final_else.defined() ? final_else.as<IfElse>() : nullptr;
     } while (next_if);
 
-    needs_after_bb = needs_after_bb &&
-                     (!final_else.defined() || !always_returns(final_else));
+    // Somewhere to carry on from, needed as soon as *any* path through the
+    // chain falls out of it: an arm that does not return, or an else that does
+    // not, or no else at all. Only when every path returns is there nothing
+    // after the chain -- and asking for both at once, as this did, left an arm
+    // that falls through branching to a block that was never made.
+    needs_after_bb = needs_after_bb || !final_else.defined() ||
+                     !always_returns(final_else);
 
     // TODO: we will support a switch statement, make sure to use Halide's
     // codegen for it!
@@ -2232,7 +2311,35 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
 }
 
 void CodeGen_LLVM::visit(const While *node) {
-    internal_error << "TODO: While loop codegen in LLVM";
+    // As a do-while, except that the condition is tested before the first
+    // iteration as well as before each later one, so the body block is
+    // reached only through the test.
+    llvm::BasicBlock *cond_bb =
+        llvm::BasicBlock::Create(*context, "while.cond", current_function);
+    llvm::BasicBlock *loop_bb =
+        llvm::BasicBlock::Create(*context, "while.body", current_function);
+    llvm::BasicBlock *end_bb =
+        llvm::BasicBlock::Create(*context, "while.end", current_function);
+
+    codegen_branch(cond_bb);
+
+    builder->SetInsertPoint(cond_bb);
+    codegen_short_circuit(node->cond, loop_bb, end_bb);
+
+    builder->SetInsertPoint(loop_bb);
+
+    frames.push_frame();
+    // Where `continue` goes: back to the test, which is this loop's latch.
+    latch_blocks.push_back(cond_bb);
+
+    codegen_stmt(node->body);
+
+    latch_blocks.pop_back();
+
+    codegen_branch(cond_bb);
+
+    builder->SetInsertPoint(end_bb);
+    frames.pop_frame();
 }
 
 void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
@@ -2389,7 +2496,16 @@ void CodeGen_LLVM::visit(const Store *node) {
     internal_assert(!node->mask.defined())
         << "Masked store to a location that is not indexed per lane: "
         << Stmt(node);
-    builder->CreateStore(rhs, codegen_write_loc(loc), /*isVolatile=*/false);
+    llvm::Value *dest = codegen_write_loc(loc);
+    // A name bound to a value rather than to storage cannot be assigned to.
+    // Without this the failure is an assertion inside LLVM, which says
+    // nothing about which name in which statement is at fault.
+    internal_assert(dest->getType()->isPointerTy())
+        << "Cannot store to " << loc.base
+        << ": it is bound to a value, not to storage, in " << Stmt(node);
+    llvm::StoreInst *store =
+        builder->CreateStore(rhs, dest, /*isVolatile=*/false);
+    add_tbaa(store, node->value.type());
 }
 
 llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {
@@ -2874,14 +2990,32 @@ void CodeGen_LLVM::visit(const Label *node) {
 }
 
 void CodeGen_LLVM::visit(const ForAll *node) {
-    llvm::Value *begin = codegen_expr(node->slice.begin);
+    codegen_counted_loop(node->index, node->slice.begin, node->slice.end,
+                         node->slice.stride, node->body);
+}
 
-    // TODO(ajr): handle parallelism, needs to be field of ForAll
-    // For now, generate sequential.
+// A `parfor` that no schedule assigned to any hardware. Nothing says it has to
+// run in parallel -- `parfor` states that the iterations *may* run in any
+// order, and running them one after another is one of those orders -- so it is
+// the same loop as a sequential one, and is emitted by the same code. A
+// `parfor` that a schedule did place becomes a Launch long before here.
+void CodeGen_LLVM::visit(const ParFor *node) {
+    codegen_counted_loop(node->index, node->slice.begin, node->slice.end,
+                         node->slice.stride, node->body);
+}
+
+// One counted loop: `for index in begin:end:stride`, running body.
+void CodeGen_LLVM::codegen_counted_loop(const std::string &index,
+                                        const Expr &begin_expr,
+                                        const Expr &end_expr,
+                                        const Expr &stride_expr,
+                                        const Stmt &body) {
+    llvm::Value *begin = codegen_expr(begin_expr);
+
     llvm::BasicBlock *preheader_bb = builder->GetInsertBlock();
 
     std::string loop_id =
-        node->index + std::to_string(forall_loop_id++) + std::string("_for");
+        index + std::to_string(forall_loop_id++) + std::string("_for");
 
     llvm::BasicBlock *inc_bb =
         llvm::BasicBlock::Create(*context, loop_id + "_inc", current_function);
@@ -2894,26 +3028,25 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 
     // Unlike Halide, can have loops over non-int32 types, so let codegen figure
     // out cmp type.
-    llvm::Value *enter_condition =
-        codegen_expr(node->slice.begin < node->slice.end);
+    llvm::Value *enter_condition = codegen_expr(begin_expr < end_expr);
     builder->CreateCondBr(enter_condition, loop_bb, end_bb, very_likely_branch);
     builder->SetInsertPoint(loop_bb);
 
     // Make our phi node.
-    llvm::Type *iterator_t = codegen_type(node->slice.begin.type());
+    llvm::Type *iterator_t = codegen_type(begin_expr.type());
     llvm::PHINode *phi = builder->CreatePHI(iterator_t, 2);
     phi->addIncoming(begin, preheader_bb);
 
     // Add index to new frame.
     frames.push_frame();
-    frames.add_to_frame(node->index, phi);
+    frames.add_to_frame(index, phi);
 
     latch_blocks.push_back(inc_bb);
     // TODO(ajr): will need this for `break` statements.
     // escape_blocks.push_back(end_bb);
 
     // Emit loop body
-    codegen_stmt(node->body);
+    codegen_stmt(body);
 
     latch_blocks.pop_back();
     // escape_blocks.pop_back();
@@ -2922,14 +3055,14 @@ void CodeGen_LLVM::visit(const ForAll *node) {
     builder->SetInsertPoint(inc_bb);
 
     // Update the counter
-    Expr var = Var::make(node->slice.begin.type(), node->index);
-    llvm::Value *next_var = codegen_expr(var + node->slice.stride);
+    Expr var = Var::make(begin_expr.type(), index);
+    llvm::Value *next_var = codegen_expr(var + stride_expr);
     // Add the back-edge to the phi node
     phi->addIncoming(next_var, builder->GetInsertBlock());
 
     // Maybe exit the loop
     // TODO(ajr): can this overflow?
-    llvm::Value *end_condition = codegen_expr(var + 1 >= node->slice.end);
+    llvm::Value *end_condition = codegen_expr(var + 1 >= end_expr);
     // TODO(ajr): use very_likely_branch?
     builder->CreateCondBr(end_condition, end_bb, loop_bb);
 
@@ -2959,6 +3092,24 @@ void CodeGen_LLVM::visit(const Launch *node) {
 
     internal_assert(node->args.size() == 1); // context
     llvm::Value *ctx = codegen_expr(node->args[0]);
+
+    // libdispatch is Apple's, so everywhere else this becomes a call to the
+    // runtime's own parallel loop, which takes the same three things and
+    // means the same by them (see runtime/bonsai_parallel.h).
+    if (!llvm::Triple(target_triple).isOSDarwin()) {
+        llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+        llvm::FunctionType *parallel_for_ty =
+            llvm::FunctionType::get(void_t, {i64_t, ptr_t, ptr_t}, false);
+        llvm::Function *parallel_for =
+            module->getFunction("bonsai_parallel_for");
+        if (!parallel_for) {
+            parallel_for = llvm::Function::Create(
+                parallel_for_ty, llvm::Function::ExternalLinkage,
+                "bonsai_parallel_for", module.get());
+        }
+        builder->CreateCall(parallel_for, {num_iters, ctx, launch_func});
+        return;
+    }
 
     llvm::StructType *dispatch_queue_s_type =
         llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");
@@ -3023,6 +3174,50 @@ void CodeGen_LLVM::visit(const Launch *node) {
 
     builder->CreateCall(dispatch_apply_f,
                         {num_iters, global_dispatch_queue, ctx, func_ptr});
+}
+
+llvm::MDNode *CodeGen_LLVM::tbaa_type_node(const Type &type) {
+    if (!type.defined()) {
+        return nullptr;
+    }
+
+    // An access to an aggregate has no tag: LLVM's access type has to be one
+    // of its scalar nodes, so there is no way to say "all of this struct".
+    // Untagged means "may alias anything", which is always safe.
+    if (type.is<Struct_t, Tuple_t, Option_t>()) {
+        return nullptr;
+    }
+
+    // A vector reads the same bytes an element-at-a-time read would -- a
+    // dense load out of an array of f32 is a load of f32s -- so it says the
+    // element type, not the vector type. Saying the vector type would make a
+    // gathered read look unrelated to a scalar one of the same array.
+    if (type.is<Vector_t>()) {
+        return tbaa_type_node(type.element_of());
+    }
+
+    const std::string key = to_string(type);
+    if (const auto it = tbaa_types.find(key); it != tbaa_types.end()) {
+        return it->second;
+    }
+
+    llvm::MDBuilder md(*context);
+    if (tbaa_root == nullptr) {
+        tbaa_root = md.createTBAARoot("bonsai");
+    }
+    llvm::MDNode *node = md.createTBAAScalarTypeNode(key, tbaa_root);
+    tbaa_types[key] = node;
+    return node;
+}
+
+void CodeGen_LLVM::add_tbaa(llvm::Instruction *inst, const Type &type) {
+    llvm::MDNode *node = tbaa_type_node(type);
+    if (node == nullptr) {
+        return; // untagged, which may alias anything
+    }
+    llvm::MDBuilder md(*context);
+    inst->setMetadata(llvm::LLVMContext::MD_tbaa,
+                      md.createTBAAStructTagNode(node, node, /*Offset=*/0));
 }
 
 void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,

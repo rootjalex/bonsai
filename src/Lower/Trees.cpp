@@ -52,7 +52,12 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
                                     param.type.as<ir::Vector_t>()->etype));
 
                     internal_assert(is_prim || is_array_prim || is_vector_prim)
-                        << param.type << " versus " << prim_t << "\n";
+                        << "The data of tree node " << node.name() << " is "
+                        << d->name << ", of type " << param.type
+                        << ", but the tree is declared over " << prim_t
+                        << ". A node's data has to be the tree's own primitive "
+                        << "type, or an array or vector of it -- check what "
+                        << "the tree[[...]] declaration says it holds.";
                     data.push_back(param);
                 }
             }
@@ -548,8 +553,12 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
     // TODO(ajr): is stack memory ok here? it's not an array.
+    // Unaliased: the query folds into this, the program never names it, and
+    // it is handed to the traversal as its own argument -- so nothing else
+    // there can be referring to it (see Allocate::unaliased).
     ir::Stmt header =
-        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack,
+                           /*unaliased=*/true);
 
     // Make return
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
@@ -715,8 +724,10 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
     ir::Expr init = ir::Extrema::make(metric_t, ir::Extrema::inf);
 
     // TODO(ajr): is stack memory ok here? it's not an array.
+    // Unaliased, for the same reason as the accumulator above.
     ir::Stmt header =
-        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack,
+                           /*unaliased=*/true);
 
     // Make return
     ir::Expr ret_var = ir::Var::make(metric_t, std::move(name));
@@ -1148,7 +1159,16 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
         }
 
         arms[i].first = bvh_t->nodes[i];
-        internal_assert(!stmts.empty());
+        // A node that neither holds data nor has children contributes nothing
+        // to a traversal, which is almost always a leaf whose data was never
+        // named: `| Leaf(d : array[T])` declares the field but says nothing
+        // about it being the data, so `with data = d` is what makes the
+        // traversal yield it.
+        internal_assert(!stmts.empty())
+            << "Tree node " << bvh_t->nodes[i].name() << " yields nothing: it "
+            << "has no children, and none of its fields is the node's data. "
+            << "A leaf needs a `with data = <field>` clause saying which of "
+            << "its fields a traversal should produce.";
         if (stmts.size() == 1) {
             // Special case.
             arms[i].second = stmts[0];

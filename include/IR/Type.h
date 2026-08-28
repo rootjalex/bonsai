@@ -234,6 +234,12 @@ struct Struct_t : TypeNode<Struct_t> {
 
     enum class Attribute {
         packed, // Whether this struct is 1-byte aligned.
+        // Describes the bytes of a laid-out tree rather than a value the
+        // program wrote. A node's storage is read as one variant or another
+        // depending on a tag in it, which is the only place this IR reads the
+        // same bytes at two types -- so it is the only place that has to be
+        // kept out of type-based alias analysis (see CodeGen_LLVM's tbaa).
+        layout,
     };
 
     std::vector<Attribute> attributes;
@@ -245,6 +251,9 @@ struct Struct_t : TypeNode<Struct_t> {
 
     // Whether this type has the `packed` attribute.
     bool is_packed() const;
+
+    // Whether this type describes the bytes of a laid-out tree.
+    bool is_layout() const;
 
     static const IRTypeEnum node_type = IRTypeEnum::Struct_t;
 };

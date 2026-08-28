@@ -132,7 +132,7 @@ Stmt Allocate::make(WriteLoc loc, Memory memory) {
     return node;
 }
 
-Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
+Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory, bool unaliased) {
     internal_assert(loc.defined())
         << "Undefined write location in Allocate::make";
     internal_assert(loc.accesses.empty())
@@ -149,6 +149,7 @@ Stmt Allocate::make(WriteLoc loc, Expr value, Memory memory) {
     node->loc = std::move(loc);
     node->value = std::move(value);
     node->memory = memory;
+    node->unaliased = unaliased;
     return node;
 }
 

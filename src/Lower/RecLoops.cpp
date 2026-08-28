@@ -7,6 +7,7 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <set>
 
 namespace bonsai {
 namespace lower {
@@ -20,8 +21,28 @@ std::string unique_func_name() {
     return "_recloop_func" + std::to_string(func_counter++);
 }
 
+// The names of the objects lowering invented in this body, which nothing else
+// refers to (see Allocate::unaliased).
+std::set<std::string> unaliased_allocations(const Stmt &body) {
+    struct Finder : public Visitor {
+        std::set<std::string> names;
+        void visit(const Allocate *node) override {
+            if (node->unaliased) {
+                names.insert(node->loc.base);
+            }
+            Visitor::visit(node);
+        }
+    };
+    Finder finder;
+    body.accept(&finder);
+    return finder.names;
+}
+
 struct LowerRecLoopsImpl : public Mutator {
     FuncMap new_funcs;
+
+    // Unaliased objects of the function being lowered.
+    std::set<std::string> unaliased;
 
     Expr current_func;
     std::vector<Expr> current_args;
@@ -41,8 +62,15 @@ struct LowerRecLoopsImpl : public Mutator {
         auto mutables = mutated_variables(node->body);
         for (const auto &var : vars) {
             call_args.push_back(Var::make(var.type, var.name));
+            // A free variable that lowering invented for this traversal --
+            // the accumulator it folds into -- is passed in as its own
+            // argument, and nothing else the traversal can reach refers to
+            // it. Saying so is what keeps the traversal from re-reading
+            // everything else it was given after each write (see
+            // Allocate::unaliased).
             f_args.emplace_back(var.name, var.type, Expr(),
-                                mutables.contains(var.name));
+                                mutables.contains(var.name),
+                                unaliased.contains(var.name));
         }
 
         std::string func_name = unique_func_name();
@@ -93,6 +121,7 @@ ir::FuncMap LowerRecLoops::run(ir::FuncMap funcs,
                                const CompilerOptions &options) const {
     LowerRecLoopsImpl lowerer;
     for (const auto &[name, func] : funcs) {
+        lowerer.unaliased = unaliased_allocations(func->body);
         func->body = lowerer.mutate(func->body);
     }
 

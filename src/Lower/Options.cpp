@@ -197,11 +197,14 @@ ir::Program LowerOptions::run(ir::Program program,
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
+            // Only the types change here, so everything else known about the
+            // argument has to be carried across.
             args[i] = ir::Function::Argument{
                 arg.name,
                 rewriter.mutate(arg.type),
                 rewriter.mutate(arg.default_value),
                 arg.mutating,
+                arg.unaliased,
             };
         }
         ir::Type ret_type = rewriter.mutate(func->ret_type);

@@ -1,0 +1,60 @@
+//! flags: -p ssa -b llvm -e
+
+// Taking the address of a value, through the SSA pipeline, run.
+//
+// Lower/Mutability.cpp passes structs by pointer, so every call taking one
+// wraps its argument in a PtrTo. The SSA converter used to answer that by
+// allocating a stack slot and storing the value into it, every time -- which
+// is one of the answers, but rarely the right one, and it could not be undone
+// afterwards because the pointer escapes into the call it was made for. It is
+// now carried as Op::AddressOf and left to code generation, which reaches for
+// a copy only when the value really is not anywhere.
+//
+// What matters for correctness is that each address still names the value it
+// was taken of. The cases below are the ones where the answer differs: a
+// field of a struct that is already in memory, a struct that came back from a
+// call, two live addresses of the same type at once, and a struct carried
+// down a recursion, where reusing one slot across levels would show up as
+// every level seeing the last one's value.
+
+element Vec { x : f32; y : f32; }
+element Pair { a : Vec; b : Vec; }
+
+func lensq(v : Vec) -> f32 = v.x * v.x + v.y * v.y;
+
+// Two addresses of the same type, both live across the call.
+func inner(u : Vec, v : Vec) -> f32 = u.x * v.x + u.y * v.y;
+
+// The address of a field of a struct this function was itself handed by
+// pointer -- the value is already in memory, so nothing needs copying.
+func first_lensq(p : Pair) -> f32 = lensq(p.a);
+
+func combine(p : Pair) -> Vec = Vec{p.a.x + p.b.x, p.a.y + p.b.y};
+
+// A struct built fresh at each level and passed down, the shape a bounce loop
+// has. If the levels shared a slot they would not count down distinctly.
+func walk(v : Vec, n : i32) -> f32 {
+    if (n <= 0) {
+        return lensq(v);
+    }
+    return walk(Vec{v.x + 1.0, v.y + 2.0}, n - 1);
+}
+
+func main() -> i32 {
+    u : Vec = Vec{3.0, 4.0};
+    v : Vec = Vec{1.0, 2.0};
+    p : Pair = Pair{u, v};
+
+    // A local passed by pointer, and a field of a struct in memory.
+    print(lensq(u), first_lensq(p));
+
+    // Two live addresses of the same type at once.
+    print(inner(u, v));
+
+    // The address of what a call returned, handed straight to another call.
+    print(lensq(combine(p)));
+
+    // Carried down a recursion: 3,4 -> 4,6 -> 5,8 -> 6,10, so 36 + 100.
+    print(walk(u, 3));
+    return 0;
+}

@@ -18,7 +18,7 @@ write_w_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @write_x(ptr nocapture noundef nonnull writeonly %e) local_unnamed_addr #1 {
 write_x_entry:
-  store i32 3, ptr %e, align 4
+  store i32 3, ptr %e, align 4, !tbaa !0
   ret void
 }
 
@@ -27,7 +27,7 @@ define void @write_y(ptr nocapture noundef nonnull readonly %e) local_unnamed_ad
 write_y_entry:
   %e_y = getelementptr inbounds i8, ptr %e, i64 8
   %e_y_ld = load ptr, ptr %e_y, align 8
-  store i32 3, ptr %e_y_ld, align 4
+  store i32 3, ptr %e_y_ld, align 4, !tbaa !0
   ret void
 }
 
@@ -35,7 +35,7 @@ write_y_entry:
 define void @write_z(ptr nocapture noundef writeonly %z) local_unnamed_addr #1 {
 write_z_entry:
   %z1 = getelementptr inbounds i8, ptr %z, i64 4
-  store i32 3, ptr %z1, align 4
+  store i32 3, ptr %z1, align 4, !tbaa !0
   ret void
 }
 
@@ -46,3 +46,7 @@ attributes #0 = { mustprogress nofree nounwind willreturn memory(write, inaccess
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) }
 attributes #3 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"i32", !2, i64 0}
+!2 = !{!"bonsai"}

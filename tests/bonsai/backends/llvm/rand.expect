@@ -35,7 +35,7 @@ _i00_for:                                         ; preds = %_traverse_array0_en
   %19 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
   %20 = zext nneg i32 %0 to i64
   %_alloc0 = getelementptr inbounds float, ptr %_alloc0_untyped, i64 %20
-  store float %19, ptr %_alloc0, align 4
+  store float %19, ptr %_alloc0, align 4, !tbaa !0
   %21 = add nuw nsw i32 %0, 1
   %22 = icmp ugt i32 %0, 14
   br i1 %22, label %_i00_for_end, label %_i00_for
@@ -81,7 +81,7 @@ _i00_for.i:                                       ; preds = %_i00_for.i, %main_e
   %27 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %17)
   %28 = zext nneg i32 %8 to i64
   %_alloc0.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %28
-  store float %27, ptr %_alloc0.i, align 4
+  store float %27, ptr %_alloc0.i, align 4, !tbaa !0
   %29 = add nuw nsw i32 %8, 1
   %30 = icmp ugt i32 %8, 14
   br i1 %30, label %_traverse_array0.exit, label %_i00_for.i
@@ -196,7 +196,7 @@ _i00_for.i:                                       ; preds = %_i00_for.i, %test_r
   %19 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
   %20 = zext nneg i32 %0 to i64
   %_alloc0.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %20
-  store float %19, ptr %_alloc0.i, align 4
+  store float %19, ptr %_alloc0.i, align 4, !tbaa !0
   %21 = add nuw nsw i32 %0, 1
   %22 = icmp ugt i32 %0, 14
   br i1 %22, label %_traverse_array0.exit, label %_i00_for.i
@@ -219,3 +219,7 @@ declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) #2
 attributes #0 = { nofree nounwind }
 attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
 attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}

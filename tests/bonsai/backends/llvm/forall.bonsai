@@ -1,0 +1,14 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM a sequential loop compiles to through the SSA
+// pipeline, where `map` becomes a ForAll and the converter turns that into a
+// loop in the block graph.
+//
+// What the golden should show is an ordinary counted loop -- a phi for the
+// index, a compare, a back edge -- and nothing left of the block structure
+// the conversion went through.
+func doubled(a : array[i32, 4]) = map(|x : i32| x * 2, a);
+
+// A loop whose trip count is not known here, so that it cannot simply be
+// unrolled away and the loop itself has to come out right.
+func scale(n : u32, a : array[f32, n], k : f32) = map(|x : f32| x * k, a);

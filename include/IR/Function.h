@@ -19,13 +19,19 @@ struct Function {
         Type type;
         Expr default_value;
         bool mutating = false;
+        // Nothing else this function can reach refers to this argument's
+        // storage. Only set for arguments carrying an object lowering
+        // invented (see Allocate::unaliased); a program's own arguments may
+        // well be the same object as each other.
+        bool unaliased = false;
 
         Argument() {}
 
         Argument(std::string name, Type type, Expr default_value = Expr(),
-                 bool mutating = false)
+                 bool mutating = false, bool unaliased = false)
             : name(std::move(name)), type(std::move(type)),
-              default_value(std::move(default_value)), mutating(mutating) {}
+              default_value(std::move(default_value)), mutating(mutating),
+              unaliased(unaliased) {}
 
         Argument(const Argument &) = default;
         Argument(Argument &&) noexcept = default;

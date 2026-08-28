@@ -1,0 +1,65 @@
+//! flags: -p ssa
+
+// The IR a divergent loop vectorizes to: a loop the lanes of a gang leave at
+// different iterations, turned into one they leave together (Moll & Hack,
+// PLDI 2018, section 5, and SSA/UniformizeLoops.h).
+//
+// What to read for in the golden:
+//
+//   * `!live`, a mask of the lanes that have not left yet. The loop's test is
+//     `reduce<any>(!live)` -- a question about the gang, and so uniform, which
+//     is what lets a single scalar branch decide for all of them.
+//   * `!live` narrowing by the lanes that finish on each iteration, and
+//     `!exit.*` accumulating them.
+//   * `!track.*`, holding what a lane had when it left. The store after the
+//     loop reads it, which is the whole point: lane 3 finished six iterations
+//     before lane 4 and has to keep its own answer.
+//   * that the scalar `sum_to` is still a plain loop -- vectorizing the gang
+//     leaves the function it was specialized from alone.
+func sum_to(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  sum_to(n - 1, acc + n, out, i);
+  return;
+}
+
+func triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    sum_to(n[i], 0, out, i);
+  }
+  return;
+}
+
+// Two ways out of the same loop. There is an `!exit.*` mask per destination
+// now, and the code after the loop stores under each of them in turn: the
+// lanes that ran out of count and the lanes that went over the cap left at
+// different iterations and to different places, and both stores are to the
+// same array from the same site.
+func walk(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  if (acc > 20) {
+    out[i] = 0 - 1;
+    return;
+  }
+  walk(n - 1, acc + n, out, i);
+  return;
+}
+
+func capped_triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    walk(n[i], 0, out, i);
+  }
+  return;
+}
+
+schedule {
+  sum_to.loopify();
+  walk.loopify();
+  triangles.vectorize(i);
+  capped_triangles.vectorize(i);
+}

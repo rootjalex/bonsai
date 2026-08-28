@@ -1,0 +1,24 @@
+//! flags: -p ssa
+
+// A sequential loop reaching the SSA form. `map` lowers to a ForAll, which
+// ConvertToSSA turns into a real loop in the block graph: a header carrying
+// the index, a body, and a latch that steps it and closes the back edge.
+//
+// The test is at the top, so a loop over an empty range runs zero times --
+// which the Stmt-level lowering this replaces got wrong for any stride but
+// one, since it stepped by `stride` but tested `i + 1`.
+//
+// Nothing could be converted to SSA at all before: ForAll was on the
+// converter's restricted list, so every program with a `map` in it stopped
+// here.
+func doubled(a : array[i32, 4]) = map(|x : i32| x * 2, a);
+
+// Two loops, to check that the blocks of one do not run into the other, and
+// that the second one's index is its own.
+func combine(a : array[i32, 4], b : array[i32, 4]) {
+  out : mut array[i32, 4] = {0, 0, 0, 0};
+  parfor i in 0:4 {
+    out[i] = a[i] + b[i];
+  }
+  return doubled(out);
+}

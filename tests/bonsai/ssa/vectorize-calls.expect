@@ -1,23 +1,27 @@
 func both_ways(a : f32[8], k : f32, out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
-  let @1 = scale$gang8_v0(@0, k) in
+  let @10 = f32x8(k) in
+  let @1 = @0 * @10 in
   out[ramp(0, 1, 8)] = @1
   let @3 = a[ramp(0, 1, 8)] in
-  let @10 = f32x8(0f) in
-  let @4 = @10 < @3 in
-  let @11 = boolx8(false) in
-  let @12 = boolx8(true) in
-  let @8 = select(@4, @11, @12) in
+  let @11 = f32x8(0f) in
+  let @4 = @11 < @3 in
+  let @12 = boolx8(false) in
+  let @13 = boolx8(true) in
+  let @8 = select(@4, @12, @13) in
   let @5 = a[ramp(0, 1, 8)] in
-  let @6 = scale$gang8_v0$masked(@5, 100f, @4) in
+  let @14 = f32x8(100f) in
+  let @6 = @5 * @14 in
   masked_store(out[ramp(0, 1, 8)], @6, @4)
   return
 }
 
 func chained(a : f32[8], out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
-  let @1 = outer$gang8_v0(@0) in
-  out[ramp(0, 1, 8)] = @1
+  let @1 = inner$gang8_v0(@0) in
+  let @5 = f32x8(2f) in
+  let @2 = @1 * @5 in
+  out[ramp(0, 1, 8)] = @2
   return
 }
 
@@ -65,15 +69,8 @@ func inner$gang8_v0(x : f32x8) -> f32x8 {
 }
 
 func outer(x : f32) -> f32 {
-  let @0 = inner(x) in
+  let @0 = x + 1f in
   let @1 = @0 * 2f in
-  return @1
-}
-
-func outer$gang8_v0(x : f32x8) -> f32x8 {
-  let @0 = inner$gang8_v0(x) in
-  let @2 = f32x8(2f) in
-  let @1 = @0 * @2 in
   return @1
 }
 
@@ -82,20 +79,8 @@ func scale(x : f32, k : f32) -> f32 {
   return @0
 }
 
-func scale$gang8_v0(x : f32x8, k : f32) -> f32x8 {
-  let @1 = f32x8(k) in
-  let @0 = x * @1 in
-  return @0
-}
-
-func scale$gang8_v0$masked(x : f32x8, k : f32, !mask : boolx8) -> f32x8 {
-  let @1 = f32x8(k) in
-  let @0 = x * @1 in
-  return @0
-}
-
 func uniform_arg(k : f32, out : mut f32[8]) -> void {
-  let @0 = constant_of(k) in
+  let @0 = k * 2f in
   let @3 = f32x8(@0) in
   out[ramp(0, 1, 8)] = @3
   return

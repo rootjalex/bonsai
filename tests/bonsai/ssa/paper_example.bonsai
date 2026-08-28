@@ -5,8 +5,10 @@
 // It exercises taking addresses: Lower/Mutability.cpp rewrites struct and
 // `mut` parameters into pointers and wraps every matching call argument in a
 // PtrTo, so a program with struct-taking functions cannot reach SSA form
-// without a case for it. Values that have no address of their own get a stack
-// slot to point at, which is what the allocas below are.
+// without a case for it. Those come back out as the `(&...)` below -- an
+// address, not storage. Which of the two an address turns out to need is left
+// to code generation, which can often answer it without copying anything; see
+// Op::AddressOf in include/SSA/SSA.h.
 
 // Trivial examples for now;
 element Tree = f32;
@@ -31,8 +33,14 @@ func brdf_eval(is : Intersection, ray : Ray) {
     return is.value;
 }
 
-func bounce(is : Intersection, ray : Ray) {
-    return is.value - ray.data;
+// The bounced ray, which is what `color` recurses on -- so a Ray, not the
+// scalar it is built from. This used to return `is.value - ray.data` and be
+// passed straight to a Ray parameter, which nothing caught: a call in
+// statement position was checked for argument count and mutability but not
+// for argument types, so it only failed much later, in code generation, and
+// as a mismatch between pointers rather than between values.
+func bounce(is : Intersection, ray : Ray) -> Ray {
+    return Ray{is.value - ray.data};
 }
 
 func color(t : Tree, ray : Ray, output : mut array[f32], i : i32) -> void {

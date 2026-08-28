@@ -1,0 +1,63 @@
+//! flags: -p ssa -b llvm -e
+
+// `loopify(N)`: a recursion that branches, put on an explicit stack.
+//
+// Tail recursion becomes a loop by itself, because going round again is the
+// same as making the call. A traversal that recurses once per child cannot,
+// since the second call has to happen after the first one comes back. So the
+// calls are not made at all -- what they would have been is written down on a
+// stack, and the loop takes the top of it (see SSA/QueueRecursion.h).
+//
+// Marking every node of a complete binary tree with its depth checks the
+// order-independent part; that all fifteen are visited exactly once, from a
+// stack of 64, checks the rest. A stack that was pushed or popped a step
+// wrong would visit some nodes twice and some not at all.
+func visit(node : i32, out : mut array[i32, 16], depth : i32) -> void {
+  if (depth <= 0) {
+    return;
+  }
+  out[node] = depth;
+  visit(node * 2, out, depth - 1);
+  visit(node * 2 + 1, out, depth - 1);
+  return;
+}
+
+// The same tree, counting how many nodes are reached. A stack that is pushed
+// or popped a step wrong visits some nodes twice and some not at all, which
+// the depths above cannot show but a total can. Counted into a scalar rather
+// than an array because a `mut` array local's initializer is miscompiled, so
+// an array would be being read before anything wrote it.
+func count_visits(node : i32, total : mut i32, depth : i32) -> void {
+  if (depth <= 0) {
+    return;
+  }
+  total = total + 1;
+  count_visits(node * 2, total, depth - 1);
+  count_visits(node * 2 + 1, total, depth - 1);
+  return;
+}
+
+func main() -> i32 {
+  // Index 0 is not printed: it is never written, and a `mut` array local's
+  // initializer is miscompiled through this pipeline (see the known
+  // limitation in backends/llvm/known-limitation-ssa-mut-array-local).
+  o : mut array[i32, 16] = {0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0};
+  visit(1, o, 4);
+  print(o[1]);
+  print(o[2], o[3]);
+  print(o[4], o[5], o[6], o[7]);
+  print(o[8], o[9], o[10], o[11]);
+  print(o[12], o[13], o[14], o[15]);
+
+  // Fifteen nodes in a complete tree of depth four, each reached once.
+  t : mut i32 = 0;
+  count_visits(1, t, 4);
+  print(t);
+  return 0;
+}
+
+schedule {
+  visit.loopify(64);
+  count_visits.loopify(64);
+}

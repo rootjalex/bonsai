@@ -1,0 +1,35 @@
+func _traverse_array0(a : i32[4]) -> i32[4] {
+  _i0 : mut i32
+  alloc _alloc0 : mut i32[4]
+  _i0 = 0
+  while ((*_i0) < 4) {
+    let @1 = a[(*_i0)] in
+    let @2 = @1 << 1 in
+    _alloc0[(*_i0)] = @2
+    let @4 = (*_i0) + 1 in
+    _i0 = @4
+  }
+  return _alloc0
+}
+
+func combine(a : i32[4], b : i32[4]) -> i32[4] {
+  alloc out : mut i32[4]
+  let @0 = build<i32[4]>(0, 0, 0, 0) in
+  out = @0
+  parfor i in [0:4:1] {
+    let @1 = a[i] in
+    let @2 = b[i] in
+    let @3 = @1 + @2 in
+    out[i] = @3
+    continue
+  }
+  let @5 = _traverse_array0(out) in
+  return @5
+}
+
+func doubled(a : i32[4]) -> i32[4] {
+  let @0 = _traverse_array0(a) in
+  return @0
+}
+
+

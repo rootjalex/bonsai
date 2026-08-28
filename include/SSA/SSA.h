@@ -20,6 +20,10 @@ struct Argument {
     // FunctionBuilder in SSA/Convert.cpp and codegen_stmt in
     // SSA/CodeGen_Stmt.cpp); ignored elsewhere.
     bool mutating = false;
+    // Likewise: carried through so that what lowering knew about the object
+    // this parameter names survives the trip through this form (see
+    // ir::Function::Argument::unaliased).
+    bool unaliased = false;
 
     void dump(std::ostream &os) const;
 };
@@ -64,8 +68,27 @@ struct Instruction {
         AccMax,
 
         Add,
+        // The address of a value, mirroring ir::PtrTo -- what a call site does
+        // to an argument the callee takes by pointer (see Lower/Mutability.cpp).
+        //
+        // This is deliberately *not* an Alloca and a Store. Most values that
+        // get addressed already live somewhere -- a field of a struct that is
+        // itself in memory, an element of an array -- and the backends know
+        // how to name that place without copying anything. Deciding here that
+        // the value needs a stack slot of its own throws that away, and it
+        // cannot be taken back later: the pointer escapes into the call, so
+        // SSA/PromoteAllocas.h will not touch it. Being pure rather than a
+        // side-effecting pair also means the rewrites can move it to where it
+        // is used instead of having to keep it in place.
+        AddressOf,
         Alloc,  // on heap
         Alloca, // on stack
+        // Is any lane of a mask set? A cross-lane reduction: its operand is
+        // one value per lane but its result is a single uniform bool, which
+        // is what lets a gang branch on it. This is what makes the latch of a
+        // vectorized divergent loop uniform -- the gang goes round again as
+        // long as any lane still wants to (see SSA/UniformizeLoops.h).
+        Any,
         Append, // side-effect-y
         Bc,
         BwAnd,
@@ -77,6 +100,16 @@ struct Instruction {
         ExtractIdx,
         GEP,
         Inf,
+        // Any of the intrinsics this IR has that are not spelled out above,
+        // carried through verbatim: which one is in `intrinsic`.
+        //
+        // Abs, Max and Min have opcodes of their own because the passes here
+        // reason about them directly -- the vectorizer has to know which of
+        // their operands go per-lane, and a vector reduction lowers to them.
+        // Nothing here has anything to say about `sqrt` or `pow` beyond
+        // handing them back to the backend, so the whole rest of the set
+        // rides on this one opcode rather than being enumerated twice.
+        Intrinsic,
         LAnd,
         LOr,
         Leq,
@@ -88,12 +121,20 @@ struct Instruction {
         Min,
         Mod,
         Mul,
+        Ne,
         Print, // side-effect-y
         // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
         // This is what a vectorized loop index becomes, and an index of
         // this shape is what makes a memory access dense rather than a
         // gather (see ir::Ramp).
         Ramp,
+        // A reduction over the lanes of one value, as the source wrote it
+        // (`sum(v)`, `max(v)`): which one is in `reduce`. Distinct from Any,
+        // which reduces across the *gang* -- the lanes of a vectorized loop --
+        // and is introduced by the vectorizer rather than by the program. The
+        // two look alike and mean different things: this one is per-lane work
+        // on a value a lane holds, and Any asks about the gang as a whole.
+        Reduce,
         Reinterpret,
         Select,
         Set,
@@ -116,6 +157,12 @@ struct Instruction {
     // one: its answer is an integer, but what it is the size *of* is a type,
     // which no operand can carry.
     Type queried_type;
+
+    // Which intrinsic this is. Only meaningful for Op::Intrinsic.
+    ir::Intrinsic::OpType intrinsic = ir::Intrinsic::abs;
+
+    // Which reduction this is. Only meaningful for Op::Reduce.
+    ir::VectorReduce::OpType reduce = ir::VectorReduce::Add;
 
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;

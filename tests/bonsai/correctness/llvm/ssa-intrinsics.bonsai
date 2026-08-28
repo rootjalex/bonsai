@@ -1,0 +1,46 @@
+//! flags: -p ssa -b llvm -e
+
+// The parts of the IR that the SSA converter used to reject, run end to end.
+//
+// It handled three intrinsics -- abs, max and min -- and stopped on every
+// other one, on vector literals, on shuffles, on `!=`, and on any sequential
+// loop. Between them those covered most real programs: a ray tracer stops at
+// the first `sqrt`. Intrinsics without an opcode of their own are now carried
+// through to the backend as they are, and the ones that are defined in terms
+// of others (`sqr`, `norm`) are rewritten into those.
+//
+// `round` is left out on purpose: the LLVM backend has no case for it, with
+// or without the SSA pipeline.
+element vec3f = vector[f32, 3];
+
+func hypot3(v : vec3f) -> f32 = sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+
+// A sequential loop, which `map` lowers to.
+func doubled(a : array[i32, 4]) = map(|x : i32| x * 2, a);
+
+func main() -> i32 {
+    src : array[i32, 4] = {1, 2, 3, 4};
+    d : array[i32, 4] = doubled(src);
+    print(d[0], d[1], d[2], d[3]);
+
+    // Carried through to the backend.
+    print(sqrt(16.0));
+    print(pow(2.0, 10.0));
+
+    // Rewritten into the pieces: a square is a multiply, and a length is the
+    // square root of a dot product. `sqr` does not even reach the backend,
+    // which has no case for it.
+    print(sqr(7.0));
+    print(norm(vec3f{3.0, 4.0, 0.0}));
+    print(hypot3(vec3f{3.0, 4.0, 12.0}));
+
+    // A vector literal, and a comparison that had no opcode.
+    v : vec3f = vec3f{1.0, 2.0, 3.0};
+    print(v.x != 1.0, v.y != 1.0);
+
+    // Reductions over the lanes of one value. These used to be mapped onto
+    // the binary opcodes -- a sum became an Add -- which gave those a
+    // one-operand form that the code generator asserted on.
+    print(sum(v), max(v), min(v));
+    return 0;
+}

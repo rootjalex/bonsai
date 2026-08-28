@@ -76,10 +76,14 @@ static const char *op_name(Instruction::Op op) {
         return "acc.max";
     case Instruction::Op::Add:
         return "add";
+    case Instruction::Op::AddressOf:
+        return "addressof";
     case Instruction::Op::Alloc:
         return "alloc";
     case Instruction::Op::Alloca:
         return "alloca";
+    case Instruction::Op::Any:
+        return "any";
     case Instruction::Op::Append:
         return "append";
     case Instruction::Op::Bc:
@@ -96,6 +100,10 @@ static const char *op_name(Instruction::Op op) {
         return "eps";
     case Instruction::Op::Inf:
         return "inf";
+    case Instruction::Op::Intrinsic:
+        // dump() prints which intrinsic it is instead; "intrinsic" on its own
+        // says nothing, and this is only the fallback.
+        return "intrinsic";
     case Instruction::Op::Eq:
         return "eq";
     case Instruction::Op::ExtractIdx:
@@ -124,10 +132,15 @@ static const char *op_name(Instruction::Op op) {
         return "mod";
     case Instruction::Op::Mul:
         return "mul";
+    case Instruction::Op::Ne:
+        return "ne";
     case Instruction::Op::Print:
         return "print";
     case Instruction::Op::Ramp:
         return "ramp";
+    case Instruction::Op::Reduce:
+        // dump() prints which reduction it is.
+        return "reduce";
     case Instruction::Op::Reinterpret:
         return "reinterpret";
     case Instruction::Op::Select:
@@ -162,8 +175,10 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::AccMax:
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
+    case Instruction::Op::AddressOf:
     case Instruction::Op::Alloc:
     case Instruction::Op::Alloca:
+    case Instruction::Op::Any:
     case Instruction::Op::Append:
     case Instruction::Op::Bc:
     case Instruction::Op::BwAnd:
@@ -172,6 +187,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Div:
     case Instruction::Op::Eps:
     case Instruction::Op::Inf:
+    case Instruction::Op::Intrinsic:
     case Instruction::Op::Eq:
     case Instruction::Op::ExtractIdx:
     case Instruction::Op::GEP:
@@ -186,10 +202,12 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
+    case Instruction::Op::Ne:
     // Print has a side effect, but is not a store: it has no address
     // operand, and takes as many operands as it prints.
     case Instruction::Op::Print:
     case Instruction::Op::Ramp:
+    case Instruction::Op::Reduce:
     case Instruction::Op::Reinterpret:
     case Instruction::Op::Select:
     case Instruction::Op::Set:
@@ -245,7 +263,16 @@ void Instruction::dump(std::ostream &os) const {
 
     size_t start = 0;
 
-    os << op_name(op);
+    // An intrinsic prints under its own name, which is what a reader is
+    // looking for -- `sqrt(x)`, not `intrinsic(x)` -- and a reduction says
+    // which one it is, the way the Stmt printer does.
+    if (op == Instruction::Op::Intrinsic) {
+        os << to_string(intrinsic);
+    } else if (op == Instruction::Op::Reduce) {
+        os << "reduce<" << to_string(reduce) << ">";
+    } else {
+        os << op_name(op);
+    }
     if (op == Instruction::Op::Alloc || op == Instruction::Op::Alloca ||
         op == Instruction::Op::Cast || op == Instruction::Op::Eps ||
         op == Instruction::Op::MakeStruct ||

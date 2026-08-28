@@ -174,17 +174,35 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerGeometrics>());
     ssa.push_back(std::make_unique<LowerLayouts>());
     ssa.push_back(std::make_unique<LowerForEachs>());
-    ssa.push_back(std::make_unique<LowerRandom>());
     ssa.push_back(std::make_unique<LowerDynamicSets>());
     ssa.push_back(std::make_unique<LowerYields>());
     ssa.push_back(std::make_unique<LowerScans>());
     ssa.push_back(std::make_unique<LowerRecLoops>());
+    // After LowerRecLoops, unlike in `core`. Threading the generator's state
+    // is a whole-call-graph transform: it gives every function that reaches
+    // `rand` an extra parameter and passes it at every call. So it has to run
+    // once no more functions are going to appear -- and LowerRecLoops makes
+    // one per recursive loop. `core` gets away with the other order only
+    // because LoopTransforms has already turned those loops into loops by
+    // then, so there is nothing left for LowerRecLoops to extract.
+    ssa.push_back(std::make_unique<LowerRandom>());
     ssa.push_back(std::make_unique<LowerLambdas>());
     ssa.push_back(std::make_unique<LowerOptions>());
     ssa.push_back(std::make_unique<LowerTuples>());
     ssa.push_back(std::make_unique<LowerDynamicArrays>());
+    // The optimizations, in the same places the default pipeline puts them.
+    // Without these the SSA pipeline was emitting code that had never been
+    // simplified or inlined -- which showed up as generated code that ran
+    // about half as fast as the same program built the other way, for no
+    // reason to do with the SSA form itself.
+    ssa.push_back(std::make_unique<opt::Unswitch>());
     ssa.push_back(std::make_unique<LowerLogicalOperations>());
     ssa.push_back(std::make_unique<LowerGenerics>());
+    ssa.push_back(std::make_unique<opt::Simplify>());
+    ssa.push_back(std::make_unique<opt::DCE>());
+    ssa.push_back(std::make_unique<opt::Inline>());
+    // Clean up any dead functions after inlining.
+    ssa.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.
     ssa.push_back(std::make_unique<ReturnToOutParameter>());
     ssa.push_back(std::make_unique<Mutability>());
@@ -210,11 +228,12 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerGeometrics>());
     ssa_analysis.push_back(std::make_unique<LowerLayouts>());
     ssa_analysis.push_back(std::make_unique<LowerForEachs>());
-    ssa_analysis.push_back(std::make_unique<LowerRandom>());
     ssa_analysis.push_back(std::make_unique<LowerDynamicSets>());
     ssa_analysis.push_back(std::make_unique<LowerYields>());
     ssa_analysis.push_back(std::make_unique<LowerScans>());
     ssa_analysis.push_back(std::make_unique<LowerRecLoops>());
+    // After LowerRecLoops, for the reason given in the `ssa` list above.
+    ssa_analysis.push_back(std::make_unique<LowerRandom>());
     ssa_analysis.push_back(std::make_unique<LowerLambdas>());
     ssa_analysis.push_back(std::make_unique<LowerOptions>());
     ssa_analysis.push_back(std::make_unique<LowerTuples>());

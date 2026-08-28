@@ -1,0 +1,30 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM a divergent loop vectorizes to.
+//
+// The shape worth pinning is the loop's own test: a single `br` on
+// `llvm.vector.reduce.or` of the live mask, so the gang goes round together
+// as long as any lane still has work, with everything inside it selected
+// per-lane rather than branched on. A lowering that kept a per-lane branch,
+// or that updated the live mask a step early, still computes numbers that
+// look reasonable; only the instructions show which.
+func sum_to(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  sum_to(n - 1, acc + n, out, i);
+  return;
+}
+
+func triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+  parfor i in 0:8 {
+    sum_to(n[i], 0, out, i);
+  }
+  return;
+}
+
+schedule {
+  sum_to.loopify();
+  triangles.vectorize(i);
+}

@@ -4,6 +4,7 @@
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/Convert.h"
 #include "SSA/PromoteAllocas.h"
+#include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
 #include "Utils.h"
@@ -221,9 +222,41 @@ void dump(std::ostream &os, const std::string &fname, ssa::Function &func) {
 
 ir::Program DumpSSAAnalysis::run(ir::Program program,
                                  const CompilerOptions &options) const {
-    // std::map iteration is ordered, so the dump is deterministic.
+    FuncMap fmap;
     for (const auto &[name, func] : program.funcs) {
-        dump(std::cout, name, *build(func));
+        fmap[name] = build(func);
+    }
+
+    // Loopify before dumping, since it is what puts a back edge in a function
+    // at all: without it there is no loop for these analyses to report, and
+    // the loop forest of a traversal is exactly what a reader comes here for.
+    // Nothing else in the schedule changes the CFG at this level.
+    if (const auto it = program.schedules.find(ir::Target::Host);
+        it != program.schedules.end()) {
+        for (const auto &[name, ts] : it->second.func_transforms) {
+            if (!fmap.contains(name)) {
+                continue;
+            }
+            for (const auto &t : ts) {
+                if (const auto *l = std::get_if<ir::Loopify>(&t)) {
+                    int size = 0;
+                    if (l->queue_size.has_value()) {
+                        const auto n =
+                            get_constant_value<int64_t>(*l->queue_size);
+                        internal_assert(n.has_value() && *n > 0)
+                            << "loopify(" << *l->queue_size << ") on " << name
+                            << " needs a constant, positive stack depth";
+                        size = int(*n);
+                    }
+                    loopify(fmap, name, size);
+                }
+            }
+        }
+    }
+
+    // std::map iteration is ordered, so the dump is deterministic.
+    for (const auto &[name, func] : fmap) {
+        dump(std::cout, name, *func);
     }
     return program;
 }

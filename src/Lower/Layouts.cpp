@@ -191,9 +191,12 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
             auto [_, inserted] = ltmap.layout_to_name.try_emplace(layout, name);
             internal_assert(inserted) << layout;
         }
-        constexpr auto P = ir::Struct_t::Attribute::packed;
+        // Marked as a layout as well as packed, which is what says its bytes
+        // may be read at more than one type (see Struct_t::Attribute::layout).
+        const std::vector<ir::Struct_t::Attribute> attributes = {
+            ir::Struct_t::Attribute::packed, ir::Struct_t::Attribute::layout};
         ir::Type struct_t =
-            ir::Struct_t::make(std::move(name), std::move(fields), {P});
+            ir::Struct_t::make(std::move(name), std::move(fields), attributes);
         auto [_, inserted] = ltmap.layout_to_type.try_emplace(layout, struct_t);
         internal_assert(inserted) << layout << " already in cache\n";
         return struct_t;

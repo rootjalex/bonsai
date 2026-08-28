@@ -11,6 +11,7 @@ add_bonsai_tests(
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
     vectorize_locals.bonsai
+    vectorize_loop.bonsai
     vectorize_shapes.bonsai
     vectorize_soa.bonsai
     vectorize_visect.bonsai

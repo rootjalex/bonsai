@@ -6,6 +6,7 @@
 #include "SSA/Rewrite.h"
 #include "SSA/SplitAggregates.h"
 #include "SSA/SSA.h"
+#include "SSA/UniformizeLoops.h"
 
 #include "Utils.h"
 
@@ -99,6 +100,7 @@ vector<size_t> value_operands(const Instruction &instr) {
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
+    case Instruction::Op::Ne:
     case Instruction::Op::Reinterpret:
     case Instruction::Op::Select:
     case Instruction::Op::Set:
@@ -129,6 +131,24 @@ vector<size_t> value_operands(const Instruction &instr) {
     case Instruction::Op::Eps:
     case Instruction::Op::Inf:
         return {};
+
+    // Reduces the lanes of one value, which is that value per gang lane.
+    case Instruction::Op::Reduce:
+        return {0};
+
+    // An intrinsic computes on values, so every operand goes per-lane -- with
+    // one exception: `rand`'s argument is how many numbers to draw, which is
+    // a count and not one of them.
+    case Instruction::Op::Intrinsic: {
+        if (instr.intrinsic == ir::Intrinsic::rand) {
+            return {};
+        }
+        vector<size_t> all(n);
+        for (size_t i = 0; i < n; i++) {
+            all[i] = i;
+        }
+        return all;
+    }
 
     // Already one value per lane, built that way: its base and stride are
     // uniform scalars and must stay that way.
@@ -282,8 +302,11 @@ void widen_argument(const BlockMap &blocks, const set<string> &region,
 void widen_region(Function &func, const string &entry, const Divergence &div,
                   uint32_t lanes) {
     // Everything the earlier stages did is visible here, and what widening
-    // chokes on is usually a value one of them left in the wrong shape.
-    if (std::getenv("BONSAI_DUMP_PRE_WIDEN") != nullptr) {
+    // chokes on is usually a value one of them left in the wrong shape. The
+    // pair of dumps also says which of the two is at fault when the result is
+    // merely wrong rather than rejected.
+    const bool dump = std::getenv("BONSAI_DUMP_WIDENING") != nullptr;
+    if (dump) {
         std::cerr << "--- before widening " << entry << ":\n";
         func.dump(std::cerr);
     }
@@ -347,6 +370,44 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
             widened.push_back(instr);
         }
         block.instrs = std::move(widened);
+    }
+
+    // A block argument that has become per-lane may still be handed a uniform
+    // value: a loop-carried value that varies by the second iteration is
+    // entered with whatever single value the loop started from. Those are
+    // broadcast where they are passed, the same way a uniform operand of a
+    // widened instruction is.
+    for (const string &name : region) {
+        Block &block = *blocks.at(name);
+        for (Terminator::Jump *jump : jumps_of(block)) {
+            const auto target = blocks.find(jump->name);
+            if (target == blocks.end() || !region.count(jump->name)) {
+                continue;
+            }
+            // A call continuation is handed the result as a leading argument
+            // that no jump passes, so the values line up with the last ones.
+            const size_t offset = target->second->args.size() - jump->args.size();
+            for (size_t j = 0; j < jump->args.size(); j++) {
+                const Type &wanted = target->second->args[j + offset].type;
+                if (!wanted.is_vector() ||
+                    jump->args[j]->get_type().is_vector()) {
+                    continue;
+                }
+                auto count = std::make_shared<Value>(
+                    Constant{UInt_t::make(32), uint64_t(lanes)});
+                auto bc = std::make_shared<Instruction>(
+                    func.get_unique_name(), wanted, Instruction::Op::Bc,
+                    vector<shared_ptr<Value>>{jump->args[j], count},
+                    block.shared_from_this());
+                block.instrs.push_back(bc);
+                jump->args[j] = std::make_shared<Value>(bc);
+            }
+        }
+    }
+
+    if (dump) {
+        std::cerr << "--- after widening " << entry << ":\n";
+        func.dump(std::cerr);
     }
 }
 
@@ -553,11 +614,13 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // Which of the calls inside are conditional, decided before the branches
     // that make them so are folded away. A masked variant runs entirely under
     // its caller's mask, so every call it makes is conditional too.
+    set<string> conditional_calls;
+    set<std::pair<string, string>> varying_args;
     const Divergence before =
         analyze_divergence(*variant, entry, varying_names);
-    const set<string> region = reachable_from(entry, compute_successors(*variant));
-    set<string> conditional_calls;
     {
+        const set<string> region =
+            reachable_from(entry, compute_successors(*variant));
         const BlockMap blocks = make_block_map(*variant);
         for (const string &block_name : region) {
             if (std::holds_alternative<Terminator::Call>(
@@ -568,16 +631,38 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         }
     }
 
-    const BlockMasks masks = linearize(*variant, entry, before, mask);
+    // A loop the lanes leave at different iterations -- which is what a
+    // traversal turned into a loop by loopify() is -- becomes one they leave
+    // together, with the lanes that are done masked off (see
+    // SSA/UniformizeLoops.h).
+    const LoopUniformization uniform =
+        uniformize_loops(*variant, entry, before);
+    varying_args.insert(uniform.varying_args.begin(),
+                        uniform.varying_args.end());
+
+    const Divergence linearizable =
+        uniform.empty() ? before
+                        : analyze_divergence(*variant, entry, varying_names, {},
+                                             varying_args);
+
+    const BlockMasks masks =
+        linearize(*variant, entry, linearizable, mask, uniform.loops);
+
+    // Uniformizing a loop adds blocks, so the region is only settled now.
+    const set<string> region =
+        reachable_from(entry, compute_successors(*variant));
 
     // Per-lane vectors become one value per component here too, which is what
     // turns a `vec3f` parameter into three `f32` ones -- matching the
     // components the caller hands over.
-    const SplitResult split = split_aggregates(
-        *variant, entry, analyze_divergence(*variant, entry, varying_names));
+    const SplitResult split =
+        split_aggregates(*variant, entry,
+                         analyze_divergence(*variant, entry, varying_names, {},
+                                            varying_args));
     varying_names.insert(split.parameters.begin(), split.parameters.end());
 
-    const Divergence div = analyze_divergence(*variant, entry, varying_names);
+    const Divergence div =
+        analyze_divergence(*variant, entry, varying_names, {}, varying_args);
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << name;
 
@@ -650,10 +735,22 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
         }
     }
 
+    // A loop the lanes leave at different iterations becomes one they leave
+    // together, with the lanes that are done masked off (see
+    // SSA/UniformizeLoops.h). This has to happen before linearization, which
+    // requires every loop it sees to be uniform.
+    const LoopUniformization uniform = uniformize_loops(*f, entry, before);
+    const set<std::pair<string, string>> varying_args = uniform.varying_args;
+
     // Fold away the branches the lanes disagree about, so that what is left
     // is control flow every lane follows together, with masks standing in for
     // the branches that were folded (see SSA/Linearize.h).
-    const BlockMasks masks = linearize(*f, entry, before);
+    const BlockMasks masks = linearize(
+        *f, entry,
+        uniform.empty()
+            ? before
+            : analyze_divergence(*f, entry, {idx}, {}, varying_args),
+        nullptr, uniform.loops);
 
     const BlockMap blocks = make_block_map(f);
     const AdjacencyMap all_succs = compute_successors(*f);
@@ -700,14 +797,15 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // is, since a gang of them would be a vector of vectors. Split those into
     // one value per component first (see SSA/SplitAggregates.h).
     const SplitResult split = split_aggregates(
-        *f, entry, analyze_divergence(*f, entry, {}, {ramp.get()}),
+        *f, entry,
+        analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args),
         {ramp.get()});
 
     // Re-run the analysis now that the region is linearized and the index is
     // the ramp: the masks and blends linearization introduced have to be
     // classified too, and the index is no longer a block argument to seed on.
     const Divergence div =
-        analyze_divergence(*f, entry, {}, {ramp.get()});
+        analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args);
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << *div.branches.begin();
 

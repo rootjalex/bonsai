@@ -175,7 +175,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Scan);
     virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
-    RESTRICT_VISITOR(ir::ParFor);
+    virtual void visit(const ir::ParFor *) override;
     virtual void visit(const ir::Continue *) override;
     virtual void visit(const ir::Launch *) override;
 
@@ -219,6 +219,36 @@ struct CodeGen_LLVM : public ir::Visitor {
     // Global LLVM state
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
+    // The platform being generated for. Not read off the module, which is
+    // left without a triple for the LLVM backend so that its output does not
+    // depend on the host (see make_target_machine).
+    std::string target_triple;
+    // Made before anything is generated, so that generated code can ask about
+    // the target: how a parallel loop is spelled, and how a struct is laid
+    // out for the type-based aliasing below.
+    std::unique_ptr<llvm::TargetMachine> target_machine;
+
+    //===------------------------------------------------------------------===//
+    // Type-based alias analysis
+    //===------------------------------------------------------------------===//
+    //
+    // Two accesses at unrelated types cannot be to the same memory. This IR
+    // reads the same bytes at more than one type in exactly one place -- a
+    // tree layout, whose node is read as one variant or another depending on
+    // a tag inside it -- and those are left out.
+    //
+    // Saying so is worth a lot around calls: a traversal that takes the thing
+    // it reads and the thing it writes as separate pointers otherwise has to
+    // assume a write to one may have changed the other, and re-reads it on
+    // every iteration.
+    llvm::MDNode *tbaa_root = nullptr;
+    std::map<std::string, llvm::MDNode *> tbaa_types;
+
+    // The node describing `type`, or null when nothing can be said about it.
+    llvm::MDNode *tbaa_type_node(const ir::Type &type);
+    // Tags an access to a whole object of `type`. Sub-object accesses are
+    // left untagged, which means "may alias anything" and is always safe.
+    void add_tbaa(llvm::Instruction *inst, const ir::Type &type);
     std::unique_ptr<llvm::IRBuilder<>> builder;
     llvm::MDNode *very_likely_branch = nullptr;
     // Scope<llvm::Value *> scope;
@@ -259,6 +289,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *create_alloca_at_entry(llvm::Type *etype,
                                         const std::string &name,
                                         llvm::Value *size = nullptr);
+    llvm::Value *materialize_for_address(llvm::Value *pointee,
+                                         const std::string &name);
+    // One counted loop, shared by every statement that is one: `ForAll`, and
+    // a `ParFor` that no schedule placed on any hardware.
+    void codegen_counted_loop(const std::string &index,
+                              const ir::Expr &begin_expr,
+                              const ir::Expr &end_expr,
+                              const ir::Expr &stride_expr,
+                              const ir::Stmt &body);
     llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
                                bool zero_initialize, const std::string &name);
 
