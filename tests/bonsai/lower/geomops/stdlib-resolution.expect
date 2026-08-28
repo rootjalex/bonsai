@@ -128,7 +128,11 @@ func _traverse_tree13(q : Point, points : tree[[Point]] PointBVH) -> f32 {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      _best1 min= distmin_Point_Point(q, (points as Leaf).data)
+      if (distmin_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best1) {
+        if (distmin_Point_Point(q, (points as Leaf).data) < _best1) {
+          _best1 min= distmin_Point_Point(q, (points as Leaf).data)
+        }
+      }
     }
   }
   yield _best1
@@ -241,7 +245,11 @@ func _traverse_tree5(q : Point, points : tree[[Point]] PointBVH) -> f32 {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      _best0 max= distmax_Point_Point(q, (points as Leaf).data)
+      if (_best0 < distmax_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (_best0 < distmax_Point_Point(q, (points as Leaf).data)) {
+          _best0 max= distmax_Point_Point(q, (points as Leaf).data)
+        }
+      }
     }
   }
   yield _best0
