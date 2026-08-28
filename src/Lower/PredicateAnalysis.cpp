@@ -131,11 +131,14 @@ ir::Expr geom_upper_bound(ir::GeomOp::OpType op, const ir::Expr &a,
     }
     case ir::GeomOp::equals: {
         // Lines 16-18. Equality forces the uniform operand to fit inside the
-        // varying one's volume, whichever side it is on.
+        // varying one's volume, whichever side it is on. The two single-
+        // varying cases are the same relation spelled two ways, each keeping
+        // the volume in the position its operand held:
+        // `within(u, V_v)` and `contains(V_v, u)`.
         if (a_varying && b_varying) {
             return ir::intersects(ea, eb);
         }
-        return a_varying ? ir::within(b, va) : ir::within(a, vb);
+        return a_varying ? ir::contains(va, b) : ir::within(a, vb);
     }
     default: {
         // Ordering predicates. Section 6.3 notes only that these are
