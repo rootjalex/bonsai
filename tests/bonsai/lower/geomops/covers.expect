@@ -33,11 +33,11 @@ func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
   rec(points : tree[[Point]] PointBVH) {
     match points {
     | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
-      if (intersects(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+      if (covers(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (intersects(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+      if (covers(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
         if (covers((points as Leaf).data, r)) {
           yield (points as Leaf).data
         }

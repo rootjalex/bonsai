@@ -98,25 +98,36 @@ ir::Expr geom_upper_bound(ir::GeomOp::OpType op, const ir::Expr &a,
         // Lines 5-7. Anything contained in the operand is also inside its
         // volume, so at the very least the two must overlap.
         if (a_varying && !b_varying) {
-            // Tighter than the paper's intersects(V_v, u), and still
-            // necessary: b lies inside a, which lies inside its own volume.
+            // Line 6 gives intersects(V_v, u). This is the tighter form, and
+            // still necessary: u lies inside v, which lies inside its own
+            // volume. It is also what the paper itself uses for the
+            // corresponding covers case on line 9.
             return ir::contains(ea, eb);
         }
         return ir::intersects(ea, eb);
     }
-    case ir::GeomOp::covers:       // Lines 8-10.
+    case ir::GeomOp::covers: {
+        // Lines 8-10. Everything a varying operand covers is inside its
+        // volume, which line 9 states tightly; the other two cases keep only
+        // that the operands must overlap.
+        if (a_varying && !b_varying) {
+            return ir::covers(ea, eb);
+        }
+        return ir::intersects(ea, eb);
+    }
     case ir::GeomOp::touches:      // Lines 22-24.
     case ir::GeomOp::intersects: { // Lines 19-21.
         return ir::intersects(ea, eb);
     }
     case ir::GeomOp::disjoint: {
         // Lines 11-12. Disjointness is refuted only when the uniform operand
-        // swallows the whole volume, which forces an overlap. With both
-        // operands varying nothing can be refuted.
+        // swallows the whole volume, which forces an overlap. The two cases
+        // are the same relation spelled with the volume in the position its
+        // operand held. With both operands varying nothing can be refuted.
         if (a_varying && b_varying) {
             return ir::Expr();
         }
-        return a_varying ? ~ir::contains(b, va) : ~ir::contains(a, vb);
+        return a_varying ? ~ir::within(va, b) : ~ir::contains(a, vb);
     }
     case ir::GeomOp::within: {
         // Lines 13-15. `within(a, b)` is `a` inside `b`.
