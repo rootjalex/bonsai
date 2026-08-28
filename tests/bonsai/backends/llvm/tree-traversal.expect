@@ -73,20 +73,20 @@ _traverse_array0_entry:
   %mallocsize = shl nuw nsw i64 %size64, 6
   %_alloc0_untyped = tail call ptr @malloc(i64 %mallocsize)
   %.not = icmp eq i32 %n, 0
-  br i1 %.not, label %while.end, label %while.body
+  br i1 %.not, label %_i00_for_end, label %_i00_for, !prof !0
 
-while.body:                                       ; preds = %_traverse_array0_entry, %while.body
-  %_i0.07 = phi i32 [ %2, %while.body ], [ 0, %_traverse_array0_entry ]
-  %0 = sext i32 %_i0.07 to i64
-  %extract_ptr = getelementptr inbounds %struct.Ray, ptr %rays, i64 %0
-  %1 = tail call %struct._option0 @_traverse_tree0(ptr %extract_ptr, ptr %triangles)
-  %_alloc0 = getelementptr inbounds %struct._option0, ptr %_alloc0_untyped, i64 %0
-  store %struct._option0 %1, ptr %_alloc0, align 16
-  %2 = add nuw i32 %_i0.07, 1
-  %3 = icmp ult i32 %2, %n
-  br i1 %3, label %while.body, label %while.end
+_i00_for:                                         ; preds = %_traverse_array0_entry, %_i00_for
+  %0 = phi i32 [ %3, %_i00_for ], [ 0, %_traverse_array0_entry ]
+  %1 = sext i32 %0 to i64
+  %extract_ptr = getelementptr inbounds %struct.Ray, ptr %rays, i64 %1
+  %2 = tail call %struct._option0 @_traverse_tree0(ptr %extract_ptr, ptr %triangles)
+  %_alloc0 = getelementptr inbounds %struct._option0, ptr %_alloc0_untyped, i64 %1
+  store %struct._option0 %2, ptr %_alloc0, align 16
+  %3 = add nuw i32 %0, 1
+  %.not1 = icmp ult i32 %3, %n
+  br i1 %.not1, label %_i00_for, label %_i00_for_end
 
-while.end:                                        ; preds = %while.body, %_traverse_array0_entry
+_i00_for_end:                                     ; preds = %_i00_for, %_traverse_array0_entry
   ret ptr %_alloc0_untyped
 }
 
@@ -95,10 +95,10 @@ define %struct._option0 @_traverse_tree0(ptr nocapture noundef nonnull readonly 
 _traverse_tree0_entry:
   %"!stack88.i" = alloca [64 x i32], align 4
   call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack88.i")
-  store i32 0, ptr %"!stack88.i", align 4, !tbaa !0, !noalias !3
+  store i32 0, ptr %"!stack88.i", align 4, !tbaa !1, !noalias !4
   %deref_temp3.elt93.i = getelementptr inbounds i8, ptr %triangles, i64 16
-  %deref_temp3.unpack94.i = load ptr, ptr %deref_temp3.elt93.i, align 1, !noalias !3
-  %deref_temp.i.i = load %struct.Ray, ptr %ray, align 16, !noalias !3
+  %deref_temp3.unpack94.i = load ptr, ptr %deref_temp3.elt93.i, align 1, !noalias !4
+  %deref_temp.i.i = load %struct.Ray, ptr %ray, align 16, !noalias !4
   %"@1.d.i.i" = extractvalue %struct.Ray %deref_temp.i.i, 1
   %0 = fdiv <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %"@1.d.i.i"
   %1 = fcmp olt <3 x float> %0, zeroinitializer
@@ -116,12 +116,12 @@ while.body.i:                                     ; preds = %_traverse_tree0_ent
   %3 = add i32 %"!count.0.i38", -1
   %4 = sext i32 %3 to i64
   %extract_ptr.i = getelementptr inbounds i32, ptr %"!stack88.i", i64 %4
-  %extract.i = load i32, ptr %extract_ptr.i, align 4, !noalias !3
+  %extract.i = load i32, ptr %extract_ptr.i, align 4, !noalias !4
   %5 = sext i32 %extract.i to i64
   %extract_ptr4.i = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp3.unpack94.i, i64 %5
-  %extract5.unpack.i = load <3 x float>, ptr %extract_ptr4.i, align 1, !noalias !3
+  %extract5.unpack.i = load <3 x float>, ptr %extract_ptr4.i, align 1, !noalias !4
   %extract5.elt102.i = getelementptr inbounds i8, ptr %extract_ptr4.i, i64 20
-  %extract5.unpack103.i = load <3 x float>, ptr %extract5.elt102.i, align 1, !noalias !3
+  %extract5.unpack103.i = load <3 x float>, ptr %extract5.elt102.i, align 1, !noalias !4
   %6 = select <3 x i1> %1, <3 x float> %extract5.unpack103.i, <3 x float> %extract5.unpack.i
   %7 = select <3 x i1> %1, <3 x float> %extract5.unpack.i, <3 x float> %extract5.unpack103.i
   %8 = fsub <3 x float> %6, %"@16.o.i.i"
@@ -165,7 +165,7 @@ intersectsp_ray_aabb.exit.i:                      ; preds = %next_bb20.i.i, %nex
 intersects_Ray_AABB.exit:                         ; preds = %intersectsp_ray_aabb.exit.i
   %interval.value.i = extractvalue %struct._option1 %common.ret.op.i.i, 0
   %extract.low.i = extractvalue %struct.FInterval %interval.value.i, 0
-  %"@4.tmax.i" = load float, ptr %2, align 4, !noalias !3
+  %"@4.tmax.i" = load float, ptr %2, align 4, !noalias !4
   %32 = fcmp olt float %extract.low.i, %"@4.tmax.i"
   %extract.high.i = extractvalue %struct.FInterval %interval.value.i, 1
   %33 = fcmp ogt float %extract.high.i, 0.000000e+00
@@ -214,26 +214,26 @@ distmin_Ray_AABB.exit:                            ; preds = %then_bb.i, %next_bb
 
 then_bb18.i:                                      ; preds = %distmin_Ray_AABB.exit
   %extract22.elt132.i = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp3.unpack94.i, i64 %5, i32 1
-  %extract22.unpack133.i = load i16, ptr %extract22.elt132.i, align 1, !noalias !3
+  %extract22.unpack133.i = load i16, ptr %extract22.elt132.i, align 1, !noalias !4
   %49 = icmp eq i16 %extract22.unpack133.i, 0
   %extract30.elt239.i = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp3.unpack94.i, i64 %5, i32 5
   br i1 %49, label %then_bb24.i, label %next_bb25.i
 
 then_bb24.i:                                      ; preds = %then_bb18.i
   %50 = add i32 %extract.i, 1
-  store i32 %50, ptr %extract_ptr.i, align 4, !tbaa !0, !noalias !3
-  %extract30.unpack240242.i = load i32, ptr %extract30.elt239.i, align 1, !noalias !3
+  store i32 %50, ptr %extract_ptr.i, align 4, !tbaa !1, !noalias !4
+  %extract30.unpack240242.i = load i32, ptr %extract30.elt239.i, align 1, !noalias !4
   %51 = add i32 %extract30.unpack240242.i, %extract.i
   %52 = sext i32 %"!count.0.i38" to i64
   %"!stack32.i" = getelementptr inbounds i32, ptr %"!stack88.i", i64 %52
-  store i32 %51, ptr %"!stack32.i", align 4, !tbaa !0, !noalias !3
+  store i32 %51, ptr %"!stack32.i", align 4, !tbaa !1, !noalias !4
   %53 = add i32 %"!count.0.i38", 1
   br label %after_bb.i
 
 next_bb25.i:                                      ; preds = %then_bb18.i
   %54 = zext i16 %extract22.unpack133.i to i32
-  %deref_temp40.unpack144.i = load ptr, ptr %deref_temp40.elt143.i, align 1, !noalias !3
-  %extract43.unpack159161.i = load i32, ptr %extract30.elt239.i, align 1, !noalias !3
+  %deref_temp40.unpack144.i = load ptr, ptr %deref_temp40.elt143.i, align 1, !noalias !4
+  %extract43.unpack159161.i = load i32, ptr %extract30.elt239.i, align 1, !noalias !4
   br label %while.body37.i
 
 while.body37.i:                                   ; preds = %next_bb25.i, %after_bb47.i
@@ -245,7 +245,7 @@ while.body37.i:                                   ; preds = %next_bb25.i, %after
   %55 = add i32 %extract43.unpack159161.i, %_idx0.0.i33
   %56 = sext i32 %55 to i64
   %extract_ptr45.i = getelementptr inbounds %struct.Triangle, ptr %deref_temp40.unpack144.i, i64 %56
-  %57 = tail call %struct._option2 @intersectsp_ray_tri(ptr readonly %ray, ptr %extract_ptr45.i), !noalias !3
+  %57 = tail call %struct._option2 @intersectsp_ray_tri(ptr readonly %ray, ptr %extract_ptr45.i), !noalias !4
   %"@54.set.i" = extractvalue %struct._option2 %57, 1
   br i1 %"@54.set.i", label %then_bb48.i, label %after_bb47.i
 
@@ -259,7 +259,7 @@ after_bb47.i:                                     ; preds = %then_bb59.i, %then_
   br i1 %59, label %while.body37.i, label %after_bb.i
 
 then_bb48.i:                                      ; preds = %while.body37.i
-  %60 = tail call %struct._option2 @intersectsp_ray_tri(ptr readonly %ray, ptr readonly %extract_ptr45.i), !noalias !3
+  %60 = tail call %struct._option2 @intersectsp_ray_tri(ptr readonly %ray, ptr readonly %extract_ptr45.i), !noalias !4
   %isect.set.i = extractvalue %struct._option2 %60, 1
   %isect.value.i = extractvalue %struct._option2 %60, 0
   %isect_.t.i = extractvalue %struct.TriangleIntersection %isect.value.i, 3
@@ -268,11 +268,11 @@ then_bb48.i:                                      ; preds = %while.body37.i
   br i1 %61, label %then_bb59.i, label %after_bb47.i
 
 then_bb59.i:                                      ; preds = %then_bb48.i
-  %extract74.unpack.i = load <3 x float>, ptr %extract_ptr45.i, align 16, !noalias !3
+  %extract74.unpack.i = load <3 x float>, ptr %extract_ptr45.i, align 16, !noalias !4
   %extract74.elt219.i = getelementptr inbounds i8, ptr %extract_ptr45.i, i64 16
-  %extract74.unpack220.i = load <3 x float>, ptr %extract74.elt219.i, align 16, !noalias !3
+  %extract74.unpack220.i = load <3 x float>, ptr %extract74.elt219.i, align 16, !noalias !4
   %extract74.elt221.i = getelementptr inbounds i8, ptr %extract_ptr45.i, i64 32
-  %extract74.unpack222.i = load <3 x float>, ptr %extract74.elt221.i, align 16, !noalias !3
+  %extract74.unpack222.i = load <3 x float>, ptr %extract74.elt221.i, align 16, !noalias !4
   br label %after_bb47.i
 
 _recloop_func0.exit:                              ; preds = %after_bb.i
@@ -1440,20 +1440,20 @@ trace_all_entry:
   %mallocsize.i = shl nuw nsw i64 %size64.i, 6
   %_alloc0_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %.not.i = icmp eq i32 %n, 0
-  br i1 %.not.i, label %_traverse_array0.exit, label %while.body.i
+  br i1 %.not.i, label %_traverse_array0.exit, label %_i00_for.i, !prof !0
 
-while.body.i:                                     ; preds = %trace_all_entry, %while.body.i
-  %_i0.07.i = phi i32 [ %2, %while.body.i ], [ 0, %trace_all_entry ]
-  %0 = sext i32 %_i0.07.i to i64
-  %extract_ptr.i = getelementptr inbounds %struct.Ray, ptr %rays, i64 %0
-  %1 = tail call %struct._option0 @_traverse_tree0(ptr readonly %extract_ptr.i, ptr readonly %triangles)
-  %_alloc0.i = getelementptr inbounds %struct._option0, ptr %_alloc0_untyped.i, i64 %0
-  store %struct._option0 %1, ptr %_alloc0.i, align 16
-  %2 = add nuw i32 %_i0.07.i, 1
-  %3 = icmp ult i32 %2, %n
-  br i1 %3, label %while.body.i, label %_traverse_array0.exit
+_i00_for.i:                                       ; preds = %trace_all_entry, %_i00_for.i
+  %0 = phi i32 [ %3, %_i00_for.i ], [ 0, %trace_all_entry ]
+  %1 = sext i32 %0 to i64
+  %extract_ptr.i = getelementptr inbounds %struct.Ray, ptr %rays, i64 %1
+  %2 = tail call %struct._option0 @_traverse_tree0(ptr readonly %extract_ptr.i, ptr readonly %triangles)
+  %_alloc0.i = getelementptr inbounds %struct._option0, ptr %_alloc0_untyped.i, i64 %1
+  store %struct._option0 %2, ptr %_alloc0.i, align 16
+  %3 = add nuw i32 %0, 1
+  %.not1.i = icmp ult i32 %3, %n
+  br i1 %.not1.i, label %_i00_for.i, label %_traverse_array0.exit
 
-_traverse_array0.exit:                            ; preds = %while.body.i, %trace_all_entry
+_traverse_array0.exit:                            ; preds = %_i00_for.i, %trace_all_entry
   ret ptr %_alloc0_untyped.i
 }
 
@@ -1535,9 +1535,10 @@ attributes #6 = { mustprogress nofree nounwind willreturn allockind("alloc,unini
 attributes #7 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #8 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
-!0 = !{!1, !1, i64 0}
-!1 = !{!"u32", !2, i64 0}
-!2 = !{!"bonsai"}
-!3 = !{!4}
-!4 = distinct !{!4, !5, !"_recloop_func0: %_best0"}
-!5 = distinct !{!5, !"_recloop_func0"}
+!0 = !{!"branch_weights", i32 0, i32 1073741824}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"u32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!5}
+!5 = distinct !{!5, !6, !"_recloop_func0: %_best0"}
+!6 = distinct !{!6, !"_recloop_func0"}

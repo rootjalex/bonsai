@@ -25,7 +25,7 @@ func map_hits(n : i32, rays : Ray[n]) -> i32[n] {
   exp_queue_data : mut (Ray, (i32[n]*), i32)[64]
   exp_queue : mut (u64, (Ray, (i32[n]*), i32)[64]) := (0u, exp_queue_data)
   alloc _alloc0 : mut i32[n]
-  forall _i0 in [0:n:1] {
+  parfor _i0 in [0:n:1] {
     num_hits(rays[_i0], 100, 0, _alloc0, _i0, exp_queue)
   }
   forall _exp_queue_task in [0u:exp_queue[0]:1u] {

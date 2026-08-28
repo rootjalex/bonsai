@@ -627,6 +627,19 @@ ir::Program LoopTransforms::run(ir::Program program,
 
         Stmt body = std::move(func->body);
         for (const auto &t : ts) {
+            // A transform that changes nothing found no loop to work on, and
+            // saying nothing about it compiles a different program than the
+            // schedule asks for -- a `cpu_thread` that never threads reads as
+            // merely slow. These all match `ForAll`, so since `map` began
+            // lowering to a `parfor` the loops they used to find are no longer
+            // theirs to find; use the SSA pipeline, where the same transforms
+            // work on parfor loops.
+            const Stmt before = body;
+            const bool must_change =
+                std::holds_alternative<Split>(t) ||
+                std::holds_alternative<Collapse>(t) ||
+                std::holds_alternative<Parallelize>(t);
+
             std::visit(Overloaded{[&](const Defer &def) {
                                       // no-op, should have been handled in
                                       // Lower/Defers.cpp
@@ -670,6 +683,13 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // instead (see SSA/Rewrite.h).
                                   }},
                        t);
+
+            internal_assert(!must_change || !body.same_as(before))
+                << "This schedule changed nothing in " << name
+                << ". The Stmt-level loop transforms match sequential loops "
+                << "only, and `map` now lowers to a parfor, so the loop named "
+                << "is not one they can reach. Compile with `-p ssa`, where "
+                << "split and collapse work on parfor loops.";
         }
         func->body = std::move(body);
     }

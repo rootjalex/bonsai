@@ -112,9 +112,19 @@ Stmt build_traversal_helper(const Expr &func, const Expr &array,
         loop_body = build_loop_body(std::move(expr), std::move(nested_idx));
     }
 
-    return ForAll::make(
+    // A parfor, because that is what a map is: every element is worked out
+    // from its own input and written to its own place, so the loop genuinely
+    // may run in any order. Saying so is also what makes it schedulable -- the
+    // loop transforms and bind() apply only to parfor loops -- and it costs
+    // nothing when nothing schedules it, since a parfor no schedule places is
+    // emitted as an ordinary sequential loop.
+    //
+    // A map fused into a tree query never reaches here: opt::Fusion folds it
+    // into the query and Lower/Trees.cpp lowers the traversal, where the walk
+    // is not an independent pass over elements.
+    return ParFor::make(
         loop_idx,
-        ForAll::Slice{std::move(begin), std::move(end), std::move(stride)},
+        ParFor::Slice{std::move(begin), std::move(end), std::move(stride)},
         std::move(loop_body));
 }
 

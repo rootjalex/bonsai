@@ -18,14 +18,14 @@ _traverse_array1_entry:
   %mallocsize = shl nuw nsw i64 %size64, 2
   %_alloc1_untyped = tail call ptr @malloc(i64 %mallocsize)
   %.not = icmp eq i32 %n, 0
-  br i1 %.not, label %while.end, label %while.body.preheader
+  br i1 %.not, label %_i01_for_end, label %_i01_for.preheader, !prof !3
 
-while.body.preheader:                             ; preds = %_traverse_array1_entry
+_i01_for.preheader:                               ; preds = %_traverse_array1_entry
   %0 = add i32 %n, 2147483647
   %or.cond = icmp ult i32 %0, -2147483641
-  br i1 %or.cond, label %while.body.preheader10, label %vector.ph
+  br i1 %or.cond, label %_i01_for.preheader4, label %vector.ph
 
-vector.ph:                                        ; preds = %while.body.preheader
+vector.ph:                                        ; preds = %_i01_for.preheader
   %n.vec = and i32 %n, -8
   %broadcast.splatinsert = insertelement <4 x float> poison, float %k, i64 0
   %broadcast.splat = shufflevector <4 x float> %broadcast.splatinsert, <4 x float> poison, <4 x i32> zeroinitializer
@@ -37,38 +37,38 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %2 = getelementptr inbounds float, ptr %a, i64 %1
   %3 = getelementptr inbounds i8, ptr %2, i64 16
   %wide.load = load <4 x float>, ptr %2, align 4
-  %wide.load8 = load <4 x float>, ptr %3, align 4
+  %wide.load2 = load <4 x float>, ptr %3, align 4
   %4 = fmul <4 x float> %wide.load, %broadcast.splat
-  %5 = fmul <4 x float> %wide.load8, %broadcast.splat
+  %5 = fmul <4 x float> %wide.load2, %broadcast.splat
   %6 = getelementptr inbounds float, ptr %_alloc1_untyped, i64 %1
   %7 = getelementptr inbounds i8, ptr %6, i64 16
-  store <4 x float> %4, ptr %6, align 4, !tbaa !3
-  store <4 x float> %5, ptr %7, align 4, !tbaa !3
+  store <4 x float> %4, ptr %6, align 4, !tbaa !4
+  store <4 x float> %5, ptr %7, align 4, !tbaa !4
   %index.next = add nuw i32 %index, 8
   %8 = icmp eq i32 %index.next, %n.vec
-  br i1 %8, label %middle.block, label %vector.body, !llvm.loop !5
+  br i1 %8, label %middle.block, label %vector.body, !llvm.loop !6
 
 middle.block:                                     ; preds = %vector.body
   %cmp.n = icmp eq i32 %n.vec, %n
-  br i1 %cmp.n, label %while.end, label %while.body.preheader10
+  br i1 %cmp.n, label %_i01_for_end, label %_i01_for.preheader4
 
-while.body.preheader10:                           ; preds = %middle.block, %while.body.preheader
-  %_i0.07.ph = phi i32 [ 0, %while.body.preheader ], [ %n.vec, %middle.block ]
-  br label %while.body
+_i01_for.preheader4:                              ; preds = %middle.block, %_i01_for.preheader
+  %.ph = phi i32 [ 0, %_i01_for.preheader ], [ %n.vec, %middle.block ]
+  br label %_i01_for
 
-while.body:                                       ; preds = %while.body.preheader10, %while.body
-  %_i0.07 = phi i32 [ %11, %while.body ], [ %_i0.07.ph, %while.body.preheader10 ]
-  %9 = sext i32 %_i0.07 to i64
-  %extract_ptr = getelementptr inbounds float, ptr %a, i64 %9
+_i01_for:                                         ; preds = %_i01_for.preheader4, %_i01_for
+  %9 = phi i32 [ %12, %_i01_for ], [ %.ph, %_i01_for.preheader4 ]
+  %10 = sext i32 %9 to i64
+  %extract_ptr = getelementptr inbounds float, ptr %a, i64 %10
   %extract = load float, ptr %extract_ptr, align 4
-  %10 = fmul float %extract, %k
-  %_alloc1 = getelementptr inbounds float, ptr %_alloc1_untyped, i64 %9
-  store float %10, ptr %_alloc1, align 4, !tbaa !3
-  %11 = add nuw i32 %_i0.07, 1
-  %12 = icmp ult i32 %11, %n
-  br i1 %12, label %while.body, label %while.end, !llvm.loop !8
+  %11 = fmul float %extract, %k
+  %_alloc1 = getelementptr inbounds float, ptr %_alloc1_untyped, i64 %10
+  store float %11, ptr %_alloc1, align 4, !tbaa !4
+  %12 = add nuw i32 %9, 1
+  %.not1 = icmp ult i32 %12, %n
+  br i1 %.not1, label %_i01_for, label %_i01_for_end, !llvm.loop !9
 
-while.end:                                        ; preds = %while.body, %middle.block, %_traverse_array1_entry
+_i01_for_end:                                     ; preds = %_i01_for, %middle.block, %_traverse_array1_entry
   ret ptr %_alloc1_untyped
 }
 
@@ -89,14 +89,14 @@ scale_entry:
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
   %_alloc1_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %.not.i = icmp eq i32 %n, 0
-  br i1 %.not.i, label %_traverse_array1.exit, label %while.body.i.preheader
+  br i1 %.not.i, label %_traverse_array1.exit, label %_i01_for.i.preheader, !prof !3
 
-while.body.i.preheader:                           ; preds = %scale_entry
+_i01_for.i.preheader:                             ; preds = %scale_entry
   %0 = add i32 %n, 2147483647
   %or.cond = icmp ult i32 %0, -2147483641
-  br i1 %or.cond, label %while.body.i.preheader3, label %vector.ph
+  br i1 %or.cond, label %_i01_for.i.preheader3, label %vector.ph
 
-vector.ph:                                        ; preds = %while.body.i.preheader
+vector.ph:                                        ; preds = %_i01_for.i.preheader
   %n.vec = and i32 %n, -8
   %broadcast.splatinsert = insertelement <4 x float> poison, float %k, i64 0
   %broadcast.splat = shufflevector <4 x float> %broadcast.splatinsert, <4 x float> poison, <4 x i32> zeroinitializer
@@ -113,33 +113,33 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %5 = fmul <4 x float> %wide.load1, %broadcast.splat
   %6 = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %1
   %7 = getelementptr inbounds i8, ptr %6, i64 16
-  store <4 x float> %4, ptr %6, align 4, !tbaa !3
-  store <4 x float> %5, ptr %7, align 4, !tbaa !3
+  store <4 x float> %4, ptr %6, align 4, !tbaa !4
+  store <4 x float> %5, ptr %7, align 4, !tbaa !4
   %index.next = add nuw i32 %index, 8
   %8 = icmp eq i32 %index.next, %n.vec
-  br i1 %8, label %middle.block, label %vector.body, !llvm.loop !9
+  br i1 %8, label %middle.block, label %vector.body, !llvm.loop !10
 
 middle.block:                                     ; preds = %vector.body
   %cmp.n = icmp eq i32 %n.vec, %n
-  br i1 %cmp.n, label %_traverse_array1.exit, label %while.body.i.preheader3
+  br i1 %cmp.n, label %_traverse_array1.exit, label %_i01_for.i.preheader3
 
-while.body.i.preheader3:                          ; preds = %middle.block, %while.body.i.preheader
-  %_i0.07.i.ph = phi i32 [ 0, %while.body.i.preheader ], [ %n.vec, %middle.block ]
-  br label %while.body.i
+_i01_for.i.preheader3:                            ; preds = %middle.block, %_i01_for.i.preheader
+  %.ph = phi i32 [ 0, %_i01_for.i.preheader ], [ %n.vec, %middle.block ]
+  br label %_i01_for.i
 
-while.body.i:                                     ; preds = %while.body.i.preheader3, %while.body.i
-  %_i0.07.i = phi i32 [ %11, %while.body.i ], [ %_i0.07.i.ph, %while.body.i.preheader3 ]
-  %9 = sext i32 %_i0.07.i to i64
-  %extract_ptr.i = getelementptr inbounds float, ptr %a, i64 %9
+_i01_for.i:                                       ; preds = %_i01_for.i.preheader3, %_i01_for.i
+  %9 = phi i32 [ %12, %_i01_for.i ], [ %.ph, %_i01_for.i.preheader3 ]
+  %10 = sext i32 %9 to i64
+  %extract_ptr.i = getelementptr inbounds float, ptr %a, i64 %10
   %extract.i = load float, ptr %extract_ptr.i, align 4
-  %10 = fmul float %extract.i, %k
-  %_alloc1.i = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %9
-  store float %10, ptr %_alloc1.i, align 4, !tbaa !3
-  %11 = add nuw i32 %_i0.07.i, 1
-  %12 = icmp ult i32 %11, %n
-  br i1 %12, label %while.body.i, label %_traverse_array1.exit, !llvm.loop !10
+  %11 = fmul float %extract.i, %k
+  %_alloc1.i = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %10
+  store float %11, ptr %_alloc1.i, align 4, !tbaa !4
+  %12 = add nuw i32 %9, 1
+  %.not1.i = icmp ult i32 %12, %n
+  br i1 %.not1.i, label %_i01_for.i, label %_traverse_array1.exit, !llvm.loop !11
 
-_traverse_array1.exit:                            ; preds = %while.body.i, %middle.block, %scale_entry
+_traverse_array1.exit:                            ; preds = %_i01_for.i, %middle.block, %scale_entry
   ret ptr %_alloc1_untyped.i
 }
 
@@ -153,11 +153,12 @@ attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,unini
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}
 !2 = !{!"bonsai"}
-!3 = !{!4, !4, i64 0}
-!4 = !{!"f32", !2, i64 0}
-!5 = distinct !{!5, !6, !7}
-!6 = !{!"llvm.loop.isvectorized", i32 1}
-!7 = !{!"llvm.loop.unroll.runtime.disable"}
-!8 = distinct !{!8, !6}
-!9 = distinct !{!9, !6, !7}
-!10 = distinct !{!10, !6}
+!3 = !{!"branch_weights", i32 0, i32 1073741824}
+!4 = !{!5, !5, i64 0}
+!5 = !{!"f32", !2, i64 0}
+!6 = distinct !{!6, !7, !8}
+!7 = !{!"llvm.loop.isvectorized", i32 1}
+!8 = !{!"llvm.loop.unroll.runtime.disable"}
+!9 = distinct !{!9, !7}
+!10 = distinct !{!10, !7, !8}
+!11 = distinct !{!11, !7}

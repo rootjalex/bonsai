@@ -1,8 +1,9 @@
 //! flags: -p ssa -b llvm
 
-// Golden-diffs the LLVM a sequential loop compiles to through the SSA
-// pipeline, where `map` becomes a ForAll and the converter turns that into a
-// loop in the block graph.
+// Golden-diffs the LLVM the loop from a `map` compiles to through the SSA
+// pipeline. `map` lowers to a parfor -- its iterations are independent by
+// definition -- and one no schedule has placed on any hardware is emitted as
+// the ordinary counted loop it is.
 //
 // What the golden should show is an ordinary counted loop -- a phi for the
 // index, a compare, a back edge -- and nothing left of the block structure

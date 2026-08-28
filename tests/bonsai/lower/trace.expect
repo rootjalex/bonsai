@@ -24,7 +24,7 @@ extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct
 
 func _traverse_array0(n : u32, rays : Ray[n], triangles : (_tree_layout0*)) -> _option0[n] {
   alloc _alloc0 : mut _option0[n]
-  forall _i0 in [0u:n:1u] {
+  parfor _i0 in [0u:n:1u] {
     _alloc0[_i0] = _traverse_tree0((&rays[_i0]), triangles)
   }
   return _alloc0
