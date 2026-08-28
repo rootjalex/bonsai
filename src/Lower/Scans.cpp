@@ -32,15 +32,41 @@ std::string scan_func_name(std::optional<AggOp::OpType> op,
     return func_name;
 }
 
-// TODO: support scan augmentations!
-std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args,
-                                          std::optional<AggOp::OpType> op) {
-    std::string func_name = scan_func_name(op, args);
+// The accumulate that combines a subtree's contribution into a reduction.
+Accumulate::OpType accumulate_op_for(AggOp::OpType op) {
+    switch (op) {
+    case AggOp::sum:
+        return Accumulate::Add;
+    case AggOp::prod:
+        return Accumulate::Mul;
+    default:
+        internal_error << "Cannot scan a subtree with reduction: "
+                       << to_string(op);
+    }
+}
+
+// A scan traverses a whole subtree. By default it unions the elements into a
+// set; when the scan carries a reduction it folds them into an accumulator
+// instead, applying the scan's map function to each element first.
+// Substitute an element into a unary lambda.
+Expr apply_unary_lambda(const Expr &lambda_expr, const Expr &value) {
+    const Lambda *lambda = lambda_expr.as<Lambda>();
+    internal_assert(lambda && lambda->args.size() == 1)
+        << "Scan map is not a unary lambda: " << lambda_expr;
+    return replace(lambda->args[0].name, value, lambda->value);
+}
+
+std::shared_ptr<Function>
+build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
+                const std::optional<AggOp::OpType> &op, const Expr &map_func) {
     std::vector<Function::Argument> f_args(args.size());
     for (size_t i = 0, e = args.size(); i < e; i++) {
         f_args[i].name = args[i].name;
         f_args[i].type = args[i].type;
-        f_args[i].mutating = !args[i].type.is<BVH_t>();
+        // The output -- a set to append to, or an accumulator to fold into --
+        // is the last argument and is written through.
+        f_args[i].mutating =
+            args[i].type.is<Set_t>() || (op.has_value() && i + 1 == e);
     }
     std::shared_ptr<Function> func = std::make_shared<Function>(
         func_name, std::move(f_args), Void_t::make(), Stmt(),
@@ -51,14 +77,43 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args,
         std::optional<AggOp::OpType> op;
         Expr write_expr;
         WriteLoc write_loc;
+        std::optional<AggOp::OpType> op;
+        Expr map_func;
 
-        ScansToCalls(std::optional<AggOp::OpType> _op,
-                     std::shared_ptr<Function> _func)
-            : func(std::move(_func)), op(std::move(_op)) {
+        ScansToCalls(std::shared_ptr<Function> _func,
+                     std::optional<AggOp::OpType> op, Expr map_func)
+            : func(std::move(_func)), op(std::move(op)),
+              map_func(std::move(map_func)) {
             write_expr =
                 Var::make(func->args.back().type, func->args.back().name);
             write_loc =
                 WriteLoc(func->args.back().name, func->args.back().type);
+        }
+
+        size_t counter = 0;
+
+        // Contribute one element: append it to the output set, or fold it
+        // into the accumulator.
+        Stmt contribute(const Expr &value) {
+            if (!op.has_value()) {
+                return Append::make(write_loc, value);
+            }
+            Expr mapped = map_func.defined()
+                              ? apply_unary_lambda(map_func, value)
+                              : value;
+            return Accumulate::make(write_loc, accumulate_op_for(*op),
+                                    std::move(mapped));
+        }
+
+        // Appending an iterable adds all of its elements at once, but a
+        // reduction has to fold them in one at a time.
+        Stmt contribute_each(const Expr &values) {
+            if (!op.has_value()) {
+                return Append::make(write_loc, values);
+            }
+            std::string name = "_elem" + std::to_string(counter++);
+            Expr element = Var::make(values.type().element_of(), name);
+            return ForEach::make(std::move(name), values, contribute(element));
         }
 
         Stmt visit(const Scan *node) override {
@@ -91,63 +146,34 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &args,
         }
 
         Stmt visit(const Iterate *node) override {
-            if (op) {
-                switch (*op) {
-                case AggOp::OpType::count: {
-                    return ir::Accumulate::make(write_loc, ir::Accumulate::Add,
-                                                count(node->value));
-                }
-                default: {
-                    internal_error << "TODO: " << Stmt(node);
-                }
-                }
-            } else {
-                return Append::make(write_loc, node->value);
-            }
+            return contribute_each(node->value);
         }
 
         Stmt visit(const Yield *node) override {
-            if (op) {
-                switch (*op) {
-                case AggOp::OpType::count: {
-                    return ir::Accumulate::make(write_loc, ir::Accumulate::Add,
-                                                make_one(write_loc.base_type));
-                }
-                default: {
-                    internal_error << "TODO: " << Stmt(node);
-                }
-                }
-            } else {
-                return Append::make(write_loc, node->value);
-            }
+            return contribute(node->value);
         }
 
         RESTRICT_MUTATOR(Stmt, YieldFrom);
     };
 
-    // TODO: support product scans!
-    internal_assert(args.size() >= 2 && args.size() <= 3) << args.size();
-
-    for (size_t i = 0; i < args.size() - 1; i++) {
-        internal_assert(args[i].type.is<BVH_t>()) << "Argument " << i << " is not BVH_t";
-    }
+    // Every argument but the last is a tree to traverse; the last is where the
+    // traversal writes -- a set to append to, or a reduction's accumulator.
+    internal_assert(args.size() >= 2 && args.size() <= 3)
+        << "[unimplemented] scanning more than two trees: " << args.size();
+    internal_assert(op.has_value() || args.back().type.is<Set_t>());
 
     std::vector<Stmt> scans(args.size() - 1);
-
-    for (size_t i = 0; i < args.size() - 1; i++) {
-        const BVH_t *bvh_t0 = args[i].type.as<BVH_t>();
-        internal_assert(bvh_t0);
-
-        Stmt body = build_base_scan(args[i].name, bvh_t0);
-
-        scans[i] = std::move(body);
+    for (size_t i = 0, e = args.size() - 1; i < e; i++) {
+        const BVH_t *bvh_t = args[i].type.as<BVH_t>();
+        internal_assert(bvh_t) << "Argument " << i << " is not BVH_t";
+        scans[i] = build_base_scan(args[i].name, bvh_t);
     }
+    // Coiterating two trees scans their product.
+    Stmt match_body =
+        scans.size() == 1 ? scans[0] : build_product(scans[0], scans[1]);
 
-    Stmt match_body = (scans.size() == 1) ? scans[0] : build_product(scans[0], scans[1]);
-    // Need to rewrite scans in ^ to recursive calls.
-    // And Yields to Appends
-
-    func->body = ScansToCalls(op, func).mutate(match_body);
+    // Need to rewrite scans in ^ to recursive calls, and Yields to Appends.
+    func->body = ScansToCalls(func, op, map_func).mutate(match_body);
 
     return func;
 }
@@ -165,22 +191,63 @@ struct LowerScansImpl : public Mutator {
         return ir::Mutator::visit(node);
     }
 
-    Expr get_or_build_callable(std::optional<AggOp::OpType> op) {
-        std::vector<TypedVar> scan_args;
+    // Scan functions built so far, so that two scans of the same trees with
+    // the same reduction and map share one function.
+    struct BuiltScan {
+        std::string base;
+        std::optional<AggOp::OpType> op;
+        Expr map_func;
+        std::string name;
+    };
+    std::vector<BuiltScan> built;
+
+    // The trees to traverse, and the location to write into. A set-union scan
+    // writes into the enclosing output set; a reducing scan writes into its
+    // own accumulator.
+    std::pair<std::vector<TypedVar>, TypedVar>
+    scan_arguments(const Scan *node) const {
+        std::vector<TypedVar> trees;
         for (const auto &arg : args) {
-            if (arg.type.is<BVH_t>() || arg.type.is<Set_t>() ||
-                arg.name.starts_with("_")) {
-                scan_args.push_back(arg);
+            if (arg.type.is<BVH_t>()) {
+                trees.push_back(arg);
             }
         }
-        std::string name = scan_func_name(op, scan_args);
-        if (const auto &iter = new_funcs.find(name); iter != new_funcs.cend()) {
-            return Var::make(iter->second->call_type(), iter->second->name);
+        if (node->op.has_value()) {
+            return {std::move(trees),
+                    TypedVar{node->loc.base, node->loc.base_type}};
+        }
+        for (const auto &arg : args) {
+            if (arg.type.is<Set_t>()) {
+                return {std::move(trees), arg};
+            }
+        }
+        internal_error << "No output for scan: " << Stmt(node);
+    }
+
+    Expr get_or_build_callable(const Scan *node,
+                               const std::vector<TypedVar> &scan_args) {
+        const std::string base = scan_func_name(scan_args);
+        for (const auto &b : built) {
+            const bool same_map =
+                b.map_func.defined() == node->func.defined() &&
+                (!b.map_func.defined() || equals(b.map_func, node->func));
+            if (b.base == base && b.op == node->op && same_map) {
+                const auto &f = new_funcs.at(b.name);
+                return Var::make(f->call_type(), f->name);
+            }
         }
         // Need to build this func.
-        auto func = build_scan_func(scan_args, op);
+        std::string name = base;
+        if (node->op.has_value()) {
+            name += "_" + to_string(*node->op);
+        }
+        if (new_funcs.contains(name)) {
+            name += "_" + std::to_string(built.size());
+        }
+        auto func = build_scan_func(scan_args, name, node->op, node->func);
         Expr ret = Var::make(func->call_type(), func->name);
         new_funcs[name] = std::move(func);
+        built.push_back({base, node->op, node->func, std::move(name)});
         return ret;
     }
 
@@ -218,9 +285,11 @@ struct LowerScansImpl : public Mutator {
 
         internal_assert(!args.empty() && args.front().type.is<BVH_t>())
             << args.front();
-        std::string bvh_name = args.front().type.as<BVH_t>()->name;
 
-        Expr callable = get_or_build_callable(node->op);
+        auto [trees, output] = scan_arguments(node);
+        std::vector<TypedVar> scan_args = trees;
+        scan_args.push_back(output);
+        Expr callable = get_or_build_callable(node, scan_args);
 
         // Make n scan calls.
         for (const auto &id : ids) {
@@ -233,7 +302,7 @@ struct LowerScansImpl : public Mutator {
             } else {
                 call_args.push_back(id);
             }
-            call_args.push_back(args.back());
+            call_args.push_back(Var::make(output.type, output.name));
             stmts.push_back(CallStmt::make(callable, std::move(call_args)));
         }
         return Sequence::make(std::move(stmts));

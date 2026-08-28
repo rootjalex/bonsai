@@ -78,6 +78,9 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Accumulate *node) override {
+        // Accumulating into a location makes that location a free variable of
+        // the enclosing traversal; without this the generated traversal
+        // function never receives the accumulator.
         if (!seen_vars.contains(node->loc.base)) {
             seen_vars.insert(node->loc.base);
             free_vars.push_back({node->loc.base, node->loc.base_type});

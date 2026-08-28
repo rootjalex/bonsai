@@ -690,8 +690,15 @@ void CodeGen_LLVM::visit(const StringImm *node) {
 }
 
 void CodeGen_LLVM::visit(const Extrema *node) {
-    internal_error << "TODO: " << Expr(node);
     llvm::Type *inf_type = codegen_type(node->type);
+
+    if (node->op == Extrema::eps) {
+        internal_assert(node->type.is_float())
+            << "Epsilon is only defined for floating point types: "
+            << node->type;
+        value = llvm::ConstantFP::get(inf_type, machine_epsilon(node->type));
+        return;
+    }
 
     if (inf_type->isFloatTy()) {
         value = llvm::ConstantFP::get(
@@ -711,7 +718,7 @@ void CodeGen_LLVM::visit(const Extrema *node) {
 
         value = llvm::ConstantInt::get(inf_type, max_val);
     } else {
-        internal_error << "Infinity codegen not yet supported for type: "
+        internal_error << "Extrema codegen not yet supported for type: "
                        << node->type;
     }
 }
@@ -2463,6 +2470,39 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             builder->CreateFCmpOLT(curr_key, new_key); // curr_key < new_key
 
         // Select the full struct based on which key is smaller
+        acc = builder->CreateSelect(cmp, current, update);
+        break;
+    }
+    case Accumulate::Argmax: {
+        // acc = select(curr.first > update.first, curr, update)
+        llvm::Value *curr_key =
+            builder->CreateExtractValue(current, 0); // curr.first
+        llvm::Value *new_key =
+            builder->CreateExtractValue(update, 0); // update.first
+
+        internal_assert(curr_key->getType()->isFloatingPointTy());
+        llvm::Value *cmp =
+            builder->CreateFCmpOGT(curr_key, new_key); // curr_key > new_key
+
+        // Select the full struct based on which key is larger
+        acc = builder->CreateSelect(cmp, current, update);
+        break;
+    }
+    case Accumulate::Min:
+    case Accumulate::Max: {
+        const bool is_min = node->op == Accumulate::Min;
+        const Type &t = node->value.type();
+        llvm::Value *cmp = nullptr;
+        if (t.is_float()) {
+            cmp = is_min ? builder->CreateFCmpOLT(current, update)
+                         : builder->CreateFCmpOGT(current, update);
+        } else if (t.is_int()) {
+            cmp = is_min ? builder->CreateICmpSLT(current, update)
+                         : builder->CreateICmpSGT(current, update);
+        } else {
+            cmp = is_min ? builder->CreateICmpULT(current, update)
+                         : builder->CreateICmpUGT(current, update);
+        }
         acc = builder->CreateSelect(cmp, current, update);
         break;
     }

@@ -1,0 +1,28 @@
+type Item = struct Item{ id : i32 }
+type ItemTree = (const ItemTree&)
+
+extern items : tree[[struct Item{ id : i32 }]] ItemTree
+  | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh]
+  | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh]
+
+func _traverse_tree0(items : tree[[Item]] ItemTree) -> i32 {
+  _acc0 : mut i32 := 0
+  rec(items : tree[[Item]] ItemTree) {
+    match items {
+    | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] ->
+      scan<sum> |x : Item| x.id over ((items as Interior).left, (items as Interior).right)
+    | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
+      _acc0 += (items as Leaf).data.id
+    }
+  }
+  yield _acc0
+}
+
+func q() -> i32 {
+  return _traverse_tree0(items)
+}
+
+
+schedule host {
+
+}

@@ -1,0 +1,26 @@
+//! flags: -p canonicalize -p lower-trees
+
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element AABB {
+    low, high : vec3f;
+}
+
+element Point {
+    data : vec3f;
+}
+
+extern points : set[Point];
+
+// Algorithm 5 lines 11-12 and Algorithm 6 lines 7-8. Disjointness is refuted only when the query swallows the whole volume.
+func q_uv(r : AABB) = filter(|p| disjoint(r, p), points);
+func q_vu(r : AABB) = filter(|p| disjoint(p, r), points);
+
+schedule {
+    tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : PointBVH, right : PointBVH)
+    | Leaf(data : Point) with data = data;
+
+    points : PointBVH;
+}

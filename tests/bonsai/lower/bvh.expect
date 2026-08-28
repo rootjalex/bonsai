@@ -16,11 +16,15 @@ func _traverse_tree0(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> set
   rec(triangles : tree[[Triangle]] TriangleBVH) {
     match triangles {
     | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
-      if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
+      if (contains(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
+        scan ((triangles as Interior).left, (triangles as Interior).right)
+      } else if (intersects(ray, build<AABB>((triangles as Interior).low, (triangles as Interior).high))) {
         from ((triangles as Interior).left, (triangles as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Triangle) with data = data with AABB(low, high) ->
-      if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
+      if (contains(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
+        yield (triangles as Leaf).data
+      } else if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high))) {
         if (intersects(ray, (triangles as Leaf).data)) {
           yield (triangles as Leaf).data
         }

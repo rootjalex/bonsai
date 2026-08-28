@@ -1,0 +1,19 @@
+//! flags: -p canonicalize -p lower-trees
+
+element Item {
+    id : i32;
+}
+
+extern items : set[Item];
+extern items2 : set[Item];
+
+func q() = filter(|a : Item, b : Item| a.id == b.id, product(items, items2));
+
+schedule {
+    tree[[Item]] ItemTree(idl idh : i32) with id in [idl, idh] =
+    | Interior(left : ItemTree, right : ItemTree)
+    | Leaf(data : Item) with data = data;
+
+    items : ItemTree;
+    items2 : ItemTree;
+}

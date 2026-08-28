@@ -58,6 +58,19 @@ find_package(
     target
     passes
     native
+    # The components below are used directly by src/CodeGen (TargetRegistry,
+    # Triple, getDefaultTargetTriple, the AlwaysInliner, and the individual
+    # passes named in optimize_module). They resolve transitively through the
+    # monolithic LLVM dylib on macOS, but must be requested explicitly when
+    # LLVM is built as separate component libraries (e.g. a Linux
+    # BUILD_SHARED_LIBS install).
+    mc
+    targetparser
+    codegen
+    transformutils
+    instcombine
+    scalaropts
+    ipo
     # irbuilder
     orcjit
     executionengine # Required for LLJIT

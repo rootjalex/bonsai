@@ -261,6 +261,8 @@ Expr constant_cast(const Type &t, const Expr &e) {
         }
     } else if (e.is<Broadcast>()) {
         return constant_cast(t, e.as<Broadcast>()->value);
+    } else if (const auto *extrema = e.as<Extrema>()) {
+        return Extrema::make(t, extrema->op);
     }
     internal_error << "Unsure how to convert constant to type: " << t
                    << " expr: " << e;
