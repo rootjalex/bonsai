@@ -69,6 +69,26 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     return {data, children};
 }
 
+// Key under which a node's precomputed aggregate is recorded, e.g. "count()"
+// or "min(id)". Must agree between the annotation and the query operator
+// looking the aggregate up.
+std::string aggregate_key(const ir::Annotation::Aggregate &agg) {
+    std::string key = to_string(agg.op) + "(";
+    for (size_t i = 0; i < agg.args.size(); i++) {
+        if (i != 0) {
+            key += ", ";
+        }
+        key += agg.args[i];
+    }
+    key += ")";
+    return key;
+}
+
+std::string aggregate_key(ir::Annotation::Aggregate::OpType op,
+                          const std::vector<std::string> &args) {
+    return aggregate_key(ir::Annotation::Aggregate{op, args, ""});
+}
+
 struct RewriteYields : public ir::Mutator {
     std::function<ir::Stmt(const ir::Expr &)> f;
     RewriteYields(std::function<ir::Stmt(const ir::Expr &)> f)
@@ -107,11 +127,19 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
+    // Volumes annotated on a node's children rather than on the node itself.
+    // Keyed by the matched tree variable, then by child field name.
+    std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
     // The list of tagged intervals. Holds scalar interval OR map of field
     // intervals.
     std::vector<
         std::variant<std::monostate, Interval, std::map<std::string, Interval>>>
         intervals;
+    // Reduction augmentations for the current match arms: the field holding a
+    // precomputed aggregate over the subtree, keyed by the aggregate it
+    // stores.
+    // TODO: key is a string concat of the aggregation request, not ideal...
+    std::vector<std::map<std::string, ir::Expr>> aggregations;
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
 
@@ -135,8 +163,8 @@ struct Rewriter : public ir::Mutator {
                 return Interval{std::move(low_expr), std::move(high_expr)};
             };
 
-            if (bvh_node.has_volume()) {
-                const auto &volume = bvh_node.get_volume();
+            const auto make_volume =
+                [&](const ir::Annotation::Volume *volume) -> ir::Expr {
                 const auto &inits = volume->initializers;
                 const size_t n_args = inits.size();
                 std::vector<ir::Expr> args(n_args);
@@ -144,14 +172,19 @@ struct Rewriter : public ir::Mutator {
                     const auto &name = inits[j];
                     args[j] = ir::Access::make(name, tree);
                 }
-                ir::Expr vol = ir::Build::make(volume->struct_type, args);
-                volumes.emplace_back(std::move(vol));
+                return ir::Build::make(volume->struct_type, args);
+            };
+
+            if (bvh_node.has_volume()) {
+                volumes.emplace_back(make_volume(bvh_node.get_volume()));
             } else {
                 volumes.emplace_back(); // undef volume
             }
             std::variant<std::monostate, Interval,
                          std::map<std::string, Interval>>
                 interval;
+            std::map<std::string, ir::Expr> aggregation;
+            std::map<std::string, ir::Expr> built_child_volumes;
             for (const auto &annot : node->arms[i].first.annotations) {
                 if (const auto *a_interval =
                         annot.as<ir::Annotation::Interval>()) {
@@ -175,13 +208,32 @@ struct Rewriter : public ir::Mutator {
                             (*as_map)[a_interval->scalar] = m_interval;
                         }
                     }
+                } else if (const auto *agg =
+                               annot.as<ir::Annotation::Aggregate>()) {
+                    aggregation[aggregate_key(*agg)] =
+                        ir::Access::make(agg->value, tree);
+                } else if (const auto *vol =
+                               annot.as<ir::Annotation::Volume>()) {
+                    if (vol->geometry.empty()) {
+                        continue; // the node's own volume, handled above
+                    }
+                    // Tagged on a child.
+                    built_child_volumes[vol->geometry] = make_volume(vol);
                 }
             }
             intervals.emplace_back(std::move(interval));
+            aggregations.emplace_back(std::move(aggregation));
+            if (!built_child_volumes.empty()) {
+                child_volumes[var->name] = built_child_volumes;
+            }
 
             ir::Stmt stmt = mutate(node->arms[i].second);
             volumes.pop_back();
             intervals.pop_back();
+            aggregations.pop_back();
+            if (!built_child_volumes.empty()) {
+                child_volumes.erase(var->name);
+            }
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
@@ -199,6 +251,37 @@ struct Rewriter : public ir::Mutator {
             // Even if a volume is undefined, needs to be added so
             // predicate analysis knows it's non-varying.
             vols[args[i].name] = volumes[i];
+        }
+        return vols;
+    }
+
+    // Build a volume map from the child volumes attached to `value`, for the
+    // case where a node annotates its children's bounds rather than its own.
+    VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
+                              const ir::Expr &value) const {
+        const auto get_volume = [&](const ir::Expr &e) {
+            const ir::Access *access = e.as<ir::Access>();
+            internal_assert(access) << e;
+            const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
+            internal_assert(unwrap) << e;
+            const ir::Var *var = unwrap->value.as<ir::Var>();
+            internal_assert(var) << e;
+            const auto &iter = child_volumes.find(var->name);
+            internal_assert(iter != child_volumes.cend()) << e;
+            const auto &citer = iter->second.find(access->field);
+            internal_assert(citer != iter->second.cend()) << e;
+            return citer->second;
+        };
+        VolumeMap vols;
+        if (args.size() == 1) {
+            vols[args[0].name] = get_volume(value);
+        } else {
+            const auto values = break_tuple(value);
+            internal_assert(args.size() == values.size()) << value;
+            for (size_t i = 0; i < args.size(); i++) {
+                // TODO(ajr): this doesn't work with mismatching BVHs.
+                vols[args[i].name] = get_volume(values[i]);
+            }
         }
         return vols;
     }
@@ -306,9 +389,6 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             IntervalMap ints = make_interval_map(lambda->args, intervals);
 
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
-            internal_assert(bounds.max.defined())
-                << "Cannot accelerate predicate: " << predicate
-                << " on: " << ir::Stmt(node);
 
             // Make a recursive call
             // TODO: this should be wrapped in a filter, for cases with
@@ -316,8 +396,11 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             // analysis of conjunctions/disjunctions. ir::Stmt body =
             // ir::YieldFrom::make(ir::filter(predicate, node->value));
             ir::Stmt body = ir::YieldFrom::make(node->value);
-            // Add the maybe case -> recursive call
-            body = ir::IfElse::make(std::move(bounds.max), std::move(body));
+            // Add the maybe case -> recursive call. A bound that is trivially
+            // true prunes nothing, so skip the guard entirely.
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
+                body = ir::IfElse::make(std::move(bounds.max), std::move(body));
+            }
 
             // Check for always case
             if (bounds.min.defined() && !is_const_zero(bounds.min)) {
@@ -339,8 +422,13 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
     return RewriteFilter(std::move(predicate), intervals).mutate(body);
 }
 
-ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
-                         ir::Expr maybe_filter) {
+// Fuse `metric(x) < best` into an existing filter if there is one, so that the
+// value-based pruning condition participates in predicate analysis. The bool
+// reports whether an existing filter was fused into; when false the caller
+// must still update the accumulator from recursive calls itself.
+std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric,
+                                          ir::Expr best,
+                                          ir::Expr maybe_filter) {
     if (const ir::SetOp *as_set = maybe_filter.as<ir::SetOp>()) {
         if (as_set->op == ir::SetOp::filter) {
             // Can fuse!
@@ -370,14 +458,14 @@ ir::Expr try_fuse_filter(const ir::Lambda *metric, ir::Expr best,
             // Construct fused filter.
             ir::Expr new_lambda =
                 ir::Lambda::make(predicate->args, std::move(new_cond));
-            return filter(std::move(new_lambda), as_set->b);
+            return {filter(std::move(new_lambda), as_set->b), true};
         }
     }
 
     // Not a nested filter, so just wrap in a filter and return
     ir::Expr new_cond = (metric->value < best);
     ir::Expr new_lambda = ir::Lambda::make(metric->args, std::move(new_cond));
-    return filter(std::move(new_lambda), std::move(maybe_filter));
+    return {filter(std::move(new_lambda), std::move(maybe_filter)), false};
 }
 
 ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
@@ -471,11 +559,201 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     local_intervals[best_metric] = Interval{ir::Expr(), best_metric};
 
     // Try to build fused filter inside.
-    ir::Expr fused_filter = try_fuse_filter(lambda, best_metric, inner);
+    auto [fused_filter, fused] = try_fuse_filter(lambda, best_metric, inner);
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
     body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t))
                .mutate(body);
+
+    return ir::Sequence::make(
+        {std::move(header), std::move(body), std::move(footer)});
+}
+
+// Algorithm 2 (LowerMin) of the paper. `min` is both associative and
+// idempotent, so the traversal prunes in two complementary ways: value-based
+// pruning, where a subtree whose metric cannot beat the running minimum is
+// skipped, and inclusion, where a subtree that stores its own minimum updates
+// the accumulator without being visited.
+//
+// The value-based half is expressed by fusing `M(x) < best` into the inner
+// filter (try_fuse_filter) and letting predicate analysis bound it; the
+// accumulator's interval is recorded as (-inf, best] so that analysis knows a
+// candidate must beat the running value.
+ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
+                       const ir::TypeMap &tree_types,
+                       const IntervalMap &intervals, ir::Type expect_type) {
+    struct RewriteMinimum : public Rewriter {
+        ir::Expr metric;
+        ir::WriteLoc loc;
+        const IntervalMap &intervals;
+        // True when try_fuse_filter did not fuse, so recursive calls are not
+        // already guarded by the value-based condition and this rewrite must
+        // tighten the accumulator itself.
+        const bool update_from_yfs;
+
+        RewriteMinimum(ir::Expr met, ir::WriteLoc l,
+                       const IntervalMap &intervals, const bool update_from_yfs)
+            : metric(std::move(met)), loc(std::move(l)), intervals(intervals),
+              update_from_yfs(update_from_yfs) {}
+
+        using ir::Mutator::visit;
+
+        // yield x => upd a minb(a, M(x))
+        ir::Stmt visit(const ir::Yield *node) override {
+            internal_assert(!volumes.empty());
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+            internal_assert(
+                ir::equals(lambda->args[0].type, node->value.type()));
+            ir::Expr value =
+                replace(lambda->args[0].name, node->value, lambda->value);
+            return ir::Accumulate::make(loc, ir::Accumulate::Min,
+                                        std::move(value));
+        }
+
+        // iter xs => upd a minb(a, min(M, xs))
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
+        }
+
+        ir::Stmt visit(const ir::Scan *node) override {
+            internal_error << "Cannot scan a subtree for a minimum without an "
+                              "aggregate augmentation: "
+                           << ir::Stmt(node);
+        }
+
+        // from tr => if maybe(min(M(tr)) < a): upd a minb(a, max(M, tr)); from tr
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            if (!update_from_yfs) {
+                return node;
+            }
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+
+            VolumeMap vols = make_volume_map(lambda->args);
+            Interval bounds = predicate_analysis(lambda->value, vols, intervals);
+            internal_assert(bounds.max.defined())
+                << "Cannot accelerate metric: " << lambda->value
+                << " on: " << ir::Stmt(node);
+
+            // The best value in this subtree is at most the metric's upper
+            // bound over the subtree's volume, so the accumulator can be
+            // tightened before recursing.
+            ir::Stmt do_update =
+                ir::Accumulate::make(loc, ir::Accumulate::Min, bounds.max);
+            return ir::Sequence::make({std::move(do_update), node});
+        }
+    };
+
+    const ir::Lambda *lambda = metric.as<ir::Lambda>();
+    internal_assert(lambda) << "Metric is not a lambda: " << metric;
+    ir::Type metric_t = lambda->value.type();
+
+    static size_t counter = 0;
+    std::string name = "_best" + std::to_string(counter++);
+    ir::WriteLoc loc(name, metric_t);
+
+    // WrapWithAccumulator(a, inf)
+    ir::Expr init = ir::Extrema::make(metric_t, ir::Extrema::inf);
+    // TODO(ajr): is stack memory ok here? it's not an array.
+    ir::Stmt header =
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
+
+    ir::Expr ret_var = ir::Var::make(metric_t, std::move(name));
+    // A minimum over a set that can be empty is optional: the accumulator is
+    // still at its identity exactly when nothing was visited.
+    ir::Stmt footer;
+    if (!ir::equals(metric_t, expect_type)) {
+        ir::Expr result = ir::Select::make(
+            ret_var != ir::Extrema::make(metric_t, ir::Extrema::inf),
+            ir::Build::make(expect_type, {ret_var}),
+            ir::Build::make(expect_type));
+        footer = ir::Yield::make(std::move(result));
+    } else {
+        footer = ir::Yield::make(ret_var);
+    }
+
+    // No lower bound (can always get better).
+    // Upper bound is the current value (must be at least that good).
+    IntervalMap local_intervals = intervals;
+    local_intervals[ret_var] = Interval{ir::Expr(), ret_var};
+
+    auto [fused_filter, fused] = try_fuse_filter(lambda, ret_var, inner);
+    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
+
+    body = RewriteMinimum(std::move(metric), std::move(loc), intervals, !fused)
+               .mutate(body);
+
+    return ir::Sequence::make(
+        {std::move(header), std::move(body), std::move(footer)});
+}
+
+// Algorithm 1, lines 13-22 (associative reduction), specialized to `count`.
+// A node that stores a count augmentation contributes it wholesale instead of
+// being traversed; otherwise the scan itself becomes a counting scan.
+ir::Stmt build_count(ir::Stmt body) {
+    struct RewriteCount : public Rewriter {
+        ir::WriteLoc loc;
+
+        RewriteCount(ir::WriteLoc l) : loc(std::move(l)) {}
+
+        using ir::Mutator::visit;
+
+        // yield x => upd a (a + 1)
+        ir::Stmt visit(const ir::Yield *node) override {
+            return ir::Accumulate::make(loc, ir::Accumulate::Add,
+                                        make_one(loc.base_type));
+        }
+
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
+        }
+
+        // scan tr => if tr has count(tr) then upd a (a + tr.count) else scan<count> tr
+        ir::Stmt visit(const ir::Scan *node) override {
+            const std::string key = aggregate_key(
+                ir::Annotation::Aggregate::count, /*args=*/{});
+            // TODO: how does this work with joins...?
+            const bool all_have_count =
+                std::all_of(aggregations.begin(), aggregations.end(),
+                            [&](const auto &agg) { return agg.contains(key); });
+            if (!all_have_count) {
+                return ir::Scan::make(ir::AggOp::count, node->value);
+            }
+            // Coiterating several trees counts their product.
+            ir::Expr total = aggregations.front().at(key);
+            for (size_t i = 1; i < aggregations.size(); i++) {
+                total = total * aggregations[i].at(key);
+            }
+            return ir::Accumulate::make(loc, ir::Accumulate::Add,
+                                        std::move(total));
+        }
+
+        // TODO: this should be a sum of the results!
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+    };
+
+    const ir::Type ret_type = ir::UInt_t::make(64); // TODO: adjustable?
+
+    static size_t counter = 0;
+    std::string name = "_count" + std::to_string(counter++);
+    ir::WriteLoc loc(name, ret_type);
+
+    // WrapWithAccumulator(a, 0)
+    ir::Stmt header = ir::Allocate::make(loc, make_zero(ret_type),
+                                         ir::Allocate::Memory::Stack);
+    ir::Expr ret_var = ir::Var::make(ret_type, std::move(name));
+    ir::Stmt footer = ir::Yield::make(std::move(ret_var));
+
+    body = RewriteCount(std::move(loc)).mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
@@ -647,6 +925,18 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         return build_base_scan(as_var->name, bvh);
     }
 
+    if (const ir::AggOp *as_agg = expr.as<ir::AggOp>()) {
+        switch (as_agg->op) {
+        case ir::AggOp::count: {
+            ir::Stmt body = build_traversal(as_agg->a, tree_types, intervals);
+            return build_count(body);
+        }
+        default: {
+            internal_error << "TODO: " << expr << " tree fusion.";
+        }
+        }
+    }
+
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
     if (as_set == nullptr) {
         internal_error << "[unimplemented] Unknown traversal pattern: " << expr;
@@ -661,6 +951,10 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         // Argmin is a bit more complicated, because of filter fusion.
         return build_argmin(as_set->a, as_set->b, tree_types, intervals,
                             expr.type());
+    }
+    case ir::SetOp::minimum: {
+        return build_minimum(as_set->a, as_set->b, tree_types, intervals,
+                             expr.type());
     }
     case ir::SetOp::product: {
         ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
@@ -757,6 +1051,7 @@ struct LowerBVH : public ir::Mutator {
     }
 
     ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
+    ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
 };
 
 } // namespace
