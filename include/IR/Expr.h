@@ -429,14 +429,22 @@ struct SetOp : ExprNode<SetOp> {
     static const IRExprEnum node_type = IRExprEnum::SetOp;
 };
 
+// A reduction over a set. `reduce` is the primitive of Figure 2; the others
+// are sugar that expand into a map followed by a reduce (e.g. `count` maps
+// every element to 1 and sums with identity 0).
 struct AggOp : ExprNode<AggOp> {
-    enum OpType { avg, count, prod, sum };
+    enum OpType { avg, count, prod, reduce, sum };
 
     OpType op;
 
     Expr a; // must be a set type
 
+    // Only defined for `reduce`: the identity element, and the associative,
+    // commutative binary function combining two partial results.
+    Expr identity, combiner;
+
     static Expr make(OpType op, Expr a);
+    static Expr make(Expr identity, Expr combiner, Expr a);
 
     static const IRExprEnum node_type = IRExprEnum::AggOp;
 };

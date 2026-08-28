@@ -254,12 +254,16 @@ struct Iterate : StmtNode<Iterate> {
     static const IRStmtEnum node_type = IRStmtEnum::Iterate;
 };
 
-// Recursively traverse this tree for all datums
+// Recursively traverse this tree for all datums.
+// `op`, when set, is the reduction combining subtree results instead of the
+// default set union. `func`, when defined, is a map applied to subtree
+// elements before that combination.
 struct Scan : StmtNode<Scan> {
     std::optional<AggOp::OpType> op;
+    Expr func;
     Expr value;
 
-    static Stmt make(std::optional<AggOp::OpType> op, Expr value);
+    static Stmt make(std::optional<AggOp::OpType> op, Expr func, Expr value);
 
     static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };

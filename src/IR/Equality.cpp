@@ -672,6 +672,16 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
             op != Cmp::Equals) {
             return op;
         }
+        if (v0->op == AggOp::reduce) {
+            if (const Cmp id = compare_exprs(v0->identity, v1->identity);
+                id != Cmp::Equals) {
+                return id;
+            }
+            if (const Cmp c = compare_exprs(v0->combiner, v1->combiner);
+                c != Cmp::Equals) {
+                return c;
+            }
+        }
         return compare_exprs(v0->a, v1->a);
     }
     case IRExprEnum::Call: {

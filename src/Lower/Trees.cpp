@@ -695,65 +695,243 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
         {std::move(header), std::move(body), std::move(footer)});
 }
 
-// Algorithm 1, lines 13-22 (associative reduction), specialized to `count`.
-// A node that stores a count augmentation contributes it wholesale instead of
-// being traversed; otherwise the scan itself becomes a counting scan.
-ir::Stmt build_count(ir::Stmt body) {
-    struct RewriteCount : public Rewriter {
-        ir::WriteLoc loc;
+// Algorithm 1, lines 9-12. A map changes only what a traversal yields, so it
+// rewrites into the yield, iter and scan constructs without affecting how
+// recursion proceeds.
+ir::Stmt build_map(ir::Stmt body, ir::Expr func) {
+    struct RewriteMap : public Rewriter {
+        ir::Expr func;
 
-        RewriteCount(ir::WriteLoc l) : loc(std::move(l)) {}
+        RewriteMap(ir::Expr f) : func(std::move(f)) {}
 
         using ir::Mutator::visit;
 
-        // yield x => upd a (a + 1)
-        ir::Stmt visit(const ir::Yield *node) override {
-            return ir::Accumulate::make(loc, ir::Accumulate::Add,
-                                        make_one(loc.base_type));
+        // Apply the map to a single yielded element.
+        ir::Expr apply(const ir::Expr &value) const {
+            const ir::Lambda *lambda = func.as<ir::Lambda>();
+            internal_assert(lambda) << "Map is not a lambda: " << func;
+            if (lambda->args.size() == 1) {
+                return replace(lambda->args[0].name, value, lambda->value);
+            }
+            // Tuple data, e.g. from a product.
+            internal_assert(value.type().is<ir::Tuple_t>()) << value;
+            std::map<std::string, ir::Expr> repls;
+            for (size_t i = 0; i < lambda->args.size(); i++) {
+                repls[lambda->args[i].name] =
+                    opt::Simplify::simplify(ir::Extract::make(value, i));
+            }
+            return replace(repls, lambda->value);
         }
 
+        // yield x => yield F(x)
+        ir::Stmt visit(const ir::Yield *node) override {
+            return ir::Yield::make(apply(node->value));
+        }
+
+        // iter xs => iter map(F, xs)
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return ir::Iterate::make(map(func, node->value));
+        }
+
+        // scan tr => scan F(tr)
+        ir::Stmt visit(const ir::Scan *node) override {
+            internal_assert(!node->func.defined())
+                << "TODO: compose nested maps on a scan: " << ir::Stmt(node);
+            return ir::Scan::make(node->op, func, node->value);
+        }
+
+        // A recursive call already evaluates the mapped query.
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+    };
+
+    return RewriteMap(std::move(func)).mutate(body);
+}
+
+// The augmentation, if any, that stores this reduction's value over a
+// subtree. A reduction is recognised by its combiner together with the map
+// feeding it: summing a constant 1 is a `count()`, summing a field `f` is a
+// `sum(f)`, and so on.
+std::optional<std::string> aggregate_key_for(const ir::Expr &combiner,
+                                             const ir::Expr &func) {
+    const ir::Lambda *lambda = combiner.as<ir::Lambda>();
+    if (lambda == nullptr || lambda->args.size() != 2) {
+        return {};
+    }
+    const ir::BinOp *binop = lambda->value.as<ir::BinOp>();
+    if (binop == nullptr) {
+        return {};
+    }
+    // The combiner must be exactly `|a, b| a <op> b`.
+    const ir::Var *a = binop->a.as<ir::Var>();
+    const ir::Var *b = binop->b.as<ir::Var>();
+    if (a == nullptr || b == nullptr || a->name != lambda->args[0].name ||
+        b->name != lambda->args[1].name) {
+        return {};
+    }
+
+    ir::Annotation::Aggregate::OpType op;
+    switch (binop->op) {
+    case ir::BinOp::Add:
+        op = ir::Annotation::Aggregate::sum;
+        break;
+    case ir::BinOp::Mul:
+        op = ir::Annotation::Aggregate::prod;
+        break;
+    default:
+        return {};
+    }
+
+    if (!func.defined()) {
+        // Reducing the elements themselves.
+        return aggregate_key(op, {});
+    }
+    const ir::Lambda *map_fn = func.as<ir::Lambda>();
+    if (map_fn == nullptr || map_fn->args.size() != 1) {
+        return {};
+    }
+    // Summing a constant 1 over the subtree counts it.
+    if (op == ir::Annotation::Aggregate::sum && is_const_one(map_fn->value)) {
+        return aggregate_key(ir::Annotation::Aggregate::count, {});
+    }
+    // Reducing a single field.
+    if (const ir::Access *access = map_fn->value.as<ir::Access>()) {
+        if (const ir::Var *var = access->value.as<ir::Var>();
+            var != nullptr && var->name == map_fn->args[0].name) {
+            return aggregate_key(op, {access->field});
+        }
+    }
+    return {};
+}
+
+// `upd a (a (+) v)`. Emits an Accumulate for the combiners the backends know
+// how to update in place, and otherwise inlines the combiner into a store.
+ir::Stmt make_update(const ir::WriteLoc &loc, const ir::Expr &combiner,
+                     ir::Expr value) {
+    const ir::Lambda *lambda = combiner.as<ir::Lambda>();
+    internal_assert(lambda && lambda->args.size() == 2)
+        << "Combiner is not a binary lambda: " << combiner;
+
+    if (const ir::BinOp *binop = lambda->value.as<ir::BinOp>()) {
+        const ir::Var *a = binop->a.as<ir::Var>();
+        const ir::Var *b = binop->b.as<ir::Var>();
+        if (a != nullptr && b != nullptr && a->name == lambda->args[0].name &&
+            b->name == lambda->args[1].name) {
+            switch (binop->op) {
+            case ir::BinOp::Add:
+                return ir::Accumulate::make(loc, ir::Accumulate::Add,
+                                            std::move(value));
+            case ir::BinOp::Mul:
+                return ir::Accumulate::make(loc, ir::Accumulate::Mul,
+                                            std::move(value));
+            default:
+                break;
+            }
+        }
+    }
+
+    std::map<std::string, ir::Expr> repls;
+    repls[lambda->args[0].name] = loc.to_expr();
+    repls[lambda->args[1].name] = std::move(value);
+    return ir::Store::make(loc, replace(repls, lambda->value));
+}
+
+// Algorithm 1, lines 13-22. An associative reduction is computed into an
+// accumulator: leaves update it with their own value, and a subtree that
+// stores a precomputed aggregate updates it wholesale instead of being
+// traversed.
+ir::Stmt build_reduce(ir::Expr identity, ir::Expr combiner, ir::Expr inner,
+                      const ir::TypeMap &tree_types,
+                      const IntervalMap &intervals) {
+    struct RewriteReduce : public Rewriter {
+        ir::Expr combiner;
+        ir::WriteLoc loc;
+        // The augmentation this reduction can read off a node, if any.
+        std::optional<std::string> key;
+        // The reduction, and the map feeding it, for a fallback scan.
+        std::optional<ir::AggOp::OpType> scan_op;
+        ir::Expr func;
+
+        RewriteReduce(ir::Expr c, ir::WriteLoc l,
+                      std::optional<std::string> key,
+                      std::optional<ir::AggOp::OpType> scan_op, ir::Expr func)
+            : combiner(std::move(c)), loc(std::move(l)), key(std::move(key)),
+              scan_op(std::move(scan_op)), func(std::move(func)) {}
+
+        using ir::Mutator::visit;
+
+        // yield x => upd a (a (+) x)
+        ir::Stmt visit(const ir::Yield *node) override {
+            return make_update(loc, combiner, node->value);
+        }
+
+        // iter xs => upd a (a (+) reduce(xs))
         ir::Stmt visit(const ir::Iterate *node) override {
             return mutate(
                 lower_iterate(node->value)); // lower into a concrete loop.
         }
 
-        // scan tr => if tr has count(tr) then upd a (a + tr.count) else scan<count> tr
+        // scan tr => if tr has C(tr) then upd a (a (+) tr.C) else scan<C> tr
         ir::Stmt visit(const ir::Scan *node) override {
-            const std::string key = aggregate_key(
-                ir::Annotation::Aggregate::count, /*args=*/{});
-            // TODO: how does this work with joins...?
-            const bool all_have_count =
-                std::all_of(aggregations.begin(), aggregations.end(),
-                            [&](const auto &agg) { return agg.contains(key); });
-            if (!all_have_count) {
-                return ir::Scan::make(ir::AggOp::count, node->value);
+            if (key.has_value()) {
+                const bool all_stored = std::all_of(
+                    aggregations.begin(), aggregations.end(),
+                    [&](const auto &agg) { return agg.contains(*key); });
+                if (all_stored) {
+                    // Coiterating several trees reduces over their product.
+                    ir::Expr total = aggregations.front().at(*key);
+                    for (size_t i = 1; i < aggregations.size(); i++) {
+                        total = total * aggregations[i].at(*key);
+                    }
+                    return make_update(loc, combiner, std::move(total));
+                }
             }
-            // Coiterating several trees counts their product.
-            ir::Expr total = aggregations.front().at(key);
-            for (size_t i = 1; i < aggregations.size(); i++) {
-                total = total * aggregations[i].at(key);
-            }
-            return ir::Accumulate::make(loc, ir::Accumulate::Add,
-                                        std::move(total));
+            internal_assert(scan_op.has_value())
+                << "Cannot scan a subtree for a reduction the runtime cannot "
+                   "combine: "
+                << ir::Stmt(node);
+            return ir::Scan::make(scan_op, func.defined() ? func : node->func,
+                                  node->value);
         }
 
-        // TODO: this should be a sum of the results!
+        // A recursive call updates the same accumulator.
         ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
     };
 
-    const ir::Type ret_type = ir::UInt_t::make(64); // TODO: adjustable?
+    const ir::Type acc_t = identity.type();
 
     static size_t counter = 0;
-    std::string name = "_count" + std::to_string(counter++);
-    ir::WriteLoc loc(name, ret_type);
+    std::string name = "_acc" + std::to_string(counter++);
+    ir::WriteLoc loc(name, acc_t);
 
-    // WrapWithAccumulator(a, 0)
-    ir::Stmt header = ir::Allocate::make(loc, make_zero(ret_type),
+    // WrapWithAccumulator(a, id)
+    ir::Stmt header = ir::Allocate::make(loc, std::move(identity),
                                          ir::Allocate::Memory::Stack);
-    ir::Expr ret_var = ir::Var::make(ret_type, std::move(name));
-    ir::Stmt footer = ir::Yield::make(std::move(ret_var));
+    ir::Expr ret_var = ir::Var::make(acc_t, std::move(name));
+    ir::Stmt footer = ir::Yield::make(ret_var);
 
-    body = RewriteCount(std::move(loc)).mutate(body);
+    // Peel an immediately enclosed map so the reduction can be matched against
+    // the augmentations a node stores; the map itself is still lowered below.
+    ir::Expr func;
+    if (const ir::SetOp *as_map_op = as_map(inner)) {
+        func = as_map_op->a;
+    }
+    std::optional<std::string> key = aggregate_key_for(combiner, func);
+
+    std::optional<ir::AggOp::OpType> scan_op;
+    if (const ir::Lambda *lambda = combiner.as<ir::Lambda>()) {
+        if (const ir::BinOp *binop = lambda->value.as<ir::BinOp>()) {
+            if (binop->op == ir::BinOp::Add) {
+                scan_op = ir::AggOp::sum;
+            } else if (binop->op == ir::BinOp::Mul) {
+                scan_op = ir::AggOp::prod;
+            }
+        }
+    }
+
+    ir::Stmt body = build_traversal(inner, tree_types, intervals);
+    body = RewriteReduce(std::move(combiner), std::move(loc), std::move(key),
+                         std::move(scan_op), std::move(func))
+               .mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
@@ -793,7 +971,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -829,7 +1007,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -858,7 +1036,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
                 } else if (const ir::Iterate *iterate =
                                a_body.as<ir::Iterate>()) {
                     internal_assert(locs.size() == 2);
@@ -869,7 +1047,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
+                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
                     // Cartesian product of nodes! TODO: doesn't have to be...
                     // Make this scheduable?
@@ -881,7 +1059,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                             pairs.push_back(make_tuple_pair(av, bv));
                         }
                     }
-                    return ir::Scan::make({}, make_tuple(std::move(pairs)));
+                    return ir::Scan::make({}, {}, make_tuple(std::move(pairs)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -926,15 +1104,13 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     }
 
     if (const ir::AggOp *as_agg = expr.as<ir::AggOp>()) {
-        switch (as_agg->op) {
-        case ir::AggOp::count: {
-            ir::Stmt body = build_traversal(as_agg->a, tree_types, intervals);
-            return build_count(body);
+        if (as_agg->op != ir::AggOp::reduce) {
+            // count, sum and prod are sugar for a map followed by a reduce.
+            return build_traversal(expand_aggregate(as_agg), tree_types,
+                                   intervals);
         }
-        default: {
-            internal_error << "TODO: " << expr << " tree fusion.";
-        }
-        }
+        return build_reduce(as_agg->identity, as_agg->combiner, as_agg->a,
+                            tree_types, intervals);
     }
 
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
@@ -946,6 +1122,10 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     case ir::SetOp::filter: {
         ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
         return build_filter(body, as_set->a, intervals);
+    }
+    case ir::SetOp::map: {
+        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
+        return build_map(body, as_set->a);
     }
     case ir::SetOp::argmin: {
         // Argmin is a bit more complicated, because of filter fusion.
@@ -1092,7 +1272,7 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             for (const auto &c : children) {
                 cs.push_back(ir::Access::make(c.name, node));
             }
-            stmts.back() = ir::Scan::make({}, make_tuple(cs));
+            stmts.back() = ir::Scan::make({}, {}, make_tuple(cs));
         }
 
         arms[i].first = bvh_t->nodes[i];
