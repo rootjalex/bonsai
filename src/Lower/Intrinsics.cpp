@@ -29,6 +29,8 @@ ir::Expr dot_product(const ir::Expr &a, const ir::Expr &b) {
     return acc;
 }
 
+ir::Expr norm(const ir::Expr &a) { return ir::sqrt(dot_product(a, a)); }
+
 ir::Expr argmax(const ir::Expr &a) {
     internal_assert(a.type().element_of().is_scalar())
         << "TODO: implement argmax lowering for 2D: " << a;
