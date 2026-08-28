@@ -1051,8 +1051,8 @@ namespace {
 
 // Must stay in the same order as GeomOp::OpType.
 const char *const geometric_op_names[] = {
-    "contains", "covers", "disjoint", "equals", "intersects",
-    "touches",  "within", "lex",      "ley",    "lez",
+    "contains", "covers", "disjoint", "equals",  "intersects",
+    "touches",  "within", "lex",      "ley",     "lez",
     "ltx",      "lty",    "ltz",      "distmax", "distmin",
 };
 
@@ -1075,8 +1075,8 @@ namespace {
 const Function_t *check_element_lambda(const char *name, const Expr &a,
                                        const Expr &b) {
     internal_assert((b.type().is<Set_t, BVH_t>()))
-        << "Expected rhs of " << name
-        << " to be a set, instead received: " << b << " : " << b.type();
+        << "Expected rhs of " << name << " to be a set, instead received: " << b
+        << " : " << b.type();
 
     const Function_t *f = a.type().as<Function_t>();
     if (f == nullptr) {

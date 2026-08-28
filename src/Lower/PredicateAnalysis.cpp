@@ -104,8 +104,8 @@ ir::Expr geom_upper_bound(ir::GeomOp::OpType op, const ir::Expr &a,
         }
         return ir::intersects(ea, eb);
     }
-    case ir::GeomOp::covers:   // Lines 8-10.
-    case ir::GeomOp::touches:  // Lines 22-24.
+    case ir::GeomOp::covers:       // Lines 8-10.
+    case ir::GeomOp::touches:      // Lines 22-24.
     case ir::GeomOp::intersects: { // Lines 19-21.
         return ir::intersects(ea, eb);
     }
@@ -476,8 +476,7 @@ struct PredicateAnalysis : public ir::Visitor {
                     interval.max = std::move(e1);
                 } else if (a.is_bounded()) {
                     // Sign of b is unknown
-                    ir::Expr cmp =
-                        b.min >= make_zero(b.min.type());
+                    ir::Expr cmp = b.min >= make_zero(b.min.type());
                     interval.min = select(cmp, e1, e2);
                     interval.max = select(cmp, e2, e1);
                 }
@@ -492,8 +491,10 @@ struct PredicateAnalysis : public ir::Visitor {
 
                 // TODO: could do tons of casework, be stupid for now.
 
-                interval.min = min(min(low_low, low_high), min(high_low, high_high));
-                interval.max = max(max(low_low, low_high), max(high_low, high_high));
+                interval.min =
+                    min(min(low_low, low_high), min(high_low, high_high));
+                interval.max =
+                    max(max(low_low, low_high), max(high_low, high_high));
             }
             // TODO: for integers, need to handle overflow if defined.
             return;
@@ -509,7 +510,8 @@ struct PredicateAnalysis : public ir::Visitor {
             // Do nothing with unbounded intervals
             if (!a.is_bounded() || !b.is_bounded()) {
                 return;
-            } else if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+            } else if (a.is_single_point(node->a) &&
+                       b.is_single_point(node->b)) {
                 interval = Interval::single_point(node);
                 return;
             } else if (a.is_single_point() && b.is_single_point()) {
@@ -539,8 +541,10 @@ struct PredicateAnalysis : public ir::Visitor {
 
             // TODO: could do tons of casework, be stupid for now.
 
-            interval.min = min(min(low_low, low_high), min(high_low, high_high));
-            interval.max = max(max(low_low, low_high), max(high_low, high_high));
+            interval.min =
+                min(min(low_low, low_high), min(high_low, high_high));
+            interval.max =
+                max(max(low_low, low_high), max(high_low, high_high));
 
             interval.min = select(denom_contains_zero, -inf, interval.min);
             interval.max = select(denom_contains_zero, inf, interval.max);
@@ -603,8 +607,10 @@ struct PredicateAnalysis : public ir::Visitor {
             interval.min = select(c.min, t.min, f.min);
             interval.max = select(c.min, t.max, f.max);
         } else {
-            interval.min = min(select(c.min, t.min, f.min), select(c.max, t.min, f.min));
-            interval.max = max(select(c.min, t.max, f.max), select(c.max, t.max, f.max));
+            interval.min =
+                min(select(c.min, t.min, f.min), select(c.max, t.min, f.min));
+            interval.max =
+                max(select(c.min, t.max, f.max), select(c.max, t.max, f.max));
         }
     }
     RESTRICT_VISITOR(ir::Cast);
@@ -618,8 +624,8 @@ struct PredicateAnalysis : public ir::Visitor {
     void visit(const ir::Access *node) override {
         Interval a = get(node->value);
         internal_assert(a.is_single_point(node->value))
-            << "TODO: interval analysis of access on varying value: "
-            << a.min << ", " << a.max << " of " << ir::Expr(node);
+            << "TODO: interval analysis of access on varying value: " << a.min
+            << ", " << a.max << " of " << ir::Expr(node);
         interval = Interval::single_point(node);
     }
 
@@ -692,7 +698,8 @@ struct PredicateAnalysis : public ir::Visitor {
             internal_assert(node->args.size() == 2);
             Interval a = get(node->args[0]);
             Interval b = get(node->args[1]);
-            if (a.is_single_point(node->args[0]) && b.is_single_point(node->args[1])) {
+            if (a.is_single_point(node->args[0]) &&
+                b.is_single_point(node->args[1])) {
                 interval = Interval::single_point(node);
             } else if (a.is_single_point() && b.is_single_point()) {
                 interval = Interval::single_point(max(a.min, b.min));
@@ -756,13 +763,13 @@ struct PredicateAnalysis : public ir::Visitor {
         }
 
         make_bool_bounds();
-        if (ir::Expr upper = geom_upper_bound(node->op, node->a, node->b, va,
-                                              vb);
+        if (ir::Expr upper =
+                geom_upper_bound(node->op, node->a, node->b, va, vb);
             upper.defined()) {
             interval.max = std::move(upper);
         }
-        if (ir::Expr lower = geom_lower_bound(node->op, node->a, node->b, va,
-                                              vb);
+        if (ir::Expr lower =
+                geom_lower_bound(node->op, node->a, node->b, va, vb);
             lower.defined()) {
             interval.min = std::move(lower);
         }

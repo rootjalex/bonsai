@@ -178,8 +178,7 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         void visit(const Extrema *node) override {
             ss << "std::numeric_limits<";
             emit_type(ss, node->type);
-            ss << (node->op == Extrema::eps ? ">::epsilon()"
-                                            : ">::infinity()");
+            ss << (node->op == Extrema::eps ? ">::epsilon()" : ">::infinity()");
         }
 
         void visit(const VecImm *node) override {

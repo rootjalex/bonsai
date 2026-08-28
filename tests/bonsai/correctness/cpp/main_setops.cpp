@@ -83,8 +83,8 @@ int main() {
     // Ranges chosen to cover an empty result, a result entirely inside one
     // subtree, a result spanning several, and one containing everything.
     const float bounds[][2] = {
-        {100.f, 200.f}, {-5.f, -1.f}, {0.f, 0.f},   {10.f, 12.f},
-        {0.f, 31.f},    {32.f, 63.f}, {7.f, 45.f},  {-1.f, 64.f},
+        {100.f, 200.f}, {-5.f, -1.f}, {0.f, 0.f},  {10.f, 12.f},
+        {0.f, 31.f},    {32.f, 63.f}, {7.f, 45.f}, {-1.f, 64.f},
     };
 
     for (const auto &b : bounds) {

@@ -718,8 +718,9 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         ir::Stmt visit(const ir::Scan *node) override {
             const bool stored =
                 key.has_value() &&
-                std::all_of(aggregations.begin(), aggregations.end(),
-                            [&](const auto &agg) { return agg.contains(*key); });
+                std::all_of(
+                    aggregations.begin(), aggregations.end(),
+                    [&](const auto &agg) { return agg.contains(*key); });
             if (stored) {
                 std::vector<ir::Stmt> stmts;
                 for (const auto &agg : aggregations) {
@@ -809,10 +810,9 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     // still at its identity exactly when nothing was visited.
     ir::Stmt footer;
     if (!ir::equals(metric_t, expect_type)) {
-        ir::Expr result =
-            ir::Select::make(ret_var != identity,
-                             ir::Build::make(expect_type, {ret_var}),
-                             ir::Build::make(expect_type));
+        ir::Expr result = ir::Select::make(
+            ret_var != identity, ir::Build::make(expect_type, {ret_var}),
+            ir::Build::make(expect_type));
         footer = ir::Yield::make(std::move(result));
     } else {
         footer = ir::Yield::make(ret_var);
@@ -880,8 +880,8 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
         // yield x => upd a (a | P(x))
         ir::Stmt visit(const ir::Yield *node) override {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
-            internal_assert(lambda) << "Predicate is not a lambda: "
-                                    << predicate;
+            internal_assert(lambda)
+                << "Predicate is not a lambda: " << predicate;
             ir::Expr p = apply_lambda(predicate, node->value);
             ir::Expr acc = loc.to_expr();
             ir::Expr combined = is_any ? (acc || p) : (acc && p);
@@ -896,8 +896,8 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
         // The bounds of the predicate over the subtree currently being matched.
         Interval subtree_bounds() const {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
-            internal_assert(lambda) << "Predicate is not a lambda: "
-                                    << predicate;
+            internal_assert(lambda)
+                << "Predicate is not a lambda: " << predicate;
             internal_assert(volumes.size() == lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
@@ -918,9 +918,9 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             }
 
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
-                recurse = ir::IfElse::make(
-                    still_undecided() && bounds.max, std::move(recurse),
-                    std::move(otherwise));
+                recurse =
+                    ir::IfElse::make(still_undecided() && bounds.max,
+                                     std::move(recurse), std::move(otherwise));
             } else if (otherwise.defined()) {
                 recurse =
                     ir::IfElse::make(still_undecided(), std::move(recurse));
@@ -935,11 +935,11 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
                 ir::Stmt settled =
                     is_any ? ir::Store::make(loc, ir::BoolImm::make(true))
                            : ir::Stmt();
-                recurse = settled.defined()
-                              ? ir::IfElse::make(bounds.min, settled,
-                                                 std::move(recurse))
-                              : ir::IfElse::make(~bounds.min,
-                                                 std::move(recurse));
+                recurse =
+                    settled.defined()
+                        ? ir::IfElse::make(bounds.min, settled,
+                                           std::move(recurse))
+                        : ir::IfElse::make(~bounds.min, std::move(recurse));
             }
             return recurse;
         }
@@ -1153,9 +1153,8 @@ ir::Stmt build_reduce(ir::Expr identity, ir::Expr combiner, ir::Expr inner,
                 << "Cannot scan a subtree for a reduction the runtime cannot "
                    "combine: "
                 << ir::Stmt(node);
-            return ir::Scan::make(scan_op, loc,
-                                  func.defined() ? func : node->func,
-                                  node->value);
+            return ir::Scan::make(
+                scan_op, loc, func.defined() ? func : node->func, node->value);
         }
 
         // A recursive call updates the same accumulator.
@@ -1236,7 +1235,8 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -1272,7 +1272,8 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -1301,7 +1302,8 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
                 } else if (const ir::Iterate *iterate =
                                a_body.as<ir::Iterate>()) {
                     internal_assert(locs.size() == 2);
@@ -1312,7 +1314,8 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
                     // Cartesian product of nodes! TODO: doesn't have to be...
                     // Make this scheduable?
@@ -1324,7 +1327,8 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                             pairs.push_back(make_tuple_pair(av, bv));
                         }
                     }
-                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(pairs)));
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(pairs)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -1395,15 +1399,15 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     case ir::SetOp::argmin:
     case ir::SetOp::argmax: {
         // These are a bit more complicated, because of filter fusion.
-        const Extremum dir = as_set->op == ir::SetOp::argmin ? Extremum::Min
-                                                             : Extremum::Max;
+        const Extremum dir =
+            as_set->op == ir::SetOp::argmin ? Extremum::Min : Extremum::Max;
         return build_arg_extremum(dir, as_set->a, as_set->b, tree_types,
                                   intervals, expr.type());
     }
     case ir::SetOp::minimum:
     case ir::SetOp::maximum: {
-        const Extremum dir = as_set->op == ir::SetOp::minimum ? Extremum::Min
-                                                              : Extremum::Max;
+        const Extremum dir =
+            as_set->op == ir::SetOp::minimum ? Extremum::Min : Extremum::Max;
         return build_extremum(dir, as_set->a, as_set->b, tree_types, intervals,
                               expr.type());
     }
