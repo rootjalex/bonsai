@@ -479,6 +479,13 @@ ir::Expr reachable_bound(Extremum dir, const Interval &bounds) {
     return dir == Extremum::Min ? bounds.max : bounds.min;
 }
 
+// The bound that decides whether a subtree is worth visiting: a minimum has
+// to descend when the subtree's smallest reachable value beats the running
+// best, which is the metric's lower bound over the subtree.
+ir::Expr promising_bound(Extremum dir, const Interval &bounds) {
+    return dir == Extremum::Min ? bounds.min : bounds.max;
+}
+
 // The accumulator's own interval. A running minimum is an upper bound on any
 // value that can still be accepted, and vice versa.
 Interval accumulator_interval(Extremum dir, const ir::Expr &acc) {
@@ -701,30 +708,59 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                 lower_iterate(node->value)); // lower into a concrete loop.
         }
 
-        // scan tr => if tr has min(M, tr) then upd a minb(a, tr.min)
+        // scan tr => if tr has min(M, tr) then upd a minb(a, min(M, tr))
+        //            else if maybe(min(M(tr)) < a): upd a minb(a, max(M, tr));
+        //                 from tr
+        //
+        // A whole subtree is included here, so a node that stores this
+        // extremum over it settles the contribution exactly and does not need
+        // to be visited at all. That is the inclusion case of Section 2.
         ir::Stmt visit(const ir::Scan *node) override {
-            internal_assert(key.has_value() &&
-                            std::all_of(aggregations.begin(),
-                                        aggregations.end(),
-                                        [&](const auto &agg) {
-                                            return agg.contains(*key);
-                                        }))
-                << "Cannot take the " << name_of(dir, false)
-                << " over a wholly included subtree that does not store it; "
-                   "annotate the tree with the matching augmentation: "
-                << ir::Stmt(node);
-            ir::Stmt update = ir::Accumulate::make(
-                loc, accumulate_op(), aggregations.front().at(*key));
+            const bool stored =
+                key.has_value() &&
+                std::all_of(aggregations.begin(), aggregations.end(),
+                            [&](const auto &agg) { return agg.contains(*key); });
+            if (stored) {
+                std::vector<ir::Stmt> stmts;
+                for (const auto &agg : aggregations) {
+                    stmts.push_back(ir::Accumulate::make(loc, accumulate_op(),
+                                                         agg.at(*key)));
+                }
+                return stmts.size() == 1 ? stmts.front()
+                                         : ir::Sequence::make(std::move(stmts));
+            }
+
+            // Nothing stored, so the subtree has to be visited. Value-based
+            // pruning still applies: skip it when it cannot beat the running
+            // best, and tighten the accumulator with what it could reach.
+            Interval bounds = subtree_bounds();
             std::vector<ir::Stmt> stmts;
-            for (size_t i = 1; i < aggregations.size(); i++) {
+            if (ir::Expr reachable = reachable_bound(dir, bounds);
+                reachable.defined()) {
                 stmts.push_back(ir::Accumulate::make(loc, accumulate_op(),
-                                                     aggregations[i].at(*key)));
+                                                     std::move(reachable)));
             }
-            if (stmts.empty()) {
-                return update;
+            stmts.push_back(ir::YieldFrom::make(node->value));
+            ir::Stmt body = stmts.size() == 1
+                                ? std::move(stmts.front())
+                                : ir::Sequence::make(std::move(stmts));
+            if (ir::Expr promising = promising_bound(dir, bounds);
+                promising.defined()) {
+                body = ir::IfElse::make(
+                    improves_on(dir, std::move(promising), loc.to_expr()),
+                    std::move(body));
             }
-            stmts.insert(stmts.begin(), std::move(update));
-            return ir::Sequence::make(std::move(stmts));
+            return body;
+        }
+
+        // The bounds of the metric over the subtree currently being matched.
+        Interval subtree_bounds() const {
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
+            return predicate_analysis(lambda->value, vols, ints);
         }
 
         // from tr => upd a minb(a, max(M, tr)); from tr
@@ -738,10 +774,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
-            VolumeMap vols = make_volume_map(lambda->args);
-            IntervalMap ints = make_interval_map(lambda->args, intervals);
-            Interval bounds = predicate_analysis(lambda->value, vols, ints);
-            ir::Expr bound = reachable_bound(dir, bounds);
+            ir::Expr bound = reachable_bound(dir, subtree_bounds());
             if (!bound.defined()) {
                 // Nothing can be said about this subtree; just recurse.
                 return node;
@@ -801,8 +834,13 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         }
     }
 
+    // Fusing the value-based condition into an existing filter is what lets
+    // predicate analysis prune on it. With no filter to fuse into, lower the
+    // set as it is: that keeps the `scan` construct, which is what lets a
+    // subtree storing this extremum be folded in without being visited.
     auto [fused_filter, fused] = try_fuse_filter(dir, lambda, ret_var, inner);
-    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
+    ir::Stmt body = build_traversal(fused ? fused_filter : inner, tree_types,
+                                    local_intervals);
 
     body = RewriteExtremum(dir, std::move(metric), std::move(loc), intervals,
                            std::move(key), !fused)
