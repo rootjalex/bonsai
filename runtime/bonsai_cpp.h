@@ -14,6 +14,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 
 template <typename T, typename U>

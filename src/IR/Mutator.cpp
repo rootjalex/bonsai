@@ -648,7 +648,7 @@ Stmt Mutator::visit(const Scan *node) {
     if (value.same_as(node->value) && func.same_as(node->func)) {
         return node;
     }
-    return Scan::make(node->op, std::move(func), std::move(value));
+    return Scan::make(node->op, node->loc, std::move(func), std::move(value));
 }
 
 Stmt Mutator::visit(const YieldFrom *node) {

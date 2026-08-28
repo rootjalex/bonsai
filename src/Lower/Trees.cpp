@@ -1001,7 +1001,7 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr func) {
         ir::Stmt visit(const ir::Scan *node) override {
             internal_assert(!node->func.defined())
                 << "TODO: compose nested maps on a scan: " << ir::Stmt(node);
-            return ir::Scan::make(node->op, func, node->value);
+            return ir::Scan::make(node->op, node->loc, func, node->value);
         }
 
         // A recursive call already evaluates the mapped query.
@@ -1153,7 +1153,8 @@ ir::Stmt build_reduce(ir::Expr identity, ir::Expr combiner, ir::Expr inner,
                 << "Cannot scan a subtree for a reduction the runtime cannot "
                    "combine: "
                 << ir::Stmt(node);
-            return ir::Scan::make(scan_op, func.defined() ? func : node->func,
+            return ir::Scan::make(scan_op, loc,
+                                  func.defined() ? func : node->func,
                                   node->value);
         }
 
@@ -1235,7 +1236,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -1271,7 +1272,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &a : as) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -1300,7 +1301,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
                 } else if (const ir::Iterate *iterate =
                                a_body.as<ir::Iterate>()) {
                     internal_assert(locs.size() == 2);
@@ -1311,7 +1312,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                     for (const auto &b : bs) {
                         vals.push_back(make_tuple_pair(a, b));
                     }
-                    return ir::Scan::make({}, {}, make_tuple(std::move(vals)));
+                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(vals)));
                 } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
                     // Cartesian product of nodes! TODO: doesn't have to be...
                     // Make this scheduable?
@@ -1323,7 +1324,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
                             pairs.push_back(make_tuple_pair(av, bv));
                         }
                     }
-                    return ir::Scan::make({}, {}, make_tuple(std::move(pairs)));
+                    return ir::Scan::make(ir::Expr(), make_tuple(std::move(pairs)));
                 } else if (const ir::YieldFrom *from =
                                a_body.as<ir::YieldFrom>()) {
                     internal_error
@@ -1547,7 +1548,7 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             for (const auto &c : children) {
                 cs.push_back(ir::Access::make(c.name, node));
             }
-            stmts.back() = ir::Scan::make({}, {}, make_tuple(cs));
+            stmts.back() = ir::Scan::make(ir::Expr(), make_tuple(cs));
         }
 
         arms[i].first = bvh_t->nodes[i];
