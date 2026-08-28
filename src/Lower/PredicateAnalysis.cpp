@@ -104,6 +104,9 @@ struct PredicateAnalysis : public ir::Visitor {
     void visit(const ir::Var *node) override { set(node); }
 
     ir::Expr make_and(ir::Expr a, ir::Expr b) {
+        if (!a.defined() || !b.defined()) {
+            return ir::Expr();
+        }
         if (is_const_one(a)) {
             return b;
         }
@@ -278,15 +281,73 @@ struct PredicateAnalysis : public ir::Visitor {
                 } else if (a.is_bounded()) {
                     // Sign of b is unknown
                     ir::Expr cmp =
-                        b.min >= make_zero(b.min.type().element_of());
+                        b.min >= make_zero(b.min.type());
                     interval.min = select(cmp, e1, e2);
                     interval.max = select(cmp, e2, e1);
                 }
                 // else unbounded
             } else if (a.is_bounded() && b.is_bounded()) {
                 // TODO: let exprs for linearity.
+
+                ir::Expr low_high = a.min * b.max;
+                ir::Expr low_low = a.min * b.min;
+                ir::Expr high_low = a.max * b.min;
+                ir::Expr high_high = a.max * b.max;
+
+                // TODO: could do tons of casework, be stupid for now.
+
+                interval.min = min(min(low_low, low_high), min(high_low, high_high));
+                interval.max = max(max(low_low, low_high), max(high_low, high_high));
             }
             // TODO: for integers, need to handle overflow if defined.
+            return;
+        }
+        case ir::BinOp::Div: {
+            Interval a = get(node->a);
+            Interval b = get(node->b);
+
+            internal_assert(node->type.is_float())
+                << "TODO: handle non-float division in predicate analysis: "
+                << ir::Expr(node);
+
+            // Do nothing with unbounded intervals
+            if (!a.is_bounded() || !b.is_bounded()) {
+                return;
+            } else if (a.is_single_point(node->a) && b.is_single_point(node->b)) {
+                interval = Interval::single_point(node);
+                return;
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(a.min / b.min);
+                return;
+            }
+
+            // Both are fully bounded, at least one is a true interval,
+            // and the type is floating point.
+
+            ir::Expr inf = ir::Extrema::make(node->type, ir::Extrema::inf);
+            ir::Expr zero = make_zero(node->type);
+
+            ir::Expr denom_positive = b.min > zero;
+            ir::Expr denom_negative = b.max < zero;
+            ir::Expr denom_contains_zero = b.min < zero && b.max > zero;
+            // If ^ is true, bounds are infinite.
+
+            ir::Expr num_nonneg = a.min >= zero;
+            ir::Expr num_nonpos = a.max <= zero;
+            ir::Expr num_spans = ~num_nonneg && ~num_nonpos;
+
+            ir::Expr low_high = a.min / b.max;
+            ir::Expr low_low = a.min / b.min;
+            ir::Expr high_low = a.max / b.min;
+            ir::Expr high_high = a.max / b.max;
+
+            // TODO: could do tons of casework, be stupid for now.
+
+            interval.min = min(min(low_low, low_high), min(high_low, high_high));
+            interval.max = max(max(low_low, low_high), max(high_low, high_high));
+
+            interval.min = select(denom_contains_zero, -inf, interval.min);
+            interval.max = select(denom_contains_zero, inf, interval.max);
             return;
         }
         default: {
@@ -298,7 +359,19 @@ struct PredicateAnalysis : public ir::Visitor {
     }
 
     RESTRICT_VISITOR(ir::UnOp);
-    RESTRICT_VISITOR(ir::Select);
+    void visit(const ir::Select *node) override {
+        Interval c = get(node->cond);
+        Interval t = get(node->tvalue);
+        Interval f = get(node->fvalue);
+
+        if (c.is_single_point()) {
+            interval.min = select(c.min, t.min, f.min);
+            interval.max = select(c.min, t.max, f.max);
+        } else {
+            interval.min = min(select(c.min, t.min, f.min), select(c.max, t.min, f.min));
+            interval.max = max(select(c.min, t.max, f.max), select(c.max, t.max, f.max));
+        }
+    }
     RESTRICT_VISITOR(ir::Cast);
     RESTRICT_VISITOR(ir::Broadcast);
     RESTRICT_VISITOR(ir::VectorReduce);
@@ -306,7 +379,15 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::Ramp);
     RESTRICT_VISITOR(ir::Extract);
     RESTRICT_VISITOR(ir::Build);
-    RESTRICT_VISITOR(ir::Access);
+
+    void visit(const ir::Access *node) override {
+        Interval a = get(node->value);
+        internal_assert(a.is_single_point(node->value))
+            << "TODO: interval analysis of access on varying value: "
+            << a.min << ", " << a.max << " of " << ir::Expr(node);
+        interval = Interval::single_point(node);
+    }
+
     RESTRICT_VISITOR(ir::Unwrap);
 
     void visit(const ir::Intrinsic *node) override {
@@ -366,9 +447,27 @@ struct PredicateAnalysis : public ir::Visitor {
             internal_assert(node->args.size() == 1);
             Interval a = get(node->args[0]);
             if (a.is_bounded()) {
-                interval.min = select(a.min >= 0, a.min * a.min,
-                                      select(a.max <= 0, a.max * a.max, 0));
-                interval.max = max(a.min * a.min, a.max * a.max);
+                interval.min = select(a.min >= 0, sqr(a.min),
+                                      select(a.max <= 0, sqr(a.max), 0));
+                interval.max = max(sqr(a.min), sqr(a.max));
+            }
+            return;
+        }
+        case ir::Intrinsic::max: {
+            internal_assert(node->args.size() == 2);
+            Interval a = get(node->args[0]);
+            Interval b = get(node->args[1]);
+            if (a.is_single_point(node->args[0]) && b.is_single_point(node->args[1])) {
+                interval = Interval::single_point(node);
+            } else if (a.is_single_point() && b.is_single_point()) {
+                interval = Interval::single_point(max(a.min, b.min));
+            } else {
+                if (a.has_lower_bound() && b.has_lower_bound()) {
+                    interval.min = max(a.min, b.min);
+                }
+                if (a.has_upper_bound() && b.has_upper_bound()) {
+                    interval.max = max(a.max, b.max);
+                }
             }
             return;
         }
@@ -392,12 +491,15 @@ struct PredicateAnalysis : public ir::Visitor {
         const auto a_vol = bound(a_var->name);
         const auto b_vol = bound(b_var->name);
 
-        internal_assert(!a_vol.has_value() || a_vol->defined())
-            << "LHS of geom op is varying but has no bounding volume: "
-            << ir::Expr(node);
-        internal_assert(!b_vol.has_value() || b_vol->defined())
-            << "RHS of geom op is varying but has no bounding volume: "
-            << ir::Expr(node);
+        // A varying operand with no bounding volume simply cannot be bounded.
+        // That is a legitimate outcome, not an error: the caller sees an
+        // undefined interval and emits an unguarded recursion.
+        const bool a_unbounded = a_vol.has_value() && !a_vol->defined();
+        const bool b_unbounded = b_vol.has_value() && !b_vol->defined();
+        if (a_unbounded || b_unbounded) {
+            interval = Interval{};
+            return;
+        }
 
         const bool a_varying = a_vol.has_value();
         const bool b_varying = b_vol.has_value();
@@ -459,6 +561,7 @@ struct PredicateAnalysis : public ir::Visitor {
     }
 
     RESTRICT_VISITOR(ir::SetOp);
+    RESTRICT_VISITOR(ir::AggOp);
     RESTRICT_VISITOR(ir::Call);
     RESTRICT_VISITOR(ir::Instantiate);
     RESTRICT_VISITOR(ir::PtrTo);
