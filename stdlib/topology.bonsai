@@ -1,0 +1,343 @@
+// The topological and ordering predicates of the Bonsai query language,
+// following the semantics of Egenhofer and Herring.
+//
+// Predicate analysis derives pruning conditions in terms of bounding volumes,
+// so the relations between two AABBs are the ones the compiler itself emits
+// and must always be available. The relations between an AABB and a primitive
+// are what user queries are written against.
+//
+// A relation is only defined here where it is meaningful for the pair of
+// shapes. `touches` and `equals` compare boundaries exactly, so they are given
+// only for pairs whose boundaries are comparable.
+
+import stdlib/aabb;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/sphere;
+import stdlib/triangle;
+
+// ---------------------------------------------------------------------------
+// Exact bounding boxes of the primitive types. Ordinary functions do not
+// overload, so each is named for its argument.
+// ---------------------------------------------------------------------------
+
+func aabb_of_point(p : Point) -> AABB {
+    return AABB{p.vec, p.vec};
+}
+
+func aabb_of_sphere(s : Sphere) -> AABB {
+    return AABB{s.center - s.radius, s.center + s.radius};
+}
+
+func aabb_of_triangle(t : Triangle) -> AABB {
+    return AABB{min(min(t.p0, t.p1), t.p2), max(max(t.p0, t.p1), t.p2)};
+}
+
+// ---------------------------------------------------------------------------
+// AABB against AABB.
+//
+// Boxes are closed regions, so `contains` and `covers` coincide: both ask
+// whether b lies inside a with boundary contact allowed. They are kept
+// separate because predicate analysis names them separately.
+// ---------------------------------------------------------------------------
+
+func contains(a : AABB, b : AABB) -> bool {
+    return all((a.low <= b.low) & (b.high <= a.high));
+}
+
+func covers(a : AABB, b : AABB) -> bool {
+    return contains(a, b);
+}
+
+func within(a : AABB, b : AABB) -> bool {
+    return contains(b, a);
+}
+
+func intersects(a : AABB, b : AABB) -> bool {
+    return all(max(a.low, b.low) <= min(a.high, b.high));
+}
+
+func disjoint(a : AABB, b : AABB) -> bool {
+    return !intersects(a, b);
+}
+
+func equals(a : AABB, b : AABB) -> bool {
+    return all((a.low == b.low) & (a.high == b.high));
+}
+
+// The boxes meet, but their interiors do not.
+func touches(a : AABB, b : AABB) -> bool {
+    return intersects(a, b) & !all(max(a.low, b.low) < min(a.high, b.high));
+}
+
+// ---------------------------------------------------------------------------
+// AABB against Point.
+//
+// A point has empty interior, so it can be covered by a box but never
+// contains one, and it can touch a box only by lying on its boundary.
+// ---------------------------------------------------------------------------
+
+func contains(a : AABB, p : Point) -> bool {
+    return all((a.low <= p.vec) & (p.vec <= a.high));
+}
+
+func covers(a : AABB, p : Point) -> bool {
+    return contains(a, p);
+}
+
+func within(p : Point, a : AABB) -> bool {
+    return contains(a, p);
+}
+
+func intersects(a : AABB, p : Point) -> bool {
+    return contains(a, p);
+}
+
+func intersects(p : Point, a : AABB) -> bool {
+    return contains(a, p);
+}
+
+func disjoint(a : AABB, p : Point) -> bool {
+    return !contains(a, p);
+}
+
+func disjoint(p : Point, a : AABB) -> bool {
+    return !contains(a, p);
+}
+
+func touches(a : AABB, p : Point) -> bool {
+    return contains(a, p) & !all((a.low < p.vec) & (p.vec < a.high));
+}
+
+// ---------------------------------------------------------------------------
+// Point against Point.
+// ---------------------------------------------------------------------------
+
+func equals(p : Point, q : Point) -> bool {
+    return all(p.vec == q.vec);
+}
+
+func contains(p : Point, q : Point) -> bool {
+    return equals(p, q);
+}
+
+func within(p : Point, q : Point) -> bool {
+    return equals(p, q);
+}
+
+func intersects(p : Point, q : Point) -> bool {
+    return equals(p, q);
+}
+
+func disjoint(p : Point, q : Point) -> bool {
+    return !equals(p, q);
+}
+
+// ---------------------------------------------------------------------------
+// AABB against Sphere.
+//
+// A sphere is contained in a box exactly when its own bounding box is, and
+// meets a box exactly when the box's closest point is within the radius.
+// ---------------------------------------------------------------------------
+
+func contains(a : AABB, s : Sphere) -> bool {
+    return contains(a, aabb_of_sphere(s));
+}
+
+func covers(a : AABB, s : Sphere) -> bool {
+    return contains(a, s);
+}
+
+func within(s : Sphere, a : AABB) -> bool {
+    return contains(a, s);
+}
+
+func intersects(a : AABB, s : Sphere) -> bool {
+    closest = min(max(s.center, a.low), a.high);
+    d = closest - s.center;
+    return sum(d * d) <= s.radius * s.radius;
+}
+
+func intersects(s : Sphere, a : AABB) -> bool {
+    return intersects(a, s);
+}
+
+func disjoint(a : AABB, s : Sphere) -> bool {
+    return !intersects(a, s);
+}
+
+func disjoint(s : Sphere, a : AABB) -> bool {
+    return !intersects(a, s);
+}
+
+func contains(s : Sphere, a : AABB) -> bool {
+    // Every corner of the box is inside the sphere exactly when the farthest
+    // one is, and the farthest corner is the one opposite the center.
+    far = max(abs(a.low - s.center), abs(a.high - s.center));
+    return sum(far * far) <= s.radius * s.radius;
+}
+
+func within(a : AABB, s : Sphere) -> bool {
+    return contains(s, a);
+}
+
+// ---------------------------------------------------------------------------
+// AABB against Triangle.
+//
+// Containment reduces to containing every vertex. Overlap is the separating
+// axis test of Ericson, Real-Time Collision Detection 5.2.9, over the box's
+// three face normals, the triangle's normal, and the nine edge cross
+// products.
+// ---------------------------------------------------------------------------
+
+func contains(a : AABB, t : Triangle) -> bool {
+    return contains(a, aabb_of_triangle(t));
+}
+
+func covers(a : AABB, t : Triangle) -> bool {
+    return contains(a, t);
+}
+
+func within(t : Triangle, a : AABB) -> bool {
+    return contains(a, t);
+}
+
+// Whether the projections of the triangle and of a box with half-extents `e`
+// onto `axis` overlap. Both are centred on the origin.
+func sat_axis_separates(axis : vec3f, e : vec3f, v0 : vec3f, v1 : vec3f, v2 : vec3f) -> bool {
+    p0 = dot(axis, v0);
+    p1 = dot(axis, v1);
+    p2 = dot(axis, v2);
+    r = dot(abs(axis), e);
+    return (min(min(p0, p1), p2) > r) | (max(max(p0, p1), p2) < -r);
+}
+
+func intersects(a : AABB, t : Triangle) -> bool {
+    c = 0.5 * (a.low + a.high);
+    e = 0.5 * (a.high - a.low);
+
+    v0 = t.p0 - c;
+    v1 = t.p1 - c;
+    v2 = t.p2 - c;
+
+    f0 = v1 - v0;
+    f1 = v2 - v1;
+    f2 = v0 - v2;
+
+    // The nine axes formed by crossing a box edge with a triangle edge.
+    if (sat_axis_separates(cross_({1.0, 0.0, 0.0}, f0), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({1.0, 0.0, 0.0}, f1), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({1.0, 0.0, 0.0}, f2), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({0.0, 1.0, 0.0}, f0), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({0.0, 1.0, 0.0}, f1), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({0.0, 1.0, 0.0}, f2), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({0.0, 0.0, 1.0}, f0), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({0.0, 0.0, 1.0}, f1), e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates(cross_({0.0, 0.0, 1.0}, f2), e, v0, v1, v2)) { return false; }
+
+    // The box's three face normals.
+    if (sat_axis_separates({1.0, 0.0, 0.0}, e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates({0.0, 1.0, 0.0}, e, v0, v1, v2)) { return false; }
+    if (sat_axis_separates({0.0, 0.0, 1.0}, e, v0, v1, v2)) { return false; }
+
+    // The triangle's normal.
+    if (sat_axis_separates(cross_(f0, f1), e, v0, v1, v2)) { return false; }
+
+    return true;
+}
+
+func intersects(t : Triangle, a : AABB) -> bool {
+    return intersects(a, t);
+}
+
+func disjoint(a : AABB, t : Triangle) -> bool {
+    return !intersects(a, t);
+}
+
+func disjoint(t : Triangle, a : AABB) -> bool {
+    return !intersects(a, t);
+}
+
+// ---------------------------------------------------------------------------
+// Ray against AABB.
+//
+// A ray has empty interior in three dimensions, so it can only contain
+// degenerate geometry. Reporting false is the sound answer: `contains` is
+// used by predicate analysis as a sufficient condition, where a false
+// negative merely costs pruning, and under negation as a necessary condition,
+// where it is the weakest such condition.
+// ---------------------------------------------------------------------------
+
+func contains(r : Ray, a : AABB) -> bool {
+    return false;
+}
+
+func covers(r : Ray, a : AABB) -> bool {
+    return false;
+}
+
+func within(a : AABB, r : Ray) -> bool {
+    return false;
+}
+
+func disjoint(r : Ray, a : AABB) -> bool {
+    return !intersects(r, a);
+}
+
+func contains(r : Ray, t : Triangle) -> bool {
+    return false;
+}
+
+func disjoint(r : Ray, t : Triangle) -> bool {
+    return !intersects(r, t);
+}
+
+func contains(r : Ray, s : Sphere) -> bool {
+    return false;
+}
+
+func disjoint(r : Ray, s : Sphere) -> bool {
+    return !intersects(r, s);
+}
+
+// ---------------------------------------------------------------------------
+// Ordering predicates.
+//
+// `lex(a, b)` is `a <=_x b`: a lies at or before b along x, that is, a's
+// extent ends no later than b's begins. `ltx` is the strict form. Predicate
+// analysis bounds these by monotonicity, so the only requirement here is that
+// the relation be monotone in each argument's extent along the dimension.
+// ---------------------------------------------------------------------------
+
+func lex(a : AABB, b : AABB) -> bool { return a.high.x <= b.low.x; }
+func ley(a : AABB, b : AABB) -> bool { return a.high.y <= b.low.y; }
+func lez(a : AABB, b : AABB) -> bool { return a.high.z <= b.low.z; }
+
+func ltx(a : AABB, b : AABB) -> bool { return a.high.x < b.low.x; }
+func lty(a : AABB, b : AABB) -> bool { return a.high.y < b.low.y; }
+func ltz(a : AABB, b : AABB) -> bool { return a.high.z < b.low.z; }
+
+func lex(a : AABB, p : Point) -> bool { return a.high.x <= p.vec.x; }
+func ley(a : AABB, p : Point) -> bool { return a.high.y <= p.vec.y; }
+func lez(a : AABB, p : Point) -> bool { return a.high.z <= p.vec.z; }
+
+func ltx(a : AABB, p : Point) -> bool { return a.high.x < p.vec.x; }
+func lty(a : AABB, p : Point) -> bool { return a.high.y < p.vec.y; }
+func ltz(a : AABB, p : Point) -> bool { return a.high.z < p.vec.z; }
+
+func lex(p : Point, a : AABB) -> bool { return p.vec.x <= a.low.x; }
+func ley(p : Point, a : AABB) -> bool { return p.vec.y <= a.low.y; }
+func lez(p : Point, a : AABB) -> bool { return p.vec.z <= a.low.z; }
+
+func ltx(p : Point, a : AABB) -> bool { return p.vec.x < a.low.x; }
+func lty(p : Point, a : AABB) -> bool { return p.vec.y < a.low.y; }
+func ltz(p : Point, a : AABB) -> bool { return p.vec.z < a.low.z; }
+
+func lex(p : Point, q : Point) -> bool { return p.vec.x <= q.vec.x; }
+func ley(p : Point, q : Point) -> bool { return p.vec.y <= q.vec.y; }
+func lez(p : Point, q : Point) -> bool { return p.vec.z <= q.vec.z; }
+
+func ltx(p : Point, q : Point) -> bool { return p.vec.x < q.vec.x; }
+func lty(p : Point, q : Point) -> bool { return p.vec.y < q.vec.y; }
+func ltz(p : Point, q : Point) -> bool { return p.vec.z < q.vec.z; }

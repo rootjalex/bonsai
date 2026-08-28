@@ -54,6 +54,35 @@ func _unexported_trace(ray : (Ray*), ts : (_tree_layout0*)) -> _option0 {
   return _traverse_tree0(ray, ts)
 }
 
+func distmax_AABB_AABB(a : (AABB*), b : (AABB*)) -> f32 {
+  let span = max(abs((*a).low - (*b).high), abs((*a).high - (*b).low)) in
+  return norm(span)
+}
+
+func distmax_AABB_Point(a : (AABB*), pt : (Point*)) -> f32 {
+  return distmax_Point_AABB(pt, a)
+}
+
+func distmax_Point_AABB(pt : (Point*), a : (AABB*)) -> f32 {
+  let span = max(abs((*pt).vec - (*a).low), abs((*pt).vec - (*a).high)) in
+  return norm(span)
+}
+
+func distmax_Point_Point(p : (Point*), q : (Point*)) -> f32 {
+  return norm((*p).vec - (*q).vec)
+}
+
+func distmax_Point_Sphere(pt : (Point*), s : (Sphere*)) -> f32 {
+  return norm((*pt).vec - (*s).center) + (*s).radius
+}
+
+func distmax_Point_Triangle(pt : (Point*), tri : (Triangle*)) -> f32 {
+  let d0 = norm((*pt).vec - (*tri).p0) in
+  let d1 = norm((*pt).vec - (*tri).p1) in
+  let d2 = norm((*pt).vec - (*tri).p2) in
+  return max(max(d0, d1), d2)
+}
+
 func distmax_Ray_AABB(r : (Ray*), b : (AABB*)) -> f32 {
   let interval = intersectsp_ray_aabb(r, b) in
   if (interval.set) {
@@ -82,8 +111,25 @@ func distmax_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> f32 {
   }
 }
 
+func distmin_AABB_AABB(a : (AABB*), b : (AABB*)) -> f32 {
+  let gap = max(max((*a).low - (*b).high, (*b).low - (*a).high), f32x3(0f)) in
+  return norm(gap)
+}
+
+func distmin_AABB_Point(a : (AABB*), pt : (Point*)) -> f32 {
+  return sqrt(SqDistPointAABB(pt, a))
+}
+
 func distmin_Point_AABB(pt : (Point*), a : (AABB*)) -> f32 {
   return sqrt(SqDistPointAABB(pt, a))
+}
+
+func distmin_Point_Point(p : (Point*), q : (Point*)) -> f32 {
+  return norm((*p).vec - (*q).vec)
+}
+
+func distmin_Point_Sphere(pt : (Point*), s : (Sphere*)) -> f32 {
+  return max(norm((*pt).vec - (*s).center) - (*s).radius, 0f)
 }
 
 func distmin_Point_Triangle(p : (Point*), tri : (Triangle*)) -> f32 {
