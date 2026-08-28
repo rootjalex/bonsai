@@ -238,6 +238,17 @@ struct Block : public std::enable_shared_from_this<Block> {
 
     std::vector<std::weak_ptr<Block>> preds;
 
+    // Give this block a parameter, and return the value standing for it.
+    //
+    // `args` and `lookups` are two halves of the same fact: the first is the
+    // parameter list, the second is what the block hands back when something
+    // asks for that name. Setting only the first leaves the name unresolvable,
+    // and then the next instruction mentioning it threads in a *second*
+    // parameter of the same name -- see forward_block_values, which is where
+    // a name that is not in `lookups` gets one. Use this rather than pushing
+    // onto `args` directly.
+    std::shared_ptr<Value> add_argument(const Argument &arg);
+
     void make_instruction(const std::string &name, Type type,
                           std::shared_ptr<Value> v);
     std::shared_ptr<Value>

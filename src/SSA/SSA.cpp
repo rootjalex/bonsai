@@ -561,6 +561,13 @@ void Block::dump(std::ostream &os) const {
 
 void Block::dump() const { this->dump(std::cout); }
 
+std::shared_ptr<Value> Block::add_argument(const Argument &arg) {
+    args.push_back(arg);
+    auto value = std::make_shared<Value>(arg);
+    lookups[arg.name] = value;
+    return value;
+}
+
 void Block::forward_block_values(std::vector<std::shared_ptr<Value>> &vs) {
     for (auto &operand : vs) {
         std::visit(overloads{
