@@ -822,7 +822,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     local_intervals[ret_var] = accumulator_interval(dir, ret_var);
 
     // An included subtree can be folded in wholesale when the node stores this
-    // extremum over the fields the metric reads.
+    // extremum over the field the metric reads.
     std::optional<std::string> key;
     if (const ir::Access *access = lambda->value.as<ir::Access>()) {
         if (const ir::Var *var = access->value.as<ir::Var>();
@@ -834,13 +834,16 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         }
     }
 
-    // Fusing the value-based condition into an existing filter is what lets
-    // predicate analysis prune on it. With no filter to fuse into, lower the
-    // set as it is: that keeps the `scan` construct, which is what lets a
-    // subtree storing this extremum be folded in without being visited.
+    // Fusing the value-based condition into a filter is what lets predicate
+    // analysis prune on it, and it also puts the node-level bound in front of
+    // every arm, including the leaves. Synthesizing that filter consumes the
+    // `scan` standing for a wholly included subtree, so give it up only when
+    // this metric could actually read a stored extremum off a node -- that
+    // is, when the metric names a field an augmentation might cover.
     auto [fused_filter, fused] = try_fuse_filter(dir, lambda, ret_var, inner);
-    ir::Stmt body = build_traversal(fused ? fused_filter : inner, tree_types,
-                                    local_intervals);
+    const bool keep_scan = !fused && key.has_value();
+    ir::Stmt body = build_traversal(keep_scan ? inner : fused_filter,
+                                    tree_types, local_intervals);
 
     body = RewriteExtremum(dir, std::move(metric), std::move(loc), intervals,
                            std::move(key), !fused)

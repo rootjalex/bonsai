@@ -3,6 +3,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Mutator.h"
+#include "IR/Operators.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -104,6 +105,21 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
         Stmt contribute_each(const Expr &values) {
             if (!op.has_value()) {
                 return Append::make(write_loc, values);
+            }
+            // Summing the same constant over every element is that constant
+            // times how many there are, which the runtime answers directly
+            // rather than by iterating.
+            if (*op == AggOp::sum && map_func.defined()) {
+                const Lambda *lambda = map_func.as<Lambda>();
+                internal_assert(lambda && lambda->args.size() == 1);
+                if (is_const(lambda->value)) {
+                    Expr n = cast_to(write_loc.base_type, count(values));
+                    Expr total = is_const_one(lambda->value)
+                                     ? std::move(n)
+                                     : Expr(lambda->value) * std::move(n);
+                    return Accumulate::make(write_loc, Accumulate::Add,
+                                            std::move(total));
+                }
             }
             std::string name = "_elem" + std::to_string(counter++);
             Expr element = Var::make(values.type().element_of(), name);
