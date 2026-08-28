@@ -43,6 +43,167 @@ void Interval::include(const ir::Expr &e) {
 
 namespace {
 
+// The ordering predicate that is the strict/non-strict counterpart of `op`.
+// `a <=_D b` is false exactly when `b <_D a`, and vice versa.
+ir::GeomOp::OpType flip_strictness(ir::GeomOp::OpType op) {
+    switch (op) {
+    case ir::GeomOp::lex:
+        return ir::GeomOp::ltx;
+    case ir::GeomOp::ley:
+        return ir::GeomOp::lty;
+    case ir::GeomOp::lez:
+        return ir::GeomOp::ltz;
+    case ir::GeomOp::ltx:
+        return ir::GeomOp::lex;
+    case ir::GeomOp::lty:
+        return ir::GeomOp::ley;
+    case ir::GeomOp::ltz:
+        return ir::GeomOp::lez;
+    default:
+        internal_error << "Not an ordering predicate: "
+                       << ir::GeomOp::intrinsic_name(op);
+    }
+}
+
+bool is_ordering(ir::GeomOp::OpType op) {
+    switch (op) {
+    case ir::GeomOp::lex:
+    case ir::GeomOp::ley:
+    case ir::GeomOp::lez:
+    case ir::GeomOp::ltx:
+    case ir::GeomOp::lty:
+    case ir::GeomOp::ltz:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Algorithm 5: Geometric Upper Bounds. Following the paper's notation, `u` is
+// a uniform operand, taken as it is, and `v` a varying one bounded by a volume
+// V. `va` and `vb` are those volumes, and are undefined for uniform operands.
+// An undefined result is the algorithm's `_ |-> true`: no useful necessary
+// condition, so the predicate may always hold.
+ir::Expr geom_upper_bound(ir::GeomOp::OpType op, const ir::Expr &a,
+                          const ir::Expr &b, const ir::Expr &va,
+                          const ir::Expr &vb) {
+    const bool a_varying = va.defined();
+    const bool b_varying = vb.defined();
+    // Each operand, replaced by its bounding volume where it varies.
+    const ir::Expr &ea = a_varying ? va : a;
+    const ir::Expr &eb = b_varying ? vb : b;
+
+    switch (op) {
+    case ir::GeomOp::contains: {
+        // Lines 5-7. Anything contained in the operand is also inside its
+        // volume, so at the very least the two must overlap.
+        if (a_varying && !b_varying) {
+            // Tighter than the paper's intersects(V_v, u), and still
+            // necessary: b lies inside a, which lies inside its own volume.
+            return ir::contains(ea, eb);
+        }
+        return ir::intersects(ea, eb);
+    }
+    case ir::GeomOp::covers:   // Lines 8-10.
+    case ir::GeomOp::touches:  // Lines 22-24.
+    case ir::GeomOp::intersects: { // Lines 19-21.
+        return ir::intersects(ea, eb);
+    }
+    case ir::GeomOp::disjoint: {
+        // Lines 11-12. Disjointness is refuted only when the uniform operand
+        // swallows the whole volume, which forces an overlap. With both
+        // operands varying nothing can be refuted.
+        if (a_varying && b_varying) {
+            return ir::Expr();
+        }
+        return a_varying ? ~ir::contains(b, va) : ~ir::contains(a, vb);
+    }
+    case ir::GeomOp::within: {
+        // Lines 13-15. `within(a, b)` is `a` inside `b`.
+        if (a_varying && b_varying) {
+            return ir::intersects(ea, eb);
+        }
+        if (b_varying) {
+            // A uniform a inside a varying b must fit inside b's volume.
+            return ir::within(a, vb);
+        }
+        return ir::intersects(va, b);
+    }
+    case ir::GeomOp::equals: {
+        // Lines 16-18. Equality forces the uniform operand to fit inside the
+        // varying one's volume, whichever side it is on.
+        if (a_varying && b_varying) {
+            return ir::intersects(ea, eb);
+        }
+        return a_varying ? ir::within(b, va) : ir::within(a, vb);
+    }
+    default: {
+        // Ordering predicates. Section 6.3 notes only that these are
+        // monotonic and bounded by rewriting varying arguments to their
+        // bounding volumes. Monotonicity gives the usual comparison rule:
+        // `a <=_D b` is necessary only if `b <_D a` fails on the volumes.
+        internal_assert(is_ordering(op))
+            << "No upper bound rule for: " << ir::GeomOp::intrinsic_name(op);
+        return ~ir::ordering(flip_strictness(op), eb, ea);
+    }
+    }
+}
+
+// Algorithm 6, lines 1-13: Geometric Lower Bounds. An undefined result is the
+// algorithm's `_ |-> false`: no sufficient condition, so the predicate can
+// never be proven to hold over a whole subtree.
+ir::Expr geom_lower_bound(ir::GeomOp::OpType op, const ir::Expr &a,
+                          const ir::Expr &b, const ir::Expr &va,
+                          const ir::Expr &vb) {
+    const bool a_varying = va.defined();
+    const bool b_varying = vb.defined();
+    const ir::Expr &ea = a_varying ? va : a;
+    const ir::Expr &eb = b_varying ? vb : b;
+
+    switch (op) {
+    case ir::GeomOp::contains: {
+        // Line 5. A uniform a that swallows b's whole volume contains every
+        // b in it. Nothing can be proven when a itself varies.
+        return (!a_varying && b_varying) ? ir::contains(a, vb) : ir::Expr();
+    }
+    case ir::GeomOp::covers: {
+        // Line 6.
+        return (!a_varying && b_varying) ? ir::covers(a, vb) : ir::Expr();
+    }
+    case ir::GeomOp::disjoint: {
+        // Lines 7-9. Disjointness is the one predicate that can be proven
+        // with both operands varying: disjoint volumes have disjoint
+        // contents.
+        return ir::disjoint(ea, eb);
+    }
+    case ir::GeomOp::intersects: {
+        // Lines 10-11. An operand whose entire volume sits inside the other
+        // necessarily meets it.
+        if (a_varying && b_varying) {
+            return ir::Expr();
+        }
+        return b_varying ? ir::contains(a, vb) : ir::within(va, b);
+    }
+    case ir::GeomOp::within: {
+        // Line 12. `a` is inside `b` whenever a's whole volume is.
+        return (a_varying && !b_varying) ? ir::within(va, b) : ir::Expr();
+    }
+    case ir::GeomOp::equals:
+    case ir::GeomOp::touches: {
+        // Line 13. A bounding volume can never prove an exact boundary
+        // relationship.
+        return ir::Expr();
+    }
+    default: {
+        // Ordering predicates, as above: the relation holds for every object
+        // in the volumes exactly when it holds between the volumes.
+        internal_assert(is_ordering(op))
+            << "No lower bound rule for: " << ir::GeomOp::intrinsic_name(op);
+        return ir::ordering(op, ea, eb);
+    }
+    }
+}
+
 struct PredicateAnalysis : public ir::Visitor {
     Interval interval;
     const VolumeMap &bounds;
@@ -501,62 +662,35 @@ struct PredicateAnalysis : public ir::Visitor {
             return;
         }
 
-        const bool a_varying = a_vol.has_value();
-        const bool b_varying = b_vol.has_value();
-
-        if (!a_varying && !b_varying) {
+        // Neither operand varies, so the expression is its own value.
+        if (!a_vol.has_value() && !b_vol.has_value()) {
             set(node);
             return;
         }
 
-        make_bool_bounds();
+        const ir::Expr va = a_vol.has_value() ? *a_vol : ir::Expr();
+        const ir::Expr vb = b_vol.has_value() ? *b_vol : ir::Expr();
 
-        switch (node->op) {
-        case ir::GeomOp::intersects: {
-            ir::Expr a = a_varying ? *a_vol : node->a;
-            ir::Expr b = b_varying ? *b_vol : node->b;
-
-            interval.max = ir::intersects(a, b);
-
-            // TODO: handle lower bound? doesn't work for rays...
-
-            return;
-        }
-        case ir::GeomOp::distmin: {
-            ir::Expr a = a_varying ? *a_vol : node->a;
-            ir::Expr b = b_varying ? *b_vol : node->b;
-
+        if (is_geometric_metric(ir::GeomOp::intrinsic_name(node->op))) {
+            // Algorithm 6, lines 15-25. Both distances are bounded below by
+            // distmin and above by distmax over the bounding volumes.
+            const ir::Expr a = va.defined() ? va : node->a;
+            const ir::Expr b = vb.defined() ? vb : node->b;
             interval.min = ir::distmin(a, b);
-
-            // TODO: handle upper bound?
             interval.max = ir::distmax(a, b);
+            return;
+        }
 
-            return;
+        make_bool_bounds();
+        if (ir::Expr upper = geom_upper_bound(node->op, node->a, node->b, va,
+                                              vb);
+            upper.defined()) {
+            interval.max = std::move(upper);
         }
-        case ir::GeomOp::contains: {
-            if (!a_varying) {
-                // If a contains b's volume, a definitely contains b
-                interval.min = ir::contains(node->a, *b_vol);
-                // if a intersects b's volume, a could contain b.
-                interval.max = ir::intersects(node->a, *b_vol);
-            } else if (!b_varying) {
-                // If a's volume fully contains b, could be true
-                // otherwise, can't be true, because there is some space b
-                // exists that a does not.
-                interval.max = ir::contains(*a_vol, node->b);
-                // No way to prove this is always true if a is varying.
-            } else {
-                // Both varying! no way to prove always true.
-                // But can only be true if the volumes intersect/overlap in some
-                // way.
-                interval.max = ir::intersects(*a_vol, *b_vol);
-            }
-            return;
-        }
-        default: {
-            internal_error << "TODO: predicate analysis for: "
-                           << ir::Expr(node);
-        }
+        if (ir::Expr lower = geom_lower_bound(node->op, node->a, node->b, va,
+                                              vb);
+            lower.defined()) {
+            interval.min = std::move(lower);
         }
     }
 

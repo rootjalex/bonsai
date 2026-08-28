@@ -1049,11 +1049,11 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
 
 namespace {
 
+// Must stay in the same order as GeomOp::OpType.
 const char *const geometric_op_names[] = {
-    "contains",
-    "distmax",
-    "distmin",
-    "intersects",
+    "contains", "covers", "disjoint", "equals", "intersects",
+    "touches",  "within", "lex",      "ley",    "lez",
+    "ltx",      "lty",    "ltz",      "distmax", "distmin",
 };
 
 static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) ==

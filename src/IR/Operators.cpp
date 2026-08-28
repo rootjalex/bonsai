@@ -96,6 +96,35 @@ Expr contains(Expr a, Expr b) {
     return GeomOp::make(GeomOp::contains, std::move(a), std::move(b));
 }
 
+Expr covers(Expr a, Expr b) {
+    return GeomOp::make(GeomOp::covers, std::move(a), std::move(b));
+}
+
+Expr disjoint(Expr a, Expr b) {
+    return GeomOp::make(GeomOp::disjoint, std::move(a), std::move(b));
+}
+
+// Named to avoid colliding with ir::equals, the structural comparison.
+Expr equals_geom(Expr a, Expr b) {
+    return GeomOp::make(GeomOp::equals, std::move(a), std::move(b));
+}
+
+Expr touches(Expr a, Expr b) {
+    return GeomOp::make(GeomOp::touches, std::move(a), std::move(b));
+}
+
+Expr within(Expr a, Expr b) {
+    return GeomOp::make(GeomOp::within, std::move(a), std::move(b));
+}
+
+Expr ordering(GeomOp::OpType op, Expr a, Expr b) {
+    internal_assert(op == GeomOp::lex || op == GeomOp::ley ||
+                    op == GeomOp::lez || op == GeomOp::ltx ||
+                    op == GeomOp::lty || op == GeomOp::ltz)
+        << "Not an ordering predicate: " << GeomOp::intrinsic_name(op);
+    return GeomOp::make(op, std::move(a), std::move(b));
+}
+
 Expr filter(Expr predicate, Expr set) {
     return SetOp::make(SetOp::filter, std::move(predicate), std::move(set));
 }

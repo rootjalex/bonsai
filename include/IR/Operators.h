@@ -36,6 +36,12 @@ Expr distmax(Expr a, Expr b);
 Expr distmin(Expr a, Expr b);
 Expr intersects(Expr a, Expr b);
 Expr contains(Expr a, Expr b);
+Expr covers(Expr a, Expr b);
+Expr disjoint(Expr a, Expr b);
+Expr equals_geom(Expr a, Expr b);
+Expr touches(Expr a, Expr b);
+Expr within(Expr a, Expr b);
+Expr ordering(GeomOp::OpType op, Expr a, Expr b);
 
 // Sets
 Expr filter(Expr predicate, Expr set);
