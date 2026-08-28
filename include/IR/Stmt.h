@@ -260,10 +260,16 @@ struct Iterate : StmtNode<Iterate> {
 // elements before that combination.
 struct Scan : StmtNode<Scan> {
     std::optional<AggOp::OpType> op;
+    // The accumulator the reduction folds into. Defined exactly when `op` is.
+    WriteLoc loc;
     Expr func;
     Expr value;
 
-    static Stmt make(std::optional<AggOp::OpType> op, Expr func, Expr value);
+    static Stmt make(std::optional<AggOp::OpType> op, WriteLoc loc, Expr func,
+                     Expr value);
+    static Stmt make(Expr func, Expr value) {
+        return make({}, WriteLoc(), std::move(func), std::move(value));
+    }
 
     static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };

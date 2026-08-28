@@ -5,7 +5,7 @@ run all tests. Some flags might be useful:
 
 - `-R`: select tests that match a particular regular expression.
 - `-L`: select a label to run. Existing labels include `backends`,
-  `correctness`, `errors`, `llvm`, and `parsing`.
+  `correctness`, `error`, `llvm`, `lower`, `opt`, and `parsing`.
 - `-j`: run on multiple processors
 
 To update the golden outputs during a test run, set the environment variable

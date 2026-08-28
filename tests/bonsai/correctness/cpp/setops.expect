@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O2 -c tests/bonsai/correctness/cpp/main_setops.cpp -I. -o tests/bonsai/correctness/cpp/main_setops.o
+[test] clang++ -std=c++20 -O2 -c tests/bonsai/correctness/cpp/setops.cpp -I. -o tests/bonsai/correctness/cpp/setops_gen.o
+[test] clang++ tests/bonsai/correctness/cpp/main_setops.o tests/bonsai/correctness/cpp/setops_gen.o -o tests/bonsai/correctness/cpp/setops_run
+[test] ./tests/bonsai/correctness/cpp/setops_run
+all queries match a linear scan
