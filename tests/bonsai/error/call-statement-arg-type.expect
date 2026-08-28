@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/call-statement-arg-type.bonsai:16:20: [parse error] Argument 0 of call to function rec has incorrect type. Expected R but parsed: f32
+
+    rec(r.d, n - 1);
+                   ^

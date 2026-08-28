@@ -780,36 +780,25 @@ struct Parser {
     // TODO(cgyurgyik): Need to eventually extend this to support struct methods
     // as well, e.g., `a.foo(1)`.
     std::optional<ir::Stmt> parse_call_statement(std::string id) {
-        auto it = program.funcs.find(id);
-        if (it == program.funcs.end()) {
+        if (!program.funcs.contains(id)) {
+            // Not a call at all -- a write to something, for whoever asked.
             return {};
         }
-        const ir::Function &function = *it->second;
-        expect(Token::Type::LPAREN);
-        ir::Type f_type = function.call_type();
-
-        std::vector<ir::Expr> args = parse_expr_list_until(Token::Type::RPAREN);
-
-        const ir::Function_t *function_t = f_type.as<ir::Function_t>();
-        internal_assert(function_t);
-        if (function_t->arg_types.size() != args.size()) {
-            report_error() << "Incorrect number of arguments to: " << id
-                           << "parsed: " << args.size()
-                           << " but expected: " << function_t->arg_types.size();
+        // A call is a call. Whether its result is used decides what statement
+        // it becomes, not how much of it gets checked, so the checking lives
+        // in one place and both positions go through it. This used to be its
+        // own parser that checked the argument count and mutability but not
+        // the argument types, so `f(wrong_type);` as a statement was accepted
+        // where `return f(wrong_type);` was rejected, and the program failed
+        // much later in code generation. Generics were missing here too: a
+        // call statement had no way to name template arguments.
+        ir::Expr call = parse_function_call(std::move(id));
+        const ir::Call *as_call = call.as<ir::Call>();
+        if (as_call == nullptr) {
+            report_error() << "Expected a call, but parsed: " << call;
         }
-
-        for (size_t i = 0; i < args.size(); i++) {
-            // TODO(ajr): add other type checking here?
-            if (function_t->arg_types[i].is_mutable && !is_mutable(args[i])) {
-                report_error()
-                    << "Argument " << args[i] << " at position " << i
-                    << " of call to function " << id << " must be mutable.";
-            }
-        }
-
-        ir::Expr v = ir::Var::make(f_type, std::move(id));
         expect(Token::Type::SEMICOL);
-        return ir::CallStmt::make(std::move(v), std::move(args));
+        return ir::CallStmt::make(as_call->func, as_call->args);
     }
 
     // if expr stmt [elif expr stmt]* [else stmt]?

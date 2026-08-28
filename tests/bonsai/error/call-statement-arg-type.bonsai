@@ -1,0 +1,23 @@
+// A call in statement position is type-checked like any other call.
+//
+// It did not used to be. Statement calls had a parser of their own that
+// checked the argument count and mutability but not the argument types, so
+// this program was accepted and failed much later, inside the LLVM backend --
+// and as a mismatch between *pointers*, because Lower/Mutability.cpp passes
+// structs by pointer and so had already wrapped the argument in a PtrTo by
+// then. The same call written as `return rec(...)` was rejected here, where it
+// belongs. Both positions now go through one parser.
+
+element R { d : f32; }
+
+func rec(r : R, n : i32) -> void {
+    if (n <= 0) { return; }
+    // `r.d` is an f32; `rec` takes an R.
+    rec(r.d, n - 1);
+}
+
+func main() -> i32 {
+    s : R = R{1.5};
+    rec(s, 3);
+    return 0;
+}
