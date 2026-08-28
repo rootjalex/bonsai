@@ -28,6 +28,7 @@ add_bonsai_tests(
     struct_defaults.bonsai
     tail-call.bonsai
     tree-traversal.bonsai
+    tree-traversal-recursive.bonsai
     type_coercion_primitive.bonsai
     vectorize_add_one.bonsai
     vectorize_calls.bonsai

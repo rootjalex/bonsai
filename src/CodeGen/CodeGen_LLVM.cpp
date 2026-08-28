@@ -287,8 +287,22 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     // inliner does not charge for an alloca it duplicates down a recursion.
     // Loopifying the recursive caller as well avoids it, but that is the
     // schedule's choice to make, not something to assume here.
+    // A function asked to be inlined can only actually be folded into its
+    // caller and dropped if nothing outside this module might call it, so it
+    // needs internal linkage to go with the request -- otherwise LLVM has to
+    // keep a standalone copy for a caller that cannot exist, and inlining
+    // while still paying for the original is a trade it declines. Exported
+    // functions and kernels are looked up by name from outside and stay put.
+    const bool fold_into_callers =
+        func.is_always_inlined() && !func.is_exported() && !func.is_kernel();
     llvm::Function *fn = llvm::Function::Create(
-        ftype, llvm::GlobalValue::ExternalLinkage, func.name, module.get());
+        ftype,
+        fold_into_callers ? llvm::GlobalValue::InternalLinkage
+                          : llvm::GlobalValue::ExternalLinkage,
+        func.name, module.get());
+    if (fold_into_callers) {
+        fn->addFnAttr(llvm::Attribute::AlwaysInline);
+    }
 
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];

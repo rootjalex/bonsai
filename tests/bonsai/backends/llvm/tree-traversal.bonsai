@@ -7,14 +7,18 @@
 // traversal loopified onto an explicit stack by the SSA rewriter, and the
 // aliasing facts that decide whether the result is any good.
 //
-// The one to look for in the golden is `noalias` on `_recloop_func0`'s
-// accumulator. A query folds into an object lowering invents, which the
-// program cannot name and so cannot hold a second reference to; saying so is
-// what lets the traversal keep the ray it is testing against in registers
-// instead of re-reading it at every node. It reaches here from
-// `Allocate::unaliased`, set in tree lowering, through the recursion lowering,
-// the SSA form and back, and more than one pass along the way rebuilds the
-// argument it rides on -- so it is worth pinning that it still arrives.
+// The thing to look for in the golden is that there is no `_recloop_func0`.
+// Lowering has to extract a recursion into a function of its own before
+// `loopify` can turn it into a loop, and once it is a loop that function has
+// served its purpose: left standing, what the query folds into stays the
+// caller's, so every update to it is a store through a pointer and reading
+// the answer back is a load per field. `loopify` marks it to be folded back
+// into the caller it came from, which is what puts the accumulator in
+// registers -- see SSA/Rewrite.cpp.
+//
+// The `noalias` that makes that accumulator worth having in the first place
+// is pinned by tree-traversal-recursive.bonsai, which is the same query
+// without a `loopify` and so still has a function to hang it on.
 import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;

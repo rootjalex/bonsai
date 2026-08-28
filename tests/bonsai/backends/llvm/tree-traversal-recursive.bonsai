@@ -1,0 +1,48 @@
+//! flags: -p ssa -b llvm
+
+// The same query as tree-traversal.bonsai, with no `loopify` in the schedule.
+//
+// Without one a tree traversal is a recursion, and stays one: `_recloop_func0`
+// calls itself. That is the whole of the lowering's job here -- nothing tries
+// to flatten it, and nothing needs to.
+//
+// It is also where `noalias` is visible. A query folds into an object that
+// lowering invents, which the program cannot name and so cannot be holding a
+// second reference to; saying so is what lets the traversal keep the ray it
+// is testing against in registers instead of re-reading it after every write.
+// The fact reaches here from `Allocate::unaliased`, set in tree lowering,
+// through the recursion lowering, the SSA form and back again, and more than
+// one pass along the way rebuilds the argument it rides on -- so it is worth
+// pinning that it still arrives.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : TriangleBVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

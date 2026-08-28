@@ -70,6 +70,12 @@ struct Function {
         inlined,   // whether this function should be marked inline
         kernel,    // Whether this function is a parallel kernel.
         setup_rng, // Whether this function must set up rng state.
+        // This function exists only because a lowering pass extracted it, and
+        // is to be folded back into the callers it was taken out of. Stronger
+        // than `inlined`, which is the user-facing `[[inline]]` hint: this one
+        // is the compiler undoing its own bookkeeping, so it is not a
+        // suggestion and only ever set on functions the compiler generated.
+        always_inlined,
     };
 
     std::vector<Attribute> attributes;
@@ -155,6 +161,11 @@ struct Function {
     bool is_inlined() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::inlined) != attributes.cend();
+    }
+
+    bool is_always_inlined() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::always_inlined) != attributes.cend();
     }
 
     bool is_kernel() const {

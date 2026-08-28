@@ -625,6 +625,21 @@ void loopify(FuncMap &funcs, std::string func, int size) {
             << "a stack";
         for (const std::string &target : targets) {
             queue_recursion(*funcs[target], size_t(size));
+
+            // The target is a loop now, and it is only a function at all
+            // because Lower/RecLoops.cpp had to extract the recursion into
+            // one. Left standing it costs more than the call: what the
+            // traversal folds into is the caller's, so every update to it
+            // becomes a store through a pointer and reading the answer back
+            // becomes a load per field. Putting it back where it came from is
+            // what lets that stay in registers, and the recursion that stopped
+            // it from happening is exactly what was just removed.
+            auto &attrs = funcs[target]->attributes;
+            if (std::find(attrs.begin(), attrs.end(),
+                          ir::Function::Attribute::always_inlined) ==
+                attrs.end()) {
+                attrs.push_back(ir::Function::Attribute::always_inlined);
+            }
         }
         return;
     }
