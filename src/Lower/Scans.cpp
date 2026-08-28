@@ -18,12 +18,8 @@ namespace {
 
 using namespace ir;
 
-std::string scan_func_name(std::optional<AggOp::OpType> op,
-                           const std::vector<TypedVar> &args) {
+std::string scan_func_name(const std::vector<TypedVar> &args) {
     std::string func_name = "_scan";
-    if (op) {
-        func_name += "_" + to_string(*op);
-    }
     for (const auto &arg : args) {
         if (const BVH_t *bvh_t = arg.type.as<BVH_t>()) {
             func_name += "_" + bvh_t->name;
@@ -74,7 +70,6 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
 
     struct ScansToCalls : public Mutator {
         std::shared_ptr<Function> func;
-        std::optional<AggOp::OpType> op;
         Expr write_expr;
         WriteLoc write_loc;
         std::optional<AggOp::OpType> op;
