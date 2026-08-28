@@ -14,12 +14,13 @@ func _traverse_tree0(q : Point, points : tree[[Point]] PointBVH) -> Point {
     match points {
     | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
       if (distmin(q, build<AABB>((points as Interior).low, (points as Interior).high)) < _best0[0]) {
+        _best0 argmin= (distmax(q, build<AABB>((points as Interior).low, (points as Interior).high)), build<Point>())
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
       if (distmin(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best0[0]) {
         if (distmin(q, (points as Leaf).data) < _best0[0]) {
-          _best0 argmin= (distmin(q, (points as Leaf).data), (points as Leaf).data)
+          _best0 = (distmin(q, (points as Leaf).data), (points as Leaf).data)
         }
       }
     }

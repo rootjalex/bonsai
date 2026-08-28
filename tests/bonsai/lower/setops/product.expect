@@ -16,14 +16,18 @@ func _traverse_tree0(items : tree[[Item]] ItemTree, items2 : tree[[Item]] ItemTr
       | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] ->
         if ((((items as Interior).idl == (items as Interior).idh) && ((items2 as Interior).idl == (items2 as Interior).idh)) && ((items as Interior).idl == (items2 as Interior).idl)) {
           scan (((items as Interior).left, (items2 as Interior).left), ((items as Interior).left, (items2 as Interior).right), ((items as Interior).right, (items2 as Interior).left), ((items as Interior).right, (items2 as Interior).right))
-        } else if (((items as Interior).idl <= (items2 as Interior).idh) && ((items2 as Interior).idl <= (items as Interior).idh)) {
-          from (((items as Interior).left, (items2 as Interior).left), ((items as Interior).left, (items2 as Interior).right), ((items as Interior).right, (items2 as Interior).left), ((items as Interior).right, (items2 as Interior).right))
+        } else {
+          if (((items as Interior).idl <= (items2 as Interior).idh) && ((items2 as Interior).idl <= (items as Interior).idh)) {
+            from (((items as Interior).left, (items2 as Interior).left), ((items as Interior).left, (items2 as Interior).right), ((items as Interior).right, (items2 as Interior).left), ((items as Interior).right, (items2 as Interior).right))
+          }
         }
       | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
         if ((((items as Interior).idl == (items as Interior).idh) && ((items2 as Leaf).idl == (items2 as Leaf).idh)) && ((items as Interior).idl == (items2 as Leaf).idl)) {
           scan (((items as Interior).left, items2), ((items as Interior).right, items2))
-        } else if (((items as Interior).idl <= (items2 as Leaf).idh) && ((items2 as Leaf).idl <= (items as Interior).idh)) {
-          from (((items as Interior).left, items2), ((items as Interior).right, items2))
+        } else {
+          if (((items as Interior).idl <= (items2 as Leaf).idh) && ((items2 as Leaf).idl <= (items as Interior).idh)) {
+            from (((items as Interior).left, items2), ((items as Interior).right, items2))
+          }
         }
       }
     | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
@@ -31,15 +35,19 @@ func _traverse_tree0(items : tree[[Item]] ItemTree, items2 : tree[[Item]] ItemTr
       | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] ->
         if ((((items as Leaf).idl == (items as Leaf).idh) && ((items2 as Interior).idl == (items2 as Interior).idh)) && ((items as Leaf).idl == (items2 as Interior).idl)) {
           scan ((items, (items2 as Interior).left), (items, (items2 as Interior).right))
-        } else if (((items as Leaf).idl <= (items2 as Interior).idh) && ((items2 as Interior).idl <= (items as Leaf).idh)) {
-          from ((items, (items2 as Interior).left), (items, (items2 as Interior).right))
+        } else {
+          if (((items as Leaf).idl <= (items2 as Interior).idh) && ((items2 as Interior).idl <= (items as Leaf).idh)) {
+            from ((items, (items2 as Interior).left), (items, (items2 as Interior).right))
+          }
         }
       | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
         if ((((items as Leaf).idl == (items as Leaf).idh) && ((items2 as Leaf).idl == (items2 as Leaf).idh)) && ((items as Leaf).idl == (items2 as Leaf).idl)) {
           yield ((items as Leaf).data, (items2 as Leaf).data)
-        } else if (((items as Leaf).idl <= (items2 as Leaf).idh) && ((items2 as Leaf).idl <= (items as Leaf).idh)) {
-          if ((items as Leaf).data.id == (items2 as Leaf).data.id) {
-            yield ((items as Leaf).data, (items2 as Leaf).data)
+        } else {
+          if (((items as Leaf).idl <= (items2 as Leaf).idh) && ((items2 as Leaf).idl <= (items as Leaf).idh)) {
+            if ((items as Leaf).data.id == (items2 as Leaf).data.id) {
+              yield ((items as Leaf).data, (items2 as Leaf).data)
+            }
           }
         }
       }

@@ -16,7 +16,7 @@ func _traverse_tree0(lo : i32, hi : i32, items : tree[[Item]] ItemTree) -> optio
     | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
       if (((lo <= (items as Leaf).idh) && ((items as Leaf).idl <= hi)) && (_best0[0] < (items as Leaf).idh)) {
         if (((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi)) && (_best0[0] < (items as Leaf).data.id)) {
-          _best0 argmax= ((items as Leaf).data.id, (items as Leaf).data)
+          _best0 = ((items as Leaf).data.id, (items as Leaf).data)
         }
       }
     }
