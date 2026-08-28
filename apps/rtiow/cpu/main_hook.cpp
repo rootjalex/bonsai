@@ -30,13 +30,13 @@ inline float random_float(float min, float max) {
     return min + (max - min) * random_float();
 }
 
-inline vec3_float min(const vec3_float &a, const vec3_float &b) {
-    return vec3_float{std::fminf(a[0], b[0]), std::fminf(a[1], b[1]),
+inline float3 min(const float3 &a, const float3 &b) {
+    return float3{std::fminf(a[0], b[0]), std::fminf(a[1], b[1]),
                       std::fminf(a[2], b[2])};
 }
 
-inline vec3_float max(const vec3_float &a, const vec3_float &b) {
-    return vec3_float{std::fmaxf(a[0], b[0]), std::fmaxf(a[1], b[1]),
+inline float3 max(const float3 &a, const float3 &b) {
+    return float3{std::fmaxf(a[0], b[0]), std::fmaxf(a[1], b[1]),
                       std::fmaxf(a[2], b[2])};
 }
 
@@ -51,9 +51,11 @@ _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
     // Then build the tree.
     size_t leaf_count = (tree.pCount + (max_prims - 1)) / max_prims;
     size_t internal_count = leaf_count - 1;
-    tree.count = leaf_count + internal_count;
+    // `count` is an aggregation intrinsic and so cannot be a field name; the
+    // layout in main.bonsai calls this one `nCount`.
+    tree.nCount = leaf_count + internal_count;
     tree.group0_index =
-        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.count);
+        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
 
     uint32_t next_node = 0;
 
@@ -81,8 +83,8 @@ _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
             // Internal node
             tree.group0_index[this_index].nPrims = 0;
 
-            vec3_float min_bound = spheres[low].s.center;
-            vec3_float max_bound = spheres[low].s.center;
+            float3 min_bound = spheres[low].s.center;
+            float3 max_bound = spheres[low].s.center;
 
             for (uint32_t i = low + 1; i < high; ++i) {
                 min_bound = min(min_bound, spheres[i].s.center);
@@ -90,7 +92,7 @@ _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
             }
 
             // Choose axis with greatest extent
-            vec3_float extent = max_bound - min_bound;
+            float3 extent = max_bound - min_bound;
             int axis = 0;
             if (extent[1] > extent[0])
                 axis = 1;
@@ -159,29 +161,29 @@ int main(int argc, char *argv[]) {
     for (int a = -11; a < 11; a++) {
         for (int b = -11; b < 11; b++) {
             auto choose_mat = random_float();
-            vec3_float center = {static_cast<float>(a + 0.9 * random_float()),
+            float3 center = {static_cast<float>(a + 0.9 * random_float()),
                                  0.2,
                                  static_cast<float>(b + 0.9 * random_float())};
 
-            vec3_float a = {4, 0.2, 0};
+            float3 a = {4, 0.2, 0};
 
-            vec3_float diff = (center - a);
+            float3 diff = (center - a);
             float len =
                 sqrt(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
 
             if (len > 0.9) {
                 if (choose_mat < 0.8) {
                     // diffuse
-                    vec3_float r0 = {random_float(), random_float(),
+                    float3 r0 = {random_float(), random_float(),
                                      random_float()};
-                    vec3_float r1 = {random_float(), random_float(),
+                    float3 r1 = {random_float(), random_float(),
                                      random_float()};
                     auto albedo = r0 * r1;
                     spheres.push_back(
                         {Sphere{center, 0.2}, LAMBERTIAN, albedo, 0.0});
                 } else if (choose_mat < 0.95) {
                     // metal
-                    vec3_float albedo = {random_float(0.5, 1),
+                    float3 albedo = {random_float(0.5, 1),
                                          random_float(0.5, 1),
                                          random_float(0.5, 1)};
                     float fuzz = random_float(0, 0.5);
@@ -203,6 +205,15 @@ int main(int argc, char *argv[]) {
     cam.width = 1200; // makes height = 675
     cam.samples_per_pixel = 50;
     cam.max_depth = 20;
+
+    // Overridable, so that a quick check does not have to render the whole
+    // thing: RTIOW_WIDTH=200 RTIOW_SAMPLES=4 takes a tenth of a second.
+    if (const char *w = getenv("RTIOW_WIDTH")) {
+        cam.width = atoi(w);
+    }
+    if (const char *s = getenv("RTIOW_SAMPLES")) {
+        cam.samples_per_pixel = atoi(s);
+    }
 
     cam.vfov = 20;
     cam.lookfrom = {13, 2, 3};
