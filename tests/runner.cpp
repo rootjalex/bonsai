@@ -19,15 +19,6 @@ enum Pipes { READ, WRITE };
 // Wrap common POSIX IO functions to throw errors on failure.
 namespace io {
 
-template <size_t Size>
-static int read(const int fd, std::array<char, Size> &buffer) {
-    int ret;
-    if ((ret = ::read(fd, buffer.data(), Size - 1)) < 0) {
-        throw std::system_error(errno, std::system_category());
-    }
-    return ret;
-}
-
 static int dup(const int src) {
     int ret;
     if ((ret = ::dup(src)) < 0) {
@@ -57,7 +48,12 @@ static void close(int &fd) {
 
 } // namespace io
 
-// Capture writes to a FILE* (either stdout / stderr) into a std::string
+// Capture writes to a FILE* (either stdout / stderr) into a std::string.
+//
+// A pipe only buffers so much -- 64 KiB on Linux -- so the reading has to
+// happen while the writing does. Draining afterwards deadlocks the moment a
+// test produces more output than fits, which a golden of generated code
+// reaches easily.
 class Capture {
   public:
     Capture(FILE *file, std::string &output);
@@ -65,6 +61,8 @@ class Capture {
 
   private:
     std::string &output;
+    std::stringstream stream;
+    std::thread reader;
     int pipe[2];
     int fd, old_fd;
 };
@@ -79,22 +77,29 @@ Capture::Capture(FILE *file, std::string &output) : output(output) {
     old_fd = io::dup(fd);
     io::dup2(pipe[WRITE], fd);
     io::close(pipe[WRITE]);
+
+    // `fd` is now the only handle on the write end, so restoring it in the
+    // destructor is what gives this thread its EOF.
+    reader = std::thread([this] {
+        std::array<char, 1025> buffer;
+        for (;;) {
+            const int bytes_read =
+                ::read(this->pipe[READ], buffer.data(), buffer.size() - 1);
+            if (bytes_read <= 0) {
+                // 0 is EOF; a negative value is an error we cannot report from
+                // here, and either way there is nothing further to read.
+                return;
+            }
+            buffer[bytes_read] = 0;
+            this->stream << buffer.data();
+        }
+    });
 }
 
 Capture::~Capture() noexcept(false) {
     io::dup2(old_fd, fd);
 
-    std::stringstream stream;
-
-    std::array<char, 1025> buffer;
-    int bytes_read = 0;
-    do {
-        if ((bytes_read = io::read(pipe[READ], buffer)) > 0) {
-            buffer[bytes_read] = 0;
-            stream << buffer.data();
-        }
-    } while (bytes_read == buffer.size() - 1);
-
+    reader.join();
     output = stream.str();
 
     io::close(old_fd);
