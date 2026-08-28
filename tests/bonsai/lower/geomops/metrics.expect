@@ -1,0 +1,57 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Point = struct Point{ data : f32x3 }
+type PointBVH = (const PointBVH&)
+type vec3f = f32x3
+
+extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
+
+func _traverse_tree0(q : Point, points : tree[[Point]] PointBVH) -> Point {
+  _best0 : mut (f32, Point) := ((f32)inf, build<Point>())
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (distmin(q, build<AABB>((points as Interior).low, (points as Interior).high)) < _best0[0]) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (distmin(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best0[0]) {
+        if (distmin(q, (points as Leaf).data) < _best0[0]) {
+          _best0 argmin= (distmin(q, (points as Leaf).data), (points as Leaf).data)
+        }
+      }
+    }
+  }
+  yield _best0[1]
+}
+
+func _traverse_tree1(q : Point, points : tree[[Point]] PointBVH) -> f32 {
+  _best0 : mut f32 := -(f32)inf
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (_best0 < distmax(q, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        _best0 max= distmin(q, build<AABB>((points as Interior).low, (points as Interior).high))
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      _best0 max= distmax(q, (points as Leaf).data)
+    }
+  }
+  yield _best0
+}
+
+func q_closest(q : Point) -> Point {
+  return _traverse_tree0(q, points)
+}
+
+func q_farthest(q : Point) -> f32 {
+  return _traverse_tree1(q, points)
+}
+
+
+schedule host {
+
+}

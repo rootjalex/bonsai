@@ -1,0 +1,17 @@
+//! flags: -p canonicalize -p lower-trees
+
+element Item {
+    id : i32;
+}
+
+extern items : set[Item];
+
+func q(lo : i32, hi : i32) = maximum(|x| x.id, filter(|x| (lo <= x.id) & (x.id <= hi), items));
+
+schedule {
+    tree[[Item]] ItemTree(idl idh : i32) with id in [idl, idh] =
+    | Interior(left : ItemTree, right : ItemTree)
+    | Leaf(data : Item) with data = data;
+
+    items : ItemTree;
+}
