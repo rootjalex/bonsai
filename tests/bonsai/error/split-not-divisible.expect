@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Rewrite.cpp:536
+
+--> (*end_n - *start_n) % factor == 0
+split(i, 4) on fill does not divide the loop's range of [0:6), so without a tail it would run 2 iterations past the end

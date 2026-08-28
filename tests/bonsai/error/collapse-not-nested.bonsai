@@ -1,0 +1,22 @@
+//! flags: -p ssa
+
+// The outer loop of a collapse has to run the inner one and nothing else.
+//
+// Anything else in the outer body runs once per outer step, and a collapsed
+// loop has no outer step left to hang it on -- there is nowhere to put the
+// write below without running it once per point of the rectangle instead of
+// once per row.
+
+func fill(out : mut array[i32, 15]) -> void {
+    parfor y in 0:3 {
+        out[12 + y] = y;
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+        }
+    }
+    return;
+}
+
+schedule {
+    fill.collapse(y, x, c);
+}

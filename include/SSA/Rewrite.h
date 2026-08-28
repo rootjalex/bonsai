@@ -15,6 +15,14 @@ using FuncMap = std::map<std::string, std::shared_ptr<ssa::Function>>;
 
 void split(FuncMap &funcs, std::string func, std::string idx, int factor, std::string outer, std::string inner, bool exact);
 
+// Fuses two nested parfor loops into one that walks the rectangle they cover,
+// recovering each index from the step number. `outer` must run `inner` and
+// nothing else. Where the ranges do not divide by their strides the rectangle
+// is larger than they are, and the steps past either end are skipped.
+// Implemented in SSA/CollapseLoops.cpp.
+void collapse(FuncMap &funcs, std::string func, std::string outer,
+              std::string inner, std::string collapsed);
+
 void loopify(FuncMap &funcs, std::string func, int size = 0);
 
 struct Cursor {

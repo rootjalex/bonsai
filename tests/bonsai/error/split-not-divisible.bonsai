@@ -1,0 +1,20 @@
+//! flags: -p ssa
+
+// A split whose factor does not divide the loop's range, and no tail asked
+// for. Without a tail the two loops cover start, start+factor, ... so the last
+// chunk runs off the end -- writing past the range the program reasoned about,
+// which is a wrong answer rather than a slow one.
+//
+// The Stmt-level split in Lower/LoopTransforms.cpp does not check this and
+// silently generates the overrun.
+
+func fill(out : mut array[i32, 8]) -> void {
+    parfor i in 0:6 {
+        out[i] = i * 10;
+    }
+    return;
+}
+
+schedule {
+    fill.split(i, io, ii, 4, false);
+}

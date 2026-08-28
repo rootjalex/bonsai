@@ -1,0 +1,24 @@
+//! flags: -p ssa
+
+// split() as an SSA rewrite: one parfor becomes two nested ones.
+//
+// The outer loop steps by the factor and the inner one walks the chunk it
+// starts, so the inner index is the absolute index the original loop had --
+// which is why the body is unchanged apart from the name it calls that index
+// by. The schedule names both loops, so the body's index is renamed to the
+// inner one: a later transform asked to work on `ii` has to be able to find
+// it, and a body still referring to `i` would refer to nothing.
+//
+// Only a parfor can be split. The rewrite matches Terminator::ParFor and
+// nothing else.
+
+func scale(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:64 {
+        out[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+schedule {
+    scale.split(i, io, ii, 16, false);
+}

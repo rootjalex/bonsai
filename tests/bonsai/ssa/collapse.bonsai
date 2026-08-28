@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// collapse() as an SSA rewrite: two nested parfors become one flat one.
+//
+// The new loop walks the rectangle the two covered, one step at a time, and
+// recovers each index from the step number -- `y = by + (c / ci) * sy` and
+// `x = bx + (c % ci) * sx`, where `ci` is the inner loop's trip count, worked
+// out once before the loop rather than per step.
+//
+// There is no guard on either recovered index, and the golden should not grow
+// one. A trip count is ceil((end - begin) / stride), so the last index a loop
+// visits is below its end whether or not the range divides by the stride, and
+// both recovered indices are in range by construction. A branch here would be
+// paid on every step of a loop whose whole purpose is to be flat.
+//
+// That `ci` is loop-invariant is a requirement, not an assumption: a nest
+// whose inner range depends on the outer index has no single trip count, and
+// is rejected (see error/collapse-dependent-range.bonsai).
+
+func grid(out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+        }
+    }
+    return;
+}
+
+schedule {
+    grid.collapse(y, x, c);
+}

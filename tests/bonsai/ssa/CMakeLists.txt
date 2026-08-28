@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS ssa
     FILES
     calls.bonsai
+    collapse.bonsai
     divergence.bonsai
     forall.bonsai
     known-limitation-two-parfors.bonsai
@@ -13,6 +14,7 @@ add_bonsai_tests(
     parfor.bonsai
     print.bonsai
     simple.bonsai
+    split.bonsai
     traverse.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai

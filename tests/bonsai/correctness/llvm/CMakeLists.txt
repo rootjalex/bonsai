@@ -12,6 +12,7 @@ add_bonsai_tests(
     extrema.bonsai
     function-type.bonsai
     if-else-returns.bonsai
+    loop-transforms.bonsai
     loopify.bonsai
     loopify-queue.bonsai
     nested-exported-function.bonsai

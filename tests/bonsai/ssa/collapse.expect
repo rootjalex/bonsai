@@ -1,0 +1,21 @@
+func grid(out : mut i32[12]) -> void {
+  parfor c in [0:12:1] {
+    let @5 = c / 4 in
+    let @6 = c % 4 in
+    let y = @5 in
+    let x = @6 in
+    let @0 = y * 100 in
+    let @1 = @0 + x in
+    let @2 = y << 2 in
+    let @3 = @2 + x in
+    out[@3] = @1
+    continue
+  }
+  return
+}
+
+
+schedule host {
+    grid.collapse(y, x, c)
+
+}

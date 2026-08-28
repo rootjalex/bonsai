@@ -1,0 +1,20 @@
+func scale(n : i32, a : f32[n], out : mut f32[n]) -> void {
+  parfor io in [0:64:16] {
+    parfor ii in [0:16:1] {
+      let @3 = io + ii in
+      let i = @3 in
+      let @0 = a[i] in
+      let @1 = @0 * 2f in
+      out[i] = @1
+      continue
+    }
+    continue
+  }
+  return
+}
+
+
+schedule host {
+    scale.split(i, io, ii, (i32)16, 0)
+
+}

@@ -1,0 +1,25 @@
+//! flags: -p ssa
+
+// A triangular nest: the inner loop's range depends on the outer index.
+//
+// Collapsing needs the inner trip count before either loop starts, so that the
+// step number can be divided by it to recover the two indices. Here there is
+// no single count -- the rectangle has a different width per row -- so the
+// nest cannot be collapsed at all.
+//
+// Before this was checked it failed much later and much less clearly, as
+// "Var: y not in current block, and current block is entry!" from trying to
+// read the outer index from outside the loop that defines it.
+
+func fill(out : mut array[i32, 12]) -> void {
+    parfor y in 0:4 {
+        parfor x in 0:y {
+            out[y * 3 + x] = y * 10 + x;
+        }
+    }
+    return;
+}
+
+schedule {
+    fill.collapse(y, x, c);
+}

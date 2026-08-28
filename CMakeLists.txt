@@ -151,6 +151,7 @@ target_sources(
     src/SSA/AnalyzeDivergence.cpp
     src/SSA/CloneFunction.cpp
     src/SSA/CodeGen_Stmt.cpp
+    src/SSA/CollapseLoops.cpp
     src/SSA/Convert.cpp
     src/SSA/DumpAnalysis.cpp
     src/SSA/InsertPreheader.cpp

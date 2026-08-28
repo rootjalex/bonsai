@@ -1058,9 +1058,105 @@ build(const std::shared_ptr<ir::Function> &func) {
 
 namespace {
 
-// Applies the SSA-level schedule `transforms` (only those kinds implemented
-// in SSA/Rewrite.h; anything else is left for the Stmt-level LoopTransforms
-// pass) and builds/codegens `funcs` through the SSA representation.
+// What a Parallelize is spelled as in a schedule, so that a report about one
+// names what was written rather than the enumerator behind it.
+const char *strategy_name(ir::Parallelize::Strategy strategy) {
+    switch (strategy) {
+    case ir::Parallelize::CPUThread:
+        return "cpu_thread";
+    case ir::Parallelize::CPUVector:
+        return "cpu_vector";
+    case ir::Parallelize::GPUThread:
+        return "gpu_thread";
+    case ir::Parallelize::GPUBlock:
+        return "gpu_block";
+    }
+    return "parallelize";
+}
+
+// Where a loop a schedule names actually is.
+struct LoopSite {
+    std::string func;  // the function holding it
+    std::string index; // the name it goes by there
+};
+
+// Every parfor reachable from `start`, by function.
+//
+// A schedule names a function and a loop in it, but neither need be where the
+// loop ends up: lowering moves a `map` into a `_traverse_arrayN` helper of its
+// own, so the loop a schedule calls `process`'s is really in a function
+// `process` calls. The Stmt-level pass follows the same calls, by name and
+// with a "this is hacky" note; following the call graph is the general form of
+// that.
+std::map<std::string, std::set<std::string>>
+parfors_reachable_from(const FuncMap &fmap, const std::string &start) {
+    std::map<std::string, std::set<std::string>> found;
+    std::set<std::string> seen;
+    std::vector<std::string> work{start};
+    while (!work.empty()) {
+        const std::string name = work.back();
+        work.pop_back();
+        if (!seen.insert(name).second) {
+            continue;
+        }
+        const auto it = fmap.find(name);
+        if (it == fmap.end()) {
+            continue; // an extern, or something not compiled here
+        }
+        for (const auto &block : it->second->blocks) {
+            if (const auto *p =
+                    std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+                found[name].insert(p->index);
+            }
+            if (const auto *c =
+                    std::get_if<Terminator::Call>(&block->terminator.data)) {
+                work.push_back(c->call.name);
+            }
+        }
+    }
+    return found;
+}
+
+// The loop a schedule means. A loop the program wrote is called what the
+// program called it; one lowering generated is called `_` followed by that,
+// because lowering labels what it invents, while a schedule names it without
+// the underscore either way.
+LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
+                      const std::string &wanted,
+                      const std::string &transform) {
+    const auto found = parfors_reachable_from(fmap, start);
+    for (const std::string &candidate : {wanted, "_" + wanted}) {
+        // The function the schedule named wins over one it merely reaches.
+        const auto here = found.find(start);
+        if (here != found.end() && here->second.count(candidate)) {
+            return {start, candidate};
+        }
+        for (const auto &[fname, loops] : found) {
+            if (loops.count(candidate)) {
+                return {fname, candidate};
+            }
+        }
+    }
+
+    std::string all;
+    for (const auto &[fname, loops] : found) {
+        for (const auto &loop : loops) {
+            all += (all.empty() ? "" : ", ") + fname + ":" + loop;
+        }
+    }
+    internal_error << transform << "() on " << start << ": no parfor named "
+                   << wanted << ". "
+                   << (all.empty()
+                           ? "Nothing it reaches has a parfor at all; only a "
+                             "parfor can be transformed, since a sequential "
+                             "loop has an order to keep."
+                           : "The parfor loops it reaches are: " + all);
+    return {start, wanted};
+}
+
+// Applies the SSA-level schedule `transforms` and builds/codegens `funcs`
+// through the SSA representation. A transform this pipeline cannot apply is
+// reported, not skipped -- see the visit below.
 ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     const CompilerOptions &options) {
     FuncMap fmap;
@@ -1100,18 +1196,80 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         if (!fmap.contains(name)) {
             continue;
         }
+        const auto unimplemented = [&name](const std::string &what) {
+            internal_error
+                << what << "() is in the schedule for " << name
+                << ", but the SSA pipeline does not apply it yet. Ignoring it "
+                   "would compile a different program than the schedule asks "
+                   "for, so it is an error instead. Compile without `-p ssa` "
+                   "to use it today.";
+        };
+
         for (const auto &t : ts) {
+            // Deliberately no catch-all arm. A transform this pipeline does
+            // not apply has to say so: the Stmt-level LoopTransforms pass
+            // that used to pick up the rest does not run here, so anything
+            // quietly ignored is a schedule the program was compiled without
+            // -- a `cpu_thread` that never threads, a `split` that leaves one
+            // loop where the schedule asked for two. Listing every kind also
+            // means a new one will not compile until someone decides which of
+            // these it is.
             std::visit(overloads{
                            [&](const ir::Vectorize &v) {
                                internal_assert(!v.i.names.empty())
                                    << "vectorize() requires a loop name for: "
                                    << name;
-                               vectorize(fmap, name, v.i.names.back());
+                               const LoopSite at = resolve_loop(
+                                   fmap, name, v.i.names.back(), "vectorize");
+                               vectorize(fmap, at.func, at.index);
                            },
-                           [&](const auto &) {
-                               // Not (yet) applied at the SSA level; handled
-                               // by the Stmt-level LoopTransforms pass (or, for
-                               // Loopify, by the loop above).
+                           // Applied by the loop above, before anything else
+                           // sees the function.
+                           [&](const ir::Loopify &) {},
+                           // Applied earlier in lowering, by the pass named.
+                           [&](const ir::Defer &) {},    // Lower/Defers.cpp
+                           [&](const ir::MakeQueue &) {}, // Lower/Defers.cpp
+                           [&](const ir::Sort &) {},      // Lower/Sorts.cpp
+                           [&](const ir::Split &s) {
+                               internal_assert(!s.i.names.empty() &&
+                                               !s.io.names.empty() &&
+                                               !s.ii.names.empty())
+                                   << "split() requires loop names for: "
+                                   << name;
+                               const auto factor =
+                                   get_constant_value<int64_t>(s.factor);
+                               internal_assert(factor.has_value() &&
+                                               *factor > 0)
+                                   << "split(" << s.factor << ") on " << name
+                                   << " needs a constant, positive factor";
+                               const LoopSite at = resolve_loop(
+                                   fmap, name, s.i.names.back(), "split");
+                               split(fmap, at.func, at.index, int(*factor),
+                                     s.io.names.back(), s.ii.names.back(),
+                                     !s.generate_tail);
+                           },
+                           [&](const ir::Collapse &c) {
+                               internal_assert(!c.io.names.empty() &&
+                                               !c.ii.names.empty() &&
+                                               !c.i.names.empty())
+                                   << "collapse() requires loop names for: "
+                                   << name;
+                               const LoopSite at = resolve_loop(
+                                   fmap, name, c.io.names.back(), "collapse");
+                               const LoopSite in = resolve_loop(
+                                   fmap, at.func, c.ii.names.back(),
+                                   "collapse");
+                               internal_assert(in.func == at.func)
+                                   << "collapse(" << c.io.names.back() << ", "
+                                   << c.ii.names.back() << ") on " << name
+                                   << ": those loops are in different "
+                                   << "functions (" << at.func << " and "
+                                   << in.func << "), so they are not nested";
+                               collapse(fmap, at.func, at.index, in.index,
+                                        c.i.names.back());
+                           },
+                           [&](const ir::Parallelize &p) {
+                               unimplemented(strategy_name(p.strategy));
                            },
                        },
                        t);
@@ -1131,6 +1289,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
             args.push_back(Function_t::ArgSig{arg.type, arg.mutating});
         }
         func_type_map[name] = Function_t::make(f->ret_type, std::move(args));
+    }
+
+    // The SSA form the schedule left behind, before it is turned back into
+    // statements. This is the only place it can be seen: what `-p ssa` prints
+    // is the result of the relooper, by which point the block graph the
+    // rewrites actually worked on is gone.
+    if (options.is_verbose) {
+        for (const auto &[fname, f] : fmap) {
+            std::cerr << "; --- ssa: " << fname << " ---\n";
+            f->dump(std::cerr);
+        }
     }
 
     ir::FuncMap new_funcs;

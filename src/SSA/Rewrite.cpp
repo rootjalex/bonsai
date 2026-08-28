@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <functional>
+#include <optional>
 
 namespace bonsai {
 namespace ir {
@@ -497,15 +498,68 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
 
         internal_assert(exact) << "TODO: handle guards inside split()";
 
+        // Whether an index this loop would have visited is one the split
+        // still visits. Without a tail the two loops together cover
+        // start, start+factor, start+2*factor, ... and each chunk walks
+        // `factor` wide by the original stride, so the cover is exact only if
+        // the chunk is a whole number of strides and the range is a whole
+        // number of chunks. Get either wrong and the split runs off the end of
+        // what it was asked to iterate, which is a wrong answer rather than a
+        // slow one -- it writes past the range the program reasoned about.
+        const auto as_int = [](const std::shared_ptr<Value> &v)
+            -> std::optional<int64_t> {
+            const auto *c = std::get_if<Constant>(&v->data);
+            if (c == nullptr) {
+                return std::nullopt;
+            }
+            if (const auto *i = std::get_if<int64_t>(&c->data)) {
+                return *i;
+            }
+            return std::nullopt;
+        };
+
+        const auto stride_n = as_int(parfor.stride);
+        internal_assert(stride_n.has_value())
+            << "split(" << idx << ") on " << func
+            << " needs a constant stride to know that its chunks line up with "
+               "the steps the loop takes";
+        internal_assert(*stride_n > 0 && factor % *stride_n == 0)
+            << "split(" << idx << ", " << factor << ") on " << func
+            << " does not divide the loop's stride of " << *stride_n
+            << ", so a chunk would start part way through a step";
+
+        // A range only known at run time is the caller's assertion to make:
+        // that is what asking for no tail means. One known here is checked.
+        const auto start_n = as_int(parfor.start);
+        const auto end_n = as_int(parfor.end);
+        if (start_n.has_value() && end_n.has_value()) {
+            internal_assert((*end_n - *start_n) % factor == 0)
+                << "split(" << idx << ", " << factor << ") on " << func
+                << " does not divide the loop's range of [" << *start_n << ":"
+                << *end_n << "), so without a tail it would run "
+                << (factor - (*end_n - *start_n) % factor)
+                << " iterations past the end";
+        }
+
+        // The body's index becomes the inner loop's, and is renamed to say so.
         // parfor i in start:end:stride body(i) cont()
         // ->
         // parfor outer in start:end:factor inner_loop(outer) cont()
         // block inner_loop(o):
-        //  parfor inner in o:o+factor:stride body(i) inner_cont()
+        //   parfor inner in 0:factor:stride step(inner, o) inner_cont()
+        // block step(n, o): body(o + n)
         // block inner_cont(): yield
-
+        //
+        // The inner loop counts from zero and the body is handed the sum,
+        // rather than the inner loop counting from `outer` and the body being
+        // handed its index directly. The second is one instruction cheaper,
+        // but it makes the inner range depend on the outer index, and a range
+        // that does has no single trip count -- so nothing could collapse the
+        // two loops afterwards, or reason about the inner one on its own. The
+        // Stmt-level split makes the same choice.
         Type itype = parfor.start->get_type();
         auto split_factor = std::make_shared<Value>(Constant{itype, factor});
+        auto zero = std::make_shared<Value>(Constant{itype, int64_t(0)});
 
         // TODO: truly unique name generation?
         shared_ptr<Block> outer_yield = std::make_shared<Block>();
@@ -513,33 +567,76 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         outer_yield->terminator.data = Terminator::Yield{};
         outer_yield->owner = f;
 
-        shared_ptr<Block> inner_loop = std::make_shared<Block>();
-        inner_loop->name = parfor.body.name + "_split_" + outer;
-        inner_loop->owner = f; // This *MUST* exist before make_instruction
         Argument outer_arg{itype, outer};
         auto v_outer_arg = std::make_shared<Value>(outer_arg);
-        auto inner_end = inner_loop->make_instruction(
-            itype, Instruction::Op::Add, {v_outer_arg, split_factor});
+
+        // The arguments the loop was already threading into its body, which
+        // both new blocks have to carry so that they still arrive. Taken from
+        // what the body block declares rather than from what the jump passes:
+        // a jump may pass a constant or an instruction's result, which has no
+        // Argument to copy, and dropping those left the blocks below with
+        // fewer parameters than their callers supply.
+        const BlockMap bmap = make_block_map(f);
+        internal_assert(bmap.contains(parfor.body.name))
+            << func << " has no block " << parfor.body.name;
+        const auto &loop_body = bmap.at(parfor.body.name);
+        internal_assert(!loop_body->args.empty())
+            << parfor.body.name << " has no index argument";
+        const std::vector<Argument> carried(loop_body->args.begin() + 1,
+                                            loop_body->args.end());
+        internal_assert(carried.size() == parfor.body.args.size())
+            << parfor.body.name << " takes " << loop_body->args.size()
+            << " arguments but the loop passes it "
+            << (parfor.body.args.size() + 1);
 
         internal_assert(std::holds_alternative<Constant>(parfor.stride->data))
             << "TODO: handle non-Constant strides in split mining";
 
-        inner_loop->terminator.data = Terminator::ParFor{
-            inner,         v_outer_arg, inner_end,
-            parfor.stride, parfor.body, Terminator::Jump{outer_yield->name}};
-        inner_loop->args.push_back(outer_arg);
-        for (const auto &arg : parfor.body.args) {
-            auto as_arg = arg->get_argument();
-            if (as_arg.has_value()) {
-                inner_loop->args.push_back(*as_arg);
-            }
+        // Where the two indices become the one the body expects.
+        shared_ptr<Block> step = std::make_shared<Block>();
+        step->name = parfor.body.name + "_step_" + inner;
+        step->owner = f; // This *MUST* exist before make_instruction
+        const Argument inner_arg{itype, inner};
+        auto v_inner = step->add_argument(inner_arg);
+        auto v_outer = step->add_argument(outer_arg);
+        for (const Argument &arg : carried) {
+            step->add_argument(arg);
         }
+        auto absolute = step->make_instruction(itype, Instruction::Op::Add,
+                                               {v_outer, v_inner});
+        std::vector<shared_ptr<Value>> to_body = {absolute};
+        for (const Argument &arg : carried) {
+            to_body.push_back(std::make_shared<Value>(arg));
+        }
+        step->terminator.data =
+            Terminator::Jump{parfor.body.name, std::move(to_body)};
+
+        shared_ptr<Block> inner_loop = std::make_shared<Block>();
+        inner_loop->name = parfor.body.name + "_split_" + outer;
+        inner_loop->owner = f;
+        inner_loop->add_argument(outer_arg);
+        for (const Argument &arg : carried) {
+            inner_loop->add_argument(arg);
+        }
+
+        std::vector<shared_ptr<Value>> to_step = {v_outer_arg};
+        for (const Argument &arg : carried) {
+            to_step.push_back(std::make_shared<Value>(arg));
+        }
+        inner_loop->terminator.data = Terminator::ParFor{
+            inner,
+            zero,
+            split_factor,
+            parfor.stride,
+            Terminator::Jump{step->name, std::move(to_step)},
+            Terminator::Jump{outer_yield->name}};
 
         // TODO: lookups? or are those only necessary in construction?
         inner_loop->preds = {block};
         outer_yield->preds = {inner_loop};
 
         blocks.push_back(inner_loop);
+        blocks.push_back(step);
         blocks.push_back(outer_yield);
 
         // TODO: fix loop body predecessors?

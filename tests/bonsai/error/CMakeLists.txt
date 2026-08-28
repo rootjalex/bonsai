@@ -3,7 +3,11 @@ add_bonsai_tests(
     FILES
     aggregation-name-reserved.bonsai
     call-statement-arg-type.bonsai
+    collapse-dependent-range.bonsai
+    collapse-not-nested.bonsai
     loopify-queue-not-tail.bonsai
+    split-not-divisible.bonsai
+    ssa-unimplemented-transform.bonsai
     bad_layout_split.bonsai
     bad_path_layout.bonsai
     f42.bonsai

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/CollapseLoops.cpp:194
+
+--> instr->op != Instruction::Op::Store && instr->op != Instruction::Op::Print && instr->op != Instruction::Op::Append
+collapse(y, x) on fill: y has an effect of its own before running x, which a collapsed loop would repeat once per x step instead of once per y step

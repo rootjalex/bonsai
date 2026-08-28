@@ -1,0 +1,143 @@
+//! flags: -p ssa -b llvm -e
+
+// split() and collapse() as SSA rewrites, run against the same code untouched.
+//
+// Each pair below is the same function written twice; the schedule transforms
+// only the second of each pair. So the two printed lines of a pair have to
+// match, whatever the transform did to the loops, and a wrong index mapping
+// shows up as a difference rather than as something a golden would have to be
+// read carefully to catch.
+//
+// The values written depend on the index, and for the nested cases on both
+// indices, so a loop that visits the right number of points in the wrong order
+// -- or the right points with the indices swapped -- still fails.
+//
+// Every function writes every element of its output. That is not incidental:
+// a `mut` array local's initializer is dropped by this pipeline (see
+// backends/llvm/known-limitation-ssa-mut-array-local.bonsai), so an element
+// nothing writes holds whatever was on the stack, and comparing two of those
+// would compare garbage to garbage.
+//
+// Both transforms apply only to `parfor`. A sequential loop has an order to
+// keep, and neither transform preserves one.
+
+// ---- split, over a loop whose stride is not one -------------------------
+
+func strided_plain(out : mut array[i32, 6]) -> void {
+    parfor i in 0:12:2 {
+        out[i / 2] = i * 3 + 1;
+    }
+    return;
+}
+
+func strided_split(out : mut array[i32, 6]) -> void {
+    parfor i in 0:12:2 {
+        out[i / 2] = i * 3 + 1;
+    }
+    return;
+}
+
+// ---- collapse -----------------------------------------------------------
+
+func grid_plain(out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+        }
+    }
+    return;
+}
+
+func grid_collapse(out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+        }
+    }
+    return;
+}
+
+// A nest whose ranges do not divide by their strides, so both trip counts are
+// rounded up. Every point of the rounded-up rectangle is still one the nest
+// itself visits, which is why the collapsed loop needs no guard -- if that
+// reasoning were wrong this would write out of bounds or skip a point.
+func skew_plain(out : mut array[i32, 9]) -> void {
+    parfor y in 0:5:2 {
+        parfor x in 0:7:3 {
+            out[(y / 2) * 3 + (x / 3)] = y * 100 + x;
+        }
+    }
+    return;
+}
+
+func skew_collapse(out : mut array[i32, 9]) -> void {
+    parfor y in 0:5:2 {
+        parfor x in 0:7:3 {
+            out[(y / 2) * 3 + (x / 3)] = y * 100 + x;
+        }
+    }
+    return;
+}
+
+// ---- the two composed ---------------------------------------------------
+
+// Splitting a loop and then collapsing the two loops that produced is the
+// identity, which makes it a good check that the two agree about the shape
+// they leave behind. It found a real bug: both transforms were adding block
+// parameters by pushing onto `args` without registering them in `lookups`, so
+// the next instruction naming one threaded in a second parameter of the same
+// name, and the block ended up taking more arguments than its jumps passed.
+// Splitting alone hid it, because the parfor body jump those duplicates hung
+// off is not argument-checked; collapsing turned it into a plain jump, which
+// is.
+func composed_plain(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * 10 + 1;
+    }
+    return;
+}
+
+func composed_both(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * 10 + 1;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[i32, 6] = {0, 0, 0, 0, 0, 0};
+    b : mut array[i32, 6] = {0, 0, 0, 0, 0, 0};
+    strided_plain(a);
+    strided_split(b);
+    print(a);
+    print(b);
+
+    c : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    d : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    grid_plain(c);
+    grid_collapse(d);
+    print(c);
+    print(d);
+
+    e : mut array[i32, 9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    f : mut array[i32, 9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    skew_plain(e);
+    skew_collapse(f);
+    print(e);
+    print(f);
+
+    g : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    h : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    composed_plain(g);
+    composed_both(h);
+    print(g);
+    print(h);
+    return 0;
+}
+
+schedule {
+    strided_split.split(i, io, ii, 4, false);
+    grid_collapse.collapse(y, x, c);
+    skew_collapse.collapse(y, x, c);
+    composed_both.split(i, io, ii, 4, false).collapse(io, ii, c);
+}
