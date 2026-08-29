@@ -1,5 +1,7 @@
 # bonsai
 
+**Click [here for the PLDI 2026 Bonsai branch](https://github.com/rootjalex/bonsai/tree/ajr/pldi-benchmarks) and [here for the PLDI 2026 Scion branch](https://github.com/rootjalex/bonsai/tree/cpg/pldi-artifact).**
+
 DSL for Recursive Geometric Queries
 
 ### Setup.
