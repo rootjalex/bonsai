@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS correctness cpp
     FILES
+    bind_cpu_thread.bonsai
     simple.bonsai
     struct.bonsai
     swap.bonsai

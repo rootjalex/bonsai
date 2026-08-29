@@ -3,22 +3,22 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @both_ways(ptr nocapture noundef readonly %a, float noundef %k, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
-both_ways_entry:
+both_ways:
   %extract = load <8 x float>, ptr %a, align 32
   %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
   %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
   %0 = fmul <8 x float> %.splat, %extract
   store <8 x float> %0, ptr %out, align 32
-  %extract2 = load <8 x float>, ptr %a, align 32
-  %1 = fcmp ogt <8 x float> %extract2, zeroinitializer
-  %2 = fmul <8 x float> %extract2, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
+  %extract5 = load <8 x float>, ptr %a, align 32
+  %1 = fcmp ogt <8 x float> %extract5, zeroinitializer
+  %2 = fmul <8 x float> %extract5, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr %out, i32 32, <8 x i1> %1)
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite)
 define void @conditional_store(ptr nocapture noundef readonly %a, ptr noundef %out) local_unnamed_addr #1 {
-conditional_store_entry:
+conditional_store:
   %extract = load <8 x float>, ptr %a, align 32
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
   %1 = fmul <8 x float> %extract, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>

@@ -76,6 +76,10 @@ struct Function {
         // is the compiler undoing its own bookkeeping, so it is not a
         // suggestion and only ever set on functions the compiler generated.
         always_inlined,
+        // This function's body is a vectorized gang, so its SSA form is
+        // lowered to the backend directly rather than through the relooper
+        // (see Program::ssa_funcs). Set by SSA/Vectorize.cpp.
+        vectorized,
     };
 
     std::vector<Attribute> attributes;
@@ -161,6 +165,11 @@ struct Function {
     bool is_inlined() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::inlined) != attributes.cend();
+    }
+
+    bool is_vectorized() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::vectorized) != attributes.cend();
     }
 
     bool is_always_inlined() const {

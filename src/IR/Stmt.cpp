@@ -320,7 +320,8 @@ Expr ForAll::count() const {
     return BinOp::make(BinOp::OpType::Div, z, s);
 }
 
-Stmt ParFor::make(std::string index, Slice slice, Stmt body) {
+Stmt ParFor::make(std::string index, Slice slice, Stmt body,
+                  std::optional<Resource> binding) {
     ParFor *node = new ParFor;
     internal_assert(!index.empty()) << "Empty index name in ParFor::make";
     // Header is optionally defined.
@@ -336,6 +337,7 @@ Stmt ParFor::make(std::string index, Slice slice, Stmt body) {
     node->index = std::move(index);
     node->slice = std::move(slice);
     node->body = std::move(body);
+    node->binding = binding;
     return node;
 }
 

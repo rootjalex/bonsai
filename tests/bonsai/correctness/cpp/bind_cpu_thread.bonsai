@@ -1,0 +1,38 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/bind_cpu_thread
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bind_cpu_thread.cpp -I. -o tests/bonsai/correctness/cpp/main_bind_cpu_thread.o, clang++ tests/bonsai/correctness/cpp/main_bind_cpu_thread.o tests/bonsai/correctness/cpp/bind_cpu_thread.o -o tests/bonsai/correctness/cpp/bind_cpu_thread, ./tests/bonsai/correctness/cpp/bind_cpu_thread, rm tests/bonsai/correctness/cpp/bind_cpu_thread, rm tests/bonsai/correctness/cpp/main_bind_cpu_thread.o, rm tests/bonsai/correctness/cpp/bind_cpu_thread.h, rm tests/bonsai/correctness/cpp/bind_cpu_thread.o
+
+// bind(i, CPUThread), compiled and run.
+//
+// The loop's body becomes a function, what it reads from around it becomes a
+// context struct, and the loop becomes one call to `bonsai_parallel_for` --
+// the single entry point the generated code knows about, whose implementation
+// runtime/bonsai_parallel.h picks per platform. Running it is the only way to
+// find out that the context was packed and unpacked correctly, since a wrong
+// field offset still compiles.
+//
+// The two functions differ in what they close over: `scale` reads one array
+// and writes another, `offset` also reads a scalar, so a context with a mix of
+// scalar and array members is exercised too.
+//
+// Each element is written by exactly one iteration and depends on its own
+// index, so the answer does not depend on the order the iterations run in --
+// which is what makes it a fair test of something that may run in any order.
+
+func [[export]] scale(a : array[i32, 64], out : mut array[i32, 64]) {
+    parfor i in 0:64 {
+        out[i] = a[i] * 2;
+    }
+    return;
+}
+
+func [[export]] offset(k : i32, a : array[i32, 64], out : mut array[i32, 64]) {
+    parfor i in 0:64 {
+        out[i] = a[i] + k;
+    }
+    return;
+}
+
+schedule {
+    scale.bind(i, CPUThread);
+    offset.bind(i, CPUThread);
+}

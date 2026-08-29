@@ -834,6 +834,16 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
         });
         cont->preds.push_back(block);
     }
+
+    // Say that this function has been through here, so that code generation
+    // can take its SSA form directly rather than the statements the relooper
+    // rebuilds from it. A gang's control flow is what partial linearization
+    // left behind, which is the shape structured statements fit worst.
+    auto &attrs = f->attributes;
+    if (std::find(attrs.begin(), attrs.end(),
+                  ir::Function::Attribute::vectorized) == attrs.end()) {
+        attrs.push_back(ir::Function::Attribute::vectorized);
+    }
 }
 
 } // namespace ssa

@@ -1,18 +1,18 @@
 //! flags: -p ssa
 
-// A schedule transform the SSA pipeline does not apply yet is an error.
+// A schedule the compiler cannot honour is an error, not a no-op.
 //
-// It used to be a no-op. The Stmt-level LoopTransforms pass that applies
-// split, collapse and the parallelize family does not run in this pipeline,
-// and the dispatch here had a catch-all arm that quietly left anything it did
-// not recognise alone -- so the program compiled, without the schedule, and
-// said nothing. A `cpu_thread` that never threads and a `split` that leaves
-// one loop where two were asked for are wrong answers, not missing features,
-// and they are much easier to find as a compile error than as a program that
-// is merely slower than it should be.
+// The dispatch in SSA/Convert.cpp names every transform kind and has no
+// catch-all, so a new one will not compile until someone decides whether it
+// is applied there, applied earlier in lowering, or not yet built. Before
+// that it quietly left anything it did not recognise alone, and the program
+// compiled without the schedule and said nothing -- a `bind` that never binds
+// and a `split` that leaves one loop where two were asked for are wrong
+// answers that look only like slowness.
 //
-// The dispatch now names every transform kind and has no catch-all, so a new
-// kind will not compile until someone decides which of the two it is.
+// The live instance of that today is a backend which is not finished. RTCore
+// and OptixThread are accepted by the parser, because they are part of what
+// bind() means, but nothing lowers them yet.
 
 func process(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
     parfor i in 0:n {
@@ -22,5 +22,5 @@ func process(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
 }
 
 schedule {
-    process.cpu_thread(i);
+    process.bind(i, RTCore);
 }

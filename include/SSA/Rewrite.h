@@ -15,6 +15,13 @@ using FuncMap = std::map<std::string, std::shared_ptr<ssa::Function>>;
 
 void split(FuncMap &funcs, std::string func, std::string idx, int factor, std::string outer, std::string inner, bool exact);
 
+// Records that the parfor `index` runs on `resource`, and checks that this
+// agrees with whatever the loops around it are already bound to. Nothing about
+// the graph changes: a bind is a tag, and code generation is where it becomes
+// a launch. Implemented in SSA/Bind.cpp.
+void bind(FuncMap &funcs, std::string func, std::string index,
+          Resource resource);
+
 // Fuses two nested parfor loops into one that walks the rectangle they cover,
 // recovering each index from the step number. `outer` must run `inner` and
 // nothing else. Where the ranges do not divide by their strides the rectangle

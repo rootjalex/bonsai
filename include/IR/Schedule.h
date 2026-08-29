@@ -5,6 +5,7 @@
 #include <variant>
 
 #include "Layout.h"
+#include "Resource.h"
 #include "Type.h"
 
 namespace bonsai {
@@ -64,12 +65,20 @@ struct MakeQueue {
     // TODO(ajr): memory type? e.g. Shared/Register/Global/Heap/Stack?
 };
 
-// Parallelize `i` via some strategy.
-struct Parallelize {
-    enum Strategy { CPUVector, CPUThread, GPUThread, GPUBlock };
-
+// Bind a cursor to a piece of hardware.
+//
+// Every resource but RTCore binds the index of a `parfor`: the loop says its
+// iterations may run in any order, and the bind says what to run them on. An
+// unbound parfor is emitted as an ordinary sequential loop, so this is the
+// only thing that makes one actually parallel. RTCore binds a function rather
+// than a loop, since what it stands for is a traversal rather than an
+// iteration.
+//
+// This replaces the earlier Parallelize transform, whose `CPUVector` strategy
+// the parser never produced -- vectorising is vectorize()'s job.
+struct Bind {
     Location i;
-    Strategy strategy;
+    Resource resource;
 };
 
 // Sort the children of `loc` via a lambda applied to each index.
@@ -106,8 +115,8 @@ struct Vectorize {
     Location i;
 };
 
-using Transform = std::variant<Collapse, Defer, Loopify, MakeQueue,
-                               Parallelize, Split, Sort, Vectorize>;
+using Transform = std::variant<Bind, Collapse, Defer, Loopify, MakeQueue,
+                               Split, Sort, Vectorize>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

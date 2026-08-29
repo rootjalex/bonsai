@@ -1,34 +1,41 @@
-type _ctx0 = struct _ctx0{ _alloc0 : i32[8]; fs : i32[8] }
+type _ctx0 = struct _ctx0{ fs : i32[8]; _alloc0 : i32[8] }
 
 func [[kernel]] _parfunc0(ctx0 : mut (_ctx0*), _parfor_idx : i64) -> void {
-  let _i0 = cast<i32>(_parfor_idx) in
-  ctx0._alloc0[_i0] = f((*ctx0).fs[_i0])
+  let _i0 = cast<i32>(cast<i64>(0) + (cast<i64>(1) * _parfor_idx)) in
+  let @0 = (*ctx0).fs[_i0] in
+  let @1 = f(@0) in
+  ctx0._alloc0[_i0] = @1
   return
 }
 
 func _traverse_array0(fs : i32[8]) -> i32[8] {
   alloc _alloc0 : mut i32[8]
-  ctx : mut _ctx0 := build<_ctx0>(_alloc0, fs)
+  ctx : mut _ctx0 := build<_ctx0>(fs, _alloc0)
   launch 8 _parfunc0(ctx)
   return _alloc0
 }
 
 func apply_function(fs : i32[8]) -> i32[8] {
-  return _traverse_array0(fs)
+  let @0 = _traverse_array0(fs) in
+  return @0
 }
 
 func f(i : i32) -> i32 {
   print(i)
-  return i + 1
+  let @0 = i + 1 in
+  return @0
 }
 
 func main() -> i32 {
-  let b = _traverse_array0(build<i32[8]>(1, 2, 3, 4, 5, 6, 7, 8)) in
+  let @0 = build<i32[8]>(1, 2, 3, 4, 5, 6, 7, 8) in
+  let @1 = _traverse_array0(@0) in
+  let b = @1 in
   print(b)
   return 0
 }
 
 
 schedule host {
+    apply_function.bind(i0, CPUThread)
 
 }

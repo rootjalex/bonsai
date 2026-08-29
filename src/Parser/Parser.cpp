@@ -2119,6 +2119,25 @@ struct Parser {
         return loc;
     }
 
+    // The hardware a bind() names, which is spelled the way it is written.
+    ir::Resource parse_resource(const std::string &name) {
+        if (name == "CPUThread") {
+            return ir::Resource::CPUThread;
+        } else if (name == "GPUThread") {
+            return ir::Resource::GPUThread;
+        } else if (name == "GPUBlock") {
+            return ir::Resource::GPUBlock;
+        } else if (name == "RTCore") {
+            return ir::Resource::RTCore;
+        } else if (name == "OptixThread") {
+            return ir::Resource::OptixThread;
+        }
+        report_error() << "Unknown hardware resource: " << name
+                       << ". bind() takes one of CPUThread, GPUThread, "
+                          "GPUBlock, RTCore or OptixThread.";
+        return ir::Resource::CPUThread;
+    }
+
     void parse_rewrites(ir::Schedule &schedule, std::string func) {
         do {
             expect(Token::Type::PERIOD);
@@ -2140,10 +2159,12 @@ struct Parser {
                     .ii = std::move(ii),
                     .i = std::move(i),
                 });
-            } else if (rewrite == "cpu_thread") {
+            } else if (rewrite == "bind") {
                 ir::Location i = parse_location();
+                expect(Token::Type::COMMA);
+                const std::string resource = get_id();
                 schedule.func_transforms[func].emplace_back(
-                    ir::Parallelize{std::move(i), ir::Parallelize::CPUThread});
+                    ir::Bind{std::move(i), parse_resource(resource)});
             } else if (rewrite == "defer") {
                 ir::Location consumer = parse_location();
                 expect(Token::Type::COMMA);
@@ -2152,14 +2173,6 @@ struct Parser {
                 ir::Location queue = parse_location();
                 schedule.func_transforms[func].emplace_back(ir::Defer{
                     std::move(consumer), std::move(loop), std::move(queue)});
-            } else if (rewrite == "gpu_thread") {
-                ir::Location i = parse_location();
-                schedule.func_transforms[func].emplace_back(
-                    ir::Parallelize{std::move(i), ir::Parallelize::GPUThread});
-            } else if (rewrite == "gpu_block") {
-                ir::Location i = parse_location();
-                schedule.func_transforms[func].emplace_back(
-                    ir::Parallelize{std::move(i), ir::Parallelize::GPUBlock});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
                 if (peek().type != Token::Type::RPAREN) {

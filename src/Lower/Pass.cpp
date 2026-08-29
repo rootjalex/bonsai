@@ -14,6 +14,9 @@ ir::Program Pass::run(ir::Program program,
     new_program.externs = run(std::move(program.externs), options);
     new_program.funcs = run(program.funcs, options);
     new_program.schedules = run(std::move(program.schedules), options);
+    // Carried rather than rebuilt: a pass that only means to rewrite the
+    // functions should not silently drop what else the program is carrying.
+    new_program.ssa_funcs = std::move(program.ssa_funcs);
     return new_program;
 }
 

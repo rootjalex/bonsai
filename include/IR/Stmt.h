@@ -4,6 +4,7 @@
 
 #include "Expr.h"
 #include "IRHandle.h"
+#include "Resource.h"
 #include "IRNode.h"
 #include "IntrusivePtr.h"
 #include "Mutator.h"
@@ -339,12 +340,19 @@ struct ParFor : StmtNode<ParFor> {
     std::string index;
     Stmt body;
 
+    // The hardware a schedule bound this loop to, if any. A parfor says its
+    // iterations may run in any order; this says what to run them on, and one
+    // without it is emitted as an ordinary sequential loop. Set by bind() and
+    // acted on when code is generated -- see Lower/Bindings.h.
+    std::optional<Resource> binding;
+
     Type index_type() const;
 
     // Returns the iteration count.
     Expr count() const;
 
-    static Stmt make(std::string index, Slice slice, Stmt body);
+    static Stmt make(std::string index, Slice slice, Stmt body,
+                     std::optional<Resource> binding = std::nullopt);
 
     static const IRStmtEnum node_type = IRStmtEnum::ParFor;
 };

@@ -15,5 +15,5 @@ func [[export]] entry(n: i32, a: array[i32, n]) {
 }
 
 schedule {
-    apply_function.gpu_thread(i0);
+    apply_function.bind(i0, GPUThread);
 }

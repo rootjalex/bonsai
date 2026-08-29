@@ -1,7 +1,5 @@
 #include "Lower/LoopTransforms.h"
 
-#include "Opt/Parallelize.h"
-
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
@@ -638,7 +636,7 @@ ir::Program LoopTransforms::run(ir::Program program,
             const bool must_change =
                 std::holds_alternative<Split>(t) ||
                 std::holds_alternative<Collapse>(t) ||
-                std::holds_alternative<Parallelize>(t);
+                std::holds_alternative<Bind>(t);
 
             std::visit(Overloaded{[&](const Defer &def) {
                                       // no-op, should have been handled in
@@ -673,10 +671,11 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       body = collapse_loops(std::move(body), io,
                                                             ii, i, program);
                                   },
-                                  [&](const Parallelize &par) {
-                                      std::string i = get_name(par.i);
-                                      body = opt::parallelize_forall(
-                                          i, std::move(body), program, options);
+                                  [&](const Bind &bind) {
+                                      // no-op, applied by ConvertToSSA
+                                      // instead: a bind is a tag on a parfor,
+                                      // and this pass only sees sequential
+                                      // loops. The check below reports it.
                                   },
                                   [&](const Vectorize &vec) {
                                       // no-op, applied by ConvertToSSA

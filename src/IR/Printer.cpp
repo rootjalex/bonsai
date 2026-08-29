@@ -362,28 +362,11 @@ void Printer::print(const Schedule &schedule) {
                                       print(collapse.i);
                                       os << ")";
                                   },
-                                  [&](const Parallelize &par) {
-                                      switch (par.strategy) {
-                                      case Parallelize::CPUThread: {
-                                          os << "cpu_thread";
-                                          break;
-                                      }
-                                      case Parallelize::CPUVector: {
-                                          os << "vectorize";
-                                          break;
-                                      }
-                                      case Parallelize::GPUThread: {
-                                          os << "gpu_thread";
-                                          break;
-                                      }
-                                      case Parallelize::GPUBlock: {
-                                          os << "gpu_block";
-                                          break;
-                                      }
-                                      }
-                                      os << "(";
-                                      print(par.i);
-                                      os << ")";
+                                  [&](const Bind &bind) {
+                                      os << "bind(";
+                                      print(bind.i);
+                                      os << ", " << to_string(bind.resource)
+                                         << ")";
                                   },
                                   [&](const Vectorize &vec) {
                                       os << "vectorize(";

@@ -1,5 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Convert.cpp:1120
-cpu_thread() is in the schedule for process, but the SSA pipeline does not apply it yet. Ignoring it would compile a different program than the schedule asks for, so it is an error instead. Compile without `-p ssa` to use it today.
+[internal] Error: src/SSA/Convert.cpp:1262
+
+--> b.resource != ir::Resource::RTCore && b.resource != ir::Resource::OptixThread
+bind(i, RTCore) on process: that backend is not built yet.

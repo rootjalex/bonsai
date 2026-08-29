@@ -12,6 +12,10 @@
 namespace bonsai {
 namespace ir {
 
+namespace ssa {
+struct Function;
+}
+
 using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
 using ScheduleMap = std::map<Target, Schedule>;
 using ExternList = std::vector<TypedVar>;
@@ -30,6 +34,14 @@ struct Program {
     ScheduleMap schedules;
     // TODO: interfaces / inheritance?
 
+    // The SSA form of whichever functions are to be lowered to the backend
+    // straight from it, rather than from the statements the relooper builds.
+    // Keyed by the same names as `funcs`, which still holds a statement form
+    // of every one of them: the relooper runs regardless, because being able
+    // to read what a schedule did as ordinary statements is worth the pass
+    // whether or not code is generated from it.
+    std::map<std::string, std::shared_ptr<ssa::Function>> ssa_funcs;
+
     Program() {}
 
     Program(ExternList externs, FuncMap funcs, TypeMap types,
@@ -39,34 +51,14 @@ struct Program {
 
     ~Program() = default;
 
-    Program(const Program &other)
-        : externs(other.externs), funcs(other.funcs), types(other.types),
-          schedules(other.schedules) {}
-
-    Program &operator=(const Program &other) {
-        if (this != &other) {
-            externs = other.externs;
-            funcs = other.funcs;
-            types = other.types;
-            schedules = other.schedules;
-        }
-        return *this;
-    }
-
-    Program(Program &&other) noexcept
-        : externs(std::move(other.externs)), funcs(std::move(other.funcs)),
-          types(std::move(other.types)), schedules(std::move(other.schedules)) {
-    }
-
-    Program &operator=(Program &&other) noexcept {
-        if (this != &other) {
-            externs = std::move(other.externs);
-            funcs = std::move(other.funcs);
-            types = std::move(other.types);
-            schedules = std::move(other.schedules);
-        }
-        return *this;
-    }
+    // Defaulted rather than written out. These used to name the four members
+    // there were at the time, so a program copied or moved -- which is once
+    // per pass, since lowering assigns the result of each back -- silently
+    // lost anything added afterwards. The compiler cannot forget a member.
+    Program(const Program &other) = default;
+    Program &operator=(const Program &other) = default;
+    Program(Program &&other) noexcept = default;
+    Program &operator=(Program &&other) noexcept = default;
 };
 
 } // namespace ir

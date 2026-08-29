@@ -86,6 +86,7 @@ target_sources(
     src/CodeGen/ASM.cpp
     src/CodeGen/CodeGen_CUDA.cpp
     src/CodeGen/CodeGen_LLVM.cpp
+    src/CodeGen/CodeGen_LLVM_SSA.cpp
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
@@ -141,7 +142,7 @@ target_sources(
     src/Opt/DCE.cpp
     src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
-    src/Opt/Parallelize.cpp
+    src/Lower/Bindings.cpp
     src/Opt/Simplify.cpp
     src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
@@ -149,6 +150,7 @@ target_sources(
     src/Parser/Token.cpp
     src/SSA/Analysis.cpp
     src/SSA/AnalyzeDivergence.cpp
+    src/SSA/Bind.cpp
     src/SSA/CloneFunction.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
@@ -243,7 +245,7 @@ target_sources(
     include/Opt/DCE.h
     include/Opt/Fusion.h
     include/Opt/Inline.h
-    include/Opt/Parallelize.h
+    include/Lower/Bindings.h
     include/Opt/Simplify.h
     include/Opt/Unswitch.h
     include/Parser/Lexer.h

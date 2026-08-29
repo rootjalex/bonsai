@@ -63,15 +63,15 @@ while.end:                                        ; preds = %while.body
 
 ; Function Attrs: nofree norecurse nosync nounwind memory(write, argmem: readwrite)
 define void @triangles(ptr nocapture noundef readonly %n, ptr noundef %out) local_unnamed_addr #2 {
-triangles_entry:
+triangles:
   %extract = load <8 x i32>, ptr %n, align 32
   br label %while.body.i
 
-while.body.i:                                     ; preds = %while.body.i, %triangles_entry
-  %"n!loop!loop.025.i" = phi <8 x i32> [ %extract, %triangles_entry ], [ %3, %while.body.i ]
-  %"acc!loop!loop.024.i" = phi <8 x i32> [ zeroinitializer, %triangles_entry ], [ %5, %while.body.i ]
-  %"!live.023.i" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %triangles_entry ], [ %6, %while.body.i ]
-  %"!track.then_0.0.021.i" = phi <8 x i32> [ zeroinitializer, %triangles_entry ], [ %7, %while.body.i ]
+while.body.i:                                     ; preds = %while.body.i, %triangles
+  %"n!loop!loop.025.i" = phi <8 x i32> [ %extract, %triangles ], [ %3, %while.body.i ]
+  %"acc!loop!loop.024.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %5, %while.body.i ]
+  %"!live.023.i" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %triangles ], [ %6, %while.body.i ]
+  %"!track.then_0.0.021.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %7, %while.body.i ]
   %0 = icmp slt <8 x i32> %"n!loop!loop.025.i", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
   %1 = and <8 x i1> %"!live.023.i", %0
   %not..i = xor <8 x i1> %1, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>

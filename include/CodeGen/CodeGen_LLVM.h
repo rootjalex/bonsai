@@ -62,6 +62,19 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     llvm::Function *declare_function(const ir::Function &func);
     void compile_function(const ir::Function &func, llvm::Function *function);
+
+    // Generate a function straight from its SSA form, instead of from the
+    // statements the relooper rebuilds out of it (see ir::Program::ssa_funcs).
+    //
+    // Only the control flow is handled here: an SSA block becomes a basic
+    // block and a block argument becomes a phi, which is what LLVM wanted in
+    // the first place. Everything inside a block is turned into the same
+    // ir::Expr the relooper would have built and handed to codegen_expr, so
+    // there is one lowering of an add or a gather, not two.
+    void compile_function(const ir::ssa::Function &func,
+                          llvm::Function *function);
+    struct SSALowering;
+    friend struct SSALowering;
     llvm::Value *codegen_expr(const ir::Expr &expr);
     std::vector<llvm::Value *> codegen_exprs(const std::vector<ir::Expr> exprs);
     void codegen_stmt(const ir::Stmt &stmt);

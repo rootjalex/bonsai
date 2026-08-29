@@ -1235,7 +1235,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     Stmt body = structurize(p.body.name, "", block_map, dom,
                                             info, mut_map, func_type_map);
                     append(ir::ParFor::make(p.index, std::move(slice),
-                                            std::move(body)));
+                                            std::move(body), p.binding));
                     name = p.cont.name; // advance past the parfor
                 },
 

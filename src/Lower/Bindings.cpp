@@ -1,4 +1,4 @@
-#include "Opt/Parallelize.h"
+#include "Lower/Bindings.h"
 
 #include "Opt/Simplify.h"
 
@@ -16,11 +16,12 @@
 #include <string>
 
 namespace bonsai {
-namespace opt {
+namespace lower {
 
 namespace {
 
 using namespace ir;
+using opt::Simplify;
 
 // TODO: we use this pattern a lot, could make it a helper func.
 size_t ctx_counter = 0;
@@ -89,7 +90,50 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
 // Builds a closure that greatly resembles what is needed for the Grand Central
 // Dispatch (GCD) on MacOS.
 // TODO(ajr): this closure is somewhat GCD-specific, maybe generalize?
-Closure build_gcd_closure(const ForAll *forall, TypeMap &types) {
+// A `continue` in a parfor body ends that iteration and goes on to the next.
+// The body is a function called once per iteration now, so ending the
+// iteration is returning from it.
+//
+// Only the ones that belong to this loop: a `continue` inside a sequential
+// loop nested in the body is that loop's, and still means what it did.
+Stmt continues_become_returns(Stmt body) {
+    struct Rewrite : public Mutator {
+        int depth = 0;
+
+        Stmt visit(const Continue *node) override {
+            return depth > 0 ? Mutator::visit(node) : Return::make();
+        }
+
+        Stmt visit(const ForAll *node) override {
+            depth++;
+            Stmt result = Mutator::visit(node);
+            depth--;
+            return result;
+        }
+        Stmt visit(const ParFor *node) override {
+            depth++;
+            Stmt result = Mutator::visit(node);
+            depth--;
+            return result;
+        }
+        Stmt visit(const DoWhile *node) override {
+            depth++;
+            Stmt result = Mutator::visit(node);
+            depth--;
+            return result;
+        }
+        Stmt visit(const While *node) override {
+            depth++;
+            Stmt result = Mutator::visit(node);
+            depth--;
+            return result;
+        }
+    };
+    Rewrite rewrite;
+    return rewrite.mutate(std::move(body));
+}
+
+Closure build_gcd_closure(const ParFor *forall, TypeMap &types) {
     // TODO: might be able to optimize this with LICM or something.
     std::vector<TypedVar> vars = gather_free_vars(forall);
     // TODO(ajr): if struct supported mutable fields, we would need this.
@@ -103,11 +147,18 @@ Closure build_gcd_closure(const ForAll *forall, TypeMap &types) {
     std::transform(vars.begin(), vars.end(), std::back_inserter(build_args),
                    [](const TypedVar &v) { return Var::make(v.type, v.name); });
     Expr ctx = Build::make(ctx_t, build_args);
-    Expr ctx_var = Var::make(ctx_t, ctx_name);
+
+    // The context arrives as a pointer, and reading a field of it goes through
+    // that pointer. Lower/Mutability.cpp is what usually turns a struct
+    // parameter into this shape, and it has already run by the time a binding
+    // is lowered -- so the function is built the way that pass would have left
+    // it, rather than in the shape it would have rewritten.
+    const Type ctx_ptr_t = Ptr_t::make(ctx_t);
+    Expr ctx_var = Deref::make(Var::make(ctx_ptr_t, ctx_name));
 
     std::vector<Function::Argument> f_args(2);
     f_args[0].name = ctx_name;
-    f_args[0].type = ctx_t;
+    f_args[0].type = ctx_ptr_t;
     f_args[0].mutating = true;
 
     Type itype = forall->slice.end.type();
@@ -123,17 +174,26 @@ Closure build_gcd_closure(const ForAll *forall, TypeMap &types) {
     }
 
     // Trust simplify() to flatten sequences.
-    std::vector<Stmt> stmts(3);
+    std::vector<Stmt> stmts;
     Expr loop_i = Var::make(idx_t, parfor_idx);
-    stmts[0] = LetStmt::make(
+    stmts.push_back(LetStmt::make(
         WriteLoc(forall->index, itype),
         cast(itype, cast(idx_t, forall->slice.begin) +
-                        cast(idx_t, forall->slice.stride) * loop_i));
+                        cast(idx_t, forall->slice.stride) * loop_i)));
     // TODO(ajr): this also needs to replace Stores/Allocates/Accumulates!
     Closure closure;
-    stmts[1] = replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
-                                        forall->body, closure);
-    stmts[2] = Return::make();
+    Stmt inner =
+        replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
+                                 continues_become_returns(forall->body),
+                                 closure);
+    const bool returns = always_returns(inner);
+    stmts.push_back(std::move(inner));
+    // Only if the body does not already end the iteration itself: the
+    // `continue` a parfor body ends with has become a return, and a second one
+    // after it would be a terminator in the middle of a block.
+    if (!returns) {
+        stmts.push_back(Return::make());
+    }
     Stmt body = Sequence::make(std::move(stmts));
 
     std::string func = unique_func_name();
@@ -309,72 +369,81 @@ Stmt launch_cuda(const ForAll *node, const Closure &closure) {
     return Sequence::make(std::move(stmts));
 }
 
-} // namespace
+// Replaces each bound parfor in a body with a launch of it.
+//
+// No searching for a loop by name and no following calls to find where it
+// ended up: the binding is on the loop, wherever the loop is, because
+// resolve_loop settled that when the schedule was read. That is what a tag
+// buys over a transform that has to go looking.
+struct LowerBindingsImpl : public Mutator {
+    const CompilerOptions &options;
+    Program &program;
 
-Stmt parallelize_forall(const std::string &loop_idx, Stmt body,
-                        Program &program, const CompilerOptions &options) {
-    struct ParallelizeForAll : public Mutator {
-        const std::string &loop_idx;
-        const CompilerOptions &options;
-        Program &program;
+    LowerBindingsImpl(const CompilerOptions &options, Program &program)
+        : options(options), program(program) {}
 
-        ParallelizeForAll(const std::string &loop_idx,
-                          const CompilerOptions &options, Program &program)
-            : loop_idx(loop_idx), options(options), program(program) {}
-
-        Stmt visit(const ForAll *node) override {
-            if (node->index != loop_idx) {
-                return Mutator::visit(node);
-            }
-
-            switch (options.target) {
-            case BackendTarget::CUDA: {
-                Closure closure = build_cuda_closure(node, program.types);
-                auto [_, inserted] =
-                    program.funcs.try_emplace(closure.func->name, closure.func);
-                internal_assert(inserted) << closure.func;
-                return launch_cuda(node, closure);
-            }
-            default: {
-                Closure closure = build_gcd_closure(node, program.types);
-                auto [_, inserted] =
-                    program.funcs.try_emplace(closure.func->name, closure.func);
-                internal_assert(inserted) << closure.func;
-                Expr b = node->slice.begin, e = node->slice.end,
-                     s = node->slice.stride;
-                Expr n = node->count();
-                n = Simplify::simplify(n);
-                std::vector<Stmt> seq(2);
-                seq[0] =
-                    Allocate::make(WriteLoc("ctx", closure.context.type()),
-                                   closure.context, Allocate::Memory::Stack);
-                seq[1] = Launch::make(
-                    closure.func->name, n,
-                    {Var::make(Ptr_t::make(closure.context.type()), "ctx")});
-                return Sequence::make(std::move(seq));
-            }
-            }
-        }
-
-        // TODO: this is hacky, need a better way.
-        Expr visit(const Call *node) override {
-            if (const Var *var = node->func.as<Var>()) {
-                // TODO(ajr): hope to God it's impossible to have self-recursion
-                // in these.
-                if (var->name.starts_with("_traverse_array")) {
-                    program.funcs[var->name]->body = parallelize_forall(
-                        loop_idx, std::move(program.funcs[var->name]->body),
-                        program, options);
-                    return node;
-                }
-            }
+    Stmt visit(const ParFor *node) override {
+        if (!node->binding.has_value()) {
+            // Unbound, so it stays a loop: "may run in any order" allows
+            // running them one after another, which is what the backend does.
             return Mutator::visit(node);
         }
-    };
 
-    ParallelizeForAll par(loop_idx, options, program);
-    return par.mutate(std::move(body));
+        // The body may itself contain a bound loop.
+        Stmt body = mutate(node->body);
+        Stmt loop = body.same_as(node->body)
+                        ? Stmt(node)
+                        : ParFor::make(node->index, node->slice,
+                                       std::move(body), node->binding);
+        const ParFor *bound = loop.as<ParFor>();
+
+        switch (*node->binding) {
+        case Resource::CPUThread: {
+            Closure closure = build_gcd_closure(bound, program.types);
+            auto [_, inserted] =
+                program.funcs.try_emplace(closure.func->name, closure.func);
+            internal_assert(inserted) << closure.func;
+
+            const Type ctx_t = closure.context.type();
+            std::vector<Stmt> seq(2);
+            seq[0] = Allocate::make(WriteLoc("ctx", ctx_t), closure.context,
+                                    Allocate::Memory::Stack);
+            seq[1] = Launch::make(closure.func->name,
+                                  Simplify::simplify(bound->count()),
+                                  {Var::make(Ptr_t::make(ctx_t), "ctx")});
+            return Sequence::make(std::move(seq));
+        }
+        case Resource::GPUThread:
+        case Resource::GPUBlock:
+        case Resource::RTCore:
+        case Resource::OptixThread:
+            internal_error
+                << "bind(" << node->index << ", " << to_string(*node->binding)
+                << ") is not lowered yet. Only CPUThread is, so far.";
+            return loop;
+        }
+        return loop;
+    }
+};
+
+} // namespace
+
+ir::Program LowerBindings::run(ir::Program program,
+                               const CompilerOptions &options) const {
+    LowerBindingsImpl lowerer(options, program);
+    // By name, because lowering a binding adds functions to the map and that
+    // would otherwise invalidate an iterator walking it.
+    std::vector<std::string> names;
+    names.reserve(program.funcs.size());
+    for (const auto &[name, func] : program.funcs) {
+        names.push_back(name);
+    }
+    for (const std::string &name : names) {
+        auto &func = program.funcs.at(name);
+        func->body = lowerer.mutate(func->body);
+    }
+    return program;
 }
 
-} // namespace opt
+} // namespace lower
 } // namespace bonsai

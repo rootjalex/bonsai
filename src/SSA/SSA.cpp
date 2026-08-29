@@ -56,7 +56,7 @@ std::optional<Argument> Value::get_argument() const {
         data);
 }
 
-static const char *op_name(Instruction::Op op) {
+const char *op_name(Instruction::Op op) {
     switch (op) {
     case Instruction::Op::Abs:
         return "abs";

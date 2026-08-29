@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bind_cpu_thread.cpp -I. -o tests/bonsai/correctness/cpp/main_bind_cpu_thread.o
+[test] clang++ tests/bonsai/correctness/cpp/main_bind_cpu_thread.o tests/bonsai/correctness/cpp/bind_cpu_thread.o -o tests/bonsai/correctness/cpp/bind_cpu_thread
+[test] ./tests/bonsai/correctness/cpp/bind_cpu_thread
+wrong: 0
+spot: 0 126 1000 1063

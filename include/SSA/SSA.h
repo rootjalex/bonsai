@@ -202,6 +202,12 @@ struct Terminator {
         // Body block varying index (first) and <n> uniform arguments.
         Jump body;
         Jump cont; // after the body. index out of scope.
+
+        // The hardware a bind() put this loop on, if any. Carried rather than
+        // acted on: at this level a bind changes nothing about the graph, it
+        // only records what the loop is to run on, and code generation is
+        // where that becomes a launch.
+        std::optional<Resource> binding;
     };
     struct Yield {
         // Ends a ParFor block
@@ -299,6 +305,9 @@ struct Function {
   private:
     size_t name_counter = 0;
 };
+
+// What an opcode is called, for reporting one.
+const char *op_name(Instruction::Op op);
 
 // Useful helper for std::variant
 template <class... Ts>

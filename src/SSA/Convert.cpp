@@ -1058,22 +1058,6 @@ build(const std::shared_ptr<ir::Function> &func) {
 
 namespace {
 
-// What a Parallelize is spelled as in a schedule, so that a report about one
-// names what was written rather than the enumerator behind it.
-const char *strategy_name(ir::Parallelize::Strategy strategy) {
-    switch (strategy) {
-    case ir::Parallelize::CPUThread:
-        return "cpu_thread";
-    case ir::Parallelize::CPUVector:
-        return "cpu_vector";
-    case ir::Parallelize::GPUThread:
-        return "gpu_thread";
-    case ir::Parallelize::GPUBlock:
-        return "gpu_block";
-    }
-    return "parallelize";
-}
-
 // Where a loop a schedule names actually is.
 struct LoopSite {
     std::string func;  // the function holding it
@@ -1158,7 +1142,8 @@ LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
 // through the SSA representation. A transform this pipeline cannot apply is
 // reported, not skipped -- see the visit below.
 ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
-                    const CompilerOptions &options) {
+                    const CompilerOptions &options,
+                    ir::Program *keep_ssa = nullptr) {
     FuncMap fmap;
 
     TypeMap func_type_map;
@@ -1268,8 +1253,21 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                collapse(fmap, at.func, at.index, in.index,
                                         c.i.names.back());
                            },
-                           [&](const ir::Parallelize &p) {
-                               unimplemented(strategy_name(p.strategy));
+                           [&](const ir::Bind &b) {
+                               internal_assert(!b.i.names.empty())
+                                   << "bind() requires a cursor for: " << name;
+                               // Not finished, and a bind that silently did
+                               // nothing would be a program that runs
+                               // somewhere other than it was told to.
+                               internal_assert(
+                                   b.resource != ir::Resource::RTCore &&
+                                   b.resource != ir::Resource::OptixThread)
+                                   << "bind(" << b.i.names.back() << ", "
+                                   << to_string(b.resource) << ") on " << name
+                                   << ": that backend is not built yet.";
+                               const LoopSite at = resolve_loop(
+                                   fmap, name, b.i.names.back(), "bind");
+                               bind(fmap, at.func, at.index, b.resource);
                            },
                        },
                        t);
@@ -1297,7 +1295,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // rewrites actually worked on is gone.
     if (options.is_verbose) {
         for (const auto &[fname, f] : fmap) {
-            std::cerr << "; --- ssa: " << fname << " ---\n";
+            const bool direct =
+                std::find(f->attributes.begin(), f->attributes.end(),
+                          ir::Function::Attribute::vectorized) !=
+                f->attributes.end();
+            std::cerr << "; --- ssa: " << fname
+                      << (direct ? " (lowered from here)"
+                                 : " (lowered via statements)")
+                      << " ---\n";
             f->dump(std::cerr);
         }
     }
@@ -1305,7 +1310,26 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     ir::FuncMap new_funcs;
 
     for (const auto &[fname, f] : fmap) {
+        // The relooper runs for every function regardless of what generates
+        // code for it: reading a schedule's work as ordinary statements is
+        // worth the pass on its own.
         new_funcs[fname] = codegen_stmt(*f, func_type_map);
+
+        // A vectorized function is generated from the SSA instead, which is
+        // the shape its control flow is actually in -- what partial
+        // linearization leaves behind fits structured statements worst.
+        // Asked of the SSA function, which is where vectorize() recorded it.
+        const bool direct =
+            std::find(f->attributes.begin(), f->attributes.end(),
+                      ir::Function::Attribute::vectorized) !=
+            f->attributes.end();
+        if (keep_ssa != nullptr && direct) {
+            keep_ssa->ssa_funcs[fname] = f;
+            if (options.is_verbose) {
+                std::cerr << "; keeping the SSA of " << fname
+                          << " for direct lowering\n";
+            }
+        }
     }
 
     return new_funcs;
@@ -1325,7 +1349,8 @@ ir::Program ConvertToSSA::run(ir::Program program,
     new_program.types = program.types;
     new_program.externs = program.externs;
     new_program.schedules = program.schedules;
-    new_program.funcs = convert(std::move(program.funcs), transforms, options);
+    new_program.funcs =
+        convert(std::move(program.funcs), transforms, options, &new_program);
     return new_program;
 }
 

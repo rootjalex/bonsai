@@ -458,7 +458,21 @@ CodeGen_LLVM::compile_program(const Program &program,
         func_map[fname] = this->declare_function(*func);
     }
     for (const auto &[fname, func] : program.funcs) {
-        this->compile_function(*func, func_map[fname]);
+        // A function whose SSA form was kept is generated from that, rather
+        // than from the statements the relooper rebuilt out of it. Both exist
+        // -- the statements are what `-p ssa` prints -- and this picks which
+        // one the machine sees.
+        const auto ssa = program.ssa_funcs.find(fname);
+        if (options.is_verbose) {
+            std::cerr << "; " << fname << ": generated from "
+                      << (ssa != program.ssa_funcs.end() ? "SSA" : "statements")
+                      << "\n";
+        }
+        if (ssa != program.ssa_funcs.end()) {
+            this->compile_function(*ssa->second, func_map[fname]);
+        } else {
+            this->compile_function(*func, func_map[fname]);
+        }
     }
     frames.pop_frame();
 
@@ -3014,6 +3028,14 @@ void CodeGen_LLVM::visit(const ForAll *node) {
 // the same loop as a sequential one, and is emitted by the same code. A
 // `parfor` that a schedule did place becomes a Launch long before here.
 void CodeGen_LLVM::visit(const ParFor *node) {
+    // A loop a schedule placed on hardware is not this loop. Nothing turns a
+    // binding into a launch yet, and emitting the sequential form instead
+    // would run the program somewhere other than it was told to -- silently,
+    // and looking only like it was slow.
+    internal_assert(!node->binding.has_value())
+        << "bind(" << node->index << ", " << to_string(*node->binding)
+        << ") is recorded on this loop, but nothing lowers a binding into a "
+           "launch yet, so the loop would run sequentially instead.";
     codegen_counted_loop(node->index, node->slice.begin, node->slice.end,
                          node->slice.stride, node->body);
 }
@@ -3107,87 +3129,23 @@ void CodeGen_LLVM::visit(const Launch *node) {
     internal_assert(node->args.size() == 1); // context
     llvm::Value *ctx = codegen_expr(node->args[0]);
 
-    // libdispatch is Apple's, so everywhere else this becomes a call to the
-    // runtime's own parallel loop, which takes the same three things and
-    // means the same by them (see runtime/bonsai_parallel.h).
-    if (!llvm::Triple(target_triple).isOSDarwin()) {
-        llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
-        llvm::FunctionType *parallel_for_ty =
-            llvm::FunctionType::get(void_t, {i64_t, ptr_t, ptr_t}, false);
-        llvm::Function *parallel_for =
-            module->getFunction("bonsai_parallel_for");
-        if (!parallel_for) {
-            parallel_for = llvm::Function::Create(
-                parallel_for_ty, llvm::Function::ExternalLinkage,
-                "bonsai_parallel_for", module.get());
-        }
-        builder->CreateCall(parallel_for, {num_iters, ctx, launch_func});
-        return;
+    // One call, everywhere. What a parallel loop is made of differs a lot
+    // between machines -- libdispatch on Apple, threads here, something else
+    // on Windows -- but none of that belongs in a compiler: choosing it here
+    // would mean the generated code, and every golden of it, depended on
+    // which machine ran the compiler rather than on the program. So this
+    // emits one call against one shape, and runtime/bonsai_parallel.h decides
+    // what to run it on.
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::FunctionType *parallel_for_ty =
+        llvm::FunctionType::get(void_t, {i64_t, ptr_t, ptr_t}, false);
+    llvm::Function *parallel_for = module->getFunction("bonsai_parallel_for");
+    if (!parallel_for) {
+        parallel_for = llvm::Function::Create(
+            parallel_for_ty, llvm::Function::ExternalLinkage,
+            "bonsai_parallel_for", module.get());
     }
-
-    llvm::StructType *dispatch_queue_s_type =
-        llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");
-    if (!dispatch_queue_s_type)
-        dispatch_queue_s_type = llvm::StructType::create(
-            module->getContext(), "struct.dispatch_queue_s");
-
-    llvm::Value *global_dispatch_queue;
-    {
-        llvm::PointerType *dispatch_queue_t_type =
-            llvm::PointerType::get(dispatch_queue_s_type, 0);
-
-        std::vector<llvm::Type *> dispatch_get_global_queue_func_params;
-        dispatch_get_global_queue_func_params.push_back(i64_t);
-        dispatch_get_global_queue_func_params.push_back(i64_t);
-        llvm::FunctionType *dispatch_get_global_queue_func_type =
-            llvm::FunctionType::get(dispatch_queue_t_type,
-                                    dispatch_get_global_queue_func_params,
-                                    false);
-
-        llvm::Function *dispatch_get_global_queue_function =
-            module->getFunction("dispatch_get_global_queue");
-        if (!dispatch_get_global_queue_function) {
-            dispatch_get_global_queue_function = llvm::Function::Create(
-                dispatch_get_global_queue_func_type,
-                llvm::GlobalValue::ExternalLinkage, "dispatch_get_global_queue",
-                module.get());
-        }
-
-        llvm::Constant *zero = llvm::ConstantInt::get(
-            dispatch_get_global_queue_func_type->getParamType(0), 0);
-
-        std::vector<llvm::Value *> args;
-        args.push_back(zero); // identifier
-        args.push_back(zero); // flags
-        global_dispatch_queue =
-            builder->CreateCall(dispatch_get_global_queue_function, args);
-    }
-
-    llvm::Function *dispatch_apply_f = module->getFunction("dispatch_apply_f");
-    if (!dispatch_apply_f) {
-        llvm::Type *ptr_t = llvm::Type::getInt8Ty(*context)->getPointerTo();
-        llvm::FunctionType *dispatch_apply_f_ty = llvm::FunctionType::get(
-            void_t,
-            {
-                i64_t,                            // iterations
-                global_dispatch_queue->getType(), // dispatch queue
-                ptr_t,                            // context pointer
-                llvm::PointerType::getUnqual(
-                    llvm::FunctionType::get(void_t, {ptr_t, i64_t},
-                                            false)) // function pointer
-            },
-            false);
-        dispatch_apply_f = llvm::Function::Create(
-            dispatch_apply_f_ty, llvm::Function::ExternalLinkage,
-            "dispatch_apply_f", module.get());
-    }
-
-    llvm::Value *func_ptr = builder->CreatePointerCast(
-        launch_func, llvm::PointerType::getUnqual(
-                         dispatch_apply_f->getFunctionType()->getParamType(3)));
-
-    builder->CreateCall(dispatch_apply_f,
-                        {num_iters, global_dispatch_queue, ctx, func_ptr});
+    builder->CreateCall(parallel_for, {num_iters, ctx, launch_func});
 }
 
 llvm::MDNode *CodeGen_LLVM::tbaa_type_node(const Type &type) {
