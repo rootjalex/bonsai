@@ -1,4 +1,7 @@
-//! flags: -b llvm -e
+//! flags: -p ssa -b llvm -e
+
+// collapse() run, through the SSA pipeline. The Stmt-level collapse this
+// replaces matched sequential loops, and a `map` now lowers to a parfor.
 
 func f1(x: i32) -> i32 {
     return x;

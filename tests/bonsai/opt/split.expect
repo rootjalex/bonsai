@@ -1,18 +1,26 @@
 func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
   alloc _alloc0 : mut f32[n]
-  forall _io in [0:n:16] {
-    forall _ii in [0:16:1] {
-      _alloc0[_io + _ii] = sqrt(a[_io + _ii])
+  parfor io in [0:n:16] {
+    parfor ii in [0:16:1] {
+      let @3 = io + ii in
+      let _i0 = @3 in
+      let @0 = a[_i0] in
+      let @1 = sqrt(@0) in
+      _alloc0[_i0] = @1
+      continue
     }
+    continue
   }
   return _alloc0
 }
 
 func process(n : i32, a : f32[n]) -> f32[n] {
-  return _traverse_array0(n, a)
+  let @0 = _traverse_array0(n, a) in
+  return @0
 }
 
 
 schedule host {
+    process.split(i0, io, ii, (i32)16, 0)
 
 }

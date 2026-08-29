@@ -1,3 +1,13 @@
+//! flags: -p ssa
+
+// collapse() applied to the loops a nested `map` lowers to.
+//
+// Through the SSA pipeline, where collapse is a rewrite on the block graph.
+// `no_collapse` is here to show what an untouched nest looks like beside a
+// collapsed one, and `process4` collapses the two loops a split just produced
+// -- which is the identity, and so a check that split and collapse agree about
+// the shape they leave behind.
+
 func no_collapse(n : i32, m: i32, a : array[array[f32, n], m]) -> array[array[f32, n], m] {
     return map(|l| map(|x : f32| sqrt(x), l), a);
 }

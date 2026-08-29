@@ -1,3 +1,15 @@
+//! flags: -p ssa
+
+// split() applied to the loop a `map` lowers to.
+//
+// Through the SSA pipeline, where split is a rewrite on the block graph. The
+// Stmt-level split this replaces matched sequential loops, and a `map` now
+// lowers to a parfor, so it no longer has anything here to work on.
+//
+// The loop is not in `process` but in the `_traverse_arrayN` helper that
+// lowering moved the map into; the schedule still names it `i0`, and the
+// rewrite finds it by following the call graph (see resolve_loop).
+
 func process(n : i32, a : array[f32, n]) -> array[f32, n] {
     return map(|x : f32| sqrt(x), a);
 }

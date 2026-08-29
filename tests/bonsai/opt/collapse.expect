@@ -1,83 +1,144 @@
 func _traverse_array0(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
   alloc _alloc0 : mut f32[m * n]
-  forall _i0 in [0:m:1] {
-    forall _i1 in [0:n:1] {
-      _alloc0[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
+  parfor _i0 in [0:m:1] {
+    parfor _i1 in [0:n:1] {
+      let @0 = a[_i0] in
+      let @1 = @0[_i1] in
+      let @2 = sqrt(@1) in
+      let @3 = _i0 * n in
+      let @4 = @3 + _i1 in
+      _alloc0[@4] = @2
+      continue
     }
+    continue
   }
-  return reinterpret_cast<f32[n][m]>(_alloc0)
+  let @6 = reinterpret_cast<f32[n][m]>(_alloc0) in
+  return @6
 }
 
 func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
   alloc _alloc1 : mut f32[m * n]
-  forall _i_a in [0:m * n:1] {
-    let _i0 = _i_a / n in
-    let _i1 = _i_a % n in
-    _alloc1[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
+  let @7 = n + 1 in
+  let @8 = @7 - 1 in
+  let @9 = m + 1 in
+  let @10 = @9 - 1 in
+  let @11 = @10 * @8 in
+  parfor i_a in [0:@11:1] {
+    let @12 = i_a / @8 in
+    let @13 = i_a % @8 in
+    let _i0 = @12 in
+    let _i1 = @13 in
+    let @0 = a[_i0] in
+    let @1 = @0[_i1] in
+    let @2 = sqrt(@1) in
+    let @3 = _i0 * n in
+    let @4 = @3 + _i1 in
+    _alloc1[@4] = @2
+    continue
   }
-  return reinterpret_cast<f32[n][m]>(_alloc1)
+  let @6 = reinterpret_cast<f32[n][m]>(_alloc1) in
+  return @6
 }
 
 func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
   alloc _alloc2 : mut f32[32 * 8]
-  forall _i_b in [0:256:1] {
-    let _i0 = _i_b / 8 in
-    let _i1 = _i_b & 7 in
-    _alloc2[(_i0 << 3) + _i1] = sqrt(a[_i0][_i1])
+  parfor i_b in [0:256:1] {
+    let @7 = i_b / 8 in
+    let @8 = i_b % 8 in
+    let _i0 = @7 in
+    let _i1 = @8 in
+    let @0 = a[_i0] in
+    let @1 = @0[_i1] in
+    let @2 = sqrt(@1) in
+    let @3 = _i0 << 3 in
+    let @4 = @3 + _i1 in
+    _alloc2[@4] = @2
+    continue
   }
-  return reinterpret_cast<f32[8][32]>(_alloc2)
+  let @6 = reinterpret_cast<f32[8][32]>(_alloc2) in
+  return @6
 }
 
 func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
   alloc _alloc3 : mut i32[w * h]
-  forall _i_c in [0:w * h:1] {
-    let _i0 = _i_c / h in
-    let _i1 = _i_c % h in
-    _alloc3[(_i0 * h) + _i1] = f(_i0, _i1)
+  let @5 = h + 1 in
+  let @6 = @5 - 1 in
+  let @7 = w + 1 in
+  let @8 = @7 - 1 in
+  let @9 = @8 * @6 in
+  parfor i_c in [0:@9:1] {
+    let @10 = i_c / @6 in
+    let @11 = i_c % @6 in
+    let _i0 = @10 in
+    let _i1 = @11 in
+    let @0 = f(_i0, _i1) in
+    let @1 = _i0 * h in
+    let @2 = @1 + _i1 in
+    _alloc3[@2] = @0
+    continue
   }
-  return reinterpret_cast<i32[h][w]>(_alloc3)
+  let @4 = reinterpret_cast<i32[h][w]>(_alloc3) in
+  return @4
 }
 
 func _traverse_array4(w : i32) -> i32[w] {
   alloc _alloc4 : mut i32[w]
-  forall _i in [0:((w + 3) / 4) << 2:1] {
-    let _io = (_i / 4) << 2 in
-    let _ii = _i & 3 in
-    if (_io < w) {
-      if (_ii < 4) {
-        _alloc4[_io + _ii] = f(_io + _ii, 1)
-      }
-    }
+  let @3 = w + 4 in
+  let @4 = @3 - 1 in
+  let @5 = @4 / 4 in
+  let @6 = @5 * 4 in
+  parfor i in [0:@6:1] {
+    let @7 = i / 4 in
+    let @8 = @7 * 4 in
+    let @9 = i % 4 in
+    let io = @8 in
+    let ii = @9 in
+    let @2 = io + ii in
+    let _i0 = @2 in
+    let @0 = f(_i0, 1) in
+    _alloc4[_i0] = @0
+    continue
   }
   return _alloc4
 }
 
 func f(x : i32, y : i32) -> i32 {
   print(x, y)
-  return x + y
+  let @0 = x + y in
+  return @0
 }
 
 func no_collapse(n : i32, m : i32, a : f32[n][m]) -> f32[n][m] {
-  return _traverse_array0(m, n, a)
+  let @0 = _traverse_array0(m, n, a) in
+  return @0
 }
 
 func process1(n : i32, m : i32, a : f32[n][m]) -> f32[n][m] {
-  return _traverse_array1(m, n, a)
+  let @0 = _traverse_array1(m, n, a) in
+  return @0
 }
 
 func process2(a : f32[8][32]) -> f32[8][32] {
-  return _traverse_array2(a)
+  let @0 = _traverse_array2(a) in
+  return @0
 }
 
 func process3(w : i32, h : i32) -> i32[h][w] {
-  return _traverse_array3(h, w)
+  let @0 = _traverse_array3(h, w) in
+  return @0
 }
 
 func process4(w : i32) -> i32[w] {
-  return _traverse_array4(w)
+  let @0 = _traverse_array4(w) in
+  return @0
 }
 
 
 schedule host {
+    process1.collapse(i0, i1, i_a)
+    process2.collapse(i0, i1, i_b)
+    process3.collapse(i0, i1, i_c)
+    process4.split(i0, io, ii, (i32)4, 0)
+            .collapse(io, ii, i)
 
 }
