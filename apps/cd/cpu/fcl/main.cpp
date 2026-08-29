@@ -198,26 +198,25 @@ bool load_object_file(const std::string &directory, const std::string &object,
             Triangle tri;
             char *data[30];
             int n = 0;
-            while ((data[n] = strtok(nullptr, "\t \r\n")) != nullptr) {
+            // Bound the token count so a face with many vertices cannot run
+            // off the end of `data`.
+            while (n < 30 && (data[n] = strtok(nullptr, "\t \r\n")) != nullptr) {
                 if (strlen(data[n]))
                     n++;
             }
 
             for (int t = 0; t < (n - 2); ++t) {
-                if ((!has_texture) && (!has_normal)) {
-                    tri[0] = atoi(data[0]) - 1;
-                    tri[1] = atoi(data[1]) - 1;
-                    tri[2] = atoi(data[2]) - 1;
-                } else {
-                    const char *v1;
-                    for (int i = 0; i < 3; i++) {
-                        // vertex ID
-                        if (i == 0)
-                            v1 = data[0];
-                        else
-                            v1 = data[t + i];
-
-                        tri[i] = atoi(v1) - 1;
+                // Fan the polygon around its first vertex.
+                const char *v_strs[3] = {data[0], data[t + 1], data[t + 2]};
+                for (int i = 0; i < 3; i++) {
+                    const int raw_idx = atoi(v_strs[i]);
+                    if (raw_idx < 0) {
+                        // A negative index is relative to the end of the
+                        // vertex list, so -1 is the vertex just appended.
+                        tri[i] = points.size() + raw_idx;
+                    } else {
+                        // Otherwise it is 1-based and absolute.
+                        tri[i] = raw_idx - 1;
                     }
                 }
                 triangles.push_back(tri);
