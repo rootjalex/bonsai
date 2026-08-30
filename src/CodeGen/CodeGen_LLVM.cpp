@@ -2775,7 +2775,9 @@ void CodeGen_LLVM::visit(const Launch *node) {
         << "Launch function " << node->func << " not found";
 
     internal_assert(node->args.size() == 1); // context
-    llvm::Value *ctx = codegen_expr(node->args[0]);
+    // The launched function takes the context by pointer, so pass its
+    // address rather than its value.
+    llvm::Value *ctx = codegen_expr(ir::PtrTo::make(node->args[0]));
 
     llvm::StructType *dispatch_queue_s_type =
         llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");

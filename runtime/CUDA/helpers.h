@@ -5,8 +5,16 @@
 
 #include "cuda_runtime.h"
 #include "curand_kernel.h"
-#include <cuda/std/tuple>
 #include <cuda_fp16.h>
+
+// What generated code itself spells. Generated files include only this header,
+// so it owes them these.
+#include <cuda/std/array>
+#include <cuda/std/optional>
+#include <cuda/std/tuple>
+#include <stdint.h>
+#include <thrust/universal_vector.h>
+#include <variant>
 
 #include <algorithm>
 #include <cassert>

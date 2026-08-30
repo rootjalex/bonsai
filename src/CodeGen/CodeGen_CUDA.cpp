@@ -1462,19 +1462,10 @@ void CodeGen_CUDA::visit(const AppendStmt *node) {
 }
 
 void CodeGen_CUDA::emit_prologue() {
-    // Overload arithmetic operators and intrinsics for vectorized math.
-    // Requires: `-Iruntime/CUDA` to work.
+    // The runtime header overloads the arithmetic operators and intrinsics for
+    // vectorized math, and carries the CUDA and standard headers generated code
+    // needs, so a generated file includes only it.
     os << '#' << "include" << ' ' << "\"runtime/CUDA/helpers.h\"" << '\n';
-    os << '\n';
-    // CUDA headers
-    os << '#' << "include" << ' ' << "<cuda/std/array>" << '\n';
-    os << '#' << "include" << ' ' << "<thrust/universal_vector.h>" << '\n';
-    os << '#' << "include" << ' ' << "<cuda/std/optional>" << '\n';
-    os << '#' << "include" << ' ' << "<cuda/std/tuple>" << '\n';
-    os << '\n';
-    // STL headers
-    os << '#' << "include" << ' ' << "<stdint.h>" << '\n';
-    os << '#' << "include" << ' ' << "<variant>" << '\n';
     os << '\n';
 }
 
