@@ -1,0 +1,56 @@
+# The reference scene for compare.sh, for pbrt to render.
+#
+# This must describe exactly what apps/pbrt/render_hook.cpp builds: the same
+# camera, the same shapes, the same resolution. If you change one, change the
+# other, or the comparison stops meaning anything.
+#
+# There are no lights, so pbrt warns and the radiance image is black. That is
+# fine: what is compared is the gbuffer's normals, which come from the camera
+# ray's first intersection and so exercise the camera transform, ray
+# generation, and sphere and triangle intersection.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "independent" "integer pixelsamples" [1]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    # Big enough that pbrt's render time, which it reports to the nearest
+    # 10ms, says something. compare.sh renders the other side at the same
+    # resolution; if these ever drift apart the comparison refuses to run.
+    "integer xresolution" [1600]
+    "integer yresolution" [900]
+    # Defaults to "camera", which reports normals in the camera's frame. The
+    # renderer being compared against works in world space, and this is the
+    # difference that otherwise shows up as every normal being slightly
+    # rotated -- which looks like an intersection bug and is not one.
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+#
+# At y = -1.02 rather than -1 because every sphere above has a radius equal to
+# its height above -1, so a plane there would be tangent to all three, and a
+# ray at a tangency can hit either surface depending on rounding.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]

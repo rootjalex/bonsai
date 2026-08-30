@@ -10,9 +10,19 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 
 PREFIX="apps/pbrt"
-OUT="${1:-$PREFIX/pbrt-m0.ppm}"
+# The renderer writes linear float, as pbrt does; the PNG beside it is the
+# post-processing step, and is what to actually look at.
+OUT="${1:-$PREFIX/pbrt.pfm}"
+PNG="${OUT%.pfm}.png"
 
 cmake --build build -j
+
+# The spectral data is generated (see make_spectrum_tables.py) and the fit that
+# uses it is a port, so check the round trip before rendering with it: a fit
+# that is subtly wrong still produces plausible numbers, just the wrong colour.
+clang++ -std=c++20 -O2 -I$PREFIX $PREFIX/rgb2spec_check.cpp -o $PREFIX/rgb2spec_check
+./$PREFIX/rgb2spec_check
+rm $PREFIX/rgb2spec_check
 
 # `-p ssa` because bind is an SSA rewrite. The other two outputs are here to
 # be looked at when something renders wrong: the .bir is what the schedule
@@ -25,7 +35,11 @@ cmake --build build -j
 clang++ -g -std=c++20 -O3 -I. $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o $PREFIX/render.out
 
-time ./$PREFIX/render.out "$OUT"
+./$PREFIX/render.out "$OUT"
+
+# The image holds normals rather than radiance, so the encoding is the remap
+# that makes a direction visible rather than pbrt's sRGB curve.
+python3 $PREFIX/to_png.py "$OUT" "$PNG" --normals
 
 # render.h is generated too, but it is checked in: regenerating it is how it
 # stays current, so it is left where it was written.

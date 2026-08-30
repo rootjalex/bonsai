@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -294,7 +295,7 @@ Transform to_bonsai(const Mat4 &m) {
 } // namespace
 
 int main(int argc, char **argv) {
-    const char *output = (argc > 1) ? argv[1] : "pbrt_m0.ppm";
+    const char *output = (argc > 1) ? argv[1] : "pbrt.pfm";
 
     int width = 400;
     int height = 225;
@@ -348,8 +349,16 @@ int main(int argc, char **argv) {
     // Wound so that cross(p1 - p0, p2 - p0) points up. PBRT takes a triangle's
     // geometric normal from its winding and does not turn it towards the ray,
     // so which way a surface faces is the scene's business, not the renderer's.
+    //
+    // Just below the spheres rather than exactly touching them. Every sphere
+    // here has a radius equal to its height above y = -1, so a ground plane at
+    // -1 would be tangent to all three, and at a tangency a ray can hit either
+    // surface depending on rounding. Nothing observed has been traced to it --
+    // the pixels where this and pbrt disagree are on silhouettes, and moving
+    // the plane did not change them -- but a comparison scene should not be
+    // asking an ill-posed question in the first place.
     const float g = 8.0f;
-    const float y = -1.0f;
+    const float y = -1.02f;
     shapes.push_back(triangle_shape(float3{-g, y, -g}, float3{g, y, g},
                                     float3{g, y, -g}));
     shapes.push_back(triangle_shape(float3{-g, y, -g}, float3{-g, y, g},
@@ -360,27 +369,43 @@ int main(int argc, char **argv) {
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
 
+    // Only the render is timed. Building the scene and the BVH is the work
+    // pbrt does before its own timer starts (its renderTimeSeconds comes from
+    // a progress reporter created after the scene is built), so counting it
+    // here would be comparing two different things.
+    const auto started = std::chrono::steady_clock::now();
     render(camera, uint32_t(width), uint32_t(height), out, tree);
+    const auto finished = std::chrono::steady_clock::now();
+    const double seconds =
+        std::chrono::duration<double>(finished - started).count();
 
-    std::ofstream file(output);
-    if (!file) {
+    // What pbrt writes: the film's linear values, unencoded. pbrt quantizes
+    // only when asked for a .png or a .qoi, and applies its sRGB transfer
+    // function when it does; that is post-processing, and it happens in
+    // to_png.py rather than here. PFM is one of the formats pbrt itself
+    // writes, so this file and one from pbrt are directly comparable.
+    std::ofstream pfm(output, std::ios::binary);
+    if (!pfm) {
         std::cerr << "cannot open " << output << " for writing\n";
         free(out);
+        free(tree.group0_index);
         return 1;
     }
-    file << "P3\n" << width << ' ' << height << "\n255\n";
-    for (uint32_t p = 0; p < npixels; p++) {
-        // pbrt: the film's write-out. No tone mapping and no gamma in M0, so
-        // this is the clamp and the scale and nothing else.
-        for (int c = 0; c < 3; c++) {
-            const float v = out[p][c];
-            const int b = int(256.0f * (v < 0.0f ? 0.0f : (v > 0.999f ? 0.999f : v)));
-            file << b << (c == 2 ? '\n' : ' ');
+    // PFM rows run bottom to top, and a negative scale says little-endian.
+    pfm << "PF\n" << width << ' ' << height << "\n-1.000000\n";
+    for (int j = height - 1; j >= 0; j--) {
+        for (int i = 0; i < width; i++) {
+            const float3 &v = out[uint32_t(j) * uint32_t(width) + i];
+            const float rgb[3] = {v[0], v[1], v[2]};
+            pfm.write(reinterpret_cast<const char *>(rgb), sizeof(rgb));
         }
     }
 
     std::cout << "wrote " << output << " (" << width << 'x' << height << ", "
               << shapes.size() << " shapes)\n";
+    // Parsed by compare.sh. Kept to a line of its own so that it stays easy
+    // to find without the script having to understand anything else here.
+    std::cout << "render seconds: " << seconds << '\n';
     free(out);
     free(tree.group0_index);
     return 0;

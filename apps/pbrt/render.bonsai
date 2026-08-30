@@ -23,12 +23,37 @@
 // drive anyway. The BVH is built there too, for now: tree construction is not
 // yet expressible in bonsai, and only the traversal runs per ray.
 
-import stdlib/distance;
-import stdlib/intersects;
+// stdlib/numerics only, and only for the type aliases and the helpers that are
+// themselves transcriptions of pbrt (prod_diff is DifferenceOfProducts, gamma
+// is pbrt's gamma). The geometry deliberately does *not* come from the stdlib:
+// stdlib/sphere.bonsai and stdlib/intersects.bonsai are derived from Ray
+// Tracing in One Weekend and are not numerically what pbrt does, which showed
+// up as pixels disagreeing along silhouettes. What this app needs is pbrt's
+// arithmetic, so pbrt's arithmetic is written out below.
 import stdlib/numerics;
-import stdlib/ray;
-import stdlib/sphere;
-import stdlib/triangle;
+
+// pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
+// alongside; the tree lowering needs a bound to prune against.
+element Ray {
+    o : vec3f;
+    d : vec3f;
+    tmax : Float = inf;
+}
+
+// pbrt: Sphere. pbrt keeps a transform and a radius and works in object space,
+// where the sphere is at the origin; these are placed by a translation only,
+// so object space is reached by subtracting the centre.
+element Sphere {
+    center : vec3f;
+    radius : Float;
+}
+
+// pbrt: Triangle, as three positions rather than an index into a mesh.
+element Triangle {
+    p0 : vec3f;
+    p1 : vec3f;
+    p2 : vec3f;
+}
 
 element vec2f = vector[Float, 2];
 element vec4f = vector[Float, 4];
@@ -90,6 +115,177 @@ func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
     return Ray{o, d};
 }
 
+// pbrt: Sphere::BasicIntersect, without the interval arithmetic it carries the
+// coefficients in. Answers the parametric distance to the nearest hit ahead of
+// the ray, or nothing.
+//
+// The discriminant is the reason this is written out rather than taken from
+// the stdlib. Solving b^2 - 4ac directly loses almost all its significant bits
+// when a ray grazes the sphere, because the two terms nearly cancel; pbrt
+// instead computes the distance from the sphere's centre to the ray's closest
+// approach and forms
+//
+//     discrim = 4a(radius + |v|)(radius - |v|)
+//
+// which is the same quantity factored so that the subtraction happens between
+// two numbers that are not nearly equal. The quadratic is then solved by the
+// stable pairing q = -(b +/- sqrt(discrim))/2, t0 = q/a, t1 = c/q, which avoids
+// cancelling again in whichever root is small.
+element FInterval {
+    low, high : Float;
+}
+
+func sphere_roots(r : Ray, s : Sphere) -> option[FInterval] {
+    // Object space: the sphere is at the origin.
+    oi = r.o - s.center;
+    di = r.d;
+
+    a = dot(di, di);
+    b = 2.0 * dot(di, oi);
+    c = dot(oi, oi) - s.radius * s.radius;
+
+    v = oi - (b / (2.0 * a)) * di;
+    length = norm(v);
+    discrim = 4.0 * a * (s.radius + length) * (s.radius - length);
+    if discrim < 0.0 {
+        return {};
+    }
+
+    root_discrim = sqrt(discrim);
+    q = select(b < 0.0, -0.5 * (b - root_discrim), -0.5 * (b + root_discrim));
+    ta = q / a;
+    tb = c / q;
+    roots : FInterval = {min(ta, tb), max(ta, tb)};
+    return roots;
+}
+
+func distmin(r : Ray, s : Sphere) -> Float {
+    roots = sphere_roots(r, s);
+    if roots {
+        near = *roots;
+        return near.low;
+    }
+    return -inf;
+}
+
+func distmax(r : Ray, s : Sphere) -> Float {
+    roots = sphere_roots(r, s);
+    if roots {
+        far = *roots;
+        return far.high;
+    }
+    return inf;
+}
+
+func intersects(r : Ray, s : Sphere) -> bool {
+    roots = sphere_roots(r, s);
+    if roots {
+        hit = *roots;
+        return (hit.low < r.tmax) & (hit.high > 0.0);
+    }
+    return false;
+}
+
+// pbrt: IntersectTriangle from shapes.cpp, which is watertight: the ray is
+// moved to its own coordinate space, the largest component of its direction
+// is permuted into z, and the vertices are sheared so that the edge tests are
+// exact in sign. The error bounds at the end are pbrt's, and they are what
+// keeps a ray from slipping between two triangles that share an edge.
+func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
+    // Degenerate triangles have no interior to hit.
+    if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
+        return {};
+
+    // Translate the vertices so the ray starts at the origin.
+    p0t : mut = tri.p0 - ray.o;
+    p1t : mut = tri.p1 - ray.o;
+    p2t : mut = tri.p2 - ray.o;
+
+    // Permute so that the ray's dominant direction is z.
+    kz : u32 = idxmax(abs(ray.d));
+    kx = (kz + 1) % 3;
+    ky = (kx + 1) % 3;
+    d = permute(ray.d, {kx, ky, kz});
+    p0t = permute(p0t, {kx, ky, kz});
+    p1t = permute(p1t, {kx, ky, kz});
+    p2t = permute(p2t, {kx, ky, kz});
+
+    // Shear, so that the ray becomes +z and the edge tests are 2D.
+    Sx = -d.x / d.z;
+    Sy = -d.y / d.z;
+    Sz = 1 / d.z;
+    p0t.x += Sx * p0t.z;
+    p0t.y += Sy * p0t.z;
+    p1t.x += Sx * p1t.z;
+    p1t.y += Sy * p1t.z;
+    p2t.x += Sx * p2t.z;
+    p2t.y += Sy * p2t.z;
+
+    // Edge functions, by a difference of products that does not cancel.
+    e0 = prod_diff[[Float]](p1t.x, p2t.y, p1t.y, p2t.x);
+    e1 = prod_diff[[Float]](p2t.x, p0t.y, p2t.y, p0t.x);
+    e2 = prod_diff[[Float]](p0t.x, p1t.y, p0t.y, p1t.x);
+
+    // TODO: pbrt falls back to double precision when an edge function is
+    // exactly zero, which is where a ray meets a shared edge.
+
+    if ((e0 < 0 || e1 < 0 || e2 < 0) && (e0 > 0 || e1 > 0 || e2 > 0))
+        return {};
+    det = e0 + e1 + e2;
+    if (det == 0)
+        return {};
+
+    p0t.z *= Sz;
+    p1t.z *= Sz;
+    p2t.z *= Sz;
+
+    tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
+    if (det < 0 && (tScaled >= 0 || tScaled < ray.tmax * det))
+        return {};
+    else if (det > 0 && (tScaled <= 0 || tScaled > ray.tmax * det))
+        return {};
+
+    invDet = 1 / det;
+    t = tScaled * invDet;
+
+    // pbrt's bound on the error in t, so that a hit is only reported when it
+    // is conservatively in front of the ray.
+    maxZt = max(abs(vec3f{p0t.z, p1t.z, p2t.z}));
+    deltaZ = gamma(3) * maxZt;
+    maxXt = max(abs(vec3f{p0t.x, p1t.x, p2t.x}));
+    maxYt = max(abs(vec3f{p0t.y, p1t.y, p2t.y}));
+    deltaX = gamma(5) * (maxXt + maxZt);
+    deltaY = gamma(5) * (maxYt + maxZt);
+    deltaE = 2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
+    maxE = max(abs(vec3f{e0, e1, e2}));
+    deltaT = 3 * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * abs(invDet);
+    if (t <= deltaT)
+        return {};
+
+    return t;
+}
+
+// A triangle is flat, so the near and far distance to it are the same one.
+func distmin(r : Ray, tri : Triangle) -> Float {
+    t = triangle_t(r, tri);
+    if t {
+        return *t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    t = triangle_t(r, tri);
+    if t {
+        return *t;
+    }
+    return -inf;
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool {
+    return cast[[bool]](triangle_t(r, tri));
+}
+
 // pbrt: Shape, the closed set of things a ray can hit. v4 dispatches this
 // through a TaggedPointer over Sphere, Triangle, and the rest; a variant type
 // says the same thing without the pointer.
@@ -147,16 +343,18 @@ func trace(r : Ray) =
            filter(|sh : Shape| intersects(r, sh) && distmin(r, sh) > 0.001,
                   shapes));
 
-// pbrt: the integrator, still the one from the book's first figure: shade a
-// hit by its normal and leave a miss black. PBRT would return the infinite
-// lights' radiance for a miss, and there are none yet.
+// The geometric normal at the nearest hit, or zero where the ray escapes.
+//
+// This is what pbrt's `gbuffer` film records in its N channels, which is what
+// makes an image from this app comparable against one from pbrt -- see
+// compare.sh. It stands in for the integrator until there is a light to
+// integrate; turning a normal into a colour is the film's business, and the
+// driver does it, exactly as pbrt leaves N unmapped in the EXR.
 func li(r : Ray) -> vec3f {
     isect : option[Shape] = trace(r);
     if isect {
         sh = *isect;
-        n = normal_at(sh, r.o + distmin(r, sh) * r.d);
-        // pbrt's normal-shaded debug image: remap [-1,1] to [0,1].
-        return 0.5 * (n + vec3f{1.0, 1.0, 1.0});
+        return normal_at(sh, r.o + distmin(r, sh) * r.d);
     }
     return vec3f{0.0, 0.0, 0.0};
 }
