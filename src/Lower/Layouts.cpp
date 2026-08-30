@@ -137,6 +137,10 @@ class LayoutTypeMap {
     return os;
 }
 
+std::string group_name(uint32_t count) {
+    return "group_" + std::to_string(count);
+}
+
 std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
 
 std::string split_name(uint32_t count, const std::string &field) {
@@ -315,7 +319,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
     if (auto it = ltmap.types().find(member); it != ltmap.types().cend()) {
         return it->second;
     }
-    uint32_t pad_count = 0, split_count = 0;
+    uint32_t pad_count = 0, split_count = 0, group_count = 0;
     ir::Struct_t::Map fields;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
@@ -349,7 +353,9 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
                 group_t = ir::Array_t::make(std::move(base_t), node->size);
                 break;
             }
-            std::string field_name = node->name;
+            // An anonymous group still needs a field to live in.
+            std::string field_name =
+                node->name.empty() ? group_name(group_count++) : node->name;
             ltmap.insert_group_layout(m, field_name, group_t);
             if (m.bits() == 0) {
                 continue;

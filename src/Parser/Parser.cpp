@@ -2848,13 +2848,23 @@ struct Parser {
             ir::Expr size, alignment;
             if (consume(Token::Type::LBRACKET)) {
                 do {
+                    // A bare expression is the group's size, as in
+                    // `group nodes[count]`. Named attributes spell it out, as
+                    // in `group nodes[size = count, align = 8]`.
+                    const bool is_attribute =
+                        peek_type() == Token::Type::IDENTIFIER &&
+                        peek_type(1) == Token::Type::ASSIGN;
+                    if (!is_attribute) {
+                        internal_assert(!size.defined());
+                        size = parse_expr();
+                        continue;
+                    }
                     std::string key = get_id();
+                    expect(Token::Type::ASSIGN);
                     if (key == "size") {
-                        expect(Token::Type::ASSIGN);
                         internal_assert(!size.defined());
                         size = parse_expr();
                     } else if (key == "align") {
-                        expect(Token::Type::ASSIGN);
                         internal_assert(!alignment.defined());
                         alignment = parse_expr();
                     } else {
