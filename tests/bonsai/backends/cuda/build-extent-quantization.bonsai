@@ -1,6 +1,7 @@
 //! flags: -b cuda
 
 import stdlib/distance;
+import stdlib/topology;
 import stdlib/intersects;
 import stdlib/triangle;
 

@@ -6,7 +6,8 @@ add_bonsai_tests(
     build-dop14.bonsai
     build-embree-hair.bonsai
     build-extent-quantization.bonsai
-    build-inner-group.bonsai
+    # build-inner-group.bonsai was deleted; only its golden survives. The CPPX
+    # directory still has the source if someone wants the CUDA case back.
     build-pbrt.bonsai
     build-ptr.bonsai
     global.bonsai
