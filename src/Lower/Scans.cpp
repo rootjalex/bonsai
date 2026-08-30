@@ -75,10 +75,13 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
         std::optional<AggOp::OpType> op;
         Expr map_func;
 
-        ScansToCalls(std::shared_ptr<Function> _func,
-                     std::optional<AggOp::OpType> op, Expr map_func)
-            : func(std::move(_func)), op(std::move(op)),
-              map_func(std::move(map_func)) {
+        // The parameters deliberately do not share the members' names. The
+        // body reads `func` after the mem-initializer has moved from it, so a
+        // parameter named `func` would shadow the member and be null there.
+        ScansToCalls(std::shared_ptr<Function> scan_func,
+                     std::optional<AggOp::OpType> agg_op, Expr map)
+            : func(std::move(scan_func)), op(std::move(agg_op)),
+              map_func(std::move(map)) {
             write_expr =
                 Var::make(func->args.back().type, func->args.back().name);
             write_loc =
