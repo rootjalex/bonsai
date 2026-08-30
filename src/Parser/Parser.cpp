@@ -2730,7 +2730,11 @@ struct Parser {
         push_frame();
         // TODO(cgyurgyik): For references in `sort`.
         add_type_to_frame("this", ir::Type(), /*mut=*/false);
-        std::vector<ir::Argument> root = parse_func_args(/*is_layout=*/true);
+        // A layout that carries nothing down the tree writes no root list.
+        std::vector<ir::Argument> root;
+        if (peek_type() == Token::Type::LPAREN) {
+            root = parse_func_args(/*is_layout=*/true);
+        }
         {
             std::vector<ir::TypedVar> fields;
             std::map<std::string, ir::Expr> defaults;
