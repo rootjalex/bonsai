@@ -1,0 +1,52 @@
+//! flags: -p canonicalize
+
+// Building a variant and matching on one, in the shape PBRT uses them.
+//
+// This stops before LowerADTs so that the golden shows what was parsed: the
+// `element` declarations and the `match`, not the tag-and-union they become.
+// tests/bonsai/lower/adt.bonsai pins the lowered form.
+//
+// PBRT v4 dispatches Shape, Spectrum, Light and BxDF through a TaggedPointer
+// over a closed set of types, and every one of them is this: a value that is
+// one of several things, and a call that does something different depending on
+// which. `Shape::Area()` and evaluating a `Spectrum` at a wavelength are the
+// two smallest real examples.
+//
+// Naming a variant builds one. There is no `Shape::Sph` to write because
+// variant names are unique across the program, which is the rule tree nodes
+// already follow.
+//
+// The variants here are deliberately different sizes -- a sphere is a point
+// and a radius, a triangle is three points -- so that the payload is a union
+// of unequal members rather than a set of interchangeable ones.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: Shape::Area(), which every shape answers differently.
+func [[export]] area(s : Shape) -> Float {
+    match s {
+        Sph(center, radius) => return 4.0 * 3.14159265 * radius * radius;
+        Tri(p0, p1, p2) => return 0.5 * norm(cross(p1 - p0, p2 - p0));
+    }
+}
+
+// pbrt: a Spectrum evaluated at a wavelength. Constant and scaled-Blackbody
+// are two of v4's, reduced to what does not need the Planck tables.
+element Spectrum =
+    | Constant(c : Float)
+    | Scaled(inner : Float, scale : Float);
+
+func [[export]] evaluate(s : Spectrum, lambda : Float) -> Float {
+    match s {
+        Constant(c) => return c;
+        Scaled(inner, scale) => return inner * scale;
+    }
+}
+
+// Building one, which is what a scene description does.
+func [[export]] unit_sphere() -> Shape = Sph(vec3f{0.0, 0.0, 0.0}, 1.0);
+
+func [[export]] flat_spectrum(v : Float) -> Spectrum = Constant(v);

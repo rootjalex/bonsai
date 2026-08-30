@@ -163,6 +163,11 @@ struct Parser {
     TokenStream &tokens() { return context.back(); }
 
     ir::Program program;
+
+    // Which ADT each variant name belongs to. Variant names are unique across
+    // the program, so naming one is enough to say which type is being built or
+    // matched against.
+    std::map<std::string, std::string> variant_owners;
     // Function variable frames. Maps name to type and mutability.
     struct FunctionVariable {
         ir::Type type;
@@ -373,6 +378,43 @@ struct Parser {
         }
     }
 
+    // The variants of an ADT, spelled the way a tree's nodes are:
+    //
+    //     element Shape =
+    //         | Sphere(center : vec3f, radius : Float)
+    //         | Triangle(a : vec3f, b : vec3f, c : vec3f);
+    //
+    // A variant is a struct of its fields, and its name is unique across the
+    // program -- the same rule tree nodes follow -- so a value can be built by
+    // naming the variant alone, without saying which type it belongs to.
+    ir::Type parse_variants(const std::string &name) {
+        expect(Token::Type::BAR);
+
+        ir::ADT_t::Variants variants;
+        do {
+            auto [vname, params, annotations] = parse_node();
+            if (!annotations.empty()) {
+                report_error() << "Variant " << vname << " of " << name
+                               << " has a `with` annotation, which only a "
+                                  "tree's nodes take.";
+            }
+            if (program.types.contains(vname)) {
+                report_error() << "Variant " << vname << " of " << name
+                               << " conflicts with existing type: " << vname;
+            }
+            if (const auto owner = variant_owners.find(vname);
+                owner != variant_owners.end()) {
+                report_error() << "Variant " << vname << " of " << name
+                               << " is already a variant of " << owner->second;
+            }
+            variant_owners[vname] = name;
+            variants.push_back(
+                ir::Struct_t::make(std::move(vname), std::move(params)));
+        } while (consume(Token::Type::BAR));
+
+        return ir::ADT_t::make(name, std::move(variants));
+    }
+
     void parse_element() {
         expect(Token::Type::ELEMENT);
 
@@ -397,8 +439,13 @@ struct Parser {
             report_error() << "Redefinition of type: " << name;
         }
 
-        // Support inline aliasing.
+        // Support inline aliasing, and a closed set of variants.
         if (consume(Token::Type::ASSIGN)) {
+            if (peek().type == Token::Type::BAR) {
+                program.types[name] = parse_variants(name);
+                expect(Token::Type::SEMICOL);
+                return;
+            }
             ir::Type alias = parse_type();
             expect(Token::Type::SEMICOL);
             program.types[name] = alias;
@@ -810,9 +857,71 @@ struct Parser {
     // name += expr; ?
     // call? no bc no side effects...
     // for? not while.
+    // match value { Variant(a, b) => stmt ... }
+    //
+    // Every variant exactly once, each naming its fields so the arm can use
+    // them. MatchVariant::make is what enforces that; here it is only read.
+    ir::Stmt parse_match() {
+        expect(Token::Type::MATCH);
+        ir::Expr value = parse_expr();
+        expect(Token::Type::LSQUIGGLE);
+
+        const ir::ADT_t *adt = value.type().as<ir::ADT_t>();
+        if (adt == nullptr) {
+            report_error() << "match expects a value of a variant type, "
+                              "received one of type: "
+                           << value.type();
+        }
+
+        std::vector<ir::MatchVariant::Arm> arms;
+        do {
+            ir::MatchVariant::Arm arm;
+            arm.variant = get_id();
+            if (consume(Token::Type::LPAREN)) {
+                if (!consume(Token::Type::RPAREN)) {
+                    do {
+                        arm.bindings.push_back(get_id());
+                    } while (consume(Token::Type::COMMA));
+                    expect(Token::Type::RPAREN);
+                }
+            }
+            expect(Token::Type::ASSIGN);
+            expect(Token::Type::GT);
+
+            const auto index = adt->index_of(arm.variant);
+            if (!index.has_value()) {
+                report_error() << adt->name << " has no variant called "
+                               << arm.variant;
+            }
+            const ir::Struct_t::Map &fields = adt->fields(*index);
+            if (fields.size() != arm.bindings.size()) {
+                report_error()
+                    << arm.variant << " has " << fields.size()
+                    << " fields but the arm names " << arm.bindings.size();
+            }
+
+            // The names an arm gives its variant's fields stand for them
+            // inside it, and nowhere else.
+            push_frame();
+            for (size_t i = 0; i < arm.bindings.size(); i++) {
+                add_type_to_frame(arm.bindings[i], fields[i].type,
+                                  /*mutable=*/false);
+            }
+            arm.body = parse_statement();
+            pop_frame();
+
+            arms.push_back(std::move(arm));
+        } while (peek().type != Token::Type::RSQUIGGLE);
+
+        expect(Token::Type::RSQUIGGLE);
+        return ir::MatchVariant::make(std::move(value), std::move(arms));
+    }
+
     ir::Stmt parse_statement() {
         if (peek().type == Token::Type::LSQUIGGLE) {
             return parse_sequence();
+        } else if (peek().type == Token::Type::MATCH) {
+            return parse_match();
         } else if (consume(Token::Type::IF)) {
             ir::Expr cond = parse_expr(); // no required parens
             ir::Stmt then_case = parse_statement();
@@ -1475,7 +1584,8 @@ struct Parser {
     ir::Expr parse_identifier() {
         const std::string name = get_id();
 
-        if (program.funcs.contains(name) || is_builtin(name)) {
+        if (program.funcs.contains(name) || is_builtin(name) ||
+            variant_owners.contains(name)) {
             return parse_function_call(name);
         }
 
@@ -1550,6 +1660,22 @@ struct Parser {
         std::vector<ir::Expr> args;
         if (consume(Token::Type::LPAREN)) {
             args = parse_expr_list_until(Token::Type::RPAREN);
+
+            // Naming a variant builds one. Variant names are unique across the
+            // program, so the name alone says which type is meant -- there is
+            // no `Shape::Sph` to write.
+            if (const auto owner = variant_owners.find(name);
+                owner != variant_owners.end()) {
+                if (!template_types.empty()) {
+                    report_error() << "Variant " << name
+                                   << " does not take template parameters.";
+                }
+                const auto adt = program.types.find(owner->second);
+                internal_assert(adt != program.types.end())
+                    << "Variant " << name << " belongs to " << owner->second
+                    << ", which is not a type";
+                return ir::Construct::make(adt->second, name, std::move(args));
+            }
         } else {
             if (!program.funcs.contains(name)) {
                 report_error() << "Cannot use intrinsic as func pointer.";
@@ -2359,8 +2485,13 @@ struct Parser {
         std::vector<ir::Annotation> annotations;
 
         if (consume(Token::Type::LPAREN)) {
-            params = parse_tree_params();
-            expect(Token::Type::RPAREN);
+            // `Nothing()` carries nothing, which is a variant a sum type needs
+            // and a tree node has no use for. Written either way: with the
+            // empty parentheses, or without them at all.
+            if (!consume(Token::Type::RPAREN)) {
+                params = parse_tree_params();
+                expect(Token::Type::RPAREN);
+            }
         }
 
         while (consume(Token::Type::WITH)) {

@@ -2122,16 +2122,50 @@ void CodeGen_LLVM::visit(const Build *node) {
     }
 }
 
+// A union holding one of its members: the member's bytes, read as the union.
+//
+// The mirror of reading one out in visit(const Access *). There is no
+// insertvalue for this either -- LLVM's takes an index into a struct and wants
+// that field's type, and a union's members are not fields -- so it goes
+// through the storage. Storing the member writes its own size at offset zero,
+// which is where every member of a union starts, and loading the whole thing
+// back gives the first-class value a surrounding Build needs. Whatever of the
+// storage the member did not cover stays undefined, which is what clang leaves
+// in a union's padding too.
+void CodeGen_LLVM::visit(const UnionOf *node) {
+    llvm::Type *union_type = codegen_type(node->type);
+    llvm::Value *member = codegen_expr(node->value);
+    llvm::Value *storage =
+        create_alloca_at_entry(union_type, "union_" + node->member);
+    builder->CreateStore(member, storage);
+    value = create_aligned_load(union_type, storage, "union_" + node->member);
+}
+
 void CodeGen_LLVM::visit(const Access *node) {
     ir::Expr value_e = node->value;
-    internal_assert(value_e.type().is<Struct_t>()) << value_e;
-    llvm::Value *field = codegen_expr(value_e);
 
     // For debuggability.
     std::string name = node->field;
     if (const auto *var = value_e.as<Var>()) {
         name = var->name + "." + name;
     }
+
+    // A union's members all begin at the same address, so reading one is
+    // reading those bytes at that member's type. There is no extractvalue for
+    // that -- LLVM's takes an index into a struct and gives that field's type
+    // -- so it goes through the storage, which is what a union is.
+    if (const Union_t *as_union = value_e.type().as<Union_t>()) {
+        const Type member = as_union->member(node->field);
+        internal_assert(member.defined())
+            << "Union " << as_union->name << " has no member " << node->field
+            << " in " << Expr(node);
+        llvm::Value *storage = codegen_expr(PtrTo::make(value_e));
+        value = create_aligned_load(codegen_type(member), storage, name);
+        return;
+    }
+
+    internal_assert(value_e.type().is<Struct_t>()) << value_e;
+    llvm::Value *field = codegen_expr(value_e);
     if (field->getType()->isStructTy()) {
         const auto &fields = value_e.type().as<Struct_t>()->fields;
         const size_t idx = find_struct_index(node->field, fields);
@@ -3156,7 +3190,7 @@ llvm::MDNode *CodeGen_LLVM::tbaa_type_node(const Type &type) {
     // An access to an aggregate has no tag: LLVM's access type has to be one
     // of its scalar nodes, so there is no way to say "all of this struct".
     // Untagged means "may alias anything", which is always safe.
-    if (type.is<Struct_t, Tuple_t, Option_t>()) {
+    if (type.is<Struct_t, Tuple_t, Option_t, Union_t>()) {
         return nullptr;
     }
 
@@ -3294,6 +3328,111 @@ void CodeGen_LLVM::declare_struct_types(
             struct_types[_struct->name]->setBody(types, _struct->is_packed());
         }
     }
+
+    // Union bodies last. A struct body may name a type that is still opaque,
+    // so the order above does not matter; a union has to be as big as its
+    // largest member, so it cannot be measured until that member has a size.
+    // Repeated because a union can hold a struct that holds another union, and
+    // each round either settles one or has nothing left it can settle.
+    while (!pending_unions.empty()) {
+        std::vector<const Union_t *> again;
+        for (const Union_t *node : pending_unions) {
+            if (!set_union_body(node, union_types.at(node->name))) {
+                again.push_back(node);
+            }
+        }
+        internal_assert(again.size() < pending_unions.size())
+            << "Union " << again.front()->name << " contains itself";
+        pending_unions = std::move(again);
+    }
+}
+
+// A union: enough storage for the largest member, aligned for the strictest.
+//
+// LLVM has no union type, so this is storage -- an array of units, each one
+// the alignment wide. Only here can it be worked out: sizes and alignments
+// belong to the target, which is why Type::bytes() refuses to answer for an
+// aggregate and says to ask the backend.
+//
+// Not clang's encoding, which is the most-aligned member followed by enough
+// bytes to reach the largest. That relies on a union only ever being touched
+// through memory. Bonsai builds one with insertvalue, and a first-class LLVM
+// aggregate does not carry its padding: given `{<3 x float>, float}`, bytes
+// 12-15 and 20-31 belong to no field of it, so loading the union as a value
+// would leave them undefined -- and another member's fields can sit exactly
+// there. So the body has to have no padding of its own to lose, which an array
+// of a type as wide as its own alignment does not.
+//
+// Unlike a struct, whose body may name a type that is still opaque, this needs
+// its members to have a size already. Answering false rather than asserting is
+// what lets declare_struct_types reach a union early and come back to it.
+bool CodeGen_LLVM::set_union_body(const Union_t *node,
+                                  llvm::StructType *made) {
+    internal_assert(!node->members.empty())
+        << "Union " << node->name << " has no members";
+
+    const llvm::DataLayout &dl = module->getDataLayout();
+    uint64_t align = 1;
+    uint64_t size = 0;
+    for (const TypedVar &member : node->members) {
+        llvm::Type *as_llvm = codegen_type(member.type);
+        if (!as_llvm->isSized()) {
+            return false;
+        }
+        align = std::max(align, dl.getABITypeAlign(as_llvm).value());
+        size = std::max(size, dl.getTypeAllocSize(as_llvm).getFixedValue());
+    }
+    // Rounded up to the alignment, so that an array of the union steps from
+    // one aligned value to the next. This is the size Rust gives an enum.
+    size = ((size + align - 1) / align) * align;
+
+    // One unit of storage: an integer as wide as the alignment, or the same
+    // number of bytes as a vector. Which of them a target actually aligns the
+    // way it is asked to varies -- x86-64 and AArch64 both say i128 is aligned
+    // to 16, but neither says anything about i256 -- so the choice is made by
+    // measuring rather than by knowing.
+    llvm::Type *unit = nullptr;
+    const std::vector<llvm::Type *> candidates{
+        llvm::Type::getIntNTy(*context, align * 8),
+        llvm::FixedVectorType::get(i8_t, align)};
+    for (llvm::Type *candidate : candidates) {
+        if (dl.getTypeAllocSize(candidate).getFixedValue() == align &&
+            dl.getABITypeAlign(candidate).value() == align) {
+            unit = candidate;
+            break;
+        }
+    }
+    internal_assert(unit) << "No type on this target is " << align
+                          << " bytes aligned to " << align
+                          << ", which union " << node->name << " needs";
+
+    made->setBody({llvm::ArrayType::get(unit, size / align)},
+                  /*isPacked=*/false);
+    internal_assert(dl.getTypeAllocSize(made).getFixedValue() == size &&
+                    dl.getABITypeAlign(made).value() == align)
+        << "Union " << node->name << " wanted " << size << " bytes aligned to "
+        << align << " but its storage is "
+        << dl.getTypeAllocSize(made).getFixedValue() << " aligned to "
+        << dl.getABITypeAlign(made).value();
+    return true;
+}
+
+void CodeGen_LLVM::visit(const Union_t *node) {
+    const auto found = union_types.find(node->name);
+    if (found != union_types.end()) {
+        type = found->second;
+        return;
+    }
+
+    llvm::StructType *made =
+        llvm::StructType::create(*context, "union." + node->name);
+    // Registered before the body is built, so that a union reachable from its
+    // own members does not recurse for ever.
+    union_types[node->name] = made;
+    if (!set_union_body(node, made)) {
+        pending_unions.push_back(node);
+    }
+    type = made;
 }
 
 llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,

@@ -1,0 +1,16 @@
+// Two ADTs cannot share a variant name.
+//
+// A variant is named on its own to build or match one -- `Sph(c, r)` rather
+// than `Shape::Sph(c, r)` -- which is the rule tree nodes already follow. That
+// only works while the name says which type is meant, so a collision has to be
+// refused at the point the second one is declared.
+
+import stdlib/numerics;
+
+element A =
+    | Overlap(x : Float);
+
+element B =
+    | Overlap(y : Float);
+
+func [[export]] identity(x : Float) -> Float = x;

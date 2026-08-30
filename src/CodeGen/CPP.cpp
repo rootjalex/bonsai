@@ -97,6 +97,8 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const Struct_t *node) override { ss << node->name; }
 
+        void visit(const Union_t *node) override { ss << node->name; }
+
         void visit(const Tuple_t *node) override {
             ss << "std::tuple<";
             for (size_t i = 0, e = node->etypes.size(); i < e; i++) {
@@ -145,6 +147,8 @@ void emit_type(std::ostream &ss, Type type) {
         // RESTRICT_VISITOR(Set_t);
         RESTRICT_VISITOR(Function_t);
         RESTRICT_VISITOR(Generic_t);
+        // LowerADTs turns this into the struct its layout chose.
+        RESTRICT_VISITOR(ADT_t);
         // RESTRICT_VISITOR(BVH_t);
         RESTRICT_VISITOR(Rand_State_t);
     };
@@ -288,6 +292,20 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             ss << " __attribute__((packed))";
         }
         ss << ";\n";
+        return;
+    } else if (const Union_t *union_t = type.as<Union_t>()) {
+        // C++ has the thing itself, so unlike the LLVM backend -- which has to
+        // build storage of the right size and alignment by hand -- this is the
+        // members written out. The size, the alignment and where each member
+        // starts are then the compiler's answer rather than ours, which is
+        // what makes the two backends agree.
+        ss << "union " << union_t->name << " {\n";
+        for (const auto &[name, child] : union_t->members) {
+            ss << indent;
+            emit_type(ss, child);
+            ss << " " << name << ";\n";
+        }
+        ss << "};\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
         // A native vector rather than a struct of elements: this is the only
@@ -435,6 +453,16 @@ class BonsaiToCpp : ir::Printer {
         } else if (const Struct_t *struct_t = type.as<Struct_t>()) {
             for (const auto &[_, field_type] : struct_t->fields) {
                 get_declared_types(field_type, deduplicate, types);
+            }
+            if (auto [_, inserted] = deduplicate.insert(type); inserted) {
+                types.push_back(type);
+            }
+        } else if (const Union_t *union_t = type.as<Union_t>()) {
+            // Members first, as for a struct: a union is named by the type
+            // that holds it rather than declared on its own, so this is the
+            // only thing that puts it before the struct that uses it.
+            for (const auto &[_, member_type] : union_t->members) {
+                get_declared_types(member_type, deduplicate, types);
             }
             if (auto [_, inserted] = deduplicate.insert(type); inserted) {
                 types.push_back(type);
@@ -798,6 +826,16 @@ class BonsaiToCpp : ir::Printer {
         internal_error << "TODO: CPP codegen for build: " << Expr(node);
     }
 
+    // A union holding one of its members, which C++ spells the same way the
+    // IR printer does. Not inherited, because the base prints the union's
+    // whole definition where C++ wants only its name.
+    void visit(const UnionOf *node) override {
+        emit_type(ss, node->type);
+        ss << "{." << node->member << " = ";
+        print_no_parens(node->value);
+        ss << "}";
+    }
+
     void visit(const Access *node) override {
         if (node->type.is<Ref_t>()) {
             ss << "(*"; // deref
@@ -1087,6 +1125,12 @@ class BonsaiToCpp : ir::Printer {
     }
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(ParFor);
+    // LowerADTs turns these into a Build of the storage the layout chose and a
+    // test of the tag per arm. The union they leave behind is emitted, but
+    // these are not: the base printer would print them as bonsai rather than
+    // as C++, which is the silent kind of wrong.
+    RESTRICT_VISITOR(Construct);
+    RESTRICT_VISITOR(MatchVariant);
     // void visit(const ForEach *) override;
     void visit(const Continue *node) override {
         ss << get_indent() << "continue;\n";

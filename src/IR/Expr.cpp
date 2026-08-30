@@ -634,6 +634,41 @@ Expr Extract::make(Expr vec, Expr idx) {
     return node;
 }
 
+Expr Construct::make(Type adt, std::string variant, std::vector<Expr> args) {
+    const ADT_t *as_adt = adt.as<ADT_t>();
+    internal_assert(as_adt)
+        << "Construct::make received a non-ADT type: " << adt;
+    const auto index = as_adt->index_of(variant);
+    internal_assert(index.has_value())
+        << as_adt->name << " has no variant called " << variant;
+    const Struct_t::Map &fields = as_adt->fields(*index);
+    internal_assert(fields.size() == args.size())
+        << variant << " takes " << fields.size() << " fields but was given "
+        << args.size();
+
+    Construct *node = new Construct;
+    node->type = std::move(adt);
+    node->variant = std::move(variant);
+    node->args = std::move(args);
+    return node;
+}
+
+Expr UnionOf::make(Type union_type, std::string member, Expr value) {
+    const Union_t *as_union = union_type.as<Union_t>();
+    internal_assert(as_union)
+        << "UnionOf::make received a non-union type: " << union_type;
+    internal_assert(as_union->member(member).defined())
+        << as_union->name << " has no member called " << member;
+    internal_assert(value.defined())
+        << "UnionOf::make received no value for " << member;
+
+    UnionOf *node = new UnionOf;
+    node->type = std::move(union_type);
+    node->member = std::move(member);
+    node->value = std::move(value);
+    return node;
+}
+
 Expr Build::make(Type type, std::vector<Expr> values) {
     Build *node = new Build;
     const bool infer_types = type_enforcement_enabled();

@@ -1,0 +1,31 @@
+type Float = f32
+type Half = f16
+type Shape = struct Shape{ tag : u8; payload : union Shape_payload{ Sph : struct Sph{ center : f32x3; radius : f32 }; Tri : struct Tri{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } } }
+type Sph = struct Sph{ center : f32x3; radius : f32 }
+type Tri = struct Tri{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type vec3f = f32x3
+type vec3h = f16x3
+
+func _unexported_unit_sphere() -> Shape {
+  return build<Shape>(0u, Shape_payload{.Sph = build<Sph>(build<f32x3>(0f, 0f, 0f), 1f)})
+}
+
+func [[export]] area(s : (Shape*)) -> f32 {
+  if ((*s).tag == 0u) {
+    let center = (*s).payload.Sph.center in
+    let radius = (*s).payload.Sph.radius in
+    return ((4f * 3.14159f) * radius) * radius
+  } else {
+    let p0 = (*s).payload.Tri.p0 in
+    let p1 = (*s).payload.Tri.p1 in
+    let p2 = (*s).payload.Tri.p2 in
+    return 0.5f * norm(cross(p1 - p0, p2 - p0))
+  }
+}
+
+func [[export]] unit_sphere(_ret0 : mut (Shape*)) -> void {
+  _ret0 = build<Shape>(0u, Shape_payload{.Sph = build<Sph>(build<f32x3>(0f, 0f, 0f), 1f)})
+  return
+}
+
+

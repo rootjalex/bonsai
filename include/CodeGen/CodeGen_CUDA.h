@@ -43,6 +43,11 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
+    // LowerADTs removes these. CUDA has unions, so a payload could be emitted
+    // here the way the C++ backend does, but nothing runs an ADT on a GPU yet
+    // and passing one through silently is worse than not supporting it.
+    RESTRICT_VISITOR(ir::ADT_t);
+    RESTRICT_VISITOR(ir::Union_t);
     void visit(const ir::Rand_State_t *) override;
     // TODO(cgyurgyik): CUDA supports a std::vector variant through their thrust
     // library. Potentially sufficient for our use case?
@@ -67,6 +72,8 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::VectorShuffle *) override;
     void visit(const ir::Ramp *) override;
     void visit(const ir::Build *) override;
+    RESTRICT_VISITOR(ir::Construct);
+    RESTRICT_VISITOR(ir::UnionOf);
     void visit(const ir::Intrinsic *) override;
     void visit(const ir::Access *) override;
     void visit(const ir::Extract *) override;
@@ -99,6 +106,7 @@ class CodeGen_CUDA : public ir::Printer {
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);
+    RESTRICT_VISITOR(ir::MatchVariant);
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Iterate);
     RESTRICT_VISITOR(ir::Scan);

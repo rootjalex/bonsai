@@ -1,6 +1,8 @@
 add_bonsai_tests(
     LABELS parsing
     FILES
+    adt.bonsai
+    adt-match.bonsai
     aggregation-names.bonsai
     bitwise.bonsai
     call.bonsai

@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/adt-variant-shadows-type.bonsai:10:44: [parse error] Variant Sphere of Shape conflicts with existing type: Sphere
+
+    | Sphere(center : vec3f, radius : Float);
+                                           ^

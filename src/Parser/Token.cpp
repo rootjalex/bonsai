@@ -113,6 +113,7 @@ uint64_t Token::size() const {
         return 5;
     case Token::Type::LAYOUT:
     case Token::Type::SWITCH:
+    case Token::Type::MATCH:
     case Token::Type::RETURN:
     case Token::Type::EXTERN:
     case Token::Type::IMPORT:
@@ -189,6 +190,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "group";
     case Token::Type::SWITCH:
         return "switch";
+    case Token::Type::MATCH:
+        return "match";
     case Token::Type::PARFOR:
         return "parfor";
     case Token::Type::FOR:

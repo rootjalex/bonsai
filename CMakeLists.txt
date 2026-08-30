@@ -142,6 +142,8 @@ target_sources(
     src/Opt/DCE.cpp
     src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
+    src/Lower/ADTLayout.cpp
+    src/Lower/ADTs.cpp
     src/Lower/Bindings.cpp
     src/Opt/Simplify.cpp
     src/Opt/Unswitch.cpp
@@ -245,6 +247,8 @@ target_sources(
     include/Opt/DCE.h
     include/Opt/Fusion.h
     include/Opt/Inline.h
+    include/Lower/ADTLayout.h
+    include/Lower/ADTs.h
     include/Lower/Bindings.h
     include/Opt/Simplify.h
     include/Opt/Unswitch.h

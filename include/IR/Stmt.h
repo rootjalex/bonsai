@@ -33,6 +33,7 @@ enum class IRStmtEnum {
 
     RecLoop,
     Match,
+    MatchVariant,
     Yield,
     Iterate,
     Scan,
@@ -255,6 +256,30 @@ struct RecLoop : StmtNode<RecLoop> {
     static Stmt make(std::vector<TypedVar> args, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::RecLoop;
+};
+
+// Choosing what to do by which variant a value is.
+//
+// Distinct from Match below, which is the tree one: that is tied to a BVH's
+// nodes and to how a layout packs them, and the two are only unified later if
+// at all.
+//
+// Each arm names a variant and a name for each of its fields, so the body can
+// use them without saying where they came from. Lower/ADTs.cpp turns this into
+// a test on the tag and, in each arm, the bindings read out of the payload.
+struct MatchVariant : StmtNode<MatchVariant> {
+    struct Arm {
+        std::string variant;
+        std::vector<std::string> bindings; // one per field, in order
+        Stmt body;
+    };
+
+    Expr value; // of an ADT type
+    std::vector<Arm> arms;
+
+    static Stmt make(Expr value, std::vector<Arm> arms);
+
+    static const IRStmtEnum node_type = IRStmtEnum::MatchVariant;
 };
 
 struct Match : StmtNode<Match> {

@@ -31,6 +31,8 @@ struct Mutator {
     virtual Type visit(const Array_t *);
     virtual Type visit(const DynArray_t *);
     virtual Type visit(const Option_t *);
+    virtual Type visit(const ADT_t *);
+    virtual Type visit(const Union_t *);
     virtual Type visit(const Set_t *);
     virtual Type visit(const Function_t *);
     virtual Type visit(const Generic_t *);
@@ -60,6 +62,8 @@ struct Mutator {
     virtual Expr visit(const Ramp *);
     virtual Expr visit(const Extract *);
     virtual Expr visit(const Build *);
+    virtual Expr visit(const Construct *);
+    virtual Expr visit(const UnionOf *);
     virtual Expr visit(const Access *);
     virtual Expr visit(const Unwrap *);
     virtual Expr visit(const Intrinsic *);
@@ -89,6 +93,7 @@ struct Mutator {
     virtual Stmt visit(const Label *);
     virtual Stmt visit(const RecLoop *);
     virtual Stmt visit(const Match *);
+    virtual Stmt visit(const MatchVariant *);
     virtual Stmt visit(const Yield *);
     virtual Stmt visit(const Iterate *);
     virtual Stmt visit(const Scan *);

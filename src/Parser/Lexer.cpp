@@ -137,6 +137,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::GROUP;
     if (token == "switch")
         return Token::Type::SWITCH;
+    if (token == "match")
+        return Token::Type::MATCH;
     if (token == "for")
         return Token::Type::FOR;
     if (token == "if")

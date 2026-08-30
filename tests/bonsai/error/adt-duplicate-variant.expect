@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/adt-duplicate-variant.bonsai:14:24: [parse error] Variant Overlap of B is already a variant of A
+
+    | Overlap(y : Float);
+                       ^

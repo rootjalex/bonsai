@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS lower
     FILES
+    adt.bonsai
     array.bonsai
     bvh.bonsai
     collision.bonsai

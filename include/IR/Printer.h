@@ -100,6 +100,8 @@ struct Printer : public Visitor {
     void visit(const Array_t *) override;
     void visit(const DynArray_t *) override;
     void visit(const Option_t *) override;
+    void visit(const ADT_t *) override;
+    void visit(const Union_t *) override;
     void visit(const Set_t *) override;
     void visit(const Function_t *) override;
     void visit(const Generic_t *) override;
@@ -132,6 +134,8 @@ struct Printer : public Visitor {
     void visit(const Ramp *) override;
     void visit(const Extract *) override;
     void visit(const Build *) override;
+    void visit(const Construct *) override;
+    void visit(const UnionOf *) override;
     void visit(const Access *) override;
     void visit(const Unwrap *) override;
     void visit(const Intrinsic *) override;
@@ -161,6 +165,7 @@ struct Printer : public Visitor {
     void visit(const Label *) override;
     void visit(const RecLoop *) override;
     void visit(const Match *) override;
+    void visit(const MatchVariant *) override;
     void visit(const Yield *) override;
     void visit(const Iterate *) override;
     void visit(const Scan *) override;

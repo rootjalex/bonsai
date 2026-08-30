@@ -38,6 +38,8 @@ enum class IRExprEnum {
     Extract,
     // Struct ops.
     Build,
+    Construct,
+    UnionOf,
     Access,
     Unwrap,
     // Calls
@@ -317,6 +319,34 @@ struct Extract : ExprNode<Extract> {
 };
 
 // Construct a value of a Type (e.g. Vector_t or Struct_t)
+// A value of an ADT: one of its variants, with that variant's fields.
+//
+// `type` is the ADT. Lower/ADTs.cpp turns this into whatever the layout says a
+// value of it looks like -- today a tag beside a union -- so nothing before
+// that pass has to know how one is stored.
+struct Construct : ExprNode<Construct> {
+    std::string variant;
+    std::vector<Expr> args;
+
+    static Expr make(Type adt, std::string variant, std::vector<Expr> args);
+
+    static const IRExprEnum node_type = IRExprEnum::Construct;
+};
+
+// A union holding one of its members: C's `(union U){.member = value}`.
+//
+// A union is storage read at one of several types, so a value of one is really
+// a value written into that storage -- which is why this exists rather than
+// Build, whose arguments line up with fields at their own offsets.
+struct UnionOf : ExprNode<UnionOf> {
+    std::string member;
+    Expr value;
+
+    static Expr make(Type union_type, std::string member, Expr value);
+
+    static const IRExprEnum node_type = IRExprEnum::UnionOf;
+};
+
 struct Build : ExprNode<Build> {
     std::vector<Expr> values;
 

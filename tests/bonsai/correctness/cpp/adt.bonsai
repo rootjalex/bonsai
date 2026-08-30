@@ -1,0 +1,33 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/adt
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_adt.cpp -I. -o $<>/main_adt.o, clang++ $<>/main_adt.o $<>/adt.o -o $<>/adt, ./$<>/adt, rm $<>/adt, rm $<>/main_adt.o, rm $<>/adt.h, rm $<>/adt.o
+
+// An `element` and a `match` compiled to C++ and called from it.
+//
+// The C++ backend has a union where the LLVM backend has to build storage of
+// the right size and alignment by hand, so this is the test that the two
+// spellings describe the same bytes: main_adt.cpp fills a `Shape` in as C++
+// and bonsai reads it, and builds one in bonsai and C++ reads it back. A
+// disagreement about where the payload starts, or about how wide the tag is,
+// shows up as a wrong number rather than as a compile error.
+//
+// The layout it relies on is the one Lower/ADTLayout.cpp documents: a tag
+// numbered by declaration order, then the payload.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: Shape::Area().
+func [[export]] area(s : Shape) -> Float {
+    match s {
+        Sph(center, radius) => return 4.0 * 3.14159265 * radius * radius;
+        Tri(p0, p1, p2) => return 0.5 * norm(cross(p1 - p0, p2 - p0));
+    }
+}
+
+// The other direction: built in bonsai, read in C++.
+func [[export]] unit_sphere() -> Shape = Sph(vec3f{0.0, 0.0, 0.0}, 1.0);
+
+func [[export]] right_triangle() -> Shape =
+    Tri(vec3f{0.0, 0.0, 0.0}, vec3f{3.0, 0.0, 0.0}, vec3f{0.0, 4.0, 0.0});

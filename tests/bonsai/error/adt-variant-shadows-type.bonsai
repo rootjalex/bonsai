@@ -1,0 +1,12 @@
+// A variant cannot take the name of an existing type.
+//
+// For the same reason two ADTs cannot share a variant name: the name alone has
+// to say what is being built. `Sphere` is already a type from stdlib, so a
+// variant called `Sphere` would make `Sphere(c, r)` ambiguous.
+
+import stdlib/sphere;
+
+element Shape =
+    | Sphere(center : vec3f, radius : Float);
+
+func [[export]] identity(x : Float) -> Float = x;

@@ -1,6 +1,7 @@
 #include "Lower/Lower.h"
 
 #include "IR/Mutator.h"
+#include "Lower/ADTs.h"
 #include "Lower/Bindings.h"
 #include "Lower/Canonicalize.h"
 #include "Lower/Defers.h"
@@ -141,6 +142,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
+    core.push_back(std::make_unique<LowerADTs>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerDynamicArrays>());
@@ -188,6 +190,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // then, so there is nothing left for LowerRecLoops to extract.
     ssa.push_back(std::make_unique<LowerRandom>());
     ssa.push_back(std::make_unique<LowerLambdas>());
+    ssa.push_back(std::make_unique<LowerADTs>());
     ssa.push_back(std::make_unique<LowerOptions>());
     ssa.push_back(std::make_unique<LowerTuples>());
     ssa.push_back(std::make_unique<LowerDynamicArrays>());
@@ -239,6 +242,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // After LowerRecLoops, for the reason given in the `ssa` list above.
     ssa_analysis.push_back(std::make_unique<LowerRandom>());
     ssa_analysis.push_back(std::make_unique<LowerLambdas>());
+    ssa_analysis.push_back(std::make_unique<LowerADTs>());
     ssa_analysis.push_back(std::make_unique<LowerOptions>());
     ssa_analysis.push_back(std::make_unique<LowerTuples>());
     ssa_analysis.push_back(std::make_unique<LowerDynamicArrays>());
@@ -278,6 +282,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
+    d.push_back(std::make_unique<LowerADTs>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
     d.push_back(std::make_unique<LowerDynamicArrays>());

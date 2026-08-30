@@ -153,6 +153,34 @@ Type Mutator::visit(const Option_t *node) {
     return Option_t::make(std::move(etype));
 }
 
+Type Mutator::visit(const ADT_t *node) {
+    ADT_t::Variants variants;
+    variants.reserve(node->variants.size());
+    bool changed = false;
+    for (const Type &variant : node->variants) {
+        variants.push_back(mutate(variant));
+        changed = changed || !variants.back().same_as(variant);
+    }
+    if (!changed) {
+        return node;
+    }
+    return ADT_t::make(node->name, std::move(variants));
+}
+
+Type Mutator::visit(const Union_t *node) {
+    Union_t::Map members;
+    members.reserve(node->members.size());
+    bool changed = false;
+    for (const TypedVar &member : node->members) {
+        members.push_back(TypedVar{member.name, mutate(member.type)});
+        changed = changed || !members.back().type.same_as(member.type);
+    }
+    if (!changed) {
+        return node;
+    }
+    return Union_t::make(node->name, std::move(members));
+}
+
 Type Mutator::visit(const Set_t *node) {
     Type etype = mutate(node->etype);
     if (etype.same_as(node->etype)) {
@@ -357,6 +385,22 @@ Expr Mutator::visit(const Extract *node) {
         return node;
     }
     return Extract::make(std::move(vec), std::move(idx));
+}
+
+Expr Mutator::visit(const Construct *node) {
+    auto [args, not_changed] = visit_list(this, node->args);
+    if (not_changed) {
+        return node;
+    }
+    return Construct::make(node->type, node->variant, std::move(args));
+}
+
+Expr Mutator::visit(const UnionOf *node) {
+    Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return UnionOf::make(node->type, node->member, std::move(value));
 }
 
 Expr Mutator::visit(const Build *node) {
@@ -615,6 +659,23 @@ Stmt Mutator::visit(const RecLoop *node) {
         return node;
     }
     return RecLoop::make(node->args, std::move(body));
+}
+
+Stmt Mutator::visit(const MatchVariant *node) {
+    Expr value = mutate(node->value);
+    bool not_changed = value.same_as(node->value);
+    std::vector<MatchVariant::Arm> arms;
+    arms.reserve(node->arms.size());
+    for (const auto &arm : node->arms) {
+        Stmt body = mutate(arm.body);
+        not_changed = not_changed && body.same_as(arm.body);
+        arms.push_back(
+            MatchVariant::Arm{arm.variant, arm.bindings, std::move(body)});
+    }
+    if (not_changed) {
+        return node;
+    }
+    return MatchVariant::make(std::move(value), std::move(arms));
 }
 
 Stmt Mutator::visit(const Match *node) {

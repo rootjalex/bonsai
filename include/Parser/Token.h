@@ -48,6 +48,7 @@ class Token {
         LAYOUT, // layout
         GROUP,  // group
         SWITCH, // switch
+        MATCH,  // match
 
         PARFOR,
         // WHILE, // while

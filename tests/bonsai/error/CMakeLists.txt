@@ -1,6 +1,8 @@
 add_bonsai_tests(
     LABELS error
     FILES
+    adt-duplicate-variant.bonsai
+    adt-variant-shadows-type.bonsai
     aggregation-name-reserved.bonsai
     call-statement-arg-type.bonsai
     collapse-dependent-range.bonsai

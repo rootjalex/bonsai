@@ -1,0 +1,40 @@
+//! flags: -p core
+
+// What an `element` and a `match` on one become.
+//
+// The layout is Rust's repr(C) enum, which is what Lower/ADTLayout.cpp picks
+// when nothing says otherwise: a tag, then a union of the variants. Fields
+// keep the order they were declared in. The tag is the smallest unsigned type
+// that can tell the variants apart, so a sum of two is one byte even though
+// the padding after it is decided by the payload's alignment either way.
+//
+// The variants here are deliberately unequal -- a sphere is a point and a
+// radius, a triangle is three points -- so the union has to be as big as its
+// largest member rather than all of them being interchangeable.
+//
+// A `match` becomes a test per arm in the order they were written, and the
+// last arm gets no test: exhaustiveness is checked when the match is built, so
+// once the others are ruled out it is the only thing left. The arm's bindings
+// are reads of the payload at that variant's type, and they are inside the arm
+// because reading a field of a variant a value is not would read whatever
+// those bytes happen to be.
+//
+// This is `-p core`, which stops before the optimizers. `center` is bound and
+// unused in the Sph arm; the default pipeline's DCE deletes it, and
+// tests/bonsai/correctness/llvm/adt.bonsai is the one that runs the result.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: Shape::Area(), which every shape answers differently.
+func [[export]] area(s : Shape) -> Float {
+    match s {
+        Sph(center, radius) => return 4.0 * 3.14159265 * radius * radius;
+        Tri(p0, p1, p2) => return 0.5 * norm(cross(p1 - p0, p2 - p0));
+    }
+}
+
+// Building one, which is what a scene description does.
+func [[export]] unit_sphere() -> Shape = Sph(vec3f{0.0, 0.0, 0.0}, 1.0);

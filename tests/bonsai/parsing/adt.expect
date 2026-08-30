@@ -1,0 +1,81 @@
+type Empty = | Nothing()
+type Float = f32
+type Half = f16
+type Shape = | Sph(center : f32x3, radius : f32) | Tri(a : f32x3, b : f32x3, c : f32x3)
+type Wrapped = | Just(value : f32)
+type vec3f = f32x3
+type vec3h = f16x3
+
+func [[imported]] clamp(x : f32x3, low : f32, high : f32) -> f32x3 {
+  return min(max(x, f32x3(low)), f32x3(high))
+}
+
+func [[imported]] cross_(v0 : f32x3, v1 : f32x3) -> f32x3 {
+  return build<f32x3>(prod_diff[[F -> f32]](v0[(u32)1], v1[(u32)2], v0[(u32)2], v1[(u32)1]), prod_diff[[F -> f32]](v0[(u32)2], v1[(u32)0], v0[(u32)0], v1[(u32)2]), prod_diff[[F -> f32]](v0[(u32)0], v1[(u32)1], v0[(u32)1], v1[(u32)0]))
+}
+
+func [[imported]] degrees_to_radians(degrees : f32) -> f32 {
+  return (degrees * (f32)3.14159) / (f32)180
+}
+
+func [[imported]] gamma(n : i32) -> f32 {
+  return (cast<f32>(n) * (f32)eps) / ((f32)1 - (cast<f32>(n) * (f32)eps))
+}
+
+func [[export]] identity(x : f32) -> f32 {
+  return x
+}
+
+func [[imported]] len_squared(v : f32x3) -> f32 {
+  return reduce<+>(v * v)
+}
+
+func [[imported]] linear_to_gamma_f(l : f32) -> f32 {
+  if ((f32)0 < l) {
+    return sqrt(l)
+  }
+  return cast<f32>((i32)0)
+}
+
+func [[imported]] linear_to_gamma_v(l : f32x3) -> f32x3 {
+  return build<f32x3>(linear_to_gamma_f(l[(u32)0]), linear_to_gamma_f(l[(u32)1]), linear_to_gamma_f(l[(u32)2]))
+}
+
+func [[imported]] near_zero(v : f32x3) -> bool {
+  let s = (f32)1e-08 in
+  return ((abs(v[(i32)0]) < s) & (abs(v[(i32)1]) < s)) & (abs(v[(i32)2]) < s)
+}
+
+func [[imported]] prod_diff<F : IFloat>(a : (F : IFloat), b : (F : IFloat), c : (F : IFloat), d : (F : IFloat)) -> (F : IFloat) {
+  let cd = c * d in
+  let diff = fma(a, b, -cd) in
+  let err = fma(-c, d, cd) in
+  return diff + err
+}
+
+func [[imported]] reflect(v : f32x3, n : f32x3) -> f32x3 {
+  return v - (f32x3((f32)2 * dot(v, n)) * n)
+}
+
+func [[imported]] reflectance(cos_theta : f32, refract_idx : f32) -> f32 {
+  let r0 = ((f32)1 - refract_idx) / ((f32)1 + refract_idx) in
+  let r1 = r0 * r0 in
+  return r1 + (((f32)1 - r1) * pow((f32)1 - cos_theta, (f32)5))
+}
+
+func [[imported]] refract(uv : f32x3, n : f32x3, etai_over_etat : f32) -> f32x3 {
+  let cos_theta = min(dot(-uv, n), (f32)1) in
+  let r_out_perp = f32x3(etai_over_etat) * (uv + (f32x3(cos_theta) * n)) in
+  let r_out_parallel = f32x3(-sqrt(abs((f32)1 - len_squared(r_out_perp)))) * n in
+  return r_out_perp + r_out_parallel
+}
+
+func [[imported]] sqlen<F : IFloat>(v : (F : IFloat)x3) -> (F : IFloat) {
+  return reduce<+>(v * v)
+}
+
+func [[imported]] unit_vector(v : f32x3) -> f32x3 {
+  return v / f32x3(norm(v))
+}
+
+

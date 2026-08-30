@@ -1,0 +1,26 @@
+//! flags: -p canonicalize -v
+
+// Declaring a closed set of variants.
+//
+// Spelled the way a tree's nodes are, and parsed by the same function, so that
+// the two do not look like unrelated features:
+//
+//     tree[[Triangle]] TriangleBVH(...) = | Interior(...) | Leaf(...);
+//
+// A variant is a struct of its fields, so one with no fields is a struct with
+// none. The golden is dumped verbosely, which is where a declaration is
+// printed the way it was written rather than by name.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(a : vec3f, b : vec3f, c : vec3f);
+
+// No fields, and a single variant, which is still a sum with one summand.
+element Empty =
+    | Nothing();
+
+element Wrapped =
+    | Just(value : Float);
+
+func [[export]] identity(x : Float) -> Float = x;

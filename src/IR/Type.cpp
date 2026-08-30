@@ -427,6 +427,74 @@ Type Option_t::make(Type etype) {
     return node;
 }
 
+Type ADT_t::make(std::string name, Variants variants) {
+    internal_assert(!name.empty()) << "ADT_t::make received an unnamed type";
+    internal_assert(!variants.empty())
+        << "ADT_t::make received no variants for " << name
+        << ". A type with nothing to be has no values.";
+    std::set<std::string> seen;
+    for (const Type &variant : variants) {
+        const Struct_t *as_struct = variant.as<Struct_t>();
+        internal_assert(as_struct)
+            << "Variant of " << name << " is not a struct: " << variant;
+        internal_assert(seen.insert(as_struct->name).second)
+            << name << " has two variants called " << as_struct->name;
+    }
+    ADT_t *node = new ADT_t;
+    node->name = std::move(name);
+    node->variants = std::move(variants);
+    return node;
+}
+
+std::optional<size_t> ADT_t::index_of(const std::string &variant) const {
+    for (size_t i = 0; i < variants.size(); i++) {
+        if (variant_name(i) == variant) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+const Struct_t::Map &ADT_t::fields(size_t index) const {
+    internal_assert(index < variants.size())
+        << name << " has no variant " << index;
+    return variants[index].as<Struct_t>()->fields;
+}
+
+const std::string &ADT_t::variant_name(size_t index) const {
+    internal_assert(index < variants.size())
+        << name << " has no variant " << index;
+    return variants[index].as<Struct_t>()->name;
+}
+
+Type Union_t::make(std::string name, Map members) {
+    internal_assert(!name.empty()) << "Union_t::make received an unnamed type";
+    internal_assert(!members.empty())
+        << "Union_t::make received no members for " << name
+        << ". A union of nothing has no size to take.";
+    std::set<std::string> seen;
+    for (const TypedVar &member : members) {
+        internal_assert(member.type.defined())
+            << "Member " << member.name << " of union " << name
+            << " has no type";
+        internal_assert(seen.insert(member.name).second)
+            << "Union " << name << " has two members called " << member.name;
+    }
+    Union_t *node = new Union_t;
+    node->name = std::move(name);
+    node->members = std::move(members);
+    return node;
+}
+
+Type Union_t::member(const std::string &name) const {
+    for (const TypedVar &m : members) {
+        if (m.name == name) {
+            return m.type;
+        }
+    }
+    return Type();
+}
+
 Type Set_t::make(Type etype) {
     internal_assert(etype.defined()) << "Set_t::make received undefined etype";
     Set_t *node = new Set_t;
@@ -613,6 +681,12 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         internal_assert(ss >> position) << field;
         internal_assert(position < as_tuple->etypes.size());
         return as_tuple->etypes[position];
+    } else if (const Union_t *as_union = struct_type.as<Union_t>()) {
+        // Naming a member of a union says which type to read its bytes at.
+        const Type member = as_union->member(field);
+        internal_assert(member.defined())
+            << "Union " << as_union->name << " has no member " << field;
+        return member;
     } else if (const Ptr_t *as_ptr = struct_type.as<Ptr_t>()) {
         return get_field_type(as_ptr->etype, field);
     } else {

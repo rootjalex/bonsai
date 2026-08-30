@@ -554,6 +554,43 @@ void Printer::visit(const Option_t *node) {
     os << ">";
 }
 
+void Printer::visit(const ADT_t *node) {
+    if (!verbose) {
+        // Where a type is used, its name is what is meant.
+        os << node->name;
+        return;
+    }
+    // Where it is declared, spelled the way it was written.
+    for (size_t i = 0; i < node->variants.size(); i++) {
+        os << (i == 0 ? "| " : " | ") << node->variant_name(i) << "(";
+        const Struct_t::Map &fields = node->fields(i);
+        for (size_t f = 0; f < fields.size(); f++) {
+            if (f != 0) {
+                os << ", ";
+            }
+            os << fields[f].name << " : ";
+            print(fields[f].type);
+        }
+        os << ")";
+    }
+}
+
+void Printer::visit(const Union_t *node) {
+    if (!verbose) {
+        os << node->name;
+        return;
+    }
+    os << "union " << node->name << "{ ";
+    for (size_t i = 0; i < node->members.size(); i++) {
+        if (i != 0) {
+            os << "; ";
+        }
+        os << node->members[i].name << " : ";
+        print(node->members[i].type);
+    }
+    os << " }";
+}
+
 void Printer::visit(const Set_t *node) {
     os << "set<";
     print(node->etype);
@@ -972,6 +1009,19 @@ void Printer::visit(const Build *node) {
     os << "(";
     print_expr_list(node->values);
     os << ")";
+}
+
+void Printer::visit(const Construct *node) {
+    os << node->variant << "(";
+    print_expr_list(node->args);
+    os << ")";
+}
+
+void Printer::visit(const UnionOf *node) {
+    print(node->type);
+    os << "{." << node->member << " = ";
+    print(node->value);
+    os << "}";
 }
 
 void Printer::visit(const Access *node) {
@@ -1396,6 +1446,25 @@ void Printer::visit(const RecLoop *node) {
     os << ") {\n";
     indent++;
     print(node->body);
+    indent--;
+    os << get_indent() << "}\n";
+}
+
+void Printer::visit(const MatchVariant *node) {
+    os << get_indent() << "match ";
+    print(node->value);
+    os << " {\n";
+    indent++;
+    for (const auto &arm : node->arms) {
+        os << get_indent() << arm.variant << "(";
+        for (size_t i = 0; i < arm.bindings.size(); i++) {
+            os << (i == 0 ? "" : ", ") << arm.bindings[i];
+        }
+        os << ") =>\n";
+        indent++;
+        print(arm.body);
+        indent--;
+    }
     indent--;
     os << get_indent() << "}\n";
 }

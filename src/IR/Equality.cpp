@@ -218,6 +218,47 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         return compare_types(t0.as<Option_t>()->etype,
                              t1.as<Option_t>()->etype);
     }
+    case IRTypeEnum::Union_t: {
+        const Union_t *u0 = t0.as<Union_t>();
+        const Union_t *u1 = t1.as<Union_t>();
+        if (u0->name != u1->name) {
+            return compare_primitives(u0->name, u1->name);
+        }
+        if (u0->members.size() != u1->members.size()) {
+            return compare_primitives(u0->members.size(), u1->members.size());
+        }
+        for (size_t i = 0; i < u0->members.size(); i++) {
+            if (u0->members[i].name != u1->members[i].name) {
+                return compare_primitives(u0->members[i].name,
+                                          u1->members[i].name);
+            }
+            if (const Cmp rec = compare_types(u0->members[i].type,
+                                              u1->members[i].type);
+                rec != Cmp::Equals) {
+                return rec;
+            }
+        }
+        return Cmp::Equals;
+    }
+    case IRTypeEnum::ADT_t: {
+        const ADT_t *a0 = t0.as<ADT_t>();
+        const ADT_t *a1 = t1.as<ADT_t>();
+        if (a0->name != a1->name) {
+            return compare_primitives(a0->name, a1->name);
+        }
+        if (a0->variants.size() != a1->variants.size()) {
+            return compare_primitives(a0->variants.size(),
+                                      a1->variants.size());
+        }
+        for (size_t i = 0; i < a0->variants.size(); i++) {
+            if (const Cmp rec =
+                    compare_types(a0->variants[i], a1->variants[i]);
+                rec != Cmp::Equals) {
+                return rec;
+            }
+        }
+        return Cmp::Equals;
+    }
     case IRTypeEnum::Set_t: {
         return compare_types(t0.as<Set_t>()->etype, t1.as<Set_t>()->etype);
     }

@@ -92,6 +92,12 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     void declare_struct_types(const std::vector<const ir::Struct_t *> structs);
 
+    /** Give a union the body that stands in for it: the member needing the
+     * strictest alignment, then enough bytes to reach the size of the largest.
+     * Answers false if a member has no size yet, which is how a union reached
+     * while struct bodies are still being built gets left for later. */
+    bool set_union_body(const ir::Union_t *node, llvm::StructType *made);
+
     /** Get a unique name for the actual block of memory that an
      * allocate node uses. Used so that alias analysis understands
      * when multiple Allocate nodes shared the same memory. */
@@ -117,6 +123,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;
+    virtual void visit(const ir::Union_t *) override;
     virtual void visit(const ir::Function_t *) override;
     virtual void visit(const ir::Rand_State_t *) override;
     // These should have been lowered already.
@@ -126,6 +133,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
     RESTRICT_VISITOR(ir::BVH_t);
+    RESTRICT_VISITOR(ir::ADT_t);
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
     RESTRICT_VISITOR(ir::IFloat);
@@ -150,6 +158,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Ramp *) override;
     virtual void visit(const ir::Extract *) override;
     virtual void visit(const ir::Build *) override;
+    // LowerADTs turns this into a Build of the storage the layout chose.
+    RESTRICT_VISITOR(ir::Construct);
+    virtual void visit(const ir::UnionOf *) override;
     virtual void visit(const ir::Access *) override;
     virtual void visit(const ir::Unwrap *) override;
     virtual void visit(const ir::Intrinsic *) override;
@@ -183,6 +194,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);
+    // LowerADTs turns this into a test of the tag per arm.
+    RESTRICT_VISITOR(ir::MatchVariant);
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Iterate);
     RESTRICT_VISITOR(ir::Scan);
@@ -304,6 +317,11 @@ struct CodeGen_LLVM : public ir::Visitor {
                                         llvm::Value *size = nullptr);
     llvm::Value *materialize_for_address(llvm::Value *pointee,
                                          const std::string &name);
+    // Built on demand rather than up front like the structs, since a union is
+    // named by the type that holds it rather than declared on its own.
+    std::map<std::string, llvm::StructType *> union_types;
+    // The unions reached before their members had a size, waiting for one.
+    std::vector<const ir::Union_t *> pending_unions;
     // One counted loop, shared by every statement that is one: `ForAll`, and
     // a `ParFor` that no schedule placed on any hardware.
     void codegen_counted_loop(const std::string &index,

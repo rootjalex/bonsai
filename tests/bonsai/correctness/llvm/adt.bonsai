@@ -1,0 +1,91 @@
+//! flags: -b llvm -e
+
+// Variants built, stored, and dispatched on, run.
+//
+// This is the shape PBRT v4 uses everywhere: a value that is one of a closed
+// set of types, and a call that does something different depending on which.
+// v4 spells it with a TaggedPointer and a generated visitor; here it is an
+// `element` and a `match`, and by the time this runs both are a tag beside a
+// union and a test per arm.
+//
+// What is checked is that the two halves agree -- that a value built as one
+// variant is read back as that same variant, with its own fields at its own
+// offsets. The variants are deliberately unequal in size and in layout, so a
+// payload read at the wrong type would land on the wrong bytes and print a
+// wrong number rather than the same number twice.
+//
+// The triangle is here because of a bug it found. A union used to be emitted
+// the way clang emits one -- the member needing the strictest alignment, then
+// bytes to reach the largest -- and a `Sph` is `{<3 x float>, float}`, whose
+// bytes 20-31 belong to no field of it. A first-class LLVM aggregate does not
+// carry its padding, so building a `Shape` with insertvalue lost exactly those
+// bytes, which is where a triangle keeps p1's y and z. It printed nan.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: Shape::Area().
+func [[export]] area(s : Shape) -> Float {
+    match s {
+        Sph(center, radius) => return 4.0 * 3.14159265 * radius * radius;
+        Tri(p0, p1, p2) => return 0.5 * norm(cross(p1 - p0, p2 - p0));
+    }
+}
+
+// pbrt: a Spectrum evaluated at a wavelength. Constant and a scaled inner
+// spectrum are two of v4's, reduced to what needs no Planck tables.
+element Spectrum =
+    | Constant(c : Float)
+    | Scaled(inner : Float, scale : Float);
+
+func [[export]] evaluate(s : Spectrum) -> Float {
+    match s {
+        Constant(c) => return c;
+        Scaled(inner, scale) => return inner * scale;
+    }
+}
+
+// A list of shapes, each dispatched on, which is what a scene is. This found
+// a bug of its own: the base Mutator keeps a Build's type as it found it, so
+// the array kept an element type none of its values had any more, and building
+// one failed with "expected Shape but received ... of type Shape" -- the same
+// name for the variant type and for what it is stored as.
+func areas(shapes : array[Shape, 3], out : mut array[Float, 3]) -> void {
+    parfor i in 0:3 {
+        out[i] = area(shapes[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    // A unit sphere, whose area is 4*pi.
+    print(area(Sph(vec3f{0.0, 0.0, 0.0}, 1.0)));
+    // Radius 2, so four times that: the field the arm reads has to be the
+    // radius and not the first component of the centre, which is 0 here and
+    // would quietly give 0.
+    print(area(Sph(vec3f{1.0, 2.0, 3.0}, 2.0)));
+
+    // A right triangle with legs 3 and 4 in the xy plane: area 6. Its fields
+    // sit where the sphere's radius does, so reading this at the wrong
+    // variant would not be a small error.
+    print(area(Tri(vec3f{0.0, 0.0, 0.0}, vec3f{3.0, 0.0, 0.0},
+                   vec3f{0.0, 4.0, 0.0})));
+
+    print(evaluate(Constant(0.5)));
+    print(evaluate(Scaled(3.0, 4.0)));
+
+    // The same three, in an array, dispatched in a loop. Mixed variants in one
+    // array is the point: they only fit because every Shape is the same size
+    // whichever variant it holds.
+    shapes : array[Shape, 3] = {
+        Sph(vec3f{0.0, 0.0, 0.0}, 1.0),
+        Tri(vec3f{0.0, 0.0, 0.0}, vec3f{3.0, 0.0, 0.0}, vec3f{0.0, 4.0, 0.0}),
+        Sph(vec3f{1.0, 2.0, 3.0}, 2.0)
+    };
+    out : mut array[Float, 3] = {0.0, 0.0, 0.0};
+    areas(shapes, out);
+    print(out);
+    return 0;
+}

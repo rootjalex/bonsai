@@ -1,0 +1,34 @@
+type Float = f32
+type Half = f16
+type Shape = | Sph(center : f32x3, radius : f32) | Tri(p0 : f32x3, p1 : f32x3, p2 : f32x3)
+type Spectrum = | Constant(c : f32) | Scaled(inner : f32, scale : f32)
+type vec3f = f32x3
+type vec3h = f16x3
+
+func [[export]] area(s : Shape) -> f32 {
+  match s {
+    Sph(center, radius) =>
+      return ((4f * 3.14159f) * radius) * radius
+    Tri(p0, p1, p2) =>
+      return 0.5f * norm(cross(p1 - p0, p2 - p0))
+  }
+}
+
+func [[export]] evaluate(s : Spectrum, lambda : f32) -> f32 {
+  match s {
+    Constant(c) =>
+      return c
+    Scaled(inner, scale) =>
+      return inner * scale
+  }
+}
+
+func [[export]] flat_spectrum(v : f32) -> Spectrum {
+  return Constant(v)
+}
+
+func [[export]] unit_sphere() -> Shape {
+  return Sph(build<f32x3>(0f, 0f, 0f), 1f)
+}
+
+

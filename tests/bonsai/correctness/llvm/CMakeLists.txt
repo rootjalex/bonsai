@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS correctness llvm
     FILES
     address-of.bonsai
+    adt.bonsai
     bitwise.bonsai
     collapse.bonsai
     dce.bonsai

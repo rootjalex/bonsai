@@ -218,6 +218,44 @@ Stmt RecLoop::make(std::vector<TypedVar> args, Stmt body) {
     return node;
 }
 
+Stmt MatchVariant::make(Expr value, std::vector<Arm> arms) {
+    internal_assert(value.defined())
+        << "MatchVariant::make received no value to match on";
+    const ADT_t *adt = value.type().as<ADT_t>();
+    internal_assert(adt) << "MatchVariant::make received a non-ADT value: "
+                         << value << " of type " << value.type();
+    internal_assert(!arms.empty())
+        << "MatchVariant::make received no arms for " << adt->name;
+
+    // Every variant once, and nothing else: a match that leaves one out has
+    // no answer for a value that is it, and one that names a variant twice
+    // has two.
+    std::set<std::string> seen;
+    for (const Arm &arm : arms) {
+        const auto index = adt->index_of(arm.variant);
+        internal_assert(index.has_value())
+            << adt->name << " has no variant called " << arm.variant;
+        internal_assert(seen.insert(arm.variant).second)
+            << "Variant " << arm.variant << " of " << adt->name
+            << " is matched twice";
+        internal_assert(arm.bindings.size() == adt->fields(*index).size())
+            << arm.variant << " has " << adt->fields(*index).size()
+            << " fields but the arm names " << arm.bindings.size();
+        internal_assert(arm.body.defined())
+            << "Arm for " << arm.variant << " has no body";
+    }
+    for (size_t i = 0; i < adt->variants.size(); i++) {
+        internal_assert(seen.count(adt->variant_name(i)))
+            << "Match on " << adt->name << " does not say what to do when it "
+            << "is " << adt->variant_name(i);
+    }
+
+    MatchVariant *node = new MatchVariant;
+    node->value = std::move(value);
+    node->arms = std::move(arms);
+    return node;
+}
+
 Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";

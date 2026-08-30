@@ -34,6 +34,8 @@ enum class IRTypeEnum {
     Array_t,
     DynArray_t,
     Option_t,
+    ADT_t,
+    Union_t,
     Set_t,
     Function_t,
     Generic_t,
@@ -272,6 +274,60 @@ struct Option_t : TypeNode<Option_t> {
     static Type make(Type etype);
 
     static const IRTypeEnum node_type = IRTypeEnum::Option_t;
+};
+
+// A closed set of named variants, one of which a value is at any time.
+//
+// The general case of Option_t, which is an ADT with a variant carrying a
+// value and one carrying nothing. Like Option_t this never reaches a backend:
+// Lower/ADTs.cpp rewrites it into a tag and a payload the variants share, and
+// Lower/VerifyADTs.cpp checks that none survive.
+//
+// Each variant is a Struct_t of its fields, so a variant with no fields is a
+// struct with none. Variant names are unique across the program, the same rule
+// tree nodes follow, so a value can be built by naming the variant alone.
+struct ADT_t : TypeNode<ADT_t> {
+    using Variants = std::vector<Type>; // each a Struct_t
+
+    std::string name;
+    Variants variants;
+
+    static Type make(std::string name, Variants variants);
+
+    // The variant of this name, or nothing if it has none.
+    std::optional<size_t> index_of(const std::string &variant) const;
+
+    // The fields of a variant, by index.
+    const Struct_t::Map &fields(size_t index) const;
+    const std::string &variant_name(size_t index) const;
+
+    static const IRTypeEnum node_type = IRTypeEnum::ADT_t;
+};
+
+// Storage read at one of several types.
+//
+// Every member begins at the same address; the size is the largest of them and
+// the alignment the strictest, which is the rule Rust and C both use. That is
+// not a struct with a flag on it: a struct's fields are at distinct offsets,
+// and everything that walks them assumes so, which is why this is a type of
+// its own rather than an attribute -- the compiler then has to be told what to
+// do with it everywhere, instead of quietly doing the wrong thing.
+//
+// Only the backend can work out the size and alignment, so this reaches code
+// generation rather than being flattened before it. See Type::bytes(), which
+// says as much.
+struct Union_t : TypeNode<Union_t> {
+    using Map = std::vector<TypedVar>;
+
+    std::string name;
+    Map members;
+
+    static Type make(std::string name, Map members);
+
+    // The type of a member, or an undefined Type if there is no such member.
+    Type member(const std::string &name) const;
+
+    static const IRTypeEnum node_type = IRTypeEnum::Union_t;
 };
 
 struct Set_t : TypeNode<Set_t> {
