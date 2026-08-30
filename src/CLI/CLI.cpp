@@ -2,6 +2,7 @@
 
 #include "Bonsai.h"
 #include "IR/Printer.h"
+#include "IR/TypeEnforcement.h"
 
 #include <filesystem>
 #include <fstream>
@@ -212,6 +213,11 @@ int run(const Flags &flags) {
         if (!options.layout_file.empty()) {
             combine_files(options.input_file, options.layout_file, input);
         }
+        // A program may leave a type to be inferred -- `x = f(y)` where `f`
+        // declares no return type -- so the IR the parser builds is only
+        // partially typed. infer_types turns enforcement back on once it has
+        // resolved them.
+        ir::global_disable_type_enforcement();
         ir::Program program = parser::parse(input);
 
         // Perform type inference.

@@ -69,6 +69,14 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
                 // Insert inferred var type for later references.
                 internal_assert(repl->loc.accesses.empty());
                 var_types[repl->loc.base()] = repl->value.type();
+                if (!repl->loc.base_type().defined()) {
+                    // `x = f(y)` where f declares no return type: the binding
+                    // has no type of its own, it is the value's. Later passes
+                    // read it off the location, so set it here too.
+                    return ir::LetStmt::make(
+                        ir::WriteLoc(repl->loc.base(), repl->value.type()),
+                        repl->value);
+                }
             }
             return mut;
         }
@@ -242,15 +250,11 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
         // The return type of this function.
         const ir::Type &return_type;
     };
-    // Temporarily invalid types may be created during this pass, so we
-    // disable type enforcement. This occurs because we may have to infer
-    // the parent struct type and thus pass in its potentially ill-typed
-    // children.
-    ir::global_disable_type_enforcement();
+    // Temporarily invalid types arise here -- a parent struct's type is
+    // inferred from children that are not yet well typed themselves -- but
+    // enforcement is already off for the whole of inference.
     InferBuildTypes infer(return_type);
-    ir::Stmt with_inferred_build_types = infer.mutate(stmt);
-    ir::global_enable_type_enforcement();
-    return with_inferred_build_types;
+    return infer.mutate(stmt);
 }
 
 ir::Stmt set_setop_lambda_types(const ir::Stmt &stmt) {
@@ -536,7 +540,9 @@ ir::Program infer_types(const ir::Program &program) {
     new_program.types = program.types;
     new_program.schedules = program.schedules;
     new_program.globals = program.globals;
-    ir::global_enable_type_enforcement();
+    // Inference is what establishes the types, so it runs with enforcement
+    // off and turns it on once every function has one.
+    ir::global_disable_type_enforcement();
 
     std::vector<std::string> topo_order =
         func_topological_order(program.funcs, /*undef_calls=*/true);
@@ -558,6 +564,7 @@ ir::Program infer_types(const ir::Program &program) {
             func_types[f] = ir::Function_t::make(func->ret_type, arg_types);
         }
     }
+    ir::global_enable_type_enforcement();
 
     // std::cout << "\n\nInferred types:\n";
     // new_program.dump(std::cout);
