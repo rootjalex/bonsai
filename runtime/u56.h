@@ -22,17 +22,14 @@ struct uint56_t {
 
     // Convert to uint64_t
     operator uint64_t() const {
-        return (uint64_t(data[6]) << 48) |
-               (uint64_t(data[5]) << 40) |
-               (uint64_t(data[4]) << 32) |
-               (uint64_t(data[3]) << 24) |
-               (uint64_t(data[2]) << 16) |
-               (uint64_t(data[1]) << 8)  |
+        return (uint64_t(data[6]) << 48) | (uint64_t(data[5]) << 40) |
+               (uint64_t(data[4]) << 32) | (uint64_t(data[3]) << 24) |
+               (uint64_t(data[2]) << 16) | (uint64_t(data[1]) << 8) |
                (uint64_t(data[0]));
     }
 
     // Assignment from uint64_t
-    uint56_t& operator=(uint64_t value) {
+    uint56_t &operator=(uint64_t value) {
         data[0] = value & 0xFF;
         data[1] = (value >> 8) & 0xFF;
         data[2] = (value >> 16) & 0xFF;
@@ -44,11 +41,9 @@ struct uint56_t {
     }
 
     // Comparison operators
-    bool operator==(const uint56_t& other) const {
+    bool operator==(const uint56_t &other) const {
         return std::memcmp(data, other.data, 7) == 0;
     }
 
-    bool operator!=(const uint56_t& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const uint56_t &other) const { return !(*this == other); }
 } __attribute__((packed));

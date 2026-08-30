@@ -23,6 +23,7 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -174,10 +175,10 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
             ss << (node->value ? "true" : "false");
         }
 
-        void visit(const Infinity *node) override {
+        void visit(const Extrema *node) override {
             ss << "std::numeric_limits<";
             emit_type(ss, node->type);
-            ss << ">::infinity()";
+            ss << (node->op == Extrema::eps ? ">::epsilon()" : ">::infinity()");
         }
 
         void visit(const VecImm *node) override {
@@ -303,7 +304,10 @@ class BonsaiToCpp : ir::Printer {
             ss << "&";
         } else {
             emit_type(ss, type);
-            if (!is_return_type && should_be_ref(type)) {
+            // A mutating argument is written through by the callee, so it has
+            // to be a reference no matter what it holds. This is how a
+            // reduction's accumulator reaches its recursive traversal.
+            if (!is_return_type && (is_mutating || should_be_ref(type))) {
                 ss << "&";
             }
         }
@@ -477,12 +481,32 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const BoolImm *) override;
     // void visit(const VecImm *) override;
     // void visit(const StringImm *) override;
-    // void visit(const Infinity *) override;
+    // void visit(const Extrema *) override;
     // void visit(const Var *) override;
     // void print(const BinOp::OpType &op);
     // void visit(const BinOp *) override;
     // void print(const UnOp::OpType &op);
     // void visit(const UnOp *) override;
+    void visit(const Extrema *node) override {
+        ss << "std::numeric_limits<";
+        emit_type(ss, node->type);
+        ss << (node->op == Extrema::eps ? ">::epsilon()" : ">::infinity()");
+    }
+
+    void visit(const Build *node) override {
+        // Aggregate initialisation, e.g. `AABB{low, high}`. A vector builds
+        // from a braced list of its lanes.
+        emit_type(ss, node->type);
+        ss << "{";
+        for (size_t i = 0, e = node->values.size(); i < e; i++) {
+            if (i != 0) {
+                ss << ", ";
+            }
+            print_no_parens(node->values[i]);
+        }
+        ss << "}";
+    }
+
     void visit(const Select *node) override {
         ss << "(";
         print(node->cond);
@@ -567,18 +591,54 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const DoWhile *) override;
     // void visit(const Sequence *) override;
     void visit(const Allocate *node) override {
-        internal_assert(node->loc.base_type.is<Set_t>())
-            << "TODO: C++ Allocate lowering: " << Stmt(node);
         ss << get_indent();
         emit_type(ss, node->loc.base_type);
         ss << " " << node->loc.base;
-        internal_assert(!node->value.defined())
-            << "TODO: C++ Allocate lowering: " << Stmt(node);
+        // A set is default-constructed and appended to; a reduction's
+        // accumulator starts at its identity.
+        if (node->value.defined()) {
+            internal_assert(!node->loc.base_type.is<Set_t>())
+                << "TODO: C++ Allocate lowering: " << Stmt(node);
+            ss << " = ";
+            print_no_parens(node->value);
+        } else {
+            internal_assert(node->loc.base_type.is<Set_t>())
+                << "TODO: C++ Allocate lowering: " << Stmt(node);
+        }
         ss << ";\n";
     }
     // void visit(const Free *) override;
     // void visit(const Store *) override;
-    // void visit(const Accumulate *) override;
+    void visit(const Accumulate *node) override {
+        ss << get_indent();
+        print(node->loc);
+        switch (node->op) {
+        case Accumulate::Add:
+            ss << " += ";
+            break;
+        case Accumulate::Sub:
+            ss << " -= ";
+            break;
+        case Accumulate::Mul:
+            ss << " *= ";
+            break;
+        case Accumulate::Min:
+        case Accumulate::Max: {
+            // No compound assignment for these, so spell out the update.
+            ss << " = " << (node->op == Accumulate::Min ? "min(" : "max(");
+            print(node->loc);
+            ss << ", ";
+            print_no_parens(node->value);
+            ss << ");\n";
+            return;
+        }
+        default:
+            internal_error << "TODO: C++ codegen for accumulate: "
+                           << Stmt(node);
+        }
+        print_no_parens(node->value);
+        ss << ";\n";
+    }
     // void visit(const Label *) override;
     // void visit(const RecLoop *) override;
     void visit(const Match *node) override {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IR/Equality.h"
 #include "IR/Expr.h"
 #include "IR/Printer.h"
 #include "IR/Type.h"
@@ -62,7 +63,7 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         return std::bit_cast<T>(value);
     }
 
-    if (e.is<ir::Infinity>()) {
+    if (e.is<ir::Extrema>()) {
         // Conservatively fail until we find use cases for this.
         return {};
     }
@@ -103,6 +104,12 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
     } else if (t.is<ir::Vector_t>()) {
         ir::Expr r = make_const(t.as<ir::Vector_t>()->etype, v);
         return ir::Broadcast::make(t.as<ir::Vector_t>()->lanes, std::move(r));
+    } else if (const auto *struct_t = t.as<ir::Struct_t>()) {
+        std::vector<ir::Expr> values;
+        for (int i = 0, e = struct_t->fields.size(); i < e; ++i) {
+            values.push_back(make_const(struct_t->fields[i].type, v));
+        }
+        return ir::Build::make(t, values);
     } else {
         internal_error
             << "make_const does not know how to build constant of type: " << t
@@ -121,6 +128,9 @@ ir::Expr replace(const std::string &var_name, ir::Expr repl,
                  const ir::Expr &orig);
 
 ir::Expr replace(const std::map<std::string, ir::Expr> &repls,
+                 const ir::Expr &orig);
+
+ir::Expr replace(const std::map<ir::Expr, ir::Expr, ir::ExprLessThan> &repls,
                  const ir::Expr &orig);
 
 ir::Stmt replace(const std::map<std::string, ir::Expr> &repls,
@@ -162,17 +172,23 @@ ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
 // Whether we can convert an expression into a WriteLoc.
 bool is_writeloc(const ir::Expr &expr);
 
-inline bool is_geometric_intrinsic(const std::string &name) {
-    return (name == "contains") || (name == "distmin") || (name == "distmax") ||
-           (name == "intersects");
-}
-
-inline bool is_geometric_predicate(const std::string &name) {
-    return (name == "contains") || (name == "intersects");
-}
-
 inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
+}
+
+// The topological and ordering predicates of Figure 1.
+inline bool is_geometric_predicate(const std::string &name) {
+    for (uint32_t i = 0; i < ir::GeomOp::opcount; i++) {
+        const auto op = static_cast<ir::GeomOp::OpType>(i);
+        if (name == ir::GeomOp::intrinsic_name(op)) {
+            return !is_geometric_metric(name);
+        }
+    }
+    return false;
+}
+
+inline bool is_geometric_intrinsic(const std::string &name) {
+    return is_geometric_predicate(name) || is_geometric_metric(name);
 }
 
 // Returns a bit mask of size n.

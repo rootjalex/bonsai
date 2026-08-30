@@ -139,8 +139,13 @@ class Blacklist : public ir::Visitor {
         switch (node->op) {
         case ir::SetOp::OpType::product:
             return;
+        case ir::SetOp::OpType::all:
+        case ir::SetOp::OpType::any:
+        case ir::SetOp::OpType::argmax:
         case ir::SetOp::OpType::argmin:
         case ir::SetOp::OpType::map:
+        case ir::SetOp::OpType::maximum:
+        case ir::SetOp::OpType::minimum:
         case ir::SetOp::OpType::filter: {
             const ir::Lambda *op = node->a.as<ir::Lambda>();
             internal_assert(op) << "first operand of a ir::SetOp should have "

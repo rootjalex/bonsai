@@ -36,12 +36,38 @@ Expr distmax(Expr a, Expr b);
 Expr distmin(Expr a, Expr b);
 Expr intersects(Expr a, Expr b);
 Expr contains(Expr a, Expr b);
+Expr covers(Expr a, Expr b);
+Expr disjoint(Expr a, Expr b);
+Expr equals_geom(Expr a, Expr b);
+Expr touches(Expr a, Expr b);
+Expr within(Expr a, Expr b);
+Expr ordering(GeomOp::OpType op, Expr a, Expr b);
 
 // Sets
 Expr filter(Expr predicate, Expr set);
 Expr argmin(Expr metric, Expr set);
+Expr argmax(Expr metric, Expr set);
+Expr minimum(Expr metric, Expr set);
+Expr maximum(Expr metric, Expr set);
+Expr any(Expr predicate, Expr set);
+Expr all(Expr predicate, Expr set);
 Expr map(Expr func, Expr set);
 Expr product(Expr a, Expr b);
+
+// Aggregates
+Expr avg(Expr a);
+Expr count(Expr a);
+Expr prod(Expr a);
+Expr sum(Expr a);
+Expr reduce(Expr identity, Expr combiner, Expr a);
+
+// `|a, b| a <op> b`, the combiner of a reduce built from a binary operator.
+Expr binary_lambda(BinOp::OpType op, Type t);
+
+// Rewrite an aggregation into the map-then-reduce form of Figure 2. `count`,
+// for instance, maps every element to 1 and sums with identity 0. Returns the
+// expression unchanged when it is already a `reduce`.
+Expr expand_aggregate(const AggOp *agg);
 
 Expr abs(Expr a);
 Expr max(Expr a, Expr b);

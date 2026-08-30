@@ -1,0 +1,26 @@
+//! flags: -p canonicalize -p lower-trees
+
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element AABB {
+    low, high : vec3f;
+}
+
+element Point {
+    data : vec3f;
+}
+
+extern points : set[Point];
+
+// Algorithm 5 lines 8-9 and Algorithm 6 line 6.
+func q_uv(r : AABB) = filter(|p| covers(r, p), points);
+func q_vu(r : AABB) = filter(|p| covers(p, r), points);
+
+schedule {
+    tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : PointBVH, right : PointBVH)
+    | Leaf(data : Point) with data = data;
+
+    points : PointBVH;
+}

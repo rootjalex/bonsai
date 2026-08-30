@@ -11,7 +11,7 @@ _traverse_array0_entry:
   br label %_i00_for
 
 _i00_for:                                         ; preds = %_traverse_array0_entry, %_i00_for
-  %0 = phi i32 [ 0, %_traverse_array0_entry ], [ %17, %_i00_for ]
+  %0 = phi i32 [ 0, %_traverse_array0_entry ], [ %21, %_i00_for ]
   %rng_seed.i = load <4 x i32>, ptr %_rng_state, align 16
   %1 = mul <4 x i32> %rng_seed.i, <i32 609248, i32 609248, i32 609248, i32 609248>
   %2 = add <4 x i32> %1, <i32 5367177, i32 5367177, i32 5367177, i32 5367177>
@@ -24,17 +24,21 @@ _i00_for:                                         ; preds = %_traverse_array0_en
   %8 = bitcast <4 x i32> %7 to <4 x float>
   %9 = fadd <4 x float> %8, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
   %10 = extractelement <4 x float> %9, i64 0
-  %11 = extractelement <4 x float> %9, i64 1
-  %12 = extractelement <4 x float> %9, i64 2
-  %13 = extractelement <4 x float> %9, i64 3
-  %14 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %0, float %10, float %11, float %12, float %13)
-  %15 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
-  %16 = zext nneg i32 %0 to i64
-  %_alloc0_ld1 = getelementptr inbounds float, ptr %_alloc0_untyped, i64 %16
-  store float %15, ptr %_alloc0_ld1, align 4
-  %17 = add nuw nsw i32 %0, 1
-  %18 = icmp ugt i32 %0, 14
-  br i1 %18, label %_i00_for_end, label %_i00_for
+  %11 = fpext float %10 to double
+  %12 = extractelement <4 x float> %9, i64 1
+  %13 = fpext float %12 to double
+  %14 = extractelement <4 x float> %9, i64 2
+  %15 = fpext float %14 to double
+  %16 = extractelement <4 x float> %9, i64 3
+  %17 = fpext float %16 to double
+  %18 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %0, double %11, double %13, double %15, double %17)
+  %19 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
+  %20 = zext nneg i32 %0 to i64
+  %_alloc0_ld1 = getelementptr inbounds float, ptr %_alloc0_untyped, i64 %20
+  store float %19, ptr %_alloc0_ld1, align 4
+  %21 = add nuw nsw i32 %0, 1
+  %22 = icmp ugt i32 %0, 14
+  br i1 %22, label %_i00_for_end, label %_i00_for
 
 _i00_for_end:                                     ; preds = %_i00_for
   ret ptr %_alloc0_untyped
@@ -55,7 +59,7 @@ main_entry:
 
 _i00_for.i:                                       ; preds = %_i00_for.i, %main_entry
   %_rng_state.0 = phi <4 x i32> [ %7, %main_entry ], [ %13, %_i00_for.i ]
-  %8 = phi i32 [ 0, %main_entry ], [ %25, %_i00_for.i ]
+  %8 = phi i32 [ 0, %main_entry ], [ %29, %_i00_for.i ]
   %9 = mul <4 x i32> %_rng_state.0, <i32 609248, i32 609248, i32 609248, i32 609248>
   %10 = add <4 x i32> %9, <i32 5367177, i32 5367177, i32 5367177, i32 5367177>
   %11 = mul <4 x i32> %10, %_rng_state.0
@@ -66,51 +70,71 @@ _i00_for.i:                                       ; preds = %_i00_for.i, %main_e
   %16 = bitcast <4 x i32> %15 to <4 x float>
   %17 = fadd <4 x float> %16, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
   %18 = extractelement <4 x float> %17, i64 0
-  %19 = extractelement <4 x float> %17, i64 1
-  %20 = extractelement <4 x float> %17, i64 2
-  %21 = extractelement <4 x float> %17, i64 3
-  %22 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %8, float %18, float %19, float %20, float %21)
-  %23 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %17)
-  %24 = zext nneg i32 %8 to i64
-  %_alloc0_ld1.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %24
-  store float %23, ptr %_alloc0_ld1.i, align 4
-  %25 = add nuw nsw i32 %8, 1
-  %26 = icmp ugt i32 %8, 14
-  br i1 %26, label %_traverse_array0.exit, label %_i00_for.i
+  %19 = fpext float %18 to double
+  %20 = extractelement <4 x float> %17, i64 1
+  %21 = fpext float %20 to double
+  %22 = extractelement <4 x float> %17, i64 2
+  %23 = fpext float %22 to double
+  %24 = extractelement <4 x float> %17, i64 3
+  %25 = fpext float %24 to double
+  %26 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %8, double %19, double %21, double %23, double %25)
+  %27 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %17)
+  %28 = zext nneg i32 %8 to i64
+  %_alloc0_ld1.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %28
+  store float %27, ptr %_alloc0_ld1.i, align 4
+  %29 = add nuw nsw i32 %8, 1
+  %30 = icmp ugt i32 %8, 14
+  br i1 %30, label %_traverse_array0.exit, label %_i00_for.i
 
 _traverse_array0.exit:                            ; preds = %_i00_for.i
   %extract = load float, ptr %_alloc0_untyped.i, align 4
+  %31 = fpext float %extract to double
   %extract_ptr1 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 4
   %extract2 = load float, ptr %extract_ptr1, align 4
+  %32 = fpext float %extract2 to double
   %extract_ptr3 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 8
   %extract4 = load float, ptr %extract_ptr3, align 4
+  %33 = fpext float %extract4 to double
   %extract_ptr5 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 12
   %extract6 = load float, ptr %extract_ptr5, align 4
+  %34 = fpext float %extract6 to double
   %extract_ptr7 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 16
   %extract8 = load float, ptr %extract_ptr7, align 4
+  %35 = fpext float %extract8 to double
   %extract_ptr9 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 20
   %extract10 = load float, ptr %extract_ptr9, align 4
+  %36 = fpext float %extract10 to double
   %extract_ptr11 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 24
   %extract12 = load float, ptr %extract_ptr11, align 4
+  %37 = fpext float %extract12 to double
   %extract_ptr13 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 28
   %extract14 = load float, ptr %extract_ptr13, align 4
+  %38 = fpext float %extract14 to double
   %extract_ptr15 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 32
   %extract16 = load float, ptr %extract_ptr15, align 4
+  %39 = fpext float %extract16 to double
   %extract_ptr17 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 36
   %extract18 = load float, ptr %extract_ptr17, align 4
+  %40 = fpext float %extract18 to double
   %extract_ptr19 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 40
   %extract20 = load float, ptr %extract_ptr19, align 4
+  %41 = fpext float %extract20 to double
   %extract_ptr21 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 44
   %extract22 = load float, ptr %extract_ptr21, align 4
+  %42 = fpext float %extract22 to double
   %extract_ptr23 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 48
   %extract24 = load float, ptr %extract_ptr23, align 4
+  %43 = fpext float %extract24 to double
   %extract_ptr25 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 52
   %extract26 = load float, ptr %extract_ptr25, align 4
+  %44 = fpext float %extract26 to double
   %extract_ptr27 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 56
   %extract28 = load float, ptr %extract_ptr27, align 4
+  %45 = fpext float %extract28 to double
   %extract_ptr29 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 60
   %extract30 = load float, ptr %extract_ptr29, align 4
-  %27 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, float %extract, float %extract2, float %extract4, float %extract6, float %extract8, float %extract10, float %extract12, float %extract14, float %extract16, float %extract18, float %extract20, float %extract22, float %extract24, float %extract26, float %extract28, float %extract30)
+  %46 = fpext float %extract30 to double
+  %47 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %31, double %32, double %33, double %34, double %35, double %36, double %37, double %38, double %39, double %40, double %41, double %42, double %43, double %44, double %45, double %46)
   ret i32 0
 }
 
@@ -129,12 +153,16 @@ test_rand_entry:
   %7 = bitcast <4 x i32> %6 to <4 x float>
   %8 = fadd <4 x float> %7, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
   %9 = extractelement <4 x float> %8, i64 0
-  %10 = extractelement <4 x float> %8, i64 1
-  %11 = extractelement <4 x float> %8, i64 2
-  %12 = extractelement <4 x float> %8, i64 3
-  %13 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %i, float %9, float %10, float %11, float %12)
-  %14 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %8)
-  ret float %14
+  %10 = fpext float %9 to double
+  %11 = extractelement <4 x float> %8, i64 1
+  %12 = fpext float %11 to double
+  %13 = extractelement <4 x float> %8, i64 2
+  %14 = fpext float %13 to double
+  %15 = extractelement <4 x float> %8, i64 3
+  %16 = fpext float %15 to double
+  %17 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %i, double %10, double %12, double %14, double %16)
+  %18 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %8)
+  ret float %18
 }
 
 ; Function Attrs: nofree nounwind
@@ -144,7 +172,7 @@ test_rand_all_entry:
   br label %_i00_for.i
 
 _i00_for.i:                                       ; preds = %_i00_for.i, %test_rand_all_entry
-  %0 = phi i32 [ 0, %test_rand_all_entry ], [ %17, %_i00_for.i ]
+  %0 = phi i32 [ 0, %test_rand_all_entry ], [ %21, %_i00_for.i ]
   %rng_seed.i.i = load <4 x i32>, ptr %_rng_state, align 16
   %1 = mul <4 x i32> %rng_seed.i.i, <i32 609248, i32 609248, i32 609248, i32 609248>
   %2 = add <4 x i32> %1, <i32 5367177, i32 5367177, i32 5367177, i32 5367177>
@@ -157,17 +185,21 @@ _i00_for.i:                                       ; preds = %_i00_for.i, %test_r
   %8 = bitcast <4 x i32> %7 to <4 x float>
   %9 = fadd <4 x float> %8, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
   %10 = extractelement <4 x float> %9, i64 0
-  %11 = extractelement <4 x float> %9, i64 1
-  %12 = extractelement <4 x float> %9, i64 2
-  %13 = extractelement <4 x float> %9, i64 3
-  %14 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %0, float %10, float %11, float %12, float %13)
-  %15 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
-  %16 = zext nneg i32 %0 to i64
-  %_alloc0_ld1.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %16
-  store float %15, ptr %_alloc0_ld1.i, align 4
-  %17 = add nuw nsw i32 %0, 1
-  %18 = icmp ugt i32 %0, 14
-  br i1 %18, label %_traverse_array0.exit, label %_i00_for.i
+  %11 = fpext float %10 to double
+  %12 = extractelement <4 x float> %9, i64 1
+  %13 = fpext float %12 to double
+  %14 = extractelement <4 x float> %9, i64 2
+  %15 = fpext float %14 to double
+  %16 = extractelement <4 x float> %9, i64 3
+  %17 = fpext float %16 to double
+  %18 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %0, double %11, double %13, double %15, double %17)
+  %19 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
+  %20 = zext nneg i32 %0 to i64
+  %_alloc0_ld1.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %20
+  store float %19, ptr %_alloc0_ld1.i, align 4
+  %21 = add nuw nsw i32 %0, 1
+  %22 = icmp ugt i32 %0, 14
+  br i1 %22, label %_traverse_array0.exit, label %_i00_for.i
 
 _traverse_array0.exit:                            ; preds = %_i00_for.i
   ret ptr %_alloc0_untyped.i

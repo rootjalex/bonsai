@@ -111,7 +111,7 @@ void Visitor::visit(const VecImm *) {}
 
 void Visitor::visit(const StringImm *) {}
 
-void Visitor::visit(const Infinity *) {}
+void Visitor::visit(const Extrema *) {}
 
 void Visitor::visit(const Var *) {}
 
@@ -172,6 +172,16 @@ void Visitor::visit(const GeomOp *node) {
 void Visitor::visit(const SetOp *node) {
     node->a.accept(this);
     node->b.accept(this);
+}
+
+void Visitor::visit(const AggOp *node) {
+    if (node->identity.defined()) {
+        node->identity.accept(this);
+    }
+    if (node->combiner.defined()) {
+        node->combiner.accept(this);
+    }
+    node->a.accept(this);
 }
 
 void Visitor::visit(const Call *node) {

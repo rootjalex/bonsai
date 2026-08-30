@@ -24,7 +24,7 @@ enum class IRExprEnum {
     VecImm,
     StringImm,
     Var,
-    Infinity,
+    Extrema,
     BinOp,
     UnOp,
     Select,
@@ -45,6 +45,7 @@ enum class IRExprEnum {
     Lambda,
     GeomOp,
     SetOp,
+    AggOp,
     Call,
     Instantiate,
     // Pointer operations
@@ -162,10 +163,15 @@ struct Var : ExprNode<Var> {
 };
 
 // Maximum value of a type (inf for float)
-struct Infinity : ExprNode<Infinity> {
-    static Expr make(Type tan);
+struct Extrema : ExprNode<Extrema> {
+    enum OpType {
+        eps,
+        inf,
+    };
+    OpType op;
+    static Expr make(Type t, OpType op);
 
-    static const IRExprEnum node_type = IRExprEnum::Infinity;
+    static const IRExprEnum node_type = IRExprEnum::Extrema;
 };
 
 struct BinOp : ExprNode<BinOp> {
@@ -380,13 +386,30 @@ struct Lambda : ExprNode<Lambda> {
     static const IRExprEnum node_type = IRExprEnum::Lambda;
 };
 
+// The geometric operators of Figure 1: the topological predicates of Egenhofer
+// and Herring, the per-dimension ordering predicates, and the metrics.
+// `lex`/`ltx` and friends are `a <=_x b` and `a <_x b`, one opcode per
+// (relation, axis) pair.
 struct GeomOp : ExprNode<GeomOp> {
     enum OpType {
+        // Topological predicates.
         contains,
+        covers,
+        disjoint,
+        equals,
+        intersects,
+        touches,
+        within,
+        // Ordering predicates, per dimension.
+        lex,
+        ley,
+        lez,
+        ltx,
+        lty,
+        ltz,
+        // Metrics.
         distmax,
         distmin,
-        intersects,
-        // TODO: the rest
 
         opcount, // sentinel, do not remove!
     };
@@ -401,15 +424,21 @@ struct GeomOp : ExprNode<GeomOp> {
     static const IRExprEnum node_type = IRExprEnum::GeomOp;
 };
 
-// For Argmin/Map/Filter, a: Lambda, b: Set
-// For Product, a and b are Sets
+// The set operators of Figure 2. For everything but `product`, a is a lambda
+// over the set's elements and b is the set; for `product`, a and b are sets.
+// The set-level `min` and `max` are spelled `minimum` and `maximum` because
+// `min` and `max` already name the binary scalar intrinsics.
 struct SetOp : ExprNode<SetOp> {
     enum OpType {
+        all,
+        any,
+        argmax,
         argmin,
         filter,
         map,
+        maximum,
+        minimum,
         product,
-        // TODO: reduce
         // TODO: geometric intrinsics for lambda
     };
 
@@ -420,6 +449,26 @@ struct SetOp : ExprNode<SetOp> {
     static Expr make(OpType op, Expr a, Expr b);
 
     static const IRExprEnum node_type = IRExprEnum::SetOp;
+};
+
+// A reduction over a set. `reduce` is the primitive of Figure 2; the others
+// are sugar that expand into a map followed by a reduce (e.g. `count` maps
+// every element to 1 and sums with identity 0).
+struct AggOp : ExprNode<AggOp> {
+    enum OpType { avg, count, prod, reduce, sum };
+
+    OpType op;
+
+    Expr a; // must be a set type
+
+    // Only defined for `reduce`: the identity element, and the associative,
+    // commutative binary function combining two partial results.
+    Expr identity, combiner;
+
+    static Expr make(OpType op, Expr a);
+    static Expr make(Expr identity, Expr combiner, Expr a);
+
+    static const IRExprEnum node_type = IRExprEnum::AggOp;
 };
 
 struct Call : ExprNode<Call> {

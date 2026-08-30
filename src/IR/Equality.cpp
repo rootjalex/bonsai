@@ -273,9 +273,15 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 }
             } else if (const auto *vol0 = annot0.as<Annotation::Volume>()) {
                 const auto *vol1 = annot1.as<Annotation::Volume>();
-                if (!vol1)
-                    return annot1.as<Annotation::Data>() ? Cmp::Greater
-                                                         : Cmp::Less;
+                if (!vol1) {
+                    // Less than if annot1 is Aggregate or Interval,
+                    // Otherwise greater than
+                    if (annot1.as<Annotation::Aggregate>() ||
+                        annot1.as<Annotation::Interval>())
+                        return Cmp::Less;
+                    return Cmp::Greater;
+                }
+
                 if (const Cmp geometry =
                         compare_primitives(vol0->geometry, vol1->geometry);
                     geometry != Cmp::Equals) {
@@ -302,8 +308,14 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 }
             } else if (const auto *int0 = annot0.as<Annotation::Interval>()) {
                 const auto *int1 = annot1.as<Annotation::Interval>();
-                if (!int1)
+                if (!int1) {
+                    // Less than if annot1 is Aggregate,
+                    // Otherwise greater than
+                    if (annot1.as<Annotation::Aggregate>())
+                        return Cmp::Less;
                     return Cmp::Greater;
+                }
+
                 if (const Cmp valid =
                         compare_primitives(int0->scalar, int1->scalar);
                     valid != Cmp::Equals) {
@@ -315,11 +327,31 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                     return valid;
                 }
 
-                if (const Cmp valid =
-                        compare_primitives(int0->high, int1->high);
+                return compare_primitives(int0->high, int1->high);
+            } else if (const auto *agg0 = annot0.as<Annotation::Aggregate>()) {
+                const auto *agg1 = annot1.as<Annotation::Aggregate>();
+                if (!agg1)
+                    return Cmp::Greater;
+                if (const Cmp op = compare_primitives(agg0->op, agg1->op);
+                    op != Cmp::Equals) {
+                    return op;
+                }
+
+                if (const Cmp valid = compare_primitives(agg0->args.size(),
+                                                         agg1->args.size());
                     valid != Cmp::Equals) {
                     return valid;
                 }
+
+                for (size_t i = 0, e = agg0->args.size(); i < e; i++) {
+                    if (const Cmp cmp =
+                            compare_primitives(agg0->args[i], agg0->args[i]);
+                        cmp != Cmp::Equals) {
+                        return cmp;
+                    }
+                }
+
+                return compare_primitives(agg0->value, agg1->value);
             } else {
                 internal_error
                     << "TODO: support variant other than Data or "
@@ -430,10 +462,13 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return *nodes_cmp;
     }
 
-    internal_assert(e0.type().defined() && e1.type().defined());
-    if (const Cmp types = compare_types(e0.type(), e1.type());
-        types != Cmp::Equals) {
-        return types;
+    if (e0.type().defined() && e1.type().defined()) {
+        if (const Cmp types = compare_types(e0.type(), e1.type());
+            types != Cmp::Equals) {
+            return types;
+        }
+    } else if (e0.type().defined() != e1.type().defined()) {
+        return e0.type().defined() ? Cmp::Greater : Cmp::Less;
     }
 
     // Must both be the same node type.
@@ -469,9 +504,8 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Var: {
         return compare_primitives(e0.as<Var>()->name, e1.as<Var>()->name);
     }
-    case IRExprEnum::Infinity: {
-        // Equal because types are equal.
-        return Cmp::Equals;
+    case IRExprEnum::Extrema: {
+        return compare_primitives(e0.as<Extrema>()->op, e1.as<Extrema>()->op);
     }
     case IRExprEnum::BinOp: {
         const BinOp *b0 = e0.as<BinOp>();
@@ -630,6 +664,25 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
             return a;
         }
         return compare_exprs(v0->b, v1->b);
+    }
+    case IRExprEnum::AggOp: {
+        const AggOp *v0 = e0.as<AggOp>();
+        const AggOp *v1 = e1.as<AggOp>();
+        if (const Cmp op = compare_primitives(v0->op, v1->op);
+            op != Cmp::Equals) {
+            return op;
+        }
+        if (v0->op == AggOp::reduce) {
+            if (const Cmp id = compare_exprs(v0->identity, v1->identity);
+                id != Cmp::Equals) {
+                return id;
+            }
+            if (const Cmp c = compare_exprs(v0->combiner, v1->combiner);
+                c != Cmp::Equals) {
+                return c;
+            }
+        }
+        return compare_exprs(v0->a, v1->a);
     }
     case IRExprEnum::Call: {
         const Call *v0 = e0.as<Call>();

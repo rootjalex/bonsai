@@ -191,6 +191,8 @@ struct Accumulate : StmtNode<Accumulate> {
         // value))
         Argmax,
         // TODO: add more.
+        Min,
+        Max,
     };
     WriteLoc loc;
     OpType op;
@@ -252,11 +254,22 @@ struct Iterate : StmtNode<Iterate> {
     static const IRStmtEnum node_type = IRStmtEnum::Iterate;
 };
 
-// Recursively traverse this tree for all datums
+// Recursively traverse this tree for all datums.
+// `op`, when set, is the reduction combining subtree results instead of the
+// default set union. `func`, when defined, is a map applied to subtree
+// elements before that combination.
 struct Scan : StmtNode<Scan> {
+    std::optional<AggOp::OpType> op;
+    // The accumulator the reduction folds into. Defined exactly when `op` is.
+    WriteLoc loc;
+    Expr func;
     Expr value;
 
-    static Stmt make(Expr value);
+    static Stmt make(std::optional<AggOp::OpType> op, WriteLoc loc, Expr func,
+                     Expr value);
+    static Stmt make(Expr func, Expr value) {
+        return make({}, WriteLoc(), std::move(func), std::move(value));
+    }
 
     static const IRStmtEnum node_type = IRStmtEnum::Scan;
 };

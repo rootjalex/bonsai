@@ -25,6 +25,8 @@ struct WriteLoc {
 
     bool defined() const { return !base.empty(); }
 
+    ir::Expr to_expr() const;
+
     // These append to `accesses` *AND* mutate type (if set).
     void add_struct_access(const std::string &field);
     void add_index_access(const Expr &index);

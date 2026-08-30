@@ -689,8 +689,16 @@ void CodeGen_LLVM::visit(const StringImm *node) {
     internal_error << "[unimplemented] StringImm in LLVM: " << Expr(node);
 }
 
-void CodeGen_LLVM::visit(const Infinity *node) {
+void CodeGen_LLVM::visit(const Extrema *node) {
     llvm::Type *inf_type = codegen_type(node->type);
+
+    if (node->op == Extrema::eps) {
+        internal_assert(node->type.is_float())
+            << "Epsilon is only defined for floating point types: "
+            << node->type;
+        value = llvm::ConstantFP::get(inf_type, machine_epsilon(node->type));
+        return;
+    }
 
     if (inf_type->isFloatTy()) {
         value = llvm::ConstantFP::get(
@@ -710,7 +718,7 @@ void CodeGen_LLVM::visit(const Infinity *node) {
 
         value = llvm::ConstantInt::get(inf_type, max_val);
     } else {
-        internal_error << "Infinity codegen not yet supported for type: "
+        internal_error << "Extrema codegen not yet supported for type: "
                        << node->type;
     }
 }
@@ -1067,6 +1075,13 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         llvm::Value *t = builder->CreateGlobalStringPtr("true");
         llvm::Value *f = builder->CreateGlobalStringPtr("false");
         expr = builder->CreateSelect(expr, t, f);
+    }
+    if (t.is<ir::Float_t>() && expr->getType() != f64_t) {
+        // printf is variadic, so the default argument promotions apply: any
+        // float narrower than a double arrives as a double, and that is what
+        // the "%f" specifier reads. Passing the narrow value straight through
+        // leaves the upper half of the argument undefined and prints garbage.
+        expr = builder->CreateFPExt(expr, f64_t);
     }
     args.push_back(expr);
 }
@@ -1589,6 +1604,10 @@ void CodeGen_LLVM::visit(const GeomOp *node) {
 
 void CodeGen_LLVM::visit(const SetOp *node) {
     internal_error << "TODO: implement SetOp code generation: " << Expr(node);
+}
+
+void CodeGen_LLVM::visit(const AggOp *node) {
+    internal_error << "TODO: implement AggOp code generation: " << Expr(node);
 }
 
 void CodeGen_LLVM::visit(const Call *node) {
@@ -2458,6 +2477,39 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             builder->CreateFCmpOLT(curr_key, new_key); // curr_key < new_key
 
         // Select the full struct based on which key is smaller
+        acc = builder->CreateSelect(cmp, current, update);
+        break;
+    }
+    case Accumulate::Argmax: {
+        // acc = select(curr.first > update.first, curr, update)
+        llvm::Value *curr_key =
+            builder->CreateExtractValue(current, 0); // curr.first
+        llvm::Value *new_key =
+            builder->CreateExtractValue(update, 0); // update.first
+
+        internal_assert(curr_key->getType()->isFloatingPointTy());
+        llvm::Value *cmp =
+            builder->CreateFCmpOGT(curr_key, new_key); // curr_key > new_key
+
+        // Select the full struct based on which key is larger
+        acc = builder->CreateSelect(cmp, current, update);
+        break;
+    }
+    case Accumulate::Min:
+    case Accumulate::Max: {
+        const bool is_min = node->op == Accumulate::Min;
+        const Type &t = node->value.type();
+        llvm::Value *cmp = nullptr;
+        if (t.is_float()) {
+            cmp = is_min ? builder->CreateFCmpOLT(current, update)
+                         : builder->CreateFCmpOGT(current, update);
+        } else if (t.is_int()) {
+            cmp = is_min ? builder->CreateICmpSLT(current, update)
+                         : builder->CreateICmpSGT(current, update);
+        } else {
+            cmp = is_min ? builder->CreateICmpULT(current, update)
+                         : builder->CreateICmpUGT(current, update);
+        }
         acc = builder->CreateSelect(cmp, current, update);
         break;
     }
