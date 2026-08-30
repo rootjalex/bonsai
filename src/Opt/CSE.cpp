@@ -1072,17 +1072,30 @@ ir::Stmt substitute_temporaries(ir::Stmt body) {
     body.accept(&count);
     std::unordered_set<std::string> single_use_variables = count.post_process();
 
+    // Folding the value into the use moves the read to where the use is. That
+    // is only sound while nothing writes what the value reads in between, so
+    // leave alone any temporary over a variable the body assigns. A double
+    // buffer swap saves one buffer, overwrites it, and reads the saved copy
+    // back, which is exactly the shape this would break.
+    const std::set<std::string> mutated = ir::mutated_variables(body);
+
     // Substitute single uses of temporary values with its original value.
     struct Substitute : public ir::Mutator {
-        Substitute(std::unordered_set<std::string> single_use_variables)
-            : single_use_variables(std::move(single_use_variables)) {}
+        Substitute(std::unordered_set<std::string> single_use_variables,
+                   const std::set<std::string> &mutated)
+            : single_use_variables(std::move(single_use_variables)),
+              mutated(mutated) {}
 
         ir::Stmt visit(const ir::LetStmt *node) override {
             const std::string &base = node->loc.base();
             if (!single_use_variables.contains(base)) {
                 return ir::Mutator::visit(node);
             }
-            variable_to_expr[base] = mutate(node->value);
+            ir::Expr value = mutate(node->value);
+            if (ir::reads(value, mutated)) {
+                return ir::Mutator::visit(node);
+            }
+            variable_to_expr[base] = std::move(value);
             return ir::Mutator::visit(node);
         }
         ir::Expr visit(const ir::Var *node) override {
@@ -1093,9 +1106,10 @@ ir::Stmt substitute_temporaries(ir::Stmt body) {
             return it->second;
         }
         std::unordered_set<std::string> single_use_variables;
+        const std::set<std::string> &mutated;
         std::unordered_map<std::string, ir::Expr> variable_to_expr;
     };
-    return Substitute{single_use_variables}.mutate(std::move(body));
+    return Substitute{single_use_variables, mutated}.mutate(std::move(body));
 }
 
 } // namespace
