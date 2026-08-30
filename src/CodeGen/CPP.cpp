@@ -467,7 +467,10 @@ class BonsaiToCpp : ir::Printer {
             return;
         }
         emit_type(ss, type);
-        if (!is_return_type && is_reference_type(type)) {
+        // A mutating argument is written through by the callee, so it has to
+        // be an indirection no matter what it holds. This is how a reduction's
+        // accumulator reaches its recursive traversal.
+        if (!is_return_type && (is_mutating || is_reference_type(type))) {
             emit_indirection();
             return;
         }
@@ -1194,6 +1197,17 @@ class BonsaiToCpp : ir::Printer {
         case Accumulate::OpType::Mul:
             ss << '*';
             break;
+        case Accumulate::OpType::Min:
+        case Accumulate::OpType::Max:
+            // There is no compound assignment for these, so spell the update
+            // out. A reduction's accumulator arrives here.
+            ss << "= "
+               << (node->op == Accumulate::OpType::Min ? "min(" : "max(");
+            current.to_expr().accept(this);
+            ss << ", ";
+            update.accept(this);
+            ss << ");\n";
+            return;
         case Accumulate::OpType::Argmax: {
         case Accumulate::OpType::Argmin:
             // We assume arg{min,max} is a tuple with one or more arguments, and

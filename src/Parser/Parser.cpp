@@ -50,8 +50,8 @@ class ParseErrorReport {
         }
 
         std::stringstream ss;
-        ss << "-> " << source_relative_path(call_site.file_name()) << ":"
-           << call_site.line() << ":" << call_site.column() << " \n";
+        ss << "-> " << detail::source_relative_path(call_site.file_name())
+           << ":" << call_site.line() << ":" << call_site.column() << " \n";
 
         ss << back_trace << ":" << begin_line << ":" << begin_column
            << ": [parse error] " << os.str() << "\n"

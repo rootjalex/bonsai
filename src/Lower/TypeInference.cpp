@@ -507,8 +507,12 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
         coerce_return_types(std::move(ftypes->body), ftypes->ret_type);
     ftypes->body = infer_build_types(std::move(ftypes->body), ftypes->ret_type);
 
-    internal_assert(ftypes->ret_type.is<ir::Void_t>() ||
-                    always_returns(ftypes->body))
+    // Keep the internal_assert invocation on one line: GCC reports __LINE__ as
+    // the line the macro name is on and Clang as the line the closing paren is
+    // on, and tests/bonsai/error/no-return.expect records that number.
+    const bool returns_on_all_paths =
+        ftypes->ret_type.is<ir::Void_t>() || always_returns(ftypes->body);
+    internal_assert(returns_on_all_paths)
         << "Function: " << ftypes->name
         << " does not return in all code paths.";
 

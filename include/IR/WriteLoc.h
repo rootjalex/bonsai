@@ -55,7 +55,6 @@ struct WriteLoc {
 
     static WriteLoc from(ir::Expr e);
 
-
     // These append to `accesses` *AND* mutate type (if set).
     void add_struct_access(const std::string &field);
     void add_index_access(const Expr &index);

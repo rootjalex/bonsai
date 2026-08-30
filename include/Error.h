@@ -4,6 +4,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // macOS/clang includes for stack traces
@@ -106,7 +107,7 @@ class ErrorReport {
   public:
     ErrorReport(const char *cond_str, const char *file, size_t line) {
         stream << "[internal] Error: ";
-        stream << source_relative_path(file) << ":" << line << "\n";
+        stream << detail::source_relative_path(file) << ":" << line << "\n";
         if (cond_str) {
             stream << "\n--> " << cond_str << "\n";
         }

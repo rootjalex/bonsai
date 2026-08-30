@@ -6,23 +6,38 @@
 #include <string>
 #include <string_view>
 
-// Set by the build to the absolute path of the repository root, with a
-// trailing separator. Empty when the header is used outside that build.
-#ifndef BONSAI_SOURCE_DIR
-#define BONSAI_SOURCE_DIR ""
-#endif
-
 namespace bonsai {
 
-// __FILE__ and std::source_location report absolute paths. Trim the source
-// root so diagnostics read the same from any checkout directory.
-inline std::string_view source_relative_path(std::string_view file) {
+namespace detail {
+
+// __FILE__ is an absolute path into whatever directory the repository was
+// cloned into. Trim it back to a repository-relative path, so that the
+// "[internal] Error: <file>:<line>" lines that tests/bonsai/error/*.expect
+// compares byte-for-byte do not depend on where the checkout lives.
+inline std::string source_relative_path(const char *file) {
+    std::string f(file);
+
+#ifdef BONSAI_SOURCE_DIR
+    // The repository root, injected by the top-level CMakeLists.txt.
     constexpr std::string_view root = BONSAI_SOURCE_DIR;
-    if (file.starts_with(root)) {
-        file.remove_prefix(root.size());
+    if (!root.empty() && f.size() > root.size() &&
+        f.compare(0, root.size(), root) == 0 && f[root.size()] == '/') {
+        return f.substr(root.size() + 1);
     }
-    return file;
+#endif
+
+    // For a translation unit built outside our CMake, or one whose __FILE__
+    // has been rewritten (-ffile-prefix-map), fall back to the last top-level
+    // source directory. Printing the whole path is the honest last resort.
+    for (const std::string_view dir : {"/src/", "/include/", "/tests/"}) {
+        if (const size_t pos = f.rfind(dir); pos != std::string::npos) {
+            return f.substr(pos + 1);
+        }
+    }
+    return f;
 }
+
+} // namespace detail
 
 namespace {
 enum class LogType {
@@ -54,7 +69,7 @@ class LogStream {
 
     ~LogStream() {
         out << "[" << log_level_to_string(level) << "] "
-            << source_relative_path(location.file_name()) << ":"
+            << detail::source_relative_path(location.file_name()) << ":"
             << location.line() << ": " << stream.str() << std::endl;
     }
 

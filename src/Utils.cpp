@@ -638,8 +638,9 @@ void try_match_types(Expr &a, Expr &b) {
         if (a.type().is<ir::Ptr_t>()) {
             return;
         }
-        internal_error << "[unexpected] unsure how to cast " << a << " : "
-                       << a.type() << " to " << b << " : " << b.type();
+        internal_error << "Implicit casting of types: " << a
+                       << " is not the same type as " << b << ": " << a.type()
+                       << " versus " << b.type();
     } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
         internal_assert(!a.type().is<Option_t>());
         b = constant_cast(a.type(), b);
