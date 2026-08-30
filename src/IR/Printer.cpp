@@ -602,8 +602,11 @@ void Printer::print(const WriteLoc &loc) {
             continue;
         }
         if (std::holds_alternative<ir::Expr>(value)) {
+            // The brackets already group the index, as in Extract.
+            std::ostringstream index;
+            Printer(index).print_no_parens(std::get<Expr>(value));
             ss += "[";
-            ss += to_string(std::get<Expr>(value));
+            ss += index.str();
             ss += "]";
             continue;
         }

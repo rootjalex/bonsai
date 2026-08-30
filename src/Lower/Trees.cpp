@@ -691,8 +691,13 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                 << "Cannot accelerate metric: " << lambda->value
                 << " on: " << ir::Stmt(node);
 
-            // Best must be at most max.
-            ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
+            // Best must be at most max. The bound is not tight, so nudge it
+            // by an epsilon: the comparisons that gate the traversal are
+            // strict, and a witness sitting exactly on the bound has to
+            // survive them.
+            ir::Expr value =
+                bounds.max +
+                ir::Extrema::make(bounds.max.type(), ir::Extrema::eps);
 
             ir::Expr empty_expr =
                 ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);
