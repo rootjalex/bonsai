@@ -1051,29 +1051,33 @@ class BonsaiToCpp : ir::Printer {
             ss << "}";
             return;
         }
-        const auto *struct_t = node->type.as<ir::Struct_t>();
-        const ir::Option_t *option_t = nullptr;
-        if (struct_t == nullptr) {
-            option_t = node->type.as<ir::Option_t>();
-            internal_assert(option_t) << node->type;
-            struct_t = option_t->etype.as<ir::Struct_t>();
-        }
-        internal_assert(struct_t) << node->type;
-        if (option_t && node->values.empty()) {
-            ss << "std::nullopt";
+        if (node->type.is<ir::Option_t>()) {
+            if (node->values.empty()) {
+                ss << "std::nullopt";
+                return;
+            }
+            // Field designators do not work through std::optional, and the
+            // payload need not be a struct in the first place.
+            emit_type(ss, node->type);
+            ss << "{";
+            for (size_t i = 0; i < node->values.size(); i++) {
+                if (i > 0) {
+                    ss << ", ";
+                }
+                node->values[i].accept(this);
+            }
+            ss << "}";
             return;
         }
+        const auto *struct_t = node->type.as<ir::Struct_t>();
+        internal_assert(struct_t) << node->type;
         emit_type(ss, node->type);
         ss << "{";
         for (size_t i = 0; i < node->values.size(); i++) {
             if (i > 0) {
                 ss << ", ";
             }
-            if (option_t == nullptr) {
-                // Field designators don't work for types
-                // wrapped in std::optional.
-                ss << "." << struct_t->fields[i].name << "=";
-            }
+            ss << "." << struct_t->fields[i].name << "=";
             node->values[i].accept(this);
         }
         ss << "}";

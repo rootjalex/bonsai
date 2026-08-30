@@ -135,6 +135,10 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerDefers>());
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
+    // A scan reduces over a subtree, which it names the way the traversal
+    // does. It has to run while that is still a tree reference, before
+    // LowerLayouts rewrites the traversal into indices into the layout.
+    core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerPostLayoutDefers>());
     core.push_back(std::make_unique<LowerBuilds>());
@@ -148,7 +152,6 @@ PassManager register_passes(const CompilerOptions &options) {
     }
     core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
-    core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
     if (options.target != BackendTarget::CPPX &&
@@ -188,6 +191,10 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerDefers>());
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
+    // A scan reduces over a subtree, which it names the way the traversal
+    // does. It has to run while that is still a tree reference, before
+    // LowerLayouts rewrites the traversal into indices into the layout.
+    d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerPostLayoutDefers>());
     d.push_back(std::make_unique<LowerBuilds>());
@@ -201,7 +208,6 @@ PassManager register_passes(const CompilerOptions &options) {
     }
     d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
-    d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
     if (options.target != BackendTarget::CPPX &&

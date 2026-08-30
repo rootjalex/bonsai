@@ -552,6 +552,13 @@ ir::Expr fill_index_holes(ir::Expr e, const LayoutTypeMap &map) {
             continue;
         }
     }
+    if (!constant.defined()) {
+        // Every level indexes the same non-constant extent, so the flat index
+        // does not need splitting: each level keeps the index it was given.
+        return ReplaceHole(mapping).mutate(e);
+    }
+    internal_assert(nonconstant.defined())
+        << "no non-constant extent to split across the constant ones: " << e;
     // Then, we update the indexes.
     for (int32_t i = 0, e = mapping.size(); i < e; ++i) {
         NameSize &ns = mapping[i];
@@ -1233,6 +1240,12 @@ struct LowerMatches : public ir::Mutator {
     ir::Stmt visit(const ir::RecLoop *node) override {
         // Should not be in a match right now.
         internal_assert(references.empty()) << ir::Stmt(node);
+        // Every recursive traversal is lowered on its own terms. The trees it
+        // matches on and the indices they contribute belong to this loop, not
+        // to whatever the previous one left behind: a second traversal over
+        // the same tree needs the same indices again, as its own arguments.
+        index_list.clear();
+        matched_objects.clear();
         ir::Stmt body = mutate(node->body);
         body = flatten_yield_froms(std::move(body), index_list, references,
                                    layout_type_map);
@@ -1544,9 +1557,6 @@ ir::Program LowerLayouts::run(ir::Program program,
         }
     }
 
-    // lower all `Access`es on `Unwrap`s
-    LowerMatches lower(tree_layouts, types, layout_type_map);
-
     for (auto &[fname, func] : program.funcs) {
         if (fname.starts_with("_scan")) {
 
@@ -1568,11 +1578,16 @@ ir::Program LowerLayouts::run(ir::Program program,
                 // A layout's root arguments are its index parameters. They
                 // are stored outermost-first and reversed at the point they
                 // become references, so use the same order here.
+                //
+                // They keep the names the layout gave them, which is what
+                // LowerMatches introduces into the body below. Scanning a
+                // product of trees would bring two of the same name together;
+                // that is unimplemented, and disambiguating them here alone
+                // would leave the body still saying the old one.
                 std::vector<ir::Argument> index_args = layout->second.root;
                 std::reverse(index_args.begin(), index_args.end());
                 for (const auto &idx_t : index_args) {
-                    new_args.emplace_back(arg.name + "_" + idx_t.name,
-                                          idx_t.type);
+                    new_args.emplace_back(idx_t.name, idx_t.type);
                 }
 
                 new_args.emplace_back(arg.name, type_it->second);
@@ -1586,6 +1601,10 @@ ir::Program LowerLayouts::run(ir::Program program,
                 }
             }
         }
+        // Lower all `Access`es on `Unwrap`s. The mutator accumulates the
+        // trees a body matches on and the indices they contribute, which
+        // belong to that body alone, so it lives exactly as long as one.
+        LowerMatches lower(tree_layouts, types, layout_type_map);
         func->body = lower.mutate(func->body);
         func->body = replace_sentinel(func->body, tree_layouts);
     }

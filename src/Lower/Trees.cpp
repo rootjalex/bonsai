@@ -60,9 +60,22 @@ VariantData analyze_node(const ir::BVH_t::Variant &variant,
 
     // A `with data = x` annotation names the payload field explicitly.
     std::set<std::string> annotated;
+    // Every other annotation names fields that describe the subtree rather
+    // than belong to it: an interval's bounds, a volume's initializers, the
+    // field an aggregate is stored in. They can share the tree's primitive
+    // type -- an interval over f32 data has f32 bounds -- so type alone
+    // cannot tell them apart from payload.
+    std::set<std::string> metadata;
     for (const auto &annot : variant.annotations) {
         if (const auto *d = annot.as<ir::Annotation::Data>()) {
             annotated.insert(d->name);
+        } else if (const auto *v = annot.as<ir::Annotation::Volume>()) {
+            metadata.insert(v->initializers.begin(), v->initializers.end());
+        } else if (const auto *i = annot.as<ir::Annotation::Interval>()) {
+            metadata.insert(i->low);
+            metadata.insert(i->high);
+        } else if (const auto *a = annot.as<ir::Annotation::Aggregate>()) {
+            metadata.insert(a->value);
         }
     }
 
@@ -76,7 +89,10 @@ VariantData analyze_node(const ir::BVH_t::Variant &variant,
              ir::equals(primitive_type, parameter_type.element_of()));
         if (is_primitive) {
             // With annotations present, only the annotated fields count.
-            if (annotated.empty() || annotated.contains(parameter.name)) {
+            const bool is_payload =
+                annotated.empty() ? !metadata.contains(parameter.name)
+                                  : annotated.contains(parameter.name);
+            if (is_payload) {
                 payload.push_back(parameter);
             }
             continue;
