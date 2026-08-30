@@ -4,7 +4,7 @@ type One_Field = struct One_Field{ x : f32x3 }
 type P = struct P{ x : i32; y : i32; z : i32 }
 type __tuple_0 = struct __tuple_0{ _field0 : struct One_Field{ x : f32x3 }; _field1 : i32 }
 type __tuple_1 = struct __tuple_1{ _field0 : struct P{ x : i32; y : i32; z : i32 }; _field1 : struct E{ e : f32x3 } }
-type vec3f = f32x3
+type vec3f = vector[f32, 3]
 
 func bar(x : f32x3) -> __tuple_0 {
   return build<__tuple_0>(build<One_Field>(x), 42)

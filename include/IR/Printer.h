@@ -95,6 +95,10 @@ struct Printer : public Visitor {
     void print(const Schedule &schedule);
     void print(const Location &loc);
     void print(const Type &type);
+
+    // Prints a type as its declaration would spell it, so that an alias of a
+    // vector reads `vector[f32, 3]` rather than the tautology `f32x3`.
+    void print_declaration(const Type &type);
     virtual void print_type_list(const std::vector<Type> &types);
     void print(const Interface &interface);
     void print(const Expr &expr);

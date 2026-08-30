@@ -4,7 +4,7 @@ type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const PointB
 type Leaf = struct Leaf{ low : f32x3; high : f32x3; data : struct Point{ data : f32x3 } }
 type Point = struct Point{ data : f32x3 }
 type PointBVH = (const PointBVH&)
-type vec3f = f32x3
+type vec3f = vector[f32, 3]
 
 extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)

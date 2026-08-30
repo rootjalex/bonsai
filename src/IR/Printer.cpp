@@ -308,7 +308,7 @@ void Printer::print(const Program &program) {
         ScopedValue<bool> _(verbose, true);
         for (const auto &[name, type] : program.types) {
             os << "type " << name << " = ";
-            print(type);
+            print_declaration(type);
             os << "\n";
         }
         if (!program.types.empty()) {
@@ -659,6 +659,16 @@ void Printer::visit(const Ptr_t *node) {
 
 void Printer::visit(const Ref_t *node) {
     os << "(const " << node->name << "&)";
+}
+
+void Printer::print_declaration(const Type &type) {
+    if (const auto *vec = type.as<Vector_t>()) {
+        os << "vector[";
+        print(vec->etype);
+        os << ", " << vec->lanes << "]";
+        return;
+    }
+    print(type);
 }
 
 void Printer::visit(const Vector_t *node) {

@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
-#include <stdexcept>
 #include <type_traits>
 
 namespace bonsai_detail {
@@ -99,17 +98,15 @@ struct vector {
         }
     }
 
+    // Bounds are checked in debug builds only: this indexes the hot path of
+    // generated benchmark code, which is compiled with NDEBUG.
     T &operator[](size_t i) {
-        if (i >= N) {
-            throw std::out_of_range("vector[] index out of range");
-        }
+        assert(i < N);
         return lane_data()[i];
     }
 
     const T &operator[](size_t i) const {
-        if (i >= N) {
-            throw std::out_of_range("vector[] index out of range");
-        }
+        assert(i < N);
         return lane_data()[i];
     }
 
