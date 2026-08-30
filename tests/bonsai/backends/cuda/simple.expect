@@ -1,8 +1,8 @@
-#include "helpers.h"
+#include "runtime/CUDA/helpers.h"
 
 struct Foo {
   int32_t x = 42;
-  int32_t* a; // of size 2
+  cuda::std::array<int32_t, 2> a;
 };
 
 struct Inner {
@@ -18,10 +18,9 @@ struct Outer {
 
 int32_t add_s(int32_t x, int32_t y) {
   int32_t v = (x + y);
-  int32_t _w = 1;
-  int32_t* w = &_w;
-  *w = 2;
-  return (v + (*w));
+  int32_t w = 1;
+  w = 2;
+  return (v + w);
 }
 
 int4 add_v(int4 x, int4 y) {

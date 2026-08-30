@@ -1,4 +1,4 @@
-#include "helpers.h"
+#include "runtime/CUDA/helpers.h"
 
 __device__ float d_plus_rand(float x, curandState* _rng_state) {
   if (x == 0) {
@@ -36,9 +36,9 @@ __global__ void f1(float* x) {
   curandState _rng_state;
   curand_init(tid, 0, 0, &_rng_state);
   if ((*x) == 1) {
-    *x = (float)tid;
+    (*x) = (float)tid;
   } else {
-    *x += f2((*x), (&_rng_state));
+    (*x) += f2((*x), (&_rng_state));
   }
 }
 
@@ -50,10 +50,9 @@ __host__ float h_plus_rand(float x) {
 }
 
 __host__ int32_t main(float input) {
-  float _x = input;
-  float* x = &_x;
-  f1(x);
-  if ((*x) == random<float>()) {
+  float x = input;
+  f1((&x));
+  if (x == random<float>()) {
     return 0;
   }
   return (int32_t)h_plus_rand(input);

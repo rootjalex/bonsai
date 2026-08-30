@@ -1,15 +1,6 @@
 // Bonsai Header
 #pragma once
 
-#include <array>
-#include <atomic>
-#include <cstdint>
-#include <cmath>
-#include <optional>
-#include <iostream>
-#include <string>
-#include <tuple>
-#include <variant>
 #include "runtime/CPP/bonsai_cpp.h"
 
 extern std::atomic<int32_t> counter;

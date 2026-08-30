@@ -1,0 +1,60 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type AABBNode = struct AABBNode{ children : (const BVH&)[2]; low : f32x3x2; high : f32x3x2 }
+type BVH = (const BVH&)
+type Leaf = struct Leaf{ nprims : u8; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[nprims] }
+type Ray = struct Ray{ o : f32x3; d : f32x3; t : f32 = 0f }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type f32x3 = vector[f32, 3]
+type f32x3x2 = vector[f32x3, 2]
+type u64x2 = vector[u64, 2]
+
+extern triangles1 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH
+  | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children
+  | Leaf(nprims : u8, data : Triangle[nprims])
+extern triangles2 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH
+  | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children
+  | Leaf(nprims : u8, data : Triangle[nprims])
+
+func _traverse_tree0(triangles1 : tree[[Triangle]] BVH, triangles2 : tree[[Triangle]] BVH) -> set<(Triangle, Triangle)> {
+  rec(triangles1 : tree[[Triangle]] BVH, triangles2 : tree[[Triangle]] BVH) {
+    match triangles1 {
+    | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children ->
+      match triangles2 {
+      | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children ->
+        if (intersects(build<AABB>((triangles1 as AABBNode).low[0], (triangles1 as AABBNode).high[0]), build<AABB>((triangles2 as AABBNode).low[0], (triangles2 as AABBNode).high[0]))) {
+          from (((triangles1 as AABBNode).children[0], (triangles2 as AABBNode).children[0]), ((triangles1 as AABBNode).children[0], (triangles2 as AABBNode).children[1]), ((triangles1 as AABBNode).children[1], (triangles2 as AABBNode).children[0]), ((triangles1 as AABBNode).children[1], (triangles2 as AABBNode).children[1]))
+        }
+      | Leaf(nprims : u8, data : Triangle[nprims]) ->
+        from (((triangles1 as AABBNode).children[0], triangles2), ((triangles1 as AABBNode).children[1], triangles2))
+      }
+    | Leaf(nprims : u8, data : Triangle[nprims]) ->
+      match triangles2 {
+      | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children ->
+        from ((triangles1, (triangles2 as AABBNode).children[0]), (triangles1, (triangles2 as AABBNode).children[1]))
+      | Leaf(nprims : u8, data : Triangle[nprims]) ->
+        foreach _iter0 in (triangles1 as Leaf).data {
+          foreach _iter1 in (triangles2 as Leaf).data {
+            if (intersects(_iter0, _iter1)) {
+              yield (_iter0, _iter1)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+func collisions() -> set<(Triangle, Triangle)> {
+  return _traverse_tree0(triangles1, triangles2)
+}
+
+
+schedule host {
+    triangles1 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH
+  | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children
+  | Leaf(nprims : u8, data : Triangle[nprims])
+    triangles2 : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH
+  | AABBNode(children : (const BVH&)[2], low : f32x3x2, high : f32x3x2) with AABB(low, high) on children
+  | Leaf(nprims : u8, data : Triangle[nprims])
+
+}
