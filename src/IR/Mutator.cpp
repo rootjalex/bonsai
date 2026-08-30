@@ -232,8 +232,8 @@ Type Mutator::visit(const BVH_t *node) {
     const auto visit_node = [&](const BVH_t::Variant &node) {
         bool cache_changed = not_changed;
 
-        Type struct_type = mutate(variant.struct_type);
-        not_changed = struct_type.same_as(variant.struct_type);
+        Type struct_type = mutate(node.struct_type);
+        not_changed = struct_type.same_as(node.struct_type);
 
         std::vector<Annotation> annotations;
         annotations.reserve(node.annotations.size());
@@ -243,7 +243,7 @@ Type Mutator::visit(const BVH_t *node) {
 
         if (not_changed) {
             not_changed = cache_changed;
-            return variant;
+            return node;
         }
         return BVH_t::Variant{std::move(struct_type), std::move(annotations)};
     };

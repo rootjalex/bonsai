@@ -55,7 +55,7 @@ Expr apply_unary_lambda(const Expr &lambda_expr, const Expr &value) {
 std::shared_ptr<Function>
 build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
                 const std::optional<AggOp::OpType> &op, const Expr &map_func) {
-    std::vector<Function::Argument> f_args(args.size());
+    std::vector<ir::Argument> f_args(args.size());
     for (size_t i = 0, e = args.size(); i < e; i++) {
         f_args[i].name = args[i].name;
         f_args[i].type = args[i].type;
@@ -91,7 +91,7 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
         // into the accumulator.
         Stmt contribute(const Expr &value) {
             if (!op.has_value()) {
-                return Append::make(write_loc, value);
+                return AppendStmt::make(write_loc, value);
             }
             Expr mapped = map_func.defined()
                               ? apply_unary_lambda(map_func, value)
@@ -104,7 +104,7 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
         // reduction has to fold them in one at a time.
         Stmt contribute_each(const Expr &values) {
             if (!op.has_value()) {
-                return Append::make(write_loc, values);
+                return AppendStmt::make(write_loc, values);
             }
             // Summing the same constant over every element is that constant
             // times how many there are, which the runtime answers directly
@@ -113,7 +113,7 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
                 const Lambda *lambda = map_func.as<Lambda>();
                 internal_assert(lambda && lambda->args.size() == 1);
                 if (is_const(lambda->value)) {
-                    Expr n = cast_to(write_loc.base_type, count(values));
+                    Expr n = cast_to(write_loc.base_type(), count(values));
                     Expr total = is_const_one(lambda->value)
                                      ? std::move(n)
                                      : Expr(lambda->value) * std::move(n);
@@ -223,7 +223,7 @@ struct LowerScansImpl : public Mutator {
         }
         if (node->op.has_value()) {
             return {std::move(trees),
-                    TypedVar{node->loc.base, node->loc.base_type}};
+                    TypedVar{node->loc.base(), node->loc.base_type()}};
         }
         for (const auto &arg : args) {
             if (arg.type.is<Set_t>()) {
@@ -262,7 +262,12 @@ struct LowerScansImpl : public Mutator {
 
     Stmt visit(const RecLoop *node) override {
         internal_assert(args.empty()) << Stmt(node);
-        args = node->args;
+        // A RecLoop carries full ir::Arguments; the scan lowering only needs
+        // each one's name and type.
+        args.reserve(node->args.size());
+        for (const auto &arg : node->args) {
+            args.push_back(TypedVar{arg.name, arg.type});
+        }
         std::vector<TypedVar> free_vars = gather_free_vars(node->body);
         // Add non-duplicating free_vars.
         std::unordered_set<std::string> arg_names;

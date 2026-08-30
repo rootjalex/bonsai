@@ -683,7 +683,7 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
-        case ir::Intrinsic::round:
+        case ir::Intrinsic::roundf:
         case ir::Intrinsic::sqrt: {
             // For monotonic, pure, single-argument functions, we can
             // make two calls for the min and the max.

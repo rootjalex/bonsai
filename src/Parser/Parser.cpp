@@ -1473,7 +1473,7 @@ struct Parser {
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
-            {"round", 1, ir::Intrinsic::round},
+            {"round", 1, ir::Intrinsic::roundf},
             {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
             {"roundf", 1, ir::Intrinsic::roundf},
@@ -2463,35 +2463,11 @@ struct Parser {
         expect(Token::Type::RBRACKET);
         auto [name, params, annotations] = parse_node();
 
-        std::string name = get_id();
         if (program.types.contains(name)) {
             report_error() << "Tree named: " << name
                            << " conflicts with existing type: "
                            << program.types[name];
         }
-        // The ADT signature may contain fields, which is syntactic sugar for
-        // each variant having these fields, e.g.,
-        // tree T(x: i32) =
-        // | T1(y: i32)
-        // | T2(y: i32)
-        //
-        // <=>
-        //
-        // tree T =
-        // | T1(x: i32, y: i32)
-        // | T2(x: i32, y: i32)
-        std::vector<ir::TypedVar> fields;
-        if (consume(Token::Type::LPAREN)) {
-            fields = parse_adt_variant_fields();
-            expect(Token::Type::RPAREN);
-        }
-        // Similarly, if each variant is bounded by the same ADT, it can be
-        // declared in the ADT signature.
-        std::optional<ir::BVH_t::Volume> volume;
-        if (consume(Token::Type::WITH)) {
-            volume = parse_adt_variant_volume();
-        }
-
         if (annotations.empty() != params.empty()) {
             report_error() << "Parsing of tree " << name
                            << " has incompatible volume and params";
@@ -2499,15 +2475,18 @@ struct Parser {
         // Empty reference for now.
         program.types[name] = ir::Ref_t::make(name);
 
+        // Fields and annotations written on the signature are sugar for every
+        // variant carrying them, e.g. `tree T(x: i32) = | T1(y: i32)` is
+        // `tree T = | T1(x: i32, y: i32)`. BVH_t::make distributes them.
         expect(Token::Type::ASSIGN);
         std::vector<ir::BVH_t::Variant> variants;
         do {
-            auto [nname, nparams, nvolume] = parse_adt_variant();
+            auto [nname, nparams, nannotations] = parse_node();
             ir::Type struct_type =
                 ir::Struct_t::make(std::move(nname), std::move(nparams));
             variants.emplace_back(ir::BVH_t::Variant{
                 .struct_type = std::move(struct_type),
-                .volume = std::move(nvolume),
+                .annotations = std::move(nannotations),
             });
         } while (consume(Token::Type::BAR));
 
@@ -2519,11 +2498,11 @@ struct Parser {
         ir::Type type;
         if (!annotations.empty()) {
             type = ir::BVH_t::make(std::move(primitive), std::move(name),
-                                   std::move(params), std::move(nodes),
+                                   std::move(params), std::move(variants),
                                    std::move(annotations));
         } else {
             type = ir::BVH_t::make(std::move(primitive), std::move(name),
-                                   std::move(nodes));
+                                   std::move(variants));
         }
 
         return type;
@@ -2605,7 +2584,7 @@ struct Parser {
         std::vector<ir::Annotation> annotations;
 
         if (consume(Token::Type::LPAREN)) {
-            fields = parse_adt_variant_fields();
+            params = parse_adt_variant_fields();
             expect(Token::Type::RPAREN);
         }
 

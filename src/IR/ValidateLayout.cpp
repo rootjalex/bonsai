@@ -660,8 +660,8 @@ int32_t count_children(const ir::Layout &layout,
 }
 
 int32_t count_variant_fields(const ir::BVH_t::Variant &variant,
-                             const BVH_t::Volume &volume, int32_t child_count,
-                             uint32_t index) {
+                             const Annotation::Volume &volume,
+                             int32_t child_count, uint32_t index) {
     const auto *volume_t = volume.struct_type.as<ir::Struct_t>();
     const std::string &initializer = volume.initializers[index];
     ir::Type volume_type = volume_t->fields[index].type;
@@ -688,10 +688,10 @@ void validate_volumes(const ir::Layout &layout) {
     internal_assert(bvh_t) << layout.type;
     for (uint32_t i = 0; i < bvh_t->variants.size(); i++) {
         const BVH_t::Variant &variant = bvh_t->variants[i];
-        if (!variant.volume.has_value()) {
+        if (!variant.volume().has_value()) {
             continue;
         }
-        const BVH_t::Volume &volume = *variant.volume;
+        const Annotation::Volume &volume = *variant.volume();
         // Verify initializers can actually be traced back to the variants.
         for (size_t i = 0, e = volume.initializers.size(); i < e; ++i) {
             const std::string &name = volume.initializers[i];
@@ -703,9 +703,9 @@ void validate_volumes(const ir::Layout &layout) {
         }
 
         switch (volume.bound_type) {
-        case BVH_t::Volume::BoundType::Enclosing:
+        case Annotation::Volume::BoundType::Enclosing:
             continue; // skip
-        case BVH_t::Volume::BoundType::Childwise:
+        case Annotation::Volume::BoundType::Childwise:
             break;
         }
         const int32_t child_count = count_children(layout, variant);

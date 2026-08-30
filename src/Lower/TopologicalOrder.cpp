@@ -89,21 +89,6 @@ struct CallGraphBuilder : public ir::Visitor {
             }
         }
     }
-
-    void visit(const ir::CallStmt *node) override {
-        internal_assert(!in_call)
-            << "Nested call, how can that happen?" << node;
-        in_call = true;
-        node->func.accept(this);
-        internal_assert(in_call)
-            << "Somehow un-nested call, how can that happen?" << node;
-        in_call = false;
-
-        // possibly gather call values from arguments.
-        for (const auto &a : node->args) {
-            a.accept(this);
-        }
-    }
 };
 
 } // namespace

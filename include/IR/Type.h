@@ -374,25 +374,31 @@ struct BVH_t : TypeNode<BVH_t> {
             return struct_type.as<Struct_t>()->fields;
         }
 
-        bool has_volume() const {
-            for (const auto &annot : annotations) {
-                if (annot.as<Annotation::Volume>() &&
-                    annot.as<Annotation::Volume>()->geometry.empty()) {
-                    return true;
-                }
+        bool has_volume() const { return find_volume() != nullptr; }
+
+        // The bounding volume of this node, if it has one. Scion's layout
+        // and validation code reads it as an optional value.
+        std::optional<Annotation::Volume> volume() const {
+            if (const Annotation::Volume *vol = find_volume()) {
+                return *vol;
             }
-            return false;
+            return std::nullopt;
         }
 
-        const Annotation::Volume *get_volume() const {
+        const Annotation::Volume *find_volume() const {
             for (const auto &annot : annotations) {
                 if (const auto *vol = annot.as<Annotation::Volume>();
                     vol && vol->geometry.empty()) {
                     return vol;
                 }
             }
-            internal_error << "get_volume called on no-volume node!\n";
             return nullptr;
+        }
+
+        const Annotation::Volume *get_volume() const {
+            const Annotation::Volume *vol = find_volume();
+            internal_assert(vol) << "get_volume called on no-volume node!\n";
+            return vol;
         }
     };
 

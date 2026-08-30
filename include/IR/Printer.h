@@ -51,7 +51,7 @@ std::ostream &operator<<(std::ostream &os, const Match::Arms &arms);
 
 // ADT language
 std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant);
-std::ostream &operator<<(std::ostream &os, const BVH_t::Volume &volume);
+std::ostream &operator<<(std::ostream &os, const Annotation::Volume &volume);
 
 // Layout language
 std::ostream &operator<<(std::ostream &os, const Layout &layout);
@@ -102,8 +102,8 @@ struct Printer : public Visitor {
     void print_expr_list(const std::vector<Expr> &exprs);
     void print(const Stmt &stmt);
     void print(const WriteLoc &loc);
-    void print(const BVH_t::Volume &volume);
     void print(const BVH_t::Variant &variant);
+    void print(const Annotation::Volume &volume);
     // Layouts
     void print(const Layout &layout);
     void print(const Member &member);

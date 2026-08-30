@@ -296,7 +296,7 @@ std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant) {
     return os;
 }
 
-std::ostream &operator<<(std::ostream &os, const BVH_t::Volume &volume) {
+std::ostream &operator<<(std::ostream &os, const Annotation::Volume &volume) {
     Printer printer(os);
     printer.print(volume);
     return os;
@@ -769,6 +769,20 @@ void Printer::visit(const Generic_t *node) {
     }
 }
 
+void Printer::print(const Annotation::Volume &volume) {
+    internal_assert(volume.struct_type.is<Struct_t>());
+    os << volume.struct_type.as<Struct_t>()->name;
+    internal_assert(!volume.initializers.empty());
+    os << "(";
+    for (size_t i = 0; i < volume.initializers.size(); i++) {
+        if (i != 0) {
+            os << ", ";
+        }
+        os << volume.initializers[i];
+    }
+    os << ")";
+}
+
 void Printer::print(const BVH_t::Variant &node) {
     const auto print_annotation = [&](const Annotation &annot) {
         if (const auto *data = annot.as<Annotation::Data>()) {
@@ -808,8 +822,7 @@ void Printer::print(const BVH_t::Variant &node) {
         }
     };
 
-void Printer::print(const BVH_t::Variant &variant) {
-    const Struct_t *as_struct = variant.struct_type.as<Struct_t>();
+    const Struct_t *as_struct = node.struct_type.as<Struct_t>();
     internal_assert(as_struct);
 
     os << as_struct->name;
@@ -1244,7 +1257,7 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "pow";
     case Intrinsic::rand:
         return "rand";
-    case Intrinsic::round:
+    case Intrinsic::roundf:
         return "round";
     case Intrinsic::sin:
         return "sin";

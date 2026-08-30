@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -209,8 +210,15 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 }
 
 struct Rewriter : public ir::Mutator {
-    // The list of volumes for the currently match arms.
-    std::vector<ir::Expr> volumes;
+    // The list of volumes for the current match arms. Each arm contributes
+    // one entry: a single undefined expression when the arm has no volume,
+    // one volume when the bound is enclosing, and one per child when the
+    // bound is childwise.
+    struct VolumeMetadata {
+        std::vector<ir::Expr> volumes;
+        ir::Annotation::Volume::BoundType type;
+    };
+    mutable std::vector<VolumeMetadata> volume_metadata;
     // Volumes annotated on a node's children rather than on the node itself.
     // Keyed by the matched tree variable, then by child field name.
     std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
@@ -260,11 +268,7 @@ struct Rewriter : public ir::Mutator {
                 return ir::Build::make(volume->struct_type, args);
             };
 
-            if (bvh_node.has_volume()) {
-                volumes.emplace_back(make_volume(bvh_node.get_volume()));
-            } else {
-                volumes.emplace_back(); // undef volume
-            }
+            update_volumes(bvh_node, tree, node->loc.type());
             std::variant<std::monostate, Interval,
                          std::map<std::string, Interval>>
                 interval;
@@ -313,7 +317,7 @@ struct Rewriter : public ir::Mutator {
             }
 
             ir::Stmt stmt = mutate(node->arms[i].second);
-            volumes.pop_back();
+            volume_metadata.pop_back();
             intervals.pop_back();
             aggregations.pop_back();
             if (!built_child_volumes.empty()) {
@@ -342,7 +346,7 @@ struct Rewriter : public ir::Mutator {
             internal_assert(!children.empty());
             const std::string &argument_name = args[i].name;
             volume_map[argument_name] = children.back();
-            if (type == ir::BVH_t::Volume::BoundType::Childwise) {
+            if (type == ir::Annotation::Volume::BoundType::Childwise) {
                 // TODO(cgyurgyik): the issue here is we actually want to reuse
                 // volumes when doing the cross product of two trees's
                 // variants. A simple solution would just store a map from
@@ -421,17 +425,17 @@ struct Rewriter : public ir::Mutator {
   private:
     void update_volumes(const ir::BVH_t::Variant &variant,
                         const ir::Expr &unwrap, const ir::Type &tree_type) {
-        std::optional<ir::BVH_t::Volume> volume = variant.volume;
+        std::optional<ir::Annotation::Volume> volume = variant.volume();
         if (!volume.has_value()) {
             volume_metadata.push_back(VolumeMetadata{
                 {ir::Expr()},
-                ir::BVH_t::Volume::BoundType::Enclosing,
+                ir::Annotation::Volume::BoundType::Enclosing,
             });
             return;
         }
-        const size_t n_args = variant.volume->initializers.size();
+        const size_t n_args = variant.volume()->initializers.size();
         switch (volume->bound_type) {
-        case ir::BVH_t::Volume::BoundType::Enclosing: {
+        case ir::Annotation::Volume::BoundType::Enclosing: {
             std::vector<ir::Expr> args;
             args.reserve(n_args);
             for (size_t j = 0; j < n_args; ++j) {
@@ -444,8 +448,8 @@ struct Rewriter : public ir::Mutator {
             });
             return;
         }
-        case ir::BVH_t::Volume::BoundType::Childwise: {
-            std::optional<ir::BVH_t::Volume> volume = variant.volume;
+        case ir::Annotation::Volume::BoundType::Childwise: {
+            std::optional<ir::Annotation::Volume> volume = variant.volume();
             internal_assert(volume.has_value())
                 << "[unexpected] variant with no volume for childwise "
                    "bounding: "
@@ -548,7 +552,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
 
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
@@ -699,9 +703,11 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         const bool update_from_yfs;
 
         RewriteArgExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
-                           ir::Type t)
+                           ir::Type t, const IntervalMap &intervals,
+                           const bool update_from_yfs)
             : dir(dir), metric(std::move(met)), loc(std::move(l)),
-              tuple_t(std::move(t)) {}
+              tuple_t(std::move(t)), intervals(intervals),
+              update_from_yfs(update_from_yfs) {}
 
         using ir::Mutator::visit;
 
@@ -738,7 +744,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             }
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            // internal_assert(volumes.size() == lambda->args.size());
+            // internal_assert(volume_metadata.size() == lambda->args.size());
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
@@ -810,7 +816,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
     body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
-                              std::move(tuple_t))
+                              std::move(tuple_t), intervals, !fused)
                .mutate(body);
 
     return ir::Sequence::make(
@@ -859,10 +865,10 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
         // yield x => upd a minb(a, M(x))
         ir::Stmt visit(const ir::Yield *node) override {
-            internal_assert(!volumes.empty());
+            internal_assert(!volume_metadata.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
             internal_assert(
@@ -928,7 +934,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         Interval subtree_bounds() const {
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -941,7 +947,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             }
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
@@ -1071,7 +1077,7 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -1698,7 +1704,7 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
     for (size_t i = 0; i < n_nodes; i++) {
         ir::Expr node = ir::Unwrap::make(i, bvh_expr);
         const auto [data, children] =
-            analyze_node(bvh_t->variants[i], bvh_t->primitive);
+            analyze_node(bvh_t->variants[i], bvh_t->primitive, bvh_t);
 
         std::vector<ir::Stmt> stmts(data.size() + !children.empty());
         // TODO: visit order should be scheduable?
@@ -1724,7 +1730,13 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             std::vector<ir::Expr> cs;
             cs.reserve(children.size());
             for (const auto &c : children) {
-                cs.push_back(ir::Access::make(c.name, node));
+                ir::Expr access = ir::Access::make(c.child.name, node);
+                // A wide BVH stores its children in an array; pick the lane.
+                if (c.index.has_value()) {
+                    access = ir::Extract::make(
+                        access, ir::Expr(static_cast<int32_t>(*c.index)));
+                }
+                cs.push_back(std::move(access));
             }
             stmts.back() = ir::Scan::make(ir::Expr(), make_tuple(cs));
         }

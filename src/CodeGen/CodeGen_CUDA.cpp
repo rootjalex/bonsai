@@ -1301,7 +1301,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         // curr = {min|max}(curr, update);
         os << '=' << ' ';
         os << (node->op == Accumulate::OpType::Max ? "max" : "min") << '(';
-        Var::make(current.type, current.base).accept(this);
+        Var::make(current.type, current.base()).accept(this);
         os << ',' << ' ';
         update.accept(this);
         os << ')';

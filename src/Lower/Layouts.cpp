@@ -1274,9 +1274,9 @@ struct LowerMatches : public ir::Mutator {
             }
 
             // Lower these Unwraps.
-            ir::Stmt branch_body =
-                LowerUnwrapAccesses(tree_name, branch_name, field_map)
-                    .mutate(statement);
+            ir::Stmt branch_body = LowerUnwrapAccesses(tree_name, struct_type,
+                                                       branch_name, field_map)
+                                       .mutate(statement);
             body = FillHole(branch_name, std::move(branch_body))
                        .mutate(std::move(body));
         }
@@ -1522,7 +1522,7 @@ ir::Program LowerLayouts::run(ir::Program program,
     for (auto &[fname, func] : program.funcs) {
         if (fname.starts_with("_scan")) {
 
-            std::vector<ir::Function::Argument> new_args;
+            std::vector<ir::Argument> new_args;
 
             // All arguments except the last are trees and should be replaced.
             for (size_t i = 0; i + 1 < func->args.size(); ++i) {
@@ -1537,13 +1537,12 @@ ir::Program LowerLayouts::run(ir::Program program,
                 internal_assert(layout != tree_layouts.end())
                     << arg.name << "in _scan has no layout.";
 
-                // Get index struct and expand its fields as args
-                auto index_type = get_index_type(layout->second);
-
-                // Each needs to also accept the arguments returned by
-                // `get_index_type(layout)` using the layout associated with
-                // that tree type.
-                for (const auto &idx_t : index_type) {
+                // A layout's root arguments are its index parameters. They
+                // are stored outermost-first and reversed at the point they
+                // become references, so use the same order here.
+                std::vector<ir::Argument> index_args = layout->second.root;
+                std::reverse(index_args.begin(), index_args.end());
+                for (const auto &idx_t : index_args) {
                     new_args.emplace_back(arg.name + "_" + idx_t.name,
                                           idx_t.type);
                 }

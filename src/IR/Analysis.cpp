@@ -60,10 +60,10 @@ struct GatherFreeVars : public Visitor {
         }
     }
 
-    void visit(const Append *node) override {
-        if (!seen_vars.contains(node->loc.base)) {
-            seen_vars.insert(node->loc.base);
-            free_vars.push_back({node->loc.base, node->loc.base_type});
+    void visit(const AppendStmt *node) override {
+        if (!seen_vars.contains(node->loc.base())) {
+            seen_vars.insert(node->loc.base());
+            free_vars.push_back({node->loc.base(), node->loc.base_type()});
         }
         node->value.accept(this);
     }
@@ -85,9 +85,9 @@ struct GatherFreeVars : public Visitor {
         // Accumulating into a location makes that location a free variable of
         // the enclosing traversal; without this the generated traversal
         // function never receives the accumulator.
-        if (!seen_vars.contains(node->loc.base)) {
-            seen_vars.insert(node->loc.base);
-            free_vars.push_back({node->loc.base, node->loc.base_type});
+        if (!seen_vars.contains(node->loc.base())) {
+            seen_vars.insert(node->loc.base());
+            free_vars.push_back({node->loc.base(), node->loc.base_type()});
         }
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
@@ -327,13 +327,6 @@ struct HasSideEffects : ir::Visitor {
         found = true;
     }
 
-    void visit(const ir::Append *node) override {
-        if (found) {
-            return;
-        }
-        found = true;
-    }
-
     void visit(const ir::AppendStmt *node) override {
         if (found) {
             return;
@@ -505,8 +498,8 @@ std::set<std::string> mutated_variables(Stmt stmt) {
             mutated.insert(node->loc.base());
         }
 
-        void visit(const Append *node) override {
-            mutated.insert(node->loc.base);
+        void visit(const AppendStmt *node) override {
+            mutated.insert(node->loc.base());
         }
     };
 

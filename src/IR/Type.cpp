@@ -527,11 +527,11 @@ Type BVH_t::make(ir::Type primitive, std::string name,
     internal_assert(!variants.empty()) << "BVH_t::make received empty nodes";
 
     // TODO: check that prim_t is contained in some node (leaves)?
-    for (size_t i = 0; i < nodes.size(); i++) {
-        for (const auto &annot : nodes[i].annotations) {
+    for (size_t i = 0; i < variants.size(); i++) {
+        for (const auto &annot : variants[i].annotations) {
             // TODO: other validations?
             if (const auto *volume = annot.as<Annotation::Volume>()) {
-                internal_assert(validate_volume(*volume, nodes[i].fields()))
+                internal_assert(validate_volume(*volume, variants[i].fields()))
                     << "Failed to validate node " << i << " of " << name;
             }
         }
@@ -546,7 +546,7 @@ Type BVH_t::make(ir::Type primitive, std::string name,
 
 Type BVH_t::make(ir::Type primitive, std::string name,
                  const std::vector<TypedVar> &globals,
-                 std::vector<BVH_t::Variant> nodes,
+                 std::vector<BVH_t::Variant> variants,
                  std::vector<Annotation> annotations) {
     internal_assert(primitive.defined())
         << "BVH_t::make received undefined prim_t";
@@ -576,8 +576,8 @@ Type BVH_t::make(ir::Type primitive, std::string name,
         variants[i].struct_type = std::move(struct_type);
 
         // TODO: validate no duplicate annotation types!
-        nodes[i].annotations.insert(nodes[i].annotations.end(),
-                                    annotations.begin(), annotations.end());
+        variants[i].annotations.insert(variants[i].annotations.end(),
+                                       annotations.begin(), annotations.end());
     }
 
     BVH_t *node = new BVH_t;

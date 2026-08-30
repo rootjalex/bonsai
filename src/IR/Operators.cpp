@@ -235,7 +235,9 @@ Expr min(Expr a, Expr b) {
     return Intrinsic::make(Intrinsic::min, {std::move(a), std::move(b)});
 }
 
-Expr round(Expr a) { return Intrinsic::make(Intrinsic::round, {std::move(a)}); }
+Expr round(Expr a) {
+    return Intrinsic::make(Intrinsic::roundf, {std::move(a)});
+}
 
 Expr sqr(Expr a) { return Intrinsic::make(Intrinsic::sqr, {std::move(a)}); }
 

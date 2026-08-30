@@ -518,7 +518,8 @@ class BonsaiToCpp : ir::Printer {
             }
             for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
                 get_declared_types(variant.struct_type, deduplicate, types);
-                if (std::optional<ir::BVH_t::Volume> volume = variant.volume) {
+                if (std::optional<ir::Annotation::Volume> volume =
+                        variant.volume()) {
                     get_declared_types(volume->struct_type, deduplicate, types);
                 }
             }
@@ -684,10 +685,21 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // void visit(const StringImm *) override;
-    void visit(const Infinity *node) override {
+    void visit(const Extrema *node) override {
         ss << "std::numeric_limits<";
         emit_type(ss, node->type);
-        ss << ">::infinity()";
+        // Mirrors the LLVM backend: an integral "infinity" is the largest
+        // representable value, since there is no infinity to reach for.
+        if (node->op == Extrema::eps) {
+            internal_assert(node->type.is_float())
+                << "Epsilon is only defined for floating point types: "
+                << node->type;
+            ss << ">::epsilon()";
+        } else if (node->type.is_float()) {
+            ss << ">::infinity()";
+        } else {
+            ss << ">::max()";
+        }
     }
 
     void visit(const Var *node) override { ss << node->name; }

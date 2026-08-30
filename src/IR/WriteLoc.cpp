@@ -110,27 +110,9 @@ void WriteLoc::add_index_access(const Expr &index) {
     }
 }
 
-ir::Expr WriteLoc::to_expr() const {
-    ir::Expr expr = ir::Var::make(base_type, base);
-    for (const auto &value : this->accesses) {
-        if (std::holds_alternative<std::string>(value)) {
-            expr = Access::make(std::get<std::string>(value), expr);
-            continue;
-        }
-        if (std::holds_alternative<Expr>(value)) {
-            expr = Extract::make(expr, std::get<ir::Expr>(value));
-            continue;
-        }
-        /*
-        if (std::holds_alternative<WriteLoc::Cast>(value)) {
-            auto cast = std::get<WriteLoc::Cast>(value);
-            expr = ir::Cast::make(cast.type, expr, cast.mode);
-            continue;
-        }
-            */
-        internal_error << "[unexpected] variant in WriteLoc";
-    }
-    return expr;
+void WriteLoc::add_cast(const ir::Type &type, ir::Cast::Mode mode) {
+    internal_assert(type.defined());
+    accesses.push_back(WriteLoc::Cast{.type = type, .mode = mode});
 }
 
 WriteLoc WriteLoc::rebuild_with_base_type(Type _type) const {
