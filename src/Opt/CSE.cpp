@@ -414,6 +414,23 @@ class RenameAnalysis : public ir::Visitor {
 struct Rename : public ir::Mutator {
     Rename(const ExprSet &to_rename) : to_rename(to_rename) {}
 
+    using ir::Mutator::mutate;
+
+    ir::Stmt mutate(const ir::Stmt &stmt) override {
+        std::vector<ir::Stmt> enclosing;
+        enclosing.swap(stmts);
+        ir::Stmt mutated = ir::Mutator::mutate(stmt);
+        std::vector<ir::Stmt> generated;
+        generated.swap(stmts);
+        stmts = std::move(enclosing);
+        if (generated.empty()) {
+            return mutated;
+        }
+        generated.push_back(std::move(mutated));
+        return ir::Sequence::make(std::move(generated));
+    }
+
+
     ir::Stmt visit(const ir::LetStmt *node) override {
         if (node->loc.base() == "tid") {
             // TODO(cgyurgyik): do *not* rename TID for now; the CUDA backend
@@ -674,6 +691,11 @@ struct Rename : public ir::Mutator {
     // A list of intermediate statements generated for subexpressions.
     std::vector<ir::Stmt> stmts;
 
+    // Every statement emits the temporaries its own expressions needed, right
+    // before itself. Doing that here rather than in each visit means a
+    // statement kind with no visit of its own -- an append, say -- cannot
+    // leak them forward: across the arms of an if, that would leave the
+    // definition in one branch and a use of it in the other.
     // Pushes this `statement` onto the list of generated statements and returns
     // a sequence.
     ir::Stmt make(ir::Stmt statement) {
