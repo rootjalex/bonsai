@@ -3014,7 +3014,9 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
     auto frame_value = frames.from_frames(name);
     internal_assert(frame_value.has_value()) << name;
     llvm::Value *loc = *frame_value;
-    Type bonsai_type = wloc.base_type();
+    // The base type of the accesses, which is the pointee when the base is a
+    // dereferenced mutable argument: the frame already holds that pointer.
+    Type bonsai_type = wloc.b.type();
 
     for (const auto &value : wloc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
