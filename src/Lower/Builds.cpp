@@ -911,27 +911,32 @@ std::shared_ptr<ir::Function> construct_count_recursive(
                      /*default_value=*/ir::Expr(),
                      /*mutating=*/true),
     };
-    std::vector<ir::TypedVar> free_variables = gather_free_vars(body);
-    for (const auto &[name, type] : free_variables) {
-        if (std::any_of(args.begin(), args.end(), [&](const ir::Argument &arg) {
-                return arg.name == name;
-            })) {
-            continue;
-        }
-        args.push_back(ir::Argument(name, type));
-    }
-    // Capture the generated indexes as well.
+    // The generated indexes are counted up by the body, so they come in as
+    // mutating arguments; take them before the free variables, which would
+    // otherwise capture the same names by value.
+    std::set<std::string> index_names;
     for (const ir::Expr &expr : generated_indexes) {
         const ir::Var *v = expr.as<ir::Var>();
         internal_assert(v) << expr;
+        index_names.insert(v->name);
         if (std::any_of(args.begin(), args.end(), [&](const ir::Argument &arg) {
-                return v->name == name;
+                return arg.name == v->name;
             })) {
             continue;
         }
         args.push_back(ir::Argument(v->name, v->type,
                                     /*default_value=*/ir::Expr(),
                                     /*mutating=*/true));
+    }
+    std::vector<ir::TypedVar> free_variables = gather_free_vars(body);
+    for (const auto &[name, type] : free_variables) {
+        if (index_names.contains(name) ||
+            std::any_of(args.begin(), args.end(), [&](const ir::Argument &arg) {
+                return arg.name == name;
+            })) {
+            continue;
+        }
+        args.push_back(ir::Argument(name, type));
     }
     ir::Function::InterfaceList interfaces;
     std::vector<ir::Function::Attribute> attributes;
