@@ -1442,7 +1442,8 @@ struct Parser {
 
         static constexpr auto IPATTERNS = std::to_array<IntrinsicPattern>({
             {"abs", 1, ir::Intrinsic::abs},
-            {"argmax", 1, ir::Intrinsic::argmax},
+            // Skippable: `argmax(|x| m(x), s)` is the set operator below.
+            {"argmax", 1, ir::Intrinsic::argmax, /*skippable=*/true},
             {"ceilf", 1, ir::Intrinsic::ceilf},
             {"cos", 1, ir::Intrinsic::cos},
             {"cross", 2, ir::Intrinsic::cross},
