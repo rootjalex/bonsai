@@ -86,6 +86,12 @@ add_library(bonsai::library ALIAS bonsai_library)
 target_compile_features(bonsai_library PUBLIC cxx_std_20)
 target_link_libraries(bonsai_library PUBLIC ModernLLVM::LLVM)
 
+# Error reports print __FILE__ relative to this, so they read the same in a
+# checkout under any directory name.
+target_compile_definitions(
+    bonsai_library PUBLIC BONSAI_SOURCE_DIR="${PROJECT_SOURCE_DIR}/"
+)
+
 target_sources(
     bonsai_library
     PRIVATE

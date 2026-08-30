@@ -105,19 +105,8 @@ class StackTraceCollector {
 class ErrorReport {
   public:
     ErrorReport(const char *cond_str, const char *file, size_t line) {
-        // Print the file path proceeding the root directory (inclusive).
-        constexpr std::string_view ROOT_DIRECTORY = "bonsai";
-        std::string f(file);
-
-        // TODO(cgyurgyik): Fix this hack.
-        // Finds the last occurrence of `bonsai` to conform with Github Actions,
-        // where both the WORKSPACE and the REPOSITORY are named `bonsai`.
-        if (size_t pos = f.rfind(ROOT_DIRECTORY); pos != std::string::npos) {
-            f = f.substr(pos + ROOT_DIRECTORY.length() + 1);
-        }
-
         stream << "[internal] Error: ";
-        stream << f << ":" << line << "\n";
+        stream << source_relative_path(file) << ":" << line << "\n";
         if (cond_str) {
             stream << "\n--> " << cond_str << "\n";
         }

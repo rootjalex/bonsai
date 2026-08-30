@@ -50,15 +50,8 @@ class ParseErrorReport {
         }
 
         std::stringstream ss;
-        constexpr std::string_view ROOT_DIRECTORY = "bonsai";
-        std::string file_name(call_site.file_name());
-
-        if (size_t pos = file_name.rfind(ROOT_DIRECTORY);
-            pos != std::string::npos) {
-            file_name = file_name.substr(pos + ROOT_DIRECTORY.length() + 1);
-        }
-        ss << "-> " << file_name << ":" << call_site.line() << ":"
-           << call_site.column() << " \n";
+        ss << "-> " << source_relative_path(call_site.file_name()) << ":"
+           << call_site.line() << ":" << call_site.column() << " \n";
 
         ss << back_trace << ":" << begin_line << ":" << begin_column
            << ": [parse error] " << os.str() << "\n"
