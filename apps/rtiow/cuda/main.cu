@@ -1,4 +1,4 @@
-#include "helpers.h"
+#include "runtime/CUDA/helpers.h"
 #include "rtiow.h"
 
 #include <cassert>

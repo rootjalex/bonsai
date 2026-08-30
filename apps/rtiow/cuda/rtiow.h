@@ -1,4 +1,4 @@
-#include "helpers.h"
+#include "runtime/CUDA/helpers.h"
 
 #include <cuda/std/array>
 #include <thrust/universal_vector.h>

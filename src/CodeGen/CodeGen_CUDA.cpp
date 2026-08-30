@@ -1464,7 +1464,7 @@ void CodeGen_CUDA::visit(const AppendStmt *node) {
 void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
     // Requires: `-Iruntime/CUDA` to work.
-    os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
+    os << '#' << "include" << ' ' << "\"runtime/CUDA/helpers.h\"" << '\n';
     os << '\n';
     // CUDA headers
     os << '#' << "include" << ' ' << "<cuda/std/array>" << '\n';

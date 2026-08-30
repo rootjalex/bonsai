@@ -601,7 +601,7 @@ class BonsaiToCpp : ir::Printer {
         ss << "#include <tuple>" << '\n';    // tuple
         ss << "#include <variant>" << '\n';  // variant
 
-        ss << "#include \"bonsai_cpp.h\"\n\n";
+        ss << "#include \"runtime/CPP/bonsai_cpp.h\"\n\n";
 
         // Disable C++ name mangling.
         if (!allow_mangling) {
