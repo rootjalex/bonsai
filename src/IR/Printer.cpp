@@ -797,11 +797,11 @@ void Printer::visit(const Extrema *node) {
     os << ")";
     switch (node->op) {
     case Extrema::inf: {
-        os << "INF";
+        os << "inf";
         break;
     }
     case Extrema::eps: {
-        os << "EPS";
+        os << "eps";
         break;
     }
     }
@@ -1082,14 +1082,22 @@ void Printer::visit(const GeomOp *node) {
 
 std::string to_string(const SetOp::OpType &op) {
     switch (op) {
+    case SetOp::all:
+        return "all";
+    case SetOp::any:
+        return "any";
+    case SetOp::argmax:
+        return "argmax";
     case SetOp::argmin:
         return "argmin";
     case SetOp::filter:
         return "filter";
     case SetOp::map:
         return "map";
+    case SetOp::maximum:
+        return "maximum";
     case SetOp::minimum:
-        return "minumum";
+        return "minimum";
     case SetOp::product:
         return "product";
     }
@@ -1103,6 +1111,8 @@ std::string to_string(const AggOp::OpType &op) {
         return "count";
     case AggOp::prod:
         return "prod";
+    case AggOp::reduce:
+        return "reduce";
     case AggOp::sum:
         return "sum";
     }
@@ -1137,6 +1147,12 @@ void Printer::visit(const SetOp *node) {
 void Printer::visit(const AggOp *node) {
     // TODO: print type?
     os << to_string(node->op) << "(";
+    if (node->op == AggOp::reduce) {
+        print_no_parens(node->identity);
+        os << ", ";
+        print_no_parens(node->combiner);
+        os << ", ";
+    }
     print_no_parens(node->a);
     os << ")";
 }
@@ -1406,6 +1422,10 @@ void Printer::visit(const Scan *node) {
         os << "<" << to_string(*(node->op)) << ">";
     }
     os << " ";
+    if (node->func.defined()) {
+        print_no_parens(node->func);
+        os << " over ";
+    }
     print_no_parens(node->value);
     end_stmt();
 }

@@ -17,10 +17,12 @@
 #include <thread>
 #include <vector>
 
+#ifndef BONSAI_NO_CGAL // CGAL headers
 #include <CGAL/AABB_traits_3.h>
 #include <CGAL/AABB_tree.h>
 #include <CGAL/AABB_triangle_primitive_3.h>
 #include <CGAL/Simple_cartesian.h>
+#endif // BONSAI_NO_CGAL
 
 #include "runtime/bonsai_benchmark.h"
 
@@ -232,6 +234,7 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
     return tree;
 }
 
+#ifndef BONSAI_NO_CGAL // CGAL types and its reference intersector
 using cgalKernel = CGAL::Simple_cartesian<float>;
 using cgalPoint = cgalKernel::Point_3;
 using cgalTriangle = cgalKernel::Triangle_3;
@@ -296,6 +299,7 @@ using Primitive =
 using Traits = CGAL::AABB_traits_3<cgalKernel, Primitive>;
 using Tree = CGAL::AABB_tree<Traits>;
 
+#endif // BONSAI_NO_CGAL
 /*
 _tree_layout0 copy_tree(Tree aggregate) {
     if (aggregate.size() == 0) {
@@ -968,6 +972,7 @@ void run_fcpw(const std::string &obj_dir, const std::string &object,
     }
 }
 
+#ifndef BONSAI_NO_CGAL // run_cgal
 void run_cgal(const std::string &obj_dir, const std::string &object,
               const std::string &ray_type, const std::string &ray_dir, int low,
               int high) {
@@ -1085,6 +1090,7 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
 #endif
     }
 }
+#endif // BONSAI_NO_CGAL
 
 void verify_bonsai_vs_fcpw(const std::vector<Ray> &rays,
                            const fcpw::Scene<3> &fcpw_scene,
@@ -1235,6 +1241,7 @@ int main(int argc, char *argv[]) {
 
     run_bonsai(object_dir, object, ray_type, ray_dir, low, high);
 
+#ifndef BONSAI_NO_CGAL // the CGAL comparison run
     try {
         run_cgal(object_dir, object, ray_type, ray_dir, low, high);
     } catch (const CGAL::Precondition_exception &e) {
@@ -1246,6 +1253,7 @@ int main(int argc, char *argv[]) {
     } catch (...) {
         std::cerr << "Caught unknown non-std exception from CGAL." << std::endl;
     }
+#endif // BONSAI_NO_CGAL
 
     return 0;
 }

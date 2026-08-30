@@ -10,13 +10,19 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 option(USE_PROFILING "Use the profiled builds" OFF)
 
+# Where FCL is installed. Defaults to the path on our benchmark machines;
+# override with -DFCL_PATH=/path/to/fcl to build anywhere else.
 if (USE_PROFILING)
   message(STATUS "Using profiled build")
-  set(FCL_PATH "/Users/ajroot/projects/pldi-bonsai/deps/fcl/build_profiled/install")
+  if (NOT DEFINED FCL_PATH)
+    set(FCL_PATH "/Users/ajroot/projects/pldi-bonsai/deps/fcl/build_profiled/install")
+  endif()
   set(BONSAI_SRC "cd_profiled.cpp")
 else()
   message(STATUS "Using unprofiled build")
-  set(FCL_PATH "/scratch/ajroot/pldi-bonsai/deps/fcl/build/install")
+  if (NOT DEFINED FCL_PATH)
+    set(FCL_PATH "/scratch/ajroot/pldi-bonsai/deps/fcl/build/install")
+  endif()
   set(BONSAI_SRC "cd_gen.cpp")
 endif()
 

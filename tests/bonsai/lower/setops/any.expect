@@ -1,0 +1,34 @@
+type Item = struct Item{ id : i32 }
+type ItemTree = (const ItemTree&)
+
+extern items : tree[[struct Item{ id : i32 }]] ItemTree
+  | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh]
+  | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh]
+
+func _traverse_tree0(lo : i32, hi : i32, items : tree[[Item]] ItemTree) -> bool {
+  _holds0 : mut bool := false
+  rec(items : tree[[Item]] ItemTree) {
+    match items {
+    | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] ->
+      if ((lo <= (items as Interior).idl) && ((items as Interior).idh <= hi)) {
+        _holds0 = true
+      } else {
+        if (!_holds0 && ((lo <= (items as Interior).idh) && ((items as Interior).idl <= hi))) {
+          from ((items as Interior).left, (items as Interior).right)
+        }
+      }
+    | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
+      _holds0 = _holds0 || ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi))
+    }
+  }
+  yield _holds0
+}
+
+func q(lo : i32, hi : i32) -> bool {
+  return _traverse_tree0(lo, hi, items)
+}
+
+
+schedule host {
+
+}

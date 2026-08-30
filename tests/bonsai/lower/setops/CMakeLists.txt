@@ -1,0 +1,20 @@
+add_bonsai_tests(
+    LABELS lower
+    FILES
+    all.bonsai
+    any.bonsai
+    argmax.bonsai
+    argmin.bonsai
+    count.bonsai
+    count-augmented.bonsai
+    filter.bonsai
+    map.bonsai
+    maximum.bonsai
+    maximum-augmented.bonsai
+    minimum.bonsai
+    minimum-augmented.bonsai
+    minimum-unfiltered.bonsai
+    product.bonsai
+    reduce.bonsai
+    sum.bonsai
+)

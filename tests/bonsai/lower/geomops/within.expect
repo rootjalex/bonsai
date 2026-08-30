@@ -1,0 +1,64 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Point = struct Point{ data : f32x3 }
+type PointBVH = (const PointBVH&)
+type vec3f = f32x3
+
+extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
+
+func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (within(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (within(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (within(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (within(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else {
+        if (intersects(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+          from ((points as Interior).left, (points as Interior).right)
+        }
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (within(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        yield (points as Leaf).data
+      } else {
+        if (intersects(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+          if (within((points as Leaf).data, r)) {
+            yield (points as Leaf).data
+          }
+        }
+      }
+    }
+  }
+}
+
+func q_uv(r : AABB) -> set<Point> {
+  return _traverse_tree0(r, points)
+}
+
+func q_vu(r : AABB) -> set<Point> {
+  return _traverse_tree1(r, points)
+}
+
+
+schedule host {
+
+}

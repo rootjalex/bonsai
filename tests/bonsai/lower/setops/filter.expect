@@ -1,0 +1,40 @@
+type Item = struct Item{ id : i32 }
+type ItemTree = (const ItemTree&)
+
+extern items : tree[[struct Item{ id : i32 }]] ItemTree
+  | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh]
+  | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh]
+
+func _traverse_tree0(lo : i32, hi : i32, items : tree[[Item]] ItemTree) -> set<Item> {
+  rec(items : tree[[Item]] ItemTree) {
+    match items {
+    | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] ->
+      if ((lo <= (items as Interior).idl) && ((items as Interior).idh <= hi)) {
+        scan ((items as Interior).left, (items as Interior).right)
+      } else {
+        if ((lo <= (items as Interior).idh) && ((items as Interior).idl <= hi)) {
+          from ((items as Interior).left, (items as Interior).right)
+        }
+      }
+    | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
+      if ((lo <= (items as Leaf).idl) && ((items as Leaf).idh <= hi)) {
+        yield (items as Leaf).data
+      } else {
+        if ((lo <= (items as Leaf).idh) && ((items as Leaf).idl <= hi)) {
+          if ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi)) {
+            yield (items as Leaf).data
+          }
+        }
+      }
+    }
+  }
+}
+
+func q(lo : i32, hi : i32) -> set<Item> {
+  return _traverse_tree0(lo, hi, items)
+}
+
+
+schedule host {
+
+}
