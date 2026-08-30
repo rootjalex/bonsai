@@ -116,7 +116,13 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     // use_large_code_model);
 
     auto *tm = llvm_target->createTargetMachine(
-        module.getTargetTriple(),
+        // Not module.getTargetTriple(): the module only gets a triple below,
+        // and only for ASM/CPP, so this was the empty string for every
+        // backend. On an x86 host that yields a generic *i386* machine --
+        // 32-bit pointers in the data layout the CPP backend then installs,
+        // and a TTI reporting zero vector registers, which silently disables
+        // vectorization everywhere.
+        target_triple,
         /*CPU target=*/"", /*Features=*/"", target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
@@ -2284,10 +2290,15 @@ void CodeGen_LLVM::ensure_capacity(
     builder->CreateCondBr(condition, grow_bb, unlock_bb);
 
     builder->SetInsertPoint(grow_bb);
-    // Handle the zero capacity case.
+    // Handle the zero capacity case. Emit the two operands in separate
+    // statements: as arguments to one call their evaluation order is
+    // unspecified, and each one appends an instruction, so the order they
+    // appear in the IR would otherwise depend on the compiler that built
+    // Bonsai -- GCC evaluates right to left, Clang left to right.
+    llvm::Value *capacity_is_zero = builder->CreateICmpEQ(capacity, zero);
+    llvm::Value *doubled_capacity = builder->CreateMul(capacity, two);
     llvm::Value *new_capacity = builder->CreateSelect(
-        builder->CreateICmpEQ(capacity, zero), one,
-        builder->CreateMul(capacity, two), base_n + ".new-capacity");
+        capacity_is_zero, one, doubled_capacity, base_n + ".new-capacity");
     const llvm::DataLayout &layout = module->getDataLayout();
     llvm::Type *i8_t = llvm::Type::getInt8Ty(*context);
     llvm::Type *s_t = layout.getIntPtrType(*context);

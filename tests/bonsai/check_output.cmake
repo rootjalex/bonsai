@@ -9,6 +9,15 @@ if (NOT EXISTS "${ACTUAL}")
     message(FATAL_ERROR "Missing actual file: ${ACTUAL}")
 endif ()
 
+# An <name>.<arch>.expect next to the base golden overrides it on that
+# architecture; see the comment in CMakeLists.txt. Swapping EXPECT here means
+# BONSAI_UPDATE_EXPECT re-blesses the override where one exists and the base
+# golden where one does not, so updating on a host that has an override can
+# never silently clobber the golden the other architecture relies on.
+if (EXPECT_ARCH AND EXISTS "${EXPECT_ARCH}")
+    set(EXPECT "${EXPECT_ARCH}")
+endif ()
+
 if ("$ENV{BONSAI_UPDATE_EXPECT}")
     file(COPY_FILE "${ACTUAL}" "${EXPECT}"
          RESULT error
