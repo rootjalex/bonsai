@@ -75,9 +75,9 @@ build_scan_func(const std::vector<TypedVar> &args, const std::string &func_name,
         std::optional<AggOp::OpType> op;
         Expr map_func;
 
-        ScansToCalls(std::shared_ptr<Function> _func,
+        ScansToCalls(std::shared_ptr<Function> func,
                      std::optional<AggOp::OpType> op, Expr map_func)
-            : func(std::move(_func)), op(std::move(op)),
+            : func(std::move(func)), op(std::move(op)),
               map_func(std::move(map_func)) {
             write_expr =
                 Var::make(func->args.back().type, func->args.back().name);
