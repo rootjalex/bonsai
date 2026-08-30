@@ -1082,6 +1082,13 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         llvm::Value *f = builder->CreateGlobalStringPtr("false");
         expr = builder->CreateSelect(expr, t, f);
     }
+    if (t.is<ir::Float_t>() && expr->getType() != f64_t) {
+        // printf is variadic, so the default argument promotions apply: any
+        // float narrower than a double arrives as a double, and that is what
+        // the "%f" specifier reads. Passing the narrow value straight through
+        // leaves the upper half of the argument undefined and prints garbage.
+        expr = builder->CreateFPExt(expr, f64_t);
+    }
     args.push_back(expr);
 }
 
