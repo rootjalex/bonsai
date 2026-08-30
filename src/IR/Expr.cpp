@@ -803,6 +803,18 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                     << values[i] << " of type " << values[i].type()
                     << " for index: " << i;
             }
+        } else if (type.is<ADT_t>()) {
+            // Only the empty one: which variant a value holds is what
+            // `Construct` says, and there is no arrangement of fields that
+            // answers it. Empty means the zero value, which for a variant
+            // type is the first variant with everything in it zeroed -- what
+            // LowerADTs produces from a zero tag and a zero payload. Tree
+            // lowering wants exactly that, as the placeholder standing in for
+            // the best primitive found so far before one has been.
+            internal_assert(values.empty())
+                << "Build a variant type only from nothing, which is its zero "
+                   "value; naming a variant is Construct's job: "
+                << type;
         } else {
             internal_error << "Build::make with non-(vector, array, struct, "
                               "option, tuple) type: "
@@ -1073,9 +1085,13 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
     if (infer_types) {
         // TODO: assert that these are volumes with defined geometric
         // constructs?
-        const Struct_t *sa = a.type().as<Struct_t>();
-        const Struct_t *sb = b.type().as<Struct_t>();
-        internal_assert(sa && sb)
+        //
+        // A variant type counts as an element here: a `Shape` that is either
+        // a sphere or a triangle is exactly what a geometric primitive is
+        // asked to dispatch on, and it is still one element per value.
+        const bool both_elements = !geometric_element_name(a.type()).empty() &&
+                                   !geometric_element_name(b.type()).empty();
+        internal_assert(both_elements)
             << "GeomOp::make expected geometric structs: " << to_string(op)
             << " " << a << " " << b;
 

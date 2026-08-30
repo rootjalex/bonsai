@@ -136,6 +136,20 @@ bool Type::is_primitive() const {
             std::all_of(as<Tuple_t>()->etypes.cbegin(),
                         as<Tuple_t>()->etypes.cend(),
                         [](const auto &p) { return p.is_primitive(); })) ||
+           // A variant type is plain data when every variant is: what it
+           // becomes is a tag beside a union of them, and neither the tag nor
+           // the union adds anything that needs looking after. The union is
+           // here as well because that lowered form has to stay primitive --
+           // an ADT that could be laid out in a tree before LowerADTs and not
+           // after would be a strange thing to explain.
+           (is<ADT_t>() &&
+            std::all_of(as<ADT_t>()->variants.cbegin(),
+                        as<ADT_t>()->variants.cend(),
+                        [](const auto &v) { return v.is_primitive(); })) ||
+           (is<Union_t>() &&
+            std::all_of(as<Union_t>()->members.cbegin(),
+                        as<Union_t>()->members.cend(),
+                        [](const auto &m) { return m.type.is_primitive(); })) ||
            (is<Array_t>() && as<Array_t>()->etype.is_primitive());
 }
 
@@ -693,6 +707,16 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         internal_error << "Failed to find field: " << field
                        << " in non-(struct | vec) type: " << struct_type;
     }
+}
+
+std::string geometric_element_name(const Type &type) {
+    if (const Struct_t *as_struct = type.as<Struct_t>()) {
+        return as_struct->name;
+    }
+    if (const ADT_t *as_adt = type.as<ADT_t>()) {
+        return as_adt->name;
+    }
+    return {};
 }
 
 bool satisfies(const Type &type, const Interface &interface) {

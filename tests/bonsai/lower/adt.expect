@@ -6,6 +6,24 @@ type Tri = struct Tri{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type vec3f = f32x3
 type vec3h = f16x3
 
+func [[export]] Shape_Sph(_ret0 : mut (Shape*), center : f32x3, radius : f32) -> void {
+  _ret0 = build<Shape>(0u, Shape_payload{.Sph = build<Sph>(center, radius)})
+  return
+}
+
+func [[export]] Shape_Tri(_ret1 : mut (Shape*), p0 : f32x3, p1 : f32x3, p2 : f32x3) -> void {
+  _ret1 = build<Shape>(1u, Shape_payload{.Tri = build<Tri>(p0, p1, p2)})
+  return
+}
+
+func _unexported_Shape_Sph(center : f32x3, radius : f32) -> Shape {
+  return build<Shape>(0u, Shape_payload{.Sph = build<Sph>(center, radius)})
+}
+
+func _unexported_Shape_Tri(p0 : f32x3, p1 : f32x3, p2 : f32x3) -> Shape {
+  return build<Shape>(1u, Shape_payload{.Tri = build<Tri>(p0, p1, p2)})
+}
+
 func _unexported_unit_sphere() -> Shape {
   return build<Shape>(0u, Shape_payload{.Sph = build<Sph>(build<f32x3>(0f, 0f, 0f), 1f)})
 }
@@ -23,8 +41,8 @@ func [[export]] area(s : (Shape*)) -> f32 {
   }
 }
 
-func [[export]] unit_sphere(_ret0 : mut (Shape*)) -> void {
-  _ret0 = build<Shape>(0u, Shape_payload{.Sph = build<Sph>(build<f32x3>(0f, 0f, 0f), 1f)})
+func [[export]] unit_sphere(_ret2 : mut (Shape*)) -> void {
+  _ret2 = build<Shape>(0u, Shape_payload{.Sph = build<Sph>(build<f32x3>(0f, 0f, 0f), 1f)})
   return
 }
 

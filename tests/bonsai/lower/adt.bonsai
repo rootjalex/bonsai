@@ -19,6 +19,14 @@
 // because reading a field of a variant a value is not would read whatever
 // those bytes happen to be.
 //
+// `Shape_Sph` and `Shape_Tri` are not written below. They are generated,
+// one per variant, because `area` is exported and so a caller outside bonsai
+// can hold a `Shape` and will need to make one. Building it by hand would mean
+// writing this pass's tag numbering into that caller, where nothing would
+// catch it drifting; a constructor keeps the numbering here. They are ordinary
+// exported functions whose body is a Construct, so they lower through the same
+// code as a Construct written by hand and every backend gets them.
+//
 // This is `-p core`, which stops before the optimizers. `center` is bound and
 // unused in the Sph arm; the default pipeline's DCE deletes it, and
 // tests/bonsai/correctness/llvm/adt.bonsai is the one that runs the result.

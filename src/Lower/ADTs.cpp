@@ -5,11 +5,14 @@
 #include "IR/Expr.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
+#include "IR/Visitor.h"
 
 #include "Error.h"
 #include "Utils.h"
 
 #include <map>
+#include <memory>
+#include <set>
 #include <string>
 
 namespace bonsai {
@@ -101,14 +104,36 @@ struct RewriteADTs : public Mutator {
             not_changed = not_changed && new_value.same_as(value);
             values.push_back(std::move(new_value));
         }
+        // No assertion tying the two together, unlike Lower/Options.cpp: a
+        // value here is rebuilt whenever anything inside it changed, which is
+        // often and says nothing about this Build's own type. Reading a
+        // sphere's centre out of a tree whose primitives are variants gives a
+        // new expression of the same f32x3 type.
         Type type = mutate(node->type);
-        if (type.same_as(node->type)) {
-            internal_assert(not_changed)
-                << "Lowering ADTs rewrote a Build value but not its type: "
-                << Expr(node);
+        if (not_changed && type.same_as(node->type)) {
             return node;
         }
         return Build::make(std::move(type), std::move(values));
+    }
+
+    // A lambda's argument types, which the base Mutator also carries over as
+    // it found them. `filter(|sh : Shape| .., shapes)` only type-checks while
+    // the lambda and the set agree about what an element is, so the argument
+    // has to change at the same time the set does.
+    Expr visit(const Lambda *node) override {
+        std::vector<TypedVar> args;
+        args.reserve(node->args.size());
+        bool not_changed = true;
+        for (const TypedVar &arg : node->args) {
+            Type type = mutate(arg.type);
+            not_changed = not_changed && type.same_as(arg.type);
+            args.push_back(TypedVar{arg.name, std::move(type)});
+        }
+        Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return Lambda::make(std::move(args), std::move(value));
     }
 
     Expr visit(const Construct *node) override {
@@ -176,6 +201,89 @@ struct RewriteADTs : public Mutator {
     }
 };
 
+// The variant types anything in `type` is built out of, by name.
+//
+// Reachability rather than a direct match: an exported function rarely takes a
+// `Shape`, it takes a tree whose primitives are shapes, or an option of one.
+struct GatherADTs : public Visitor {
+    std::set<std::string> &found;
+    std::set<std::string> seen_structs;
+
+    GatherADTs(std::set<std::string> &found) : found(found) {}
+
+    void visit(const ADT_t *node) override {
+        found.insert(node->name);
+        Visitor::visit(node);
+    }
+
+    // A type can name itself through a pointer, so a struct is walked once.
+    void visit(const Struct_t *node) override {
+        if (seen_structs.insert(node->name).second) {
+            Visitor::visit(node);
+        }
+    }
+};
+
+// One constructor per variant of every variant type a caller can see, as an
+// exported function whose body is a Construct.
+//
+// Without these a C++ caller has to write `s.tag = 0; s.payload.Sph = ..`,
+// which puts this pass's numbering into the driver -- where nothing would
+// catch it drifting, and where it would have to change again as soon as a
+// schedule picks a different layout. These are added before the rewrite
+// below, so they are lowered by exactly the same code as a Construct written
+// in bonsai, and every backend gets them rather than just the C++ one.
+void add_variant_constructors(ir::Program &program) {
+    std::set<std::string> outward;
+    GatherADTs gather(outward);
+    for (const auto &[fname, func] : program.funcs) {
+        if (!func->is_exported()) {
+            continue;
+        }
+        func->ret_type.accept(&gather);
+        for (const auto &arg : func->args) {
+            arg.type.accept(&gather);
+        }
+    }
+
+    std::map<std::string, std::shared_ptr<ir::Function>> made;
+    for (const auto &[name, type] : program.types) {
+        const ADT_t *adt = type.as<ADT_t>();
+        if (!adt || !outward.contains(adt->name)) {
+            continue;
+        }
+        for (size_t v = 0; v < adt->variants.size(); v++) {
+            const std::string &variant = adt->variant_name(v);
+            const Struct_t::Map &fields = adt->fields(v);
+
+            std::vector<ir::Function::Argument> args;
+            std::vector<Expr> values;
+            args.reserve(fields.size());
+            values.reserve(fields.size());
+            for (const TypedVar &field : fields) {
+                args.push_back(ir::Function::Argument{field.name, field.type,
+                                                      Expr(), false, false});
+                values.push_back(Var::make(field.type, field.name));
+            }
+
+            // Qualified, because a variant name alone is already the name of
+            // the struct of its fields, and C++ would then have a function
+            // and a type sharing one name.
+            const std::string fname = adt->name + "_" + variant;
+            internal_assert(!program.funcs.contains(fname))
+                << "Cannot name the constructor for " << variant << " of "
+                << adt->name << ": something is already called " << fname;
+            made[fname] = std::make_shared<ir::Function>(
+                fname, std::move(args), type,
+                Return::make(Construct::make(type, variant, std::move(values))),
+                ir::Function::InterfaceList{},
+                std::vector<ir::Function::Attribute>{
+                    ir::Function::Attribute::exported});
+        }
+    }
+    program.funcs.insert(made.begin(), made.end());
+}
+
 } // namespace
 
 ir::Program LowerADTs::run(ir::Program program,
@@ -189,6 +297,8 @@ ir::Program LowerADTs::run(ir::Program program,
     if (layouts.empty()) {
         return program;
     }
+
+    add_variant_constructors(program);
 
     RewriteADTs rewriter(layouts);
 

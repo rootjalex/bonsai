@@ -101,6 +101,25 @@ struct GatherFreeVars : public Visitor {
         }
     }
 
+    void visit(const ir::MatchVariant *node) override {
+        node->value.accept(this);
+        for (const auto &arm : node->arms) {
+            // An arm's bindings name the fields of the variant it matched,
+            // and only within that arm -- so they are scoped like a loop
+            // index rather than inserted for good like a `let`. Without this
+            // they look free, and a function whose only free names were arm
+            // bindings would be handed extern arguments it never asked for.
+            for (const std::string &binding : arm.bindings) {
+                internal_assert(!seen_vars.contains(binding));
+                seen_vars.insert(binding);
+            }
+            arm.body.accept(this);
+            for (const std::string &binding : arm.bindings) {
+                seen_vars.erase(binding);
+            }
+        }
+    }
+
     void visit(const ir::ForAll *node) override {
         node->slice.begin.accept(this);
         node->slice.end.accept(this);

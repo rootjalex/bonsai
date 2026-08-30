@@ -483,6 +483,19 @@ Type get_field_type(const Type &struct_type, const std::string &field);
 
 bool satisfies(const Type &type, const Interface &interface);
 
+/** The name a geometric primitive mangles into for an operand of this type,
+ * so that `distmin(r, s)` picks `distmin_Ray_Sphere`.
+ *
+ * Elements are the only things geometric primitives dispatch on: a struct, or
+ * a variant type, which is an element whose shape is chosen per value.
+ * Anything else answers the empty string, which each caller reports in the way
+ * that suits it -- the parser knows a source location, lowering does not.
+ *
+ * One copy, because the mangling has to agree in three places: where the
+ * primitive is declared, where a use of it is type-checked, and where that use
+ * is turned back into a call. */
+std::string geometric_element_name(const Type &type);
+
 using TypeMap = std::map<std::string, Type>;
 
 } // namespace ir

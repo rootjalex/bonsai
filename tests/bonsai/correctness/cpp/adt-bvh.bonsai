@@ -1,0 +1,87 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/adt-bvh
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_adt_bvh.cpp -I. -o $<>/main_adt_bvh.o, clang++ $<>/main_adt_bvh.o $<>/adt-bvh.o -o $<>/adt-bvh, ./$<>/adt-bvh, rm $<>/adt-bvh, rm $<>/main_adt_bvh.o, rm $<>/adt-bvh.h, rm $<>/adt-bvh.o
+
+// A declarative nearest-hit query over a set of variants, with a BVH schedule.
+//
+// This is the shape PBRT M1 needs, and the first time three things meet: the
+// variant types added for `Shape`, the `set` query the tree schedule turns
+// into a traversal, and a C++ driver that owns the scene. The query says what
+// it wants -- the nearest shape the ray hits -- and the schedule alone decides
+// that the answer comes from a BVH with a stack of 64.
+//
+// A geometric primitive over a variant type is the point of the exercise. PBRT
+// v4 dispatches Shape::Intersect through a TaggedPointer over a closed set of
+// shape types; here `distmin(r, sh)` is one function that matches on which
+// shape it has, and the tree lowering calls it without knowing any of that.
+//
+// The driver builds the BVH: bonsai has no file I/O to read a scene with, and
+// tree construction is not yet expressible in the language. Only the traversal
+// is compiled here, which is the part that runs per ray.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+import stdlib/triangle;
+
+// pbrt: Shape.
+element Shape =
+    | Sph(s : Sphere)
+    | Tri(t : Triangle);
+
+func distmin(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmin(r, s);
+        Tri(t) => return distmin(r, t);
+    }
+}
+
+func distmax(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmax(r, s);
+        Tri(t) => return distmax(r, t);
+    }
+}
+
+func intersects(r : Ray, sh : Shape) -> bool {
+    match sh {
+        Sph(s) => return intersects(r, s);
+        Tri(t) => return intersects(r, t);
+    }
+}
+
+extern shapes : set[Shape];
+
+// pbrt: Primitive::Intersect over the whole scene, as a query rather than a
+// hand-written traversal.
+func [[export]] trace(r : Ray) =
+    argmin(|sh : Shape| distmin(r, sh),
+           filter(|sh : Shape| intersects(r, sh) && distmin(r, sh) > 0.001,
+                  shapes));
+
+schedule {
+    tree[[Shape]] ShapeBVH(center : vec3f, radius : Float)
+        with Sphere(center, radius) =
+    | Interior(left : ShapeBVH, right : ShapeBVH, axis : u8)
+    | Leaf(data : array[Shape]) with data = data;
+
+    shapes : ShapeBVH;
+
+    layout shapes {
+        pCount : u32;
+        prims : array[Shape, pCount];
+        nCount : u32;
+        group[nCount] index : u16 {
+            center : vec3f;
+            radius : Float;
+            nPrims : u8;
+            axis : u8;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

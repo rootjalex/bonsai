@@ -622,12 +622,13 @@ struct Parser {
         std::string typed_name = name;
 
         for (const auto &arg : args) {
-            if (!arg.type.is<ir::Struct_t>()) {
+            const std::string element = ir::geometric_element_name(arg.type);
+            if (element.empty()) {
                 report_error() << "Geometric primitives only operator on "
                                   "elements, instead received: "
                                << arg.name << " : " << arg.type;
             }
-            typed_name += "_" + arg.type.as<ir::Struct_t>()->name;
+            typed_name += "_" + element;
         }
 
         ir::Type ret_type;

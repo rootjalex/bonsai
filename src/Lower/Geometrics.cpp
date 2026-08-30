@@ -29,15 +29,14 @@ struct LowerGeomOps : public Mutator {
         Expr a = mutate(node->a);
         Expr b = mutate(node->b);
 
-        // TODO: break this out of Parser.cpp so we don't
-        // have to keep track of two versions of this.
         const std::string name =
             GeomOp::intrinsic_name(node->op); // reused below.
-        std::string typed_name = name;
-        internal_assert(a.type().is<Struct_t>());
-        typed_name += "_" + a.type().as<Struct_t>()->name;
-        internal_assert(b.type().is<Struct_t>());
-        typed_name += "_" + b.type().as<Struct_t>()->name;
+        const std::string a_element = geometric_element_name(a.type());
+        const std::string b_element = geometric_element_name(b.type());
+        internal_assert(!a_element.empty() && !b_element.empty())
+            << "Geometric primitives operate on elements, not " << a.type()
+            << " and " << b.type();
+        const std::string typed_name = name + "_" + a_element + "_" + b_element;
 
         const auto &func = funcs.find(typed_name);
         internal_assert(func != funcs.cend())

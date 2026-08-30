@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS correctness cpp
     FILES
     adt.bonsai
+    adt-bvh.bonsai
     bind_cpu_thread.bonsai
     mut-dynamic-array.bonsai
     simple.bonsai
