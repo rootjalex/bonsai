@@ -2842,9 +2842,9 @@ struct Parser {
             }
             // ptr|group <name>[<size>]+ (by <index>)+ { <layout> }
             consume(); // consume ptr|group
-            std::string name;
+            std::string name, declared_name;
             if (peek_type() == Token::Type::IDENTIFIER) {
-                name = get_id();
+                name = declared_name = get_id();
             }
             ir::Expr size, alignment;
             if (consume(Token::Type::LBRACKET)) {
@@ -2886,6 +2886,9 @@ struct Parser {
                 break;
             }
             case ir::Group::Type::Indirect:
+                // The name also names the struct this group generates, so the
+                // field holding it is spelled in lower case.
+                declared_name = name;
                 name.front() = std::tolower(name.front());
                 break;
             case ir::Group::Type::Pointer:
@@ -2893,9 +2896,10 @@ struct Parser {
             }
 
             ir::Member body = parse_member(abstract_type);
-            return ir::Group::make(std::move(name), std::move(size),
-                                   std::move(alignment), std::move(index),
-                                   std::move(body), *group_type);
+            return ir::Group::make(std::move(name), std::move(declared_name),
+                                   std::move(size), std::move(alignment),
+                                   std::move(index), std::move(body),
+                                   *group_type);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();

@@ -237,8 +237,9 @@ Member Chain::make(std::vector<Member> members) {
     return node;
 }
 
-Member Group::make(std::string name, Expr size, Expr alignment, Expr index,
-                   Member inner, Group::Type type) {
+Member Group::make(std::string name, std::string declared_name, Expr size,
+                   Expr alignment, Expr index, Member inner,
+                   Group::Type type) {
     switch (type) {
     case Group::Type::Direct:
         if (!index.defined()) {
@@ -257,6 +258,7 @@ Member Group::make(std::string name, Expr size, Expr alignment, Expr index,
         << "Cannot make Group: " << name << " with undefined body";
 
     Group *node = new Group;
+    node->declared_name = std::move(declared_name);
     node->size = std::move(size);
     node->alignment = std::move(alignment);
     node->name = std::move(name);

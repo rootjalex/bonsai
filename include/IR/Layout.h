@@ -138,14 +138,20 @@ struct Group : LayoutMember<Group> {
     Expr size;
     Expr alignment;
     Expr index;
+    // The name of the field this group is stored in. An indirect group's name
+    // also names the struct it generates, so `name` is the lower-cased form
+    // and `declared_name` is what the source said. Diagnostics want the
+    // latter, so that they quote the identifier the programmer wrote.
     std::string name;
+    std::string declared_name;
     Member inner;
 
     enum class Type { Direct, Indirect, Pointer };
     Type type;
 
-    static Member make(std::string name, Expr size, Expr alignment, Expr index,
-                       Member inner, Type type = Type::Direct);
+    static Member make(std::string name, std::string declared_name, Expr size,
+                       Expr alignment, Expr index, Member inner,
+                       Type type = Type::Direct);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };

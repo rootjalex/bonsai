@@ -534,7 +534,7 @@ void validate_indirect_groups(const ir::Layout &layout) {
         std::set<std::string> indirect_groups;
         void visit(const Group *node) override {
             if (node->type == Group::Type::Indirect) {
-                indirect_groups.insert(node->name);
+                indirect_groups.insert(node->declared_name);
             }
             node->inner.accept(this);
         }
@@ -556,7 +556,7 @@ void validate_indirect_groups(const ir::Layout &layout) {
 
         void visit(const Group *node) override {
             if (node->type == Group::Type::Indirect && at_root_level) {
-                indirect_groups.insert(node->name);
+                indirect_groups.insert(node->declared_name);
             }
             bool was_at_root = at_root_level;
             at_root_level = false;

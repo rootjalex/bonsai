@@ -270,7 +270,7 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            std::string field_name = node->name;
+            const std::string &field_name = ltmap.concrete_name(m);
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = base;
@@ -569,7 +569,7 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            std::string field_name = node->name;
+            const std::string &field_name = ltmap.concrete_name(m);
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = base;
