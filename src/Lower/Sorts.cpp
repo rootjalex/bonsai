@@ -62,12 +62,12 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
               names_in_scope(std::move(names_in_scope)) {}
 
         Stmt visit(const LetStmt *node) override {
-            names_in_scope.try_emplace(node->loc.base, node->loc.base_type);
+            names_in_scope.try_emplace(node->loc.base(), node->loc.base_type());
             return Mutator::visit(node);
         }
 
         Stmt visit(const Allocate *node) override {
-            names_in_scope.try_emplace(node->loc.base, node->loc.base_type);
+            names_in_scope.try_emplace(node->loc.base(), node->loc.base_type());
             return Mutator::visit(node);
         }
 

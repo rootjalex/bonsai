@@ -1,0 +1,44 @@
+schedule {
+    tree[[MaterialSphere]] BVH(center : f32x3, radius : f32) with Sphere(center, radius)
+    = Interior(left : BVH, right : BVH)
+    | Leaf(nprims: u8, data: array[MaterialSphere, nprims]);
+
+    spheres : BVH;
+
+    layout spheres(root: ptr[node]) {
+        primitive_count : u32;
+        primitives : array[MaterialSphere, primitive_count];
+        node_count : u32;
+        ptr node {
+            center : f32x3;
+            radius : f32;
+            nprims : u8;
+            8;
+            split nprims {
+                0 -> Interior { left: ptr[node]; right: ptr[node]; };
+                _ -> Leaf { poffset : u16; 48; 64; data = primitives[poffset : poffset + nprims]; };
+            };
+        };
+    };
+
+    build spheres {
+      build Interior(center: f32x3, radius: f32, left: BVH, right: BVH) {
+        build center;
+        build radius;
+        build nprims = 0;
+        recurse left;
+        recurse right;
+        return this;
+      };
+
+      build Leaf(center: f32x3, radius: f32, nprims: u8, data: array[MaterialSphere, nprims]) {
+        build center;
+        build radius;
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+
+    trace.loopify(64);
+}

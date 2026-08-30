@@ -1,6 +1,9 @@
 #include "Parser/Token.h"
 
+#include <cstdint>
 #include <sstream>
+#include <string>
+#include <variant>
 
 #include "Error.h"
 
@@ -94,11 +97,13 @@ uint64_t Token::size() const {
     case Token::Type::SHIFT_LEFT:
     case Token::Type::SHIFT_RIGHT:
     case Token::Type::RARROW:
+    case Token::Type::BY:
     case Token::Type::ON:
-    case Token::Type::IN:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
+    case Token::Type::LET:
+    case Token::Type::POINTER:
         return 3;
     case Token::Type::ELIF:
     case Token::Type::ELSE:
@@ -106,19 +111,23 @@ uint64_t Token::size() const {
     case Token::Type::FUNC:
     case Token::Type::TREE:
     case Token::Type::WITH:
+    case Token::Type::FROM:
         return 4;
     case Token::Type::GROUP:
     case Token::Type::PRINT:
     case Token::Type::FALSE:
+    case Token::Type::SPLIT:
+    case Token::Type::BUILD:
         return 5;
     case Token::Type::LAYOUT:
-    case Token::Type::SWITCH:
     case Token::Type::RETURN:
+    case Token::Type::RECURSE:
     case Token::Type::EXTERN:
     case Token::Type::IMPORT:
         return 6;
     case Token::Type::ELEMENT:
         return 7;
+    case Token::Type::INDIRECT:
     case Token::Type::SCHEDULE:
         return 8;
     case Token::Type::INTERFACE:
@@ -177,16 +186,16 @@ std::string Token::token_type_string(Token::Type type) {
         return "tree";
     case Token::Type::WITH:
         return "with";
-    case Token::Type::ON:
-        return "on";
-    case Token::Type::IN:
-        return "in";
+    case Token::Type::BUILD:
+        return "build";
     case Token::Type::LAYOUT:
         return "layout";
     case Token::Type::GROUP:
         return "group";
-    case Token::Type::SWITCH:
-        return "switch";
+    case Token::Type::POINTER:
+        return "ptr";
+    case Token::Type::SPLIT:
+        return "split";
     case Token::Type::FOR:
         return "for";
     case Token::Type::IF:

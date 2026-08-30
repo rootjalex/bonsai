@@ -34,6 +34,7 @@ struct Visitor {
     // Exprs
     virtual void visit(const IntImm *);
     virtual void visit(const UIntImm *);
+    virtual void visit(const IdxImm *);
     virtual void visit(const FloatImm *);
     virtual void visit(const BoolImm *);
     virtual void visit(const VecImm *);
@@ -49,11 +50,13 @@ struct Visitor {
     virtual void visit(const VectorShuffle *);
     virtual void visit(const Ramp *);
     virtual void visit(const Extract *);
+    virtual void visit(const Slice *);
     virtual void visit(const Build *);
     virtual void visit(const Access *);
     virtual void visit(const Unwrap *);
     virtual void visit(const Intrinsic *);
     virtual void visit(const Generator *);
+    virtual void visit(const Append *);
     virtual void visit(const Lambda *);
     virtual void visit(const GeomOp *);
     virtual void visit(const SetOp *);
@@ -85,15 +88,25 @@ struct Visitor {
     virtual void visit(const ForAll *);
     virtual void visit(const ForEach *);
     virtual void visit(const Continue *);
+    virtual void visit(const Break *);
     virtual void visit(const Launch *);
-    virtual void visit(const Append *);
+    virtual void visit(const AppendStmt *);
+    virtual void visit(const Swap *);
     // Layouts
-    virtual void visit(const Name *);
+    virtual void visit(const Field *);
     virtual void visit(const Pad *);
-    virtual void visit(const Switch *);
+    virtual void visit(const Split *);
     virtual void visit(const Chain *);
     virtual void visit(const Group *);
     virtual void visit(const Materialize *);
+    virtual void visit(const Lookup *);
+    // Build
+    virtual void visit(const BuildLet *);
+    virtual void visit(const BuildRecurse *);
+    virtual void visit(const BuildReturn *);
+    virtual void visit(const BuildRoot *);
+    virtual void visit(const BuildRule *);
+    virtual void visit(const BuildSequence *);
 };
 
 #define RESTRICT_VISITOR(IRNODE)                                               \

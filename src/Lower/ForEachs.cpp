@@ -22,6 +22,9 @@ bool is_range_call(const ir::Expr &expr) {
     if (!expr.type().is<ir::Array_t>()) {
         return false;
     }
+    if (expr.is<ir::Slice>()) {
+        return true;
+    }
     const ir::Generator *call = expr.as<ir::Generator>();
     if (call == nullptr) {
         return false;
@@ -31,6 +34,9 @@ bool is_range_call(const ir::Expr &expr) {
 
 ir::Expr get_range_offset(const ir::Expr &expr) {
     internal_assert(expr.type().is<ir::Array_t>());
+    if (const auto *slice = expr.as<ir::Slice>()) {
+        return slice->begin;
+    }
     const ir::Generator *call = expr.as<ir::Generator>();
     internal_assert(call);
     internal_assert(call->op == ir::Generator::range);
@@ -40,6 +46,9 @@ ir::Expr get_range_offset(const ir::Expr &expr) {
 
 ir::Expr get_range_iterable(const ir::Expr &expr) {
     internal_assert(expr.type().is<ir::Array_t>());
+    if (const auto *slice = expr.as<ir::Slice>()) {
+        return slice->value;
+    }
     const ir::Generator *call = expr.as<ir::Generator>();
     internal_assert(call);
     internal_assert(call->op == ir::Generator::range);
@@ -75,6 +84,31 @@ struct LowerToForAll : public ir::Mutator {
 
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iterable = node->iter;
+        if (const auto *slice = iterable.as<ir::Slice>()) {
+            ir::Expr begin = slice->begin;
+            ir::Expr end = slice->end;
+            ir::Expr step = slice->step;
+            std::string index_name = unique_idx_name();
+
+            ir::Expr idx = ir::Var::make(end.type(), index_name);
+            ir::Expr load = ir::Extract::make(slice->value, idx);
+            // `var = iterable[idx]`
+            auto [_, inserted] = repls.try_emplace(node->name, load);
+            internal_assert(inserted)
+                << "Lowering ForEach encountered duplicate variable: "
+                << node->name;
+
+            ir::Stmt body = mutate(node->body);
+
+            repls.erase(node->name);
+            return ir::ForAll::make(index_name,
+                                    ir::ForAll::Slice{
+                                        std::move(begin),
+                                        std::move(end),
+                                        std::move(step),
+                                    },
+                                    std::move(body));
+        }
 
         ir::Expr end = get_n(iterable.type());
         internal_assert(end.defined()) << ir::Stmt(node);
@@ -115,7 +149,7 @@ ir::FuncMap LowerForEachs::run(ir::FuncMap funcs,
                                const CompilerOptions &options) const {
     LowerToForAll convert_fa;
     for (auto &[_, f] : funcs) {
-        f->body = convert_fa.mutate(f->body);
+        f->body = convert_fa.mutate(std::move(f->body));
     }
     return funcs;
 }

@@ -1,7 +1,8 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:60
+[internal] Error: src/Parser/Parser.cpp:72
+-> src/Parser/Parser.cpp:460:34 
 tests/bonsai/error/struct_duplicate.bonsai:5:5: [parse error] Duplicate field name: o in element definition: Ray
 
     o : vec3f; // not allowed: duplicate

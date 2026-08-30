@@ -1,0 +1,391 @@
+#include "helpers.h"
+
+#include <cuda/std/array>
+#include <thrust/universal_vector.h>
+#include <cuda/std/optional>
+#include <cuda/std/tuple>
+
+#include <stdint.h>
+#include <variant>
+
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
+
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
+
+struct AABB {
+  float3 low;
+  float3 high;
+};
+
+struct Interior {
+  float3 low;
+  float3 high;
+  BVH* left;
+  BVH* right;
+};
+
+struct Triangle {
+  float3 p0;
+  float3 p1;
+  float3 p2;
+};
+
+struct Leaf {
+  float3 low;
+  float3 high;
+  uint16_t nprims;
+  Triangle* data;
+};
+
+struct Arm_Interior {
+  uint32_t offset;
+} __attribute__((packed));
+
+struct Arm_Leaf {
+  uint32_t poffset;
+} __attribute__((packed));
+
+struct Nodes1 {
+  float3 low;
+  float3 high;
+  uint16_t nprims;
+  uint8_t axis;
+  uint8_t pad0;
+  uchar4 split0on_nprims;
+} __attribute__((packed));
+
+struct Nodes2 {
+  float3 low;
+  float3 high;
+  uint16_t nprims;
+  uint8_t axis;
+  uint8_t pad0;
+  uchar4 split0on_nprims;
+} __attribute__((packed));
+
+struct Queue {
+  uint64_t count = 0u;
+  cuda::std::array<cuda::std::tuple<uint32_t, uint32_t>, 64> stack;
+};
+
+struct Triangles1 {
+  uint32_t primitive_count;
+  Triangle* primitives;
+  uint32_t node_count;
+  Nodes1* nodes1;
+} __attribute__((packed));
+
+struct Triangles2 {
+  uint32_t primitive_count;
+  Triangle* primitives;
+  uint32_t node_count;
+  Nodes2* nodes2;
+} __attribute__((packed));
+
+__host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
+  float3 low = max((*a).low, (*b).low);
+  float3 high = min((*a).high, (*b).high);
+  return reduce_and((low <= high));
+}
+
+__host__ bool project6(float3 ax, float3 p1, float3 p2, float3 p3, float3 q1, float3 q2, float3 q3) {
+  float P1 = dot(ax, p1);
+  float P2 = dot(ax, p2);
+  float P3 = dot(ax, p3);
+  float Q1 = dot(ax, q1);
+  float Q2 = dot(ax, q2);
+  float Q3 = dot(ax, q3);
+  float mn1 = fminf(fminf(P1, P2), P3);
+  float mx2 = fmaxf(fmaxf(Q1, Q2), Q3);
+  if (mx2 < mn1) {
+    return false;
+  }
+  float mx1 = fmaxf(fmaxf(P1, P2), P3);
+  float mn2 = fminf(fminf(Q1, Q2), Q3);
+  if (mx1 < mn2) {
+    return false;
+  }
+  return true;
+}
+
+__host__ bool intersects_Triangle_Triangle(Triangle* a, Triangle* b) {
+  float3 p1 = (*a).p0;
+  float3 p2 = (*a).p1;
+  float3 p3 = (*a).p2;
+  float3 q1 = (*b).p0;
+  float3 q2 = (*b).p1;
+  float3 q3 = (*b).p2;
+  float3 e1 = (p2 - p1);
+  float3 e2 = (p3 - p2);
+  float3 e3 = (p1 - p3);
+  float3 f1 = (q2 - q1);
+  float3 f2 = (q3 - q2);
+  float3 f3 = (q1 - q3);
+  float3 n1 = cross(e1, e2);
+  if (!project6(n1, p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  float3 m1 = cross(f1, f2);
+  if (!project6(m1, p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e1, f1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e1, f2), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e1, f3), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e2, f1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e2, f2), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e2, f3), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e3, f1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e3, f2), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e3, f3), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e1, n1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e2, n1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(e3, n1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(f1, m1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(f2, m1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  if (!project6(cross(f3, m1), p1, p2, p3, q1, q2, q3)) {
+    return false;
+  }
+  return true;
+}
+
+__host__ thrust::universal_vector<cuda::std::tuple<Triangle, Triangle>> _traverse_tree0(Triangles1* triangles1, Triangles2* triangles2) {
+  thrust::universal_vector<cuda::std::tuple<Triangle, Triangle>> _dyn_alloc;
+  _dyn_alloc.reserve(16);
+  Queue Q = Queue{};
+  Queue Q_buffer = Queue{};
+  Q.stack[0u] = cuda::std::tuple<uint32_t, uint32_t>{0u, 0u};
+  Q.count += 1u;
+  do {
+    for (uint64_t q = 0u; q < Q.count; q += 1u) {
+      uint32_t index1 = cuda::std::get<0>(Q.stack[q]);
+      uint32_t index2 = cuda::std::get<1>(Q.stack[q]);
+      if (index1 == 4294967295u) {
+        return;
+      }
+      if (index2 == 4294967295u) {
+        return;
+      }
+      Nodes1 _t88 = (*triangles1).nodes1[index1];
+      Nodes2 _t92 = (*triangles2).nodes2[index2];
+      AABB _lv0 = AABB{_t88.low, _t88.high};
+      AABB _lv1 = AABB{_t92.low, _t92.high};
+      if (intersects_AABB_AABB((&_lv0), (&_lv1))) {
+        uint16_t _t86 = _t88.nprims;
+        if (_t86 == 0u) {
+          if (_t92.nprims == 0u) {
+            uint32_t _t0 = (index1 + 1u);
+            uint32_t _t1 = (index2 + 1u);
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t0, _t1};
+            Q_buffer.count += 1u;
+            uint32_t _t8 = (index2 + bonsai_reinterpret<Arm_Interior>(_t92.split0on_nprims).offset);
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t0, _t8};
+            Q_buffer.count += 1u;
+            uint32_t _t14 = (index1 + bonsai_reinterpret<Arm_Interior>(_t88.split0on_nprims).offset);
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t14, _t1};
+            Q_buffer.count += 1u;
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t14, _t8};
+            Q_buffer.count += 1u;
+          } else {
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1 + 1u, index2};
+            Q_buffer.count += 1u;
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1 + bonsai_reinterpret<Arm_Interior>(_t88.split0on_nprims).offset, index2};
+            Q_buffer.count += 1u;
+          }
+        } else {
+          uint16_t _t82 = _t92.nprims;
+          if (_t82 == 0u) {
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1, index2 + 1u};
+            Q_buffer.count += 1u;
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1, index2 + bonsai_reinterpret<Arm_Interior>(_t92.split0on_nprims).offset};
+            Q_buffer.count += 1u;
+          } else {
+            uint32_t _t71 = bonsai_reinterpret<Arm_Leaf>(_t88.split0on_nprims).poffset;
+            for (uint32_t _idx0 = _t71; _idx0 < (_t71 + (uint32_t)_t86); _idx0 += 1u) {
+              uint32_t _t58 = bonsai_reinterpret<Arm_Leaf>(_t92.split0on_nprims).poffset;
+              for (uint32_t _idx1 = _t58; _idx1 < (_t58 + (uint32_t)_t82); _idx1 += 1u) {
+                Triangle _t47 = (*triangles1).primitives[_idx0];
+                Triangle _t49 = (*triangles2).primitives[_idx1];
+                if (intersects_Triangle_Triangle((&_t47), (&_t49))) {
+                  _dyn_alloc.push_back(cuda::std::tuple<Triangle, Triangle>{_t47, _t49});
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    swap(Q.stack, Q_buffer.stack)
+    Q.count = Q_buffer.count;
+    Q_buffer.count = 0u;
+  } while (Q.count != 0u);
+  return _dyn_alloc;
+}
+
+__host__ uint32_t rec_build_triangles1(BVH* node_, Triangles1* ST, size_t* nodes1_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
+      size_t this_index = (*nodes1_index);
+      (*nodes1_index) += 1;
+      (*ST).nodes1[this_index].low = node.low;
+      (*ST).nodes1[this_index].high = node.high;
+      (*ST).nodes1[this_index].nprims = 0;
+      (*ST).nodes1[this_index].axis = argmax(node.high - node.low);
+      uint32_t left_index = rec_build_triangles1(node.left, ST, nodes1_index, primitives_index);
+      uint32_t right_index = rec_build_triangles1(node.right, ST, nodes1_index, primitives_index);
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes1[this_index].split0on_nprims)->offset = (right_index - this_index);
+      return this_index;
+    }
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
+      size_t this_index = (*nodes1_index);
+      (*nodes1_index) += 1;
+      (*ST).nodes1[this_index].low = node.low;
+      (*ST).nodes1[this_index].high = node.high;
+      (*ST).nodes1[this_index].nprims = node.nprims;
+      (*ST).nodes1[this_index].axis = argmax(node.high - node.low);
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes1[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index) += node.nprims;
+      return this_index;
+    }
+}
+
+__host__ void rec_count_triangles1(BVH* node_, Triangles1* ST) {
+  if (!node_) {
+    return;
+  }
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
+      rec_count_triangles1(node.left, ST);
+      rec_count_triangles1(node.right, ST);
+      (*ST).node_count += 1u;
+    }
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
+      (*ST).primitive_count += node.nprims;
+      (*ST).node_count += 1u;
+    }
+}
+
+__host__ Triangles1 build_triangles1(BVH* CT) {
+  Triangles1 ST;
+  size_t primitives_index = 0;
+  size_t nodes1_index = 0;
+  ST.primitive_count = 0u;
+  ST.node_count = 0u;
+  rec_count_triangles1(CT, (&ST));
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
+  ST.primitives = primitives;
+  Nodes1* nodes1 = reinterpret_cast<Nodes1*>(malloc(sizeof(Nodes1) * ST.node_count));
+  ST.nodes1 = nodes1;
+  rec_build_triangles1(CT, (&ST), (&nodes1_index), (&primitives_index));
+  return ST;
+}
+
+__host__ uint32_t rec_build_triangles2(BVH* node_, Triangles2* ST, size_t* nodes2_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
+      size_t this_index = (*nodes2_index);
+      (*nodes2_index) += 1;
+      (*ST).nodes2[this_index].low = node.low;
+      (*ST).nodes2[this_index].high = node.high;
+      (*ST).nodes2[this_index].nprims = 0;
+      (*ST).nodes2[this_index].axis = argmax(node.high - node.low);
+      uint32_t left_index = rec_build_triangles2(node.left, ST, nodes2_index, primitives_index);
+      uint32_t right_index = rec_build_triangles2(node.right, ST, nodes2_index, primitives_index);
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes2[this_index].split0on_nprims)->offset = (right_index - this_index);
+      return this_index;
+    }
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
+      size_t this_index = (*nodes2_index);
+      (*nodes2_index) += 1;
+      (*ST).nodes2[this_index].low = node.low;
+      (*ST).nodes2[this_index].high = node.high;
+      (*ST).nodes2[this_index].nprims = node.nprims;
+      (*ST).nodes2[this_index].axis = argmax(node.high - node.low);
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes2[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index) += node.nprims;
+      return this_index;
+    }
+}
+
+__host__ void rec_count_triangles2(BVH* node_, Triangles2* ST) {
+  if (!node_) {
+    return;
+  }
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
+      rec_count_triangles2(node.left, ST);
+      rec_count_triangles2(node.right, ST);
+      (*ST).node_count += 1u;
+    }
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
+      (*ST).primitive_count += node.nprims;
+      (*ST).node_count += 1u;
+    }
+}
+
+__host__ Triangles2 build_triangles2(BVH* CT) {
+  Triangles2 ST;
+  size_t primitives_index = 0;
+  size_t nodes2_index = 0;
+  ST.primitive_count = 0u;
+  ST.node_count = 0u;
+  rec_count_triangles2(CT, (&ST));
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
+  ST.primitives = primitives;
+  Nodes2* nodes2 = reinterpret_cast<Nodes2*>(malloc(sizeof(Nodes2) * ST.node_count));
+  ST.nodes2 = nodes2;
+  rec_build_triangles2(CT, (&ST), (&nodes2_index), (&primitives_index));
+  return ST;
+}
+
+__host__ thrust::universal_vector<cuda::std::tuple<Triangle, Triangle>> collisions(Triangles1* triangles1, Triangles2* triangles2) {
+  return _traverse_tree0(triangles1, triangles2);
+}

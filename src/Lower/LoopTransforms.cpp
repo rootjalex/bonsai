@@ -186,19 +186,33 @@ Stmt split_loop(Stmt stmt, const std::string &loop_idx,
     return splitter.mutate(std::move(stmt));
 }
 
-Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
-                        WriteLoc queue_loc, Type queue_etype) {
+Stmt rewrite_yieldfroms(Stmt body, const ir::Type &ret_type, WriteLoc count_loc,
+                        Expr count_var, WriteLoc queue_loc, Type queue_etype) {
     struct RewriteYieldFroms : public Mutator {
         WriteLoc count_loc;
         Expr count_var;
         WriteLoc queue_loc;
         Type queue_etype;
+        const ir::Type &ret_type;
 
         RewriteYieldFroms(WriteLoc count_loc, Expr count_var,
-                          WriteLoc queue_loc, Type queue_etype)
+                          WriteLoc queue_loc, Type queue_etype,
+                          const ir::Type &ret_type)
             : count_loc(std::move(count_loc)), count_var(std::move(count_var)),
               queue_loc(std::move(queue_loc)),
-              queue_etype(std::move(queue_etype)) {}
+              queue_etype(std::move(queue_etype)), ret_type(ret_type) {}
+
+        Stmt visit(const Return *node) override {
+            ir::Expr value = mutate(node->value);
+            if (!value.defined()) {
+                value = ir::Build::make(ret_type);
+            }
+            ir::Expr zero = make_zero(count_var.type());
+            // We need to exit the loop if we're at the bottom of the stack
+            return ir::IfElse::make(count_var <= zero,
+                                    /*then_body=*/ir::Break::make(),
+                                    /*else_body=*/ir::Continue::make());
+        }
 
         Stmt visit(const YieldFrom *node) override {
             // TODO(ajr): handle sorting here?
@@ -208,7 +222,6 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
             // TODO(ajr): make sure LLVM does a compressed write.
             std::vector<Stmt> stmts;
             stmts.reserve(ids.size() + 1);
-
             for (size_t i = 0; i < ids.size(); i++) {
                 Expr value = ids[i];
                 if (!equals(value.type(), queue_etype)) {
@@ -242,7 +255,8 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
     };
 
     RewriteYieldFroms rewriter(std::move(count_loc), std::move(count_var),
-                               std::move(queue_loc), std::move(queue_etype));
+                               std::move(queue_loc), std::move(queue_etype),
+                               ret_type);
     return rewriter.mutate(std::move(body));
 }
 
@@ -310,9 +324,9 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
         const Function &function;
     };
 
-    std::vector<Function::Argument> args = function.args;
+    std::vector<Argument> args = function.args;
     for (int i = 0, e = args.size(); i < e; i++) {
-        const Function::Argument &farg = function.args[i];
+        const Argument &farg = function.args[i];
         // Right now we conservatively assume that tail recursion does
         // not have mutating arguments.
         internal_assert(!farg.mutating)
@@ -359,7 +373,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             }
             std::vector<Expr> args = node->args;
             for (int i = 0, e = args.size(); i < e; i++) {
-                const Function::Argument &farg = function.args[i];
+                const Argument &farg = function.args[i];
                 const auto *v = args[i].as<Var>();
                 if (v == nullptr || v->name != farg.name) {
                     arguments.insert(farg.name);
@@ -383,7 +397,7 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
             entry = false;
             std::vector<Stmt> stmts;
             // Save state variables locally on the stack.
-            for (const ir::Function::Argument &arg : function.args) {
+            for (const ir::Argument &arg : function.args) {
                 if (!requires_stack.contains(arg.name)) {
                     continue;
                 }
@@ -473,16 +487,44 @@ Stmt handle_tail_recursion(Stmt body, const Function &function) {
     return lower.mutate(std::move(body));
 }
 
-Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
-             FuncMap &funcs) {
+struct RewriteAccesses : public ir::Mutator {
+    RewriteAccesses(const std::string &name, const ir::Type &type)
+        : name(name), type(type) {}
+    const std::string &name;
+    const ir::Type &type;
+
+    std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc) override {
+        if (loc.name() == name) {
+            return {loc, false};
+        }
+        if (!ir::equals(type, loc.base_type())) {
+            return {loc, false};
+        }
+        return {loc.pop_base(name, type), true};
+    }
+
+    ir::Expr visit(const ir::Access *node) override {
+        if (!ir::equals(node->value.type(), type)) {
+            return ir::Mutator::visit(node);
+        }
+        return ir::Access::make(node->field, ir::Deref::make(ir::Var::make(
+                                                 ir::Ptr_t::make(type), name)));
+    }
+};
+
+Stmt loopify(std::string name, Stmt stmt, const ir::Type &ret_type,
+             std::optional<Expr> queue_size, FuncMap &funcs,
+             const ir::TypeMap &map) {
     struct LoopifyImpl : public Mutator {
         std::optional<Expr> queue_size;
         FuncMap &funcs;
+        const ir::TypeMap &map;
+        const ir::Type &ret_type;
 
-        bool in_recloop = false;
-
-        LoopifyImpl(std::optional<Expr> queue_size, FuncMap &funcs)
-            : queue_size(std::move(queue_size)), funcs(funcs) {}
+        LoopifyImpl(std::optional<Expr> queue_size, FuncMap &funcs,
+                    const ir::TypeMap &map, const ir::Type &ret_type)
+            : queue_size(std::move(queue_size)), funcs(funcs), map(map),
+              ret_type(ret_type) {}
 
         Stmt visit(const RecLoop *node) override {
             const size_t unique_id = get_unique_counter();
@@ -494,8 +536,12 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 // TODO: pack?
                 constexpr auto P = Struct_t::Attribute::packed;
                 // TODO: need to add this to program.types
+                std::vector<ir::TypedVar> args;
+                for (const ir::Argument &arg : node->args) {
+                    args.push_back(ir::TypedVar(arg.name, arg.type));
+                }
                 queue_etype = ir::Struct_t::make(unique_struct_name(unique_id),
-                                                 node->args, {P});
+                                                 std::move(args), {P});
                 internal_error
                     << "Need to add packed queue_etype to program.types"
                     << queue_etype;
@@ -521,7 +567,13 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
             Expr queue_var = Var::make(queue_type, queue_name);
             WriteLoc queue_top = queue_loc;
             queue_top.add_index_access(make_zero(count_type));
-            stmts.push_back(Store::make(queue_top, make_zero(queue_etype)));
+
+            const std::vector<ir::Argument> &args = node->args;
+            ir::Expr zero =
+                !args.empty() && args.front().default_value.defined()
+                    ? args.front().default_value
+                    : make_zero(queue_etype);
+            stmts.push_back(Store::make(queue_top, zero));
 
             std::vector<Stmt> loop_body;
             loop_body.reserve(node->args.size() + 3);
@@ -550,14 +602,28 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
             }
 
             // Turn YieldFroms into queue writes.
-            loop_body.push_back(rewrite_yieldfroms(
-                node->body, count_loc, count_var, queue_loc, queue_etype));
+            loop_body.push_back(rewrite_yieldfroms(node->body, ret_type,
+                                                   count_loc, count_var,
+                                                   queue_loc, queue_etype));
 
+            // Rewrite
             Expr quit_cond = count_var != make_zero(count_type);
 
-            stmts.push_back(
-                DoWhile::make(Sequence::make(loop_body), std::move(quit_cond)));
+            ir::Stmt loop = ir::Sequence::make(std::move(loop_body));
+            if (!args.empty() && args.front().type.is<ir::Ptr_t>()) {
+                const std::string &name = args.front().name;
+                const ir::Type &type = args.front().type;
+                const auto *ptr_t = type.as<ir::Ptr_t>();
+                const auto *ref_t = ptr_t->etype.as<ir::Ref_t>();
+                internal_assert(ref_t) << type;
+                auto it = map.find(ref_t->name);
+                internal_assert(it != map.end()) << ref_t->name;
+                loop =
+                    RewriteAccesses(name, it->second).mutate(std::move(loop));
+            }
 
+            stmts.push_back(
+                DoWhile::make(std::move(loop), std::move(quit_cond)));
             return Sequence::make(stmts);
         }
 
@@ -568,8 +634,9 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 // TODO(ajr): hope to God it's impossible to have
                 // self-recursion in these.
                 if (name.starts_with("_traverse_tree")) {
-                    funcs[name]->body = loopify(
-                        name, std::move(funcs[name]->body), queue_size, funcs);
+                    funcs[name]->body =
+                        loopify(name, std::move(funcs[name]->body),
+                                funcs[name]->ret_type, queue_size, funcs, map);
                     return node;
                 }
             }
@@ -585,7 +652,7 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         return handle_tail_recursion(std::move(stmt), func);
     }
 
-    LoopifyImpl rewriter(std::move(queue_size), funcs);
+    LoopifyImpl rewriter(std::move(queue_size), funcs, map, ret_type);
     return rewriter.mutate(std::move(stmt));
 }
 
@@ -631,7 +698,8 @@ ir::Program LoopTransforms::run(ir::Program program,
                                   [&](const Loopify &l) {
                                       body =
                                           loopify(name, std::move(body),
-                                                  l.queue_size, program.funcs);
+                                                  func->ret_type, l.queue_size,
+                                                  program.funcs, program.types);
                                   },
                                   [&](const MakeQueue &q) {
                                       // no-op, should have been handled in
@@ -641,7 +709,7 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // no-op, should have been handled in
                                       // Lower/Sorts.cpp
                                   },
-                                  [&](const Split &split) {
+                                  [&](const LoopSplit &split) {
                                       std::string i = get_name(split.i);
                                       std::string io = get_name(split.io);
                                       std::string ii = get_name(split.ii);

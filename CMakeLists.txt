@@ -96,6 +96,7 @@ target_sources(
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
+    src/IR/Build.cpp
     src/IR/Equality.cpp
     src/IR/Expr.cpp
     src/IR/Float16.cpp
@@ -107,9 +108,11 @@ target_sources(
     src/IR/Stmt.cpp
     src/IR/Type.cpp
     src/IR/TypeEnforcement.cpp
+    src/IR/ValidateBuild.cpp
     src/IR/ValidateLayout.cpp
     src/IR/Visitor.cpp
     src/IR/WriteLoc.cpp
+    src/Lower/Builds.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
     src/Lower/Defers.cpp
@@ -130,6 +133,7 @@ target_sources(
     src/Lower/Options.cpp
     src/Lower/Pass.cpp
     src/Lower/PassManager.cpp
+    src/Lower/PostLayoutDefers.cpp
     src/Lower/PredicateAnalysis.cpp
     src/Lower/Random.cpp
     src/Lower/RecLoops.cpp
@@ -141,9 +145,11 @@ target_sources(
     src/Lower/Tuples.cpp
     src/Lower/TopologicalOrder.cpp
     src/Lower/TypeInference.cpp
+    src/Lower/VerifyBuilds.cpp
     src/Lower/VerifyLayouts.cpp
     src/Lower/VerifyOptions.cpp
     src/Lower/Yields.cpp
+    src/Opt/CSE.cpp
     src/Opt/DCE.cpp
     src/Opt/Fusion.cpp
     src/Opt/Inline.cpp
@@ -171,7 +177,10 @@ target_sources(
     include/CodeGen/JIT.h
     include/CompilerOptions.h
     include/Error.h
+    include/Log.h
     include/IR/Analysis.h
+    include/IR/Argument.h
+    include/IR/Build.h
     include/IR/Equality.h
     include/IR/Expr.h
     include/IR/Float16.h
@@ -191,11 +200,13 @@ target_sources(
     include/IR/Target.h
     include/IR/Type.h
     include/IR/TypeEnforcement.h
+    include/IR/ValidateBuild.h
     include/IR/ValidateLayout.h
     include/IR/Visitor.h
     include/IR/WriteLoc.h
     include/IntrusivePtr.h
     include/LLVMIncl.h
+    include/Lower/Builds.h
     include/Lower/Canonicalize.h
     include/Lower/Defers.h
     include/Lower/DynamicArrays.h
@@ -215,6 +226,7 @@ target_sources(
     include/Lower/Options.h
     include/Lower/Pass.h
     include/Lower/PassManager.h
+    include/Lower/PostLayoutDefers.h
     include/Lower/PredicateAnalysis.h
     include/Lower/Random.h
     include/Lower/RecLoops.h
@@ -226,9 +238,11 @@ target_sources(
     include/Lower/Tuples.h
     include/Lower/TopologicalOrder.h
     include/Lower/TypeInference.h
+    include/Lower/VerifyBuilds.h
     include/Lower/VerifyLayouts.h
     include/Lower/VerifyOptions.h
     include/Lower/Yields.h
+    include/Opt/CSE.h
     include/Opt/DCE.h
     include/Opt/Fusion.h
     include/Opt/Inline.h

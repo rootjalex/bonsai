@@ -85,6 +85,8 @@ struct Type : public IRHandle<IRTypeNode> {
     bool is_iterable() const;
     bool is_func() const;
 
+    Expr size() const;
+
     // Type casts
     // Rewrites (through vectors) to boolean base.
     Type to_bool() const;
@@ -92,6 +94,8 @@ struct Type : public IRHandle<IRTypeNode> {
     Type to_uint() const;
     // returns (Vector_t | Set_t)'s etype
     Type element_of() const;
+    // returns the inner most etype.
+    Type get_element_type() const;
     // Changes the element type to etype
     Type with_etype(Type etype) const;
 
@@ -226,6 +230,7 @@ struct Struct_t : TypeNode<Struct_t> {
     std::string name;
     Map fields;
     DefMap defaults;
+    std::optional<int64_t> alignment;
 
     enum class Attribute {
         packed, // Whether this struct is 1-byte aligned.
@@ -234,9 +239,11 @@ struct Struct_t : TypeNode<Struct_t> {
     std::vector<Attribute> attributes;
 
     static Type make(std::string name, Map fields,
-                     std::vector<Attribute> attributes = {});
+                     std::vector<Attribute> attributes = {},
+                     std::optional<int64_t> alignment = {});
     static Type make(std::string name, Map fields, DefMap defaults,
-                     std::vector<Attribute> attributes = {});
+                     std::vector<Attribute> attributes = {},
+                     std::optional<int64_t> alignment = {});
 
     // Whether this type has the `packed` attribute.
     bool is_packed() const;
@@ -303,6 +310,13 @@ struct Annotation {
         Type struct_type;
         std::vector<std::string> initializers;
         bool broadcast; // if on children
+        // Whether a single volume encloses the whole subtree, or each
+        // child's volume is stored separately in the parent.
+        enum class BoundType {
+            Enclosing,
+            Childwise,
+        };
+        BoundType bound_type = BoundType::Enclosing;
     };
 
     // scalar in [low, high]
@@ -343,15 +357,19 @@ struct Annotation {
 
 // An ADT with Volume information, representing a bounding volume hierarchy.
 struct BVH_t : TypeNode<BVH_t> {
-    // A Node is a Struct_t of typed fields with some annotations.
+    // A Node is a Struct_t of typed fields with some annotations, one of
+    // which may be its bounding volume.
     struct Node {
         Type struct_type;
         std::vector<Annotation> annotations;
+
+        const ir::Type &type() const { return struct_type; }
 
         // Useful helper functions.
         const std::string &name() const {
             return struct_type.as<Struct_t>()->name;
         }
+
         const Struct_t::Map &fields() const {
             return struct_type.as<Struct_t>()->fields;
         }
@@ -378,14 +396,17 @@ struct BVH_t : TypeNode<BVH_t> {
         }
     };
 
+    // Scion's layout and validation code names these variants.
+    using Variant = Node;
+
     ir::Type primitive;
     std::string name;
     // TODO: do we ever want a root Volume or root Params?
-    // Params every Node has.
+    // Params every Variant has.
     // std::vector<Param> params;
     // All possible node types.
-    std::vector<Node> nodes;
-    // BV for every node, unless specified in the Node type.
+    std::vector<Variant> variants;
+    // BV for every node, unless specified in the Variant type.
     // std::optional<Volume> volume;
 
     // Each node should have a volume set, or are un-optimized.

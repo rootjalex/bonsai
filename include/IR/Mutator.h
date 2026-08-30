@@ -12,6 +12,8 @@ struct Mutator {
     virtual Interface mutate(const Interface &interface);
     virtual Expr mutate(const Expr &expr);
     virtual Stmt mutate(const Stmt &stmt);
+    virtual Member mutate(const Member &member);
+    virtual BuildIR mutate(const BuildIR &ir);
 
     virtual std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc);
     // protected:
@@ -43,6 +45,7 @@ struct Mutator {
     // Exprs
     virtual Expr visit(const IntImm *);
     virtual Expr visit(const UIntImm *);
+    virtual Expr visit(const IdxImm *);
     virtual Expr visit(const FloatImm *);
     virtual Expr visit(const BoolImm *);
     virtual Expr visit(const VecImm *);
@@ -58,11 +61,13 @@ struct Mutator {
     virtual Expr visit(const VectorShuffle *);
     virtual Expr visit(const Ramp *);
     virtual Expr visit(const Extract *);
+    virtual Expr visit(const Slice *);
     virtual Expr visit(const Build *);
     virtual Expr visit(const Access *);
     virtual Expr visit(const Unwrap *);
     virtual Expr visit(const Intrinsic *);
     virtual Expr visit(const Generator *);
+    virtual Expr visit(const Append *);
     virtual Expr visit(const Lambda *);
     virtual Expr visit(const GeomOp *);
     virtual Expr visit(const SetOp *);
@@ -94,8 +99,25 @@ struct Mutator {
     virtual Stmt visit(const ForAll *);
     virtual Stmt visit(const ForEach *);
     virtual Stmt visit(const Continue *);
+    virtual Stmt visit(const Break *);
     virtual Stmt visit(const Launch *);
-    virtual Stmt visit(const Append *);
+    virtual Stmt visit(const AppendStmt *);
+    virtual Stmt visit(const Swap *);
+    // Layouts
+    virtual Member visit(const Field *);
+    virtual Member visit(const Pad *);
+    virtual Member visit(const Split *);
+    virtual Member visit(const Chain *);
+    virtual Member visit(const Group *);
+    virtual Member visit(const Materialize *);
+    virtual Member visit(const Lookup *);
+    // Build
+    virtual BuildIR visit(const BuildLet *);
+    virtual BuildIR visit(const BuildRecurse *);
+    virtual BuildIR visit(const BuildReturn *);
+    virtual BuildIR visit(const BuildRoot *);
+    virtual BuildIR visit(const BuildRule *);
+    virtual BuildIR visit(const BuildSequence *);
 };
 
 #define RESTRICT_MUTATOR(IRType, IRNODE)                                       \

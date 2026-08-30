@@ -2,6 +2,7 @@
 
 #include "CodeGen/CPP.h"
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Expr.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -21,13 +22,13 @@ namespace bonsai {
 namespace codegen {
 void to_cuda(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
-        CodeGen_CUDA codegen(std::cout);
+        CodeGen_CUDA codegen(std::cout, program);
         codegen.print(program);
         return;
     }
     std::ofstream os(options.output_file);
     internal_assert(os.is_open()) << "failed to open: " << options.output_file;
-    CodeGen_CUDA codegen(os);
+    CodeGen_CUDA codegen(os, program);
     codegen.print(program);
     os.close();
 }
@@ -37,6 +38,82 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options) {
 using namespace ir;
 
 namespace {
+
+std::set<std::string> gather_pointer_children(const ir::Type &type) {
+    const auto *struct_t = type.as<ir::Struct_t>();
+    if (struct_t == nullptr) {
+        return {};
+    }
+    std::set<std::string> pointers;
+    for (const auto &[name, child] : struct_t->fields) {
+        const auto *ptr_t = child.as<ir::Ptr_t>();
+        if (ptr_t == nullptr) {
+            continue;
+        }
+        const auto *ref_t = ptr_t->etype.as<ir::Ref_t>();
+        if (ref_t == nullptr) {
+            continue;
+        }
+        pointers.insert(ref_t->name);
+    }
+    return pointers;
+}
+
+std::string recursive_malloc() {
+    return R"(
+std::function<void(Node**, Node*)> cudaMallocAndCopyToDeviceRecursive = [&](Node** device_node_ptr, Node* host_node) {
+    if (!host_node) {
+        *device_node_ptr = nullptr;
+        return;
+    }
+
+    Node* d_node;
+    cudaMalloc((void**)&d_node, sizeof(Node));
+    cudaMemcpy(d_node, host_node, sizeof(Node), cudaMemcpyHostToDevice);
+
+    if (host_node->nprims == 0) {
+        Arm_Interior* arm = reinterpret_cast<Arm_Interior*>(
+            host_node->split0on_nprims.data());
+
+        Node* d_left = nullptr;
+        Node* d_right = nullptr;
+
+        if (arm->left) {
+            cudaMallocAndCopyToDeviceRecursive(&d_left, arm->left);
+        }
+        if (arm->right) {
+            cudaMallocAndCopyToDeviceRecursive(&d_right, arm->right);
+        }
+
+        Node temp_node = *host_node;
+        Arm_Interior* temp_arm = reinterpret_cast<Arm_Interior*>(
+            temp_node.split0on_nprims.data());
+        temp_arm->left = d_left;
+        temp_arm->right = d_right;
+
+        cudaMemcpy(d_node, &temp_node, sizeof(Node),
+                   cudaMemcpyHostToDevice);
+    }
+
+    *device_node_ptr = d_node;
+};
+
+cudaMallocAndCopyToDeviceRecursive(&__node, (*triangles).node);)";
+}
+
+std::string compilerfy_name(std::string name) {
+    if (name.starts_with("d_")) {
+        return name;
+    }
+    return "__" + name;
+}
+
+// Capitalizes the first letter of `name`.
+void capitalize_first(std::string &name) {
+    if (!name.empty() && std::isalpha(name.front())) {
+        name.front() = std::toupper(name.front());
+    }
+}
 
 // Returns whether this type contains a field with a memory address.
 bool has_address(Type type) {
@@ -75,9 +152,9 @@ std::vector<TypedVar> get_immediate_addressed_children(Type type) {
     return children;
 }
 
-// Returns whether this is a context type created during parallelization. The
-// contexts already allocate everything to device; we want to avoid also needing
-// to allocate the context pointer on device, so we just copy it.
+// Returns whether this is a context type created during parallelization.
+// The contexts already allocate everything to device; we want to avoid also
+// needing to allocate the context pointer on device, so we just copy it.
 bool is_context_type(Type t) {
     const auto *s = t.as<Struct_t>();
     if (s == nullptr) {
@@ -127,6 +204,14 @@ std::string cuda_intrinsic(std::string intrinsic, Type type) {
 }
 
 std::string bonsai_scalar_type_to_cpp(Type type) {
+    if (const auto *struct_t = type.as<Struct_t>()) {
+        std::string name = struct_t->name;
+        capitalize_first(name);
+        return name;
+    }
+    if (const auto *index_t = type.as<Index_t>()) {
+        return "size_t";
+    }
     if (const auto *float_t = type.as<Float_t>()) {
         internal_assert(float_t->is_ieee754());
         switch (float_t->bits()) {
@@ -190,8 +275,8 @@ std::string vector_lane_to_field(uint32_t lane) {
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
 std::string vector_prefix(Type element_type) {
     if (element_type.is<Bool_t>()) {
-        // TODO(cgyurgyik): this is a home-grown bool vector for now. There are
-        // likely better alternatives.
+        // TODO(cgyurgyik): this is a home-grown bool vector for now. There
+        // are likely better alternatives.
         return "bool";
     }
     if (element_type.is<Int_t, UInt_t>()) {
@@ -262,19 +347,58 @@ void CodeGen_CUDA::visit(const Array_t *node) {
     os << '*';
 }
 
+void CodeGen_CUDA::visit(const BVH_t *node) {
+    for (const auto &variant : node->variants) {
+        // Forward declare
+        os << "struct " << variant.name() << ";\n";
+    }
+    os << "using " << node->name << " = ";
+    os << "std::variant<";
+    bool first = true;
+    for (const auto &variant : node->variants) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << variant.name();
+    }
+    os << ">;\n";
+    return;
+}
+
 void CodeGen_CUDA::visit(const Struct_t *node) {
+    std::string name = node->name;
+    capitalize_first(name);
     if (!is_declaration) {
-        os << node->name;
+        os << name;
         return;
     }
+    std::set<std::string> pointers = gather_pointer_children(ir::Type(node));
+    for (const std::string &pointer : pointers) {
+        std::string name = pointer;
+        capitalize_first(name);
+        os << get_indent() << "struct " << name << ";\n";
+    }
     os << get_indent();
-    os << "struct" << ' ' << node->name << ' ' << '{' << '\n';
+    os << "struct" << ' ';
+    if (std::optional<int64_t> alignment = node->alignment) {
+        os << "alignas(" << *alignment << ") ";
+    }
+    os << name << ' ' << '{' << '\n';
     ScopedValue<bool> _(is_declaration, false);
     increment();
     for (const auto &[name, type] : node->fields) {
-        // TODO: handle constant-sized arrays?
         os << get_indent();
         const auto *array_t = type.as<Array_t>();
+        if (array_t && array_t->size.defined() && is_const(array_t->size)) {
+            os << "cuda::std::array<";
+            array_t->etype.accept(this);
+            os << ", ";
+            array_t->size.accept(this);
+            os << ">";
+            os << ' ' << name << ";\n";
+            continue;
+        }
         (array_t == nullptr ? type : array_t->etype).accept(this);
         if (array_t) {
             os << '*';
@@ -285,11 +409,12 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
             os << " = ";
             print_no_parens(it->second);
         }
-        os << ';';
-        if (array_t) {
-            os << ' ' << '/' << '/' << ' ' << "of size" << ' ';
-            array_t->size.accept(this);
+        if (type.is_scalar()) {
+            if (uint64_t b = type.bits(); b < 8 || !is_power_of_two(b)) {
+                os << " : " << b;
+            }
         }
+        os << ';';
         os << '\n';
     }
     decrement();
@@ -301,16 +426,26 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
 }
 
 void CodeGen_CUDA::visit(const Vector_t *node) {
+    if (const auto *vector_t = node->etype.as<Vector_t>()) {
+        os << "cuda::std::array<";
+        internal_assert(!vector_t->etype.is<Vector_t>())
+            << "[unimplemented]: " << ir::Type(node);
+        os << vector_prefix(vector_t->etype) << vector_t->lanes;
+        os << ", " << std::to_string(node->lanes) + ">";
+        return;
+    }
     // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#built-in-vector-types
-    internal_assert(1 <= node->lanes && node->lanes <= 4)
-        << "[unimplemented] vector size: " << node->lanes
-        << " in CUDA codegen, " << Type(node);
-    os << vector_prefix(node->etype) << node->lanes;
+    if (1 <= node->lanes && node->lanes <= 4) {
+        os << vector_prefix(node->etype) << node->lanes;
+        return;
+    }
+    os << "cuda::std::array<" << bonsai_scalar_type_to_cpp(node->etype) << ", ";
+    os << node->lanes << ">";
 }
 
 void CodeGen_CUDA::visit(const Ptr_t *node) {
     // TODO(cgyurgyik): This isn't constant for an argument return type.
-    // os << "const" << ' ';
+    // os << "const" << ' ' << "__restrict__" << ' ';
     // Unlike the Bonsai printer, we cannot print () in argument parameters.
     Type etype = node->etype;
     if (is_context_type(etype)) {
@@ -318,10 +453,43 @@ void CodeGen_CUDA::visit(const Ptr_t *node) {
         return;
     }
     etype.accept(this);
+    if (etype.is<Ref_t>()) {
+        return;
+    }
     os << "*";
 }
 
+void CodeGen_CUDA::visit(const Ref_t *node) {
+    std::string name = node->name;
+    capitalize_first(name);
+    os << name << "*";
+}
+
 void CodeGen_CUDA::visit(const Rand_State_t *node) { os << "curandState"; }
+
+void CodeGen_CUDA::visit(const DynArray_t *node) {
+    // TODO(cgyurgyik): this probably has some performance implications. Can we
+    // always infer whether this is a {host, device}_vector?
+    os << "thrust::universal_vector<";
+    node->etype.accept(this);
+    os << ">";
+}
+
+void CodeGen_CUDA::visit(const ir::Option_t *node) {
+    os << "cuda::std::optional<";
+    node->etype.accept(this);
+    os << ">";
+}
+
+void CodeGen_CUDA::visit(const ir::Tuple_t *node) {
+    os << "cuda::std::tuple<";
+    print_type_list(node->etypes);
+    os << ">";
+}
+
+void CodeGen_CUDA::visit(const Index_t *node) {
+    os << bonsai_scalar_type_to_cpp(node);
+}
 
 void CodeGen_CUDA::visit(const FloatImm *node) {
     if (node->type.bits() == 64) {
@@ -392,9 +560,22 @@ void CodeGen_CUDA::visit(const Cast *node) {
 
     switch (node->mode) {
     case Cast::Mode::Convert:
-        os << '(';
-        node->type.accept(this);
-        os << ')';
+        if (node->value.type().is<ir::Option_t>()) {
+            if (node->type.is<ir::Bool_t>()) {
+                print_no_parens(node->value);
+                os << ".has_value()";
+                return;
+            }
+            os << "*";
+            print_no_parens(node->value);
+            return;
+        }
+        if (!type.is<ir::Option_t>()) {
+            // No need to cast for Option_t. this should be readily inferred.
+            os << '(';
+            node->type.accept(this);
+            os << ')';
+        }
         value.accept(this);
         return;
     case Cast::Mode::Reinterpret:
@@ -458,6 +639,18 @@ void CodeGen_CUDA::visit(const VectorReduce *node) {
         os << ')';
         return;
     }
+    case VectorReduce::OpType::And: {
+        os << "reduce_and" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
+    case VectorReduce::OpType::Or: {
+        os << "reduce_or" << '(';
+        node->value.accept(this);
+        os << ')';
+        return;
+    }
     default:
         internal_error << "[unimplemented] VectorReduce CUDA codegen: "
                        << Expr(node);
@@ -479,6 +672,11 @@ void CodeGen_CUDA::visit(const Ramp *node) {
 }
 
 void CodeGen_CUDA::visit(const Build *node) {
+    if (const auto *option_t = node->type.as<ir::Option_t>();
+        option_t && node->values.empty()) {
+        os << "cuda::std::nullopt";
+        return;
+    }
     node->type.accept(this);
     os << '{';
     for (size_t i = 0, n = node->values.size(); i < n; i++) {
@@ -661,6 +859,40 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ')';
         return;
     }
+    case ir::Intrinsic::OpType::argmax: {
+        os << "argmax(";
+        print_expr_list(node->args);
+        os << ")";
+        return;
+    }
+    case ir::Intrinsic::OpType::fadd_rd:
+    case ir::Intrinsic::OpType::fadd_ru:
+    case ir::Intrinsic::OpType::fsub_rd:
+    case ir::Intrinsic::OpType::fsub_ru:
+    case ir::Intrinsic::OpType::fdiv_rd:
+    case ir::Intrinsic::OpType::fdiv_ru:
+    case ir::Intrinsic::OpType::fmul_rd:
+    case ir::Intrinsic::OpType::fmul_ru:
+    case ir::Intrinsic::OpType::frcp_rd:
+    case ir::Intrinsic::OpType::frcp_ru: {
+        if (on_device) {
+            os << "__" << to_string(node->op) << "(";
+            print_expr_list(node->args);
+            os << ")";
+            return;
+        }
+    }
+        [[fallthrough]];
+    case ir::Intrinsic::OpType::floorf:
+    case ir::Intrinsic::OpType::roundf:
+    case ir::Intrinsic::OpType::frexpf:
+    case ir::Intrinsic::OpType::exp2f:
+    case ir::Intrinsic::OpType::ceilf: {
+        os << to_string(node->op) << "(";
+        print_expr_list(node->args);
+        os << ")";
+        return;
+    }
     default:
         internal_error << "[unimplemented] Intrinsic CUDA codegen: "
                        << Expr(node);
@@ -679,42 +911,83 @@ void CodeGen_CUDA::visit(const ir::Extract *node) {
     // vector types that match the alignment of CUDA builtin vector types, but
     // enable us to overload operators.
     std::optional<uint32_t> index = get_constant_value(node->idx);
-    if (node->vec.type().is<Vector_t>() && index.has_value()) {
+
+    if (const auto *vector_t = node->vec.type().as<Vector_t>();
+        vector_t && vector_t->lanes <= 4 && index.has_value() &&
+        !vector_t->etype.is_iterable()) {
         Access::make(vector_lane_to_field(*index), node->vec).accept(this);
+        return;
+    }
+    if (const auto &tuple_t = node->vec.type().as<Tuple_t>()) {
+        os << "cuda::std::get<";
+        internal_assert(index.has_value()) << node->idx;
+        os << *index << ">(";
+        print_no_parens(node->vec);
+        os << ")";
         return;
     }
 
     node->vec.accept(this);
     os << "[";
-    print_no_parens(node->idx);
+    node->idx.accept(this);
     os << "]";
+}
+
+void CodeGen_CUDA::visit(const ir::Slice *node) {
+    os << "slice";
+    const bool is_constant_bounds =
+        is_const(node->begin) && is_const(node->end);
+    os << (is_constant_bounds ? "<" : "(");
+    node->begin.accept(this);
+    os << ", ";
+    node->end.accept(this);
+    os << (is_constant_bounds ? ">(" : ",");
+    node->value.accept(this);
+    os << ")";
+}
+
+void CodeGen_CUDA::visit(const AtomicAdd *node) {
+    os << "atomicAdd(";
+    node->ptr.accept(this);
+    os << ", ";
+    node->value.accept(this);
+    os << ")";
 }
 
 void CodeGen_CUDA::visit(const ir::LetStmt *node) {
     os << get_indent();
     if (!node->loc.type.is<ir::Vector_t>()) {
         // TODO(bonsai/#149): Add `const` arithmetic operation overloads.
-        // TODO(cgyurgyik): Need to revisit this and fix const qualifier issues.
+        // TODO(cgyurgyik): Need to revisit this and fix const qualifier
+        // issues.
         //  os << "const" << ' ';
     }
     node->loc.type.accept(this);
-    os << ' ' << node->loc.base << ' ' << '=' << ' ';
+    os << ' ' << node->loc.base() << ' ' << '=' << ' ';
     node->value.accept(this);
     os << ';' << '\n';
 }
 
-// TODO(cgyurgyik): Verify this is coming from device memory.
-void CodeGen_CUDA::visit(const Free *node) {
+void CodeGen_CUDA::free_host_memory() {
     if (!device_allocated.empty()) {
         std::vector<Stmt> frees;
-        for (const auto &[name, type] : device_allocated) {
-            frees.push_back(Free::make(Var::make(type, name)));
+        for (auto &[name, type] : device_allocated) {
+            ir::Expr e = Var::make(type, compilerfy_name(name));
+            if (!has_address(type)) {
+                continue; // TODO(cgyurgyik): fix
+            }
+            frees.push_back(Free::make(std::move(e)));
         }
         device_allocated.clear();
         for (const Stmt &free : frees) {
             free.accept(this);
         }
     }
+}
+
+// TODO(cgyurgyik): Verify this is coming from device memory.
+void CodeGen_CUDA::visit(const Free *node) {
+    free_host_memory();
     os << get_indent() << "cudaFree" << '(';
     ir::Expr value = node->value;
     if (const auto *d = value.as<Deref>(); d && d->expr.type().is<Ptr_t>()) {
@@ -725,9 +998,25 @@ void CodeGen_CUDA::visit(const Free *node) {
     os << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Var *node) {
+    os << node->name;
+    if (is_build && node->name == "node" && node->type.is<Ref_t>()) {
+        // TODO(cgyurgyik): another ugly hack, we use std::variant's
+        // `holds_alternative`/`get` so we need to avoid the case:
+        //
+        //   if (holds_alernative<T>(*node)) {
+        //     const T& node = get<T>(*node); <-- duplicate `node` name
+        //   }
+        os << "_";
+    }
+}
+
 void CodeGen_CUDA::emit_to_device(const Allocate *node) {
-    const Expr &value = node->value;
-    const std::string &base = node->loc.base;
+    Expr value = node->value;
+    if (value.type().is<ir::Ptr_t>()) {
+        value = Deref::make(value);
+    }
+    const std::string &base = node->loc.base();
     Type type = node->loc.type;
     if (type.is<Ptr_t>()) {
         type = type.element_of();
@@ -741,7 +1030,7 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     std::vector<TypedVar> types = get_immediate_addressed_children(type);
     // copy the children to the device...
     for (const auto &[name, type] : types) {
-        emit_to_device(name, type, Access::make(name, Deref::make(value)),
+        emit_to_device(name, type, Access::make(name, value),
                        /*parent=*/value);
         device_allocated.push_back(TypedVar(name, type));
     }
@@ -750,12 +1039,19 @@ void CodeGen_CUDA::emit_to_device(const Allocate *node) {
     std::string original = base.substr(2, base.size());
     std::string copy = "h_" + original;
     // Make a shallow copy for non-pointer members.
-    os << get_indent() << type << ' ' << copy << ' ';
-    os << '=' << ' ' << '*' << original << ';' << '\n';
+
+    os << get_indent();
+    type.accept(this);
+    os << ' ' << copy << ' ';
+    os << '=' << ' ';
+    if (value.is<ir::Deref>()) {
+        os << '*';
+    }
+    os << original << ';' << '\n';
     // Then copy all the recently device-allocated members.
     for (const auto &[name, type] : types) {
         os << get_indent() << copy << '.' << name << ' ';
-        os << '=' << ' ' << name << ';' << '\n';
+        os << '=' << ' ' << compilerfy_name(name) << ';' << '\n';
     }
     // Finally, emit the base struct.
     emit_to_device(base, type, Var::make(type, copy));
@@ -776,9 +1072,15 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Struct_t *struct_t,
                                   Expr value) {
     os << get_indent();
     struct_t->accept(this);
-    os << '*' << ' ' << base << ';' << '\n';
+    os << '*' << ' ' << compilerfy_name(base) << ';' << '\n';
+    if (struct_t->name == "node") {
+        // TODO(cgyurgyik): ultra hack to get cuda `ptr` to work.
+        os << recursive_malloc() << "\n";
+        return;
+    }
     os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << compilerfy_name(base)
+       << ',' << ' ';
     internal_assert(value.defined())
         << "allocation to device expects a value (what is copied)";
     if (!value.type().is<Ptr_t>()) {
@@ -796,21 +1098,23 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
         << "[unimplemented] array with pointers: " << array_t;
     os << get_indent();
     array_t->accept(this);
-    os << ' ' << base << ';' << '\n';
+    os << ' ' << compilerfy_name(base) << ';' << '\n';
     os << get_indent() << "cudaMallocAndCopyToDevice" << '(';
-    os << '(' << "void" << '*' << '*' << ')' << '&' << base << ',' << ' ';
+    os << '(' << "void" << '*' << '*' << ')' << '&' << compilerfy_name(base)
+       << ',' << ' ';
     internal_assert(value.defined())
         << "allocation to device expects a value (what is copied)";
     value.accept(this);
     os << ',' << ' ';
+
     if (parent.has_value()) {
         // The size needs to be correctly accessed from the struct.
-        os << '(' << '*';
         parent->accept(this);
-        os << ')';
         os << '.';
     }
-    array_t->size.accept(this);
+    if (array_t->size.defined()) {
+        array_t->size.accept(this);
+    }
     os << ' ' << '*' << ' ' << "sizeof" << '(';
     array_t->etype.accept(this);
     os << ')' << ')' << ';' << '\n';
@@ -818,11 +1122,29 @@ void CodeGen_CUDA::emit_to_device(std::string base, const Array_t *array_t,
 
 void CodeGen_CUDA::visit(const Allocate *node) {
     ir::Type type = node->loc.type;
-    const std::string &b = node->loc.base;
+    const std::string &b = node->loc.base();
 
     switch (node->memory) {
     case Allocate::Memory::Stack: {
         os << get_indent();
+        if (const auto *vector_t = type.as<Vector_t>()) {
+            type->accept(this);
+            os << ' ' << b;
+            if (node->value.defined()) {
+                os << ' ' << '=' << ' ';
+                node->value.accept(this);
+            }
+            os << ';' << '\n';
+            return;
+        }
+        if (type.is<ir::Ptr_t>()) {
+            type->accept(this);
+            os << ' ' << b;
+            os << " = new ";
+            type.element_of().accept(this);
+            os << "();\n";
+            return;
+        }
         if (const auto *array_type = type.as<Array_t>()) {
             // <type> <name>[<size>];
             array_type->etype.accept(this);
@@ -843,25 +1165,34 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ';' << '\n';
             return;
         }
-        // Bonsai assumes *everything*, including stack allocated elements,
-        // are pointers. So first we "stack" allocate,
-        constexpr std::string_view P = "_";
-        os << ' ' << P << b << ' ' << '=' << ' ';
-        internal_assert(node->value.defined())
-            << "undefined value for CUDA stack allocation: " << Stmt(node);
-        node->value.accept(this);
-
+        os << ' ' << b;
+        if (!node->value.defined() && type.is_scalar()) {
+            os << ' ' << '=' << ' ';
+            os << make_zero(type);
+        } else if (node->value.defined()) {
+            os << ' ' << '=' << ' ';
+            node->value.accept(this);
+        }
         os << ';' << '\n';
-        // ...and then we take its address.
-        os << get_indent();
-        type.accept(this);
-        os << '*';
-        os << ' ' << b << ' ' << '=' << ' ' << '&' << P << b << ';' << '\n';
         return;
-    }
+    } break;
     case Allocate::Memory::Heap: {
         os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
+            if (is_build) {
+                type.accept(this);
+                os << ' ' << b << ' ' << '=' << ' ';
+                os << "reinterpret_cast<";
+                type.accept(this);
+                os << ">(";
+                os << "malloc(";
+                os << "sizeof(";
+                type.element_of().accept(this);
+                os << ") * ";
+                type.size().accept(this);
+                os << "));\n";
+                return;
+            }
             type.accept(this);
             os << ' ' << b << ';' << '\n';
             // TODO(cgyurgyik): check the status of the CUDA malloc.
@@ -873,13 +1204,22 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ')' << ')' << ';' << '\n';
             return;
         }
-        internal_error << "[unimplemented] Allocate CUDA codegen: "
-                       << Stmt(node);
-    }
+        if (const auto *dyn_array_t = type.as<DynArray_t>()) {
+            type.accept(this);
+            os << ' ' << b << ';' << '\n';
+            if (dyn_array_t->capacity.defined()) {
+                os << get_indent();
+                os << b << ".reserve(";
+                dyn_array_t->capacity.accept(this);
+                os << ");\n";
+            }
+            return;
+        }
+    } break;
     case Allocate::Memory::Device: {
         emit_to_device(node);
         return;
-    }
+    } break;
     case Allocate::Memory::Host: {
         os << get_indent();
         if (const auto *array_t = type.as<Array_t>()) {
@@ -897,51 +1237,38 @@ void CodeGen_CUDA::visit(const Allocate *node) {
             os << ')' << ')' << ';' << '\n';
             return;
         }
-        internal_error << "[unimplemented] Allocate CUDA codegen: "
-                       << Stmt(node);
+    } break;
+    case Allocate::Memory::Global: {
+        // do nothing; globals are handled in the program prologue.
+        return;
     }
     }
+    internal_error << "[unimplemented] Allocate CUDA codegen: " << Stmt(node);
 }
 
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
-
-    Expr value = node->value;
-    Type base_type = node->loc.base_type;
-    if (base_type.is<Array_t>() && value.type().is<Array_t>()) {
-        // We assume `T* = T*` is a pointer assignment.
-        os << node->loc << ' ' << '=' << ' ';
-        value.accept(this);
-        os << ';' << '\n';
-        return;
-    }
-    if (!base_type.is<Array_t>() && !is_context_type(base_type)) {
-        os << '*';
-    }
-    os << node->loc.base;
-    const auto &accesses = node->loc.accesses;
-    for (const auto &access : accesses) {
-        if (std::holds_alternative<std::string>(access)) {
-            os << "." << std::get<std::string>(access);
-        } else {
-            os << "[";
-            print_no_parens(std::get<Expr>(access));
-            os << "]";
-        }
-    }
-    os << ' ' << '=' << ' ';
-    value.accept(this);
-    os << ';' << '\n';
+    print_loc(os, node->loc, /*is_assignment=*/true);
+    os << " = ";
+    node->value.accept(this);
+    os << ";\n";
 }
 
 void CodeGen_CUDA::visit(const Accumulate *node) {
     const WriteLoc &current = node->loc;
     ir::Expr update = node->value;
     os << get_indent();
-    if (!node->loc.base_type.is<Array_t>()) {
-        os << '*';
+    if (program.globals.contains(current.to_expr())) {
+        // __managed__ memory must be atomically accumulated.
+        internal_assert(node->op == Accumulate::OpType::Add);
+        ir::AtomicAdd::make(ir::PtrTo::make(current.to_expr()), update)
+            .accept(this);
+        os << ";\n";
+        return;
     }
-    os << current.base << ' ';
+
+    print_loc(os, current, /*is_assignment=*/true);
+    os << ' ';
     switch (node->op) {
     case Accumulate::OpType::Add:
         os << '+';
@@ -960,7 +1287,7 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         os << '=' << ' ';
         os << "arg" << (node->op == Accumulate::OpType::Argmax ? "max" : "min")
            << '(';
-        Var::make(current.type, current.base).accept(this);
+        Var::make(current.type, current.base()).accept(this);
         os << ',' << ' ';
         update.accept(this);
         os << ')';
@@ -1076,13 +1403,17 @@ void CodeGen_CUDA::visit(const Continue *node) {
     os << get_indent() << "continue" << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Break *node) {
+    os << get_indent() << "break" << ';' << '\n';
+}
+
 void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << node->func;
     os << '<' << '<' << '<';
     ir::Expr n = node->n;
-    // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full block
-    // size (1024) was causing resource launch errors.
-    Expr block_size = make_const(n.type(), 512);
+    // TODO(cgyurgyik): This number, 512 was chosen arbitrarily. The full
+    // block sizes (512, 1024) were causing resource launch errors.
+    Expr block_size = make_const(n.type(), 256);
     opt::Simplify::simplify((n + (block_size - 1)) / block_size).accept(this);
     os << ',' << ' ';
     block_size.accept(this);
@@ -1093,10 +1424,57 @@ void CodeGen_CUDA::visit(const Launch *node) {
     os << get_indent() << "cudaDeviceSynchronize" << '(' << ')' << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const Match *node) {
+    increment();
+    for (size_t i = 0, e = node->arms.size(); i < e; i++) {
+        const auto &[variant, body] = node->arms[i];
+        const auto *struct_t = variant.struct_type.as<Struct_t>();
+        os << get_indent();
+        if (i > 0) {
+            os << "else ";
+        }
+        os << "if (std::holds_alternative<" << struct_t->name << ">";
+        os << "(*";
+        node->loc.accept(this);
+        os << "_";
+        os << ")) {\n";
+        increment();
+        os << get_indent() << "const " << struct_t->name << "& ";
+        node->loc.accept(this);
+        os << " = " << "std::get<" << struct_t->name << ">";
+        os << "(*";
+        node->loc.accept(this);
+        os << "_";
+        os << ");\n";
+        body.accept(this);
+        decrement();
+        os << get_indent() << "}\n";
+    }
+    decrement();
+}
+
+void CodeGen_CUDA::visit(const AppendStmt *node) {
+    os << get_indent();
+    node->loc.to_expr().accept(this);
+    os << ".push_back(";
+    print_no_parens(node->value);
+    os << ");\n";
+}
+
 void CodeGen_CUDA::emit_prologue() {
     // Overload arithmetic operators and intrinsics for vectorized math.
     // Requires: `-Iruntime/CUDA` to work.
     os << '#' << "include" << ' ' << "\"helpers.h\"" << '\n';
+    os << '\n';
+    // CUDA headers
+    os << '#' << "include" << ' ' << "<cuda/std/array>" << '\n';
+    os << '#' << "include" << ' ' << "<thrust/universal_vector.h>" << '\n';
+    os << '#' << "include" << ' ' << "<cuda/std/optional>" << '\n';
+    os << '#' << "include" << ' ' << "<cuda/std/tuple>" << '\n';
+    os << '\n';
+    // STL headers
+    os << '#' << "include" << ' ' << "<stdint.h>" << '\n';
+    os << '#' << "include" << ' ' << "<variant>" << '\n';
     os << '\n';
 }
 
@@ -1111,25 +1489,27 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
                          << function.body;
     // Whether we've seen this exit condition.
     bool thread_within_bounds_visited = false;
-    // Whether the thread index (TID) has been initialized. This is absolutely
-    // necessary before we visit the exit condition and ensures the compiler
-    // will never haphazardly produce incorrect code.
+    // Whether the thread index (TID) has been initialized. This is
+    // absolutely necessary before we visit the exit condition and ensures
+    // the compiler will never haphazardly produce incorrect code.
     bool tid_seen = false;
     for (int i = 0, e = seq->stmts.size(); i < e; ++i) {
         seq->stmts[i].accept(this);
         constexpr char TID[] = "tid";
         if (const auto *seed = seq->stmts[i].as<LetStmt>();
-            !tid_seen && seed && seed->loc.base == TID) {
+            !tid_seen && seed && seed->loc.base() == TID) {
             tid_seen = true;
         }
-        // TODO(cgyurgyik): We can future-proof this even more by ensuring the
-        // condition contains the correct variable (which won't be TID, so isn't
-        // necessarily straight forward). However, this is a good first step.
+        // TODO(cgyurgyik): We can future-proof this even more by ensuring
+        // the condition contains the correct variable (which won't be TID,
+        // so isn't necessarily straight forward). However, this is a good
+        // first step.
         if (thread_within_bounds_visited || !tid_seen) {
             continue;
         }
-        // We'd like to only initialize this state if the thread id is within
-        // bounds. This is usually done by some statement of the form:
+        // We'd like to only initialize this state if the thread id is
+        // within bounds. This is usually done by some statement of the
+        // form:
         //  `if (tid >= C) { return; }`
         const auto *ifelse = seq->stmts[i].as<IfElse>();
         if (ifelse == nullptr) {
@@ -1145,21 +1525,45 @@ void CodeGen_CUDA::setup_kernel_rng(const Function &function) {
            << lower::rng_state_name << ");\n";
     }
     internal_assert(thread_within_bounds_visited)
-        << "the thread id is never verified to be within bounds for kernel: "
+        << "the thread id is never verified to be within bounds for "
+           "kernel: "
         << function;
 }
+
+void CodeGen_CUDA::print(const Expr &expr) { expr.accept(this); }
 
 void CodeGen_CUDA::print(const Program &program) {
     emit_prologue();
     is_declaration = true;
+    for (const ir::Expr &global : program.globals) {
+        internal_assert(global.type().is_scalar())
+            << "[unimplemented] non-scalar globals: `" << global << "`";
+        os << get_indent() << "inline __managed__ ";
+        global.type().accept(this);
+        os << " ";
+        global.accept(this);
+        os << " = ";
+        make_zero(global.type()).accept(this);
+        os << ";\n";
+    }
     std::set<Type> visited;
+
+    if (auto it = program.schedules.find(ir::Target::Host);
+        it != program.schedules.end()) {
+        for (const auto &[name, type] : it->second.tree_types) {
+            type.accept(this);
+            os << '\n';
+        }
+    }
+
+    const ir::TypeMap &types = program.types;
     std::vector<std::string> types_topological =
-        lower::type_topological_order(program.types);
+        lower::type_topological_order(types);
     for (const std::string &name : types_topological) {
-        auto tit = program.types.find(name);
-        internal_assert(tit != program.types.end());
+        auto tit = types.find(name);
+        internal_assert(tit != types.end());
         const Type &type = tit->second;
-        if (!type.is<Struct_t>()) {
+        if (!type.is<Struct_t, BVH_t>()) {
             // This is just an alias of an non-aggregate type, e.g.,
             // element Float = f32;
             continue;
@@ -1175,13 +1579,13 @@ void CodeGen_CUDA::print(const Program &program) {
         os << '\n';
     }
     is_declaration = false;
-
     // CUDA requires functions to be declared before uses.
     const std::vector<std::string> topological_order =
         lower::func_topological_order(program.funcs,
                                       /*undef_calls=*/false);
-    std::set<std::string> devices = lower::find_device_functions(program.funcs);
     std::set<std::string> hosts = lower::find_host_functions(program.funcs);
+    std::set<std::string> devices =
+        lower::find_device_functions(program.funcs, hosts);
     for (int i = 0, e = topological_order.size(); i < e; ++i) {
         const std::string &name = topological_order[i];
         const auto &it = program.funcs.find(name);
@@ -1218,12 +1622,20 @@ void CodeGen_CUDA::print(const Program &program) {
 
 void CodeGen_CUDA::print(const Function &function) {
     os << get_indent();
+    is_build =
+        function.name.starts_with("rec_") || function.name.starts_with("build");
     function.ret_type.accept(this);
     os << ' ' << function.name << '(';
     for (int i = 0, e = function.args.size(); i < e; ++i) {
-        const Function::Argument &arg = function.args[i];
+        const Argument &arg = function.args[i];
         arg.type.accept(this);
+        if (arg.type.is<ir::DynArray_t>()) {
+            os << '&';
+        }
         os << ' ' << arg.name;
+        if (is_build && arg.name == "node" && arg.type.is<Ref_t>()) {
+            os << '_';
+        }
         if (ir::Expr value = arg.default_value; value.defined()) {
             os << '=';
             value.accept(this);
@@ -1242,6 +1654,73 @@ void CodeGen_CUDA::print(const Function &function) {
     }
     decrement();
     os << get_indent() << '}';
+    is_build = false;
+}
+
+void CodeGen_CUDA::print_loc(std::ostream &os, const ir::WriteLoc &loc,
+                             bool is_assignment) {
+    std::string ss;
+    const bool should_deref = loc.base_type().is<ir::Ptr_t>() &&
+                              !is_context_type(loc.base_type().element_of());
+    if (should_deref) {
+        ss += "(*";
+    }
+    ss += loc.base();
+    if (should_deref) {
+        ss += ")";
+    }
+    bool is_pointer = false;
+    for (const auto &value : loc.accesses) {
+        if (std::holds_alternative<std::string>(value)) {
+            if (is_pointer) {
+                ss += "->";
+                is_pointer = false;
+            } else {
+                ss += ".";
+            }
+            ss += std::get<std::string>(value);
+            continue;
+        }
+        if (std::holds_alternative<ir::Expr>(value)) {
+            ir::Expr idx = std::get<ir::Expr>(value);
+            if (loc.base_type().is<ir::Vector_t>() && is_const(idx)) {
+                ss += ".";
+                ss += vector_lane_to_field(*get_constant_value(idx));
+                continue;
+            }
+            ss += "[";
+            std::stringstream stream;
+            CodeGen_CUDA printer(stream, program);
+            printer.print(idx);
+            ss += stream.str();
+            ss += "]";
+            continue;
+        }
+        if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+            auto cast = std::get<ir::WriteLoc::Cast>(value);
+            std::string b;
+            if (cast.mode == ir::Cast::Mode::Reinterpret) {
+                b += "reinterpret";
+                b += '_';
+            }
+            b += "cast<";
+            std::stringstream t;
+            codegen::emit_type(t, cast.type);
+            b += t.str();
+            b += ">(";
+            if (is_assignment) {
+                b += "&"; // *must* take the address for assignment.
+                is_pointer = true;
+            }
+            b += ss;
+            b += ")";
+            ss = std::move(b);
+
+            continue;
+        }
+        internal_error << "unexpected WriteLoc access type";
+    }
+    os << ss;
 }
 
 } //  namespace bonsai

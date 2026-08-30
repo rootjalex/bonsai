@@ -1,5 +1,6 @@
 #include "Lower/Geometrics.h"
 
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Function.h"
 #include "IR/Printer.h"

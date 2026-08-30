@@ -1,6 +1,7 @@
 #include "Lower/Options.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 
@@ -148,15 +149,18 @@ struct RewriteOptions : public ir::Mutator {
     // Similar to mutate_writeloc in Mutator.cpp, but also mutates type.
     std::pair<ir::WriteLoc, bool>
     mutate_writeloc(const ir::WriteLoc &loc) override {
-        ir::Type base_type = mutate(loc.base_type);
-        bool not_changed = base_type.same_as(loc.base_type);
-        ir::WriteLoc new_loc(loc.base, std::move(base_type));
+        ir::Type base_type = mutate(loc.base_type());
+        bool not_changed = base_type.same_as(loc.base_type());
+        ir::WriteLoc new_loc(loc.base(), std::move(base_type));
 
         for (const auto &value : loc.accesses) {
             if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {
                 ir::Expr new_value = mutate(*expr);
                 not_changed = not_changed && new_value.same_as(*expr);
                 new_loc.add_index_access(std::move(new_value));
+            } else if (const ir::WriteLoc::Cast *cast =
+                           std::get_if<ir::WriteLoc::Cast>(&value)) {
+                new_loc.add_cast(cast->type, cast->mode);
             } else {
                 new_loc.add_struct_access(std::get<std::string>(value));
             }
@@ -194,10 +198,10 @@ ir::Program LowerOptions::run(ir::Program program,
     }
 
     for (auto &[f, func] : program.funcs) {
-        std::vector<ir::Function::Argument> args(func->args.size());
+        std::vector<ir::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{
+            args[i] = ir::Argument{
                 arg.name,
                 rewriter.mutate(arg.type),
                 rewriter.mutate(arg.default_value),

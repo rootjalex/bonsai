@@ -5,9 +5,12 @@
 
 #include "cuda_runtime.h"
 #include "curand_kernel.h"
+#include <cuda/std/tuple>
 #include <cuda_fp16.h>
 
 #include <algorithm>
+#include <cassert>
+#include <cfenv>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
@@ -62,32 +65,32 @@ __forceinline__ __host__ __device__ bool4 make_bool4(bool s) {
     return bool4{.x = s, .y = s, .z = s, .w = s};
 }
 
-__forceinline__ bool4 operator<(float4 a, float4 b) {
+__forceinline__ __host__ __device__ bool4 operator<(float4 a, float4 b) {
     return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
 }
-__forceinline__ bool4 operator<(int4 a, int4 b) {
+__forceinline__ __host__ __device__ bool4 operator<(int4 a, int4 b) {
     return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
 }
-__forceinline__ bool4 operator<(uint4 a, uint4 b) {
+__forceinline__ __host__ __device__ bool4 operator<(uint4 a, uint4 b) {
     return make_bool4(a.x < b.x, a.y < b.y, a.z < b.z, a.w < b.w);
 }
 
-__forceinline__ bool2 operator<(float2 a, float2 b) {
+__forceinline__ __host__ __device__ bool2 operator<(float2 a, float2 b) {
     return make_bool2(a.x < b.x, a.y < b.y);
 }
-__forceinline__ bool2 operator<(int2 a, int2 b) {
+__forceinline__ __host__ __device__ bool2 operator<(int2 a, int2 b) {
     return make_bool2(a.x < b.x, a.y < b.y);
 }
-__forceinline__ bool2 operator<(uint2 a, uint2 b) {
+__forceinline__ __host__ __device__ bool2 operator<(uint2 a, uint2 b) {
     return make_bool2(a.x < b.x, a.y < b.y);
 }
-__forceinline__ bool3 operator<(float3 a, float3 b) {
+__forceinline__ __host__ __device__ bool3 operator<(float3 a, float3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
-__forceinline__ bool3 operator<(int3 a, int3 b) {
+__forceinline__ __host__ __device__ bool3 operator<(int3 a, int3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
-__forceinline__ bool3 operator<(uint3 a, uint3 b) {
+__forceinline__ __host__ __device__ bool3 operator<(uint3 a, uint3 b) {
     return make_bool3(a.x < b.x, a.y < b.y, a.z < b.z);
 }
 
@@ -1048,8 +1051,18 @@ __forceinline__ __host__ __device__ float4 normalize(float4 v) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// floor
+// ceilf, floorf
 ////////////////////////////////////////////////////////////////////////////////
+
+__forceinline__ __host__ __device__ float2 ceilf(float2 v) {
+    return make_float2(ceilf(v.x), ceilf(v.y));
+}
+__forceinline__ __host__ __device__ float3 ceilf(float3 v) {
+    return make_float3(ceilf(v.x), ceilf(v.y), ceilf(v.z));
+}
+__forceinline__ __host__ __device__ float4 ceilf(float4 v) {
+    return make_float4(ceilf(v.x), ceilf(v.y), ceilf(v.z), ceilf(v.w));
+}
 
 __forceinline__ __host__ __device__ float2 floorf(float2 v) {
     return make_float2(floorf(v.x), floorf(v.y));
@@ -1756,9 +1769,89 @@ shuffle(float4 v, std::initializer_list<uint32_t> indices) {
     return r;
 }
 
+// rounding operations
+
+__host__ float3 next_after_element_wise(const float3 &from, float to) {
+    float3 result;
+    result.x = std::nextafter(from.x, to);
+    result.y = std::nextafter(from.y, to);
+    result.z = std::nextafter(from.z, to);
+    return result;
+}
+
+template <typename T>
+__host__ T next_after(T from, T to) {
+    return std::nextafterf(from, to);
+}
+
+// Template function to perform operations with specific rounding modes.
+template <int RoundingMode, typename T, typename Op>
+__host__ T directed_operation(T a, T b, Op &&op) {
+    constexpr float MAX = std::numeric_limits<float>::max();
+    T result = op(a, b);
+
+    if constexpr (RoundingMode == FE_DOWNWARD) {
+        if constexpr (std::is_same_v<T, float3>) {
+            return next_after_element_wise(result, -MAX);
+        } else {
+            return std::nextafter(result, -MAX);
+        }
+    }
+    if constexpr (std::is_same_v<T, float3>) {
+        return next_after_element_wise(result, MAX);
+    } else {
+        return std::nextafter(result, MAX);
+    }
+}
+
+template <typename T>
+__host__ T fadd_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::plus<T>{});
+}
+
+template <typename T>
+__host__ T fsub_ru(T a, T b) {
+    return directed_operation<FE_UPWARD>(a, b, std::minus<T>{});
+}
+
+template <typename T>
+__host__ T fsub_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::minus<T>{});
+}
+
+template <typename T>
+__host__ T fmul_ru(T a, T b) {
+    return directed_operation<FE_UPWARD>(a, b, std::multiplies<T>{});
+}
+
+template <typename T>
+__host__ T fmul_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::multiplies<T>{});
+}
+
+template <typename T>
+__host__ T fdiv_ru(T a, T b) {
+    return directed_operation<FE_UPWARD>(a, b, std::divides<T>{});
+}
+
+template <typename T>
+__host__ T fdiv_rd(T a, T b) {
+    return directed_operation<FE_DOWNWARD>(a, b, std::divides<T>{});
+}
+
+template <typename T>
+__host__ T frcp_ru(T x) {
+    return directed_operation<FE_UPWARD>(T{1}, x, std::divides<T>{});
+}
+
+template <typename T>
+__host__ T frcp_rd(T x) {
+    return directed_operation<FE_DOWNWARD>(T{1}, x, std::divides<T>{});
+}
+
 template <typename T>
 __forceinline__ __host__ __device__ T argmin(T *current, T update) {
-    if (current->_field0 < update._field0) {
+    if (cuda::std::get<0>(*current) < cuda::std::get<0>(update)) {
         return *current;
     }
     return update;
@@ -1766,10 +1859,81 @@ __forceinline__ __host__ __device__ T argmin(T *current, T update) {
 
 template <typename T>
 __forceinline__ __host__ __device__ T *argmax(T *current, T update) {
-    if (current->_field0 > update._field0) {
+    if (cuda::std::get<0>(*current) > cuda::std::get<0>(update)) {
         return current;
     }
     return &update;
+}
+
+template <typename T1, typename T2>
+__forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
+argmin(const cuda::std::tuple<T1, T2> *a, const cuda::std::tuple<T1, T2> &b) {
+    if (cuda::std::get<0>(*a) < cuda::std::get<0>(b)) {
+        return *a;
+    }
+    return b;
+}
+
+template <typename T1, typename T2>
+__forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
+argmin(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
+    if (cuda::std::get<0>(a) < cuda::std::get<0>(b)) {
+        return a;
+    }
+    return b;
+}
+
+template <typename T1, typename T2>
+__forceinline__ __host__ __device__ cuda::std::tuple<T1, T2>
+argmax(const cuda::std::tuple<T1, T2> &a, const cuda::std::tuple<T1, T2> &b) {
+    if (cuda::std::get<0>(a) > cuda::std::get<0>(b)) {
+        return a;
+    }
+    return b;
+}
+
+size_t argmax(float3 a) {
+    size_t p = 0;
+    float r = a.x;
+    if (r <= a.y) {
+        r = a.y;
+        p = 1;
+    }
+    if (r <= a.z) {
+        p = 2;
+    }
+    return p;
+}
+
+template <size_t N>
+bool reduce_and(bool3 a) {
+    bool t = a.x;
+    t &= a.y;
+    t &= a.z;
+    return t;
+}
+
+template <size_t N>
+bool reduce_or(bool3 a) {
+    bool t = a.x;
+    t |= a.y;
+    t |= a.z;
+    return t;
+}
+
+__device__ inline float3 __fadd_rd(const float3 &a, const float3 &b) {
+    return float3{__fadd_rd(a.x, b.x), __fadd_rd(a.y, b.y),
+                  __fadd_rd(a.z, b.z)};
+}
+
+__device__ inline float3 __fsub_ru(const float3 &a, const float3 &b) {
+    return float3{__fsub_ru(a.x, b.x), __fsub_ru(a.y, b.y),
+                  __fsub_ru(a.z, b.z)};
+}
+
+__device__ inline float3 __fmul_rd(const float3 &a, const float3 &b) {
+    return float3{__fmul_rd(a.x, b.x), __fmul_rd(a.y, b.y),
+                  __fmul_rd(a.z, b.z)};
 }
 
 // Mimics curand_uniform by producing an output in (0, 1].
@@ -1796,7 +1960,14 @@ __forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
 
 __forceinline__ __host__ void
 cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
-    cudaMalloc(device, size);
+    cudaError_t err = cudaMalloc(device, size);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed:\n");
+        fprintf(stderr, "  Error name: %s\n", cudaGetErrorName(err));
+        fprintf(stderr, "  Error string: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "  Requested size: %zu bytes\n", size);
+        assert(false);
+    }
     cudaMemcpy(*device, host, size, cudaMemcpyHostToDevice);
 }
 
@@ -1804,4 +1975,31 @@ __forceinline__ __host__ void
 mallocAndCopyFromDevice(void **host, const void *device, size_t size) {
     *host = malloc(size);
     cudaMemcpy(*host, device, size, cudaMemcpyDeviceToHost);
+}
+
+// [M, N]
+template <int M, int N, typename T>
+__forceinline__ __host__ __device__ T slice(T value) {
+    static_assert(std::is_unsigned_v<T>);
+    constexpr int bits = std::numeric_limits<T>::digits;
+    static_assert(M >= 0 && N >= 0 && M < N && N < bits);
+    constexpr int width = N - M + 1;
+    constexpr T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
+    return (value >> M) & mask;
+}
+
+// [M, N]
+template <typename T>
+__forceinline__ __host__ __device__ T slice(int M, int N, T value) {
+    static_assert(std::is_unsigned_v<T>);
+    const int bits = std::numeric_limits<T>::digits;
+    int width = N - M + 1;
+    T mask = (width == bits) ? ~T{0} : (T{1} << width) - 1;
+    return (value >> M) & mask;
+}
+
+__forceinline__ __host__ int frexpf(float f) {
+    int x;
+    frexpf(f, &x);
+    return x;
 }

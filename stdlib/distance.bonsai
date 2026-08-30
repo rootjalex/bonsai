@@ -20,7 +20,7 @@ func distmin(r : Ray, b : AABB) -> Float {
         extract = *interval;
         return extract.low;
     }
-    return -inf;
+    return inf;
 }
 
 func distmin(ray : Ray, tri : Triangle) -> Float {

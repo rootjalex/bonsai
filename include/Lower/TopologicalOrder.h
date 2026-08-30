@@ -34,7 +34,8 @@ CallGraph build_call_graph(const ir::FuncMap &funcs,
 // Returns a list of functions that need the __device__ attribute in CUDA.
 // Kernels being launched are not included since they will be annotated with
 // __global__.
-std::set<std::string> find_device_functions(const ir::FuncMap &funcs);
+std::set<std::string> find_device_functions(const ir::FuncMap &funcs,
+                                            const std::set<std::string> &hosts);
 // Similar, but for functions requiring the __host__ attribute. This begins with
 // at exported functions.
 std::set<std::string> find_host_functions(const ir::FuncMap &funcs);

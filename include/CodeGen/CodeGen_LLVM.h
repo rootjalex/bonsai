@@ -135,6 +135,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::VectorShuffle *) override;
     virtual void visit(const ir::Ramp *) override;
     virtual void visit(const ir::Extract *) override;
+    virtual void visit(const ir::Slice *) override;
     virtual void visit(const ir::Build *) override;
     virtual void visit(const ir::Access *) override;
     virtual void visit(const ir::Unwrap *) override;
@@ -162,7 +163,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Store *) override;
     virtual void visit(const ir::Accumulate *) override;
     virtual void visit(const ir::Label *) override;
-    virtual void visit(const ir::Append *) override;
+    virtual void visit(const ir::AppendStmt *) override;
     // TODO(cgyurgyik): support deallocation.
     RESTRICT_VISITOR(ir::Free);
     RESTRICT_VISITOR(ir::RecLoop);
@@ -173,6 +174,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::Scan);
     virtual void visit(const ir::ForAll *) override;
     RESTRICT_VISITOR(ir::ForEach);
+    RESTRICT_VISITOR(ir::Break); // TODO: support
     virtual void visit(const ir::Continue *) override;
     virtual void visit(const ir::Launch *) override;
 

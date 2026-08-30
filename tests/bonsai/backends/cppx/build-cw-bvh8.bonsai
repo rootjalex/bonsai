@@ -1,0 +1,112 @@
+//! flags: --up-to lower-trees
+
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+element u1x8 = vector[u1, 8];
+element u64x8 = vector[u64, 8];
+element u8x3x8 = vector[u8x3, 8];
+element u8x8 = vector[u8, 8];
+
+// if (x >> 5) == 0b100 { return 1; }
+// if (x >> 5) == 0b110 { return 2; }
+// if (x >> 5) == 0b111 { return 3; }
+// (unary encoding)
+func decode_primitive_count(x: u8) -> u8 {
+  sx: u8 = x >> 5;
+  return (sx - 4) + cast[[u8]](sx == 4);
+}
+
+func decode_child(child_node_base_index: u32, imask: u8, index: u32) -> u64x8 {
+  // INCORRECT: need to count *all* preceding internal nodes.
+  return u64x8 {
+     child_node_base_index + imask[0:0],
+     child_node_base_index + imask[1:1],
+     child_node_base_index + imask[2:2],
+     child_node_base_index + imask[3:3],
+     child_node_base_index + imask[4:4],
+     child_node_base_index + imask[5:5],
+     child_node_base_index + imask[6:6],
+     child_node_base_index + imask[7:7]
+  };
+}
+
+func dequantize(q: u8x3, p: f32x3, e: u8x3) -> f32x3 {
+  return p + (cast[[f32]](q) / 255.0) * cast[[f32]](e);
+}
+
+
+schedule {
+    tree[[Triangle]] BVH(lo: f32x3, hi: f32x3) with AABB(lo, hi)
+      = Interior(child: BVH)
+      | Leaf(nprims: u8, data: array[Triangle, nprims]);
+
+    triangles : array[BVH, 8];
+
+    layout triangles(I: u64) {
+        primitive_count: u64;
+        primitives : array[Triangle, primitive_count];
+
+        node_count: u64;
+        group Interiors[size=node_count] by I {
+            // quantization (15B)
+            mlo: f32x3;
+            mex: u8x3;
+            // indexing (9B)
+            imask : u8;
+            child_node_base_index: u32;
+            triangle_base_index: u32;
+            // children (56B)
+            meta: u8x8;
+            q_lo: u8x3x8;
+            q_hi: u8x3x8;
+        };
+
+        
+        group nodes[size=node_count] by I {
+            // quantization (15B)
+            mlo: f32x3;
+            mex: u8x3;
+            // indexing (9B)
+            imask : u8;
+            child_node_base_index: u32;
+            triangle_base_index: u32;
+            // children (56B)
+            meta: u8x8;
+            q_lo: u8x3x8;
+            q_hi: u8x3x8;
+
+            split imask & 1 {
+                1 -> Interior {
+                  lo[0] = dequantize(q_lo[0], mlo, mex);
+                  hi[0] = dequantize(q_hi[0], mlo, mex);
+                  children[0] = decode_child(child_node_base_index, imask, cast[[u32]](0));
+                };
+                0 -> Leaf { 
+                  nprims = decode_primitive_count(meta[0]);
+                  data = primitives[triangle_base_index + (meta[0] & 31) : triangle_base_index + (meta[0] & 31) + nprims];
+                };
+            };
+            // split imask & 2 { ... }
+            // split imask & 4 { ... }
+            // split imask & 8 { ... }
+            // split imask & 16 { ... }
+            // split imask & 32 { ... }
+        };
+    };
+
+    build triangles {
+      build Interior(children: array[BVH, 8], lo: f32x3x8, hi: f32x3x8) {
+        return this;
+      };
+
+      build Leaf(nprims: u8, data: array[Triangle, nprims]) {
+        return this;
+      };
+    };
+}

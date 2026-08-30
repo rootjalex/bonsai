@@ -19,6 +19,10 @@ struct GatherFreeVars : public Visitor {
     std::set<std::string> seen_vars;
 
     void visit(const Var *node) override {
+        if (node->name == "nullptr") {
+            // global variable, ignore this
+            return;
+        }
         // Function calls are not free vars.
         if (seen_vars.count(node->name) == 0 && !node->type.is_func()) {
             // Visit sizes, might be a free var
@@ -39,7 +43,7 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const LetStmt *node) override {
-        seen_vars.insert(node->loc.base);
+        seen_vars.insert(node->loc.base());
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
                 std::get<Expr>(value).accept(this);
@@ -49,7 +53,7 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Allocate *node) override {
-        seen_vars.insert(node->loc.base);
+        seen_vars.insert(node->loc.base());
         internal_assert(node->loc.accesses.empty());
         if (node->value.defined()) {
             node->value.accept(this);
@@ -65,9 +69,9 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const Store *node) override {
-        if (!seen_vars.contains(node->loc.base)) {
-            free_vars.push_back({node->loc.base, node->loc.base_type});
-            seen_vars.insert(node->loc.base);
+        if (!seen_vars.contains(node->loc.base())) {
+            free_vars.push_back({node->loc.base(), node->loc.base_type()});
+            seen_vars.insert(node->loc.base());
         }
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<Expr>(value)) {
@@ -170,7 +174,7 @@ struct AlwaysReturns : public Visitor {
         node->stmts.back().accept(this);
     }
 
-    void visit(const Append *node) override { returns = false; }
+    void visit(const AppendStmt *node) override { returns = false; }
     void visit(const CallStmt *node) override { returns = false; }
     void visit(const LetStmt *node) override { returns = false; }
     void visit(const Allocate *node) override { returns = false; }
@@ -191,6 +195,7 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(Scan);
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Continue);
+    RESTRICT_VISITOR(Break);
     RESTRICT_VISITOR(Launch);
 };
 
@@ -214,7 +219,7 @@ struct ReturnType : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(DoWhile);
     RESTRICT_VISITOR(Launch);
-    RESTRICT_VISITOR(Append);
+    RESTRICT_VISITOR(AppendStmt);
 
     void visit(const IfElse *node) override {
         node->then_body.accept(this);
@@ -329,12 +334,19 @@ struct HasSideEffects : ir::Visitor {
         found = true;
     }
 
+    void visit(const ir::AppendStmt *node) override {
+        if (found) {
+            return;
+        }
+        found = true;
+    }
+
     void visit(const ir::Call *node) override {
         if (found) {
             return;
         }
         const auto *var = node->func.as<ir::Var>();
-        internal_assert(var) << node;
+        internal_assert(var) << ir::Expr(node) << " : " << node->type;
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;
@@ -379,7 +391,7 @@ std::vector<TypedVar> gather_free_vars(const Function &func) {
 
 std::vector<TypedVar> gather_write_vars(const WriteLoc &loc) {
     GatherFreeVars gather;
-    gather.free_vars = {{loc.base, loc.base_type}};
+    gather.free_vars = {{loc.base(), loc.base_type()}};
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<Expr>(value)) {
             std::get<Expr>(value).accept(&gather);
@@ -486,11 +498,11 @@ std::set<std::string> mutated_variables(Stmt stmt) {
         std::set<std::string> mutated;
 
         void visit(const Store *node) override {
-            mutated.insert(node->loc.base);
+            mutated.insert(node->loc.base());
         }
 
         void visit(const Accumulate *node) override {
-            mutated.insert(node->loc.base);
+            mutated.insert(node->loc.base());
         }
 
         void visit(const Append *node) override {

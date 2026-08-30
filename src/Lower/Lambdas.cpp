@@ -52,8 +52,6 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
     ir::Stmt visit(const ir::LetStmt *let) override {
         ir::WriteLoc lhs = let->loc;
-        internal_assert(lhs.accesses.empty()) << "unimplemented";
-
         ir::Expr rhs = let->value;
         if (const ir::Call *call = rhs.as<ir::Call>()) {
             return ir::Mutator::visit(let);
@@ -70,7 +68,7 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
         auto it = lambda_metadata.find(lambda);
         Metadata &m = it->second;
-        m.name = lhs.base;
+        m.name = lhs.base();
         return let;
     }
 
@@ -80,12 +78,9 @@ struct ConvertLambdaToFunction : public ir::Mutator {
 
         // Convert lambda arguments to function arguments.
         const std::vector<ir::TypedVar> &before = lambda->args;
-        std::vector<ir::Function::Argument> arguments;
+        std::vector<ir::Argument> arguments;
         std::transform(before.begin(), before.end(),
-                       std::back_inserter(arguments),
-                       [](const ir::TypedVar &a) {
-                           return ir::Function::Argument(a.name, a.type);
-                       });
+                       std::back_inserter(arguments), ir::Argument::from);
 
         ir::Type type = lambda->value.type();
         auto [it, succeeded] = lambda_metadata.try_emplace(lambda, Metadata{});
@@ -205,6 +200,7 @@ ir::Program LowerLambdas::run(ir::Program program,
                               const CompilerOptions &options) const {
     ir::Program new_program = lower_program(program);
     new_program.schedules = std::move(program.schedules);
+    new_program.globals = std::move(program.globals);
     return new_program;
 }
 

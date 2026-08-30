@@ -1,6 +1,8 @@
 #include "IR/Visitor.h"
 
+#include "IR/Build.h"
 #include "IR/Expr.h"
+#include "IR/Layout.h"
 #include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
@@ -81,7 +83,7 @@ void Visitor::visit(const Generic_t *node) { node->interface.accept(this); }
 void Visitor::visit(const BVH_t *node) {
     node->primitive.accept(this);
     // Recursively visit Volume types and Param types.
-    for (const auto &subnode : node->nodes) {
+    for (const auto &subnode : node->variants) {
         subnode.struct_type.accept(this);
         for (const auto &annot : subnode.annotations) {
             if (const auto *vol = annot.as<Annotation::Volume>()) {
@@ -102,6 +104,8 @@ void Visitor::visit(const IVector *node) { node->etype.accept(this); }
 void Visitor::visit(const IntImm *) {}
 
 void Visitor::visit(const UIntImm *) {}
+
+void Visitor::visit(const IdxImm *) {}
 
 void Visitor::visit(const FloatImm *) {}
 
@@ -152,6 +156,13 @@ void Visitor::visit(const Extract *node) {
     node->idx.accept(this);
 }
 
+void Visitor::visit(const Slice *node) {
+    node->value.accept(this);
+    node->begin.accept(this);
+    node->end.accept(this);
+    node->step.accept(this);
+}
+
 void Visitor::visit(const Build *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const Access *node) { node->value.accept(this); }
@@ -161,6 +172,11 @@ void Visitor::visit(const Unwrap *node) { node->value.accept(this); }
 void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Generator *node) { visit_list(this, node->args); }
+
+void Visitor::visit(const Append *node) {
+    node->input.accept(this);
+    node->size.accept(this);
+}
 
 void Visitor::visit(const Lambda *node) { node->value.accept(this); }
 
@@ -293,31 +309,59 @@ void Visitor::visit(const ForAll *node) {
 
 void Visitor::visit(const Continue *node) {}
 
+void Visitor::visit(const Break *node) {}
+
 void Visitor::visit(const Launch *node) {
     node->n.accept(this);
     visit_list(this, node->args);
 }
 
-void Visitor::visit(const Append *node) {
+void Visitor::visit(const AppendStmt *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
 }
 
-void Visitor::visit(const Name *node) {}
+void Visitor::visit(const Swap *node) {
+    visit_writeloc(this, node->a);
+    visit_writeloc(this, node->b);
+}
+
+void Visitor::visit(const Field *node) {}
 
 void Visitor::visit(const Pad *node) {}
 
-void Visitor::visit(const Switch *node) {
-    for (const auto &[_, __, layout] : node->arms) {
-        layout.accept(this);
+void Visitor::visit(const Split *node) {
+    for (const auto &[x, y, z, member] : node->arms) {
+        member.accept(this);
     }
 }
 
-void Visitor::visit(const Chain *node) { visit_list(this, node->layouts); }
+void Visitor::visit(const Chain *node) { visit_list(this, node->members); }
 
 void Visitor::visit(const Group *node) { node->inner.accept(this); }
 
-void Visitor::visit(const Materialize *node) {}
+void Visitor::visit(const Materialize *node) { node->value.accept(this); }
+
+void Visitor::visit(const Lookup *node) { node->index.accept(this); }
+
+void Visitor::visit(const BuildLet *node) { node->stmt.accept(this); }
+
+void Visitor::visit(const BuildRecurse *node) { node->field.accept(this); }
+
+void Visitor::visit(const BuildReturn *node) { node->expr.accept(this); }
+
+void Visitor::visit(const BuildRoot *node) { node->rules.accept(this); }
+
+void Visitor::visit(const BuildRule *node) {
+    node->field.accept(this);
+    if (node->expr.defined()) {
+        node->expr.accept(this);
+    }
+}
+
+void Visitor::visit(const BuildSequence *node) {
+    visit_list(this, node->sequence);
+}
 
 } // namespace ir
 } // namespace bonsai

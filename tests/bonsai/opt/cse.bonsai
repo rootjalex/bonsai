@@ -1,0 +1,56 @@
+//! flags: -p core -p cse -p dce
+
+func bar(x: i32, y: i32) -> i32 { return x + y; }
+
+func foo(w: i32, x: i32, y: i32, z: i32, cond: bool) -> i32 {
+    m: i32 = x * y / z + w;
+    n: i32 = x * y / z - 32;
+    if (cond) {
+        a: i32 = x * y / z;
+        b: i32 = x * y / z;
+        return bar(a, b - 32);
+    } else if (x > 0) {
+        c: i32 = x * y / z;
+        return c;
+    }
+    return m + n + (x * y / z);
+}
+
+func scoped(c: i32, cond: bool) -> i32 {
+    // CSE is currently a local value numbering implementation,
+    // so we expect this to remain unaffected.
+    if (cond) {
+        a: i32 = 42;
+        b: i32 = a * 3;
+        return b + c + 1;
+    } else {
+        a: i32 = 42;
+        b: i32 = a * 3;
+        return b + c;
+    }
+}
+
+func mutating1(x: mut i32) -> i32 {
+    a: i32 = 1 + x;
+    x += 1;
+    b: i32 = 1 + x;
+    y: mut i32 = x;
+    c: i32 = 1 + y;
+    y += 1;
+    d: i32 = 1 + y;
+
+    return (a / b) - (c * d);
+}
+
+
+element E { x: f32; y: f32; }
+func mutating2(e1: E, e2: mut E) -> f32 {
+    v: f32 = 42.0;
+    a: f32 = e1.x / v;
+    b: f32 = e1.x / v;
+
+    c: f32 = e2.x / v;
+    e2.x += 1.0;
+    d: f32 = e2.x / v;
+    return (a + b) * (c - d);
+}

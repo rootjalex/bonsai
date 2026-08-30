@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 
+#include "Argument.h"
 #include "CompilerOptions.h"
 #include "Expr.h"
 #include "Function.h"
@@ -20,12 +21,14 @@ std::ostream &operator<<(std::ostream &os, const Program &program);
 
 std::string to_string(const Expr &expr);
 std::ostream &operator<<(std::ostream &os, const Expr &expr);
+std::ostream &operator<<(std::ostream &os, const std::vector<Expr> &exprs);
 
 std::string to_string(const Interface &interface);
 std::ostream &operator<<(std::ostream &os, const Interface &interface);
 
 std::string to_string(const Type &type);
 std::ostream &operator<<(std::ostream &os, const Type &type);
+std::ostream &operator<<(std::ostream &os, const std::vector<Type> &types);
 
 std::string to_string(const Stmt &stmt);
 std::ostream &operator<<(std::ostream &os, const Stmt &stmt);
@@ -34,13 +37,31 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc);
 
 std::ostream &operator<<(std::ostream &os, const Function &func);
 
+std::ostream &operator<<(std::ostream &os, const Argument &argument);
+std::ostream &operator<<(std::ostream &os,
+                         const std::vector<Argument> &arguments);
+
 std::ostream &operator<<(std::ostream &os, const Target &target);
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule);
 std::ostream &operator<<(std::ostream &os, const Location &loc);
 std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars);
 
-std::string to_string(const Layout &layout);
+std::ostream &operator<<(std::ostream &os, const TypeMap &map);
+std::ostream &operator<<(std::ostream &os, const Match::Arms &arms);
+
+// ADT language
+std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant);
+std::ostream &operator<<(std::ostream &os, const BVH_t::Volume &volume);
+
+// Layout language
 std::ostream &operator<<(std::ostream &os, const Layout &layout);
+std::ostream &operator<<(std::ostream &os, const Member &member);
+std::ostream &operator<<(std::ostream &os, const ir::Arm &arm);
+
+// Build language
+std::ostream &operator<<(std::ostream &os, const BuildLayout &layout);
+std::ostream &operator<<(std::ostream &os, const BuildFunction &function);
+std::ostream &operator<<(std::ostream &os, const BuildIR &ir);
 
 std::string to_string(const BinOp::OpType &op);
 std::string to_string(const UnOp::OpType &op);
@@ -81,8 +102,15 @@ struct Printer : public Visitor {
     void print_expr_list(const std::vector<Expr> &exprs);
     void print(const Stmt &stmt);
     void print(const WriteLoc &loc);
-    void print(const BVH_t::Node &node);
+    void print(const BVH_t::Volume &volume);
+    void print(const BVH_t::Variant &variant);
+    // Layouts
     void print(const Layout &layout);
+    void print(const Member &member);
+    // Build
+    void print(const BuildLayout &layout);
+    void print(const BuildFunction &function);
+    void print(const BuildIR &ir);
 
     // Types
     void visit(const Void_t *) override;
@@ -112,6 +140,7 @@ struct Printer : public Visitor {
     // Exprs
     void visit(const IntImm *) override;
     void visit(const UIntImm *) override;
+    void visit(const IdxImm *) override;
     void visit(const FloatImm *) override;
     void visit(const BoolImm *) override;
     void visit(const VecImm *) override;
@@ -130,11 +159,13 @@ struct Printer : public Visitor {
     void visit(const VectorShuffle *) override;
     void visit(const Ramp *) override;
     void visit(const Extract *) override;
+    void visit(const Slice *) override;
     void visit(const Build *) override;
     void visit(const Access *) override;
     void visit(const Unwrap *) override;
     void visit(const Intrinsic *) override;
     void visit(const Generator *) override;
+    void visit(const Append *) override;
     void visit(const Lambda *) override;
     void visit(const GeomOp *) override;
     void visit(const SetOp *) override;
@@ -166,23 +197,35 @@ struct Printer : public Visitor {
     void visit(const ForAll *) override;
     void visit(const ForEach *) override;
     void visit(const Continue *) override;
+    void visit(const Break *) override;
     void visit(const Launch *) override;
-    void visit(const Append *) override;
+    void visit(const AppendStmt *) override;
+    void visit(const Swap *) override;
     // Layouts
-    void visit(const Name *) override;
+    void visit(const Field *) override;
     void visit(const Pad *) override;
-    void visit(const Switch *) override;
+    void visit(const Split *) override;
     void visit(const Chain *) override;
     void visit(const Group *) override;
     void visit(const Materialize *) override;
+    void visit(const Lookup *) override;
+    // Build
+    void visit(const BuildLet *) override;
+    void visit(const BuildRecurse *) override;
+    void visit(const BuildReturn *) override;
+    void visit(const BuildRoot *) override;
+    void visit(const BuildRule *) override;
+    void visit(const BuildSequence *) override;
 
   protected:
     void set_indent(int _indent) { indent = _indent; }
     Indentation get_indent() const { return Indentation{indent}; }
+
     // Increments the indentation.
     void increment() { set_indent(get_indent().indent + 1); }
     // Decrements the indentation.
     void decrement() { set_indent(get_indent().indent - 1); }
+
     /** Either emits "(" or "", depending on the value of implicit_parens */
     void open();
     /** Either emits ")" or "", depending on the value of implicit_parens */

@@ -10,7 +10,7 @@ enum class BackendTarget {
     ASM = 1,  // Generate assembly code for the host machine.
     LLVM = 2, // Generate LLVM IR.
     CPP = 3,  // Generate C++ header with respective .o file.
-    CPPX = 4, // Generate C++ header and source file.
+    CPPX = 4, // Generate C++ header and source files.
     CUDA = 5, // Generate CUDA code.
 };
 
@@ -40,10 +40,18 @@ struct CompilerOptions {
     // The output file name; if this is empty, then defaults to standard I/O.
     std::string output_file;
 
+    // The layout file name. If this is empty, then we assume the layout exists
+    // in the same file as the kernel.
+    std::string layout_file;
+
     // The Bonsai passes to run during lowering. This may also include pass
     // aliases, which refer to a set of passes, e.g., `core`. These are run in
     // the order they are passed on the command line.
     std::vector<std::string> passes;
+
+    // An optional Bonsai pass that should run all passes to this point
+    // (inclusive).
+    std::string up_to;
 
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };

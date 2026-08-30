@@ -1,0 +1,7 @@
+//! flags: -b cuda
+
+func [[export]] foo() {
+    global counter: i32;
+    counter += 1;
+    return;
+}

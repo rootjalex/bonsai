@@ -62,12 +62,12 @@ Stmt replace_reads_and_writes(const WriteLoc &ctx,
         mutate_writeloc(const WriteLoc &loc) override {
             // This should not include writes to scalars, e.g., the thread
             // index calculation.
-            if (loc.base_type.is<Array_t>()) {
-                closure.written[loc.base] = loc.base_type;
+            if (loc.base_type().is<Array_t>()) {
+                closure.written[loc.base()] = loc.base_type();
             }
-            if (repls.contains(loc.base)) {
+            if (repls.contains(loc.base())) {
                 WriteLoc new_loc = ctx;
-                new_loc.add_struct_access(loc.base);
+                new_loc.add_struct_access(loc.base());
                 for (const auto &value : loc.accesses) {
                     if (std::holds_alternative<Expr>(value)) {
                         Expr new_value = mutate(std::get<Expr>(value));
@@ -105,7 +105,7 @@ Closure build_gcd_closure(const ForAll *forall, TypeMap &types) {
     Expr ctx = Build::make(ctx_t, build_args);
     Expr ctx_var = Var::make(ctx_t, ctx_name);
 
-    std::vector<Function::Argument> f_args(2);
+    std::vector<Argument> f_args(2);
     f_args[0].name = ctx_name;
     f_args[0].type = ctx_t;
     f_args[0].mutating = true;
@@ -171,8 +171,8 @@ Closure build_cuda_closure(const ForAll *forall, TypeMap &types) {
     Expr ctx = Build::make(ctx_t, build_args);
     Expr ctx_var = Var::make(ctx_t, ctx_name);
 
-    std::vector<Function::Argument> f_args;
-    f_args.push_back(Function::Argument(
+    std::vector<Argument> f_args;
+    f_args.push_back(Argument(
         /*name=*/ctx_name,
         /*type=*/ctx_t,
         /*default_value=*/Expr(),

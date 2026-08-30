@@ -2,6 +2,7 @@
 
 #include "Error.h"
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Program.h"
@@ -91,8 +92,8 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
         const auto &function_arguments = function->args;
         std::string argument_name =
             std::string(PARAMETER_NAME) + std::to_string(counter++);
-        std::vector<ir::Function::Argument> arguments = {
-            ir::Function::Argument(
+        std::vector<ir::Argument> arguments = {
+            ir::Argument(
                 /*name=*/argument_name,
                 /*type=*/return_type,
                 /*default_value=*/ir::Expr(),

@@ -68,7 +68,7 @@ ir::Stmt replace_undef_calls(const ir::Stmt &stmt,
             if (!node->value.type().defined() && repl->value.type().defined()) {
                 // Insert inferred var type for later references.
                 internal_assert(repl->loc.accesses.empty());
-                var_types[repl->loc.base] = repl->value.type();
+                var_types[repl->loc.base()] = repl->value.type();
             }
             return mut;
         }
@@ -208,7 +208,8 @@ ir::Stmt infer_build_types(const ir::Stmt &stmt, const ir::Type &return_type) {
                 internal_assert(vector->lanes == build->values.size())
                     << "Received different number of values: "
                     << build->values.size()
-                    << " than lanes in the vector: " << vector->lanes;
+                    << " than lanes in the vector: " << vector->lanes << ": `"
+                    << ir::Type(vector) << "`, `" << ir::Expr(build) << "`";
                 for (int i = 0, e = vector->lanes; i < e; ++i) {
                     ir::Expr value = build->values[i];
                     if (value.type().defined()) {
@@ -530,6 +531,7 @@ ir::Program infer_types(const ir::Program &program) {
     new_program.externs = program.externs;
     new_program.types = program.types;
     new_program.schedules = program.schedules;
+    new_program.globals = program.globals;
     ir::global_enable_type_enforcement();
 
     std::vector<std::string> topo_order =

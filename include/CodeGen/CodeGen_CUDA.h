@@ -22,31 +22,34 @@ void to_cuda(const ir::Program &program, const CompilerOptions &options);
 
 class CodeGen_CUDA : public ir::Printer {
   public:
-    explicit CodeGen_CUDA(std::ostream &os) : ir::Printer(os), os(os) {}
+    explicit CodeGen_CUDA(std::ostream &os, const ir::Program &program)
+        : ir::Printer(os), os(os), program(program) {}
 
-    void print(const ir::Program &program);
-    void print(const ir::Function &function);
+    void print(const ir::Program &);
+    void print(const ir::Function &);
+    void print(const ir::Expr &);
 
     // Types
     void visit(const ir::Float_t *) override;
     void visit(const ir::Vector_t *) override;
     void visit(const ir::Int_t *) override;
     void visit(const ir::UInt_t *) override;
+    void visit(const ir::Index_t *) override;
     void visit(const ir::Struct_t *) override;
     void visit(const ir::Array_t *) override;
     void visit(const ir::Ptr_t *) override;
+    void visit(const ir::Ref_t *) override;
+    void visit(const ir::BVH_t *) override;
 
     RESTRICT_VISITOR(ir::String_t);
-    RESTRICT_VISITOR(ir::Tuple_t);
     RESTRICT_VISITOR(ir::Function_t);
-    RESTRICT_VISITOR(ir::Option_t);
+
     RESTRICT_VISITOR(ir::Set_t);
     RESTRICT_VISITOR(ir::Generic_t);
-    RESTRICT_VISITOR(ir::BVH_t);
+    void visit(const ir::Option_t *) override;
+    void visit(const ir::Tuple_t *) override;
     void visit(const ir::Rand_State_t *) override;
-    // TODO(cgyurgyik): CUDA supports a std::vector variant through their thrust
-    // library. Potentially sufficient for our use case?
-    RESTRICT_VISITOR(ir::DynArray_t);
+    void visit(const ir::DynArray_t *) override;
 
     // Interfaces
     RESTRICT_VISITOR(ir::IEmpty);
@@ -58,7 +61,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::StringImm *) override;
     void visit(const ir::Extrema *) override;
     void visit(const ir::Deref *) override;
-    RESTRICT_VISITOR(ir::AtomicAdd); // TODO
+    void visit(const ir::AtomicAdd *) override;
     void visit(const ir::Select *) override;
     void visit(const ir::Cast *) override;
     void visit(const ir::Broadcast *) override;
@@ -69,6 +72,8 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Intrinsic *) override;
     void visit(const ir::Access *) override;
     void visit(const ir::Extract *) override;
+    void visit(const ir::Slice *) override;
+    void visit(const ir::Var *) override;
     RESTRICT_VISITOR(ir::Unwrap);
     RESTRICT_VISITOR(ir::Generator);
     RESTRICT_VISITOR(ir::Lambda);
@@ -90,12 +95,14 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::Label *) override;
     void visit(const ir::ForAll *) override;
     void visit(const ir::Continue *) override;
+    void visit(const ir::Break *) override;
     void visit(const ir::Launch *) override;
+    void visit(const ir::Match *) override;
+    void visit(const ir::AppendStmt *) override;
     RESTRICT_VISITOR(ir::Append); // TODO
     RESTRICT_VISITOR(ir::ForEach);
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
-    RESTRICT_VISITOR(ir::Match);
     RESTRICT_VISITOR(ir::Yield);
     RESTRICT_VISITOR(ir::Iterate);
     RESTRICT_VISITOR(ir::Scan);
@@ -105,9 +112,14 @@ class CodeGen_CUDA : public ir::Printer {
     // `struct P { int x; int y; int z; }` versus `P`
     bool is_declaration = false;
     // Whether the next function definition exists on device. This is necessary
-    // for correct usage of rand, which is different for __host__ and
-    // __device__.
+    // for correct usage of rand and other intrinsics, which is different for
+    // __host__ and __device__.
     bool on_device = false;
+    // Whether this is a recursive build or count function for tree-building.
+    // TODO(cgyurgyik): really, this is a hack since it is the only place we
+    // call malloc instead of cudaMalloc. We need a better way to distinguish
+    // this.
+    bool is_build = false;
     // We need to also device allocate inner children, a concept that is
     // (currently) foreign to bonsai so is done here. This list tracks all the
     // device allocated children of a struct.
@@ -116,6 +128,7 @@ class CodeGen_CUDA : public ir::Printer {
     std::vector<ir::TypedVar> device_allocated;
     //  The stream that is printed to.
     std::ostream &os;
+    const ir::Program &program;
 
     // Necessary prologue code.
     void emit_prologue();
@@ -128,6 +141,10 @@ class CodeGen_CUDA : public ir::Printer {
     void emit_to_device(std::string base, const ir::Struct_t *, ir::Expr);
     void emit_to_device(std::string base, const ir::Array_t *, ir::Expr,
                         std::optional<ir::Expr> = {});
+    void free_host_memory();
+
+    void print_loc(std::ostream &os, const ir::WriteLoc &loc,
+                   bool is_assignment);
 };
 
 } //  namespace bonsai

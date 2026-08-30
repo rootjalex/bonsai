@@ -23,8 +23,8 @@ struct ExprLessThan {
 
 bool equals(const Layout &l0, const Layout &l1);
 
-struct LayoutLessThan {
-    bool operator()(const Layout &l0, const Layout &l1) const;
+struct MemberLessThan {
+    bool operator()(const Member &l0, const Member &l1) const;
 };
 
 struct WriteLocLessThan {

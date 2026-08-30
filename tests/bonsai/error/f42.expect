@@ -1,7 +1,8 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:60
+[internal] Error: src/Parser/Parser.cpp:72
+-> src/Parser/Parser.cpp:1917:30 
 tests/bonsai/error/f42.bonsai:1:21: [parse error] unsupported floating point type: f42
 
 func use_option(i : f42) -> void {}

@@ -1,6 +1,7 @@
 #include "Lower/RecLoops.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Mutator.h"
 
 #include "Error.h"
@@ -28,14 +29,17 @@ struct LowerRecLoopsImpl : public Mutator {
 
     Stmt visit(const RecLoop *node) override {
         std::vector<Expr> call_args(node->args.size());
-        std::vector<Function::Argument> f_args(node->args.size());
+        std::vector<Argument> f_args(node->args.size());
         for (size_t i = 0; i < node->args.size(); i++) {
-            call_args[i] = node->args[i].type.is_numeric()
-                               ? make_zero(node->args[i].type)
-                               : node->args[i];
+            const ir::Expr &default_value = node->args[i].default_value;
+            call_args[i] = default_value.defined()
+                               ? default_value
+                               : make_zero(node->args[i].type);
             f_args[i].name = node->args[i].name;
             f_args[i].type = node->args[i].type;
             f_args[i].mutating = false;
+            // Now, erase the default value.
+            f_args[i].default_value = ir::Expr();
         }
         std::vector<TypedVar> vars = gather_free_vars(node);
         auto mutables = mutated_variables(node->body);
@@ -97,7 +101,7 @@ ir::FuncMap LowerRecLoops::run(ir::FuncMap funcs,
     }
 
     for (auto &[name, func] : lowerer.new_funcs) {
-        auto [_, inserted] = funcs.try_emplace(name, std::move(func));
+        auto [_, inserted] = funcs.try_emplace(name, func);
         internal_assert(inserted)
             << "Failed to insert recursive lowering: " << name;
     }

@@ -36,6 +36,7 @@ struct IVector;
 struct Expr;
 struct IntImm;
 struct UIntImm;
+struct IdxImm;
 struct FloatImm;
 struct BoolImm;
 struct VecImm;
@@ -51,11 +52,13 @@ struct VectorReduce;
 struct VectorShuffle;
 struct Ramp;
 struct Extract;
+struct Slice;
 struct Build;
 struct Access;
 struct Unwrap;
 struct Intrinsic;
 struct Generator;
+struct Append;
 struct Lambda;
 struct GeomOp;
 struct SetOp;
@@ -91,18 +94,32 @@ struct YieldFrom;
 struct ForAll;
 struct ForEach;
 struct Continue;
+struct Break;
 struct Launch;
-struct Append;
+struct AppendStmt;
+struct Swap;
 
 // Layouts
-struct Name;
+struct Member;
+struct Field;
 struct Pad;
-struct Switch;
+struct Split;
 struct Chain;
 struct Group;
 struct Materialize;
+struct Lookup;
+
+// Build
+struct BuildIR;
+struct BuildLet;
+struct BuildRecurse;
+struct BuildReturn;
+struct BuildRoot;
+struct BuildRule;
+struct BuildSequence;
 
 struct WriteLoc;
+struct Argument;
 
 } // namespace ir
 } // namespace bonsai
