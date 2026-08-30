@@ -381,10 +381,24 @@ class BonsaiToCpp : ir::Printer {
             ss << "&";
         } else {
             emit_type(ss, type);
-            if ((!is_return_type && should_be_ref(type)) || is_mutating) {
+            // `is_mutating` is what usually earns the reference -- that is how
+            // the callee writes back -- but a dynamically-sized array does not
+            // need one and must not have one: it is already a bare `T*`, a
+            // handle to storage the callee writes through. A reference on top
+            // of that passes the address of the caller's own pointer variable,
+            // and the first element written lands on the pointer itself.
+            if (!is_return_type &&
+                (should_be_ref(type) ||
+                 (is_mutating && !is_dynamic_array(type)))) {
                 ss << "&";
             }
         }
+    }
+
+    bool is_dynamic_array(const Type &type) const {
+        const Array_t *array_t = type.as<Array_t>();
+        return array_t != nullptr &&
+               !(array_t->size.defined() && bonsai::is_const(array_t->size));
     }
 
     bool should_be_ref(const Type &type) const {

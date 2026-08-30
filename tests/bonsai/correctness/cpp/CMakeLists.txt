@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     adt.bonsai
     bind_cpu_thread.bonsai
+    mut-dynamic-array.bonsai
     simple.bonsai
     struct.bonsai
     swap.bonsai

@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_mut_dynamic_array.cpp -I. -o tests/bonsai/correctness/cpp/main_mut_dynamic_array.o
+[test] clang++ tests/bonsai/correctness/cpp/main_mut_dynamic_array.o tests/bonsai/correctness/cpp/mut-dynamic-array.o -o tests/bonsai/correctness/cpp/mut-dynamic-array
+[test] ./tests/bonsai/correctness/cpp/mut-dynamic-array
+wrong: 0
+spot: 21 3.5 9

@@ -1,0 +1,72 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/mut-dynamic-array
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_mut_dynamic_array.cpp -I. -o $<>/main_mut_dynamic_array.o, clang++ $<>/main_mut_dynamic_array.o $<>/mut-dynamic-array.o -o $<>/mut-dynamic-array, ./$<>/mut-dynamic-array, rm $<>/mut-dynamic-array, rm $<>/main_mut_dynamic_array.o, rm $<>/mut-dynamic-array.h, rm $<>/mut-dynamic-array.o
+
+// A `mut` array with a size that is not a constant, written from C++. Both
+// spellings of that: a size naming another parameter, and no size at all.
+//
+// The C++ backend emits a dynamically-sized array as a bare `T*`, which is
+// already a handle the callee writes through -- unlike a constant-sized one,
+// which is a `std::array<T, N>` value and does need a reference. `mut` used to
+// add the reference regardless, so the declared signature was `T*&` while the
+// compiled function still took the pointer. The caller then passed the address
+// of its own pointer variable and the first element written landed on the
+// pointer itself, which crashes at the next use rather than where the mistake
+// is. Only calling it from C++ finds this: the signature and the function are
+// generated from the same program, so bonsai-side tests agree with themselves.
+//
+// The float case is here as well as the int one because a wrong element type
+// would still write plausible-looking memory, and vec3f because that is what
+// an image is -- a 16-byte element whose stride a pointer-to-pointer would
+// get wrong differently again.
+import stdlib/numerics;
+
+func [[export]] fill(n : u32, out : mut array[i32, n]) -> void {
+    parfor i in 0:cast[[i32]](n) {
+        out[i] = i * 3;
+    }
+    return;
+}
+
+func [[export]] scale(n : u32, by : Float, a : array[Float, n],
+                      out : mut array[Float, n]) -> void {
+    parfor i in 0:cast[[i32]](n) {
+        out[i] = a[i] * by;
+    }
+    return;
+}
+
+func [[export]] splat(n : u32, out : mut array[vec3f, n]) -> void {
+    parfor i in 0:cast[[i32]](n) {
+        f = cast[[Float]](i);
+        out[i] = vec3f{f, f + 1.0, f + 2.0};
+    }
+    return;
+}
+
+// The same, with no size on the type. An array parameter does not have to
+// carry its length: the caller owns the allocation, and how long it is is
+// often already known from something else -- an image's resolution, say --
+// so naming it again would be naming the same fact twice. Both spellings
+// have to reach C++ as the same bare pointer.
+func [[export]] fill_unsized(n : u32, out : mut array[i32]) -> void {
+    parfor i in 0u:n {
+        out[i] = cast[[i32]](i) * 3;
+    }
+    return;
+}
+
+func [[export]] copy_unsized(n : u32, a : array[Float],
+                             out : mut array[Float]) -> void {
+    parfor i in 0u:n {
+        out[i] = a[i] * 0.5;
+    }
+    return;
+}
+
+func [[export]] splat_unsized(n : u32, out : mut array[vec3f]) -> void {
+    parfor i in 0u:n {
+        f = cast[[Float]](i);
+        out[i] = vec3f{f, f + 1.0, f + 2.0};
+    }
+    return;
+}
