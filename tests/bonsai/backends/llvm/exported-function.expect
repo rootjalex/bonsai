@@ -60,7 +60,7 @@ foo_entry:
 ; Function Attrs: nofree nounwind
 define noundef i32 @main() local_unnamed_addr #2 {
 main_entry:
-  %0 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 11, i32 22, i32 33, float 4.200000e+01)
+  %0 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 11, i32 22, i32 33, double 4.200000e+01)
   ret i32 0
 }
 
