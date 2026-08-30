@@ -1,0 +1,135 @@
+//! flags: -p ssa -b cpp -o apps/pbrt/render
+// `bind` is an SSA rewrite, so this needs the SSA pipeline rather than the
+// default one.
+
+// PBRT v4, milestone 0: a perspective camera, one sphere, and its normals as
+// colour. No shading, no sampling, no spectra -- those arrive in M1 and M2.
+//
+// The rule for this app is that the source stays a straight transcription of
+// PBRT and every performance decision lives in the `schedule` block at the
+// bottom. If something here looks like it was written for speed rather than
+// for clarity, that is a bug in the schedule language, not a licence to
+// rewrite this file.
+//
+// What PBRT computes in a constructor is computed by the driver and passed in
+// as data. That is faithful to PBRT's hot path, which only ever *applies* the
+// camera transforms; building them is a one-off that bonsai has no file I/O to
+// drive anyway.
+
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+
+element vec2f = vector[Float, 2];
+element vec4f = vector[Float, 4];
+
+// pbrt: Transform, minus the inverse it carries alongside the matrix. Nothing
+// in M0 inverts one -- the driver hands over both directions it needs already
+// inverted -- so storing mInv would be storing something never read.
+//
+// Rows rather than a flat 16, so that applying one is four dot products.
+element Transform {
+    r0, r1, r2, r3 : vec4f;
+}
+
+// pbrt: Transform::operator()(Point3f), which divides through by w. The
+// perspective transform is the whole reason that divide is here: for an
+// affine transform w comes out 1 and PBRT skips it.
+func apply_point(t : Transform, p : vec3f) -> vec3f {
+    h = vec4f{p.x, p.y, p.z, 1.0};
+    xp = dot(t.r0, h);
+    yp = dot(t.r1, h);
+    zp = dot(t.r2, h);
+    wp = dot(t.r3, h);
+    v = vec3f{xp, yp, zp};
+    return select(wp == 1.0, v, v / wp);
+}
+
+// pbrt: Transform::operator()(Vector3f). A direction ignores the translation
+// column, so this is the upper-left 3x3 and no divide.
+func apply_vector(t : Transform, v : vec3f) -> vec3f {
+    h = vec4f{v.x, v.y, v.z, 0.0};
+    return vec3f{dot(t.r0, h), dot(t.r1, h), dot(t.r2, h)};
+}
+
+// pbrt: CameraSample. M0 takes one sample at the centre of each pixel, so
+// p_lens and time are always zero and filter_weight is always one -- but they
+// are here because GenerateRay's signature is what M2's sampler will fill in.
+element CameraSample {
+    p_film : vec2f;
+    p_lens : vec2f;
+    time : Float = 0.0;
+    filter_weight : Float = 1.0;
+}
+
+// pbrt: PerspectiveCamera. The two transforms its ctor derives from the field
+// of view, the screen window and the resolution; see render_hook.cpp.
+element PerspectiveCamera {
+    camera_from_raster : Transform;
+    render_from_camera : Transform;
+}
+
+// pbrt: PerspectiveCamera::GenerateRay. Every ray leaves the camera's origin
+// and passes through the sample's point on the film plane. The differentials
+// PBRT also computes here are for texture filtering, which M0 has none of.
+func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
+    p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
+    p_camera = apply_point(camera.camera_from_raster, p_film);
+    o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
+    d = apply_vector(camera.render_from_camera, unit_vector(p_camera));
+    return Ray{o, d};
+}
+
+// pbrt: Sphere::Interaction, reduced to the one thing M0 asks for. The sphere
+// is in render space, so the object-space round trip PBRT does -- and the
+// error bounds it tracks through it -- has nothing to do yet. M1 puts the
+// transform back when a shape can be placed.
+func normal_at(s : Sphere, p : vec3f) -> vec3f {
+    return (p - s.center) / s.radius;
+}
+
+// pbrt: the integrator, which in M0 is the one from the book's first figure:
+// shade a hit by its normal and leave a miss black. PBRT would return the
+// infinite lights' radiance for a miss, and M0 has none.
+func li(r : Ray, s : Sphere) -> vec3f {
+    interval = intersectsp_ray_sphere(r, s);
+    if interval {
+        hit = *interval;
+        // The near root, unless it is behind the camera, in which case the
+        // far one -- the camera is inside the sphere.
+        t = select(hit.low > 0.0, hit.low, hit.high);
+        if t > 0.0 {
+            n = normal_at(s, r.o + t * r.d);
+            // pbrt's normal-shaded debug image: remap [-1,1] to [0,1].
+            return 0.5 * (n + vec3f{1.0, 1.0, 1.0});
+        }
+    }
+    return vec3f{0.0, 0.0, 0.0};
+}
+
+// pbrt: the render loop, which in v4 is ParallelFor2D over the film tiles.
+// One flat loop over pixels rather than two nested ones, because the schedule
+// wants a single index to bind.
+//
+// The film has no size on it: the caller owns the allocation, and how many
+// pixels there are is the resolution, which is already here. Naming a length
+// as well would be naming the same fact twice and inviting the two to
+// disagree.
+func [[export]] render(camera : PerspectiveCamera, s : Sphere, width : u32,
+                       height : u32, out : mut array[vec3f]) -> void {
+    parfor p in 0u:(width * height) {
+        i = p % width;
+        j = p / width;
+        // pbrt: GetCameraSample, at the pixel centre with no filter.
+        sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
+                                    cast[[Float]](j) + 0.5},
+                              vec2f{0.0, 0.0}, 0.0, 1.0};
+        out[p] = li(generate_ray(camera, sample), s);
+    }
+    return;
+}
+
+schedule {
+    render.bind(p, CPUThread);
+}
