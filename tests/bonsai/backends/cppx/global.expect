@@ -10,7 +10,7 @@
 #include <string>
 #include <tuple>
 #include <variant>
-#include "bonsai_cpp.h"
+#include "runtime/CPP/bonsai_cpp.h"
 
 extern std::atomic<int32_t> counter;
 

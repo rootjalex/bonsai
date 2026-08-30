@@ -1,8 +1,8 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:72
--> src/Parser/Parser.cpp:397:30 
+[internal] Error: src/Parser/Parser.cpp:66
+-> src/Parser/Parser.cpp:431:17 
 tests/bonsai/error/import_cycle0.bonsai
 ->   tests/bonsai/error/import_cycle1.bonsai:1:40: [parse error] Import cycle found.
 
