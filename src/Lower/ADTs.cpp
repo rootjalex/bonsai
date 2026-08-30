@@ -116,6 +116,19 @@ struct RewriteADTs : public Mutator {
         return Build::make(std::move(type), std::move(values));
     }
 
+    // A cast's target type, which the base Mutator carries over as it found
+    // it -- its own TODO asks whether it should. Dereferencing an option is
+    // one of these: `*isect` is `cast<Shape>(isect)`, and once the option
+    // holds what a Shape is stored as, the cast has to say so too.
+    Expr visit(const Cast *node) override {
+        Expr value = mutate(node->value);
+        Type type = mutate(node->type);
+        if (value.same_as(node->value) && type.same_as(node->type)) {
+            return node;
+        }
+        return Cast::make(std::move(type), std::move(value), node->mode);
+    }
+
     // A lambda's argument types, which the base Mutator also carries over as
     // it found them. `filter(|sh : Shape| .., shapes)` only type-checks while
     // the lambda and the set agree about what an element is, so the argument

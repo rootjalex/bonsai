@@ -13,14 +13,19 @@
 
 #include "render.h"
 
+#include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <vector>
 
 namespace {
 
 constexpr float Pi = 3.14159265358979323846f;
+constexpr uint32_t MaxTreeDepth = 64;
 
 float radians(float deg) { return deg * Pi / 180.0f; }
 
@@ -156,6 +161,127 @@ Mat4 look_at(const Vec3 &pos, const Vec3 &look, const Vec3 &up) {
     return r;
 }
 
+float length3(const float3 &v) {
+    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
+
+// pbrt: the shapes' bounds, which the schedule asked for as spheres rather
+// than as a Bounds3. Which volume bounds a node is the schedule's choice --
+// `with Sphere(center, radius)` -- so this follows it rather than the other
+// way round.
+Sphere bounds_of(const Shape &shape) {
+    if (shape.tag == 0) {
+        return shape.payload.Sph.s;
+    }
+    const Triangle &t = shape.payload.Tri.t;
+    const float3 centre = (t.p0 + t.p1 + t.p2) / 3.0f;
+    const float radius =
+        std::max({length3(t.p0 - centre), length3(t.p1 - centre),
+                  length3(t.p2 - centre)});
+    return Sphere{centre, radius};
+}
+
+Sphere merge(const Sphere &a, const Sphere &b) {
+    const float3 d = b.center - a.center;
+    const float dist = length3(d);
+    if (a.radius >= dist + b.radius) {
+        return a;
+    }
+    if (b.radius >= dist + a.radius) {
+        return b;
+    }
+    const float radius = 0.5f * (dist + a.radius + b.radius);
+    const float3 dir = (dist > 0.0f) ? d / dist : float3{1.0f, 0.0f, 0.0f};
+    return Sphere{a.center + dir * (radius - a.radius), radius};
+}
+
+// pbrt: BVHAggregate's construction, by median split. This is here rather than
+// in bonsai because building a tree is not yet expressible in the language --
+// only traversing one is, and that is the part that runs per ray. The node
+// layout is not chosen here either: the `layout` block in render.bonsai
+// decides it, and this fills in what that block named.
+_tree_layout0 build_bvh(std::vector<Shape> &shapes) {
+    _tree_layout0 tree;
+    tree.pCount = uint32_t(shapes.size());
+    tree.prims = shapes.data();
+    // One primitive per leaf, so leaves = shapes and interiors = leaves - 1.
+    tree.nCount = uint32_t(2 * shapes.size() - 1);
+    tree.group0_index =
+        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
+
+    uint32_t next_node = 0;
+    std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
+        [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
+        assert(depth < MaxTreeDepth);
+        const uint32_t count = high - low;
+        const uint32_t self = next_node++;
+
+        if (count == 1) {
+            tree.group0_index[self].nPrims = 1;
+            *reinterpret_cast<uint32_t *>(
+                &tree.group0_index[self].split0on_nPrims) = low;
+            const Sphere b = bounds_of(shapes[low]);
+            tree.group0_index[self].center = b.center;
+            tree.group0_index[self].radius = b.radius;
+            return self;
+        }
+
+        tree.group0_index[self].nPrims = 0;
+
+        float3 lo = bounds_of(shapes[low]).center;
+        float3 hi = lo;
+        for (uint32_t i = low + 1; i < high; i++) {
+            const float3 c = bounds_of(shapes[i]).center;
+            lo = float3{std::fminf(lo[0], c[0]), std::fminf(lo[1], c[1]),
+                        std::fminf(lo[2], c[2])};
+            hi = float3{std::fmaxf(hi[0], c[0]), std::fmaxf(hi[1], c[1]),
+                        std::fmaxf(hi[2], c[2])};
+        }
+        const float3 extent = hi - lo;
+        int axis = (extent[1] > extent[0]) ? 1 : 0;
+        if (extent[2] > extent[axis]) {
+            axis = 2;
+        }
+        tree.group0_index[self].axis = uint8_t(axis);
+
+        const uint32_t mid = low + count / 2;
+        std::nth_element(shapes.begin() + low, shapes.begin() + mid,
+                         shapes.begin() + high,
+                         [axis](const Shape &a, const Shape &b) {
+                             return bounds_of(a).center[axis] <
+                                    bounds_of(b).center[axis];
+                         });
+
+        const uint32_t left = handle_range(low, mid, depth + 1);
+        const uint32_t right = handle_range(mid, high, depth + 1);
+        *reinterpret_cast<uint32_t *>(
+            &tree.group0_index[self].split0on_nPrims) = right - self;
+
+        const Sphere merged = merge({tree.group0_index[left].center,
+                                     tree.group0_index[left].radius},
+                                    {tree.group0_index[right].center,
+                                     tree.group0_index[right].radius});
+        tree.group0_index[self].center = merged.center;
+        tree.group0_index[self].radius = merged.radius;
+        return self;
+    };
+
+    handle_range(0, tree.pCount, 0);
+    return tree;
+}
+
+Shape sphere_shape(const float3 &centre, float radius) {
+    Shape s;
+    Shape_Sph(s, Sphere{centre, radius});
+    return s;
+}
+
+Shape triangle_shape(const float3 &a, const float3 &b, const float3 &c) {
+    Shape s;
+    Shape_Tri(s, Triangle{a, b, c});
+    return s;
+}
+
 Transform to_bonsai(const Mat4 &m) {
     Transform t;
     t.r0 = float4{m.m[0][0], m.m[0][1], m.m[0][2], m.m[0][3]};
@@ -202,24 +328,39 @@ int main(int argc, char **argv) {
     const Mat4 camera_from_raster =
         inverse(screen_from_camera) * inverse(raster_from_screen);
 
-    // pbrt: the scene's camera-to-world transform. Looking down -z at a
-    // sphere sitting at the origin.
+    // pbrt: the scene's camera-to-world transform.
     const Mat4 render_from_camera =
-        look_at(Vec3{0.0f, 0.0f, 3.0f}, Vec3{0.0f, 0.0f, 0.0f},
+        look_at(Vec3{0.0f, 1.0f, 5.0f}, Vec3{0.0f, 0.0f, 0.0f},
                 Vec3{0.0f, 1.0f, 0.0f});
 
     PerspectiveCamera camera;
     camera.camera_from_raster = to_bonsai(camera_from_raster);
     camera.render_from_camera = to_bonsai(render_from_camera);
 
-    Sphere sphere;
-    sphere.center = float3{0.0f, 0.0f, 0.0f};
-    sphere.radius = 1.0f;
+    // Three spheres on a ground quad. Both shape kinds are here so that the
+    // traversal has to dispatch, and they overlap in depth so that picking the
+    // nearest actually matters.
+    std::vector<Shape> shapes;
+    shapes.push_back(sphere_shape(float3{0.0f, 0.0f, 0.0f}, 1.0f));
+    shapes.push_back(sphere_shape(float3{-2.0f, -0.3f, -1.0f}, 0.7f));
+    shapes.push_back(sphere_shape(float3{2.0f, -0.5f, 1.0f}, 0.5f));
+
+    // Wound so that cross(p1 - p0, p2 - p0) points up. PBRT takes a triangle's
+    // geometric normal from its winding and does not turn it towards the ray,
+    // so which way a surface faces is the scene's business, not the renderer's.
+    const float g = 8.0f;
+    const float y = -1.0f;
+    shapes.push_back(triangle_shape(float3{-g, y, -g}, float3{g, y, g},
+                                    float3{g, y, -g}));
+    shapes.push_back(triangle_shape(float3{-g, y, -g}, float3{-g, y, g},
+                                    float3{g, y, g}));
+
+    _tree_layout0 tree = build_bvh(shapes);
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
 
-    render(camera, sphere, uint32_t(width), uint32_t(height), out);
+    render(camera, uint32_t(width), uint32_t(height), out, tree);
 
     std::ofstream file(output);
     if (!file) {
@@ -238,7 +379,9 @@ int main(int argc, char **argv) {
         }
     }
 
-    std::cout << "wrote " << output << " (" << width << 'x' << height << ")\n";
+    std::cout << "wrote " << output << " (" << width << 'x' << height << ", "
+              << shapes.size() << " shapes)\n";
     free(out);
+    free(tree.group0_index);
     return 0;
 }

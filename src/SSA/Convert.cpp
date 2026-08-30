@@ -630,13 +630,42 @@ struct FunctionBuilder : Visitor {
     void visit(const Access *node) override {
         auto v = get_value(node->value);
         static const Type u32 = UInt_t::make(32);
+
+        // A union's members all begin at the same address, so reading one is
+        // reading those bytes at that member's type. There is no field index
+        // to load -- LoadField takes one into a struct -- so this goes through
+        // the address, which is what CodeGen_LLVM does for the same Access.
+        if (node->value.type().is<Union_t>()) {
+            auto addr = block->make_instruction(Ptr_t::make(node->type),
+                                                Instruction::Op::AddressOf,
+                                                {std::move(v)});
+            value = block->make_instruction(node->type, Instruction::Op::Load,
+                                            {std::move(addr)});
+            return;
+        }
+
         const Struct_t *struct_t = node->value.type().as<Struct_t>();
         internal_assert(struct_t)
-            << node->value.type().as<Struct_t>() << " of " << Expr(node);
+            << node->value.type() << " of " << Expr(node);
         auto idx = find_struct_index(node->field, struct_t->fields);
         auto vidx = make_constant(u32, (uint64_t)idx);
         value = block->make_instruction(node->type, Instruction::Op::LoadField,
                                         {std::move(v), std::move(vidx)});
+    }
+
+    // A union holding one of its members: the member's bytes, read as the
+    // union. The mirror of reading one out above, but not simply the address
+    // of the member -- a union is as wide as its largest member, and loading
+    // one out of storage only big enough for this member would read past the
+    // end of it. So the storage is the union's and the member is written into
+    // it, which is the same shape CodeGen_LLVM::visit(const UnionOf *) has.
+    void visit(const UnionOf *node) override {
+        auto v = get_value(node->value);
+        auto slot = block->make_instruction(Ptr_t::make(node->type),
+                                            Instruction::Op::Alloca, {});
+        block->make_side_effect(Instruction::Op::Store, {slot, std::move(v)});
+        value = block->make_instruction(node->type, Instruction::Op::Load,
+                                        {std::move(slot)});
     }
 
     Instruction::Op get_binop(BinOp::OpType op) {
