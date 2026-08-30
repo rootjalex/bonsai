@@ -703,7 +703,7 @@ void validate_volumes(const ir::Layout &layout) {
                 << "could not find field for initializer: " << name << '\n';
         }
 
-        switch (volume.bound_type) {
+        switch (volume.bound_type()) {
         case Annotation::Volume::BoundType::Enclosing:
             continue; // skip
         case Annotation::Volume::BoundType::Childwise:

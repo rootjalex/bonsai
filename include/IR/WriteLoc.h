@@ -45,14 +45,13 @@ struct WriteLoc {
         return v->name;
     }
 
-    const ir::Type &base_type() const {
-        const ir::Var *v = b.as<ir::Var>();
-        if (const auto *d = b.as<ir::Deref>()) {
-            v = d->expr.as<ir::Var>();
-        }
-        internal_assert(v);
-        return v->type;
-    }
+    // The type the accesses apply to. For a base that Mutability rewrote into
+    // a dereferenced pointer, that is the pointee, not the pointer.
+    ir::Type base_type() const { return b.type(); }
+
+    // True when the base reads through a pointer, as after Mutability rewrites
+    // a mutable argument. Generated C++ spells such a base `(*x)`.
+    bool base_is_dereferenced() const { return b.is<ir::Deref>(); }
 
     static WriteLoc from(ir::Expr e);
 

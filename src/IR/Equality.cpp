@@ -289,16 +289,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                     return Cmp::Greater;
                 }
 
-                if (const Cmp geometry =
-                        compare_primitives(vol0->geometry, vol1->geometry);
-                    geometry != Cmp::Equals) {
-                    return geometry;
-                }
-
-                if (const Cmp broadcast =
-                        compare_primitives(vol0->broadcast, vol1->broadcast);
-                    broadcast != Cmp::Equals) {
-                    return broadcast;
+                if (const Cmp boundee =
+                        compare_primitives(vol0->boundee, vol1->boundee);
+                    boundee != Cmp::Equals) {
+                    return boundee;
                 }
 
                 if (const Cmp vtype =

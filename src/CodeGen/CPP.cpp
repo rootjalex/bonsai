@@ -1432,11 +1432,12 @@ class BonsaiToCpp : ir::Printer {
     void print_loc(std::stringstream &os, const ir::WriteLoc &loc,
                    bool is_assignment) {
         std::string ss;
-        if (loc.base_type().is<ir::Ptr_t>()) {
+        const bool should_deref = loc.base_is_dereferenced();
+        if (should_deref) {
             ss += "(*";
         }
         ss += loc.base();
-        if (loc.base_type().is<ir::Ptr_t>()) {
+        if (should_deref) {
             ss += ")";
         }
         bool is_pointer = false;

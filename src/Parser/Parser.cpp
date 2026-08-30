@@ -2552,18 +2552,14 @@ struct Parser {
 
             // `on <field>` stores one volume per child rather than a single
             // volume enclosing the whole subtree.
-            std::string gname;
+            std::string boundee;
             if (consume(Token::Type::ON)) {
-                gname = get_id();
+                boundee = get_id();
             }
-            const bool childwise = !gname.empty();
-            // TODO: support broadcast checking...
 
             return ir::Annotation{ir::Annotation::Volume{
-                std::move(gname), std::move(type), std::move(initializers),
-                /* broadcast */ childwise,
-                childwise ? ir::Annotation::Volume::BoundType::Childwise
-                          : ir::Annotation::Volume::BoundType::Enclosing}};
+                std::move(boundee), std::move(type),
+                std::move(initializers)}};
         } else if (consume(Token::Type::IN)) {
             expect(Token::Type::LBRACKET);
             auto low = get_id();

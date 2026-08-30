@@ -304,19 +304,26 @@ struct Annotation {
         std::string name;
     };
 
-    // GEOM [on name]?
+    // GEOM(initializers) [on boundee]?
     struct Volume {
-        std::string geometry; // possibly empty.
+        // The field each child's volume is stored on, as in
+        // `with AABB(lo, hi) on children`. Empty when a single volume
+        // encloses the whole subtree.
+        std::string boundee;
         Type struct_type;
         std::vector<std::string> initializers;
-        bool broadcast; // if on children
+
         // Whether a single volume encloses the whole subtree, or each
         // child's volume is stored separately in the parent.
         enum class BoundType {
             Enclosing,
             Childwise,
         };
-        BoundType bound_type = BoundType::Enclosing;
+
+        BoundType bound_type() const {
+            return boundee.empty() ? BoundType::Enclosing
+                                   : BoundType::Childwise;
+        }
     };
 
     // scalar in [low, high]

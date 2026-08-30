@@ -374,7 +374,7 @@ struct Rewriter : public ir::Mutator {
             return;
         }
         const size_t n_args = volume->initializers.size();
-        switch (volume->bound_type) {
+        switch (volume->bound_type()) {
         case ir::Annotation::Volume::BoundType::Enclosing: {
             std::vector<ir::Expr> args;
             args.reserve(n_args);
@@ -384,7 +384,7 @@ struct Rewriter : public ir::Mutator {
             }
             volume_metadata.push_back(VolumeMetadata{
                 .volumes = {ir::Build::make(volume->struct_type, args)},
-                .type = volume->bound_type,
+                .type = volume->bound_type(),
             });
             return;
         }
@@ -411,7 +411,7 @@ struct Rewriter : public ir::Mutator {
             std::reverse(child_volumes.begin(), child_volumes.end());
             volume_metadata.push_back(VolumeMetadata{
                 .volumes = std::move(child_volumes),
-                .type = volume->bound_type,
+                .type = volume->bound_type(),
             });
             return;
         }

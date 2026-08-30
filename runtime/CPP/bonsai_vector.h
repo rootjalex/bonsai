@@ -100,12 +100,16 @@ struct vector {
     }
 
     T &operator[](size_t i) {
-        assert(i < N);
+        if (i >= N) {
+            throw std::out_of_range("vector[] index out of range");
+        }
         return lane_data()[i];
     }
 
     const T &operator[](size_t i) const {
-        assert(i < N);
+        if (i >= N) {
+            throw std::out_of_range("vector[] index out of range");
+        }
         return lane_data()[i];
     }
 

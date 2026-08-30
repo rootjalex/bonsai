@@ -799,8 +799,8 @@ void Printer::print(const BVH_t::Variant &node) {
                 os << vol->initializers[i];
             }
             os << ")";
-            if (!vol->geometry.empty()) {
-                os << " on " << vol->geometry;
+            if (!vol->boundee.empty()) {
+                os << " on " << vol->boundee;
             }
             // TODO: print broadcast somehow?
         } else if (const auto *interval = annot.as<Annotation::Interval>()) {

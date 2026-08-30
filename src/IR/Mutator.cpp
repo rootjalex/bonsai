@@ -215,9 +215,8 @@ Type Mutator::visit(const BVH_t *node) {
                 return annot;
             }
             not_changed = false;
-            return Annotation{Annotation::Volume{
-                vol->geometry, std::move(type), vol->initializers,
-                vol->broadcast, vol->bound_type}};
+            return Annotation{Annotation::Volume{vol->boundee, std::move(type),
+                                                 vol->initializers}};
         } else {
             const auto *interval = annot.as<Annotation::Interval>();
             const auto *aggregate = annot.as<Annotation::Aggregate>();
