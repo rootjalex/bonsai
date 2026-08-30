@@ -1943,10 +1943,19 @@ void CodeGen_LLVM::visit(const Access *node) {
     if (const auto *var = value_e.as<Var>()) {
         name = var->name + "." + name;
     }
+    const auto &fields = value_e.type().as<Struct_t>()->fields;
     if (field->getType()->isStructTy()) {
-        const auto &fields = value_e.type().as<Struct_t>()->fields;
         const size_t idx = find_struct_index(node->field, fields);
         value = builder->CreateExtractValue(field, idx, name);
+        return;
+    }
+    // A struct that lives in an allocation is addressed rather than held in a
+    // register, so index to the field and load it.
+    if (field->getType()->isPointerTy()) {
+        const size_t idx = find_struct_index(node->field, fields);
+        llvm::Value *ptr = builder->CreateStructGEP(
+            codegen_type(value_e.type()), field, idx, name);
+        value = create_aligned_load(codegen_type(fields[idx].type), ptr, name);
         return;
     }
     llvm::errs() << *field << " : " << *field->getType() << "\n";
