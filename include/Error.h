@@ -4,6 +4,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace bonsai {
 
@@ -11,22 +12,42 @@ class Error final : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+namespace detail {
+
+// __FILE__ is an absolute path into whatever directory the repository was
+// cloned into. Trim it back to a repository-relative path, so that the
+// "[internal] Error: <file>:<line>" lines that tests/bonsai/error/*.expect
+// compares byte-for-byte do not depend on where the checkout lives.
+inline std::string source_relative_path(const char *file) {
+    std::string f(file);
+
+#ifdef BONSAI_SOURCE_DIR
+    // The repository root, injected by the top-level CMakeLists.txt.
+    constexpr std::string_view root = BONSAI_SOURCE_DIR;
+    if (!root.empty() && f.size() > root.size() &&
+        f.compare(0, root.size(), root) == 0 && f[root.size()] == '/') {
+        return f.substr(root.size() + 1);
+    }
+#endif
+
+    // For a translation unit built outside our CMake, or one whose __FILE__
+    // has been rewritten (-ffile-prefix-map), fall back to the last top-level
+    // source directory. Printing the whole path is the honest last resort.
+    for (const std::string_view dir : {"/src/", "/include/", "/tests/"}) {
+        if (const size_t pos = f.rfind(dir); pos != std::string::npos) {
+            return f.substr(pos + 1);
+        }
+    }
+    return f;
+}
+
+} // namespace detail
+
 class ErrorReport {
   public:
     ErrorReport(const char *cond_str, const char *file, size_t line) {
-        // Print the file path proceeding the root directory (inclusive).
-        constexpr std::string_view ROOT_DIRECTORY = "bonsai";
-        std::string f(file);
-
-        // TODO(cgyurgyik): Fix this hack.
-        // Finds the last occurrence of `bonsai` to conform with Github Actions,
-        // where both the WORKSPACE and the REPOSITORY are named `bonsai`.
-        if (size_t pos = f.rfind(ROOT_DIRECTORY); pos != std::string::npos) {
-            f = f.substr(pos + ROOT_DIRECTORY.length() + 1);
-        }
-
         stream << "[internal] Error: ";
-        stream << f << ":" << line << "\n";
+        stream << detail::source_relative_path(file) << ":" << line << "\n";
         if (cond_str) {
             stream << "\n--> " << cond_str << "\n";
         }
