@@ -63,6 +63,12 @@ struct set {
         data.insert(data.end(), elems, elems + count);
     }
 
+    // Set overload: everything a scanned subtree produced joins this set.
+    void push_back(const set<T> &values) {
+        // std::unique_lock lock(mutex);
+        data.insert(data.end(), values.data.begin(), values.data.end());
+    }
+
     // Range overload
     template <typename U>
     void push_back(const range<T, U> &range) {

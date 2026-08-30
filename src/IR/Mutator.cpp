@@ -55,7 +55,11 @@ BuildIR Mutator::mutate(const BuildIR &ir) {
 }
 
 std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
-    WriteLoc new_loc(loc.base(), loc.base_type());
+    // Keep the base expression itself rather than rebuilding it from its name
+    // and type. Once Mutability has rewritten a mutable argument, the base
+    // reads through a pointer, and naming it again would write to the pointer
+    // instead of to what it points at.
+    WriteLoc new_loc(loc.b);
     bool not_changed = true;
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<Expr>(value)) {

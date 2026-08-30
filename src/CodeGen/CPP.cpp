@@ -728,6 +728,20 @@ class BonsaiToCpp : ir::Printer {
     void visit(const Var *node) override { ss << node->name; }
 
     void visit(const Slice *node) override {
+        // Slicing a sequence names a sub-range of it; slicing a scalar takes
+        // a run of its bits. They are spelled the same and mean different
+        // things, so the value's type decides which.
+        if (!node->value.type().is_scalar()) {
+            ss << "range(";
+            print_no_parens(node->value);
+            ss << ", ";
+            print_no_parens(node->begin);
+            ss << ", ";
+            print_no_parens(ir::BinOp::make(ir::BinOp::Sub, node->end,
+                                            node->begin));
+            ss << ")";
+            return;
+        }
         ss << "slice";
         const bool is_constant_bounds =
             is_const(node->begin) && is_const(node->end);
