@@ -1,12 +1,4 @@
-#include "helpers.h"
-
-#include <cuda/std/array>
-#include <thrust/universal_vector.h>
-#include <cuda/std/optional>
-#include <cuda/std/tuple>
-
-#include <stdint.h>
-#include <variant>
+#include "runtime/CUDA/helpers.h"
 
 struct Interior;
 struct Leaf;
@@ -88,22 +80,18 @@ __host__ float __prod_diff_f32(float a, float b, float c, float d) {
   return (diff + err);
 }
 
-__host__ float gamma(int32_t n) {
-  float _t1 = ((float)n * (float)5.96046e-08);
-  return (_t1 / (1 - _t1));
-}
-
 __host__ cuda::std::optional<FInterval> intersectsp_ray_aabb(Ray* r, AABB* b) {
-  float3 _t1 = (make_float3(1) / (*r).d);
-  bool3 dirIsNeg = (_t1 < make_float3(0));
-  float3 _t2 = (*b).high;
-  float3 _t3 = (*b).low;
-  float3 low_parts = make_float3((dirIsNeg.x ? _t2.x : _t3.x),(dirIsNeg.y ? _t2.y : _t3.y),(dirIsNeg.z ? _t2.z : _t3.z));
-  float3 high_parts = make_float3((dirIsNeg.x ? _t3.x : _t2.x),(dirIsNeg.y ? _t3.y : _t2.y),(dirIsNeg.z ? _t3.z : _t2.z));
-  float3 _t6 = (*r).o;
-  float3 tMin = ((low_parts - _t6) * _t1);
-  float3 tMax = ((high_parts - _t6) * _t1);
-  tMax *= (1 + ((float)2 * gamma(3)));
+  float3 _t259 = (make_float3(1) / (*r).d);
+  bool3 dirIsNeg = (_t259 < make_float3(0));
+  float3 _t92 = (*b).high;
+  float3 _t93 = (*b).low;
+  float3 low_parts = make_float3((dirIsNeg.x ? _t92.x : _t93.x),(dirIsNeg.y ? _t92.y : _t93.y),(dirIsNeg.z ? _t92.z : _t93.z));
+  float3 high_parts = make_float3((dirIsNeg.x ? _t93.x : _t92.x),(dirIsNeg.y ? _t93.y : _t92.y),(dirIsNeg.z ? _t93.z : _t92.z));
+  float3 _t96 = (*r).o;
+  float3 tMin = ((low_parts - _t96) * _t259);
+  float3 tMax = ((high_parts - _t96) * _t259);
+  float _t99 = ((float)3 * FLT_EPSILON);
+  tMax *= (1 + ((float)2 * (_t99 / (1 - _t99))));
   if ((tMax.y < tMin.x) || (tMax.x < tMin.y)) {
     return cuda::std::nullopt;
   }
@@ -117,116 +105,92 @@ __host__ cuda::std::optional<FInterval> intersectsp_ray_aabb(Ray* r, AABB* b) {
   return FInterval{tmin, tmax};
 }
 
-__host__ float distmin_Ray_AABB(Ray* r, AABB* b) {
-  cuda::std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
-  if (interval.has_value()) {
-    FInterval extract = *interval;
-    return extract.low;
-  }
-  return -INFINITY;
-}
-
 __host__ float3 cross_(float3 v0, float3 v1) {
-  float _t0 = v0.y;
-  float _t1 = v1.z;
-  float _t2 = v0.z;
-  float _t3 = v1.y;
-  float _t5 = v1.x;
-  float _t6 = v0.x;
-  return float3{__prod_diff_f32(_t0, _t1, _t2, _t3), __prod_diff_f32(_t2, _t5, _t6, _t1), __prod_diff_f32(_t6, _t3, _t0, _t5)};
+  float _t75 = v0.y;
+  float _t76 = v1.z;
+  float _t77 = v0.z;
+  float _t78 = v1.y;
+  float _t80 = v1.x;
+  float _t81 = v0.x;
+  return float3{__prod_diff_f32(_t75, _t76, _t77, _t78), __prod_diff_f32(_t77, _t80, _t81, _t76), __prod_diff_f32(_t81, _t78, _t75, _t80)};
 }
 
 __host__ cuda::std::optional<TriangleIntersection> intersectsp_ray_tri(Ray* ray, Triangle* tri) {
-  float3 _t0 = (*tri).p2;
-  float3 _t1 = (*tri).p0;
-  float3 _t2 = (*tri).p1;
-  if (sum((cross_(_t0 - _t1, _t2 - _t1) * cross_(_t0 - _t1, _t2 - _t1))) == 0) {
+  float3 _t105 = (*tri).p2;
+  float3 _t106 = (*tri).p0;
+  float3 _t108 = (*tri).p1;
+  float3 _t265 = cross_(_t105 - _t106, _t108 - _t106);
+  if (sum((_t265 * _t265)) == 0) {
     return cuda::std::nullopt;
   }
-  float3 _t5 = (*ray).o;
-  float3 p0t = (_t1 - _t5);
-  float3 p1t = (_t2 - _t5);
-  float3 p2t = (_t0 - _t5);
-  float3 _t10 = (*ray).d;
-  uint32_t kz = idxmax(abs(_t10));
+  float3 _t120 = (*ray).o;
+  float3 p0t = (_t106 - _t120);
+  float3 p1t = (_t108 - _t120);
+  float3 p2t = (_t105 - _t120);
+  float3 _t125 = (*ray).d;
+  uint32_t kz = idxmax(abs(_t125));
   uint32_t kx = ((kz + 1u) % 3u);
   uint32_t ky = ((kx + 1u) % 3u);
-  float3 d = shuffle(_t10, {kx, ky, kz});
+  float3 d = shuffle(_t125, {kx, ky, kz});
   p0t = shuffle(p0t, {kx, ky, kz});
   p1t = shuffle(p1t, {kx, ky, kz});
   p2t = shuffle(p2t, {kx, ky, kz});
-  float _t13 = d.z;
-  float _t14 = (-d.x / _t13);
-  float _t17 = (-d.y / _t13);
-  float Sz = (1 / _t13);
-  p0t.x += (_t14 * p0t.z);
-  p0t.y += (_t17 * p0t.z);
-  p1t.x += (_t14 * p1t.z);
-  p1t.y += (_t17 * p1t.z);
-  p2t.x += (_t14 * p2t.z);
-  p2t.y += (_t17 * p2t.z);
-  float _t20 = __prod_diff_f32(p1t.x, p2t.y, p1t.y, p2t.x);
-  float _t21 = __prod_diff_f32(p2t.x, p0t.y, p2t.y, p0t.x);
-  float _t22 = __prod_diff_f32(p0t.x, p1t.y, p0t.y, p1t.x);
-  if (((_t20 < 0) || (_t21 < 0)) || (_t22 < 0)) {
-    if (((0 < _t20) || (0 < _t21)) || (0 < _t22)) {
+  float _t128 = d.z;
+  float _t267 = (-d.x / _t128);
+  float _t269 = (-d.y / _t128);
+  float Sz = (1 / _t128);
+  p0t.x += (_t267 * p0t.z);
+  p0t.y += (_t269 * p0t.z);
+  p1t.x += (_t267 * p1t.z);
+  p1t.y += (_t269 * p1t.z);
+  p2t.x += (_t267 * p2t.z);
+  p2t.y += (_t269 * p2t.z);
+  float _t270 = __prod_diff_f32(p1t.x, p2t.y, p1t.y, p2t.x);
+  float _t271 = __prod_diff_f32(p2t.x, p0t.y, p2t.y, p0t.x);
+  float _t272 = __prod_diff_f32(p0t.x, p1t.y, p0t.y, p1t.x);
+  if (((_t270 < 0) || (_t271 < 0)) || (_t272 < 0)) {
+    if (((0 < _t270) || (0 < _t271)) || (0 < _t272)) {
       return cuda::std::nullopt;
     }
   }
-  float _t24 = ((_t20 + _t21) + _t22);
-  if (_t24 == 0) {
+  float _t274 = ((_t270 + _t271) + _t272);
+  if (_t274 == 0) {
     return cuda::std::nullopt;
   }
   p0t.z *= Sz;
   p1t.z *= Sz;
   p2t.z *= Sz;
-  float tScaled = (((_t20 * p0t.z) + (_t21 * p1t.z)) + (_t22 * p2t.z));
-  if ((_t24 < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * _t24)))) {
+  float tScaled = (((_t270 * p0t.z) + (_t271 * p1t.z)) + (_t272 * p2t.z));
+  if ((_t274 < 0) && ((0 <= tScaled) || (tScaled < ((*ray).tmax * _t274)))) {
     return cuda::std::nullopt;
   } else {
-    if ((0 < _t24) && ((tScaled <= 0) || (((*ray).tmax * _t24) < tScaled))) {
+    if ((0 < _t274) && ((tScaled <= 0) || (((*ray).tmax * _t274) < tScaled))) {
       return cuda::std::nullopt;
     }
   }
-  float invDet = (1 / _t24);
-  float b0 = (_t20 * invDet);
-  float b1 = (_t21 * invDet);
-  float b2 = (_t22 * invDet);
+  float invDet = (1 / _t274);
+  float b0 = (_t270 * invDet);
+  float b1 = (_t271 * invDet);
+  float b2 = (_t272 * invDet);
   float t = (tScaled * invDet);
   float maxZt = max(abs(float3{p0t.z, p1t.z, p2t.z}));
-  float _t25 = gamma(3);
-  float deltaZ = (_t25 * maxZt);
+  float _t141 = ((float)3 * FLT_EPSILON);
+  float _t276 = (_t141 / (1 - _t141));
+  float deltaZ = (_t276 * maxZt);
   float maxXt = max(abs(float3{p0t.x, p1t.x, p2t.x}));
   float maxYt = max(abs(float3{p0t.y, p1t.y, p2t.y}));
-  float _t26 = gamma(5);
-  float deltaX = (_t26 * (maxXt + maxZt));
-  float deltaY = (_t26 * (maxYt + maxZt));
-  float deltaE = ((float)2 * ((((gamma(2) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
-  float maxE = max(abs(float3{_t20, _t21, _t22}));
-  float deltaT = (((float)3 * ((((_t25 * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * fabsf(invDet));
+  float _t147 = ((float)5 * FLT_EPSILON);
+  float _t278 = (_t147 / (1 - _t147));
+  float deltaX = (_t278 * (maxXt + maxZt));
+  float deltaY = (_t278 * (maxYt + maxZt));
+  float _t159 = ((float)2 * FLT_EPSILON);
+  float deltaE = ((float)2 * (((((_t159 / (1 - _t159)) * maxXt) * maxYt) + (deltaY * maxXt)) + (deltaX * maxYt)));
+  float maxE = max(abs(float3{_t270, _t271, _t272}));
+  float deltaT = (((float)3 * ((((_t276 * maxE) * maxZt) + (deltaE * maxZt)) + (deltaZ * maxE))) * fabsf(invDet));
   if (t <= deltaT) {
     return cuda::std::nullopt;
   }
   return TriangleIntersection{b0, b1, b2, t};
-}
-
-__host__ float distmin_Ray_Triangle(Ray* ray, Triangle* tri) {
-  cuda::std::optional<TriangleIntersection> isect = intersectsp_ray_tri(ray, tri);
-  if (isect.has_value()) {
-    TriangleIntersection isect_ = *isect;
-    return isect_.t;
-  } else {
-    return INFINITY;
-  }
-}
-
-__host__ bool intersects_Ray_AABB(Ray* r, AABB* b) {
-  cuda::std::optional<FInterval> interval = intersectsp_ray_aabb(r, b);
-  if (interval.has_value()) {
-    FInterval extract = *interval;
-    return ((extract.low < (*r).tmax) & (0 < extract.high));
-  }
-  return false;
 }
 
 __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Triangles* triangles) {
@@ -245,79 +209,59 @@ __device__ __host__ cuda::std::optional<Triangle> _traverse_tree0(Ray* ray, Tria
       }
     }
     if (slice<0, 1>(slice<0, 1>(I)) == 2u) {
-      Interiors _t18 = (*triangles).interiors[slice<5, 63>(I)];
-      cuda::std::array<float3, 8> _t19 = _t18.lo;
-      cuda::std::array<float3, 8> _t24 = _t18.hi;
-      AABB _t26 = AABB{_t19[0], _t24[0]};
-      if (intersects_Ray_AABB(ray, (&_t26))) {
-        if (distmin_Ray_AABB(ray, (&_t26)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[0u];
-          _queue_count0 += 1;
-        }
+      Interiors _t249 = (*triangles).interiors[slice<5, 63>(I)];
+      bool _t2 = false;
+      AABB _lv0 = AABB{_t249.lo[0], _t249.hi[0]};
+      cuda::std::optional<FInterval> _t255 = intersectsp_ray_aabb(ray, (&_lv0));
+      if (_t255.has_value()) {
+        FInterval __inline1 = *_t255;
+        _t2 = ((__inline1.low < (*ray).tmax) & (0 < __inline1.high));
       }
-      AABB _t53 = AABB{_t19[1], _t24[1]};
-      if (intersects_Ray_AABB(ray, (&_t53))) {
-        if (distmin_Ray_AABB(ray, (&_t53)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[1u];
-          _queue_count0 += 1;
-        }
-      }
-      AABB _t80 = AABB{_t19[2], _t24[2]};
-      if (intersects_Ray_AABB(ray, (&_t80))) {
-        if (distmin_Ray_AABB(ray, (&_t80)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[2u];
-          _queue_count0 += 1;
-        }
-      }
-      AABB _t107 = AABB{_t19[3], _t24[3]};
-      if (intersects_Ray_AABB(ray, (&_t107))) {
-        if (distmin_Ray_AABB(ray, (&_t107)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[3u];
-          _queue_count0 += 1;
-        }
-      }
-      AABB _t134 = AABB{_t19[4], _t24[4]};
-      if (intersects_Ray_AABB(ray, (&_t134))) {
-        if (distmin_Ray_AABB(ray, (&_t134)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[4u];
-          _queue_count0 += 1;
-        }
-      }
-      AABB _t161 = AABB{_t19[5], _t24[5]};
-      if (intersects_Ray_AABB(ray, (&_t161))) {
-        if (distmin_Ray_AABB(ray, (&_t161)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[5u];
-          _queue_count0 += 1;
-        }
-      }
-      AABB _t188 = AABB{_t19[6], _t24[6]};
-      if (intersects_Ray_AABB(ray, (&_t188))) {
-        if (distmin_Ray_AABB(ray, (&_t188)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[6u];
-          _queue_count0 += 1;
-        }
-      }
-      AABB _t215 = AABB{_t19[7], _t24[7]};
-      if (intersects_Ray_AABB(ray, (&_t215))) {
-        if (distmin_Ray_AABB(ray, (&_t215)) < cuda::std::get<0>(_best0)) {
-          _queue0[_queue_count0] = _t18.children[7u];
-          _queue_count0 += 1;
+      if (_t2) {
+        float _t28 = cuda::std::get<0>(_best0);
+        float _t171 = INFINITY;
+        FInterval __inline5 = *_t255;
+        _t171 = __inline5.low;
+        bool _t3 = (_t171 < _t28);
+        if (_t3) {
+          cuda::std::array<uint64_t, 8> _t32 = _t249.children;
+          _queue0[_queue_count0] = _t32[0];
+          _queue0[(_queue_count0 + 1)] = _t32[1];
+          _queue0[(_queue_count0 + 2)] = _t32[2];
+          _queue0[(_queue_count0 + 3)] = _t32[3];
+          _queue0[(_queue_count0 + 4)] = _t32[4];
+          _queue0[(_queue_count0 + 5)] = _t32[5];
+          _queue0[(_queue_count0 + 6)] = _t32[6];
+          _queue0[(_queue_count0 + 7)] = _t32[7];
+          _queue_count0 += 8;
         }
       }
     } else {
-      uint64_t _t227 = slice<5, 63>(I);
-      for (uint64_t _idx0 = _t227; _idx0 < (_t227 + (uint64_t)(uint8_t)(slice<2, 4>(I) + 1u)); _idx0 += 1u) {
-        Triangle _t226 = (*triangles).primitives[_idx0];
-        if (intersectsp_ray_tri(ray, (&_t226)).has_value()) {
-          float _t223 = distmin_Ray_Triangle(ray, (&_t226));
-          if (_t223 < cuda::std::get<0>(_best0)) {
-            _best0 = argmin(_best0, cuda::std::tuple<float, Triangle>{_t223, _t226});
+      uint64_t _t72 = slice<5, 63>(I);
+      for (uint64_t _idx0 = _t72; _idx0 < (_t72 + (uint64_t)(uint8_t)(slice<2, 4>(I) + 1u)); _idx0 += 1u) {
+        Triangle _t257 = (*triangles).primitives[_idx0];
+        cuda::std::optional<TriangleIntersection> _t246 = intersectsp_ray_tri(ray, (&_t257));
+        cuda::std::optional<TriangleIntersection> _t172 = _t246;
+        bool _t4 = _t172.has_value();
+        if (_t4) {
+          float _t65 = INFINITY;
+          if (_t246.has_value()) {
+            TriangleIntersection __inline3 = *_t246;
+            _t65 = __inline3.t;
+          } else {
+            _t65 = INFINITY;
+          }
+          float _t66 = cuda::std::get<0>(_best0);
+          bool _t5 = (_t65 < _t66);
+          if (_t5) {
+            _best0 = argmin(_best0, cuda::std::tuple<float, Triangle>{_t65, _t257});
           }
         }
       }
     }
   } while (_queue_count0 != 0);
-  return ((cuda::std::get<0>(_best0) != INFINITY) ? cuda::std::optional<Triangle>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
+  float _t74 = cuda::std::get<0>(_best0);
+  return ((_t74 != INFINITY) ? cuda::std::optional<Triangle>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
 }
 
 __global__ void _parfunc0(_ctx0 ctx0) {

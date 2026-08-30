@@ -34,19 +34,23 @@
 
 template <typename T, typename U>
 __attribute__((always_inline)) T reinterpret(const U &bits) {
-    static_assert(sizeof(T) == sizeof(U), "Size mismatch in reinterpret");
+    // A split stores each of its arms in one byte blob, sized for the largest
+    // of them, so reading a smaller arm back reads a prefix of the blob.
+    static_assert(sizeof(T) <= sizeof(U),
+                  "reinterpret would read past the end of its source");
     static_assert(std::is_trivially_copyable_v<T>,
                   "T must be trivially copyable");
     static_assert(std::is_trivially_copyable_v<U>,
                   "U must be trivially copyable");
 
 #if __cpp_lib_bit_cast >= 201806L // C++20
-    return std::bit_cast<T>(bits);
-#else
+    if constexpr (sizeof(T) == sizeof(U)) {
+        return std::bit_cast<T>(bits);
+    }
+#endif
     T result;
     std::memcpy(&result, &bits, sizeof(T));
     return result;
-#endif
 }
 
 using std::abs;

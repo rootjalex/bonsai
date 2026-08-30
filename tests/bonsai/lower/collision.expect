@@ -3,23 +3,22 @@ type BVH = (const BVH&)
 type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const BVH&); right : (const BVH&) }
 type Leaf = struct Leaf{ low : f32x3; high : f32x3; nprims : u16; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[nprims] }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
-type __dyn_array0 = struct __dyn_array0{ buffer : struct __tuple_1{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[16]; size : i32 = 0; capacity : i32; mutex : u8x64 }
 type __tuple_0 = struct __tuple_0{ _field0 : u32; _field1 : u32 }
 type __tuple_1 = struct __tuple_1{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
 type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
 type arm_Leaf = [[packed]] struct arm_Leaf{ poffset : u32 }
-type f32x3 = f32x3
+type f32x3 = vector[f32, 3]
 type nodes1 = [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
 type nodes2 = [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }
 type queue = struct queue{ count : u64 = 0u; stack : struct __tuple_0{ _field0 : u32; _field1 : u32 }[64] }
-type triangles1 = [[packed]] struct triangles1{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes1 : [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[size=node_count] }
-type triangles2 = [[packed]] struct triangles2{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes2 : [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[size=node_count] }
+type triangles1 = [[packed]] struct triangles1{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes1 : [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
+type triangles2 = [[packed]] struct triangles2{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes2 : [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 
-extern triangles1 : [[packed]] struct triangles1{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes1 : [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[size=node_count] }
-extern triangles2 : [[packed]] struct triangles2{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes2 : [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[size=node_count] }
+extern triangles1 : [[packed]] struct triangles1{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes1 : [[packed]] struct nodes1{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
+extern triangles2 : [[packed]] struct triangles2{ primitive_count : u32; primitives : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[primitive_count]; node_count : u32; nodes2 : [[packed]] struct nodes2{ low : f32x3; high : f32x3; nprims : u16; axis : u8; pad0 : u8; split0on_nprims : u8x4 }[node_count] }
 
-func _traverse_tree0(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> __dyn_array0 {
-  alloc _dyn_alloc : mut __dyn_array0
+func _traverse_tree0(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> set<__tuple_1> {
+  alloc _dyn_alloc : mut set<__tuple_1>
   Q : mut queue := build<queue>()
   Q_buffer : mut queue := build<queue>()
   Q.stack[0u] = build<__tuple_0>(0u, 0u)
@@ -28,46 +27,124 @@ func _traverse_tree0(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> 
     forall q in [0u:Q.count:1u] {
       let index1 = Q.stack[q]._field0 in
       let index2 = Q.stack[q]._field1 in
-      let _t88 = (*triangles1).nodes1[index1] in
-      let _t92 = (*triangles2).nodes2[index2] in
-      if (intersects_AABB_AABB((&build<AABB>(_t88.low, _t88.high)), (&build<AABB>(_t92.low, _t92.high)))) {
-        let _t86 = _t88.nprims in
-        if (_t86 == 0u) {
-          if (_t92.nprims == 0u) {
-            let _t0 = index1 + 1u in
-            let _t1 = index2 + 1u in
-            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t0, _t1)
+      if (index1 == 4294967295u) {
+        return
+      }
+      if (index2 == 4294967295u) {
+        return
+      }
+      let _t174 = (*triangles1).nodes1[index1] in
+      let _t176 = (*triangles2).nodes2[index2] in
+      _t0 : mut bool := false
+      let _t179 = build<AABB>(_t174.low, _t174.high) in
+      let _t182 = build<AABB>(_t176.low, _t176.high) in
+      let __inline1 = max(_t179.low, _t182.low) in
+      let __inline0 = min(_t179.high, _t182.high) in
+      _t0 = reduce<all>(__inline1 <= __inline0)
+      if (_t0) {
+        let _t96 = _t174.nprims in
+        if (_t96 == 0u) {
+          if (_t176.nprims == 0u) {
+            let _t10 = index1 + 1u in
+            let _t11 = index2 + 1u in
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t10, _t11)
             Q_buffer.count += 1u
-            let _t8 = index2 + reinterpret_cast<arm_Interior>(_t92.split0on_nprims).offset in
-            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t0, _t8)
+            let _t186 = index2 + reinterpret_cast<arm_Interior>(_t176.split0on_nprims).offset in
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t10, _t186)
             Q_buffer.count += 1u
-            let _t14 = index1 + reinterpret_cast<arm_Interior>(_t88.split0on_nprims).offset in
-            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t14, _t1)
+            let _t190 = index1 + reinterpret_cast<arm_Interior>(_t174.split0on_nprims).offset in
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t190, _t11)
             Q_buffer.count += 1u
-            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t14, _t8)
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(_t190, _t186)
             Q_buffer.count += 1u
           } else {
             Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1 + 1u, index2)
             Q_buffer.count += 1u
-            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1 + reinterpret_cast<arm_Interior>(_t88.split0on_nprims).offset, index2)
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1 + reinterpret_cast<arm_Interior>(_t174.split0on_nprims).offset, index2)
             Q_buffer.count += 1u
           }
         } else {
-          let _t82 = _t92.nprims in
-          if (_t82 == 0u) {
+          let _t92 = _t176.nprims in
+          if (_t92 == 0u) {
             Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1, index2 + 1u)
             Q_buffer.count += 1u
-            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1, index2 + reinterpret_cast<arm_Interior>(_t92.split0on_nprims).offset)
+            Q_buffer.stack[Q_buffer.count] = build<__tuple_0>(index1, index2 + reinterpret_cast<arm_Interior>(_t176.split0on_nprims).offset)
             Q_buffer.count += 1u
           } else {
-            let _t71 = reinterpret_cast<arm_Leaf>(_t88.split0on_nprims).poffset in
-            forall _idx0 in [_t71:_t71 + cast<u32>(_t86):1u] {
-              let _t58 = reinterpret_cast<arm_Leaf>(_t92.split0on_nprims).poffset in
-              forall _idx1 in [_t58:_t58 + cast<u32>(_t82):1u] {
-                let _t47 = (*triangles1).primitives[_idx0] in
-                let _t49 = (*triangles2).primitives[_idx1] in
-                if (intersects_Triangle_Triangle((&_t47), (&_t49))) {
-                  append<_dyn_alloc>(build<__tuple_1>(_t47, _t49))
+            let _t81 = reinterpret_cast<arm_Leaf>(_t174.split0on_nprims).poffset in
+            forall _idx0 in [_t81:_t81 + cast<u32>(_t96):1u] {
+              let _t68 = reinterpret_cast<arm_Leaf>(_t176.split0on_nprims).poffset in
+              forall _idx1 in [_t68:_t68 + cast<u32>(_t92):1u] {
+                let _t205 = (*triangles1).primitives[_idx0] in
+                let _t207 = (*triangles2).primitives[_idx1] in
+                _t1 : mut bool := true
+                let __inline10 = _t205.p0 in
+                let __inline11 = _t205.p1 in
+                let __inline12 = _t205.p2 in
+                let __inline13 = _t207.p0 in
+                let __inline14 = _t207.p1 in
+                let __inline15 = _t207.p2 in
+                let __inline2 = __inline11 - __inline10 in
+                let __inline3 = __inline12 - __inline11 in
+                let __inline4 = __inline10 - __inline12 in
+                let __inline5 = __inline14 - __inline13 in
+                let __inline6 = __inline15 - __inline14 in
+                let __inline7 = __inline13 - __inline15 in
+                let __inline9 = cross(__inline2, __inline3) in
+                if (!project6(__inline9, __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                let __inline8 = cross(__inline5, __inline6) in
+                if (!project6(__inline8, __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline2, __inline5), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline2, __inline6), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline2, __inline7), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline3, __inline5), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline3, __inline6), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline3, __inline7), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline4, __inline5), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline4, __inline6), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline4, __inline7), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline2, __inline9), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline3, __inline9), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline4, __inline9), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline5, __inline8), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline6, __inline8), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (!project6(cross(__inline7, __inline8), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false
+                }
+                if (_t1) {
+                  append<_dyn_alloc>(build<__tuple_1>(_t205, _t207))
                 }
               }
             }
@@ -86,6 +163,8 @@ func _unexported_build_triangles1(CT : (const BVH&)) -> triangles1 {
   ST : mut triangles1
   primitives_index : mut idx
   nodes1_index : mut idx
+  ST.primitive_count = 0u
+  ST.node_count = 0u
   rec_count_triangles1(CT, (&ST))
   alloc primitives : mut Triangle[ST.primitive_count]
   ST.primitives = primitives
@@ -99,6 +178,8 @@ func _unexported_build_triangles2(CT : (const BVH&)) -> triangles2 {
   ST : mut triangles2
   primitives_index : mut idx
   nodes2_index : mut idx
+  ST.primitive_count = 0u
+  ST.node_count = 0u
   rec_count_triangles2(CT, (&ST))
   alloc primitives : mut Triangle[ST.primitive_count]
   ST.primitives = primitives
@@ -106,10 +187,6 @@ func _unexported_build_triangles2(CT : (const BVH&)) -> triangles2 {
   ST.nodes2 = nodes2
   rec_build_triangles2(CT, (&ST), (&nodes2_index), (&primitives_index))
   return ST
-}
-
-func _unexported_collisions(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> __dyn_array0 {
-  return _traverse_tree0(triangles1, triangles2)
 }
 
 func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> bool {
@@ -126,6 +203,8 @@ func [[export]] build_triangles1(_ret0 : mut (triangles1*), CT : (const BVH&)) -
   ST : mut triangles1
   primitives_index : mut idx
   nodes1_index : mut idx
+  ST.primitive_count = 0u
+  ST.node_count = 0u
   rec_count_triangles1(CT, (&ST))
   alloc primitives : mut Triangle[ST.primitive_count]
   ST.primitives = primitives
@@ -140,6 +219,8 @@ func [[export]] build_triangles2(_ret1 : mut (triangles2*), CT : (const BVH&)) -
   ST : mut triangles2
   primitives_index : mut idx
   nodes2_index : mut idx
+  ST.primitive_count = 0u
+  ST.node_count = 0u
   rec_count_triangles2(CT, (&ST))
   alloc primitives : mut Triangle[ST.primitive_count]
   ST.primitives = primitives
@@ -150,9 +231,8 @@ func [[export]] build_triangles2(_ret1 : mut (triangles2*), CT : (const BVH&)) -
   return
 }
 
-func [[export]] collisions(_ret2 : mut (__dyn_array0*), triangles1 : (triangles1*), triangles2 : (triangles2*)) -> void {
-  _ret2 = _traverse_tree0(triangles1, triangles2)
-  return
+func [[export]] collisions(triangles1 : (triangles1*), triangles2 : (triangles2*)) -> set<__tuple_1> {
+  return _traverse_tree0(triangles1, triangles2)
 }
 
 func intersects_AABB_AABB(a : (AABB*), b : (AABB*)) -> bool {
@@ -251,6 +331,9 @@ func project6(ax : f32x3, p1 : f32x3, p2 : f32x3, p3 : f32x3, q1 : f32x3, q2 : f
 }
 
 func rec_build_triangles1(node : (const BVH&), ST : mut (triangles1*), nodes1_index : mut (idx*), primitives_index : mut (idx*)) -> u32 {
+  if (!node) {
+    return 4294967295u
+  }
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     let this_index = (*nodes1_index) in
@@ -272,7 +355,7 @@ func rec_build_triangles1(node : (const BVH&), ST : mut (triangles1*), nodes1_in
     ST.nodes1[this_index].axis = argmax(node.high - node.low)
     reinterpret_cast<(arm_Leaf*)>(ST.nodes1[this_index].split0on_nprims).poffset = (*primitives_index)
     forall __p in [0u:node.nprims:1u] {
-      ST.primitives[(__p + (*primitives_index))] = node.data[__p]
+      ST.primitives[__p + (*primitives_index)] = node.data[__p]
     }
     primitives_index += node.nprims
     return this_index
@@ -280,6 +363,9 @@ func rec_build_triangles1(node : (const BVH&), ST : mut (triangles1*), nodes1_in
 }
 
 func rec_build_triangles2(node : (const BVH&), ST : mut (triangles2*), nodes2_index : mut (idx*), primitives_index : mut (idx*)) -> u32 {
+  if (!node) {
+    return 4294967295u
+  }
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     let this_index = (*nodes2_index) in
@@ -301,7 +387,7 @@ func rec_build_triangles2(node : (const BVH&), ST : mut (triangles2*), nodes2_in
     ST.nodes2[this_index].axis = argmax(node.high - node.low)
     reinterpret_cast<(arm_Leaf*)>(ST.nodes2[this_index].split0on_nprims).poffset = (*primitives_index)
     forall __p in [0u:node.nprims:1u] {
-      ST.primitives[(__p + (*primitives_index))] = node.data[__p]
+      ST.primitives[__p + (*primitives_index)] = node.data[__p]
     }
     primitives_index += node.nprims
     return this_index
@@ -309,6 +395,9 @@ func rec_build_triangles2(node : (const BVH&), ST : mut (triangles2*), nodes2_in
 }
 
 func rec_count_triangles1(node : (const BVH&), ST : mut (triangles1*)) -> void {
+  if (!node) {
+    return
+  }
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     rec_count_triangles1(node.left, ST)
@@ -321,6 +410,9 @@ func rec_count_triangles1(node : (const BVH&), ST : mut (triangles1*)) -> void {
 }
 
 func rec_count_triangles2(node : (const BVH&), ST : mut (triangles2*)) -> void {
+  if (!node) {
+    return
+  }
   match node {
   | Interior(low : f32x3, high : f32x3, left : (const BVH&), right : (const BVH&)) with AABB(low, high) ->
     rec_count_triangles2(node.left, ST)

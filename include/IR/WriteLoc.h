@@ -49,9 +49,12 @@ struct WriteLoc {
     // a dereferenced pointer, that is the pointee, not the pointer.
     ir::Type base_type() const { return b.type(); }
 
-    // True when the base reads through a pointer, as after Mutability rewrites
-    // a mutable argument. Generated C++ spells such a base `(*x)`.
-    bool base_is_dereferenced() const { return b.is<ir::Deref>(); }
+    // True when the accesses read through a pointer, so generated C++ spells
+    // the base `(*x)`. Mutability rewrites a mutable argument into an explicit
+    // Deref; a base that is simply a pointer-typed variable arrives as-is.
+    bool base_is_dereferenced() const {
+        return b.is<ir::Deref>() || b.type().is<ir::Ptr_t>();
+    }
 
     static WriteLoc from(ir::Expr e);
 

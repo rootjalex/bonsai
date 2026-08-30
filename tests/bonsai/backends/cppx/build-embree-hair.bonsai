@@ -127,14 +127,14 @@ func calculate_merged_extent(low: f32x3x4, high: f32x3x4) -> f32x3 {
 }
 
 func to_u8_floor(f: f32x3) -> u8x3 {
-    f1: f32 = floorf(f);
-    f2: f32 = max(0.0, min(f1, 255.0));
+    f1: f32x3 = floorf(f);
+    f2: f32x3 = max(0.0, min(f1, 255.0));
     return cast[[u8x3]](f2);
 }
 
 func to_u8_ceil(f: f32x3) -> u8x3 {
-    f1: f32 = ceilf(f);
-    f2: f32 = max(0.0, min(f1, 255.0));
+    f1: f32x3 = ceilf(f);
+    f2: f32x3 = max(0.0, min(f1, 255.0));
     return cast[[u8x3]](f2);
 }
 
@@ -185,10 +185,10 @@ func dequantize_orientation(x: i8x4x3) -> f32x4x3 {
 
 func dequantize_bounds(mlo: f32x3, mex: f32x3, q: u8x3x4) -> f32x3x4 {
   return f32x3x4 { 
-    mlo + (cast[[f32]](q[0]) / 255.0) * mex,
-    mlo + (cast[[f32]](q[1]) / 255.0) * mex,
-    mlo + (cast[[f32]](q[2]) / 255.0) * mex,
-    mlo + (cast[[f32]](q[3]) / 255.0) * mex
+    mlo + (cast[[f32x3]](q[0]) / 255.0) * mex,
+    mlo + (cast[[f32x3]](q[1]) / 255.0) * mex,
+    mlo + (cast[[f32x3]](q[2]) / 255.0) * mex,
+    mlo + (cast[[f32x3]](q[3]) / 255.0) * mex
   };
 }
 
