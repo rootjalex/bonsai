@@ -221,6 +221,12 @@ func intersects(a : AABB, t : Triangle) -> bool {
     v1 = t.p1 - c;
     v2 = t.p2 - c;
 
+    // The box's three face normals, as one vector comparison. This rejects
+    // most pairs, so it is worth doing before the nine cross-product axes.
+    if (!all(min(min(v0, v1), v2) <= e & max(max(v0, v1), v2) >= -e)) {
+        return false;
+    }
+
     f0 = v1 - v0;
     f1 = v2 - v1;
     f2 = v0 - v2;
@@ -236,13 +242,12 @@ func intersects(a : AABB, t : Triangle) -> bool {
     if (sat_axis_separates(cross_({0.0, 0.0, 1.0}, f1), e, v0, v1, v2)) { return false; }
     if (sat_axis_separates(cross_({0.0, 0.0, 1.0}, f2), e, v0, v1, v2)) { return false; }
 
-    // The box's three face normals.
-    if (sat_axis_separates({1.0, 0.0, 0.0}, e, v0, v1, v2)) { return false; }
-    if (sat_axis_separates({0.0, 1.0, 0.0}, e, v0, v1, v2)) { return false; }
-    if (sat_axis_separates({0.0, 0.0, 1.0}, e, v0, v1, v2)) { return false; }
-
-    // The triangle's normal.
-    if (sat_axis_separates(cross_(f0, f1), e, v0, v1, v2)) { return false; }
+    // The triangle's normal. All three vertices project to the same point on
+    // it, so one of them answers the question.
+    n = cross_(f0, f1);
+    d = dot(v0, n);
+    r = dot(abs(n), e);
+    if ((d > r) | (d < -r)) { return false; }
 
     return true;
 }

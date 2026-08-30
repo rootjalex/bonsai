@@ -408,15 +408,20 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
     internal_error << "Can't emit type declaration for: " << type;
 }
 
+// RenamePointerToExpr runs for the targets below and not for plain C++. Where
+// it has run, a body spells its indirections out as `(*x).f`, so the signature
+// has to pass a pointer; where it has not, the body reads `x.f` and the
+// argument is a reference.
+bool takes_pointer_arguments(const CompilerOptions &options) {
+    return options.target == BackendTarget::CUDA ||
+           options.target == BackendTarget::CPPX;
+}
+
 class BonsaiToCpp : ir::Printer {
   public:
-    // `pointer_arguments` follows RenamePointerToExpr, which the CUDA and CPPX
-    // pipelines run and the plain C++ one does not: with it, a body spells its
-    // indirections out as `(*x).f`, so the signature has to pass a pointer.
-    // Without it the body reads `x.f`, and the argument is a reference.
-    BonsaiToCpp(const ir::Program &program, bool pointer_arguments)
+    BonsaiToCpp(const ir::Program &program, const CompilerOptions &options)
         : ir::Printer(ss, 1), program(program),
-          pointer_arguments(pointer_arguments) {}
+          pointer_arguments(takes_pointer_arguments(options)) {}
 
     // Creates the bonsai header with external functions and their respective
     // struct definitions.
@@ -1503,7 +1508,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp(program, /*pointer_arguments=*/false)
+        llvm::outs() << BonsaiToCpp(program, options)
                             .create_header(
                             /*allow_mangling=*/false)
                      << '\n';
@@ -1530,7 +1535,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream file;
     file.open(options.output_file + ".h");
-    file << BonsaiToCpp(program, /*pointer_arguments=*/false)
+    file << BonsaiToCpp(program, options)
                 .create_header(/*allow_mangling=*/false);
     file.close();
 }
@@ -1541,10 +1546,10 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         std::cout << "// Bonsai Header" << std::endl;
-        std::cout << BonsaiToCpp(program, /*pointer_arguments=*/true)
+        std::cout << BonsaiToCpp(program, options)
                             .create_header(/*allow_mangling=*/true)
                   << std::endl;
-        std::cout << BonsaiToCpp(program, /*pointer_arguments=*/true)
+        std::cout << BonsaiToCpp(program, options)
                             .create_source()
                      << std::endl;
         return;
@@ -1553,14 +1558,14 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream h_file;
     h_file.open(options.output_file + ".h");
-    h_file << BonsaiToCpp(program, /*pointer_arguments=*/true)
+    h_file << BonsaiToCpp(program, options)
                   .create_header(/*allow_mangling=*/true);
     h_file.close();
 
     // Write C++ source file with struct and function declarations (`.cpp`).
     std::ofstream src_file;
     src_file.open(options.output_file + ".cpp");
-    src_file << BonsaiToCpp(program, /*pointer_arguments=*/true)
+    src_file << BonsaiToCpp(program, options)
                     .create_source(options.output_file + ".h");
     src_file.close();
 }
