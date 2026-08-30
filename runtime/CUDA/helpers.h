@@ -980,9 +980,8 @@ __forceinline__ __host__ __device__ float max(float4 a) {
 // - linear interpolation between a and b, based on value t in [0, 1] range
 ////////////////////////////////////////////////////////////////////////////////
 
-__forceinline__ __device__ __host__ float lerp(float a, float b, float t) {
-    return a + t * (b - a);
-}
+// CUDA declares the scalar lerp itself, and declaring it again here is an
+// error, so only the vector overloads belong to us.
 __forceinline__ __device__ __host__ float2 lerp(float2 a, float2 b, float t) {
     return a + t * (b - a);
 }

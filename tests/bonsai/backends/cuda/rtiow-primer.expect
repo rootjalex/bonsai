@@ -1,4 +1,8 @@
-#include "helpers.h"
+#include "runtime/CUDA/helpers.h"
+
+struct Interior;
+struct Leaf;
+using SphereBVH = std::variant<Interior, Leaf>;
 
 struct AABB {
   float3 low;
@@ -23,6 +27,13 @@ struct FInterval {
   float high;
 };
 
+struct Interior {
+  float3 center;
+  float radius;
+  SphereBVH* left;
+  SphereBVH* right;
+};
+
 struct Sphere {
   float3 center;
   float radius;
@@ -33,6 +44,12 @@ struct MaterialSphere {
   uint32_t material;
   float3 albedo;
   float fuzz;
+};
+
+struct Leaf {
+  float3 center;
+  float radius;
+  MaterialSphere* data;
 };
 
 struct Point {
@@ -58,77 +75,53 @@ struct TriangleIntersection {
   float t;
 };
 
-struct __tuple_0 {
-  float _field0;
-  MaterialSphere _field1;
-};
+struct Arm_Interior {
+  uint16_t offset;
+} __attribute__((packed));
 
-struct __tuple_1 {
-  Point _field0;
-  Point _field1;
-};
+struct Arm_Leaf {
+  uint16_t pOffset;
+} __attribute__((packed));
 
-struct _option0 {
-  MaterialSphere value;
-  bool set = false;
-};
-
-struct _option1 {
-  FInterval value;
-  bool set = false;
-};
-
-struct _option2 {
-  TriangleIntersection value;
-  bool set = false;
-};
-
-struct _tree_layout1 {
+struct Nodes {
   float3 center;
   float radius;
   uint16_t nPrims;
   uchar2 split0on_nPrims;
 } __attribute__((packed));
 
-struct _tree_layout0 {
+struct Spheres {
   uint32_t pCount;
-  MaterialSphere* prims; // of size pCount
+  MaterialSphere* prims;
   uint32_t count;
-  _tree_layout1* group0_index; // of size count
-} __attribute__((packed));
-
-struct _tree_layout2 {
-  uint16_t offset;
-} __attribute__((packed));
-
-struct _tree_layout3 {
-  uint16_t pOffset;
+  Nodes* nodes;
 } __attribute__((packed));
 
 struct _ctx0 {
   int32_t height;
   Camera* c;
-  _tree_layout0* spheres;
-  int32_t* _alloc0; // of size ((height * c.width) * 3)
+  Spheres* spheres;
+  int32_t* _alloc0;
 };
 
-struct hit_record {
+struct Hit_record {
   float3 p;
   float3 normal;
   float t;
-  bool front_face;
+  bool front_face : 1;
 };
 
-struct scatter_record {
+struct Scatter_record {
   float3 attenuation;
   Ray ray;
-  bool hit;
+  bool hit : 1;
 };
 
 __device__ float3 random_in_unit_disk(curandState* _rng_state) {
-  float r = sqrtf(curand_uniform(_rng_state));
-  float theta = (((float)2 * (float)3.14159) * curand_uniform(_rng_state));
-  return float3{r * cosf(theta), r * sinf(theta), 0};
+  float _t116 = curand_uniform(_rng_state);
+  float _t117 = sqrtf(_t116);
+  float _t389 = (((float)2 * (float)3.14159) * _t116);
+  return float3{_t117 * cosf(_t389), _t117 * sinf(_t389), 0};
 }
 
 __device__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, float3 defocus_disk_v, curandState* _rng_state) {
@@ -138,13 +131,12 @@ __device__ float3 defocus_disk_sample(float3 center, float3 defocus_disk_u, floa
 
 __device__ Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_state) {
   int32_t width = (*cam).width;
-  int32_t _height = (int32_t)((float)width / (*cam).aspect_ratio);
-  int32_t* height = &_height;
-  *height = (((*height) < 1) ? 1 : (*height));
+  int32_t height = (int32_t)((float)width / (*cam).aspect_ratio);
+  height = ((height < 1) ? 1 : height);
   float theta = (((*cam).vfov * (float)3.14159) / (float)180);
   float h = tanf(theta / (float)2);
   float viewport_height = (((float)2 * h) * (*cam).focus_dist);
-  float viewport_width = (viewport_height * ((float)width / (float)(*height)));
+  float viewport_width = (viewport_height * ((float)width / (float)height));
   float3 camera_center = (*cam).lookfrom;
   float3 w = (((*cam).lookfrom - (*cam).lookat) / make_float3(length((*cam).lookfrom - (*cam).lookat)));
   float3 u = (cross((*cam).vup, w) / make_float3(length(cross((*cam).vup, w))));
@@ -152,7 +144,7 @@ __device__ Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_st
   float3 viewport_u = (make_float3(viewport_width) * u);
   float3 viewport_v = (make_float3(viewport_height) * -v);
   float3 pixel_delta_u = (viewport_u / make_float3((float)width));
-  float3 pixel_delta_v = (viewport_v / make_float3((float)(*height)));
+  float3 pixel_delta_v = (viewport_v / make_float3((float)height));
   float3 viewport_upper_left = (((camera_center - (make_float3((*cam).focus_dist) * w)) - (viewport_u / make_float3((float)2))) - (viewport_v / make_float3((float)2)));
   float3 pixel00_loc = (viewport_upper_left + (make_float3((float)0.5) * (pixel_delta_u + pixel_delta_v)));
   float defocus_radius = ((*cam).focus_dist * tanf((((*cam).defocus_angle / (float)2) * (float)3.14159) / (float)180));
@@ -160,84 +152,96 @@ __device__ Ray build_ray(int32_t i, int32_t j, Camera* cam, curandState* _rng_st
   float3 defocus_disk_v = (v * make_float3(defocus_radius));
   float3 offset = float3{curand_uniform(_rng_state) - (float)0.5, curand_uniform(_rng_state) - (float)0.5, 0};
   float3 pixel_sample = ((pixel00_loc + (make_float3(((float)i + offset.x)) * pixel_delta_u)) + (make_float3(((float)j + offset.y)) * pixel_delta_v));
-  float3 _ray_origin = camera_center;
-  float3* ray_origin = &_ray_origin;
+  float3 ray_origin = camera_center;
   if (0 < (*cam).defocus_angle) {
-    *ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v, _rng_state);
+    ray_origin = defocus_disk_sample(camera_center, defocus_disk_u, defocus_disk_v, _rng_state);
   }
-  float3 ray_direction = (pixel_sample - (*ray_origin));
-  return Ray{(*ray_origin), ray_direction, INFINITY};
+  float3 ray_direction = (pixel_sample - ray_origin);
+  return Ray{ray_origin, ray_direction, INFINITY};
 }
 
-__device__ _option1 intersectsp_ray_sphere(Ray* r, Sphere* s) {
-  float3 oc = ((*s).center - (*r).o);
-  float a = sum(((*r).d * (*r).d));
-  float h = dot((*r).d, oc);
-  float c = (sum((oc * oc)) - ((*s).radius * (*s).radius));
-  float disc = ((h * h) - (a * c));
-  if (disc < 0) {
-    return _option1{};
+__device__ cuda::std::optional<FInterval> intersectsp_ray_sphere(Ray* r, Sphere* s) {
+  float3 _t376 = ((*s).center - (*r).o);
+  float3 _t99 = (*r).d;
+  float a = sum((_t99 * _t99));
+  float _t103 = dot(_t99, _t376);
+  float _t105 = (*s).radius;
+  float _t383 = ((_t103 * _t103) - (a * (sum((_t376 * _t376)) - (_t105 * _t105))));
+  if (_t383 < 0) {
+    return cuda::std::nullopt;
   }
-  float sqrtd = sqrtf(disc);
-  float root0 = ((h - sqrtd) / a);
-  float root1 = ((h + sqrtd) / a);
-  FInterval interval = FInterval{fminf(root0, root1), fmaxf(root0, root1)};
-  return _option1{interval, true};
+  float sqrtd = sqrtf(_t383);
+  float _t385 = ((_t103 - sqrtd) / a);
+  float _t387 = ((_t103 + sqrtd) / a);
+  FInterval interval = FInterval{fminf(_t385, _t387), fmaxf(_t385, _t387)};
+  return interval;
 }
 
-__device__ float distmax_Ray_Sphere(Ray* r, Sphere* s) {
-  _option1 interval = intersectsp_ray_sphere(r, s);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return extract.high;
-  }
-  return INFINITY;
-}
-
-__device__ float distmin_Ray_Sphere(Ray* r, Sphere* s) {
-  _option1 interval = intersectsp_ray_sphere(r, s);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return extract.low;
-  }
-  return -INFINITY;
-}
-
-__device__ bool intersects_Ray_Sphere(Ray* ray, Sphere* s) {
-  _option1 interval = intersectsp_ray_sphere(ray, s);
-  if (interval.set) {
-    FInterval extract = interval.value;
-    return ((extract.low < (*ray).tmax) & (0 < extract.high));
-  }
-  return false;
-}
-
-__device__ _option0 _traverse_tree0(Ray* r, _tree_layout0* spheres) {
-  __tuple_0 __best0 = __tuple_0{INFINITY, MaterialSphere{}};
-  __tuple_0* _best0 = &__best0;
-  int32_t __queue_count0 = 1;
-  int32_t* _queue_count0 = &__queue_count0;
+__device__ cuda::std::optional<MaterialSphere> _traverse_tree0(Ray* r, Spheres* spheres) {
+  cuda::std::tuple<float, MaterialSphere> _best0 = cuda::std::tuple<float, MaterialSphere>{INFINITY, MaterialSphere{}};
+  int32_t _queue_count0 = 1;
   uint16_t _queue0[64];
   _queue0[0] = 0u;
   do {
-    *_queue_count0 -= 1;
-    uint16_t spheres_index = _queue0[(*_queue_count0)];
-    Sphere _lv2 = Sphere{(*spheres).group0_index[spheres_index].center, (*spheres).group0_index[spheres_index].radius};
-    if (intersects_Ray_Sphere(r, (&_lv2))) {
-      Sphere _lv1 = Sphere{(*spheres).group0_index[spheres_index].center, (*spheres).group0_index[spheres_index].radius};
-      if ((float)0.001 < distmax_Ray_Sphere(r, (&_lv1))) {
-        Sphere _lv0 = Sphere{(*spheres).group0_index[spheres_index].center, (*spheres).group0_index[spheres_index].radius};
-        if (distmin_Ray_Sphere(r, (&_lv0)) < (*_best0)._field0) {
-          if ((*spheres).group0_index[spheres_index].nPrims == 0u) {
-            _queue0[(*_queue_count0)] = (spheres_index + 1u);
-            _queue0[(*_queue_count0) + 1] = (spheres_index + bonsai_reinterpret<_tree_layout2>((*spheres).group0_index[spheres_index].split0on_nPrims).offset);
-            *_queue_count0 += 2;
+    _queue_count0 -= 1;
+    uint16_t index = _queue0[_queue_count0];
+    if (index == 65535u) {
+      if (_queue_count0 <= 0) {
+        break;
+      } else {
+        continue;
+      }
+    }
+    Nodes _t351 = (*spheres).nodes[index];
+    bool _t10 = false;
+    Sphere _lv0 = Sphere{_t351.center, _t351.radius};
+    cuda::std::optional<FInterval> _t355 = intersectsp_ray_sphere(r, (&_lv0));
+    bool _t357 = _t355.has_value();
+    if (_t357) {
+      FInterval __inline3 = *_t355;
+      _t10 = ((__inline3.low < (*r).tmax) & (0 < __inline3.high));
+    }
+    if (_t10) {
+      float _t182 = INFINITY;
+      FInterval __inline9 = *_t355;
+      _t182 = __inline9.high;
+      bool _t11 = ((float)0.001 < _t182);
+      if (_t11) {
+        float _t37 = cuda::std::get<0>(_best0);
+        float _t183 = 0;
+        if (_t357) {
+          _t183 = __inline9.low;
+        }
+        bool _t12 = (_t183 < _t37);
+        if (_t12) {
+          uint16_t _t74 = _t351.nPrims;
+          if (_t74 == 0u) {
+            _queue0[_queue_count0] = (index + 1u);
+            _queue0[(_queue_count0 + 1)] = (index + bonsai_reinterpret<Arm_Interior>(_t351.split0on_nPrims).offset);
+            _queue_count0 += 2;
           } else {
-            for (uint16_t _idx0 = 0u; _idx0 < (*spheres).group0_index[spheres_index].nPrims; _idx0 += 1u) {
-              if (intersects_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s))) {
-                if ((float)0.001 < distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s))) {
-                  if (distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s)) < (*_best0)._field0) {
-                    *_best0 = argmin(_best0, __tuple_0{distmin_Ray_Sphere(r, (&(*spheres).prims[bonsai_reinterpret<_tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0].s)), (*spheres).prims[bonsai_reinterpret<_tree_layout3>((*spheres).group0_index[spheres_index].split0on_nPrims).pOffset + _idx0]});
+            uint16_t _t63 = bonsai_reinterpret<Arm_Leaf>(_t351.split0on_nPrims).pOffset;
+            for (uint16_t _idx0 = _t63; _idx0 < (_t63 + _t74); _idx0 += 1u) {
+              MaterialSphere _t362 = (*spheres).prims[_idx0];
+              bool _t13 = false;
+              cuda::std::optional<FInterval> _t364 = intersectsp_ray_sphere(r, (&_t362.s));
+              bool _t282 = _t364.has_value();
+              if (_t282) {
+                FInterval __inline5 = *_t364;
+                _t13 = ((__inline5.low < (*r).tmax) & (0 < __inline5.high));
+              }
+              if (_t13) {
+                float _t47 = 0;
+                if (_t282) {
+                  FInterval __inline7 = *_t364;
+                  _t47 = __inline7.low;
+                }
+                bool _t14 = ((float)0.001 < _t47);
+                if (_t14) {
+                  float _t52 = cuda::std::get<0>(_best0);
+                  bool _t15 = (_t47 < _t52);
+                  if (_t15) {
+                    _best0 = argmin(_best0, cuda::std::tuple<float, MaterialSphere>{_t47, _t362});
                   }
                 }
               }
@@ -246,111 +250,122 @@ __device__ _option0 _traverse_tree0(Ray* r, _tree_layout0* spheres) {
         }
       }
     }
-  } while ((*_queue_count0) != 0);
-  return (((*_best0)._field0 != INFINITY) ? _option0{(*_best0)._field1, true} : _option0{});
+  } while (_queue_count0 != 0);
+  float _t75 = cuda::std::get<0>(_best0);
+  return ((_t75 != INFINITY) ? cuda::std::optional<MaterialSphere>{cuda::std::get<1>(_best0)} : cuda::std::nullopt);
 }
 
-__device__ hit_record get_hit_record(Ray* r, Sphere* s) {
-  float t = distmin_Ray_Sphere(r, s);
+__device__ Hit_record get_hit_record(Ray* r, Sphere* s) {
+  float t = 0;
+  cuda::std::optional<FInterval> _t373 = intersectsp_ray_sphere(r, s);
+  if (_t373.has_value()) {
+    FInterval __inline0 = *_t373;
+    t = __inline0.low;
+  }
   float3 p = ((*r).o + (make_float3(t) * (*r).d));
   float3 outward_normal = ((p - (*s).center) / make_float3((*s).radius));
   bool front_face = (dot((*r).d, outward_normal) < 0);
   float3 normal = (front_face ? outward_normal : -outward_normal);
-  hit_record record = hit_record{p, normal, t, front_face};
+  Hit_record record = Hit_record{p, normal, t, front_face};
   return record;
 }
 
 __device__ float3 random_unit_vector(curandState* _rng_state) {
-  float x1 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
-  float x2 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
-  float s = (((x1 * x1) + (x2 * x2)) + (float)1e-08);
-  float factor = sqrtf((float)2 / s);
-  float x = (factor * x1);
-  float y = (factor * x2);
-  float z = (1 - ((float)2 * s));
-  float len = sqrtf(((x * x) + (y * y)) + (z * z));
-  return float3{x / len, y / len, z / len};
+  float _t122 = curand_uniform(_rng_state);
+  float _t392 = ((1 - (float)-1) * curand_uniform(_rng_state));
+  float _t396 = ((float)-1 + ((1 - (float)-1) * curand_uniform(_rng_state)));
+  float _t129 = (_t396 * _t396);
+  float _t398 = ((_t129 + _t129) + (float)1e-08);
+  float _t401 = (sqrtf((float)2 / _t398) * _t396);
+  float _t403 = (1 - ((float)2 * _t398));
+  float _t137 = (_t401 * _t401);
+  float _t407 = sqrtf((_t137 + _t137) + (_t403 * _t403));
+  float _t241 = (_t401 / _t407);
+  return float3{_t241, _t241, _t403 / _t407};
 }
 
 __device__ float reflectance(float cos_theta, float refract_idx) {
-  float r0 = ((1 - refract_idx) / (1 + refract_idx));
-  float r1 = (r0 * r0);
+  float _t410 = ((1 - refract_idx) / (1 + refract_idx));
+  float r1 = (_t410 * _t410);
   return (r1 + ((1 - r1) * powf(1 - cos_theta, (float)5)));
 }
 
 __device__ float3 refract(float3 uv, float3 n, float etai_over_etat) {
   float cos_theta = fminf(dot(-uv, n), 1);
-  float3 r_out_perp = (make_float3(etai_over_etat) * (uv + (make_float3(cos_theta) * n)));
-  float3 r_out_parallel = (make_float3(-sqrtf(fabsf(1 - sum((r_out_perp * r_out_perp))))) * n);
-  return (r_out_perp + r_out_parallel);
+  float3 _t413 = (make_float3(etai_over_etat) * (uv + (make_float3(cos_theta) * n)));
+  float3 r_out_parallel = (make_float3(-sqrtf(fabsf(1 - sum((_t413 * _t413))))) * n);
+  return (_t413 + r_out_parallel);
 }
 
-__device__ scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_state) {
-  hit_record hit = get_hit_record(ray, (&(*ms).s));
-  if ((*ms).material == 0u) {
-    float3 _scatter_dir = (hit.normal + random_unit_vector(_rng_state));
-    float3* scatter_dir = &_scatter_dir;
-    if (((fabsf((*scatter_dir).x) < (float)1e-08) & (fabsf((*scatter_dir).y) < (float)1e-08)) & (fabsf((*scatter_dir).z) < (float)1e-08)) {
-      *scatter_dir = hit.normal;
+__device__ Scatter_record scatter(Ray* ray, MaterialSphere* ms, curandState* _rng_state) {
+  Hit_record _t416 = get_hit_record(ray, (&(*ms).s));
+  uint32_t _t179 = (*ms).material;
+  if (_t179 == 0u) {
+    float3 _t152 = _t416.normal;
+    float3 scatter_dir = (_t152 + random_unit_vector(_rng_state));
+    if (((fabsf(scatter_dir.x) < (float)1e-08) & (fabsf(scatter_dir.y) < (float)1e-08)) & (fabsf(scatter_dir.z) < (float)1e-08)) {
+      scatter_dir = _t152;
     }
-    Ray l_scattered = Ray{hit.p, (*scatter_dir), INFINITY};
-    return scatter_record{(*ms).albedo, l_scattered, true};
+    Ray l_scattered = Ray{_t416.p, scatter_dir, INFINITY};
+    return Scatter_record{(*ms).albedo, l_scattered, true};
   } else {
-    if ((*ms).material == 1u) {
-      float3 ref = ((*ray).d - (make_float3(((float)2 * dot((*ray).d, hit.normal))) * hit.normal));
-      float3 reflected = ((ref / make_float3(length(ref))) + (make_float3((*ms).fuzz) * random_unit_vector(_rng_state)));
-      Ray m_scattered = Ray{hit.p, reflected, INFINITY};
-      return scatter_record{(*ms).albedo, m_scattered, true};
+    if (_t179 == 1u) {
+      float3 _t156 = (*ray).d;
+      float3 _t158 = _t416.normal;
+      float3 _t422 = (_t156 - (make_float3(((float)2 * dot(_t156, _t158))) * _t158));
+      float3 reflected = ((_t422 / make_float3(length(_t422))) + (make_float3((*ms).fuzz) * random_unit_vector(_rng_state)));
+      Ray m_scattered = Ray{_t416.p, reflected, INFINITY};
+      return Scatter_record{(*ms).albedo, m_scattered, true};
     } else {
-      float ri = (hit.front_face ? (1 / (*ms).fuzz) : (*ms).fuzz);
-      float3 unit_dir = ((*ray).d / make_float3(length((*ray).d)));
-      float cos_theta = fminf(dot(-unit_dir, hit.normal), 1);
+      float _t167 = (*ms).fuzz;
+      float ri = (_t416.front_face ? (1 / _t167) : _t167);
+      float3 _t169 = (*ray).d;
+      float3 _t427 = (_t169 / make_float3(length(_t169)));
+      float3 _t173 = _t416.normal;
+      float cos_theta = fminf(dot(-_t427, _t173), 1);
       float sin_theta = sqrtf(1 - (cos_theta * cos_theta));
       bool cannot_refract = ((1 < (ri * sin_theta)) | (curand_uniform(_rng_state) < reflectance(cos_theta, ri)));
-      float3 direction = (cannot_refract ? (unit_dir - (make_float3(((float)2 * dot(unit_dir, hit.normal))) * hit.normal)) : refract(unit_dir, hit.normal, ri));
-      Ray d_scattered = Ray{hit.p, direction, INFINITY};
-      return scatter_record{make_float3(1, 1, 1), d_scattered, true};
+      float3 direction = (cannot_refract ? (_t427 - (make_float3(((float)2 * dot(_t427, _t173))) * _t173)) : refract(_t427, _t173, ri));
+      Ray d_scattered = Ray{_t416.p, direction, INFINITY};
+      return Scatter_record{make_float3(1, 1, 1), d_scattered, true};
     }
   }
 }
 
-__device__ float3 sample(Ray* r, int32_t depth, float3 mult, _tree_layout0* spheres, curandState* _rng_state) {
-  Ray _S_r = (*r);
-  Ray* S_r = &_S_r;
-  int32_t _S_depth = depth;
-  int32_t* S_depth = &_S_depth;
-  float3 _S_mult = mult;
-  float3* S_mult = &_S_mult;
+__device__ float3 sample(Ray* r, int32_t depth, float3 mult, Spheres* spheres, curandState* _rng_state) {
+  Ray S_r = (*r);
+  int32_t S_depth = depth;
+  float3 S_mult = mult;
   do {
-    if ((*S_depth) <= 0) {
+    if (S_depth <= 0) {
       return make_float3(0, 0, 0);
     }
-    _option0 isect = _traverse_tree0(S_r, spheres);
-    if (isect.set) {
-      scatter_record data = scatter(S_r, (&isect.value), _rng_state);
+    cuda::std::optional<MaterialSphere> isect = _traverse_tree0((&S_r), spheres);
+    if (isect.has_value()) {
+      MaterialSphere _lv0 = *isect;
+      Scatter_record data = scatter((&S_r), (&_lv0), _rng_state);
       if (data.hit) {
-        *S_r = data.ray;
-        *S_depth = ((*S_depth) - 1);
-        *S_mult = ((*S_mult) * data.attenuation);
+        S_r = data.ray;
+        S_depth = (S_depth - 1);
+        S_mult = (S_mult * data.attenuation);
         continue;
       } else {
         return make_float3(0, 0, 0);
       }
     }
-    float3 unit_direction = ((*S_r).d / make_float3(length((*S_r).d)));
+    float3 unit_direction = (S_r.d / make_float3(length(S_r.d)));
     float a = ((float)0.5 * (unit_direction.y + 1));
-    return ((*S_mult) * ((make_float3((1 - a)) * make_float3(1, 1, 1)) + (make_float3(a) * make_float3((float)0.5, (float)0.7, 1))));
+    return (S_mult * ((make_float3((1 - a)) * make_float3(1, 1, 1)) + (make_float3(a) * make_float3((float)0.5, (float)0.7, 1))));
   } while (true);
 }
 
-__device__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, _tree_layout0* spheres, curandState* _rng_state) {
-  float3 __alloc1 = make_float3(0);
-  float3* _alloc1 = &__alloc1;
+__device__ float3 _traverse_array1(int32_t i, int32_t j, Camera* c, Spheres* spheres, curandState* _rng_state) {
+  float3 _alloc1 = make_float3(0);
   for (uint32_t _i0 = 0u; _i0 < (*c).samples_per_pixel; _i0 += 1u) {
     Ray _lv0 = build_ray(i, j, c, _rng_state);
-    *_alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1, 1, 1), spheres, _rng_state);
+    _alloc1 += sample((&_lv0), (*c).max_depth, make_float3(1, 1, 1), spheres, _rng_state);
   }
-  return (*_alloc1);
+  return _alloc1;
 }
 
 __device__ float linear_to_gamma_f(float l) {
@@ -367,40 +382,39 @@ __device__ int3 to_rgb(float3 v) {
 
 __global__ void _parfunc0(_ctx0 ctx0) {
   int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
-  int32_t _i = tid;
-  if ((ctx0.height * (*ctx0.c).width) <= _i) {
+  if ((ctx0.height * (*ctx0.c).width) <= tid) {
     return;
   }
   curandState _rng_state;
   curand_init(tid, 0, 0, &_rng_state);
-  int32_t _i0 = (_i / (*ctx0.c).width);
-  int32_t _i1 = (_i % (*ctx0.c).width);
-  int3 __temp = to_rgb(_traverse_array1(_i1, _i0, ctx0.c, ctx0.spheres, (&_rng_state)) / make_float3((float)(*ctx0.c).samples_per_pixel));
-  ctx0._alloc0[((_i0 * (*ctx0.c).width) + _i1) * 3] = __temp.x;
-  ctx0._alloc0[(((_i0 * (*ctx0.c).width) + _i1) * 3) + 1] = __temp.y;
-  ctx0._alloc0[(((_i0 * (*ctx0.c).width) + _i1) * 3) + 2] = __temp.z;
+  int32_t _i0 = (tid / (*ctx0.c).width);
+  int32_t _i1 = (tid % (*ctx0.c).width);
+  int3 _t347 = to_rgb(_traverse_array1(_i1, _i0, ctx0.c, ctx0.spheres, (&_rng_state)) / make_float3((float)(*ctx0.c).samples_per_pixel));
+  ctx0._alloc0[(((_i0 * (*ctx0.c).width) + _i1) * 3)] = _t347.x;
+  ctx0._alloc0[((((_i0 * (*ctx0.c).width) + _i1) * 3) + 1)] = _t347.y;
+  ctx0._alloc0[((((_i0 * (*ctx0.c).width) + _i1) * 3) + 2)] = _t347.z;
   return;
 }
 
-__host__ int3* _traverse_array0(Camera* c, int32_t height, _tree_layout0* spheres) {
+__host__ int3* _traverse_array0(Camera* c, int32_t height, Spheres* spheres) {
   int32_t* _alloc0;
   (void)cudaMalloc((void**)&_alloc0, ((height * (*c).width) * 3) * sizeof(int32_t));
   Camera* d_c;
-  cudaMallocAndCopyToDevice((void**)&d_c, c, sizeof(Camera));
-  MaterialSphere* prims;
-  cudaMallocAndCopyToDevice((void**)&prims, (*spheres).prims, (*spheres).pCount * sizeof(MaterialSphere));
-  _tree_layout1* group0_index;
-  cudaMallocAndCopyToDevice((void**)&group0_index, (*spheres).group0_index, (*spheres).count * sizeof(_tree_layout1));
-  _tree_layout0 h_spheres = *spheres;
-  h_spheres.prims = prims;
-  h_spheres.group0_index = group0_index;
-  _tree_layout0* d_spheres;
-  cudaMallocAndCopyToDevice((void**)&d_spheres, &h_spheres, sizeof(_tree_layout0));
+  cudaMallocAndCopyToDevice((void**)&d_c, &(*c), sizeof(Camera));
+  MaterialSphere* __prims;
+  cudaMallocAndCopyToDevice((void**)&__prims, (*spheres).prims, (*spheres).pCount * sizeof(MaterialSphere));
+  Nodes* __nodes;
+  cudaMallocAndCopyToDevice((void**)&__nodes, (*spheres).nodes, (*spheres).count * sizeof(Nodes));
+  Spheres h_spheres = *spheres;
+  h_spheres.prims = __prims;
+  h_spheres.nodes = __nodes;
+  Spheres* d_spheres;
+  cudaMallocAndCopyToDevice((void**)&d_spheres, &h_spheres, sizeof(Spheres));
   _ctx0 ctx = _ctx0{height, d_c, d_spheres, _alloc0};
-  _parfunc0<<<(((height * (*c).width) + 511) / 512), 512>>>(ctx);
+  _parfunc0<<<(((height * (*c).width) + 255) / 256), 256>>>(ctx);
   cudaDeviceSynchronize();
-  cudaFree(prims);
-  cudaFree(group0_index);
+  cudaFree(__prims);
+  cudaFree(__nodes);
   cudaFree(d_c);
   cudaFree(d_spheres);
   int32_t* h__alloc0;
@@ -410,46 +424,28 @@ __host__ int3* _traverse_array0(Camera* c, int32_t height, _tree_layout0* sphere
   return reinterpret_cast<int3*>(_alloc0);
 }
 
-Sphere _unexported_bounding_sphere(Sphere* a, Sphere* b) {
-  float3 d = ((*b).center - (*a).center);
-  float dist_sq = sum((d * d));
+__host__ Sphere bounding_sphere(Sphere* a, Sphere* b) {
+  float3 _t77 = (*a).center;
+  float3 _t367 = ((*b).center - _t77);
+  float dist_sq = sum((_t367 * _t367));
   float dist = sqrtf(dist_sq);
-  if ((dist + (*b).radius) <= (*a).radius) {
+  float _t83 = (*b).radius;
+  float _t84 = (*a).radius;
+  if ((dist + _t83) <= _t84) {
     return (*a);
   } else {
-    if ((dist + (*a).radius) <= (*b).radius) {
+    if ((dist + _t84) <= _t83) {
       return (*b);
     }
   }
-  float new_radius = ((float)0.5 * ((dist + (*a).radius) + (*b).radius));
-  float3 direction = ((0 < dist) ? (d / make_float3(dist)) : make_float3(1, 0, 0));
-  float3 new_center = ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
-  return Sphere{new_center, new_radius};
+  float _t372 = ((float)0.5 * ((dist + _t84) + _t83));
+  float3 direction = ((0 < dist) ? (_t367 / make_float3(dist)) : make_float3(1, 0, 0));
+  float3 new_center = (_t77 + (direction * make_float3((_t372 - _t84))));
+  return Sphere{new_center, _t372};
 }
 
-__host__ void bounding_sphere(Sphere* _ret0, Sphere* a, Sphere* b) {
-  float3 d = ((*b).center - (*a).center);
-  float dist_sq = sum((d * d));
-  float dist = sqrtf(dist_sq);
-  if ((dist + (*b).radius) <= (*a).radius) {
-    *_ret0 = (*a);
-    return;
-  } else {
-    if ((dist + (*a).radius) <= (*b).radius) {
-      *_ret0 = (*b);
-      return;
-    }
-  }
-  float new_radius = ((float)0.5 * ((dist + (*a).radius) + (*b).radius));
-  float3 direction = ((0 < dist) ? (d / make_float3(dist)) : make_float3(1, 0, 0));
-  float3 new_center = ((*a).center + (direction * make_float3((new_radius - (*a).radius))));
-  *_ret0 = Sphere{new_center, new_radius};
-  return;
-}
-
-__host__ int3* image(Camera* c, _tree_layout0* spheres) {
-  int32_t _height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
-  int32_t* height = &_height;
-  *height = (((*height) < 1) ? 1 : (*height));
-  return _traverse_array0(c, (*height), spheres);
+__host__ int3* image(Camera* c, Spheres* spheres) {
+  int32_t height = (int32_t)((float)(*c).width / (*c).aspect_ratio);
+  height = ((height < 1) ? 1 : height);
+  return _traverse_array0(c, height, spheres);
 }
