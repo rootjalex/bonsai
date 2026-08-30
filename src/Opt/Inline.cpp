@@ -299,6 +299,9 @@ class ExprInliner : public ir::Mutator {
         const std::unordered_map<std::string, ir::Expr> &function_to_expr)
         : functions(functions), function_to_expr(function_to_expr) {}
 
+    // The function whose body is being rewritten, named in diagnostics.
+    std::string caller;
+
     ir::Expr visit(const ir::Call *node) override {
         const ir::Var *v = node->func.as<ir::Var>();
         if (v == nullptr) {
@@ -321,7 +324,8 @@ class ExprInliner : public ir::Mutator {
         internal_assert(argument_names.size() == node->args.size())
             << "mismatch in function argument size: " << argument_names.size()
             << " and call argument size: " << node->args.size()
-            << " for function: " << function_name;
+            << " for function: " << function_name << ", called from " << caller
+            << ": " << ir::Expr(node);
         for (int i = 0, e = argument_names.size(); i < e; ++i) {
             repls[argument_names[i]] = node->args[i];
         }
@@ -374,6 +378,7 @@ ir::FuncMap Inline::run(ir::FuncMap funcs,
         // need to change.
         ExprInliner inliner(funcs, function_to_expr);
         for (auto &[name, func] : funcs) {
+            inliner.caller = name;
             func->body = inliner.mutate(std::move(func->body));
         }
     }

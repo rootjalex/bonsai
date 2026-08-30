@@ -457,7 +457,10 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
 
             if (n_args == 1) {
                 internal_assert(
-                    ir::equals(lambda->args[0].type, node->value.type()));
+                    ir::equals(lambda->args[0].type, node->value.type()))
+                    << "Predicate takes " << lambda->args[0].type
+                    << " but the traversal yields " << node->value.type()
+                    << ": " << predicate;
                 repls[lambda->args[0].name] = node->value;
             } else {
                 internal_assert(node->value.type().is<ir::Tuple_t>());

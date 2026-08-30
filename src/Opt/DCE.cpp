@@ -254,7 +254,8 @@ struct ComputeUseCounts : ir::Visitor {
         // TODO(ajr): Should LetStmts just contain a string name for writes? Can
         // never immutably write to an access.
         internal_assert(!use_counts.contains(node->loc.base()))
-            << "ComputeUseCounts already active for var: " << node->loc;
+            << "ComputeUseCounts already active for var: " << node->loc
+            << " in: " << ir::Stmt(node);
         internal_assert(!dependent_use_counts.contains(node->loc.base()))
             << "ComputeUseCounts already active for var (dependent): "
             << node->loc;
