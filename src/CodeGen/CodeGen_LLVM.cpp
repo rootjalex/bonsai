@@ -116,7 +116,13 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     // use_large_code_model);
 
     auto *tm = llvm_target->createTargetMachine(
-        module.getTargetTriple(),
+        // Not module.getTargetTriple(): the module only gets a triple below,
+        // and only for ASM/CPP, so this was the empty string for every
+        // backend. On an x86 host that yields a generic *i386* machine --
+        // 32-bit pointers in the data layout the CPP backend then installs,
+        // and a TTI reporting zero vector registers, which silently disables
+        // vectorization everywhere.
+        target_triple,
         /*CPU target=*/"", /*Features=*/"", target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
