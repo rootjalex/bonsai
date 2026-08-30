@@ -1293,6 +1293,12 @@ class BonsaiToCpp : ir::Printer {
             ss << ";\n";
             return;
         }
+        if (base_type.is<ir::Set_t>()) {
+            // A set owns its storage and starts empty, so it needs neither a
+            // size nor an initializer, on the stack or the heap.
+            ss << ";\n";
+            return;
+        }
         switch (node->memory) {
         case ir::Allocate::Memory::Stack:
             if (base_type.is_iterable()) {

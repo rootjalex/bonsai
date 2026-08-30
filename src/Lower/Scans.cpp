@@ -9,6 +9,7 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <optional>
 #include <unordered_set>
 
 namespace bonsai {
@@ -216,7 +217,7 @@ struct LowerScansImpl : public Mutator {
     // The trees to traverse, and the location to write into. A set-union scan
     // writes into the enclosing output set; a reducing scan writes into its
     // own accumulator.
-    std::pair<std::vector<TypedVar>, TypedVar>
+    std::optional<std::pair<std::vector<TypedVar>, TypedVar>>
     scan_arguments(const Scan *node) const {
         std::vector<TypedVar> trees;
         for (const auto &arg : args) {
@@ -225,15 +226,18 @@ struct LowerScansImpl : public Mutator {
             }
         }
         if (node->op.has_value()) {
-            return {std::move(trees),
-                    TypedVar{node->loc.base(), node->loc.base_type()}};
+            // A reducing scan carries its own accumulator.
+            return {{std::move(trees),
+                     TypedVar{node->loc.base(), node->loc.base_type()}}};
         }
         for (const auto &arg : args) {
             if (arg.type.is<Set_t>()) {
-                return {std::move(trees), arg};
+                // A set-union scan writes into the traversal's output, which
+                // LowerDynamicSets has named by the time it runs.
+                return {{std::move(trees), arg}};
             }
         }
-        internal_error << "No output for scan: " << Stmt(node);
+        return std::nullopt;
     }
 
     Expr get_or_build_callable(const Scan *node,
@@ -303,7 +307,10 @@ struct LowerScansImpl : public Mutator {
         internal_assert(!args.empty() && args.front().type.is<BVH_t>())
             << args.front();
 
-        auto [trees, output] = scan_arguments(node);
+        const auto arguments = scan_arguments(node);
+        internal_assert(arguments.has_value())
+            << "No output for scan: " << Stmt(node);
+        const auto &[trees, output] = *arguments;
         std::vector<TypedVar> scan_args = trees;
         scan_args.push_back(output);
         Expr callable = get_or_build_callable(node, scan_args);

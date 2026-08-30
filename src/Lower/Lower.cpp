@@ -135,9 +135,10 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerDefers>());
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
-    // A scan reduces over a subtree, which it names the way the traversal
-    // does. It has to run while that is still a tree reference, before
-    // LowerLayouts rewrites the traversal into indices into the layout.
+    // A scan walks a subtree by matching on its variants, so it has to run
+    // while the traversal still names a tree, before LowerLayouts rewrites
+    // that into indices. A reducing scan is fully lowerable here; a
+    // set-union one is not, and is left for the second run below.
     core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerPostLayoutDefers>());
@@ -191,9 +192,10 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerDefers>());
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
-    // A scan reduces over a subtree, which it names the way the traversal
-    // does. It has to run while that is still a tree reference, before
-    // LowerLayouts rewrites the traversal into indices into the layout.
+    // A scan walks a subtree by matching on its variants, so it has to run
+    // while the traversal still names a tree, before LowerLayouts rewrites
+    // that into indices. A reducing scan is fully lowerable here; a
+    // set-union one is not, and is left for the second run below.
     d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerPostLayoutDefers>());
