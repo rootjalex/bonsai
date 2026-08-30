@@ -209,7 +209,7 @@ void run_commands(const std::vector<std::string> &commands) {
 }
 
 // Remove the stack trace to reduce verbosity.
-[[maybe_unused]] std::string cutoff_stack_trace(const std::string &input) {
+std::string cutoff_stack_trace(const std::string &input) {
     size_t pos = input.find("[stack trace]");
     if (pos != std::string::npos) {
         return input.substr(0, pos);
@@ -257,8 +257,7 @@ int main(int argc, char *argv[]) {
         output << "---CODE---\n" << code << "\n";
     }
     if (!stderr_s.empty()) {
-        // TODO(cgyurgyik): optionally capture.
-        // stderr_s = cutoff_stack_trace(stderr_s);
+        stderr_s = cutoff_stack_trace(stderr_s);
         output << "---STDERR---\n" << stderr_s;
         if (!stderr_s.ends_with('\n')) {
             output << '\n';

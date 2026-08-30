@@ -518,8 +518,8 @@ class BonsaiToCpp : ir::Printer {
             }
             for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
                 get_declared_types(variant.struct_type, deduplicate, types);
-                if (std::optional<ir::Annotation::Volume> volume =
-                        variant.volume()) {
+                if (const ir::Annotation::Volume *volume =
+                        variant.find_volume()) {
                     get_declared_types(volume->struct_type, deduplicate, types);
                 }
             }

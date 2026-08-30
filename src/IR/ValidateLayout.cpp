@@ -688,10 +688,11 @@ void validate_volumes(const ir::Layout &layout) {
     internal_assert(bvh_t) << layout.type;
     for (uint32_t i = 0; i < bvh_t->variants.size(); i++) {
         const BVH_t::Variant &variant = bvh_t->variants[i];
-        if (!variant.volume().has_value()) {
+        const Annotation::Volume *volume_ptr = variant.find_volume();
+        if (volume_ptr == nullptr) {
             continue;
         }
-        const Annotation::Volume &volume = *variant.volume();
+        const Annotation::Volume &volume = *volume_ptr;
         // Verify initializers can actually be traced back to the variants.
         for (size_t i = 0, e = volume.initializers.size(); i < e; ++i) {
             const std::string &name = volume.initializers[i];

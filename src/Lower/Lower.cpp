@@ -106,7 +106,6 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<LowerRandom>();
-    manager.register_pass<LowerScans>();
     manager.register_pass<LowerRecLoops>();
     manager.register_pass<ReturnToOutParameter>();
     manager.register_pass<RenamePointerToExpr>();

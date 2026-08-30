@@ -219,9 +219,6 @@ struct Rewriter : public ir::Mutator {
         ir::Annotation::Volume::BoundType type;
     };
     mutable std::vector<VolumeMetadata> volume_metadata;
-    // Volumes annotated on a node's children rather than on the node itself.
-    // Keyed by the matched tree variable, then by child field name.
-    std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
     // The list of tagged intervals. Holds scalar interval OR map of field
     // intervals.
     std::vector<
@@ -256,24 +253,11 @@ struct Rewriter : public ir::Mutator {
                 return Interval{std::move(low_expr), std::move(high_expr)};
             };
 
-            const auto make_volume =
-                [&](const ir::Annotation::Volume *volume) -> ir::Expr {
-                const auto &inits = volume->initializers;
-                const size_t n_args = inits.size();
-                std::vector<ir::Expr> args(n_args);
-                for (size_t j = 0; j < n_args; j++) {
-                    const auto &name = inits[j];
-                    args[j] = ir::Access::make(name, tree);
-                }
-                return ir::Build::make(volume->struct_type, args);
-            };
-
             update_volumes(bvh_node, tree, node->loc.type());
             std::variant<std::monostate, Interval,
                          std::map<std::string, Interval>>
                 interval;
             std::map<std::string, ir::Expr> aggregation;
-            std::map<std::string, ir::Expr> built_child_volumes;
             for (const auto &annot : node->arms[i].first.annotations) {
                 if (const auto *a_interval =
                         annot.as<ir::Annotation::Interval>()) {
@@ -301,28 +285,15 @@ struct Rewriter : public ir::Mutator {
                                annot.as<ir::Annotation::Aggregate>()) {
                     aggregation[aggregate_key(*agg)] =
                         ir::Access::make(agg->value, tree);
-                } else if (const auto *vol =
-                               annot.as<ir::Annotation::Volume>()) {
-                    if (vol->geometry.empty()) {
-                        continue; // the node's own volume, handled above
-                    }
-                    // Tagged on a child.
-                    built_child_volumes[vol->geometry] = make_volume(vol);
                 }
             }
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
-            if (!built_child_volumes.empty()) {
-                child_volumes[var->name] = built_child_volumes;
-            }
 
             ir::Stmt stmt = mutate(node->arms[i].second);
             volume_metadata.pop_back();
             intervals.pop_back();
             aggregations.pop_back();
-            if (!built_child_volumes.empty()) {
-                child_volumes.erase(var->name);
-            }
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
@@ -365,37 +336,6 @@ struct Rewriter : public ir::Mutator {
         return volume_map;
     }
 
-    // Build a volume map from the child volumes attached to `value`, for the
-    // case where a node annotates its children's bounds rather than its own.
-    VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
-                              const ir::Expr &value) const {
-        const auto get_volume = [&](const ir::Expr &e) {
-            const ir::Access *access = e.as<ir::Access>();
-            internal_assert(access) << e;
-            const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
-            internal_assert(unwrap) << e;
-            const ir::Var *var = unwrap->value.as<ir::Var>();
-            internal_assert(var) << e;
-            const auto &iter = child_volumes.find(var->name);
-            internal_assert(iter != child_volumes.cend()) << e;
-            const auto &citer = iter->second.find(access->field);
-            internal_assert(citer != iter->second.cend()) << e;
-            return citer->second;
-        };
-        VolumeMap vols;
-        if (args.size() == 1) {
-            vols[args[0].name] = get_volume(value);
-        } else {
-            const auto values = break_tuple(value);
-            internal_assert(args.size() == values.size()) << value;
-            for (size_t i = 0; i < args.size(); i++) {
-                // TODO(ajr): this doesn't work with mismatching BVHs.
-                vols[args[i].name] = get_volume(values[i]);
-            }
-        }
-        return vols;
-    }
-
     IntervalMap make_interval_map(const std::vector<ir::TypedVar> &args,
                                   const IntervalMap &existing) const {
         IntervalMap ints = existing;
@@ -425,15 +365,15 @@ struct Rewriter : public ir::Mutator {
   private:
     void update_volumes(const ir::BVH_t::Variant &variant,
                         const ir::Expr &unwrap, const ir::Type &tree_type) {
-        std::optional<ir::Annotation::Volume> volume = variant.volume();
-        if (!volume.has_value()) {
+        const ir::Annotation::Volume *volume = variant.find_volume();
+        if (volume == nullptr) {
             volume_metadata.push_back(VolumeMetadata{
                 {ir::Expr()},
                 ir::Annotation::Volume::BoundType::Enclosing,
             });
             return;
         }
-        const size_t n_args = variant.volume()->initializers.size();
+        const size_t n_args = volume->initializers.size();
         switch (volume->bound_type) {
         case ir::Annotation::Volume::BoundType::Enclosing: {
             std::vector<ir::Expr> args;
@@ -449,11 +389,6 @@ struct Rewriter : public ir::Mutator {
             return;
         }
         case ir::Annotation::Volume::BoundType::Childwise: {
-            std::optional<ir::Annotation::Volume> volume = variant.volume();
-            internal_assert(volume.has_value())
-                << "[unexpected] variant with no volume for childwise "
-                   "bounding: "
-                << variant;
             int32_t child_count = get_child_reference_count(variant, tree_type);
             std::vector<ir::Expr> child_volumes;
             for (int i = 0; i < child_count; ++i) {
@@ -1712,14 +1647,6 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             ir::Expr access = ir::Access::make(data[i].name, node);
             if (data[i].type.is_iterable()) {
                 // forall d in data: yield d
-                if (data[i].type.is<ir::Array_t>() &&
-                    data[i].type.as<ir::Array_t>()->size.defined() &&
-                    !is_const(data[i].type.as<ir::Array_t>()->size)) {
-                    // Size must be a parameter of the type, need to change the
-                    // size somehow...
-                    internal_error
-                        << "TODO: handle array size in tree params\n";
-                }
                 stmts[i] = ir::Iterate::make(std::move(access));
             } else {
                 // yield d

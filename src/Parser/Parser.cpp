@@ -2479,6 +2479,8 @@ struct Parser {
         // variant carrying them, e.g. `tree T(x: i32) = | T1(y: i32)` is
         // `tree T = | T1(x: i32, y: i32)`. BVH_t::make distributes them.
         expect(Token::Type::ASSIGN);
+        // A leading bar before the first variant is optional.
+        consume(Token::Type::BAR);
         std::vector<ir::BVH_t::Variant> variants;
         do {
             auto [nname, nparams, nannotations] = parse_node();
@@ -2554,15 +2556,20 @@ struct Parser {
 
             expect(Token::Type::RPAREN);
 
+            // `on <field>` stores one volume per child rather than a single
+            // volume enclosing the whole subtree.
             std::string gname;
             if (consume(Token::Type::ON)) {
                 gname = get_id();
             }
+            const bool childwise = !gname.empty();
             // TODO: support broadcast checking...
 
             return ir::Annotation{ir::Annotation::Volume{
                 std::move(gname), std::move(type), std::move(initializers),
-                /* broadcast */ false}};
+                /* broadcast */ childwise,
+                childwise ? ir::Annotation::Volume::BoundType::Childwise
+                          : ir::Annotation::Volume::BoundType::Enclosing}};
         } else if (consume(Token::Type::IN)) {
             expect(Token::Type::LBRACKET);
             auto low = get_id();
