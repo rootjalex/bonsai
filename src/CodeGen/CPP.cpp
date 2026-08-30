@@ -412,6 +412,13 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
 // it has run, a body spells its indirections out as `(*x).f`, so the signature
 // has to pass a pointer; where it has not, the body reads `x.f` and the
 // argument is a reference.
+// The plain C++ backend emits a header describing a program's exported
+// interface, so it declares only the types that interface mentions. CPPX emits
+// a whole standalone program and needs every type the program uses.
+bool emits_whole_program(const CompilerOptions &options) {
+    return options.target == BackendTarget::CPPX;
+}
+
 bool takes_pointer_arguments(const CompilerOptions &options) {
     return options.target == BackendTarget::CUDA ||
            options.target == BackendTarget::CPPX;
@@ -421,7 +428,8 @@ class BonsaiToCpp : ir::Printer {
   public:
     BonsaiToCpp(const ir::Program &program, const CompilerOptions &options)
         : ir::Printer(ss, 1), program(program),
-          pointer_arguments(takes_pointer_arguments(options)) {}
+          pointer_arguments(takes_pointer_arguments(options)),
+          whole_program(emits_whole_program(options)) {}
 
     // Creates the bonsai header with external functions and their respective
     // struct definitions.
@@ -447,6 +455,7 @@ class BonsaiToCpp : ir::Printer {
     std::stringstream ss;
     const ir::Program &program;
     const bool pointer_arguments;
+    const bool whole_program;
 
     void emit_indirection() {
         ss << (pointer_arguments ? "* __restrict__" : "&");
@@ -578,11 +587,16 @@ class BonsaiToCpp : ir::Printer {
                 get_declared_types(type, deduplicate, types);
             }
         }
-        for (const auto &[_, type] : program.types) {
-            get_declared_types(type, deduplicate, types);
+        for (const auto &[name, type] : program.types) {
+            if (whole_program || name.starts_with("_tree")) {
+                get_declared_types(type, deduplicate, types);
+            }
         }
 
         for (const auto &[_, func] : program.funcs) {
+            if (!whole_program && !func->is_exported()) {
+                continue;
+            }
             get_declared_types(func->ret_type, deduplicate, types);
             for (const ir::Function_t::ArgSig &sig : func->argument_types()) {
                 get_declared_types(sig.type, deduplicate, types);
@@ -608,17 +622,8 @@ class BonsaiToCpp : ir::Printer {
         ss << "#pragma once";
         ss << '\n' << '\n';
 
-        // Headers for C++ types.
-        ss << "#include <array>" << '\n';    // array
-        ss << "#include <atomic>" << '\n';   // atomic
-        ss << "#include <cstdint>" << '\n';  // integer
-        ss << "#include <cmath>" << '\n';    // math
-        ss << "#include <optional>" << '\n'; // optional
-        ss << "#include <iostream>" << '\n'; // cout
-        ss << "#include <string>" << '\n';   // string
-        ss << "#include <tuple>" << '\n';    // tuple
-        ss << "#include <variant>" << '\n';  // variant
-
+        // The runtime header carries the standard headers generated code
+        // needs, so a generated file includes only it.
         ss << "#include \"runtime/CPP/bonsai_cpp.h\"\n\n";
 
         // Disable C++ name mangling.

@@ -1,8 +1,7 @@
 // Bonsai Header
 #pragma once
 
-#include <cstdint>
-#include "runtime/bonsai_cpp.h"
+#include "runtime/CPP/bonsai_cpp.h"
 
 
 extern "C" {

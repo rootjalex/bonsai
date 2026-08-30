@@ -18,6 +18,18 @@
 #include <cstring>
 #include <limits>
 #include <type_traits>
+
+// What generated code itself spells: std::array for a wide node's children,
+// std::atomic for the counters a parallel build increments, std::optional for
+// a partial intersection, std::variant for a tree's node, and iostream for
+// print. Generated files include only this header, so it owes them these.
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <tuple>
 #include <variant>
 
 template <typename T, typename U>
