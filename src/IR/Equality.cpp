@@ -1,5 +1,7 @@
 #include "IR/Equality.h"
 
+#include <optional>
+
 #include "IR/Printer.h"
 
 namespace bonsai {
@@ -129,7 +131,30 @@ Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
 Cmp compare_exprs(const Expr &e0, const Expr &e1);
 Cmp compare_types(const Type &t0, const Type &t1);
 
+// The name of the tree a type denotes, if it denotes one. A tree is nominal:
+// the parser binds its name to a Ref_t so that a variant can hold a child
+// without the type recurring forever, while the schedule holds the BVH_t that
+// name refers to. They are the folded and unfolded form of one type, and the
+// IR moves between them freely -- a child access has the reference type, and
+// the traversal that receives it is declared over the tree itself.
+std::optional<std::string> denoted_tree(const Type &t) {
+    if (const auto *ref = t.as<Ref_t>()) {
+        return ref->name;
+    }
+    if (const auto *bvh = t.as<BVH_t>()) {
+        return bvh->name;
+    }
+    return std::nullopt;
+}
+
 Cmp compare_types(const Type &t0, const Type &t1) {
+    if (t0.defined() && t1.defined() && t0.node_type() != t1.node_type()) {
+        const std::optional<std::string> n0 = denoted_tree(t0);
+        const std::optional<std::string> n1 = denoted_tree(t1);
+        if (n0.has_value() && n1.has_value()) {
+            return compare_primitives(*n0, *n1);
+        }
+    }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(t0, t1)) {
         return *nodes_cmp;
     }
