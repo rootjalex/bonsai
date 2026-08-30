@@ -218,6 +218,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::MDNode *very_likely_branch = nullptr;
     // Scope<llvm::Value *> scope;
     ir::MapStack<std::string, llvm::Value *> frames;
+    // The slots an Allocate introduced. A variable bound to one of these is
+    // held in memory, so reading it is a load through the slot.
+    std::set<llvm::Value *> allocations;
     std::map<std::string, llvm::StructType *> struct_types;
 
     /** Some useful llvm types */

@@ -724,6 +724,11 @@ void CodeGen_LLVM::visit(const Extrema *node) {
 void CodeGen_LLVM::visit(const Var *node) {
     auto frame_value = frames.from_frames(node->name);
     internal_assert(frame_value.has_value()) << node->name;
+    if (allocations.contains(*frame_value)) {
+        value = create_aligned_load(codegen_type(node->type), *frame_value,
+                                    node->name);
+        return;
+    }
     value = *frame_value;
 }
 
@@ -2250,6 +2255,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     llvm::Type *value_type = codegen_type(node->loc.base_type());
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
+    allocations.insert(loc);
     // TODO: when is isVolatile true?
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
