@@ -133,6 +133,7 @@ struct Parser {
             "prod",
             // Other builtins
             "cast",
+            "reinterpret",
             "eps",
             "permute",
             "select",
@@ -1714,6 +1715,33 @@ struct Parser {
                 }
                 return ir::Cast::make(std::move(template_types[0]),
                                       std::move(args[0]));
+            } else if (name == "reinterpret") {
+                // The same bits read as another type, rather than the same
+                // number converted to it. What `float_to_bits` is written
+                // with: stepping to the next representable float means adding
+                // one to its bit pattern, and there is no way to say that in
+                // arithmetic.
+                if (template_types.size() != 1) {
+                    report_error() << "reinterpret() expects a single template "
+                                      "parameter, instead received: "
+                                   << template_types.size();
+                }
+                if (args.size() != 1) {
+                    report_error() << "reinterpret() expects a single argument, "
+                                      "instead received: "
+                                   << args.size();
+                }
+                const ir::Type &to = template_types[0];
+                const ir::Type from = args[0].type();
+                if (from.defined() && to.bits() != from.bits()) {
+                    report_error()
+                        << "reinterpret() cannot change how many bits a value "
+                           "is: " << from << " is " << from.bits()
+                        << " bits and " << to << " is " << to.bits();
+                }
+                return ir::Cast::make(std::move(template_types[0]),
+                                      std::move(args[0]),
+                                      ir::Cast::Mode::Reinterpret);
             } else if (name == "eps") {
                 if (template_types.size() != 1) {
                     report_error() << "eps() expects a single template "

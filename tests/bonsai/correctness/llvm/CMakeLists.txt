@@ -22,6 +22,7 @@ add_bonsai_tests(
     print-str.bonsai
     print-float.bonsai
     print.bonsai
+    reinterpret.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
     map-func.bonsai

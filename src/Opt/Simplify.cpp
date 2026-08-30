@@ -441,7 +441,13 @@ struct Simplifier : ir::Mutator {
 
     ir::Expr visit(const ir::Cast *node) override {
         ir::Expr value = mutate(node->value);
-        if (is_const(value) && node->type.is_scalar()) {
+        // Only a converting cast, which is the one that means "this number as
+        // that type". Folding a reinterpret this way would compute the number
+        // instead of keeping the bits: reinterpret<u32>(1.0f) is 1065353216,
+        // and constant_cast would answer 1. The backends emit a bitcast, which
+        // LLVM folds for a constant anyway, so nothing is lost by leaving it.
+        if (node->mode == ir::Cast::Mode::Convert && is_const(value) &&
+            node->type.is_scalar()) {
             return constant_cast(node->type, std::move(value));
         }
         if (equals(value.type(), node->type)) {

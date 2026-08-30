@@ -1,0 +1,66 @@
+//! flags: -b llvm -e
+
+// `reinterpret[[T]](x)`: the same bits read as another type.
+//
+// Distinct from `cast`, which converts the number. There was no way to spell
+// this before, and it is what stepping to the next representable float needs:
+// the float after 1.0 is the one whose bit pattern is one greater, and no
+// amount of arithmetic says that.
+//
+// Two things had to be fixed to make it work, and both failed the same way --
+// silently answering what a conversion would answer:
+//
+//   the LLVM backend decided between a bitcast and a conversion by looking at
+//   the types, which is only enough when the two cannot mean the same thing.
+//   A float and an integer of the same width can, so `reinterpret[[u32]](1f)`
+//   became a conversion to 1.
+//
+//   the simplifier folded any constant cast with constant_cast, which
+//   converts. So it answered 1 for the same expression before codegen ever
+//   saw it, which is why the constants below are checked as well as the
+//   arithmetic.
+import stdlib/numerics;
+
+// pbrt: NextFloatUp/NextFloatDown from util/float.h, which is where this is
+// needed -- interval arithmetic rounds outward by stepping one bit.
+func next_float_up(v : Float) -> Float {
+    if v == inf { return v; }
+    // -0 and +0 have different bit patterns; stepping up from either should
+    // land on the smallest positive value.
+    w = select(v == 0.0, 0.0, v);
+    ui = reinterpret[[u32]](w);
+    bits = select(w >= 0.0, ui + 1u, ui - 1u);
+    return reinterpret[[Float]](bits);
+}
+
+func next_float_down(v : Float) -> Float {
+    if v == -inf { return v; }
+    w = select(v == 0.0, -0.0, v);
+    ui = reinterpret[[u32]](w);
+    bits = select(w > 0.0, ui - 1u, ui + 1u);
+    return reinterpret[[Float]](bits);
+}
+
+func main() -> i32 {
+    // The bit pattern of 1.0f is 0x3F800000. A conversion would say 1.
+    print(cast[[i32]](reinterpret[[u32]](1.0)));
+    // And back again, exactly.
+    print(reinterpret[[Float]](reinterpret[[u32]](3.14159)));
+
+    // The gap above 1.0 is 2^-23 and the gap below it is 2^-24: the spacing
+    // halves at a power of two, which is the thing a fixed epsilon gets wrong.
+    // Scaled up because the values are too small to print otherwise.
+    print((next_float_up(1.0) - 1.0) * 10000000000.0);
+    print((next_float_down(1.0) - 1.0) * 10000000000.0);
+
+    // Stepping up and back down returns to where it started.
+    print(next_float_down(next_float_up(2.5)) - 2.5);
+    // Infinity has nowhere further to go.
+    print(next_float_up(inf));
+    // Stepping down from zero lands on the largest negative denormal, whose
+    // bit pattern is the sign bit alone plus one: 0x80000001. Checked as bits
+    // rather than as a number because the value itself is far too small to
+    // print, and it is the bits that matter here anyway.
+    print(cast[[i32]](reinterpret[[u32]](next_float_down(0.0)) - 2147483648u));
+    return 0;
+}

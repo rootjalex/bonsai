@@ -1317,6 +1317,24 @@ void CodeGen_LLVM::visit(const Cast *node) {
         return;
     }
 
+    // What the node actually asked for. Everything below decides between a
+    // conversion and a bitcast by looking at the types, which gets the answer
+    // right only when the two cannot mean the same thing -- a float and an
+    // integer of the same width can, and the tests below would convert.
+    // Reading a float's bits is how the next representable float is reached,
+    // and converting instead silently gives a different number.
+    if (node->mode == Cast::Mode::Reinterpret && !src.is_reference() &&
+        !dst.is_reference()) {
+        llvm::Type *llvm_src = codegen_type(src);
+        const llvm::DataLayout &dl = module->getDataLayout();
+        internal_assert(dl.getTypeAllocSize(llvm_dst) ==
+                        dl.getTypeAllocSize(llvm_src))
+            << "Cannot reinterpret " << src << " as " << dst
+            << ": they are not the same size";
+        value = builder->CreateBitCast(inner, llvm_dst);
+        return;
+    }
+
     // Except the first branch, these just copy Halide's lowering (minus a few
     // pointer things).
     if ((src.is_vector() && !dst.is_vector()) ||
