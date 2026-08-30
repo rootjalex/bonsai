@@ -1827,8 +1827,10 @@ void Printer::visit(const Group *node) {
         os << "ptr";
         break;
     }
-    if (!node->name.empty()) {
-        os << " " << node->name;
+    // Print the group as the source spelled it: an anonymous group has no
+    // name to show, and an indirect group's is not the lower-cased field.
+    if (!node->declared_name.empty()) {
+        os << " " << node->declared_name;
     }
     if (node->size.defined()) {
         os << "[";

@@ -221,6 +221,8 @@ struct Parser {
     TokenStream &tokens() { return context.back(); }
 
     ir::Program program;
+    // Names the groups a layout leaves anonymous, per layout.
+    uint32_t anonymous_group_count = 0;
     // Function variable frames. Maps name to type and mutability.
     struct FunctionVariable {
         ir::Type type;
@@ -2724,6 +2726,7 @@ struct Parser {
     // Wrapper that adds built-ins into scope and then calls
     // parse_member()
     ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
+        anonymous_group_count = 0;
         push_frame();
         // TODO(cgyurgyik): For references in `sort`.
         add_type_to_frame("this", ir::Type(), /*mut=*/false);
@@ -2845,6 +2848,10 @@ struct Parser {
             std::string name, declared_name;
             if (peek_type() == Token::Type::IDENTIFIER) {
                 name = declared_name = get_id();
+            } else {
+                // An anonymous group cannot be referred to by name, but it
+                // still occupies a field of the layout's struct.
+                name = "group_" + std::to_string(anonymous_group_count++);
             }
             ir::Expr size, alignment;
             if (consume(Token::Type::LBRACKET)) {
@@ -2886,9 +2893,8 @@ struct Parser {
                 break;
             }
             case ir::Group::Type::Indirect:
-                // The name also names the struct this group generates, so the
-                // field holding it is spelled in lower case.
-                declared_name = name;
+                // The declared name also names the struct this group
+                // generates, so the field holding it is spelled in lower case.
                 name.front() = std::tolower(name.front());
                 break;
             case ir::Group::Type::Pointer:

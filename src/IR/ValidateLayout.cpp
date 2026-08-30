@@ -173,9 +173,13 @@ bool is_valid_path(const Path &path, const BVH_t::Variant &variant,
 GroupMap get_group_map(const Layout &layout) {
     struct GetGroupMap : Visitor {
         void visit(const Group *node) override {
-            const auto [_, inserted] = map.insert({node->name, node});
-            internal_assert(inserted)
-                << "unexpected duplicate group name: " << node->name;
+            // Only a declared group can be the target of a lookup.
+            if (!node->declared_name.empty()) {
+                const auto [_, inserted] =
+                    map.insert({node->declared_name, node});
+                internal_assert(inserted) << "unexpected duplicate group name: "
+                                          << node->declared_name;
+            }
             node->inner.accept(this); // visit nested groups.
         };
         GroupMap map;

@@ -2,7 +2,7 @@
 1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:276:9 
+-> src/Parser/Parser.cpp:278:9 
 tests/bonsai/error/struct_default.bonsai:5:17: [parse error] cannot check type of unknown var: o
 
     d : vec3f = o; // not allowed: non-constant set value.

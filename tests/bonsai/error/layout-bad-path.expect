@@ -6,11 +6,11 @@ type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
 type arm_Leaf = [[packed]] struct arm_Leaf{ pOffset : u32 }
-type triangles = [[packed]] struct triangles{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group_0 : [[packed]] struct unit{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
-type unit = [[packed]] struct unit{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
+type group_0 = [[packed]] struct group_0{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
+type triangles = [[packed]] struct triangles{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group_0 : [[packed]] struct group_0{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 type vec3f = vector[f32, 3]
 
-extern triangles : [[packed]] struct triangles{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group_0 : [[packed]] struct unit{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
+extern triangles : [[packed]] struct triangles{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group_0 : [[packed]] struct group_0{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
 
 schedule host {
   triangles : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriangleBVH

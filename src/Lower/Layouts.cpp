@@ -37,6 +37,14 @@ const ir::Chain *to_chainz(const ir::Member &member) {
     return chain;
 }
 
+// A group is found by two different questions, so it is indexed two ways: by
+// the struct field that stores it, and by the name the source declared it
+// with. They are only the same string for a named direct group.
+struct GroupMaps {
+    std::map<std::string, ir::Member> by_field;
+    std::map<std::string, ir::Member> by_declared_name;
+};
+
 class LayoutTypeMap {
   public:
     ir::Type insert_struct_layout(const ir::Member &member,
@@ -103,19 +111,33 @@ class LayoutTypeMap {
     const auto &types() const { return layout_to_type; }
     const auto &names() const { return layout_to_name; }
 
-    bool contains_group(const std::string &name) const {
-        return group_map.contains(name);
+    // An access into the lowered struct names a field.
+    bool contains_group_field(const std::string &field) const {
+        return groups.by_field.contains(field);
     }
 
-    ir::Member group(const std::string &name) const {
-        const auto it = group_map.find(name);
-        internal_assert(it != group_map.cend()) << name;
+    ir::Member group_for_field(const std::string &field) const {
+        const auto it = groups.by_field.find(field);
+        internal_assert(it != groups.by_field.cend()) << field;
         return it->second;
     }
 
-    void update_group_map(const std::map<std::string, ir::Member> &group_map) {
-        for (const auto &[name, group] : group_map) {
-            auto [_, inserted] = this->group_map.try_emplace(name, group);
+    // A `from <group>[<index>]` names the group as the source declared it.
+    ir::Member group_for_lookup(const std::string &declared_name) const {
+        const auto it = groups.by_declared_name.find(declared_name);
+        internal_assert(it != groups.by_declared_name.cend())
+            << "lookup to non-existent group: " << declared_name;
+        return it->second;
+    }
+
+    void update_group_maps(const GroupMaps &maps) {
+        for (const auto &[name, group] : maps.by_field) {
+            auto [_, inserted] = groups.by_field.try_emplace(name, group);
+            internal_assert(inserted) << name;
+        }
+        for (const auto &[name, group] : maps.by_declared_name) {
+            auto [_, inserted] =
+                groups.by_declared_name.try_emplace(name, group);
             internal_assert(inserted) << name;
         }
     }
@@ -124,7 +146,7 @@ class LayoutTypeMap {
     std::map<ir::Member, ir::Type, ir::MemberLessThan> layout_to_type;
     std::map<ir::Member, std::string, ir::MemberLessThan> layout_to_name;
 
-    std::map<std::string, ir::Member> group_map;
+    GroupMaps groups;
 };
 
 [[maybe_unused]] std::ostream &operator<<(std::ostream &os,
@@ -135,10 +157,6 @@ class LayoutTypeMap {
     }
     os << "}\n";
     return os;
-}
-
-std::string group_name(uint32_t count) {
-    return "group_" + std::to_string(count);
 }
 
 std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
@@ -270,7 +288,7 @@ void add_fields(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            const std::string &field_name = ltmap.concrete_name(m);
+            const std::string &field_name = node->name;
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = base;
@@ -319,7 +337,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
     if (auto it = ltmap.types().find(member); it != ltmap.types().cend()) {
         return it->second;
     }
-    uint32_t pad_count = 0, split_count = 0, group_count = 0;
+    uint32_t pad_count = 0, split_count = 0;
     ir::Struct_t::Map fields;
     const ir::Chain *chain = to_chainz(member);
     for (const auto &m : chain->members) {
@@ -340,6 +358,8 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
             // TODO(cgyurgyik): this is incorrect. if two inner groups match,
             // then the second group will received the first group's member,
             // including its name. We need to uniquely match on body *and* name.
+            // The C++ backends capitalize a struct name on emission, so the
+            // type is named after the field, not after the declaration.
             ir::Type base_t =
                          layout_to_struct(node->name, node->inner, ltmap, node),
                      group_t;
@@ -353,9 +373,7 @@ ir::Type layout_to_struct(const std::string &name, const ir::Member &member,
                 group_t = ir::Array_t::make(std::move(base_t), node->size);
                 break;
             }
-            // An anonymous group still needs a field to live in.
-            std::string field_name =
-                node->name.empty() ? group_name(group_count++) : node->name;
+            std::string field_name = node->name;
             ltmap.insert_group_layout(m, field_name, group_t);
             if (m.bits() == 0) {
                 continue;
@@ -424,11 +442,11 @@ std::vector<NameSize> name_to_size(ir::Expr e, const LayoutTypeMap &map) {
             }
             const auto *ac = node->vec.as<ir::Access>();
             internal_assert(ac) << node->vec;
-            if (!map.contains_group(ac->field)) {
+            if (!map.contains_group_field(ac->field)) {
                 ac->value.accept(this);
                 return;
             }
-            ir::Member group = map.group(ac->field);
+            ir::Member group = map.group_for_field(ac->field);
             // For non-constants, this should be the index.
             // For constants, this should be size.
             const auto *g = group.as<ir::Group>();
@@ -569,7 +587,7 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
         }
         case ir::IRLayoutEnum::Group: {
             const ir::Group *node = m.as<ir::Group>();
-            const std::string &field_name = ltmap.concrete_name(m);
+            const std::string &field_name = node->name;
             switch (node->type) {
             case ir::Group::Type::Direct: {
                 ir::Expr path = base;
@@ -653,7 +671,7 @@ ir::Expr field_from_layout(const ir::Expr &base, const ir::Member &member,
         case ir::IRLayoutEnum::Lookup: {
             const ir::Lookup *node = m.as<ir::Lookup>();
             // from <group_name>[<index>]
-            ir::Member group = ltmap.group(node->group_name);
+            ir::Member group = ltmap.group_for_lookup(node->group_name);
             std::string concretized_name = ltmap.concrete_name(group);
             ir::Expr path = ir::Access::make(concretized_name, root);
             path = ir::Extract::make(path, node->index);
@@ -1419,26 +1437,30 @@ struct LowerMatches : public ir::Mutator {
     }
 };
 
-std::map<std::string, ir::Member> get_group_map(const ir::Layout &layout) {
-    struct GetGroupMap : ir::Visitor {
+GroupMaps get_group_maps(const ir::Layout &layout) {
+    struct GetGroupMaps : ir::Visitor {
         void visit(const ir::Group *node) override {
-            std::string name = node->name;
-            if (node->type == ir::Group::Type::Indirect) {
-                name.front() = std::toupper(name.front());
+            {
+                const auto [_, inserted] = maps.by_field.insert({node->name, node});
+                internal_assert(inserted)
+                    << "unexpected duplicate group field: " << node->name;
             }
-            const auto [_, inserted] = map.insert({std::move(name), node});
-            internal_assert(inserted)
-                << "unexpected duplicate group name: " << node->name;
+            if (!node->declared_name.empty()) {
+                const auto [_, inserted] =
+                    maps.by_declared_name.insert({node->declared_name, node});
+                internal_assert(inserted) << "unexpected duplicate group name: "
+                                          << node->declared_name;
+            }
 
             // visit nested groups.
             node->inner.accept(this);
         };
-        std::map<std::string, ir::Member> map;
+        GroupMaps maps;
     };
 
-    GetGroupMap ggm;
+    GetGroupMaps ggm;
     layout.body.accept(&ggm);
-    return ggm.map;
+    return ggm.maps;
 }
 
 ir::Stmt replace_sentinel(const ir::Stmt &body, const ir::LayoutMap &map) {
@@ -1494,7 +1516,7 @@ ir::Program LowerLayouts::run(ir::Program program,
     ir::TypeMap types;
     LayoutTypeMap layout_type_map;
     for (const auto &[name, layout] : tree_layouts) {
-        layout_type_map.update_group_map(get_group_map(layout));
+        layout_type_map.update_group_maps(get_group_maps(layout));
 
         ir::Type struct_t =
             layout_to_struct(name, layout.body, layout_type_map);

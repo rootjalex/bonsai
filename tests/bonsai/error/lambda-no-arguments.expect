@@ -2,7 +2,7 @@
 1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:1399:9 
+-> src/Parser/Parser.cpp:1401:9 
 tests/bonsai/error/lambda-no-arguments.bonsai:3:10: [parse error] unexpected token: (int, 1, 3:13-3:14)
 
     L2 = || 1 + 1;

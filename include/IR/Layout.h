@@ -138,10 +138,17 @@ struct Group : LayoutMember<Group> {
     Expr size;
     Expr alignment;
     Expr index;
-    // The name of the field this group is stored in. An indirect group's name
-    // also names the struct it generates, so `name` is the lower-cased form
-    // and `declared_name` is what the source said. Diagnostics want the
-    // latter, so that they quote the identifier the programmer wrote.
+    // A group has two names, and they answer different questions.
+    //
+    // `name` is the field of the layout's struct that stores the group. It is
+    // always set: a group the source left anonymous still needs somewhere to
+    // live. An indirect group's declared name also names the struct it
+    // generates, so its field is that name lower-cased.
+    //
+    // `declared_name` is what the source wrote, and is the group's identity:
+    // it is what `<variant> from <group>[<index>]` resolves against and what
+    // diagnostics quote. It is empty for an anonymous group, which is exactly
+    // why such a group cannot be looked up.
     std::string name;
     std::string declared_name;
     Member inner;

@@ -2,7 +2,7 @@
 1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:276:9 
+-> src/Parser/Parser.cpp:278:9 
 tests/bonsai/error/layout-bad-split.bonsai:32:19: [parse error] cannot check type of unknown var: offset
 
             split offset { // not accessible!

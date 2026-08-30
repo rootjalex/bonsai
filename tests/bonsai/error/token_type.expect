@@ -2,7 +2,7 @@
 1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:367:29 
+-> src/Parser/Parser.cpp:369:29 
 tests/bonsai/error/token_type.bonsai:1:34: [parse error] expected: id, received: int
 
 func me_parsed_wrong(i : i32) -> 42;
