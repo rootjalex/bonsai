@@ -37,7 +37,7 @@ struct vector {
     }
 
     // TODO(cgyurgyik): this leads to subtle bugs, e.g.,
-    // `vec3_float{1}` will be `{1, 0, 0}`. Remove this.
+    // `float3{1}` will be `{1, 0, 0}`. Remove this.
     vector(std::initializer_list<T> list) {
         if (list.size() == 0) {
             for (int i = 0; i < N; ++i) {
