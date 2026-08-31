@@ -62,8 +62,7 @@ struct RewriteADTs : public Mutator {
     }
 
     // Similarly for the place a write goes.
-    std::pair<WriteLoc, bool>
-    mutate_writeloc(const WriteLoc &loc) override {
+    std::pair<WriteLoc, bool> mutate_writeloc(const WriteLoc &loc) override {
         Type base_type = mutate(loc.base_type);
         bool not_changed = base_type.same_as(loc.base_type);
         WriteLoc new_loc(loc.base, std::move(base_type));
@@ -83,8 +82,7 @@ struct RewriteADTs : public Mutator {
     // for their variants, so this is just naming one.
     Expr as_variant(const ADTLayout &layout, const Expr &value,
                     const std::string &variant) const {
-        return Access::make(variant,
-                            Access::make(layout.payload_field, value));
+        return Access::make(variant, Access::make(layout.payload_field, value));
     }
 
     // A Build of something that holds a variant type -- an array of shapes,
@@ -158,8 +156,8 @@ struct RewriteADTs : public Mutator {
         const ADTLayout &layout = layout_of(node->type);
 
         std::vector<Expr> whole;
-        whole.push_back(UIntImm::make(layout.tag_type,
-                                      layout.tag(node->variant)));
+        whole.push_back(
+            UIntImm::make(layout.tag_type, layout.tag(node->variant)));
         whole.push_back(UnionOf::make(
             layout.payload, node->variant,
             Build::make(layout.variant(node->variant), std::move(args))));
@@ -331,10 +329,10 @@ ir::Program LowerADTs::run(ir::Program program,
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];
-            args[i] = ir::Function::Argument{
-                arg.name, rewriter.mutate(arg.type),
-                rewriter.mutate(arg.default_value), arg.mutating,
-                arg.unaliased};
+            args[i] =
+                ir::Function::Argument{arg.name, rewriter.mutate(arg.type),
+                                       rewriter.mutate(arg.default_value),
+                                       arg.mutating, arg.unaliased};
         }
         func = std::make_shared<ir::Function>(
             func->name, std::move(args), rewriter.mutate(func->ret_type),

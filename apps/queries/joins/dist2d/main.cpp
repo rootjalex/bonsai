@@ -93,7 +93,8 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     }
 
     out << "x,y\n"; // CSV header
-    input_set.for_each([&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
+    input_set.for_each(
+        [&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
 
     out.close();
 }
@@ -238,11 +239,12 @@ auto benchmark_chebyshev(const set<Point> &input0, const set<Point> &input1,
     std::cout << "Chebyshev query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set<std::tuple<Point, Point>>,
-                          set<std::tuple<Point, set<Point>>>>(
-        "chebyshev", input0, input1, tree0, tree1, k, m, chebyshev,
-        chebyshev_single, chebyshev_dual, nested_timedout, single_timedout,
-        dual_timedout, value);
+    return benchmark_join < PROFILE == 1, set<std::tuple<Point, Point>>,
+           set < std::tuple < Point,
+           set < Point >>>> ("chebyshev", input0, input1, tree0, tree1, k, m,
+                             chebyshev, chebyshev_single, chebyshev_dual,
+                             nested_timedout, single_timedout, dual_timedout,
+                             value);
 }
 /*
 auto benchmark_cosine(const set<Point> &input0, const set<Point> &input1, const
@@ -266,14 +268,15 @@ auto benchmark_donut(const set<Point> &input0, const set<Point> &input1,
     float value0 = 0.0001;
     float value1 = 0.0002;
 #ifndef PROFILE
-    std::cout << "donut query, bounds = " << value0 << ", " << value1 << std::endl;
+    std::cout << "donut query, bounds = " << value0 << ", " << value1
+              << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set<std::tuple<Point, Point>>,
-                          set<std::tuple<Point, set<Point>>>>(
-        "donut", input0, input1, tree0, tree1, k, m, donut, donut_single,
-        donut_dual, nested_timedout, single_timedout, dual_timedout, value0,
-        value1);
+    return benchmark_join < PROFILE == 1, set<std::tuple<Point, Point>>,
+           set < std::tuple < Point,
+           set < Point >>>> ("donut", input0, input1, tree0, tree1, k, m, donut,
+                             donut_single, donut_dual, nested_timedout,
+                             single_timedout, dual_timedout, value0, value1);
 }
 
 /*
@@ -404,8 +407,10 @@ int main(int argc, char **argv) {
         }
 
         // {
-        // auto [nested, single, dual] = benchmark_cosine(input_set0, input_set1, input_tree0, input_tree1, k, m);
-        // std::cout << "cosine: (" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
+        // auto [nested, single, dual] = benchmark_cosine(input_set0,
+        // input_set1, input_tree0, input_tree1, k, m); std::cout << "cosine: ("
+        // << size << ", " << nested << ", " << build_time << ", " << single <<
+        // ", " << dual << ")" << std::endl;
         // }
 
         {
@@ -437,12 +442,12 @@ int main(int argc, char **argv) {
         std::free(input_tree1.prims);
         std::free(input_tree1.group0_index);
     }
-// #ifdef PROFILE
-//     for (const auto &res : results) {
-//         std::cout << "(\"" << res.first << "\", ";
-//         pretty_print_vector(res.second);
-//         std::cout << ")," << std::endl;
-//     }
-// #endif
+    // #ifdef PROFILE
+    //     for (const auto &res : results) {
+    //         std::cout << "(\"" << res.first << "\", ";
+    //         pretty_print_vector(res.second);
+    //         std::cout << ")," << std::endl;
+    //     }
+    // #endif
     return 0;
 }

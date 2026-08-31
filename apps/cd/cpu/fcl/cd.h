@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include "runtime/bonsai_cpp.h"
+#include <cstdint>
 
 using float3 = vector<float, 3>;
 struct Triangle {
@@ -17,9 +17,9 @@ struct _tree_layout1 {
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;
-    Triangle* prims;
+    Triangle *prims;
     uint32_t nCount;
-    _tree_layout1* group0_index;
+    _tree_layout1 *group0_index;
 } __attribute__((packed));
 struct _tree_layout2 {
 } __attribute__((packed));
@@ -33,11 +33,12 @@ struct _tree_layout5 {
 } __attribute__((packed));
 struct _tree_layout4 {
     uint32_t pCount;
-    Triangle* prims;
+    Triangle *prims;
     uint32_t nCount;
-    _tree_layout5* group0_index;
+    _tree_layout5 *group0_index;
 } __attribute__((packed));
 struct _tree_layout6 {
 } __attribute__((packed));
 
-set<std::tuple<Triangle, Triangle>> collisions(const _tree_layout0& triangles1, const _tree_layout4& triangles2);
+set<std::tuple<Triangle, Triangle>> collisions(const _tree_layout0 &triangles1,
+                                               const _tree_layout4 &triangles2);

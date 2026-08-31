@@ -169,8 +169,8 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
             header = block;
         }
     }
-    internal_assert(header) << "collapse(" << outer << ", " << inner
-                            << ") on " << func << ": no parfor named " << outer
+    internal_assert(header) << "collapse(" << outer << ", " << inner << ") on "
+                            << func << ": no parfor named " << outer
                             << ". Only a parfor can be collapsed -- a "
                                "sequential loop has an order to keep.";
 
@@ -253,13 +253,13 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
 
     // outer = bo + (c / ci) * so, inner = bi + (c % ci) * si
     auto q = emit(*step, itype, Instruction::Op::Div, v_step, ci);
-    auto q_scaled = emit(*step, itype, Instruction::Op::Mul, q,
-                         outer_loop.stride);
+    auto q_scaled =
+        emit(*step, itype, Instruction::Op::Mul, q, outer_loop.stride);
     auto outer_val =
         emit(*step, itype, Instruction::Op::Add, outer_loop.start, q_scaled);
     auto r = emit(*step, itype, Instruction::Op::Mod, v_step, ci);
-    auto r_scaled = emit(*step, itype, Instruction::Op::Mul, r,
-                         inner_loop.stride);
+    auto r_scaled =
+        emit(*step, itype, Instruction::Op::Mul, r, inner_loop.stride);
     auto inner_val =
         emit(*step, itype, Instruction::Op::Add, inner_loop.start, r_scaled);
 
@@ -307,8 +307,8 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
     std::vector<shared_ptr<Block>> added = {step};
 
     header->terminator.data = Terminator::ParFor{
-        collapsed,           constant(itype, 0), total, constant(itype, 1),
-        Terminator::Jump{step->name}, outer_loop.cont};
+        collapsed,          constant(itype, 0),           total,
+        constant(itype, 1), Terminator::Jump{step->name}, outer_loop.cont};
 
     // The inner loop's continuation only existed to end the outer loop's body,
     // which the body's own yield now does.

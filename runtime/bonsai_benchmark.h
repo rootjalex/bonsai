@@ -15,7 +15,6 @@
 
 #include "bonsai_set.h"
 
-
 inline void flush_cache() {
     constexpr size_t CACHE_FLUSH_SIZE = 50 * 1024 * 1024; // ~50 MB
     static std::vector<uint8_t> buffer(CACHE_FLUSH_SIZE, 1);
@@ -23,7 +22,7 @@ inline void flush_cache() {
     volatile uint8_t sink = 0;
     for (size_t i = 0; i < CACHE_FLUSH_SIZE; ++i) {
         sink = sink + buffer[i]; // read to evict other data
-        buffer[i] = sink;   // write back
+        buffer[i] = sink;        // write back
     }
 }
 
@@ -193,8 +192,9 @@ auto benchmark_join(const std::string &benchmark_name, const Input0 &input0,
     std::cout << "Checking dual tree results\n";
     if (!nested_timedout & !dual_timedout &&
         !(nested_results == dual_results)) {
-        std::cerr << "Dual join results do not match nested join results for size: "
-                  << input0.size() << " " << input1.size();
+        std::cerr
+            << "Dual join results do not match nested join results for size: "
+            << input0.size() << " " << input1.size();
         if constexpr (requires { dual_results.size(); }) {
             std::cerr << " nested: " << nested_results.size()
                       << " vs. dual: " << dual_results.size();
@@ -211,7 +211,8 @@ auto benchmark_join(const std::string &benchmark_name, const Input0 &input0,
     if constexpr (requires { dual_results.size(); }) {
         if (!nested_timedout && !single_timedout &&
             !(nested_results == flatten(single_results))) {
-            std::cerr << "Single join results do not match nested join results for size: "
+            std::cerr << "Single join results do not match nested join results "
+                         "for size: "
                       << input0.size() << " " << input1.size()
                       << " nested: " << nested_results.size()
                       << " vs. single: " << single_results.size();
@@ -220,7 +221,8 @@ auto benchmark_join(const std::string &benchmark_name, const Input0 &input0,
     } else {
         if (!nested_timedout && !single_timedout &&
             (nested_results != single_results)) {
-            std::cerr << "Single join results do not match nested join results for size: "
+            std::cerr << "Single join results do not match nested join results "
+                         "for size: "
                       << input0.size() << " " << input1.size()
                       << " nested (value): " << nested_results
                       << " vs. single (value): " << single_results;

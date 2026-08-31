@@ -1,5 +1,5 @@
-#include "runtime/bonsai_cpp.h"
 #include "cp_gen.h"
+#include "runtime/bonsai_cpp.h"
 
 #include <fcpw/fcpw.h>
 
@@ -26,8 +26,9 @@ std::vector<Triangle> load_obj(const std::string &object) {
     // std::string object_path = "apps/queries/rt/" + object + ".obj";
     // std::string material_path = "apps/queries/rt/" + object;
 
-    // std::string object_path = "/Users/ajroot/Downloads/xxx/" + object + ".obj";
-    // std::string material_path = "/Users/ajroot/Downloads/xxx/" + object;
+    // std::string object_path = "/Users/ajroot/Downloads/xxx/" + object +
+    // ".obj"; std::string material_path = "/Users/ajroot/Downloads/xxx/" +
+    // object;
 
     std::string object_path = object + ".obj";
     std::string material_path = object;
@@ -81,7 +82,9 @@ std::vector<Triangle> load_obj(const std::string &object) {
 }
 
 _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
-    auto bvh_ptr = dynamic_cast<fcpw::Bvh<3, fcpw::BvhNode<3>, fcpw::Triangle>*>(aggregate);
+    auto bvh_ptr =
+        dynamic_cast<fcpw::Bvh<3, fcpw::BvhNode<3>, fcpw::Triangle> *>(
+            aggregate);
     if (!bvh_ptr) {
         std::cerr << "Error: Aggregate is not a BVH<3>!\n";
         std::abort();
@@ -90,8 +93,8 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
     _tree_layout0 tree;
     tree.nCount = static_cast<uint32_t>(bvh_ptr->flatTree.size());
     if (tree.nCount > 0) {
-        tree.group0_index =
-            static_cast<_tree_layout1*>(malloc(sizeof(_tree_layout1) * tree.nCount));
+        tree.group0_index = static_cast<_tree_layout1 *>(
+            malloc(sizeof(_tree_layout1) * tree.nCount));
         if (!tree.group0_index) {
             std::cerr << "Malloc (nodes) failed" << std::endl;
             abort();
@@ -106,7 +109,10 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
             tree.group0_index[i].high[1] = bvh_ptr->flatTree[i].box.pMax[1];
             tree.group0_index[i].high[2] = bvh_ptr->flatTree[i].box.pMax[2];
             tree.group0_index[i].nPrims = bvh_ptr->flatTree[i].nReferences;
-            tree.group0_index[i].offset = (tree.group0_index[i].nPrims == 0) ? bvh_ptr->flatTree[i].secondChildOffset : bvh_ptr->flatTree[i].referenceOffset;
+            tree.group0_index[i].offset =
+                (tree.group0_index[i].nPrims == 0)
+                    ? bvh_ptr->flatTree[i].secondChildOffset
+                    : bvh_ptr->flatTree[i].referenceOffset;
         }
     } else {
         std::cerr << "Copying empty tree from FCPW " << std::endl;
@@ -115,32 +121,51 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
 
     tree.pCount = static_cast<uint32_t>(bvh_ptr->primitives.size());
     if (tree.pCount > 0) {
-        tree.prims = static_cast<Triangle*>(malloc(sizeof(Triangle) * tree.pCount));
+        tree.prims =
+            static_cast<Triangle *>(malloc(sizeof(Triangle) * tree.pCount));
         if (!tree.prims) {
             std::cerr << "Malloc (triangles) failed" << std::endl;
             abort();
         }
         for (uint32_t i = 0; i < tree.pCount; ++i) {
             const auto soup = bvh_ptr->primitives[i]->soup;
-            tree.prims[i].p0.x = soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
-            tree.prims[i].p0.y = soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
-            tree.prims[i].p0.z = soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
-            tree.prims[i].p1.x = soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
-            tree.prims[i].p1.y = soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
-            tree.prims[i].p1.z = soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
-            tree.prims[i].p2.x = soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
-            tree.prims[i].p2.y = soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
-            tree.prims[i].p2.z = soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
+            tree.prims[i].p0.x =
+                soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
+            tree.prims[i].p0.y =
+                soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
+            tree.prims[i].p0.z =
+                soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
+            tree.prims[i].p1.x =
+                soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
+            tree.prims[i].p1.y =
+                soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
+            tree.prims[i].p1.z =
+                soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
+            tree.prims[i].p2.x =
+                soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
+            tree.prims[i].p2.y =
+                soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
+            tree.prims[i].p2.z =
+                soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
             /*
-            tree.prims[i].p0.x() = soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
-            tree.prims[i].p0.y() = soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
-            tree.prims[i].p0.z() = soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
-            tree.prims[i].p1.x() = soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
-            tree.prims[i].p1.y() = soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
-            tree.prims[i].p1.z() = soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
-            tree.prims[i].p2.x() = soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
-            tree.prims[i].p2.y() = soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
-            tree.prims[i].p2.z() = soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
+            tree.prims[i].p0.x() =
+            soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
+            tree.prims[i].p0.y() =
+            soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
+            tree.prims[i].p0.z() =
+            soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
+            tree.prims[i].p1.x() =
+            soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
+            tree.prims[i].p1.y() =
+            soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
+            tree.prims[i].p1.z() =
+            soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
+            tree.prims[i].p2.x() =
+            soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
+            tree.prims[i].p2.y() =
+            soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
+            tree.prims[i].p2.z() =
+            soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
             */
         }
     } else {
@@ -149,9 +174,6 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
     }
     return tree;
 }
-
-
-
 
 void verify_results(const std::vector<float> &fcpw_distances,
                     const std::vector<float> &bonsai_distances,
@@ -341,7 +363,8 @@ int main(int argc, char *argv[]) {
 
     auto t1 = clock::now();
     // auto fcpw_time =
-    //     std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    //     std::chrono::duration_cast<std::chrono::milliseconds>(t1 -
+    //     t0).count();
     // std::cout << "[fcpw]   tree construction   : " << fcpw_time << " ms"
     //           << std::endl;
 
@@ -352,7 +375,8 @@ int main(int argc, char *argv[]) {
 
     // t1 = clock::now();
     // auto bonsai_time =
-    //     std::chrono::duration_cast<std::chrono::mi lliseconds>(t1 - t0).count();
+    //     std::chrono::duration_cast<std::chrono::mi lliseconds>(t1 -
+    //     t0).count();
     // std::cout << "[bonsai] tree construction   : " << bonsai_time << " ms"
     //           << std::endl;
 

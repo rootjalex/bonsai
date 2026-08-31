@@ -179,9 +179,10 @@ ControlDependence compute_control_dependence(const AdjacencyMap &succs,
 // Partial linearization (Moll & Hack, PLDI 2018, section 3.1) requires both
 // properties -- their figure 8 shows the algorithm producing incorrect code
 // when the index is not compact.
-std::map<std::string, size_t>
-compute_block_index(const std::string &entry, const AdjacencyMap &succs,
-                    const DomTree &dom, const LoopForest &loops);
+std::map<std::string, size_t> compute_block_index(const std::string &entry,
+                                                  const AdjacencyMap &succs,
+                                                  const DomTree &dom,
+                                                  const LoopForest &loops);
 
 //===--------------------------------------------------------------------===//
 // Generic dataflow
@@ -204,7 +205,8 @@ std::map<std::string, Lattice> solve_dataflow(
     const std::string &entry, const AdjacencyMap &succs,
     const AdjacencyMap &preds, Direction direction, const Lattice &init,
     const Lattice &boundary,
-    const std::function<Lattice(const std::string &, const Lattice &)> &transfer,
+    const std::function<Lattice(const std::string &, const Lattice &)>
+        &transfer,
     const std::function<Lattice(const Lattice &, const Lattice &)> &meet) {
     const bool forward = direction == Direction::Forward;
     const AdjacencyMap &along = forward ? succs : preds;
@@ -242,8 +244,8 @@ std::map<std::string, Lattice> solve_dataflow(
                 if (o == out.end()) {
                     continue; // unreachable neighbour
                 }
-                merged = merged.has_value() ? meet(*merged, o->second)
-                                            : o->second;
+                merged =
+                    merged.has_value() ? meet(*merged, o->second) : o->second;
             }
             if (merged.has_value()) {
                 in[name] = std::move(*merged);

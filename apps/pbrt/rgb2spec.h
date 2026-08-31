@@ -61,8 +61,8 @@ inline double cie_interp(const double *data, double x) {
 // which is why the rule is fourth-order rather than trapezoidal.
 inline Tables init_tables() {
     Tables t{};
-    const double h = (RGB2SPEC_CIE_LAMBDA_MAX - RGB2SPEC_CIE_LAMBDA_MIN) /
-                     (FineSamples - 1);
+    const double h =
+        (RGB2SPEC_CIE_LAMBDA_MAX - RGB2SPEC_CIE_LAMBDA_MIN) / (FineSamples - 1);
 
     for (int i = 0; i < FineSamples; ++i) {
         const double lambda = RGB2SPEC_CIE_LAMBDA_MIN + i * h;

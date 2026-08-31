@@ -182,10 +182,9 @@ Closure build_gcd_closure(const ParFor *forall, TypeMap &types) {
                         cast(idx_t, forall->slice.stride) * loop_i)));
     // TODO(ajr): this also needs to replace Stores/Allocates/Accumulates!
     Closure closure;
-    Stmt inner =
-        replace_reads_and_writes(WriteLoc(ctx_name, ctx_t), repls,
-                                 continues_become_returns(forall->body),
-                                 closure);
+    Stmt inner = replace_reads_and_writes(
+        WriteLoc(ctx_name, ctx_t), repls,
+        continues_become_returns(forall->body), closure);
     const bool returns = always_returns(inner);
     stmts.push_back(std::move(inner));
     // Only if the body does not already end the iteration itself: the

@@ -16,7 +16,8 @@ int main() {
     // values below come back with a lane missing or a field misread.
     static_assert(sizeof(float3) == 16, "float3 must match <3 x float>");
     static_assert(alignof(float3) == 16, "float3 must match <3 x float>");
-    static_assert(offsetof(Bundle, weight) == 16, "vector field must be 16 wide");
+    static_assert(offsetof(Bundle, weight) == 16,
+                  "vector field must be 16 wide");
 
     float3 v = {1, -2, 3};
     float3 w = {2, -1, 0};

@@ -13,7 +13,8 @@ namespace ssa {
 
 using FuncMap = std::map<std::string, std::shared_ptr<ssa::Function>>;
 
-void split(FuncMap &funcs, std::string func, std::string idx, int factor, std::string outer, std::string inner, bool exact);
+void split(FuncMap &funcs, std::string func, std::string idx, int factor,
+           std::string outer, std::string inner, bool exact);
 
 // Records that the parfor `index` runs on `resource`, and checks that this
 // agrees with whatever the loops around it are already bound to. Nothing about

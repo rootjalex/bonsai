@@ -145,21 +145,19 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // exits therefore already folded -- when its parent is looked at.
         const Loop *target = nullptr;
         for (const auto &[header, loop] : loops) {
-            const bool divergent =
-                std::any_of(loop.exits.begin(), loop.exits.end(),
-                            [&](const Edge &e) {
-                                return divergence.branches.count(e.first) > 0;
-                            });
+            const bool divergent = std::any_of(
+                loop.exits.begin(), loop.exits.end(), [&](const Edge &e) {
+                    return divergence.branches.count(e.first) > 0;
+                });
             if (!divergent) {
                 continue;
             }
             const string outer = header;
-            const bool innermost =
-                std::none_of(loops.begin(), loops.end(),
-                             [&](const auto &other) {
-                                 return other.second.parent.has_value() &&
-                                        *other.second.parent == outer;
-                             });
+            const bool innermost = std::none_of(
+                loops.begin(), loops.end(), [&](const auto &other) {
+                    return other.second.parent.has_value() &&
+                           *other.second.parent == outer;
+                });
             if (innermost) {
                 target = &loop;
                 break;
@@ -183,8 +181,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // arguments: the header may be the region entry, whose arguments are
         // the function's parameters and cannot grow.
         const string preheader = loop.header;
-        const string header =
-            insert_preheader(func, loop.header, loop.blocks);
+        const string header = insert_preheader(func, loop.header, loop.blocks);
 
         // Splitting renamed the block the loop closes on, so anything the
         // analysis recorded under the old name now means the new one.
@@ -282,9 +279,8 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                 }
             }
             internal_assert(t.slots.size() == dest.args.size())
-                << "Exit block " << dest.name << " takes "
-                << dest.args.size() << " arguments but " << t.slots.size()
-                << " were recorded";
+                << "Exit block " << dest.name << " takes " << dest.args.size()
+                << " arguments but " << t.slots.size() << " were recorded";
 
             for (Terminator::Jump *jump : jumps_of(*blocks.at(exit.first))) {
                 if (jump->name != exit.second) {
@@ -447,8 +443,8 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                 if (slot.invariant != nullptr) {
                     // Named from the test's own copy of the carried value, so
                     // that it is available here.
-                    const auto *arg = std::get_if<Argument>(
-                        &slot.invariant->data);
+                    const auto *arg =
+                        std::get_if<Argument>(&slot.invariant->data);
                     args.push_back(arg != nullptr &&
                                            entry_test->lookups.count(arg->name)
                                        ? entry_test->lookups.at(arg->name)

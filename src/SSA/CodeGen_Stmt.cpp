@@ -273,8 +273,7 @@ Stmt codegen_instruction(const Instruction &instr) {
             Expr mask = instr.operands.size() == 3
                             ? codegen_value(instr.operands[2])
                             : Expr();
-            return Store::make(std::move(loc), std::move(val),
-                               std::move(mask));
+            return Store::make(std::move(loc), std::move(val), std::move(mask));
         }
         case Instruction::Op::Alloc:
         case Instruction::Op::Alloca: {
@@ -527,7 +526,8 @@ Stmt codegen_instruction(const Instruction &instr) {
     }
     case Instruction::Op::Select: {
         internal_assert(args.size() == 3) << args.size();
-        value = Select::make(std::move(args[0]), std::move(args[1]), std::move(args[2]));
+        value = Select::make(std::move(args[0]), std::move(args[1]),
+                             std::move(args[2]));
         break;
     }
     case Instruction::Op::Set: {
@@ -821,12 +821,12 @@ DominatorMap compute_dominators(const ssa::Function &func,
 
 struct BlockInfo {
     enum class Role {
-        Normal,       // Sequential block, or if/else branch block
-        WhileHeader,  // Has a Dispatch; backedge comes back to it from a latch
+        Normal,        // Sequential block, or if/else branch block
+        WhileHeader,   // Has a Dispatch; backedge comes back to it from a latch
         DoWhileHeader, // A DoWhileLatch jumps back to it; it is not the test
-        DoWhileLatch, // Has a Dispatch; one arm is a backedge to a dominator
-        InfLoopLatch, // Has an unconditional Jump that is a backedge
-                      // (do-while(true))
+        DoWhileLatch,  // Has a Dispatch; one arm is a backedge to a dominator
+        InfLoopLatch,  // Has an unconditional Jump that is a backedge
+                       // (do-while(true))
     };
 
     Role role = Role::Normal;
@@ -1180,8 +1180,8 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         // returns, say, or goes round the enclosing loop
                         // again -- each run to the end of the region this
                         // if/else is part of, and there is nothing after it.
-                        const std::string &arm_exit = merge.empty() ? exit
-                                                                    : merge;
+                        const std::string &arm_exit =
+                            merge.empty() ? exit : merge;
                         Stmt true_body =
                             structurize(t1, arm_exit, block_map, dom, info,
                                         mut_map, func_type_map, loop_header);
@@ -1370,7 +1370,8 @@ Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
             continue;
         }
         for (size_t i = 0; i < block->args.size(); i++) {
-            if (!muts->second[i] || !declared.insert(block->args[i].name).second) {
+            if (!muts->second[i] ||
+                !declared.insert(block->args[i].name).second) {
                 continue;
             }
             materialized[block->args[i].name] = block->args[i].type;
@@ -1416,9 +1417,9 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
 
     ir::Function::InterfaceList ilist; // always empty at this stage.
 
-    return std::make_shared<ir::Function>(
-        std::move(name), std::move(args), std::move(ret_type),
-        std::move(body), std::move(ilist), func.attributes);
+    return std::make_shared<ir::Function>(std::move(name), std::move(args),
+                                          std::move(ret_type), std::move(body),
+                                          std::move(ilist), func.attributes);
 }
 
 } // namespace ssa

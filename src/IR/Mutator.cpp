@@ -637,8 +637,7 @@ Stmt Mutator::visit(const Store *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
     Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;
-    if (not_changed && value.same_as(node->value) &&
-        mask.same_as(node->mask)) {
+    if (not_changed && value.same_as(node->value) && mask.same_as(node->mask)) {
         return node;
     }
     return Store::make(std::move(loc), std::move(value), std::move(mask));

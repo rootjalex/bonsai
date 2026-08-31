@@ -28,7 +28,8 @@ clone_value(const shared_ptr<Value> &value,
     if (!value) {
         return nullptr;
     }
-    if (const auto *instr = std::get_if<shared_ptr<Instruction>>(&value->data)) {
+    if (const auto *instr =
+            std::get_if<shared_ptr<Instruction>>(&value->data)) {
         const auto it = instrs.find(instr->get());
         internal_assert(it != instrs.end())
             << "Value refers to an instruction outside the function: "
@@ -155,7 +156,8 @@ shared_ptr<Function> clone_function(const Function &func) {
 string unify_returns(Function &func) {
     vector<shared_ptr<Block>> returning;
     for (const auto &block : func.blocks) {
-        if (std::holds_alternative<Terminator::Return>(block->terminator.data)) {
+        if (std::holds_alternative<Terminator::Return>(
+                block->terminator.data)) {
             returning.push_back(block);
         }
     }
@@ -172,9 +174,9 @@ string unify_returns(Function &func) {
 
     // The returned value becomes the exit block's argument, which is exactly
     // the phi a blend replaces once the region is linearized.
-    const bool returns_value = std::get<Terminator::Return>(
-                                   returning.front()->terminator.data)
-                                   .value != nullptr;
+    const bool returns_value =
+        std::get<Terminator::Return>(returning.front()->terminator.data)
+            .value != nullptr;
     if (returns_value) {
         exit->args.push_back(Argument{func.ret_type, "!ret"});
     }

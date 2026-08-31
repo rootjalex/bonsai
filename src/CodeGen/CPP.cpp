@@ -397,9 +397,8 @@ class BonsaiToCpp : ir::Printer {
             // on top of that passes the address of the caller's own pointer
             // variable, and the first element written lands on the pointer
             // itself. See tests/bonsai/correctness/cpp/mut-dynamic-array.
-            if (!is_return_type &&
-                (should_be_ref(type) ||
-                 (is_mutating && !is_dynamic_array(type)))) {
+            if (!is_return_type && (should_be_ref(type) ||
+                                    (is_mutating && !is_dynamic_array(type)))) {
                 ss << "&";
             }
         }
@@ -1222,8 +1221,8 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
         // Mostly for dry-run / testing purposes.
         std::cout << "// Bonsai Header" << '\n';
         std::cout << BonsaiToCpp().create_header(program,
-                                                    /* allow_mangling */ true)
-                     << '\n';
+                                                 /* allow_mangling */ true)
+                  << '\n';
         std::cout << std::string(42, '-') << '\n';
         std::cout << BonsaiToCpp().create_source(program) << '\n';
         return;

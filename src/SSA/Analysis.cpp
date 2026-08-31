@@ -570,8 +570,8 @@ DomTree compute_post_dominator_tree(const string &entry,
     const string exit = virtual_exit();
     const set<string> live = reachable_from(entry, succs);
 
-    AdjacencyMap rsuccs;  // reverse-CFG successors == forward predecessors
-    AdjacencyMap rpreds;  // reverse-CFG predecessors == forward successors
+    AdjacencyMap rsuccs; // reverse-CFG successors == forward predecessors
+    AdjacencyMap rpreds; // reverse-CFG predecessors == forward successors
     rsuccs[exit];
     rpreds[exit];
     for (const auto &name : live) {

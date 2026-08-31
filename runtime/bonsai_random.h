@@ -17,22 +17,20 @@ T random_uniform(std::mt19937 &rng, T low, T high) {
     }
 }
 
-template<typename T>
+template <typename T>
 T random_normal(std::mt19937 &rng, const T mean, const T stddev) {
     std::normal_distribution<T> dist(mean, stddev);
     return dist(rng);
 }
 
-template<typename T>
+template <typename T>
 T random_exponential(std::mt19937 &rng, const T lam) {
     std::exponential_distribution<T> dist(lam);
     return dist(rng);
 }
 
-
-template<typename T>
+template <typename T>
 T random_lognormal(std::mt19937 &rng, const T mean, const T stddev) {
     std::lognormal_distribution<T> dist(mean, stddev);
     return dist(rng);
 }
-

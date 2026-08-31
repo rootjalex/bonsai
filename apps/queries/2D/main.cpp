@@ -19,7 +19,6 @@ bool operator==(const Point &a, const Point &b) {
     return (a.x == b.x) && (a.y == b.y);
 }
 
-
 // -------- Choose one by uncommenting or defining via -D flag --------
 // #define USE_UNIFORM
 // #define USE_NORMAL
@@ -89,7 +88,8 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     }
 
     out << "x, y\n"; // CSV header
-    input_set.for_each([&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
+    input_set.for_each(
+        [&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
 
     out.close();
 }
@@ -275,29 +275,29 @@ void verify_IntervalTree(const uint64_t input_index,
             if (input.group0_index[input_index].xl > prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and lb(x) = " << input.group0_index[input_index].xl
-                          << std::endl;
+                          << " and lb(x) = "
+                          << input.group0_index[input_index].xl << std::endl;
                 abort();
             }
             if (input.group0_index[input_index].yl > prim.y) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and lb(y) = " << input.group0_index[input_index].yl
-                          << std::endl;
+                          << " and lb(y) = "
+                          << input.group0_index[input_index].yl << std::endl;
                 abort();
             }
             if (input.group0_index[input_index].xh < prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and ub(x) = " << input.group0_index[input_index].xh
-                          << std::endl;
+                          << " and ub(x) = "
+                          << input.group0_index[input_index].xh << std::endl;
                 abort();
             }
             if (input.group0_index[input_index].yh < prim.y) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and ub(y) = " << input.group0_index[input_index].yh
-                          << std::endl;
+                          << " and ub(y) = "
+                          << input.group0_index[input_index].yh << std::endl;
                 abort();
             }
         }
@@ -314,9 +314,10 @@ double benchmark_absd_query(const set<Point> &input, const _tree_layout0 &tree,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
-        "abs(x - y) <= 10", input, tree, k, m, absd_query, absd_query_fast,
-        linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  set < Point >> ("abs(x - y) <= 10", input, tree, k, m,
+                                  absd_query, absd_query_fast, linear_timedout,
+                                  indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -329,9 +330,10 @@ double benchmark_absd_count_query(const set<Point> &input,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
-        "COUNT(abs(x - y) <= 10)", input, tree, k, m, absd_count_query,
-        absd_count_query_fast, linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  uint64_t > ("COUNT(abs(x - y) <= 10)", input, tree, k, m,
+                              absd_count_query, absd_count_query_fast,
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -345,9 +347,10 @@ double benchmark_absd_count_aug_query(const set<Point> &input,
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
-        "aug COUNT(abs(x - y) <= 10)", input, tree, k, m, absd_count_query,
-        absd_count_query_fast_aug, linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  uint64_t > ("aug COUNT(abs(x - y) <= 10)", input, tree, k, m,
+                              absd_count_query, absd_count_query_fast_aug,
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -359,9 +362,10 @@ double benchmark_abss_query(const set<Point> &input, const _tree_layout0 &tree,
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
-        "abs(x + y) <= 10", input, tree, k, m, abss_query, abss_query_fast,
-        linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  set < Point >> ("abs(x + y) <= 10", input, tree, k, m,
+                                  abss_query, abss_query_fast, linear_timedout,
+                                  indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -374,9 +378,10 @@ double benchmark_abss_count_query(const set<Point> &input,
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
-        "COUNT(abs(x + y) <= 10)", input, tree, k, m, abss_count_query,
-        abss_count_query_fast, linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  uint64_t > ("COUNT(abs(x + y) <= 10)", input, tree, k, m,
+                              abss_count_query, abss_count_query_fast,
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -390,9 +395,10 @@ double benchmark_abss_count_aug_query(const set<Point> &input,
     std::cout << "Abss query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
-        "aug COUNT(abs(x + y) <= 10)", input, tree, k, m, abss_count_query,
-        abss_count_query_fast_aug, linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  uint64_t > ("aug COUNT(abs(x + y) <= 10)", input, tree, k, m,
+                              abss_count_query, abss_count_query_fast_aug,
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -405,9 +411,10 @@ double benchmark_circle_query(const set<Point> &input,
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, set<Point>>(
-        "x^2 + y^2 <= 100", input, tree, k, m, circle_query, circle_query_fast,
-        linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  set < Point >> ("x^2 + y^2 <= 100", input, tree, k, m,
+                                  circle_query, circle_query_fast,
+                                  linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -421,9 +428,10 @@ double benchmark_circle_count_query(const set<Point> &input,
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
-        "COUNT(x^2 + y^2 <= 100)", input, tree, k, m, circle_count_query,
-        circle_count_query_fast, linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  uint64_t > ("COUNT(x^2 + y^2 <= 100)", input, tree, k, m,
+                              circle_count_query, circle_count_query_fast,
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -437,9 +445,10 @@ double benchmark_circle_count_aug_query(const set<Point> &input,
     std::cout << "Circle query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE == 1, uint64_t>(
-        "aug COUNT(x^2 + y^2 <= 100)", input, tree, k, m, circle_count_query,
-        circle_count_query_fast_aug, linear_timedout, indexed_timedout, value);
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE == 1,
+                  uint64_t > ("aug COUNT(x^2 + y^2 <= 100)", input, tree, k, m,
+                              circle_count_query, circle_count_query_fast_aug,
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 

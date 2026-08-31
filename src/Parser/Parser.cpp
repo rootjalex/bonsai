@@ -906,8 +906,8 @@ struct Parser {
 
             const auto index = adt->index_of(arm.variant);
             if (!index.has_value()) {
-                report_error() << adt->name << " has no variant called "
-                               << arm.variant;
+                report_error()
+                    << adt->name << " has no variant called " << arm.variant;
             }
             const ir::Struct_t::Map &fields = adt->fields(*index);
             if (fields.size() != arm.bindings.size()) {
@@ -1780,17 +1780,19 @@ struct Parser {
                                    << template_types.size();
                 }
                 if (args.size() != 1) {
-                    report_error() << "reinterpret() expects a single argument, "
-                                      "instead received: "
-                                   << args.size();
+                    report_error()
+                        << "reinterpret() expects a single argument, "
+                           "instead received: "
+                        << args.size();
                 }
                 const ir::Type &to = template_types[0];
                 const ir::Type from = args[0].type();
                 if (from.defined() && to.bits() != from.bits()) {
                     report_error()
                         << "reinterpret() cannot change how many bits a value "
-                           "is: " << from << " is " << from.bits()
-                        << " bits and " << to << " is " << to.bits();
+                           "is: "
+                        << from << " is " << from.bits() << " bits and " << to
+                        << " is " << to.bits();
                 }
                 return ir::Cast::make(std::move(template_types[0]),
                                       std::move(args[0]),

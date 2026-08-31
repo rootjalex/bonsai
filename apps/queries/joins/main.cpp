@@ -93,7 +93,8 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     }
 
     out << "x, y\n"; // CSV header
-    input_set.for_each([&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
+    input_set.for_each(
+        [&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
 
     out.close();
 }
@@ -231,8 +232,7 @@ _tree_layout0 build_tree(const set<Point> &input) {
     return tree;
 }
 
-void verify_scan(const uint64_t input_index,
-                 const _tree_layout0 input,
+void verify_scan(const uint64_t input_index, const _tree_layout0 input,
                  float xlow, float xhigh) {
     if (input.group0_index[input_index].nPrims == 0u) {
         verify_scan(input_index + 1u, input, xlow, xhigh);
@@ -255,31 +255,32 @@ void verify_scan(const uint64_t input_index,
             if (xlow > prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and lb(x) = " << xlow
-                          << std::endl;
+                          << " and lb(x) = " << xlow << std::endl;
                 abort();
             }
             if (xhigh < prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and ub(x) = " << xhigh
-                          << std::endl;
+                          << " and ub(x) = " << xhigh << std::endl;
                 abort();
             }
         }
     }
-
 }
 
 void verify_IntervalTree(const uint64_t input_index,
                          const _tree_layout0 input) {
     if (input.group0_index[input_index].nPrims == 0u) {
-        verify_scan(input_index + 1u, input, input.group0_index[input_index].xl, input.group0_index[input_index].xh);
-        verify_scan(input_index +
+        verify_scan(input_index + 1u, input, input.group0_index[input_index].xl,
+                    input.group0_index[input_index].xh);
+        verify_scan(
+            input_index +
                 (uint64_t)(reinterpret<_tree_layout2>(
                                input.group0_index[input_index].split0on_nPrims)
-                               .offset), input, input.group0_index[input_index].xl, input.group0_index[input_index].xh);
-        
+                               .offset),
+            input, input.group0_index[input_index].xl,
+            input.group0_index[input_index].xh);
+
         verify_IntervalTree(input_index + 1u, input);
         verify_IntervalTree(
             input_index +
@@ -300,28 +301,30 @@ void verify_IntervalTree(const uint64_t input_index,
             if (input.group0_index[input_index].xl > prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and lb(x) = " << input.group0_index[input_index].xl
-                          << std::endl;
+                          << " and lb(x) = "
+                          << input.group0_index[input_index].xl << std::endl;
                 abort();
             }
             // if (input.group0_index[input_index].yl > prim.y) {
             //     std::cout << "Tree verification failed at index: "
             //               << input_index << " with prim = " << prim
-            //               << " and lb(y) = " << input.group0_index[input_index].yl
+            //               << " and lb(y) = " <<
+            //               input.group0_index[input_index].yl
             //               << std::endl;
             //     abort();
             // }
             if (input.group0_index[input_index].xh < prim.x) {
                 std::cout << "Tree verification failed at index: "
                           << input_index << " with prim = " << prim
-                          << " and ub(x) = " << input.group0_index[input_index].xh
-                          << std::endl;
+                          << " and ub(x) = "
+                          << input.group0_index[input_index].xh << std::endl;
                 abort();
             }
             // if (input.group0_index[input_index].yh < prim.y) {
             //     std::cout << "Tree verification failed at index: "
             //               << input_index << " with prim = " << prim
-            //               << " and ub(y) = " << input.group0_index[input_index].yh
+            //               << " and ub(y) = " <<
+            //               input.group0_index[input_index].yh
             //               << std::endl;
             //     abort();
             // }
@@ -331,18 +334,22 @@ void verify_IntervalTree(const uint64_t input_index,
 
 #define PROFILE 0
 
-auto benchmark_1d_dist_join_query(const set<Point> &input0, const set<Point> &input1, const _tree_layout0 &tree0, const _tree_layout0 &tree1,
-                             const int k, const int m) {
+auto benchmark_1d_dist_join_query(const set<Point> &input0,
+                                  const set<Point> &input1,
+                                  const _tree_layout0 &tree0,
+                                  const _tree_layout0 &tree1, const int k,
+                                  const int m) {
     float value = 0.001;
 #ifndef PROFILE
     std::cout << "Absd query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set <std::tuple<Point, Point>>, set<std::tuple<Point, set<Point>>>>
-            ("abs(a.x - b.x) < 0.1", input0, input1, tree0, tree1, k, m,
-             dist_join_1d, dist_join_1d_single, dist_join_1d_dual, value);
+    return benchmark_join < PROFILE == 1, set<std::tuple<Point, Point>>,
+           set < std::tuple < Point,
+           set < Point >>>> ("abs(a.x - b.x) < 0.1", input0, input1, tree0,
+                             tree1, k, m, dist_join_1d, dist_join_1d_single,
+                             dist_join_1d_dual, value);
 }
-
 
 template <typename T>
 void pretty_print_vector(const std::vector<T> &vec) {
@@ -362,7 +369,7 @@ void pretty_print_vector(const std::vector<T> &vec) {
 
 int main() {
     const int k = 3; // total runs
-    const int m = 0;  // number of fastest and slowest to drop
+    const int m = 0; // number of fastest and slowest to drop
 
     // std::mt19937 rng(std::random_device{}());
     // For consistent results
@@ -371,11 +378,9 @@ int main() {
     std::vector<size_t> test_sizes = {
         1ull << 8,  1ull << 9,  1ull << 10, 1ull << 11, 1ull << 12,
         1ull << 13, 1ull << 14, 1ull << 15, 1ull << 16, 1ull << 17,
-        1ull << 18,1ull << 19,
-        1ull << 20, 1ull << 21, 1ull << 22,
+        1ull << 18, 1ull << 19, 1ull << 20, 1ull << 21, 1ull << 22,
         1ull << 23, 1ull << 24, 1ull << 25, 1ull << 26, 1ull << 27,
-        1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1
-    };
+        1ull << 28, 1ull << 29, 1ull << 30, 1ull << 31, (1ull << 32) - 1};
 #if defined(USE_NORMAL)
     std::cout << "normal distribution" << std::endl;
 #elif defined(USE_EXPONENTIAL)
@@ -434,13 +439,16 @@ int main() {
         // verify_IntervalTree(0, input_tree0);
         // verify_IntervalTree(0, input_tree1);
 
-        auto [nested, single, dual] = benchmark_1d_dist_join_query(input_set0, input_set1, input_tree0, input_tree1, k, m);
+        auto [nested, single, dual] = benchmark_1d_dist_join_query(
+            input_set0, input_set1, input_tree0, input_tree1, k, m);
 
-    
 #ifdef PROFILE
-        results[0].second.push_back((dual > 0) ? (double)nested / (double)dual : std::numeric_limits<double>::max());
+        results[0].second.push_back((dual > 0)
+                                        ? (double)nested / (double)dual
+                                        : std::numeric_limits<double>::max());
 #endif
-        std::cout << "(" << size << ", " << nested << ", " << build_time << ", " << single << ", " << dual << ")" << std::endl;
+        std::cout << "(" << size << ", " << nested << ", " << build_time << ", "
+                  << single << ", " << dual << ")" << std::endl;
 
         std::free(input_tree0.prims);
         std::free(input_tree0.group0_index);

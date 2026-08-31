@@ -414,8 +414,7 @@ struct LowerUnwrapAccesses : public ir::Mutator {
 
     ir::MapStack<std::string, ir::Type> type_repls;
 
-    LowerUnwrapAccesses(const std::string &tree_name,
-                        const ir::Expr &tree_idx,
+    LowerUnwrapAccesses(const std::string &tree_name, const ir::Expr &tree_idx,
                         const ir::Type &tree_layout,
                         const std::string &node_type,
                         const std::map<std::string, ir::Expr> &field_map)
@@ -588,7 +587,9 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             if (new_args[partition - 1].type().is<ir::Tuple_t>()) {
                 // Split it up!
                 auto splits = break_tuple(new_args[partition - 1]);
-                internal_assert(splits.size() == 1) << "TODO: handle tuple index in layout lowering of join: " << new_args[partition - 1];
+                internal_assert(splits.size() == 1)
+                    << "TODO: handle tuple index in layout lowering of join: "
+                    << new_args[partition - 1];
                 new_args[partition - 1] = splits[0];
             }
             ir::Expr new_arg = ir::Var::make(tree_layout, tree_name);
@@ -787,8 +788,8 @@ struct LowerMatches : public ir::Mutator {
             }
             references[tree_name] = make_tuple(std::move(idxs));
             index_list.insert(index_list.end(),
-                    std::make_move_iterator(node_index_list.begin()),
-                    std::make_move_iterator(node_index_list.end()));
+                              std::make_move_iterator(node_index_list.begin()),
+                              std::make_move_iterator(node_index_list.end()));
             matched_objects.insert(tree_name);
         }
 
@@ -806,12 +807,11 @@ struct LowerMatches : public ir::Mutator {
                     /*outer_group=*/ir::Expr());
             }
 
-
             // Lower these Unwraps.
-            ir::Stmt branch_body = LowerUnwrapAccesses(tree_name, tree_idx,
-                                                       struct_type, branch_name,
-                                                       field_map)
-                                       .mutate(arm.second);
+            ir::Stmt branch_body =
+                LowerUnwrapAccesses(tree_name, tree_idx, struct_type,
+                                    branch_name, field_map)
+                    .mutate(arm.second);
 
             body = FillHole(branch_name, std::move(branch_body))
                        .mutate(std::move(body));

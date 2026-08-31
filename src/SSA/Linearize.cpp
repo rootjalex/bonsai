@@ -68,11 +68,10 @@ LinearEdges partial_linearize(const BlockMap &blocks,
 
     auto least = [&](const set<string> &candidates) {
         internal_assert(!candidates.empty()) << "no successor to pick";
-        return *std::min_element(
-            candidates.begin(), candidates.end(),
-            [&](const string &a, const string &b) {
-                return index.at(a) < index.at(b);
-            });
+        return *std::min_element(candidates.begin(), candidates.end(),
+                                 [&](const string &a, const string &b) {
+                                     return index.at(a) < index.at(b);
+                                 });
     };
 
     for (const string &b : by_index) {
@@ -153,33 +152,34 @@ map<string, vector<Incoming>> snapshot_arguments(const BlockMap &blocks,
     map<string, vector<Incoming>> incoming;
     for (const string &name : region) {
         const Block &block = *blocks.at(name);
-        std::visit(
-            overloads{
-                [&](const std::monostate &) {},
-                [&](const Terminator::Jump &j) {
-                    incoming[j.name].push_back({name, j.args});
-                },
-                [&](const Terminator::Dispatch &d) {
-                    for (const auto &target : d.targets) {
-                        incoming[target.name].push_back({name, target.args});
-                    }
-                },
-                [&](const Terminator::Return &) {},
-                [&](const Terminator::ParFor &) {
-                    internal_error << "Nested ParFor in " << name
-                                   << " during linearization";
-                },
-                [&](const Terminator::Yield &) {},
-                [&](const Terminator::Call &c) {
-                    // The callee is in another function; only the
-                    // continuation is an edge of this region. A returned
-                    // value arrives as the continuation's first argument and
-                    // is not passed here, which the blending accounts for by
-                    // matching the values to the *last* arguments.
-                    incoming[c.cont.name].push_back({name, c.cont.args});
-                },
-            },
-            block.terminator.data);
+        std::visit(overloads{
+                       [&](const std::monostate &) {},
+                       [&](const Terminator::Jump &j) {
+                           incoming[j.name].push_back({name, j.args});
+                       },
+                       [&](const Terminator::Dispatch &d) {
+                           for (const auto &target : d.targets) {
+                               incoming[target.name].push_back(
+                                   {name, target.args});
+                           }
+                       },
+                       [&](const Terminator::Return &) {},
+                       [&](const Terminator::ParFor &) {
+                           internal_error << "Nested ParFor in " << name
+                                          << " during linearization";
+                       },
+                       [&](const Terminator::Yield &) {},
+                       [&](const Terminator::Call &c) {
+                           // The callee is in another function; only the
+                           // continuation is an edge of this region. A returned
+                           // value arrives as the continuation's first argument
+                           // and is not passed here, which the blending
+                           // accounts for by matching the values to the *last*
+                           // arguments.
+                           incoming[c.cont.name].push_back({name, c.cont.args});
+                       },
+                   },
+                   block.terminator.data);
     }
     return incoming;
 }
@@ -223,9 +223,9 @@ bool same_definition(const Value &a, const Value &b) {
 shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
                          Type type, Instruction::Op op,
                          vector<shared_ptr<Value>> operands) {
-    auto instr = std::make_shared<Instruction>(func.get_unique_name(),
-                                               std::move(type), op,
-                                               std::move(operands), block);
+    auto instr =
+        std::make_shared<Instruction>(func.get_unique_name(), std::move(type),
+                                      op, std::move(operands), block);
     block->instrs.push_back(instr);
     return std::make_shared<Value>(std::move(instr));
 }
@@ -372,8 +372,8 @@ BlockMasks linearize(Function &func, const string &entry,
                                      Instruction::Op::LOr, {mask, it->second})
                             : it->second;
             }
-            internal_assert(mask) << "Masked block " << b
-                                  << " has no control dependences";
+            internal_assert(mask)
+                << "Masked block " << b << " has no control dependences";
             masks.block[b] = mask;
         }
 
@@ -518,7 +518,8 @@ BlockMasks linearize(Function &func, const string &entry,
                 << "Jump from " << source.from << " to " << b << " passes "
                 << source.values.size() << " arguments to a block taking "
                 << block->args.size();
-            leading = std::min(leading, block->args.size() - source.values.size());
+            leading =
+                std::min(leading, block->args.size() - source.values.size());
         }
 
         vector<shared_ptr<Value>> blended(block->args.size());
@@ -699,7 +700,8 @@ BlockMasks linearize(Function &func, const string &entry,
             continue;
         }
 
-        if (auto *d = std::get_if<Terminator::Dispatch>(&block->terminator.data)) {
+        if (auto *d =
+                std::get_if<Terminator::Dispatch>(&block->terminator.data)) {
             // Fewer edges than targets means one of them is a back edge, kept
             // out of figure 5 and re-inserted here by being left alone
             // (section 3.3).

@@ -220,20 +220,20 @@ double benchmark_range_query(const set<float> &input, const _tree_layout0 &tree,
               << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "-10 <= x <= 10",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("-10 <= x <= 10",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        range_query_fast_unfused, range_query_fast,
+                              range_query_fast_unfused, range_query_fast,
 #else
-        range_query, range_query_fast,
+                              range_query, range_query_fast,
 #endif
-        linear_timedout, indexed_timedout, low, high);
+                              linear_timedout, indexed_timedout, low, high);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -245,20 +245,20 @@ double benchmark_eq_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Equality query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "x == 42",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("x == 42",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        eq_query_fast_unfused, eq_query_fast,
+                              eq_query_fast_unfused, eq_query_fast,
 #else
-        eq_query, eq_query_fast,
+                              eq_query, eq_query_fast,
 #endif
-        linear_timedout, indexed_timedout, value);
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -270,20 +270,20 @@ double benchmark_abs_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Abs query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "abs(x) <= 10",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("abs(x) <= 10",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        abs_query_fast_unfused, abs_query_fast,
+                              abs_query_fast_unfused, abs_query_fast,
 #else
-        abs_query, abs_query_fast,
+                              abs_query, abs_query_fast,
 #endif
-        linear_timedout, indexed_timedout, value);
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -295,20 +295,20 @@ double benchmark_sqr_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Sqr query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "x^2 <= 100",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("x^2 <= 100",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        sqr_query_fast_unfused, sqr_query_fast,
+                              sqr_query_fast_unfused, sqr_query_fast,
 #else
-        sqr_query, sqr_query_fast,
+                              sqr_query, sqr_query_fast,
 #endif
-        linear_timedout, indexed_timedout, value);
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -320,20 +320,20 @@ double benchmark_round_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Round query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "round(x) == 10",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("round(x) == 10",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        round_query_fast_unfused, round_query_fast,
+                              round_query_fast_unfused, round_query_fast,
 #else
-        round_query, round_query_fast,
+                              round_query, round_query_fast,
 #endif
-        linear_timedout, indexed_timedout, value);
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -345,20 +345,20 @@ double benchmark_poly_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Poly query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "x^2 - 4 * x + 3 <= 0",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("x^2 - 4 * x + 3 <= 0",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        poly_query_fast_unfused, poly_query_fast,
+                              poly_query_fast_unfused, poly_query_fast,
 #else
-        poly_query, poly_query_fast,
+                              poly_query, poly_query_fast,
 #endif
-        linear_timedout, indexed_timedout, value);
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -370,20 +370,20 @@ double benchmark_sqrt_query(const set<float> &input, const _tree_layout0 &tree,
     std::cout << "Sqrt query, value = " << value << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "sqrt(abs(x)) <= sqrt(10)",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("sqrt(abs(x)) <= sqrt(10)",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        sqrt_query_fast_unfused, sqrt_query_fast,
+                              sqrt_query_fast_unfused, sqrt_query_fast,
 #else
-        sqrt_query, sqrt_query_fast,
+                              sqrt_query, sqrt_query_fast,
 #endif
-        linear_timedout, indexed_timedout, value);
+                              linear_timedout, indexed_timedout, value);
     return static_cast<double>(linear) / indexed;
 }
 
@@ -418,20 +418,20 @@ double benchmark_stddev_query(const set<float> &input,
               << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    auto [linear, indexed] = benchmark_1d_queries<PROFILE != 1, uint64_t>(
-        "abs(x - u) > s * 3",
+    auto [linear, indexed] = benchmark_1d_queries < PROFILE != 1,
+                  uint64_t > ("abs(x - u) > s * 3",
 #ifdef PROFILE_UNFUSED
-        tree,
+                              tree,
 #else
-        input,
+                              input,
 #endif
-        tree, k, m,
+                              tree, k, m,
 #ifdef PROFILE_UNFUSED
-        stddev_query_fast_unfused, stddev_query_fast,
+                              stddev_query_fast_unfused, stddev_query_fast,
 #else
-        stddev_query, stddev_query_fast,
+                              stddev_query, stddev_query_fast,
 #endif
-        linear_timedout, indexed_timedout, mean, stddev3);
+                              linear_timedout, indexed_timedout, mean, stddev3);
     return static_cast<double>(linear) / indexed;
 }
 

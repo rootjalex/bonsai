@@ -25,16 +25,17 @@ std::ostream &operator<<(std::ostream &os, const std::tuple<Point, Point> &p) {
     return os;
 }
 
-
-set<Point> generate_random_circle(std::mt19937 &rng, size_t size, float radius) {
+set<Point> generate_random_circle(std::mt19937 &rng, size_t size,
+                                  float radius) {
     set<Point> result;
     std::uniform_real_distribution<float> angle_dist(0.0f, 2.0f * M_PI);
-    std::uniform_real_distribution<float> radius_dist(0.0f, 1.0f); // for sqrt scaling
-
+    std::uniform_real_distribution<float> radius_dist(0.0f,
+                                                      1.0f); // for sqrt scaling
 
     while (result.size() < size) {
         float theta = angle_dist(rng);
-        float r = radius * std::sqrt(radius_dist(rng)); // uniform sampling in circle
+        float r =
+            radius * std::sqrt(radius_dist(rng)); // uniform sampling in circle
         float x = r * std::cos(theta);
         float y = r * std::sin(theta);
         result.push_back(Point{x, y});
@@ -51,7 +52,8 @@ void export_to_csv(const set<Point> &input_set, const std::string &filename) {
     }
 
     out << "x,y\n"; // CSV header
-    input_set.for_each([&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
+    input_set.for_each(
+        [&](const Point &point) { out << point.x << ", " << point.y << "\n"; });
 
     out.close();
 }
@@ -187,14 +189,15 @@ auto benchmark_donut(const set<Point> &input0, const set<Point> &input1,
     float value0 = 10;
     float value1 = 20;
 #ifndef PROFILE
-    std::cout << "donut query, bounds = " << value0 << ", " << value1 << std::endl;
+    std::cout << "donut query, bounds = " << value0 << ", " << value1
+              << std::endl;
     std::cout << "Input size: " << input.size() << std::endl;
 #endif
-    return benchmark_join<PROFILE == 1, set<std::tuple<Point, Point>>,
-                          set<std::tuple<Point, set<Point>>>>(
-        "donut", input0, input1, tree0, tree1, k, m, donut, donut_single,
-        donut_dual, nested_timedout, single_timedout, dual_timedout, value0,
-        value1);
+    return benchmark_join < PROFILE == 1, set<std::tuple<Point, Point>>,
+           set < std::tuple < Point,
+           set < Point >>>> ("donut", input0, input1, tree0, tree1, k, m, donut,
+                             donut_single, donut_dual, nested_timedout,
+                             single_timedout, dual_timedout, value0, value1);
 }
 
 template <typename T>
@@ -213,7 +216,7 @@ void pretty_print_vector(const std::vector<T> &vec) {
 
 // #define EXPORT 1
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     const int k = 7; // total runs
     const int m = 1; // number of fastest and slowest to drop
 

@@ -69,7 +69,8 @@ struct Instruction {
 
         Add,
         // The address of a value, mirroring ir::PtrTo -- what a call site does
-        // to an argument the callee takes by pointer (see Lower/Mutability.cpp).
+        // to an argument the callee takes by pointer (see
+        // Lower/Mutability.cpp).
         //
         // This is deliberately *not* an Alloca and a Store. Most values that
         // get addressed already live somewhere -- a field of a struct that is
@@ -262,7 +263,7 @@ struct Block : public std::enable_shared_from_this<Block> {
                      std::vector<std::shared_ptr<Value>> vs,
                      bool allow_rename = false);
     void make_side_effect(Instruction::Op op,
-                           std::vector<std::shared_ptr<Value>> vs);
+                          std::vector<std::shared_ptr<Value>> vs);
 
     // If value is defined in this block, returns it, otherwise adds it as an
     // argument recursively until it finds the block it is defined in!
@@ -270,7 +271,7 @@ struct Block : public std::enable_shared_from_this<Block> {
 
     void dump(std::ostream &os) const;
     void dump() const; // defaults to std::cout
-private:
+  private:
     // Mutates in place. Used for rethreading args in call instructions.
     void forward_block_values(std::vector<std::shared_ptr<Value>> &vs);
 };
@@ -285,7 +286,9 @@ struct Function {
 
     void dump(std::ostream &os) const;
 
-    std::string get_unique_name() { return "@" + std::to_string(name_counter++); }
+    std::string get_unique_name() {
+        return "@" + std::to_string(name_counter++);
+    }
 
     // Makes sure `get_unique_name` will not hand out `name` again. A copy of
     // a function starts its counter at zero, so it has to be told about the
@@ -298,8 +301,7 @@ struct Function {
         if (digits.find_first_not_of("0123456789") != std::string::npos) {
             return;
         }
-        name_counter =
-            std::max<size_t>(name_counter, std::stoull(digits) + 1);
+        name_counter = std::max<size_t>(name_counter, std::stoull(digits) + 1);
     }
 
   private:

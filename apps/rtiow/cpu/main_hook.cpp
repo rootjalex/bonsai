@@ -32,12 +32,12 @@ inline float random_float(float min, float max) {
 
 inline float3 min(const float3 &a, const float3 &b) {
     return float3{std::fminf(a[0], b[0]), std::fminf(a[1], b[1]),
-                      std::fminf(a[2], b[2])};
+                  std::fminf(a[2], b[2])};
 }
 
 inline float3 max(const float3 &a, const float3 &b) {
     return float3{std::fmaxf(a[0], b[0]), std::fmaxf(a[1], b[1]),
-                      std::fmaxf(a[2], b[2])};
+                  std::fmaxf(a[2], b[2])};
 }
 
 _tree_layout0 build_tree_simple(std::vector<MaterialSphere> &spheres,
@@ -161,9 +161,8 @@ int main(int argc, char *argv[]) {
     for (int a = -11; a < 11; a++) {
         for (int b = -11; b < 11; b++) {
             auto choose_mat = random_float();
-            float3 center = {static_cast<float>(a + 0.9 * random_float()),
-                                 0.2,
-                                 static_cast<float>(b + 0.9 * random_float())};
+            float3 center = {static_cast<float>(a + 0.9 * random_float()), 0.2,
+                             static_cast<float>(b + 0.9 * random_float())};
 
             float3 a = {4, 0.2, 0};
 
@@ -175,17 +174,16 @@ int main(int argc, char *argv[]) {
                 if (choose_mat < 0.8) {
                     // diffuse
                     float3 r0 = {random_float(), random_float(),
-                                     random_float()};
+                                 random_float()};
                     float3 r1 = {random_float(), random_float(),
-                                     random_float()};
+                                 random_float()};
                     auto albedo = r0 * r1;
                     spheres.push_back(
                         {Sphere{center, 0.2}, LAMBERTIAN, albedo, 0.0});
                 } else if (choose_mat < 0.95) {
                     // metal
-                    float3 albedo = {random_float(0.5, 1),
-                                         random_float(0.5, 1),
-                                         random_float(0.5, 1)};
+                    float3 albedo = {random_float(0.5, 1), random_float(0.5, 1),
+                                     random_float(0.5, 1)};
                     float fuzz = random_float(0, 0.5);
                     spheres.push_back(
                         {Sphere{center, 0.2}, METAL, albedo, fuzz});

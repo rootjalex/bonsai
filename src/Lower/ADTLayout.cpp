@@ -29,8 +29,7 @@ Type tag_type_for(size_t variants) {
 
 uint64_t ADTLayout::tag(const std::string &variant) const {
     const auto found = tag_of.find(variant);
-    internal_assert(found != tag_of.end())
-        << "No tag for variant " << variant;
+    internal_assert(found != tag_of.end()) << "No tag for variant " << variant;
     return found->second;
 }
 

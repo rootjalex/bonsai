@@ -1,6 +1,7 @@
 // Driver for apps/pbrt/render.bonsai, milestone 0.
 //
-//   ./build/compiler -p ssa -b cpp -i apps/pbrt/render.bonsai -o apps/pbrt/render
+//   ./build/compiler -p ssa -b cpp -i apps/pbrt/render.bonsai -o
+//   apps/pbrt/render
 //   clang++ -std=c++20 -O3 apps/pbrt/render_hook.cpp apps/pbrt/render.o \
 //       -o apps/pbrt/render_runner
 //   ./apps/pbrt/render_runner out.ppm
@@ -155,10 +156,22 @@ Mat4 look_at(const Vec3 &pos, const Vec3 &look, const Vec3 &up) {
     const Vec3 new_up = cross(dir, right);
 
     Mat4 r = Mat4::identity();
-    r.m[0][0] = right.x; r.m[0][1] = new_up.x; r.m[0][2] = dir.x; r.m[0][3] = pos.x;
-    r.m[1][0] = right.y; r.m[1][1] = new_up.y; r.m[1][2] = dir.y; r.m[1][3] = pos.y;
-    r.m[2][0] = right.z; r.m[2][1] = new_up.z; r.m[2][2] = dir.z; r.m[2][3] = pos.z;
-    r.m[3][0] = 0.0f;    r.m[3][1] = 0.0f;     r.m[3][2] = 0.0f;  r.m[3][3] = 1.0f;
+    r.m[0][0] = right.x;
+    r.m[0][1] = new_up.x;
+    r.m[0][2] = dir.x;
+    r.m[0][3] = pos.x;
+    r.m[1][0] = right.y;
+    r.m[1][1] = new_up.y;
+    r.m[1][2] = dir.y;
+    r.m[1][3] = pos.y;
+    r.m[2][0] = right.z;
+    r.m[2][1] = new_up.z;
+    r.m[2][2] = dir.z;
+    r.m[2][3] = pos.z;
+    r.m[3][0] = 0.0f;
+    r.m[3][1] = 0.0f;
+    r.m[3][2] = 0.0f;
+    r.m[3][3] = 1.0f;
     return r;
 }
 
@@ -246,22 +259,20 @@ _tree_layout0 build_bvh(std::vector<Shape> &shapes) {
         tree.group0_index[self].axis = uint8_t(axis);
 
         const uint32_t mid = low + count / 2;
-        std::nth_element(shapes.begin() + low, shapes.begin() + mid,
-                         shapes.begin() + high,
-                         [axis](const Shape &a, const Shape &b) {
-                             return bounds_of(a).center[axis] <
-                                    bounds_of(b).center[axis];
-                         });
+        std::nth_element(
+            shapes.begin() + low, shapes.begin() + mid, shapes.begin() + high,
+            [axis](const Shape &a, const Shape &b) {
+                return bounds_of(a).center[axis] < bounds_of(b).center[axis];
+            });
 
         const uint32_t left = handle_range(low, mid, depth + 1);
         const uint32_t right = handle_range(mid, high, depth + 1);
         *reinterpret_cast<uint32_t *>(
             &tree.group0_index[self].split0on_nPrims) = right - self;
 
-        const Sphere merged = merge({tree.group0_index[left].center,
-                                     tree.group0_index[left].radius},
-                                    {tree.group0_index[right].center,
-                                     tree.group0_index[right].radius});
+        const Sphere merged = merge(
+            {tree.group0_index[left].center, tree.group0_index[left].radius},
+            {tree.group0_index[right].center, tree.group0_index[right].radius});
         tree.group0_index[self].center = merged.center;
         tree.group0_index[self].radius = merged.radius;
         return self;
@@ -311,11 +322,15 @@ int main(int argc, char **argv) {
     const float aspect = float(width) / float(height);
     float screen_min_x, screen_max_x, screen_min_y, screen_max_y;
     if (aspect > 1.0f) {
-        screen_min_x = -aspect; screen_max_x = aspect;
-        screen_min_y = -1.0f;   screen_max_y = 1.0f;
+        screen_min_x = -aspect;
+        screen_max_x = aspect;
+        screen_min_y = -1.0f;
+        screen_max_y = 1.0f;
     } else {
-        screen_min_x = -1.0f;          screen_max_x = 1.0f;
-        screen_min_y = -1.0f / aspect; screen_max_y = 1.0f / aspect;
+        screen_min_x = -1.0f;
+        screen_max_x = 1.0f;
+        screen_min_y = -1.0f / aspect;
+        screen_max_y = 1.0f / aspect;
     }
 
     const float fov = 45.0f;
@@ -330,9 +345,8 @@ int main(int argc, char **argv) {
         inverse(screen_from_camera) * inverse(raster_from_screen);
 
     // pbrt: the scene's camera-to-world transform.
-    const Mat4 render_from_camera =
-        look_at(Vec3{0.0f, 1.0f, 5.0f}, Vec3{0.0f, 0.0f, 0.0f},
-                Vec3{0.0f, 1.0f, 0.0f});
+    const Mat4 render_from_camera = look_at(
+        Vec3{0.0f, 1.0f, 5.0f}, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f});
 
     PerspectiveCamera camera;
     camera.camera_from_raster = to_bonsai(camera_from_raster);
@@ -359,10 +373,10 @@ int main(int argc, char **argv) {
     // asking an ill-posed question in the first place.
     const float g = 8.0f;
     const float y = -1.02f;
-    shapes.push_back(triangle_shape(float3{-g, y, -g}, float3{g, y, g},
-                                    float3{g, y, -g}));
-    shapes.push_back(triangle_shape(float3{-g, y, -g}, float3{-g, y, g},
-                                    float3{g, y, g}));
+    shapes.push_back(
+        triangle_shape(float3{-g, y, -g}, float3{g, y, g}, float3{g, y, -g}));
+    shapes.push_back(
+        triangle_shape(float3{-g, y, -g}, float3{-g, y, g}, float3{g, y, g}));
 
     _tree_layout0 tree = build_bvh(shapes);
 

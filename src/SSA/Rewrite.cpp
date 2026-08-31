@@ -14,8 +14,8 @@
 
 #include "Utils.h"
 
-#include <iostream>
 #include <functional>
+#include <iostream>
 #include <optional>
 
 namespace bonsai {
@@ -478,7 +478,8 @@ std::string Cursor::to_string() const {
 
 void split(FuncMap &funcs, string func, string idx, int factor, string outer,
            string inner, bool exact) {
-    internal_assert(funcs.contains(func)) << "split applied to unknown func:" << func;
+    internal_assert(funcs.contains(func))
+        << "split applied to unknown func:" << func;
     auto f = funcs[func];
 
     vector<shared_ptr<Block>> blocks;
@@ -506,8 +507,8 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         // number of chunks. Get either wrong and the split runs off the end of
         // what it was asked to iterate, which is a wrong answer rather than a
         // slow one -- it writes past the range the program reasoned about.
-        const auto as_int = [](const std::shared_ptr<Value> &v)
-            -> std::optional<int64_t> {
+        const auto as_int =
+            [](const std::shared_ptr<Value> &v) -> std::optional<int64_t> {
             const auto *c = std::get_if<Constant>(&v->data);
             if (c == nullptr) {
                 return std::nullopt;
@@ -623,13 +624,13 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         for (const Argument &arg : carried) {
             to_step.push_back(std::make_shared<Value>(arg));
         }
-        inner_loop->terminator.data = Terminator::ParFor{
-            inner,
-            zero,
-            split_factor,
-            parfor.stride,
-            Terminator::Jump{step->name, std::move(to_step)},
-            Terminator::Jump{outer_yield->name}};
+        inner_loop->terminator.data =
+            Terminator::ParFor{inner,
+                               zero,
+                               split_factor,
+                               parfor.stride,
+                               Terminator::Jump{step->name, std::move(to_step)},
+                               Terminator::Jump{outer_yield->name}};
 
         // TODO: lookups? or are those only necessary in construction?
         inner_loop->preds = {block};
@@ -707,7 +708,8 @@ std::set<std::string> recursive_functions_from(const FuncMap &funcs,
 } // namespace
 
 void loopify(FuncMap &funcs, std::string func, int size) {
-    internal_assert(funcs.contains(func)) << "loopify applied to unknown func:" << func;
+    internal_assert(funcs.contains(func))
+        << "loopify applied to unknown func:" << func;
     auto f = funcs[func];
 
     if (size > 0) {
@@ -824,7 +826,8 @@ void loopify(FuncMap &funcs, std::string func, int size) {
 // TODO: make this accept non-constant sizes!
 void defer(FuncMap &funcs, const string &func, const Queue_t &queue_t,
            const vector<Cursor> &cursors) {
-    internal_assert(funcs.contains(func)) << "defer applied to unknown func:" << func;
+    internal_assert(funcs.contains(func))
+        << "defer applied to unknown func:" << func;
     auto [state_type, conts] = FindPaths(funcs, func, queue_t.owner, cursors);
 
     std::cout << state_type << std::endl;

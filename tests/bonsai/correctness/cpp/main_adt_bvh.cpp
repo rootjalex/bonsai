@@ -39,13 +39,12 @@ Sphere bounds_of(const Shape &shape) {
         return shape.payload.Sph.s;
     }
     const Triangle &t = shape.payload.Tri.t;
-    const float3 centre =
-        float3{(t.p0[0] + t.p1[0] + t.p2[0]) / 3.0f,
-               (t.p0[1] + t.p1[1] + t.p2[1]) / 3.0f,
-               (t.p0[2] + t.p1[2] + t.p2[2]) / 3.0f};
-    const float radius = std::max({length3(t.p0 - centre),
-                                   length3(t.p1 - centre),
-                                   length3(t.p2 - centre)});
+    const float3 centre = float3{(t.p0[0] + t.p1[0] + t.p2[0]) / 3.0f,
+                                 (t.p0[1] + t.p1[1] + t.p2[1]) / 3.0f,
+                                 (t.p0[2] + t.p1[2] + t.p2[2]) / 3.0f};
+    const float radius =
+        std::max({length3(t.p0 - centre), length3(t.p1 - centre),
+                  length3(t.p2 - centre)});
     return Sphere{centre, radius};
 }
 
@@ -59,12 +58,12 @@ Sphere merge(const Sphere &a, const Sphere &b) {
         return b;
     }
     const float radius = 0.5f * (dist + a.radius + b.radius);
-    const float3 dir =
-        (dist > 0.0f) ? float3{d[0] / dist, d[1] / dist, d[2] / dist}
-                      : float3{1.0f, 0.0f, 0.0f};
+    const float3 dir = (dist > 0.0f)
+                           ? float3{d[0] / dist, d[1] / dist, d[2] / dist}
+                           : float3{1.0f, 0.0f, 0.0f};
     const float scale = radius - a.radius;
-    return Sphere{a.center + float3{dir[0] * scale, dir[1] * scale,
-                                    dir[2] * scale},
+    return Sphere{a.center +
+                      float3{dir[0] * scale, dir[1] * scale, dir[2] * scale},
                   radius};
 }
 
@@ -118,23 +117,21 @@ _tree_layout0 build_tree(std::vector<Shape> &shapes) {
         tree.group0_index[self].axis = uint8_t(axis);
 
         const uint32_t mid = low + count / 2;
-        std::nth_element(shapes.begin() + low, shapes.begin() + mid,
-                         shapes.begin() + high,
-                         [axis](const Shape &a, const Shape &b) {
-                             return bounds_of(a).center[axis] <
-                                    bounds_of(b).center[axis];
-                         });
+        std::nth_element(
+            shapes.begin() + low, shapes.begin() + mid, shapes.begin() + high,
+            [axis](const Shape &a, const Shape &b) {
+                return bounds_of(a).center[axis] < bounds_of(b).center[axis];
+            });
 
         const uint32_t left = handle_range(low, mid, depth + 1);
         const uint32_t right = handle_range(mid, high, depth + 1);
-        *reinterpret_cast<uint16_t *>(&tree.group0_index[self].split0on_nPrims) =
-            uint16_t(right - self);
+        *reinterpret_cast<uint16_t *>(
+            &tree.group0_index[self].split0on_nPrims) = uint16_t(right - self);
 
-        const Sphere merged =
-            merge(Sphere{tree.group0_index[left].center,
-                         tree.group0_index[left].radius},
-                  Sphere{tree.group0_index[right].center,
-                         tree.group0_index[right].radius});
+        const Sphere merged = merge(Sphere{tree.group0_index[left].center,
+                                           tree.group0_index[left].radius},
+                                    Sphere{tree.group0_index[right].center,
+                                           tree.group0_index[right].radius});
         tree.group0_index[self].center = merged.center;
         tree.group0_index[self].radius = merged.radius;
         return self;

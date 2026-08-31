@@ -1,8 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include "runtime/bonsai_cpp.h"
-
+#include <cstdint>
 
 extern "C" {
 typedef float float3 __attribute__((ext_vector_type(3)));
@@ -39,9 +38,9 @@ struct _tree_layout1 {
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;
-    Shape* prims;
+    Shape *prims;
     uint32_t nCount;
-    _tree_layout1* group0_index;
+    _tree_layout1 *group0_index;
 } __attribute__((packed));
 struct _tree_layout2 {
     uint32_t offset;
@@ -61,7 +60,8 @@ struct PerspectiveCamera {
     Transform render_from_camera;
 };
 
-void Shape_Sph(Shape& _ret0, const Sphere& s);
-void Shape_Tri(Shape& _ret1, const Triangle& t);
-void render(const PerspectiveCamera& camera, const uint32_t width, const uint32_t height, float3* out, const _tree_layout0& shapes);
+void Shape_Sph(Shape &_ret0, const Sphere &s);
+void Shape_Tri(Shape &_ret1, const Triangle &t);
+void render(const PerspectiveCamera &camera, const uint32_t width,
+            const uint32_t height, float3 *out, const _tree_layout0 &shapes);
 }

@@ -4,10 +4,10 @@
 
 #include "Expr.h"
 #include "IRHandle.h"
-#include "Resource.h"
 #include "IRNode.h"
 #include "IntrusivePtr.h"
 #include "Mutator.h"
+#include "Resource.h"
 #include "Visitor.h"
 #include "WriteLoc.h"
 

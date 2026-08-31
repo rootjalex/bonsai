@@ -5,9 +5,9 @@
 #include "bonsai_set.h"
 #include "bonsai_tree.h"
 #include "bonsai_vector.h"
-#include <cmath>
 #include "u24.h"
 #include "u56.h"
+#include <cmath>
 
 // For the std:: names pulled into the global namespace below, and the
 // bit_cast/memcpy used by reinterpret(). libc++ provides these transitively;

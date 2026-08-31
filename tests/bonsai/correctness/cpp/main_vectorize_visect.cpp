@@ -54,15 +54,15 @@ int main() {
     // Half hit and half miss, so neither an inverted mask nor a lane read
     // from the wrong offset can agree with the reference by accident.
     std::array<float3, 8> origins = {
-        float3{-5, 0, 0},    float3{-5, 3, 0},   float3{0, 0, -5},
-        float3{0, 5, 0},     float3{-5, -5, -5}, float3{0, 0, 0},
-        float3{-5, 0, 4},    float3{3, -4, 2},
+        float3{-5, 0, 0}, float3{-5, 3, 0},   float3{0, 0, -5},
+        float3{0, 5, 0},  float3{-5, -5, -5}, float3{0, 0, 0},
+        float3{-5, 0, 4}, float3{3, -4, 2},
     };
     std::array<float3, 8> directions = {
-        float3{1, 0.01f, 0.01f},   float3{1, 0.01f, 0.01f},
-        float3{0.01f, 0.01f, 1},   float3{0.01f, 1, 0.01f},
-        float3{1, 1, 1},           float3{1, 1, 1},
-        float3{1, 0.01f, 0.01f},   float3{-1, 1, -1},
+        float3{1, 0.01f, 0.01f}, float3{1, 0.01f, 0.01f},
+        float3{0.01f, 0.01f, 1}, float3{0.01f, 1, 0.01f},
+        float3{1, 1, 1},         float3{1, 1, 1},
+        float3{1, 0.01f, 0.01f}, float3{-1, 1, -1},
     };
 
     std::array<bool, 8> got;
@@ -77,5 +77,6 @@ int main() {
             ok = false;
         }
     }
-    std::cout << '\n' << (ok ? "matches scalar" : "DIFFERS from scalar") << '\n';
+    std::cout << '\n'
+              << (ok ? "matches scalar" : "DIFFERS from scalar") << '\n';
 }

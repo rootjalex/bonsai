@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include "runtime/bonsai_cpp.h"
+#include <cstdint>
 
 #ifdef AJR_PROFILE
 inline uint32_t distmin_aabb_counter = 0;
@@ -39,9 +39,9 @@ struct _tree_layout1 {
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;
-    Triangle* prims;
+    Triangle *prims;
     uint32_t nCount;
-    _tree_layout1* group0_index;
+    _tree_layout1 *group0_index;
 } __attribute__((packed));
 struct _tree_layout2 {
 } __attribute__((packed));
@@ -53,4 +53,4 @@ struct Ray {
     float tmax = std::numeric_limits<float>::infinity();
 };
 
-std::optional<Triangle> trace(const Ray ray, const _tree_layout0& triangles);
+std::optional<Triangle> trace(const Ray ray, const _tree_layout0 &triangles);
