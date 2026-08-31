@@ -19,8 +19,11 @@ Sampler "independent" "integer pixelsamples" [1]
 Integrator "path" "integer maxdepth" [1]
 Film "gbuffer"
     "string filename" ["ref.exr"]
-    "integer xresolution" [800]
-    "integer yresolution" [600]
+    # Large, because this is the scene whose timing is worth reading: it has
+    # the deepest tree, so it is the one where the traversal dominates. See the
+    # note in three-spheres.pbrt about pbrt's 10ms reporting quantum.
+    "integer xresolution" [3200]
+    "integer yresolution" [2400]
     "string coordinatesystem" ["world"]
 
 WorldBegin

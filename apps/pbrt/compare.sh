@@ -55,32 +55,49 @@ if [[ -n "${PBRT_TREE:-}" ]]; then
 fi
 "$WORK/scene_dump" "${DUMP_FLAGS[@]}" "$SCENE" "$WORK/scene.txt"
 
+# Both sides are timed as the best of several runs. Every source of noise on a
+# shared machine adds time and none removes it, so the minimum is the closest
+# estimate of how long the work actually takes; a mean would be an estimate of
+# how busy the machine was. REPEATS=1 to skip it.
+REPEATS="${REPEATS:-5}"
+
 # pbrt's reference. --disable-pixel-jitter puts the sample at the pixel centre,
 # which is where this renderer puts its one sample.
-(cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$SCENE")
+#
+# pbrt renders once per invocation, so repeating means running it again -- and
+# paying for parsing and the BVH build each time, which is why its own reported
+# time is what gets compared rather than the wall clock out here.
+PBRT_SECONDS=""
+for _ in $(seq 1 "$REPEATS"); do
+  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$SCENE")
+  # pbrt's own render time, which its progress reporter measures from after the
+  # scene and the BVH are built.
+  RUN=$("$IMGTOOL" info "$WORK/ref.exr" |
+      sed -n 's/.*render time:.*(total \([0-9.]*\)s).*/\1/p')
+  PBRT_SECONDS=$(awk -v best="$PBRT_SECONDS" -v now="$RUN" \
+      'BEGIN { if (best == "" || now + 0 < best + 0) print now; else print best }')
+done
+
 # imgtool warns that the three channels are not R, G and B, which is the point:
 # what is being extracted is a vector field, not a colour. Dropped rather than
 # left to look like something went wrong, since it is expected every run.
 "$IMGTOOL" convert --channels N.X,N.Y,N.Z --outfile "$WORK/pbrt.pfm" "$WORK/ref.exr" \
     2>&1 | grep -v "they are not R, G, and B" || true
 
-# pbrt's own render time, which its progress reporter measures from after the
-# scene and the BVH are built. Taken from the EXR rather than timed from
-# outside so that parsing the scene and building the tree stay out of it.
-PBRT_SECONDS=$("$IMGTOOL" info "$WORK/ref.exr" |
-    sed -n 's/.*render time:.*(total \([0-9.]*\)s).*/\1/p')
-
 # This renderer. The resolution comes from the scene along with everything
-# else, so there is no longer a second place for it to disagree.
+# else, so there is no longer a second place for it to disagree. It repeats
+# inside one process, so there is no per-run startup to pay.
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o "$WORK/render.out"
-BONSAI_OUT=$("$WORK/render.out" "$WORK/scene.txt" "$WORK/bonsai.pfm")
+BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
+    "$WORK/bonsai.pfm")
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
 
 python3 $PREFIX/compare_normals.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
-    --pbrt-seconds "${PBRT_SECONDS:-0}" --bonsai-seconds "${BONSAI_SECONDS:-0}"
+    --pbrt-seconds "${PBRT_SECONDS:-0}" --bonsai-seconds "${BONSAI_SECONDS:-0}" \
+    --repeats "$REPEATS"
 
 rm -f $PREFIX/render.o "$WORK/render.out"
 rm -rf "$WORK/render.out.dSYM"

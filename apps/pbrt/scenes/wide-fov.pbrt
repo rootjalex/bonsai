@@ -14,8 +14,10 @@ Sampler "independent" "integer pixelsamples" [1]
 Integrator "path" "integer maxdepth" [1]
 Film "gbuffer"
     "string filename" ["ref.exr"]
-    "integer xresolution" [500]
-    "integer yresolution" [700]
+    # Taller than it is wide, which is the point -- see above. Large enough
+    # that the timing is readable too; see three-spheres.pbrt.
+    "integer xresolution" [2000]
+    "integer yresolution" [2800]
     "string coordinatesystem" ["world"]
 
 WorldBegin

@@ -100,10 +100,11 @@ def main(argv):
     args = argv[1:]
     pbrt_seconds = take_option(args, "--pbrt-seconds")
     bonsai_seconds = take_option(args, "--bonsai-seconds")
+    repeats = take_option(args, "--repeats")
     if len(args) != 2:
         raise SystemExit(
             f"usage: {argv[0]} <pbrt.pfm> <bonsai.pfm> "
-            f"[--pbrt-seconds <s>] [--bonsai-seconds <s>]")
+            f"[--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]")
 
     ref_w, ref_h, ref = read_pfm(args[0])
     got_w, got_h, got = read_pfm(args[1])
@@ -177,11 +178,14 @@ def main(argv):
         # where this renders the nearest hit and stops, so it is doing strictly
         # more work; and pbrt reports its time to the nearest 10ms, which at
         # this scene size is most of the measurement.
+        if repeats is not None and repeats > 1:
+            print(f"  (best of {int(repeats)} runs on each side)")
         print("  (not the same work: pbrt integrates a path, this returns the "
               "nearest hit)")
         if pbrt_seconds <= 0.05:
             print("  (pbrt's time is reported to 10ms, so this is near the "
-                  "limit of what it can tell us)")
+                  "limit of what it can tell us -- render at a larger "
+                  "resolution before quoting it)")
 
     # Only disagreements away from an edge are failures. A silhouette pixel is
     # a grazing ray, and which surface it lands on is decided by how carefully

@@ -16,11 +16,13 @@ Sampler "independent" "integer pixelsamples" [1]
 Integrator "path" "integer maxdepth" [1]
 Film "gbuffer"
     "string filename" ["ref.exr"]
-    # Big enough that pbrt's render time, which it reports to the nearest
-    # 10ms, says something. compare.sh renders the other side at the same
-    # resolution; if these ever drift apart the comparison refuses to run.
-    "integer xresolution" [1600]
-    "integer yresolution" [900]
+    # Big enough that pbrt's render time, which it reports only to the nearest
+    # 10ms, has enough digits to mean something: at this size it spends a few
+    # hundred milliseconds, so the quantum is a percent or so rather than half
+    # the measurement. The resolution reaches the other renderer through the
+    # scene, so there is nowhere for the two to disagree about it.
+    "integer xresolution" [3200]
+    "integer yresolution" [1800]
     # Defaults to "camera", which reports normals in the camera's frame. The
     # renderer being compared against works in world space, and this is the
     # difference that otherwise shows up as every normal being slightly
