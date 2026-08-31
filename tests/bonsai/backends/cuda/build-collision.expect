@@ -1,12 +1,4 @@
-#include "helpers.h"
-
-#include <cuda/std/array>
-#include <thrust/universal_vector.h>
-#include <cuda/std/optional>
-#include <cuda/std/tuple>
-
-#include <stdint.h>
-#include <variant>
+#include "runtime/CUDA/helpers.h"
 
 struct Interior;
 struct Leaf;
@@ -86,12 +78,6 @@ struct Triangles2 {
   Nodes2* nodes2;
 } __attribute__((packed));
 
-__host__ bool intersects_AABB_AABB(AABB* a, AABB* b) {
-  float3 low = max((*a).low, (*b).low);
-  float3 high = min((*a).high, (*b).high);
-  return reduce_and((low <= high));
-}
-
 __host__ bool project6(float3 ax, float3 p1, float3 p2, float3 p3, float3 q1, float3 q2, float3 q3) {
   float P1 = dot(ax, p1);
   float P2 = dot(ax, p2);
@@ -107,75 +93,6 @@ __host__ bool project6(float3 ax, float3 p1, float3 p2, float3 p3, float3 q1, fl
   float mx1 = fmaxf(fmaxf(P1, P2), P3);
   float mn2 = fminf(fminf(Q1, Q2), Q3);
   if (mx1 < mn2) {
-    return false;
-  }
-  return true;
-}
-
-__host__ bool intersects_Triangle_Triangle(Triangle* a, Triangle* b) {
-  float3 p1 = (*a).p0;
-  float3 p2 = (*a).p1;
-  float3 p3 = (*a).p2;
-  float3 q1 = (*b).p0;
-  float3 q2 = (*b).p1;
-  float3 q3 = (*b).p2;
-  float3 e1 = (p2 - p1);
-  float3 e2 = (p3 - p2);
-  float3 e3 = (p1 - p3);
-  float3 f1 = (q2 - q1);
-  float3 f2 = (q3 - q2);
-  float3 f3 = (q1 - q3);
-  float3 n1 = cross(e1, e2);
-  if (!project6(n1, p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  float3 m1 = cross(f1, f2);
-  if (!project6(m1, p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e1, f1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e1, f2), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e1, f3), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e2, f1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e2, f2), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e2, f3), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e3, f1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e3, f2), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e3, f3), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e1, n1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e2, n1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(e3, n1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(f1, m1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(f2, m1), p1, p2, p3, q1, q2, q3)) {
-    return false;
-  }
-  if (!project6(cross(f3, m1), p1, p2, p3, q1, q2, q3)) {
     return false;
   }
   return true;
@@ -198,48 +115,118 @@ __host__ thrust::universal_vector<cuda::std::tuple<Triangle, Triangle>> _travers
       if (index2 == 4294967295u) {
         return;
       }
-      Nodes1 _t88 = (*triangles1).nodes1[index1];
-      Nodes2 _t92 = (*triangles2).nodes2[index2];
-      AABB _lv0 = AABB{_t88.low, _t88.high};
-      AABB _lv1 = AABB{_t92.low, _t92.high};
-      if (intersects_AABB_AABB((&_lv0), (&_lv1))) {
-        uint16_t _t86 = _t88.nprims;
-        if (_t86 == 0u) {
-          if (_t92.nprims == 0u) {
-            uint32_t _t0 = (index1 + 1u);
-            uint32_t _t1 = (index2 + 1u);
-            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t0, _t1};
+      Nodes1 _t174 = (*triangles1).nodes1[index1];
+      Nodes2 _t176 = (*triangles2).nodes2[index2];
+      bool _t0 = false;
+      AABB _t179 = AABB{_t174.low, _t174.high};
+      AABB _t182 = AABB{_t176.low, _t176.high};
+      float3 __inline1 = max(_t179.low, _t182.low);
+      float3 __inline0 = min(_t179.high, _t182.high);
+      _t0 = reduce_and((__inline1 <= __inline0));
+      if (_t0) {
+        uint16_t _t96 = _t174.nprims;
+        if (_t96 == 0u) {
+          if (_t176.nprims == 0u) {
+            uint32_t _t10 = (index1 + 1u);
+            uint32_t _t11 = (index2 + 1u);
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t10, _t11};
             Q_buffer.count += 1u;
-            uint32_t _t8 = (index2 + bonsai_reinterpret<Arm_Interior>(_t92.split0on_nprims).offset);
-            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t0, _t8};
+            uint32_t _t186 = (index2 + bonsai_reinterpret<Arm_Interior>(_t176.split0on_nprims).offset);
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t10, _t186};
             Q_buffer.count += 1u;
-            uint32_t _t14 = (index1 + bonsai_reinterpret<Arm_Interior>(_t88.split0on_nprims).offset);
-            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t14, _t1};
+            uint32_t _t190 = (index1 + bonsai_reinterpret<Arm_Interior>(_t174.split0on_nprims).offset);
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t190, _t11};
             Q_buffer.count += 1u;
-            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t14, _t8};
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{_t190, _t186};
             Q_buffer.count += 1u;
           } else {
             Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1 + 1u, index2};
             Q_buffer.count += 1u;
-            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1 + bonsai_reinterpret<Arm_Interior>(_t88.split0on_nprims).offset, index2};
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1 + bonsai_reinterpret<Arm_Interior>(_t174.split0on_nprims).offset, index2};
             Q_buffer.count += 1u;
           }
         } else {
-          uint16_t _t82 = _t92.nprims;
-          if (_t82 == 0u) {
+          uint16_t _t92 = _t176.nprims;
+          if (_t92 == 0u) {
             Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1, index2 + 1u};
             Q_buffer.count += 1u;
-            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1, index2 + bonsai_reinterpret<Arm_Interior>(_t92.split0on_nprims).offset};
+            Q_buffer.stack[Q_buffer.count] = cuda::std::tuple<uint32_t, uint32_t>{index1, index2 + bonsai_reinterpret<Arm_Interior>(_t176.split0on_nprims).offset};
             Q_buffer.count += 1u;
           } else {
-            uint32_t _t71 = bonsai_reinterpret<Arm_Leaf>(_t88.split0on_nprims).poffset;
-            for (uint32_t _idx0 = _t71; _idx0 < (_t71 + (uint32_t)_t86); _idx0 += 1u) {
-              uint32_t _t58 = bonsai_reinterpret<Arm_Leaf>(_t92.split0on_nprims).poffset;
-              for (uint32_t _idx1 = _t58; _idx1 < (_t58 + (uint32_t)_t82); _idx1 += 1u) {
-                Triangle _t47 = (*triangles1).primitives[_idx0];
-                Triangle _t49 = (*triangles2).primitives[_idx1];
-                if (intersects_Triangle_Triangle((&_t47), (&_t49))) {
-                  _dyn_alloc.push_back(cuda::std::tuple<Triangle, Triangle>{_t47, _t49});
+            uint32_t _t81 = bonsai_reinterpret<Arm_Leaf>(_t174.split0on_nprims).poffset;
+            for (uint32_t _idx0 = _t81; _idx0 < (_t81 + (uint32_t)_t96); _idx0 += 1u) {
+              uint32_t _t68 = bonsai_reinterpret<Arm_Leaf>(_t176.split0on_nprims).poffset;
+              for (uint32_t _idx1 = _t68; _idx1 < (_t68 + (uint32_t)_t92); _idx1 += 1u) {
+                Triangle _t205 = (*triangles1).primitives[_idx0];
+                Triangle _t207 = (*triangles2).primitives[_idx1];
+                bool _t1 = true;
+                float3 __inline10 = _t205.p0;
+                float3 __inline11 = _t205.p1;
+                float3 __inline12 = _t205.p2;
+                float3 __inline13 = _t207.p0;
+                float3 __inline14 = _t207.p1;
+                float3 __inline15 = _t207.p2;
+                float3 __inline2 = (__inline11 - __inline10);
+                float3 __inline3 = (__inline12 - __inline11);
+                float3 __inline4 = (__inline10 - __inline12);
+                float3 __inline5 = (__inline14 - __inline13);
+                float3 __inline6 = (__inline15 - __inline14);
+                float3 __inline7 = (__inline13 - __inline15);
+                float3 __inline9 = cross(__inline2, __inline3);
+                if (!project6(__inline9, __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                float3 __inline8 = cross(__inline5, __inline6);
+                if (!project6(__inline8, __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline2, __inline5), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline2, __inline6), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline2, __inline7), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline3, __inline5), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline3, __inline6), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline3, __inline7), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline4, __inline5), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline4, __inline6), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline4, __inline7), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline2, __inline9), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline3, __inline9), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline4, __inline9), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline5, __inline8), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline6, __inline8), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (!project6(cross(__inline7, __inline8), __inline10, __inline11, __inline12, __inline13, __inline14, __inline15)) {
+                  _t1 = false;
+                }
+                if (_t1) {
+                  _dyn_alloc.push_back(cuda::std::tuple<Triangle, Triangle>{_t205, _t207});
                 }
               }
             }
