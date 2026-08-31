@@ -613,11 +613,21 @@ func trace(r : Ray) =
 // compare.sh. It stands in for the integrator until there is a light to
 // integrate; turning a normal into a colour is the film's business, and the
 // driver does it, exactly as pbrt leaves N unmapped in the EXR.
+//
+// pbrt: VisibleSurface's constructor, which records `FaceForward(si.n, wo)`
+// rather than the normal itself -- the recorded normal always points back
+// towards where the ray came from. That is the film's convention and not the
+// geometry's, which is why it is here and not in normal_at: a shape's normal
+// is still whichever way its winding says. It matters for any surface seen
+// from its back, and a scene wound the other way from this one is the ordinary
+// case rather than a strange one.
 func li(r : Ray) -> vec3f {
     isect : option[Shape] = trace(r);
     if isect {
         sh = *isect;
-        return normal_at(sh, r.o + distmin(r, sh) * r.d);
+        n = normal_at(sh, r.o + distmin(r, sh) * r.d);
+        wo = -r.d;
+        return select(dot(n, wo) < 0.0, -n, n);
     }
     return vec3f{0.0, 0.0, 0.0};
 }
