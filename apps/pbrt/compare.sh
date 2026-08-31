@@ -24,9 +24,15 @@ PREFIX="apps/pbrt"
 PBRT="${PBRT:-$HOME/projects/pbrt-v4/build/pbrt}"
 IMGTOOL="${IMGTOOL:-$(dirname "$PBRT")/imgtool}"
 WORK="${WORK:-$PREFIX/compare-out}"
+# The scene both sides render. Any .pbrt this renderer understands will do.
+SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 
 if [[ ! -x "$PBRT" ]]; then
   echo "no pbrt at $PBRT -- set PBRT to a built one" >&2
+  exit 1
+fi
+if [[ ! -f "$SCENE" ]]; then
+  echo "no scene at $SCENE" >&2
   exit 1
 fi
 
@@ -34,9 +40,15 @@ mkdir -p "$WORK"
 
 cmake --build build -j
 
+# The scene is read once, by PBRT's parser, and both sides render what it says.
+# There is no second description of it to keep in step -- which is the point,
+# and what makes adding a scene to this comparison a matter of writing one file.
+bash $PREFIX/build_scene_dump.sh "$WORK/scene_dump"
+"$WORK/scene_dump" "$SCENE" "$WORK/scene.bin"
+
 # pbrt's reference. --disable-pixel-jitter puts the sample at the pixel centre,
 # which is where this renderer puts its one sample.
-(cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$PREFIX/scene.pbrt")
+(cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$SCENE")
 # imgtool warns that the three channels are not R, G and B, which is the point:
 # what is being extracted is a vector field, not a colour. Dropped rather than
 # left to look like something went wrong, since it is expected every run.
@@ -49,14 +61,12 @@ cmake --build build -j
 PBRT_SECONDS=$("$IMGTOOL" info "$WORK/ref.exr" |
     sed -n 's/.*render time:.*(total \([0-9.]*\)s).*/\1/p')
 
-# This renderer.
+# This renderer. The resolution comes from the scene along with everything
+# else, so there is no longer a second place for it to disagree.
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
-clang++ -g -std=c++20 -O3 -I. $PREFIX/render_hook.cpp $PREFIX/render.o \
+clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o "$WORK/render.out"
-# Must match the resolution in scene.pbrt. compare_normals.py refuses to
-# compare images of different sizes, so a drift here is caught rather than
-# quietly compared against nothing.
-BONSAI_OUT=$(PBRT_WIDTH=1600 PBRT_HEIGHT=900 "$WORK/render.out" "$WORK/bonsai.pfm")
+BONSAI_OUT=$("$WORK/render.out" "$WORK/scene.bin" "$WORK/bonsai.pfm")
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
 

@@ -10,12 +10,18 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 
 PREFIX="apps/pbrt"
+SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 # The renderer writes linear float, as pbrt does; the PNG beside it is the
 # post-processing step, and is what to actually look at.
-OUT="${1:-$PREFIX/pbrt.pfm}"
+OUT="${2:-$PREFIX/pbrt.pfm}"
 PNG="${OUT%.pfm}.png"
 
 cmake --build build -j
+
+# The scene comes from a .pbrt file, read by PBRT's own parser. Needs a built
+# pbrt; see build_scene_dump.sh.
+bash $PREFIX/build_scene_dump.sh
+./$PREFIX/scene_dump "$SCENE" "$PREFIX/scene.bin"
 
 # The spectral data is generated (see make_spectrum_tables.py) and the fit that
 # uses it is a port, so check the round trip before rendering with it: a fit
@@ -32,21 +38,24 @@ rm $PREFIX/rgb2spec_check
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
-clang++ -g -std=c++20 -O3 -I. $PREFIX/render_hook.cpp $PREFIX/render.o \
+clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o $PREFIX/render.out
 
-./$PREFIX/render.out "$OUT"
+./$PREFIX/render.out "$PREFIX/scene.bin" "$OUT"
 
 # The image holds normals rather than radiance, so the encoding is the remap
 # that makes a direction visible rather than pbrt's sRGB curve.
 python3 $PREFIX/to_png.py "$OUT" "$PNG" --normals
 
-# render.h is generated too, but it is checked in: regenerating it is how it
-# stays current, so it is left where it was written.
+# render.h is left where it was written, because render_hook.cpp includes it
+# and the next build wants it there. It is generated rather than committed, so
+# there is nothing to keep in step.
 rm $PREFIX/render.bir
 rm $PREFIX/render.ll
 rm $PREFIX/render.o
 rm $PREFIX/render.out
+rm $PREFIX/scene.bin
+rm $PREFIX/scene_dump
 # Only clang on Apple platforms leaves one of these behind.
 rm -rf $PREFIX/render.out.dSYM
 
