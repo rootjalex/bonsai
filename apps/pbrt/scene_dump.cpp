@@ -21,16 +21,23 @@
 
 #include <pbrt/pbrt.h>
 
+#include <pbrt/base/material.h>
 #include <pbrt/cameras.h>
+#include <pbrt/cpu/aggregates.h>
+#include <pbrt/cpu/primitive.h>
 #include <pbrt/options.h>
 #include <pbrt/parser.h>
 #include <pbrt/scene.h>
 #include <pbrt/shapes.h>
+#include <pbrt/util/mesh.h>
 #include <pbrt/util/transform.h>
 #include <pbrt/util/vecmath.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -73,6 +80,54 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     fprintf(stderr, "scene_dump: %s\n", message.c_str());
     exit(1);
 }
+
+// PBRT's LinearBVHNode, which is declared in aggregates.h but defined inside
+// aggregates.cpp, so it cannot be named from out here with a body. This is the
+// same layout, and the only thing it is used for is reading the array PBRT
+// built.
+//
+// A mirrored layout is a thing that can silently rot, so it is checked twice
+// over: the size is asserted at compile time, and after extraction the root
+// node's bounds are compared against `BVHAggregate::Bounds()`, which is public
+// and does not go through this struct. If the layout ever stops matching,
+// those bounds come out as nonsense and the run stops.
+struct alignas(32) MirroredNode {
+    pbrt::Bounds3f bounds;
+    union {
+        int primitives_offset; // Leaf.
+        int second_child_offset; // Interior.
+    };
+    uint16_t n_primitives;
+    uint8_t axis;
+};
+static_assert(sizeof(MirroredNode) == 32,
+              "LinearBVHNode is 32 bytes in pbrt; this mirror has drifted");
+
+// Reaching BVHAggregate's `nodes` and `primitives`, which are private.
+//
+// PBRT is not modified and not rebuilt: the tree below is the one PBRT's own
+// BVHAggregate constructor produced, and this only reads it. Explicit template
+// instantiation is not subject to access checking -- [temp.spec] is clear that
+// it may name private members -- so this is a legal way to obtain a pointer to
+// a member that the class does not expose, and it is confined to these few
+// lines. The alternative would be a patched PBRT, which would make "the same
+// tree PBRT uses" a claim about a fork rather than about PBRT.
+template <typename Tag, typename Tag::type Member>
+struct Rob {
+    friend typename Tag::type get(Tag) { return Member; }
+};
+
+struct NodesTag {
+    using type = pbrt::LinearBVHNode *pbrt::BVHAggregate::*;
+    friend type get(NodesTag);
+};
+template struct Rob<NodesTag, &pbrt::BVHAggregate::nodes>;
+
+struct PrimitivesTag {
+    using type = std::vector<pbrt::Primitive> pbrt::BVHAggregate::*;
+    friend type get(PrimitivesTag);
+};
+template struct Rob<PrimitivesTag, &pbrt::BVHAggregate::primitives>;
 
 // PBRT: ProjectiveCamera's constructor and PerspectiveCamera::Create, in
 // PBRT's own Transform arithmetic rather than an equivalent of it. The
@@ -155,9 +210,10 @@ bool translation_only(const pbrt::Transform &t, pbrt::Vector3f *offset) {
 // it is destroyed on the way out -- before CleanupPBRT takes the arenas it was
 // allocated from out from under it. Doing this inline in main instead crashes
 // on the way out, because the locals outlive the cleanup call.
-void load(const char *filename, bonsai_scene::Header &header,
-          std::vector<float> &matrices,
-          std::vector<bonsai_scene::Shape> &shapes) {
+void load(const char *filename, bonsai_scene::Scene &out) {
+    std::vector<float> matrices;
+    std::vector<bonsai_scene::Shape> &shapes = out.shapes;
+
     pbrt::BasicScene scene;
     CapturingBuilder builder(&scene);
     const std::vector<std::string> filenames = {filename};
@@ -171,10 +227,8 @@ void load(const char *filename, bonsai_scene::Header &header,
     const int x_resolution = builder.film_params.GetOneInt("xresolution", 1280);
     const int y_resolution = builder.film_params.GetOneInt("yresolution", 720);
 
-    memcpy(header.magic, bonsai_scene::Magic, sizeof(header.magic));
-    header.version = bonsai_scene::Version;
-    header.width = uint32_t(x_resolution);
-    header.height = uint32_t(y_resolution);
+    out.width = uint32_t(x_resolution);
+    out.height = uint32_t(y_resolution);
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,
@@ -252,14 +306,166 @@ void load(const char *filename, bonsai_scene::Header &header,
     if (shapes.empty()) {
         fail("the scene has no shapes this renderer understands");
     }
-    header.shape_count = uint32_t(shapes.size());
+    for (size_t i = 0; i < matrices.size(); i++) {
+        out.matrices[i] = matrices[i];
+    }
+}
+
+// Build the tree with PBRT's own BVHAggregate, over the shapes this scene
+// produced, and read back what it built.
+//
+// The primitives go in in our order and each one's address is remembered, so
+// the permutation the build settled on can be recovered by identity rather
+// than by matching geometry. `shapes` comes back reordered to match, which is
+// what lets a leaf name a contiguous run.
+void build_pbrt_tree(std::vector<bonsai_scene::Shape> &shapes,
+                     std::vector<bonsai_scene::Node> &nodes) {
+    pbrt::Allocator alloc;
+
+    // Every triangle in the scene as one mesh, because that is what PBRT's
+    // Triangle refers into. The vertices are already in render space, so the
+    // mesh's transform is the identity.
+    std::vector<int> indices;
+    std::vector<pbrt::Point3f> points;
+    for (const bonsai_scene::Shape &s : shapes) {
+        if (s.tag == bonsai_scene::ShapeTag::Triangle) {
+            for (const float *p : {s.p0, s.p1, s.p2}) {
+                indices.push_back(int(points.size()));
+                points.push_back(pbrt::Point3f(p[0], p[1], p[2]));
+            }
+        }
+    }
+    pstd::vector<pbrt::Shape> triangles;
+    if (!indices.empty()) {
+        pbrt::TriangleMesh *mesh = alloc.new_object<pbrt::TriangleMesh>(
+            pbrt::Transform(), /*reverseOrientation=*/false, indices, points,
+            std::vector<pbrt::Vector3f>(), std::vector<pbrt::Normal3f>(),
+            std::vector<pbrt::Point2f>(), std::vector<int>(), alloc);
+        triangles = pbrt::Triangle::CreateTriangles(mesh, alloc);
+    }
+
+    std::vector<pbrt::Primitive> primitives;
+    std::map<const void *, uint32_t> index_of;
+    size_t next_triangle = 0;
+    for (uint32_t i = 0; i < shapes.size(); i++) {
+        const bonsai_scene::Shape &s = shapes[i];
+        pbrt::Shape shape;
+        if (s.tag == bonsai_scene::ShapeTag::Sphere) {
+            const pbrt::Transform *render_from_object =
+                alloc.new_object<pbrt::Transform>(pbrt::Translate(
+                    pbrt::Vector3f(s.p0[0], s.p0[1], s.p0[2])));
+            const pbrt::Transform *object_from_render =
+                alloc.new_object<pbrt::Transform>(
+                    pbrt::Inverse(*render_from_object));
+            shape = alloc.new_object<pbrt::Sphere>(
+                render_from_object, object_from_render,
+                /*reverseOrientation=*/false, s.radius, -s.radius, s.radius,
+                360.f);
+        } else {
+            shape = triangles[next_triangle++];
+        }
+        pbrt::Primitive prim =
+            alloc.new_object<pbrt::SimplePrimitive>(shape, pbrt::Material());
+        index_of[prim.ptr()] = i;
+        primitives.push_back(prim);
+    }
+
+    // PBRT's default maxnodeprims, and the split method its `bvh` accelerator
+    // uses unless a scene says otherwise.
+    pbrt::BVHAggregate aggregate(primitives, 4,
+                                 pbrt::BVHAggregate::SplitMethod::SAH);
+
+    pbrt::LinearBVHNode *raw = aggregate.*get(NodesTag());
+    const std::vector<pbrt::Primitive> &ordered =
+        aggregate.*get(PrimitivesTag());
+    const MirroredNode *built = reinterpret_cast<const MirroredNode *>(raw);
+    if (!built || ordered.size() != shapes.size()) {
+        fail("pbrt's bvh came back with the wrong number of primitives");
+    }
+
+    // The check that the mirrored node layout above is still right. Bounds()
+    // is public and reads the root through PBRT's own definition, so if this
+    // agrees, the struct agrees.
+    const pbrt::Bounds3f expected = aggregate.Bounds();
+    if (built[0].bounds.pMin != expected.pMin ||
+        built[0].bounds.pMax != expected.pMax) {
+        fail("pbrt's bvh root does not match Bounds(), so the node layout "
+             "mirrored in this file no longer matches pbrt's");
+    }
+
+    // The shapes, in the order the tree wants them.
+    std::vector<bonsai_scene::Shape> reordered;
+    reordered.reserve(ordered.size());
+    for (const pbrt::Primitive &prim : ordered) {
+        auto it = index_of.find(prim.ptr());
+        if (it == index_of.end()) {
+            fail("pbrt's bvh holds a primitive this scene did not put in it");
+        }
+        reordered.push_back(shapes[it->second]);
+    }
+
+    // Walk the flattened array to find its length, and convert as we go. The
+    // node count is not something PBRT hands over, but the tree is laid out
+    // depth first, so the last node reachable from the root is the end of it.
+    size_t count = 0;
+    uint32_t total_prims = 0;
+    std::function<void(uint32_t)> walk = [&](uint32_t at) {
+        count = std::max(count, size_t(at) + 1);
+        const MirroredNode &n = built[at];
+        if (n.n_primitives > 0) {
+            total_prims += n.n_primitives;
+            return;
+        }
+        walk(at + 1);
+        walk(uint32_t(n.second_child_offset));
+    };
+    walk(0);
+    if (total_prims != shapes.size()) {
+        fail("pbrt's bvh does not reach every primitive");
+    }
+
+    nodes.clear();
+    nodes.reserve(count);
+    for (size_t i = 0; i < count; i++) {
+        const MirroredNode &n = built[i];
+        bonsai_scene::Node out;
+        out.low[0] = float(n.bounds.pMin.x);
+        out.low[1] = float(n.bounds.pMin.y);
+        out.low[2] = float(n.bounds.pMin.z);
+        out.high[0] = float(n.bounds.pMax.x);
+        out.high[1] = float(n.bounds.pMax.y);
+        out.high[2] = float(n.bounds.pMax.z);
+        out.n_prims = n.n_primitives;
+        out.axis = n.n_primitives > 0 ? 0 : n.axis;
+        // PBRT stores the second child absolutely; the renderer's layout wants
+        // it relative, because that is what its `right = index + offset` says.
+        out.offset = n.n_primitives > 0
+                         ? uint32_t(n.primitives_offset)
+                         : uint32_t(n.second_child_offset) - uint32_t(i);
+        nodes.push_back(out);
+    }
+
+    shapes = std::move(reordered);
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fail("usage: scene_dump <scene.pbrt> <out.bin>");
+    // --pbrt-tree dumps the BVH PBRT built alongside the geometry, and the
+    // renderer then traverses that rather than building its own. It is how a
+    // timing comparison is made to be about the traversal the schedule
+    // produced rather than about whose builder found a better tree.
+    bool pbrt_tree = false;
+    std::vector<const char *> positional;
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--pbrt-tree") {
+            pbrt_tree = true;
+        } else {
+            positional.push_back(argv[i]);
+        }
+    }
+    if (positional.size() != 2) {
+        fail("usage: scene_dump [--pbrt-tree] <scene.pbrt> <out.bin>");
     }
 
     pbrt::PBRTOptions options;
@@ -269,23 +475,23 @@ int main(int argc, char **argv) {
     options.disablePixelJitter = true;
     pbrt::InitPBRT(options);
 
-    bonsai_scene::Header header;
-    std::vector<float> matrices;
-    std::vector<bonsai_scene::Shape> shapes;
-    load(argv[1], header, matrices, shapes);
+    bonsai_scene::Scene scene;
+    load(positional[0], scene);
+    if (pbrt_tree) {
+        build_pbrt_tree(scene.shapes, scene.nodes);
+    }
 
     pbrt::CleanupPBRT();
 
-    FILE *out = fopen(argv[2], "wb");
-    if (!out) {
-        fail(std::string("cannot write ") + argv[2]);
+    if (!bonsai_scene::write(positional[1], scene)) {
+        fail(std::string("cannot write ") + positional[1]);
     }
-    fwrite(&header, sizeof(header), 1, out);
-    fwrite(matrices.data(), sizeof(float), matrices.size(), out);
-    fwrite(shapes.data(), sizeof(bonsai_scene::Shape), shapes.size(), out);
-    fclose(out);
 
-    printf("scene_dump: %s -> %s (%ux%u, %u shapes)\n", argv[1], argv[2],
-           header.width, header.height, header.shape_count);
+    printf("scene_dump: %s -> %s (%ux%u, %zu shapes", positional[0],
+           positional[1], scene.width, scene.height, scene.shapes.size());
+    if (pbrt_tree) {
+        printf(", %zu nodes from pbrt's bvh", scene.nodes.size());
+    }
+    printf(")\n");
     return 0;
 }

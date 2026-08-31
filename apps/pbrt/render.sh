@@ -21,7 +21,7 @@ cmake --build build -j
 # The scene comes from a .pbrt file, read by PBRT's own parser. Needs a built
 # pbrt; see build_scene_dump.sh.
 bash $PREFIX/build_scene_dump.sh
-./$PREFIX/scene_dump "$SCENE" "$PREFIX/scene.bin"
+./$PREFIX/scene_dump "$SCENE" "$PREFIX/scene.txt"
 
 # The spectral data is generated (see make_spectrum_tables.py) and the fit that
 # uses it is a port, so check the round trip before rendering with it: a fit
@@ -41,7 +41,7 @@ rm $PREFIX/rgb2spec_check
 clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o $PREFIX/render.out
 
-./$PREFIX/render.out "$PREFIX/scene.bin" "$OUT"
+./$PREFIX/render.out "$PREFIX/scene.txt" "$OUT"
 
 # The image holds normals rather than radiance, so the encoding is the remap
 # that makes a direction visible rather than pbrt's sRGB curve.
@@ -54,7 +54,7 @@ rm $PREFIX/render.bir
 rm $PREFIX/render.ll
 rm $PREFIX/render.o
 rm $PREFIX/render.out
-rm $PREFIX/scene.bin
+rm $PREFIX/scene.txt
 rm $PREFIX/scene_dump
 # Only clang on Apple platforms leaves one of these behind.
 rm -rf $PREFIX/render.out.dSYM

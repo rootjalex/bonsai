@@ -43,8 +43,17 @@ cmake --build build -j
 # The scene is read once, by PBRT's parser, and both sides render what it says.
 # There is no second description of it to keep in step -- which is the point,
 # and what makes adding a scene to this comparison a matter of writing one file.
+#
+# PBRT_TREE=1 also takes the BVH PBRT built, so that what is being timed is the
+# traversal the schedule produced rather than whose builder found a better
+# tree. Off by default, because building our own is the general case: the day a
+# schedule asks for a tree PBRT has no equivalent of, PBRT has none to give.
 bash $PREFIX/build_scene_dump.sh "$WORK/scene_dump"
-"$WORK/scene_dump" "$SCENE" "$WORK/scene.bin"
+DUMP_FLAGS=()
+if [[ -n "${PBRT_TREE:-}" ]]; then
+  DUMP_FLAGS+=(--pbrt-tree)
+fi
+"$WORK/scene_dump" "${DUMP_FLAGS[@]}" "$SCENE" "$WORK/scene.txt"
 
 # pbrt's reference. --disable-pixel-jitter puts the sample at the pixel centre,
 # which is where this renderer puts its one sample.
@@ -66,7 +75,7 @@ PBRT_SECONDS=$("$IMGTOOL" info "$WORK/ref.exr" |
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o "$WORK/render.out"
-BONSAI_OUT=$("$WORK/render.out" "$WORK/scene.bin" "$WORK/bonsai.pfm")
+BONSAI_OUT=$("$WORK/render.out" "$WORK/scene.txt" "$WORK/bonsai.pfm")
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
 

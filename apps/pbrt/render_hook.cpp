@@ -302,6 +302,33 @@ _tree_layout0 build_bvh(std::vector<Shape> &shapes) {
     return tree;
 }
 
+// The tree PBRT built, packed into the layout the schedule declared.
+//
+// No building happens here: the nodes arrive already flattened depth first,
+// with the shapes in the order its leaves expect, so this is only a change of
+// representation. That the two layouts line up field for field is not luck --
+// the `layout` block in render.bonsai was written to be LinearBVHNode.
+_tree_layout0 adopt_bvh(std::vector<Shape> &shapes,
+                        const std::vector<bonsai_scene::Node> &nodes) {
+    _tree_layout0 tree;
+    tree.pCount = uint32_t(shapes.size());
+    tree.prims = shapes.data();
+    tree.nCount = uint32_t(nodes.size());
+    tree.group0_index =
+        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+        const bonsai_scene::Node &n = nodes[i];
+        tree.group0_index[i].low = float3{n.low[0], n.low[1], n.low[2]};
+        tree.group0_index[i].high = float3{n.high[0], n.high[1], n.high[2]};
+        tree.group0_index[i].nPrims = n.n_prims;
+        tree.group0_index[i].axis = uint8_t(n.axis);
+        std::memcpy(tree.group0_index[i].split0on_nPrims.data(), &n.offset,
+                    sizeof(n.offset));
+    }
+    return tree;
+}
+
 // Sixteen floats in row order, as scene_dump wrote them.
 Transform to_bonsai(const float *m) {
     Transform t;
@@ -326,25 +353,23 @@ int main(int argc, char **argv) {
     // scene_dump.cpp. Nothing about the scene is written down here, which is
     // the point -- there is one description of it and PBRT and this renderer
     // both read it.
-    bonsai_scene::Header header;
-    std::vector<float> matrices;
-    std::vector<bonsai_scene::Shape> loaded;
-    if (!bonsai_scene::read(scene_path, header, matrices, loaded)) {
+    bonsai_scene::Scene loaded;
+    if (!bonsai_scene::read(scene_path, loaded)) {
         std::cerr << "cannot read scene " << scene_path
                   << " (run scene_dump on a .pbrt first)\n";
         return 1;
     }
 
-    const int width = int(header.width);
-    const int height = int(header.height);
+    const int width = int(loaded.width);
+    const int height = int(loaded.height);
 
     PerspectiveCamera camera;
-    camera.camera_from_raster = to_bonsai(&matrices[0]);
-    camera.render_from_camera = to_bonsai(&matrices[16]);
+    camera.camera_from_raster = to_bonsai(&loaded.matrices[0]);
+    camera.render_from_camera = to_bonsai(&loaded.matrices[16]);
 
     std::vector<Shape> shapes;
-    shapes.reserve(loaded.size());
-    for (const bonsai_scene::Shape &s : loaded) {
+    shapes.reserve(loaded.shapes.size());
+    for (const bonsai_scene::Shape &s : loaded.shapes) {
         // Through the generated constructors rather than by setting the tag:
         // which number a variant is belongs to the compiler.
         Shape shape;
@@ -359,7 +384,15 @@ int main(int argc, char **argv) {
         shapes.push_back(shape);
     }
 
-    _tree_layout0 tree = build_bvh(shapes);
+    // A tree in the scene file is PBRT's own, and using it is what makes a
+    // timing comparison about the traversal rather than about whose builder
+    // found the better tree. Without one this builds its own -- which is not a
+    // fallback but the general case: PBRT can only hand over a tree of the
+    // shape PBRT builds, so any schedule asking for something else (a wider
+    // arity, a different bounding volume) has to build it here.
+    _tree_layout0 tree = loaded.nodes.empty()
+                             ? build_bvh(shapes)
+                             : adopt_bvh(shapes, loaded.nodes);
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);

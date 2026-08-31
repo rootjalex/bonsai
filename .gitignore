@@ -75,11 +75,11 @@ apps/pbrt/compare-out*/
 
 # What apps/pbrt/render.sh leaves beside the source, and what Python leaves
 # beside its scripts. scene_dump is built on demand from PBRT's own build tree
-# rather than checked in, and scene.bin is what it writes.
+# rather than checked in, and scene.txt is what it writes.
 apps/pbrt/*.pfm
 apps/pbrt/*.png
 apps/pbrt/scene_dump
-apps/pbrt/scene.bin
+apps/pbrt/scene.txt
 apps/pbrt/__pycache__/
 
 # The headers the C++ backend emits alongside a .o, which the drivers include.
