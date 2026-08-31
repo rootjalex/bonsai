@@ -95,7 +95,7 @@ tailrecurse:                                      ; preds = %then_bb19, %_recloo
   %8 = fsub <3 x float> %5, %"@16.o.i.i"
   %9 = fmul <3 x float> %2, %8
   %tMax.0.vec.extract.i.i = extractelement <3 x float> %9, i64 0
-  %10 = fmul float %tMax.0.vec.extract.i.i, 0x3FF00000C0000000
+  %10 = fmul float %tMax.0.vec.extract.i.i, 0x3FF0000060000000
   %11 = extractelement <3 x float> %9, i64 1
   %12 = extractelement <3 x float> %7, i64 0
   %13 = fcmp olt float %11, %12
@@ -683,7 +683,7 @@ distmax_Ray_AABB_entry:
   %6 = fsub <3 x float> %3, %"@16.o.i"
   %7 = fmul <3 x float> %0, %6
   %tMax.0.vec.extract.i = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %tMax.0.vec.extract.i, 0x3FF00000C0000000
+  %8 = fmul float %tMax.0.vec.extract.i, 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -924,7 +924,7 @@ distmin_Ray_AABB_entry:
   %6 = fsub <3 x float> %3, %"@16.o.i"
   %7 = fmul <3 x float> %0, %6
   %tMax.0.vec.extract.i = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %tMax.0.vec.extract.i, 0x3FF00000C0000000
+  %8 = fmul float %tMax.0.vec.extract.i, 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -1028,7 +1028,7 @@ distmin_Ray_Triangle_entry:
 define noundef float @gamma(i32 noundef %n) local_unnamed_addr #1 {
 gamma_entry:
   %0 = sitofp i32 %n to float
-  %1 = fmul float %0, 0x3E80000000000000
+  %1 = fmul float %0, 0x3E70000000000000
   %2 = fsub float 1.000000e+00, %1
   %3 = fdiv float %1, %2
   ret float %3
@@ -1052,7 +1052,7 @@ intersects_Ray_AABB_entry:
   %6 = fsub <3 x float> %3, %"@16.o.i"
   %7 = fmul <3 x float> %0, %6
   %tMax.0.vec.extract.i = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %tMax.0.vec.extract.i, 0x3FF00000C0000000
+  %8 = fmul float %tMax.0.vec.extract.i, 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -1191,7 +1191,7 @@ intersectsp_ray_aabb_entry:
   %6 = fsub <3 x float> %3, %"@16.o"
   %7 = fmul <3 x float> %0, %6
   %tMax.0.vec.extract = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %tMax.0.vec.extract, 0x3FF00000C0000000
+  %8 = fmul float %tMax.0.vec.extract, 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -1491,11 +1491,11 @@ next_bb77:                                        ; preds = %next_bb74
   %167 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %166)
   %168 = fadd float %162, %158
   %169 = fadd float %167, %158
-  %170 = fmul float %169, 0x3EA40000C0000000
+  %170 = fmul float %169, 0x3E94000060000000
   %171 = fmul float %162, %170
   %172 = insertelement <2 x float> poison, float %168, i64 0
   %173 = insertelement <2 x float> %172, float %162, i64 1
-  %174 = fmul <2 x float> %173, <float 0x3EA40000C0000000, float 0x3E90000040000000>
+  %174 = fmul <2 x float> %173, <float 0x3E94000060000000, float 0x3E80000020000000>
   %175 = insertelement <2 x float> poison, float %167, i64 0
   %176 = shufflevector <2 x float> %175, <2 x float> poison, <2 x i32> zeroinitializer
   %177 = fmul <2 x float> %176, %174
@@ -1512,7 +1512,7 @@ next_bb77:                                        ; preds = %next_bb74
   %188 = fmul float %158, %182
   %189 = insertelement <2 x float> poison, float %187, i64 0
   %190 = insertelement <2 x float> %189, float %158, i64 1
-  %191 = fmul <2 x float> %190, <float 0x3E980000A0000000, float 0x3E980000A0000000>
+  %191 = fmul <2 x float> %190, <float 0x3E88000040000000, float 0x3E88000040000000>
   %192 = shufflevector <2 x float> %190, <2 x float> poison, <2 x i32> <i32 1, i32 0>
   %193 = fmul <2 x float> %191, %192
   %194 = extractelement <2 x float> %193, i64 0
@@ -1680,6 +1680,12 @@ trace_entry:
   call void @llvm.lifetime.end.p0(i64 64, ptr nonnull %_best0.i)
   store %struct._option0 %5, ptr %_ret0, align 16
   ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @unit_roundoff() local_unnamed_addr #1 {
+unit_roundoff_entry:
+  ret float 0x3E70000000000000
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)

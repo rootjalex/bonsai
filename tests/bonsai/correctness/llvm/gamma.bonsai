@@ -1,0 +1,37 @@
+//! flags: -b llvm -e
+
+// The standard library's `gamma`, the error bound that every robust
+// intersection test in the library -- and in apps/pbrt -- scales its tolerance
+// by.
+//
+// It is stated in units of the *unit roundoff*: the largest relative error a
+// single rounding can introduce. That is half of `eps`, which is the gap
+// between one and the next representable number, and the factor of two is easy
+// to get wrong because nothing about it is loud. A gamma written in terms of
+// eps still compiles, still returns a small positive number, and still renders
+// a plausible image; it is simply twice as loose as the arithmetic can
+// actually be wrong by, and the only symptom is a renderer disagreeing with
+// pbrt about whether a grazing ray hit. So the factor is pinned here.
+import stdlib/numerics;
+
+func main() -> i32 {
+    u : Float = unit_roundoff();
+    e : Float = eps[[Float]]();
+
+    // The defining property of the unit roundoff under round-to-nearest:
+    // adding it to one rounds back down to one, while eps does not.
+    print(1.0 + u == 1.0);
+    print(1.0 + e > 1.0);
+    print(u * 2.0 == e);
+
+    // gamma(n) is n roundings' worth of that, so it sits just above n * u.
+    // The second of these is the one that fails for a gamma stated in eps.
+    print(gamma(1) >= u);
+    print(gamma(1) < e);
+    print(gamma(3) >= 3.0 * u);
+    print(gamma(3) < 4.0 * u);
+
+    // Monotone in n, as a bound over more operations has to be.
+    print(gamma(5) > gamma(3));
+    return 0;
+}

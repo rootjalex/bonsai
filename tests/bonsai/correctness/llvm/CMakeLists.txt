@@ -12,6 +12,7 @@ add_bonsai_tests(
     exported-recursive-function.bonsai
     extrema.bonsai
     function-type.bonsai
+    gamma.bonsai
     if-else-returns.bonsai
     loop-transforms.bonsai
     loopify.bonsai

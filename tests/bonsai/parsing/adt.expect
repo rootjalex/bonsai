@@ -19,7 +19,7 @@ func [[imported]] degrees_to_radians(degrees : f32) -> f32 {
 }
 
 func [[imported]] gamma(n : i32) -> f32 {
-  return (cast<f32>(n) * (f32)eps) / ((f32)1 - (cast<f32>(n) * (f32)eps))
+  return (cast<f32>(n) * unit_roundoff()) / ((f32)1 - (cast<f32>(n) * unit_roundoff()))
 }
 
 func [[export]] identity(x : f32) -> f32 {
@@ -72,6 +72,10 @@ func [[imported]] refract(uv : f32x3, n : f32x3, etai_over_etat : f32) -> f32x3 
 
 func [[imported]] sqlen<F : IFloat>(v : (F : IFloat)x3) -> (F : IFloat) {
   return reduce<+>(v * v)
+}
+
+func [[imported]] unit_roundoff() -> f32 {
+  return (f32)0.5 * (f32)eps
 }
 
 func [[imported]] unit_vector(v : f32x3) -> f32x3 {
