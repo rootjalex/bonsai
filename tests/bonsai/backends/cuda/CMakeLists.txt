@@ -6,7 +6,7 @@ add_bonsai_tests(
     build-dop14.bonsai
     build-embree-hair.bonsai
     build-extent-quantization.bonsai
-    # build-inner-group.bonsai has no CUDA source; the CPPX directory covers it.
+    build-inner-group.bonsai
     build-pbrt.bonsai
     build-ptr.bonsai
     global.bonsai
