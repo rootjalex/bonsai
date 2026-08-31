@@ -161,8 +161,16 @@ def main(argv):
         # alone. Neither counts building a tree or generating a table.
         print(f"render time: pbrt {pbrt_seconds * 1e3:.1f} ms, "
               f"bonsai {bonsai_seconds * 1e3:.1f} ms", end="")
-        if pbrt_seconds > 0:
-            print(f" ({bonsai_seconds / pbrt_seconds:.2f}x pbrt)", end="")
+        # pbrt's time over bonsai's, so the number is a speedup and reads the
+        # way a speedup should: above one is bonsai ahead. The ratio the other
+        # way up is a ratio of durations, which says the same thing while
+        # looking like its opposite.
+        if bonsai_seconds > 0:
+            speedup = pbrt_seconds / bonsai_seconds
+            if speedup >= 1.0:
+                print(f" ({speedup:.2f}x faster than pbrt)", end="")
+            else:
+                print(f" ({1.0 / speedup:.2f}x slower than pbrt)", end="")
         print()
         # Said out loud because the ratio above invites being quoted, and on
         # its own it would be dishonest twice over: pbrt runs a path integrator
