@@ -12,9 +12,11 @@ PREFIX="apps/rtiow/cpu"
 
 # Compile
 cmake --build build --config Debug -j
-./build/compiler -i $PREFIX/main.bonsai -o $PREFIX/main.bir
-./build/compiler -i $PREFIX/main.bonsai -b llvm -o $PREFIX/main.ll
-./build/compiler -i $PREFIX/main.bonsai -b cpp -o $PREFIX/main
+# -p ssa because the schedule's `split` and `bind` are SSA rewrites; see the
+# flags header in main.bonsai.
+./build/compiler -p ssa -i $PREFIX/main.bonsai -o $PREFIX/main.bir
+./build/compiler -p ssa -i $PREFIX/main.bonsai -b llvm -o $PREFIX/main.ll
+./build/compiler -p ssa -i $PREFIX/main.bonsai -b cpp -o $PREFIX/main
 # -I. so that the generated header can find the runtime it includes.
 clang++ -g -std=c++20 -O3 -I. $PREFIX/main_hook.cpp $PREFIX/main.o -o $PREFIX/bonsai.out
 # Run

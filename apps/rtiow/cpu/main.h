@@ -16,13 +16,12 @@ struct MaterialSphere {
     float3 albedo;
     float fuzz;
 };
-typedef uint8_t uint8_t2 __attribute__((ext_vector_type(2)));
 struct _tree_layout1 {
     float3 center;
     float radius;
     uint8_t nPrims;
     uint8_t axis;
-    uint8_t2 split0on_nPrims;
+    std::array<uint8_t, 2> split0on_nPrims;
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;

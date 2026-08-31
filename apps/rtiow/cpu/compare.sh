@@ -26,13 +26,12 @@ OUT="${OUT:-$PREFIX/compare-out}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# The checked-in schedule splits the image loop across threads with
-# `cpu_thread`, which generates calls to libdispatch -- a macOS library, so it
-# does not link elsewhere -- and which the SSA pipeline does not implement
-# anyway. Both sides are built from a copy without it, so that what is being
-# compared is the two pipelines and not two different schedules.
+# The checked-in schedule collapses the image loops and binds the result to
+# CPU threads, which only the SSA pipeline implements. Both sides are built
+# from a copy without it, so that what is being compared is the two pipelines
+# and not two different schedules.
 SRC="$OUT/scene.bonsai"
-sed '/image.split/,/cpu_thread/d' "$PREFIX/main.bonsai" > "$SRC"
+sed '/image.collapse/,/bind(/d' "$PREFIX/main.bonsai" > "$SRC"
 
 build() { # <label> <extra compiler args...>
   local label="$1"; shift
