@@ -1,19 +1,36 @@
 #include "canonical_tree.h"
 #include "cd.h"
 
-#include <fcl/fcl.h>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
 
 #include <chrono>
 #include <iostream>
 
-// Functions in this namespace are pulled from the FCL library to mimic their
-// collision detection setup. We refer readers to their repository:
-// https://github.com/flexible-collision-library/fcl
-namespace fcl {
+// Wavefront OBJ loading, kept so the Bonsai kernel has meshes to run on. The
+// vertex and index containers are local rather than a third-party library's,
+// so building this app needs nothing beyond the generated header.
+namespace mesh {
+
+struct Vec3 {
+    float v[3];
+    Vec3() : v{0.0f, 0.0f, 0.0f} {}
+    Vec3(float x, float y, float z) : v{x, y, z} {}
+    float operator[](int i) const { return v[i]; }
+};
+
+struct Triangle {
+    std::size_t v[3];
+    std::size_t &operator[](int i) { return v[i]; }
+    std::size_t operator[](int i) const { return v[i]; }
+};
+
 // Loads the object file at filename, and fills the points and trinagles arrays.
-template <typename S>
-bool load_object_file(const std::string &object,
-                      std::vector<Vector3<S>> &points,
+bool load_object_file(const std::string &object, std::vector<Vec3> &points,
                       std::vector<Triangle> &triangles) {
     // Format is assumed to be Wavefront OBJ.
     std::string path = "artifact/scenes/cd/" + object + ".obj";
@@ -43,9 +60,9 @@ bool load_object_file(const std::string &object,
                 strtok(nullptr, "\t ");
                 has_texture = true;
             } else {
-                S x = (S)atof(strtok(nullptr, "\t "));
-                S y = (S)atof(strtok(nullptr, "\t "));
-                S z = (S)atof(strtok(nullptr, "\t "));
+                float x = (float)atof(strtok(nullptr, "\t "));
+                float y = (float)atof(strtok(nullptr, "\t "));
+                float z = (float)atof(strtok(nullptr, "\t "));
                 points.emplace_back(x, y, z);
             }
         } break;
@@ -83,38 +100,7 @@ bool load_object_file(const std::string &object,
     return true;
 }
 
-template <typename BV>
-BVHModel<BV> build_tree(const std::vector<Vector3<typename BV::S>> &vertices,
-                        const std::vector<Triangle> &triangles) {
-    detail::SplitMethodType method = detail::SPLIT_METHOD_MEDIAN;
-    BVHModel<BV> m;
-    m.bv_splitter.reset(new detail::BVSplitter<BV>(method));
-    m.beginModel();
-    m.addSubModel(vertices, triangles);
-    m.endModel();
-    return m;
-}
-
-template <typename BV>
-std::vector<fcl::Contact<typename BV::S>> collide_test(BVHModel<BV> &m1,
-                                                       BVHModel<BV> &m2) {
-    using S = typename BV::S;
-    Transform3<S> pose1 = Transform3<S>::Identity();
-    Transform3<S> pose2 = Transform3<S>::Identity();
-
-    CollisionResult<S> result;
-    // similar to bonsai, only return whether a contact occurs.
-    constexpr bool enable_contact = false;
-    CollisionRequest<S> request(std::numeric_limits<int>::max(),
-                                enable_contact);
-    collide(&m1, pose1, &m2, pose2, request, result);
-
-    std::vector<Contact<S>> contacts;
-    result.getContacts(contacts);
-    return contacts;
-}
-
-} // namespace fcl
+} // namespace mesh
 
 // Functions required for Bonsai tree construction.
 namespace bonsai {
@@ -148,15 +134,14 @@ static inline float3 cross(const float3 &a, const float3 &b) {
                     a[0] * b[1] - a[1] * b[0]};
 }
 
-template <typename S>
-Triangle construct_triangle(const fcl::Triangle &t,
-                            const std::vector<fcl::Vector3<S>> &v) {
+Triangle construct_triangle(const mesh::Triangle &t,
+                            const std::vector<mesh::Vec3> &v) {
     assert(t[0] < v.size());
-    fcl::Vector3<S> x = v[t[0]];
+    mesh::Vec3 x = v[t[0]];
     assert(t[1] < v.size());
-    fcl::Vector3<S> y = v[t[1]];
+    mesh::Vec3 y = v[t[1]];
     assert(t[2] < v.size());
-    fcl::Vector3<S> z = v[t[2]];
+    mesh::Vec3 z = v[t[2]];
 
     auto p0 = float3{x[0], x[1], x[2]};
     auto p1 = float3{y[0], y[1], y[2]};
@@ -164,34 +149,27 @@ Triangle construct_triangle(const fcl::Triangle &t,
     return Triangle{p0, p1, p2};
 }
 
-template <typename S>
 std::vector<Triangle>
-construct_triangles(const std::vector<fcl::Triangle> &fcl_triangles,
-                    const std::vector<fcl::Vector3<S>> &fcl_vertices) {
+construct_triangles(const std::vector<mesh::Triangle> &mesh_triangles,
+                    const std::vector<mesh::Vec3> &mesh_vertices) {
     std::vector<Triangle> triangles;
-    for (const fcl::Triangle &triangle : fcl_triangles) {
-        triangles.push_back(construct_triangle(triangle, fcl_vertices));
+    for (const mesh::Triangle &triangle : mesh_triangles) {
+        triangles.push_back(construct_triangle(triangle, mesh_vertices));
     }
     return triangles;
 }
 
-// Runs a collision detection test on the two OBJ files for Bonsai and FCL.
-template <typename S>
+// Runs a collision detection test on the two OBJ files.
 void run_test(const std::string &obj1, const std::string &obj2) {
-    if constexpr (!(std::is_floating_point_v<S> && sizeof(S) == 4)) {
-        std::cerr << "the bonsai kernel currently assumes f32 input";
-        exit(-1);
-    }
-
     using clock = std::chrono::high_resolution_clock;
-    std::vector<fcl::Vector3<S>> v1, v2;
-    std::vector<fcl::Triangle> T1, T2;
-    if (!fcl::load_object_file(obj1, v1, T1)) {
+    std::vector<mesh::Vec3> v1, v2;
+    std::vector<mesh::Triangle> T1, T2;
+    if (!mesh::load_object_file(obj1, v1, T1)) {
         exit(-1);
     }
     assert(!v1.empty() && "no vertices found!");
     assert(!T1.empty() && "no triangles found!");
-    if (!fcl::load_object_file(obj2, v2, T2)) {
+    if (!mesh::load_object_file(obj2, v2, T2)) {
         exit(-1);
     }
     assert(!v2.empty() && "no vertices found!");
@@ -215,48 +193,16 @@ void run_test(const std::string &obj1, const std::string &obj2) {
 
     // ---- Bonsai collision detection ----
     t0 = clock::now();
-    std::vector<std::tuple<Triangle, Triangle>> bonsai_collisions =
-        collisions(&tree1, &tree2);
+    auto bonsai_collisions = collisions(&tree1, &tree2);
     t1 = clock::now();
     bonsai_time =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "[bonsai] collision detection : " << bonsai_time << " ms"
               << std::endl;
 
-    // ---- FCL tree construction ----
-    t0 = clock::now();
-    fcl::BVHModel<fcl::AABB<S>> m1 = fcl::build_tree<fcl::AABB<S>>(v1, T1);
-    fcl::BVHModel<fcl::AABB<S>> m2 = fcl::build_tree<fcl::AABB<S>>(v2, T2);
-    t1 = clock::now();
-    auto fcl_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcl]    tree construction   : " << fcl_time << " ms"
-              << std::endl;
-
-    // ---- FCL collision detection ----
-    t0 = clock::now();
-    const std::vector<fcl::Contact<S>> fcl_collisions =
-        fcl::collide_test<fcl::AABB<S>>(m1, m2);
-    t1 = clock::now();
-    fcl_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cout << "[fcl]    collision detection : " << fcl_time << " ms"
-              << std::endl;
-
-    // ---- Bonsai tree construction ----
-
-    // Verify outputs match and are valid intersections.
-    const int64_t bonsai_count = bonsai_collisions.size();
-    const int64_t fcl_count = fcl_collisions.size();
-    if (bonsai_count != fcl_count) {
-        std::cerr << "different collision detection counts, bonsai: "
-                  << bonsai_count << " vs fcl: " << fcl_count << '\n';
-        exit(-1);
-    }
-    std::cout << "collision count: " << bonsai_count << std::endl;
+    std::cout << "collision count: " << bonsai_collisions.size() << std::endl;
     std::cout << "\n";
 }
-
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -268,6 +214,6 @@ int main(int argc, char *argv[]) {
     assert(argv[2]);
     std::string obj1 = argv[1];
     std::string obj2 = argv[2];
-    run_test<float>(obj1, obj2);
+    run_test(obj1, obj2);
     return 0;
 }

@@ -16,7 +16,7 @@ std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
 float surface_area(const float3 &min, const float3 &max) {
     float3 extent = max - min;
     return 2.0f *
-           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
+           (extent[0] * extent[1] + extent[0] * extent[2] + extent[1] * extent[2]);
 }
 
 float3 triangle_centroid(const Triangle &tri) {
@@ -54,12 +54,12 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
 
         float3 extent = aabb_max - aabb_min;
         int axis = 0;
-        float max_extent = extent.x;
-        if (extent.y > max_extent) {
+        float max_extent = extent[0];
+        if (extent[1] > max_extent) {
             axis = 1;
-            max_extent = extent.y;
+            max_extent = extent[1];
         }
-        if (extent.z > max_extent) {
+        if (extent[2] > max_extent) {
             axis = 2;
         }
 
@@ -68,12 +68,12 @@ BVH *build_canonical_tree_2_ms(std::vector<Triangle> &triangles,
         std::nth_element(
             triangles.begin() + low, mid_it, triangles.begin() + high,
             [&](const Triangle &a, const Triangle &b) {
-                float ca = (axis == 0)   ? (a.p0.x + a.p1.x + a.p2.x)
-                           : (axis == 1) ? (a.p0.y + a.p1.y + a.p2.y)
-                                         : (a.p0.z + a.p1.z + a.p2.z);
-                float cb = (axis == 0)   ? (b.p0.x + b.p1.x + b.p2.x)
-                           : (axis == 1) ? (b.p0.y + b.p1.y + b.p2.y)
-                                         : (b.p0.z + b.p1.z + b.p2.z);
+                float ca = (axis == 0)   ? (a.p0[0] + a.p1[0] + a.p2[0])
+                           : (axis == 1) ? (a.p0[1] + a.p1[1] + a.p2[1])
+                                         : (a.p0[2] + a.p1[2] + a.p2[2]);
+                float cb = (axis == 0)   ? (b.p0[0] + b.p1[0] + b.p2[0])
+                           : (axis == 1) ? (b.p0[1] + b.p1[1] + b.p2[1])
+                                         : (b.p0[2] + b.p1[2] + b.p2[2]);
                 return ca < cb;
             });
 
@@ -167,24 +167,24 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
 
         for (int axis = 0; axis < 3; ++axis) {
             float extent =
-                (axis == 0)   ? centroid_bounds_max.x - centroid_bounds_min.x
-                : (axis == 1) ? centroid_bounds_max.y - centroid_bounds_min.y
-                              : centroid_bounds_max.z - centroid_bounds_min.z;
+                (axis == 0)   ? centroid_bounds_max[0] - centroid_bounds_min[0]
+                : (axis == 1) ? centroid_bounds_max[1] - centroid_bounds_min[1]
+                              : centroid_bounds_max[2] - centroid_bounds_min[2];
 
             if (extent < 1e-6f)
                 continue;
 
-            float centroid_min = (axis == 0)   ? centroid_bounds_min.x
-                                 : (axis == 1) ? centroid_bounds_min.y
-                                               : centroid_bounds_min.z;
+            float centroid_min = (axis == 0)   ? centroid_bounds_min[0]
+                                 : (axis == 1) ? centroid_bounds_min[1]
+                                               : centroid_bounds_min[2];
             Bin bins[NUM_OBJECT_BINS];
             float bin_scale = NUM_OBJECT_BINS / extent;
 
             for (uint32_t i = record.begin; i < record.end; ++i) {
                 float3 centroid = triangle_centroid(triangles[i]);
-                float c_axis = (axis == 0)   ? centroid.x
-                               : (axis == 1) ? centroid.y
-                                             : centroid.z;
+                float c_axis = (axis == 0)   ? centroid[0]
+                               : (axis == 1) ? centroid[1]
+                                             : centroid[2];
                 int bin_idx =
                     static_cast<int>((c_axis - centroid_min) * bin_scale);
                 bin_idx = std::min(bin_idx, NUM_OBJECT_BINS - 1);
@@ -246,9 +246,9 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
             triangles.begin() + record.begin, triangles.begin() + record.end,
             [&](const Triangle &tri) {
                 float3 centroid = triangle_centroid(tri);
-                float c_axis = (split.axis == 0)   ? centroid.x
-                               : (split.axis == 1) ? centroid.y
-                                                   : centroid.z;
+                float c_axis = (split.axis == 0)   ? centroid[0]
+                               : (split.axis == 1) ? centroid[1]
+                                                   : centroid[2];
                 return c_axis < split.position;
             });
 
@@ -261,12 +261,12 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                              [&](const Triangle &a, const Triangle &b) {
                                  float3 ca = triangle_centroid(a);
                                  float3 cb = triangle_centroid(b);
-                                 float ca_val = (split.axis == 0)   ? ca.x
-                                                : (split.axis == 1) ? ca.y
-                                                                    : ca.z;
-                                 float cb_val = (split.axis == 0)   ? cb.x
-                                                : (split.axis == 1) ? cb.y
-                                                                    : cb.z;
+                                 float ca_val = (split.axis == 0)   ? ca[0]
+                                                : (split.axis == 1) ? ca[1]
+                                                                    : ca[2];
+                                 float cb_val = (split.axis == 0)   ? cb[0]
+                                                : (split.axis == 1) ? cb[1]
+                                                                    : cb[2];
                                  return ca_val < cb_val;
                              });
         }
@@ -329,9 +329,9 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
 
             float3 extent = centroid_bounds_max - centroid_bounds_min;
             int longest_axis = 0;
-            if (extent.y > extent.x && extent.y > extent.z)
+            if (extent[1] > extent[0] && extent[1] > extent[2])
                 longest_axis = 1;
-            else if (extent.z > extent.x && extent.z > extent.y)
+            else if (extent[2] > extent[0] && extent[2] > extent[1])
                 longest_axis = 2;
 
             uint32_t mid = record.begin + count / 2;
@@ -341,12 +341,12 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles,
                              [&](const Triangle &a, const Triangle &b) {
                                  float3 ca = triangle_centroid(a);
                                  float3 cb = triangle_centroid(b);
-                                 float ca_val = (longest_axis == 0)   ? ca.x
-                                                : (longest_axis == 1) ? ca.y
-                                                                      : ca.z;
-                                 float cb_val = (longest_axis == 0)   ? cb.x
-                                                : (longest_axis == 1) ? cb.y
-                                                                      : cb.z;
+                                 float ca_val = (longest_axis == 0)   ? ca[0]
+                                                : (longest_axis == 1) ? ca[1]
+                                                                      : ca[2];
+                                 float cb_val = (longest_axis == 0)   ? cb[0]
+                                                : (longest_axis == 1) ? cb[1]
+                                                                      : cb[2];
                                  return ca_val < cb_val;
                              });
 

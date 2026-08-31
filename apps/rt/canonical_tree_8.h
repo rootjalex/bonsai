@@ -17,7 +17,7 @@ compute_aabb(uint32_t low, uint32_t high,
 inline float surface_area(const float3 &min, const float3 &max) {
     float3 extent = max - min;
     return 2.0f *
-           (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
+           (extent[0] * extent[1] + extent[0] * extent[2] + extent[1] * extent[2]);
 }
 
 inline float3 triangle_centroid(const Triangle &tri) {
@@ -133,24 +133,24 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
             for (int axis = 0; axis < 3; ++axis) {
                 float extent =
-                    (axis == 0)   ? local_centroid_max.x - local_centroid_min.x
-                    : (axis == 1) ? local_centroid_max.y - local_centroid_min.y
-                                  : local_centroid_max.z - local_centroid_min.z;
+                    (axis == 0)   ? local_centroid_max[0] - local_centroid_min[0]
+                    : (axis == 1) ? local_centroid_max[1] - local_centroid_min[1]
+                                  : local_centroid_max[2] - local_centroid_min[2];
 
                 if (extent < 1e-6f)
                     continue;
 
-                float centroid_min = (axis == 0)   ? local_centroid_min.x
-                                     : (axis == 1) ? local_centroid_min.y
-                                                   : local_centroid_min.z;
+                float centroid_min = (axis == 0)   ? local_centroid_min[0]
+                                     : (axis == 1) ? local_centroid_min[1]
+                                                   : local_centroid_min[2];
                 Bin bins[NUM_OBJECT_BINS];
                 float bin_scale = NUM_OBJECT_BINS / extent;
 
                 for (uint32_t i = child_rec.begin; i < child_rec.end; ++i) {
                     float3 centroid = triangle_centroid(triangles[i]);
-                    float c_axis = (axis == 0)   ? centroid.x
-                                   : (axis == 1) ? centroid.y
-                                                 : centroid.z;
+                    float c_axis = (axis == 0)   ? centroid[0]
+                                   : (axis == 1) ? centroid[1]
+                                                 : centroid[2];
 
                     int bin_idx =
                         static_cast<int>((c_axis - centroid_min) * bin_scale);
@@ -211,9 +211,9 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                 triangles.begin() + child_rec.begin,
                 triangles.begin() + child_rec.end, [&](const Triangle &tri) {
                     float3 centroid = triangle_centroid(tri);
-                    float c_axis = (split.axis == 0)   ? centroid.x
-                                   : (split.axis == 1) ? centroid.y
-                                                       : centroid.z;
+                    float c_axis = (split.axis == 0)   ? centroid[0]
+                                   : (split.axis == 1) ? centroid[1]
+                                                       : centroid[2];
                     return c_axis < split.position;
                 });
 
@@ -226,12 +226,12 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
                                  [&](const Triangle &a, const Triangle &b) {
                                      float3 ca = triangle_centroid(a);
                                      float3 cb = triangle_centroid(b);
-                                     float ca_val = (split.axis == 0)   ? ca.x
-                                                    : (split.axis == 1) ? ca.y
-                                                                        : ca.z;
-                                     float cb_val = (split.axis == 0)   ? cb.x
-                                                    : (split.axis == 1) ? cb.y
-                                                                        : cb.z;
+                                     float ca_val = (split.axis == 0)   ? ca[0]
+                                                    : (split.axis == 1) ? ca[1]
+                                                                        : ca[2];
+                                     float cb_val = (split.axis == 0)   ? cb[0]
+                                                    : (split.axis == 1) ? cb[1]
+                                                                        : cb[2];
                                      return ca_val < cb_val;
                                  });
             }

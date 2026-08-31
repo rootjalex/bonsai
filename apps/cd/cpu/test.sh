@@ -32,7 +32,7 @@ for ((i=0; i<${#OBJECTS_A[@]}; i++)); do
     # 2. lower to c++
     ./build/compiler -i ${KERNEL_PATH}/main.bonsai -l ${PREFIX}/${LAYOUT}.bonsai -b cppx -o ${PREFIX}/${APPLICATION}
 
-    # 3. build the main hook and final executable (requires fcl)
+    # 3. build the main hook and final executable
     cd ${PREFIX} 
     mkdir -p build
     cd build

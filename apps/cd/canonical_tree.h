@@ -20,12 +20,12 @@ std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
     for (uint32_t i = low; i < high; ++i) {
         const Triangle &tri = triangles[i];
         for (const float3 *p : {&tri.p0, &tri.p1, &tri.p2}) {
-            aabb_min.x = std::min(aabb_min.x, p->x);
-            aabb_min.y = std::min(aabb_min.y, p->y);
-            aabb_min.z = std::min(aabb_min.z, p->z);
-            aabb_max.x = std::max(aabb_max.x, p->x);
-            aabb_max.y = std::max(aabb_max.y, p->y);
-            aabb_max.z = std::max(aabb_max.z, p->z);
+            aabb_min[0] = std::min(aabb_min[0], (*p)[0]);
+            aabb_min[1] = std::min(aabb_min[1], (*p)[1]);
+            aabb_min[2] = std::min(aabb_min[2], (*p)[2]);
+            aabb_max[0] = std::max(aabb_max[0], (*p)[0]);
+            aabb_max[1] = std::max(aabb_max[1], (*p)[1]);
+            aabb_max[2] = std::max(aabb_max[2], (*p)[2]);
         }
     }
 
@@ -62,12 +62,12 @@ BVH *build_fcl_tree_median_split(
         // https://github.com/flexible-collision-library/fcl/blob/a3fbc9fe4f619d7bb1117dc137daa497d2de454b/include/fcl/geometry/bvh/detail/BV_splitter-inl.h#L210
         float3 extent = aabb_max - aabb_min;
         int axis = 0;
-        float max_extent = extent.x;
-        if (extent.y > max_extent) {
+        float max_extent = extent[0];
+        if (extent[1] > max_extent) {
             axis = 1;
-            max_extent = extent.y;
+            max_extent = extent[1];
         }
-        if (extent.z > max_extent) {
+        if (extent[2] > max_extent) {
             axis = 2;
         }
 
@@ -80,9 +80,9 @@ BVH *build_fcl_tree_median_split(
             const Triangle &tri = triangles[i];
             // Triangle centroid: average of three vertices
             float3 centroid = (tri.p0 + tri.p1 + tri.p2) / 3.0f;
-            float coord = (axis == 0)   ? centroid.x
-                          : (axis == 1) ? centroid.y
-                                        : centroid.z;
+            float coord = (axis == 0)   ? centroid[0]
+                          : (axis == 1) ? centroid[1]
+                                        : centroid[2];
             centroid_coords.push_back(coord);
         }
 
@@ -98,9 +98,9 @@ BVH *build_fcl_tree_median_split(
         for (uint32_t i = 0; i < count; ++i) {
             const Triangle &tri = triangles[low + i];
             float3 centroid = (tri.p0 + tri.p1 + tri.p2) / 3.0f;
-            float coord = (axis == 0)   ? centroid.x
-                          : (axis == 1) ? centroid.y
-                                        : centroid.z;
+            float coord = (axis == 0)   ? centroid[0]
+                          : (axis == 1) ? centroid[1]
+                                        : centroid[2];
 
             // FCL's apply() function tests if point is on "right" side of split
             // A point is on the right if its coordinate > split_value

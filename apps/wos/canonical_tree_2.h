@@ -8,8 +8,8 @@ constexpr float FCPW_EPSILON = std::numeric_limits<float>::epsilon();
 
 inline float surface_area(float3 box_min, float3 box_max) {
     float3 e = max(box_max - box_min, float3{1e-5f, 1e-5f, 1e-5f});
-    float prod = e.x * e.y * e.z;
-    return 2.0f * (prod / e.x + prod / e.y + prod / e.z);
+    float prod = e[0] * e[1] * e[2];
+    return 2.0f * (prod / e[0] + prod / e[1] + prod / e[2]);
 }
 
 inline std::pair<float3, float3>
@@ -172,10 +172,10 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
         // https://github.com/rohan-sawhney/fcpw/blob/653798c6122674adffc70ddf36ec4480e5c26098/include/fcpw/aggregates/bvh.inl#L104
         if (splitDim == -1) {
             float3 centroid_extent = bc.extent();
-            splitDim = (centroid_extent.x > centroid_extent.y &&
-                        centroid_extent.x > centroid_extent.z)
+            splitDim = (centroid_extent[0] > centroid_extent[1] &&
+                        centroid_extent[0] > centroid_extent[2])
                            ? 0
-                       : (centroid_extent.y > centroid_extent.z) ? 1
+                       : (centroid_extent[1] > centroid_extent[2]) ? 1
                                                                  : 2;
             splitCoord = (bc.pMin[splitDim] + bc.pMax[splitDim]) * 0.5f;
         }
