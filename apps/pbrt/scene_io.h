@@ -41,6 +41,10 @@ struct Shape {
     float p0[3];
     float p1[3];
     float p2[3];
+    // The material's reflectance, as the scene wrote it. PBRT turns this into
+    // a spectrum with its sigmoid fit; the renderer runs the same fit, so what
+    // travels between them is the RGB rather than the fit's output.
+    float reflectance[3];
 };
 
 // One BVH node, in PBRT's LinearBVHNode shape.
@@ -106,6 +110,8 @@ inline bool write(const char *path, const Scene &scene) {
             detail::put(out, s.p1, 3);
             detail::put(out, s.p2, 3);
         }
+        out << " reflectance";
+        detail::put(out, s.reflectance, 3);
         out << '\n';
     }
 
@@ -174,6 +180,10 @@ inline bool read(const char *path, Scene &scene) {
         } else {
             return false;
         }
+        if (!(in >> word) || word != "reflectance") {
+            return false;
+        }
+        floats(s.reflectance, 3);
         scene.shapes.push_back(s);
     }
 

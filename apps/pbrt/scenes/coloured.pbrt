@@ -1,0 +1,61 @@
+# Materials, for the spectral half of M1.
+#
+# Every other scene here is grey, so nothing in them can tell a reflectance
+# that survived the trip from one that was replaced by PBRT's 0.5 default.
+# These are saturated and varied on purpose: a red that is nearly at the edge
+# of sRGB stresses the sigmoid fit hardest, because the spectrum that
+# reproduces it has to swing furthest, and a fit that is subtly wrong shows up
+# there first while looking fine on grey.
+#
+# The last sphere deliberately declares no material of its own, so it picks up
+# whatever is current -- which is how a shape ends up on PBRT's implicit
+# default, and is worth having one of.
+
+LookAt 0 1.5 6   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "independent" "integer pixelsamples" [1]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [1600]
+    "integer yresolution" [1200]
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+AttributeBegin
+  Material "diffuse" "rgb reflectance" [0.85 0.06 0.05]
+  Translate -2.2 0 0
+  Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+AttributeBegin
+  Material "diffuse" "rgb reflectance" [0.08 0.7 0.12]
+  Translate -0.7 0 0
+  Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+AttributeBegin
+  Material "diffuse" "rgb reflectance" [0.05 0.15 0.9]
+  Translate 0.8 0 0
+  Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+AttributeBegin
+  Material "diffuse" "rgb reflectance" [0.95 0.82 0.15]
+  Translate 2.3 0 0
+  Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+# No Material of its own: PBRT's default 0.5 grey.
+AttributeBegin
+  Translate 0 1.6 -1.5
+  Shape "sphere" "float radius" [0.6]
+AttributeEnd
+
+# A dim ground, so the spheres are seen against something that is not black.
+Material "diffuse" "rgb reflectance" [0.2 0.2 0.22]
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -10 -0.8 -10   10 -0.8 10   10 -0.8 -10   -10 -0.8 10 ]

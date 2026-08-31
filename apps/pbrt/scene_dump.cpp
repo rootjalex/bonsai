@@ -52,7 +52,15 @@ namespace {
 class CapturingBuilder : public pbrt::BasicSceneBuilder {
   public:
     explicit CapturingBuilder(pbrt::BasicScene *scene)
-        : pbrt::BasicSceneBuilder(scene) {}
+        : pbrt::BasicSceneBuilder(scene) {
+        // BasicSceneBuilder's own constructor registers a default `diffuse`
+        // before any directive is seen, which is what a shape declared outside
+        // every Material block ends up with. Recording it here keeps the
+        // indices below lined up with PBRT's.
+        MaterialInfo implicit;
+        implicit.name = "diffuse";
+        materials.push_back(std::move(implicit));
+    }
 
     void Camera(const std::string &name, pbrt::ParsedParameterVector params,
                 pbrt::FileLoc loc) override {
@@ -71,14 +79,91 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Film(type, std::move(params), loc);
     }
 
+    // What M1 needs of a material: its kind, and the reflectance if it names
+    // one as RGB. The parameters are read here in their parsed form rather than
+    // through a ParameterDictionary, because an `rgb reflectance` reaches a
+    // dictionary already turned into an RGBAlbedoSpectrum -- PBRT's own sigmoid
+    // fit -- and that fit is the thing the renderer is supposed to be doing.
+    // Taking the three numbers as written leaves it that way.
+    struct MaterialInfo {
+        std::string name;
+        bool has_reflectance = false;
+        bool reflectance_is_rgb = false;
+        float reflectance[3] = {0.f, 0.f, 0.f};
+    };
+
+    // A shape names its material by an index, and the materials themselves are
+    // BasicScene's to keep. BasicScene::AddMaterial appends, and the base's
+    // Material() calls it once per directive, so recording them here in the
+    // same order gives a list the shapes' materialIndex indexes into.
+    void Material(const std::string &name, pbrt::ParsedParameterVector params,
+                  pbrt::FileLoc loc) override {
+        MaterialInfo info;
+        info.name = name;
+        for (const pbrt::ParsedParameter *p : params) {
+            if (p->name != "reflectance") {
+                continue;
+            }
+            info.has_reflectance = true;
+            if (p->type == "rgb" && p->floats.size() == 3) {
+                info.reflectance_is_rgb = true;
+                for (int i = 0; i < 3; i++) {
+                    info.reflectance[i] = float(p->floats[i]);
+                }
+            }
+        }
+        materials.push_back(std::move(info));
+        pbrt::BasicSceneBuilder::Material(name, std::move(params), loc);
+    }
+
     std::string camera_name;
     pbrt::ParameterDictionary camera_params;
     pbrt::ParameterDictionary film_params;
+    std::vector<MaterialInfo> materials;
 };
 
 [[noreturn]] void fail(const std::string &message) {
     fprintf(stderr, "scene_dump: %s\n", message.c_str());
     exit(1);
+}
+
+// The reflectance a shape's material carries, as RGB.
+//
+// This is all M1 needs. The albedo PBRT's gbuffer records for a diffuse
+// surface is exactly the material's reflectance, because a Lambertian BRDF's
+// hemispherical reflectance is its reflectance -- PBRT estimates it with
+// sixteen cosine-weighted samples and every one of them returns the same
+// number. Anything else -- textures, conductors, dielectrics -- is a later
+// milestone, and saying so is better than substituting a grey and calling the
+// result a match.
+void material_reflectance(const std::vector<CapturingBuilder::MaterialInfo> &materials,
+                          int index, float *rgb) {
+    // PBRT's default reflectance for `diffuse`, and what a shape declared
+    // outside any Material directive gets.
+    rgb[0] = rgb[1] = rgb[2] = 0.5f;
+    if (index < 0) {
+        return;
+    }
+    if (index >= int(materials.size())) {
+        fail("a shape names a material that was never declared");
+    }
+    const CapturingBuilder::MaterialInfo &m = materials[index];
+    if (m.name.empty() || m.name == "none") {
+        return;
+    }
+    if (m.name != "diffuse") {
+        fail("only the diffuse material is supported, scene asks for \"" +
+             m.name + "\"");
+    }
+    if (m.has_reflectance) {
+        if (!m.reflectance_is_rgb) {
+            fail("only an `rgb reflectance` is supported, not a texture or a "
+                 "named spectrum");
+        }
+        for (int i = 0; i < 3; i++) {
+            rgb[i] = m.reflectance[i];
+        }
+    }
 }
 
 // PBRT's LinearBVHNode, which is declared in aggregates.h but defined inside
@@ -244,6 +329,9 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
         const std::string name(entity.name);
         const pbrt::Transform &render_from_object = *entity.renderFromObject;
+        float reflectance[3];
+        material_reflectance(builder.materials, entity.materialIndex,
+                             reflectance);
 
         if (name == "sphere") {
             pbrt::Vector3f centre;
@@ -260,12 +348,13 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 entity.parameters.GetOneFloat("phimax", 360.f) != 360.f) {
                 fail("partial spheres (zmin/zmax/phimax) are not supported");
             }
-            bonsai_scene::Shape shape;
+            bonsai_scene::Shape shape = {};
             shape.tag = bonsai_scene::ShapeTag::Sphere;
             shape.p0[0] = float(centre.x);
             shape.p0[1] = float(centre.y);
             shape.p0[2] = float(centre.z);
             shape.radius = float(radius);
+            memcpy(shape.reflectance, reflectance, sizeof(reflectance));
             shapes.push_back(shape);
 
         } else if (name == "trianglemesh") {
@@ -284,7 +373,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 const pbrt::Point3f p0 = render_from_object(P[indices[i + 0]]);
                 const pbrt::Point3f p1 = render_from_object(P[indices[i + 1]]);
                 const pbrt::Point3f p2 = render_from_object(P[indices[i + 2]]);
-                bonsai_scene::Shape shape;
+                bonsai_scene::Shape shape = {};
                 shape.tag = bonsai_scene::ShapeTag::Triangle;
                 shape.p0[0] = float(p0.x);
                 shape.p0[1] = float(p0.y);
@@ -295,6 +384,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 shape.p2[0] = float(p2.x);
                 shape.p2[1] = float(p2.y);
                 shape.p2[2] = float(p2.z);
+                memcpy(shape.reflectance, reflectance, sizeof(reflectance));
                 shapes.push_back(shape);
             }
 
