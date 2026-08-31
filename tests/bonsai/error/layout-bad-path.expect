@@ -1,44 +1,7 @@
-type AABB = struct AABB{ low : f32x3; high : f32x3 }
-type Float = f32
-type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const TriangleBVH&); right : (const TriangleBVH&) }
-type Leaf = struct Leaf{ low : f32x3; high : f32x3; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[] }
-type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
-type TriangleBVH = (const TriangleBVH&)
-type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
-type arm_Leaf = [[packed]] struct arm_Leaf{ pOffset : u32 }
-type group_0 = [[packed]] struct group_0{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
-type triangles = [[packed]] struct triangles{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group_0 : [[packed]] struct group_0{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
-type vec3f = vector[f32, 3]
+---CODE---
+1
+---STDERR---
+[internal] Error: src/IR/ValidateLayout.cpp:235
 
-extern triangles : [[packed]] struct triangles{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group_0 : [[packed]] struct group_0{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[count] }
-
-schedule host {
-  triangles : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriangleBVH
-  | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high)
-  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high)
-  triangles : layout triangles(index : u32) {
-  pCount : u32;
-  prims : Triangle[pCount];
-  count : u32;
-  group[count] by index {
-    low : f32x3;
-    nPrims : u16;
-    axis : u8;
-    8;
-    high : f32x3;
-    split nPrims {
-      0 -> Interior {
-        offset : u32;
-        left = index + 1u;
-      };
-      _ -> Leaf {
-        pOffset : u32;
-        data = range(prims, pOffset, cast<u32>(nPrims));
-      };
-    };
-  };
-};
-
-
-
-}
+--> !path_to_variant.empty()
+no path found for variant: Interior in layout: `triangles`
