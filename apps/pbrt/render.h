@@ -29,8 +29,8 @@ struct Shape {
     Shape_payload payload;
 };
 struct _tree_layout1 {
-    float3 center;
-    float radius;
+    float3 low;
+    float3 high;
     uint16_t nPrims;
     uint8_t axis;
     uint8_t pad0;

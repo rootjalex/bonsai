@@ -19,9 +19,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -175,110 +177,268 @@ Mat4 look_at(const Vec3 &pos, const Vec3 &look, const Vec3 &up) {
     return r;
 }
 
-float length3(const float3 &v) {
-    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+// pbrt: Bounds3f, with the operations BVHAggregate's build asks of it.
+//
+// The empty box is pMin at +max and pMax at lowest, so that Union over nothing
+// is the identity and a surface area computed from it comes out meaningless
+// rather than zero -- which matters, because zero area is the signal the build
+// uses to give up on splitting.
+struct Bounds3f {
+    float3 pMin;
+    float3 pMax;
+
+    Bounds3f()
+        : pMin{std::numeric_limits<float>::max(),
+               std::numeric_limits<float>::max(),
+               std::numeric_limits<float>::max()},
+          pMax{std::numeric_limits<float>::lowest(),
+               std::numeric_limits<float>::lowest(),
+               std::numeric_limits<float>::lowest()} {}
+
+    Bounds3f(const float3 &a, const float3 &b)
+        : pMin{std::fminf(a[0], b[0]), std::fminf(a[1], b[1]),
+               std::fminf(a[2], b[2])},
+          pMax{std::fmaxf(a[0], b[0]), std::fmaxf(a[1], b[1]),
+               std::fmaxf(a[2], b[2])} {}
+
+    float3 diagonal() const { return pMax - pMin; }
+
+    float surface_area() const {
+        const float3 d = diagonal();
+        return 2.0f * (d[0] * d[1] + d[0] * d[2] + d[1] * d[2]);
+    }
+
+    int max_dimension() const {
+        const float3 d = diagonal();
+        if (d[0] > d[1] && d[0] > d[2]) {
+            return 0;
+        }
+        return (d[1] > d[2]) ? 1 : 2;
+    }
+
+    // Where a point sits in the box, as a fraction along each axis.
+    float3 offset(const float3 &p) const {
+        float3 o = p - pMin;
+        for (int i = 0; i < 3; i++) {
+            if (pMax[i] > pMin[i]) {
+                o[i] /= pMax[i] - pMin[i];
+            }
+        }
+        return o;
+    }
+
+    float3 centroid() const { return 0.5f * pMin + 0.5f * pMax; }
+};
+
+Bounds3f merge(const Bounds3f &a, const Bounds3f &b) {
+    Bounds3f r;
+    r.pMin = float3{std::fminf(a.pMin[0], b.pMin[0]),
+                    std::fminf(a.pMin[1], b.pMin[1]),
+                    std::fminf(a.pMin[2], b.pMin[2])};
+    r.pMax = float3{std::fmaxf(a.pMax[0], b.pMax[0]),
+                    std::fmaxf(a.pMax[1], b.pMax[1]),
+                    std::fmaxf(a.pMax[2], b.pMax[2])};
+    return r;
 }
 
-// pbrt: the shapes' bounds, which the schedule asked for as spheres rather
-// than as a Bounds3. Which volume bounds a node is the schedule's choice --
-// `with Sphere(center, radius)` -- so this follows it rather than the other
-// way round.
-Sphere bounds_of(const Shape &shape) {
+Bounds3f merge(const Bounds3f &a, const float3 &p) {
+    return merge(a, Bounds3f{p, p});
+}
+
+// pbrt: Sphere::Bounds and Triangle::Bounds. A sphere placed by a translation
+// bounds to its centre plus and minus the radius on each axis; a triangle to
+// the box around its three vertices.
+Bounds3f bounds_of(const Shape &shape) {
     if (shape.tag == 0) {
-        return shape.payload.Sph.s;
+        const Sphere &s = shape.payload.Sph.s;
+        return Bounds3f{s.center - s.radius, s.center + s.radius};
     }
     const Triangle &t = shape.payload.Tri.t;
-    const float3 centre = (t.p0 + t.p1 + t.p2) / 3.0f;
-    const float radius =
-        std::max({length3(t.p0 - centre), length3(t.p1 - centre),
-                  length3(t.p2 - centre)});
-    return Sphere{centre, radius};
+    return merge(Bounds3f{t.p0, t.p1}, t.p2);
 }
 
-Sphere merge(const Sphere &a, const Sphere &b) {
-    const float3 d = b.center - a.center;
-    const float dist = length3(d);
-    if (a.radius >= dist + b.radius) {
-        return a;
-    }
-    if (b.radius >= dist + a.radius) {
-        return b;
-    }
-    const float radius = 0.5f * (dist + a.radius + b.radius);
-    const float3 dir = (dist > 0.0f) ? d / dist : float3{1.0f, 0.0f, 0.0f};
-    return Sphere{a.center + dir * (radius - a.radius), radius};
-}
+// pbrt: BVHPrimitive, a primitive reduced to what the build sorts on.
+struct BVHPrimitive {
+    uint32_t index;
+    Bounds3f bounds;
+    float3 centroid() const { return bounds.centroid(); }
+};
 
-// pbrt: BVHAggregate's construction, by median split. This is here rather than
-// in bonsai because building a tree is not yet expressible in the language --
-// only traversing one is, and that is the part that runs per ray. The node
-// layout is not chosen here either: the `layout` block in render.bonsai
-// decides it, and this fills in what that block named.
+// pbrt: BVHSplitBucket.
+struct BVHSplitBucket {
+    int count = 0;
+    Bounds3f bounds;
+};
+
+// pbrt: "integer maxnodeprims", whose default is 4. A node holding no more
+// than this may stay a leaf when the SAH says splitting is not worth it.
+constexpr int MaxPrimsInNode = 4;
+
+// pbrt: BVHAggregate::buildRecursive with SplitMethod::SAH, followed by
+// flattenBVH. This is here rather than in bonsai because building a tree is
+// not yet expressible in the language -- only traversing one is, and that is
+// the part that runs per ray. The node layout is not chosen here either: the
+// `layout` block in render.bonsai decides it, and this fills in what that
+// block named.
+//
+// The two passes are fused: pbrt builds a pointer tree and then flattens it
+// depth first, and writing the nodes out depth first in the first place lands
+// them in the same order. What that order buys is the layout's `left = index +
+// 1` -- a child that needs no offset because it is always the next node.
+//
+// pbrt splits the build across threads above 128K primitives, which reorders
+// the primitive array and so builds a different (equally valid) tree. This is
+// the serial path, which is what pbrt itself takes at these sizes.
 _tree_layout0 build_bvh(std::vector<Shape> &shapes) {
-    _tree_layout0 tree;
-    tree.pCount = uint32_t(shapes.size());
-    tree.prims = shapes.data();
-    // One primitive per leaf, so leaves = shapes and interiors = leaves - 1.
-    tree.nCount = uint32_t(2 * shapes.size() - 1);
-    tree.group0_index =
-        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
+    std::vector<BVHPrimitive> prims;
+    prims.reserve(shapes.size());
+    for (uint32_t i = 0; i < shapes.size(); i++) {
+        prims.push_back(BVHPrimitive{i, bounds_of(shapes[i])});
+    }
 
-    uint32_t next_node = 0;
-    std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
-        [&](uint32_t low, uint32_t high, uint32_t depth) -> uint32_t {
+    // pbrt: orderedPrims. A leaf names a run of primitives, so the primitives
+    // it names have to be contiguous, which means the scene is rewritten into
+    // the order the build discovered.
+    std::vector<Shape> ordered;
+    ordered.reserve(shapes.size());
+    std::vector<_tree_layout1> nodes;
+
+    std::function<uint32_t(BVHPrimitive *, size_t, uint32_t)> build =
+        [&](BVHPrimitive *span, size_t n, uint32_t depth) -> uint32_t {
         assert(depth < MaxTreeDepth);
-        const uint32_t count = high - low;
-        const uint32_t self = next_node++;
+        const uint32_t self = uint32_t(nodes.size());
+        nodes.emplace_back();
 
-        if (count == 1) {
-            tree.group0_index[self].nPrims = 1;
-            *reinterpret_cast<uint32_t *>(
-                &tree.group0_index[self].split0on_nPrims) = low;
-            const Sphere b = bounds_of(shapes[low]);
-            tree.group0_index[self].center = b.center;
-            tree.group0_index[self].radius = b.radius;
+        Bounds3f bounds;
+        for (size_t i = 0; i < n; i++) {
+            bounds = merge(bounds, span[i].bounds);
+        }
+
+        // Note the deliberate re-index of `nodes[self]` after any recursion:
+        // the vector reallocates, so a reference taken across a child build
+        // would dangle.
+        const auto make_leaf = [&]() {
+            const uint32_t first = uint32_t(ordered.size());
+            for (size_t i = 0; i < n; i++) {
+                ordered.push_back(shapes[span[i].index]);
+            }
+            nodes[self].low = bounds.pMin;
+            nodes[self].high = bounds.pMax;
+            nodes[self].nPrims = uint16_t(n);
+            const uint32_t offset = first;
+            std::memcpy(nodes[self].split0on_nPrims.data(), &offset,
+                        sizeof(offset));
+        };
+
+        if (bounds.surface_area() == 0.0f || n == 1) {
+            make_leaf();
             return self;
         }
 
-        tree.group0_index[self].nPrims = 0;
-
-        float3 lo = bounds_of(shapes[low]).center;
-        float3 hi = lo;
-        for (uint32_t i = low + 1; i < high; i++) {
-            const float3 c = bounds_of(shapes[i]).center;
-            lo = float3{std::fminf(lo[0], c[0]), std::fminf(lo[1], c[1]),
-                        std::fminf(lo[2], c[2])};
-            hi = float3{std::fmaxf(hi[0], c[0]), std::fmaxf(hi[1], c[1]),
-                        std::fmaxf(hi[2], c[2])};
+        Bounds3f centroidBounds;
+        for (size_t i = 0; i < n; i++) {
+            centroidBounds = merge(centroidBounds, span[i].centroid());
         }
-        const float3 extent = hi - lo;
-        int axis = (extent[1] > extent[0]) ? 1 : 0;
-        if (extent[2] > extent[axis]) {
-            axis = 2;
+        const int dim = centroidBounds.max_dimension();
+
+        // Every centroid at the same place on the widest axis: no split can
+        // separate them, so splitting would only add a level.
+        if (centroidBounds.pMax[dim] == centroidBounds.pMin[dim]) {
+            make_leaf();
+            return self;
         }
-        tree.group0_index[self].axis = uint8_t(axis);
 
-        const uint32_t mid = low + count / 2;
-        std::nth_element(
-            shapes.begin() + low, shapes.begin() + mid, shapes.begin() + high,
-            [axis](const Shape &a, const Shape &b) {
-                return bounds_of(a).center[axis] < bounds_of(b).center[axis];
-            });
+        size_t mid = n / 2;
+        if (n <= 2) {
+            std::nth_element(span, span + mid, span + n,
+                             [dim](const BVHPrimitive &a, const BVHPrimitive &b) {
+                                 return a.centroid()[dim] < b.centroid()[dim];
+                             });
+        } else {
+            // The surface area heuristic, over twelve buckets along the
+            // widest axis of the centroids.
+            constexpr int nBuckets = 12;
+            BVHSplitBucket buckets[nBuckets];
+            const auto bucket_of = [&](const BVHPrimitive &p) {
+                int b = int(nBuckets * centroidBounds.offset(p.centroid())[dim]);
+                return (b == nBuckets) ? nBuckets - 1 : b;
+            };
+            for (size_t i = 0; i < n; i++) {
+                const int b = bucket_of(span[i]);
+                buckets[b].count++;
+                buckets[b].bounds = merge(buckets[b].bounds, span[i].bounds);
+            }
 
-        const uint32_t left = handle_range(low, mid, depth + 1);
-        const uint32_t right = handle_range(mid, high, depth + 1);
-        *reinterpret_cast<uint32_t *>(
-            &tree.group0_index[self].split0on_nPrims) = right - self;
+            // The cost of splitting after bucket i is the area of each side
+            // weighted by how many primitives land there. Two scans, so that
+            // each side's running union is computed once rather than per
+            // candidate split.
+            constexpr int nSplits = nBuckets - 1;
+            float costs[nSplits] = {};
+            int countBelow = 0;
+            Bounds3f boundBelow;
+            for (int i = 0; i < nSplits; i++) {
+                boundBelow = merge(boundBelow, buckets[i].bounds);
+                countBelow += buckets[i].count;
+                costs[i] += float(countBelow) * boundBelow.surface_area();
+            }
+            int countAbove = 0;
+            Bounds3f boundAbove;
+            for (int i = nSplits; i >= 1; i--) {
+                boundAbove = merge(boundAbove, buckets[i].bounds);
+                countAbove += buckets[i].count;
+                costs[i - 1] += float(countAbove) * boundAbove.surface_area();
+            }
 
-        const Sphere merged = merge(
-            {tree.group0_index[left].center, tree.group0_index[left].radius},
-            {tree.group0_index[right].center, tree.group0_index[right].radius});
-        tree.group0_index[self].center = merged.center;
-        tree.group0_index[self].radius = merged.radius;
+            int minCostSplitBucket = -1;
+            float minCost = std::numeric_limits<float>::infinity();
+            for (int i = 0; i < nSplits; i++) {
+                if (costs[i] < minCost) {
+                    minCost = costs[i];
+                    minCostSplitBucket = i;
+                }
+            }
+
+            // pbrt's half is the cost of the node traversal itself, against a
+            // leaf costing one intersection per primitive.
+            const float leafCost = float(n);
+            minCost = 0.5f + minCost / bounds.surface_area();
+            if (n > size_t(MaxPrimsInNode) || minCost < leafCost) {
+                BVHPrimitive *midIter =
+                    std::partition(span, span + n, [&](const BVHPrimitive &p) {
+                        return bucket_of(p) <= minCostSplitBucket;
+                    });
+                mid = size_t(midIter - span);
+            } else {
+                make_leaf();
+                return self;
+            }
+        }
+
+        nodes[self].low = bounds.pMin;
+        nodes[self].high = bounds.pMax;
+        nodes[self].nPrims = 0;
+        nodes[self].axis = uint8_t(dim);
+        build(span, mid, depth + 1);
+        const uint32_t right = build(span + mid, n - mid, depth + 1);
+        const uint32_t offset = right - self;
+        std::memcpy(nodes[self].split0on_nPrims.data(), &offset,
+                    sizeof(offset));
         return self;
     };
 
-    handle_range(0, tree.pCount, 0);
+    build(prims.data(), prims.size(), 0);
+
+    shapes = std::move(ordered);
+
+    _tree_layout0 tree;
+    tree.pCount = uint32_t(shapes.size());
+    tree.prims = shapes.data();
+    tree.nCount = uint32_t(nodes.size());
+    tree.group0_index =
+        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
+    std::memcpy(tree.group0_index, nodes.data(),
+                sizeof(_tree_layout1) * tree.nCount);
     return tree;
 }
 
