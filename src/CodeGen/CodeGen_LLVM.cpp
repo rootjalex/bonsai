@@ -122,7 +122,15 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     // use_large_code_model);
 
     auto *tm = llvm_target->createTargetMachine(
-        target_triple, options.target_cpu, /*Features=*/"", target_options,
+        // Not module.getTargetTriple(): the module only gets a triple below,
+        // and only for ASM/CPP, so this was the empty string for every
+        // backend. On an x86 host that yields a generic *i386* machine --
+        // 32-bit pointers in the data layout the CPP backend then installs,
+        // and a TTI reporting zero vector registers, which silently disables
+        // vectorization everywhere.
+        target_triple,
+        // The CPU `--mcpu` named, empty for a generic one.
+        options.target_cpu, /*Features=*/"", target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
         llvm::CodeGenOptLevel::Aggressive);
@@ -1235,6 +1243,13 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         // as one. Without this the callee reads eight bytes where four were
         // written and prints garbage.
         expr = builder->CreateFPExt(expr, llvm::Type::getDoubleTy(*context));
+    }
+    if (t.is<ir::Float_t>() && expr->getType() != f64_t) {
+        // printf is variadic, so the default argument promotions apply: any
+        // float narrower than a double arrives as a double, and that is what
+        // the "%f" specifier reads. Passing the narrow value straight through
+        // leaves the upper half of the argument undefined and prints garbage.
+        expr = builder->CreateFPExt(expr, f64_t);
     }
     args.push_back(expr);
 }
@@ -2671,10 +2686,15 @@ void CodeGen_LLVM::ensure_capacity(
     builder->CreateCondBr(condition, grow_bb, unlock_bb);
 
     builder->SetInsertPoint(grow_bb);
-    // Handle the zero capacity case.
+    // Handle the zero capacity case. Emit the two operands in separate
+    // statements: as arguments to one call their evaluation order is
+    // unspecified, and each one appends an instruction, so the order they
+    // appear in the IR would otherwise depend on the compiler that built
+    // Bonsai -- GCC evaluates right to left, Clang left to right.
+    llvm::Value *capacity_is_zero = builder->CreateICmpEQ(capacity, zero);
+    llvm::Value *doubled_capacity = builder->CreateMul(capacity, two);
     llvm::Value *new_capacity = builder->CreateSelect(
-        builder->CreateICmpEQ(capacity, zero), one,
-        builder->CreateMul(capacity, two), base_n + ".new-capacity");
+        capacity_is_zero, one, doubled_capacity, base_n + ".new-capacity");
     const llvm::DataLayout &layout = module->getDataLayout();
     llvm::Type *i8_t = llvm::Type::getInt8Ty(*context);
     llvm::Type *s_t = layout.getIntPtrType(*context);
@@ -2864,6 +2884,39 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             builder->CreateFCmpOLT(curr_key, new_key); // curr_key < new_key
 
         // Select the full struct based on which key is smaller
+        acc = builder->CreateSelect(cmp, current, update);
+        break;
+    }
+    case Accumulate::Argmax: {
+        // acc = select(curr.first > update.first, curr, update)
+        llvm::Value *curr_key =
+            builder->CreateExtractValue(current, 0); // curr.first
+        llvm::Value *new_key =
+            builder->CreateExtractValue(update, 0); // update.first
+
+        internal_assert(curr_key->getType()->isFloatingPointTy());
+        llvm::Value *cmp =
+            builder->CreateFCmpOGT(curr_key, new_key); // curr_key > new_key
+
+        // Select the full struct based on which key is larger
+        acc = builder->CreateSelect(cmp, current, update);
+        break;
+    }
+    case Accumulate::Min:
+    case Accumulate::Max: {
+        const bool is_min = node->op == Accumulate::Min;
+        const Type &t = node->value.type();
+        llvm::Value *cmp = nullptr;
+        if (t.is_float()) {
+            cmp = is_min ? builder->CreateFCmpOLT(current, update)
+                         : builder->CreateFCmpOGT(current, update);
+        } else if (t.is_int()) {
+            cmp = is_min ? builder->CreateICmpSLT(current, update)
+                         : builder->CreateICmpSGT(current, update);
+        } else {
+            cmp = is_min ? builder->CreateICmpULT(current, update)
+                         : builder->CreateICmpUGT(current, update);
+        }
         acc = builder->CreateSelect(cmp, current, update);
         break;
     }

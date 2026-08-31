@@ -1,0 +1,50 @@
+//! flags: -p canonicalize -p lower-trees -p lower-geometrics
+
+// The other tests in this directory stop before lower-geometrics, so they
+// check the conditions predicate analysis derives without needing any
+// geometry to be implemented. This one goes all the way through, against the
+// standard library, and so checks the other half: that every operator the
+// analysis emits on a bounding volume has an implementation to resolve to.
+//
+// Predicate analysis rewrites a query predicate into relations between
+// volumes, which are usually not the relation the query was written with --
+// a `covers` filter needs `intersects` on volumes, a `disjoint` filter needs
+// `contains`, an ordering predicate needs its strict counterpart with the
+// operands swapped, and any metric needs both distmin and distmax. A missing
+// overload is an error from lower-geometrics, so this failing means the
+// standard library has a hole.
+//
+// The golden is the whole program, so editing stdlib/topology.bonsai or
+// stdlib/distance.bonsai will change it. Re-read the diff before blessing.
+
+import stdlib/distance;
+import stdlib/topology;
+
+extern points : set[Point];
+
+func q_contains(r : AABB) = filter(|p| contains(r, p), points);
+func q_covers(r : AABB) = filter(|p| covers(r, p), points);
+func q_disjoint(r : AABB) = filter(|p| disjoint(r, p), points);
+func q_intersects(r : AABB) = filter(|p| intersects(r, p), points);
+func q_within(r : AABB) = filter(|p| within(p, r), points);
+func q_touches(r : AABB) = filter(|p| touches(r, p), points);
+func q_equals(q : Point) = filter(|p| equals(p, q), points);
+
+func q_lex(r : AABB) = filter(|p| lex(r, p), points);
+func q_ley(r : AABB) = filter(|p| ley(p, r), points);
+func q_lez(r : AABB) = filter(|p| lez(r, p), points);
+func q_ltx(r : AABB) = filter(|p| ltx(r, p), points);
+func q_lty(r : AABB) = filter(|p| lty(p, r), points);
+func q_ltz(r : AABB) = filter(|p| ltz(r, p), points);
+
+func q_closest(q : Point) = argmin(|p| distmin(q, p), points);
+func q_nearest(q : Point) = minimum(|p| distmin(q, p), points);
+func q_farthest(q : Point) = maximum(|p| distmax(q, p), points);
+
+schedule {
+    tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : PointBVH, right : PointBVH)
+    | Leaf(data : Point) with data = data;
+
+    points : PointBVH;
+}

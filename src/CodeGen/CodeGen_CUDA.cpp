@@ -357,12 +357,13 @@ void CodeGen_CUDA::visit(const StringImm *node) {
 }
 
 void CodeGen_CUDA::visit(const Extrema *node) {
-    if (node->op == Extrema::inf) {
+    switch (node->op) {
+    case Extrema::inf:
         os << "INFINITY";
-    } else if (node->op == Extrema::eps) {
-        os << "EPSILON";
-    } else {
-        internal_error << "Failed Extrema codegen for CUDA";
+        break;
+    case Extrema::eps:
+        os << (node->type.bits() == 64 ? "DBL_EPSILON" : "FLT_EPSILON");
+        break;
     }
 }
 
@@ -965,8 +966,8 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
     case Accumulate::OpType::Mul:
         os << '*';
         break;
-    case Accumulate::OpType::Argmax: {
-    case Accumulate::OpType::Argmin:
+    case Accumulate::OpType::Argmax:
+    case Accumulate::OpType::Argmin: {
         // curr arg{min|max}= update;
         // ->
         // curr = arg{min|max}(curr, update);
@@ -979,8 +980,9 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         os << ')';
         os << ';' << '\n';
         return;
-    case Accumulate::OpType::Max: {
-    case Accumulate::OpType::Min:
+    }
+    case Accumulate::OpType::Max:
+    case Accumulate::OpType::Min: {
         // curr {min|max}= update;
         // ->
         // curr = {min|max}(curr, update);
@@ -992,7 +994,6 @@ void CodeGen_CUDA::visit(const Accumulate *node) {
         os << ')';
         os << ';' << '\n';
         return;
-    }
     }
     }
     os << '=' << ' ';

@@ -181,17 +181,23 @@ ir::WriteLoc read_to_writeloc(const ir::Expr &expr);
 // Whether we can convert an expression into a WriteLoc.
 bool is_writeloc(const ir::Expr &expr);
 
-inline bool is_geometric_intrinsic(const std::string &name) {
-    return (name == "contains") || (name == "distmin") || (name == "distmax") ||
-           (name == "intersects");
-}
-
-inline bool is_geometric_predicate(const std::string &name) {
-    return (name == "contains") || (name == "intersects");
-}
-
 inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
+}
+
+// The topological and ordering predicates of Figure 1.
+inline bool is_geometric_predicate(const std::string &name) {
+    for (uint32_t i = 0; i < ir::GeomOp::opcount; i++) {
+        const auto op = static_cast<ir::GeomOp::OpType>(i);
+        if (name == ir::GeomOp::intrinsic_name(op)) {
+            return !is_geometric_metric(name);
+        }
+    }
+    return false;
+}
+
+inline bool is_geometric_intrinsic(const std::string &name) {
+    return is_geometric_predicate(name) || is_geometric_metric(name);
 }
 
 // Returns a bit mask of size n.

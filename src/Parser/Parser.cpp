@@ -110,12 +110,25 @@ struct Parser {
             "sqrt",
             "tan",
             // Set operations
+            "argmax",
             "argmin",
             "filter",
             "map",
+            "maximum",
             "minimum",
             "product",
             // Geometry operations
+            "covers",
+            "disjoint",
+            "equals",
+            "touches",
+            "within",
+            "lex",
+            "ley",
+            "lez",
+            "ltx",
+            "lty",
+            "ltz",
             "distmax",
             "distmin",
             "intersects",
@@ -131,6 +144,7 @@ struct Parser {
             "avg",
             "count",
             "prod",
+            "reduce",
             // Other builtins
             "cast",
             "reinterpret",
@@ -1505,19 +1519,30 @@ struct Parser {
         };
 
         static constexpr auto SPATTERNS = std::to_array<SetPattern>({
+            // `any` and `all` also name the vector reductions below, but at
+            // arity 1; here they take a predicate and a set.
+            {"all", ir::SetOp::all},
+            {"any", ir::SetOp::any},
+            {"argmax", ir::SetOp::argmax},
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
             {"map", ir::SetOp::map},
+            {"maximum", ir::SetOp::maximum},
             {"minimum", ir::SetOp::minimum},
             {"product", ir::SetOp::product},
         });
 
-        if (auto op = try_match_pattern<ir::SetOp::OpType>(name, args.size(),
-                                                           SPATTERNS, 2)) {
-            return ir::SetOp::make(*op, std::move(args[0]), std::move(args[1]));
+        if (args.size() == 2) {
+            if (auto op = try_match_pattern<ir::SetOp::OpType>(
+                    name, args.size(), SPATTERNS, 2)) {
+                return ir::SetOp::make(*op, std::move(args[0]),
+                                       std::move(args[1]));
+            }
         }
 
-        // Agg operations
+        // Aggregations over a set. Note that `sum` and `prod` are absent:
+        // they share a spelling with the vector reductions below, so
+        // VectorReduce::make dispatches them on the argument type instead.
         struct AggPattern {
             const std::string_view name;
             ir::AggOp::OpType op;
@@ -1526,13 +1551,20 @@ struct Parser {
         static constexpr auto APATTERNS = std::to_array<AggPattern>({
             {"avg", ir::AggOp::avg},
             {"count", ir::AggOp::count},
-            {"prod", ir::AggOp::prod},
-            // TODO: sum, min, max
         });
 
         if (auto op = try_match_pattern<ir::AggOp::OpType>(name, args.size(),
                                                            APATTERNS, 1)) {
             return ir::AggOp::make(*op, std::move(args[0]));
+        }
+
+        if (name == "reduce") {
+            if (args.size() != 3) {
+                report_error()
+                    << "reduce takes 3 argument(s), received " << args.size();
+            }
+            return ir::AggOp::make(std::move(args[0]), std::move(args[1]),
+                                   std::move(args[2]));
         }
 
         // Geometry operations
@@ -1542,10 +1574,21 @@ struct Parser {
         };
 
         static const auto GPATTERNS = std::to_array<GeomPattern>({
+            {"contains", ir::GeomOp::contains},
+            {"covers", ir::GeomOp::covers},
+            {"disjoint", ir::GeomOp::disjoint},
+            {"equals", ir::GeomOp::equals},
+            {"intersects", ir::GeomOp::intersects},
+            {"touches", ir::GeomOp::touches},
+            {"within", ir::GeomOp::within},
+            {"lex", ir::GeomOp::lex},
+            {"ley", ir::GeomOp::ley},
+            {"lez", ir::GeomOp::lez},
+            {"ltx", ir::GeomOp::ltx},
+            {"lty", ir::GeomOp::lty},
+            {"ltz", ir::GeomOp::ltz},
             {"distmax", ir::GeomOp::distmax},
             {"distmin", ir::GeomOp::distmin},
-            {"intersects", ir::GeomOp::intersects},
-            {"contains", ir::GeomOp::contains},
         });
 
         if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(),
@@ -1586,6 +1629,12 @@ struct Parser {
     ir::Expr parse_identifier() {
         const std::string name = get_id();
 
+        // A builtin's name is reserved everywhere, not only where it is
+        // applied. Letting a variable or a layout field be called `count`
+        // would mean the same name reads as an intrinsic in one place and an
+        // ordinary identifier in another, and whichever it turns out to be
+        // depends on what follows it -- which is exactly the confusion worth
+        // not having. A layout that wants this field calls it `nCount`.
         if (program.funcs.contains(name) || is_builtin(name) ||
             variant_owners.contains(name)) {
             return parse_function_call(name);
@@ -1593,6 +1642,10 @@ struct Parser {
 
         if (name == "inf") {
             return ir::Extrema::make(f32, ir::Extrema::inf);
+        }
+
+        if (name == "eps") {
+            return ir::Extrema::make(f32, ir::Extrema::eps);
         }
 
         if (consume(Token::Type::LPAREN)) {
@@ -1908,8 +1961,7 @@ struct Parser {
             return strings;
         }
         do {
-            std::string str = get_id();
-            strings.emplace_back(std::move(str));
+            strings.emplace_back(get_id());
         } while (consume(Token::Type::COMMA));
         expect(token);
         return strings;
@@ -2461,8 +2513,11 @@ struct Parser {
                 return ir::Annotation{ir::Annotation::Interval{
                     "", std::move(low), std::move(high)}};
             }
+
         } else if (name == "avg" || name == "count" || name == "max" ||
                    name == "min" || name == "prod" || name == "sum") {
+            // Reduction augmentation, e.g. `with min(id) = idl`: the node
+            // field `idl` stores the minimum `id` over the subtree.
             expect(Token::Type::LPAREN);
             std::vector<std::string> args =
                 parse_string_list_until(Token::Type::RPAREN);

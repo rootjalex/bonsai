@@ -473,10 +473,19 @@ Expr Mutator::visit(const SetOp *node) {
 
 Expr Mutator::visit(const AggOp *node) {
     Expr a = mutate(node->a);
-    if (a.same_as(node->a)) {
+    if (node->op != AggOp::reduce) {
+        if (a.same_as(node->a)) {
+            return node;
+        }
+        return AggOp::make(node->op, std::move(a));
+    }
+    Expr identity = mutate(node->identity);
+    Expr combiner = mutate(node->combiner);
+    if (a.same_as(node->a) && identity.same_as(node->identity) &&
+        combiner.same_as(node->combiner)) {
         return node;
     }
-    return AggOp::make(node->op, std::move(a));
+    return AggOp::make(std::move(identity), std::move(combiner), std::move(a));
 }
 
 Expr Mutator::visit(const Call *node) {
@@ -714,10 +723,11 @@ Stmt Mutator::visit(const Iterate *node) {
 
 Stmt Mutator::visit(const Scan *node) {
     Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
+    Expr func = node->func.defined() ? mutate(node->func) : node->func;
+    if (value.same_as(node->value) && func.same_as(node->func)) {
         return node;
     }
-    return Scan::make(node->op, std::move(value));
+    return Scan::make(node->op, node->loc, std::move(func), std::move(value));
 }
 
 Stmt Mutator::visit(const YieldFrom *node) {

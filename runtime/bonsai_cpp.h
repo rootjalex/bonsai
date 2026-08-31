@@ -9,6 +9,16 @@
 #include "u24.h"
 #include "u56.h"
 
+// For the std:: names pulled into the global namespace below, and the
+// bit_cast/memcpy used by reinterpret(). libc++ provides these transitively;
+// libstdc++ does not.
+#include <algorithm>
+#include <bit>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <type_traits>
+
 template <typename T, typename U>
 __attribute__((always_inline)) T reinterpret(const U &bits) {
     static_assert(sizeof(T) == sizeof(U), "Size mismatch in reinterpret");

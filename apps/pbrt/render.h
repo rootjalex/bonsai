@@ -29,14 +29,13 @@ struct Shape {
     uint8_t tag;
     Shape_payload payload;
 };
-typedef uint8_t uint8_t4 __attribute__((ext_vector_type(4)));
 struct _tree_layout1 {
     float3 center;
     float radius;
     uint16_t nPrims;
     uint8_t axis;
     uint8_t pad0;
-    uint8_t4 split0on_nPrims;
+    std::array<uint8_t, 4> split0on_nPrims;
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;

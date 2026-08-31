@@ -162,6 +162,11 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 const ir::Switch *node = l.as<ir::Switch>();
                 // Store as vector of bytes, load and reinterpret to proper
                 // type.
+                //
+                // A vector of bytes here is packed storage of an exact width,
+                // not a value: it is the only thing that produces one, and the
+                // backends emit it as exactly `bits / 8` bytes rather than
+                // rounding its lane count up the way a real vector does.
                 const uint64_t bits = l.bits();
                 if (bits > 0) {
                     internal_assert(bits % 8 == 0)

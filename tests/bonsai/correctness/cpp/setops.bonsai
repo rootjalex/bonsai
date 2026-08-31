@@ -1,0 +1,42 @@
+//! flags: -p canonicalize -p lower-trees -p lower-externs -p lower-dynamic-sets -p lower-scans -p lower-layouts -p lower-recloops -p lower-foreachs -p lower-yields -p lower-option -p lower-tuples -p unswitch -b cppx -o tests/bonsai/correctness/cpp/setops
+//! commands: clang++ -std=c++20 -O2 -c $<>/main_setops.cpp -I. -o $<>/main_setops.o, clang++ -std=c++20 -O2 -c $<>/setops.cpp -I. -o $<>/setops_gen.o, clang++ $<>/main_setops.o $<>/setops_gen.o -o $<>/setops_run, ./$<>/setops_run, rm $<>/setops_run, rm $<>/main_setops.o, rm $<>/setops_gen.o, rm $<>/setops.h, rm $<>/setops.cpp
+
+// Every query below is checked against a linear scan over the same data
+// by main_setops.cpp, so a lowering that traverses the tree wrongly --
+// pruning a subtree it should have visited, or double-counting one it
+// folded in from an augmentation -- shows up as a mismatch rather than
+// as a golden that merely looks plausible.
+extern input : set[f32];
+
+func [[export]] q_count(lo : f32, hi : f32) = count(filter(|i : f32| lo <= i && i <= hi, input));
+func [[export]] q_sum(lo : f32, hi : f32) = sum(map(|i : f32| i, filter(|j : f32| lo <= j && j <= hi, input)));
+func [[export]] q_min(lo : f32, hi : f32) = minimum(|i : f32| i, filter(|j : f32| lo <= j && j <= hi, input));
+func [[export]] q_max(lo : f32, hi : f32) = maximum(|i : f32| i, filter(|j : f32| lo <= j && j <= hi, input));
+func [[export]] q_any(lo : f32, hi : f32) = any(|i : f32| lo <= i && i <= hi, input);
+func [[export]] q_all(lo : f32, hi : f32) = all(|i : f32| lo <= i && i <= hi, input);
+
+schedule {
+    tree[[f32]] IntervalTree(low high : f32) with data in [low, high] =
+    | Interior(left : IntervalTree, right : IntervalTree)
+    | Leaf(d : array[f32]) with data = d;
+
+    input : IntervalTree;
+
+    layout input {
+        pCount : u64;
+        prims : array[f32, pCount];
+        // `count` is an aggregation intrinsic, and an intrinsic's name is
+        // reserved everywhere rather than only where it is applied, so a
+        // layout field cannot be called that.
+        nCount : u64;
+        group[nCount] index : u64 {
+            low : f32;
+            high : f32;
+            nPrims : u8;
+            switch nPrims {
+                0 => Interior { offset : u56; left = index + 1; right = index + cast[[u64]](offset); };
+                 _ => Leaf { pOffset : u56; d = range(prims, cast[[u64]](pOffset), cast[[u64]](nPrims)); };
+            };
+        };
+    };
+}

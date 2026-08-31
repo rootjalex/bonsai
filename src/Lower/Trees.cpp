@@ -14,7 +14,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -75,6 +74,26 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
     return {data, children};
 }
 
+// Key under which a node's precomputed aggregate is recorded, e.g. "count()"
+// or "min(id)". Must agree between the annotation and the query operator
+// looking the aggregate up.
+std::string aggregate_key(const ir::Annotation::Aggregate &agg) {
+    std::string key = to_string(agg.op) + "(";
+    for (size_t i = 0; i < agg.args.size(); i++) {
+        if (i != 0) {
+            key += ", ";
+        }
+        key += agg.args[i];
+    }
+    key += ")";
+    return key;
+}
+
+std::string aggregate_key(ir::Annotation::Aggregate::OpType op,
+                          const std::vector<std::string> &args) {
+    return aggregate_key(ir::Annotation::Aggregate{op, args, ""});
+}
+
 struct RewriteYields : public ir::Mutator {
     std::function<ir::Stmt(const ir::Expr &)> f;
     RewriteYields(std::function<ir::Stmt(const ir::Expr &)> f)
@@ -82,6 +101,29 @@ struct RewriteYields : public ir::Mutator {
 
     ir::Stmt visit(const ir::Yield *node) override { return f(node->value); }
 };
+
+// Substitute a yielded element into a lambda over the set's elements. A
+// multi-argument lambda comes from coiterating several sets, so the element is
+// a tuple to be destructured componentwise.
+ir::Expr apply_lambda(const ir::Expr &func, const ir::Expr &value) {
+    const ir::Lambda *lambda = func.as<ir::Lambda>();
+    internal_assert(lambda) << "Not a lambda: " << func;
+    if (lambda->args.size() == 1) {
+        internal_assert(ir::equals(lambda->args[0].type, value.type()))
+            << lambda->args[0].type << " versus " << value.type();
+        return replace(lambda->args[0].name, value, lambda->value);
+    }
+    internal_assert(value.type().is<ir::Tuple_t>()) << value;
+    std::map<std::string, ir::Expr> repls;
+    for (size_t i = 0; i < lambda->args.size(); i++) {
+        // TODO: this needs to simplify or have CSE for it to be efficient!
+        ir::Expr component = opt::Simplify::simplify(
+            ir::Extract::make(value, static_cast<int>(i)));
+        internal_assert(ir::equals(component.type(), lambda->args[i].type));
+        repls[lambda->args[i].name] = std::move(component);
+    }
+    return replace(repls, lambda->value);
+}
 
 ir::Expr make_tuple_pair(ir::Expr a, ir::Expr b) {
     ir::Type tuple_t = ir::Tuple_t::make({a.type(), b.type()});
@@ -113,14 +155,17 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
-    // Any child-named volumes
+    // Volumes annotated on a node's children rather than on the node itself.
+    // Keyed by the matched tree variable, then by child field name.
     std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
     // The list of tagged intervals. Holds scalar interval OR map of field
     // intervals.
     std::vector<
         std::variant<std::monostate, Interval, std::map<std::string, Interval>>>
         intervals;
-    // The list of augmentations for current match arms.
+    // Reduction augmentations for the current match arms: the field holding a
+    // precomputed aggregate over the subtree, keyed by the aggregate it
+    // stores.
     // TODO: key is a string concat of the aggregation request, not ideal...
     std::vector<std::map<std::string, ir::Expr>> aggregations;
     // The list of nodes for the current matches.
@@ -146,7 +191,7 @@ struct Rewriter : public ir::Mutator {
                 return Interval{std::move(low_expr), std::move(high_expr)};
             };
 
-            auto make_volume =
+            const auto make_volume =
                 [&](const ir::Annotation::Volume *volume) -> ir::Expr {
                 const auto &inits = volume->initializers;
                 const size_t n_args = inits.size();
@@ -159,8 +204,7 @@ struct Rewriter : public ir::Mutator {
             };
 
             if (bvh_node.has_volume()) {
-                const auto &volume = bvh_node.get_volume();
-                volumes.emplace_back(make_volume(volume));
+                volumes.emplace_back(make_volume(bvh_node.get_volume()));
             } else {
                 volumes.emplace_back(); // undef volume
             }
@@ -194,19 +238,14 @@ struct Rewriter : public ir::Mutator {
                     }
                 } else if (const auto *agg =
                                annot.as<ir::Annotation::Aggregate>()) {
-                    std::string key = to_string(agg->op) + "(";
-                    for (const auto &arg : agg->args) {
-                        key += arg;
-                    }
-                    key += ")";
-                    ir::Expr expr = ir::Access::make(agg->value, tree);
-                    aggregation[key] = std::move(expr);
+                    aggregation[aggregate_key(*agg)] =
+                        ir::Access::make(agg->value, tree);
                 } else if (const auto *vol =
                                annot.as<ir::Annotation::Volume>()) {
                     if (vol->geometry.empty()) {
-                        continue;
+                        continue; // the node's own volume, handled above
                     }
-                    // Tag on a child.
+                    // Tagged on a child.
                     built_child_volumes[vol->geometry] = make_volume(vol);
                 }
             }
@@ -244,9 +283,11 @@ struct Rewriter : public ir::Mutator {
         return vols;
     }
 
+    // Build a volume map from the child volumes attached to `value`, for the
+    // case where a node annotates its children's bounds rather than its own.
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
                               const ir::Expr &value) const {
-        auto get_volume = [&](const ir::Expr &e) {
+        const auto get_volume = [&](const ir::Expr &e) {
             const ir::Access *access = e.as<ir::Access>();
             internal_assert(access) << e;
             const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
@@ -376,21 +417,18 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             IntervalMap ints = make_interval_map(lambda->args, intervals);
 
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
+
             // Make a recursive call
             // TODO: this should be wrapped in a filter, for cases with
             // simplified predicates. This is required for proper predicate
             // analysis of conjunctions/disjunctions. ir::Stmt body =
             // ir::YieldFrom::make(ir::filter(predicate, node->value));
             ir::Stmt body = ir::YieldFrom::make(node->value);
-
-            /*
-            internal_assert(bounds.max.defined() && !is_const_one(bounds.max))
-                << "Cannot accelerate predicate: " << predicate
-                << " on: " << ir::Stmt(node);
-            */
-            // Add the maybe case -> recursive call
-            if (bounds.max.defined() && !is_const_one(bounds.max))
+            // Add the maybe case -> recursive call. A bound that is trivially
+            // true prunes nothing, so skip the guard entirely.
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
+            }
 
             // Check for always case
             if (bounds.min.defined() && !is_const_zero(bounds.min)) {
@@ -412,7 +450,61 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
     return RewriteFilter(std::move(predicate), intervals).mutate(body);
 }
 
-std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric,
+// Which end of the metric an extremum operator seeks.
+enum class Extremum { Min, Max };
+
+const char *name_of(Extremum dir, bool arg) {
+    if (arg) {
+        return dir == Extremum::Min ? "argmin" : "argmax";
+    }
+    return dir == Extremum::Min ? "minimum" : "maximum";
+}
+
+// The identity of the extremum: the worst possible value, so that any element
+// improves on it. Note that for signed integers this is -INT_MAX rather than
+// INT_MIN, matching how Extrema::inf already approximates infinity there.
+ir::Expr extremum_identity(const ir::Type &t, Extremum dir) {
+    ir::Expr inf = ir::Extrema::make(t, ir::Extrema::inf);
+    if (dir == Extremum::Min) {
+        return inf;
+    }
+    return t.is_uint() ? make_zero(t) : -inf;
+}
+
+// `value` beats `best`.
+ir::Expr improves_on(Extremum dir, ir::Expr value, ir::Expr best) {
+    return dir == Extremum::Min ? (std::move(value) < std::move(best))
+                                : (std::move(best) < std::move(value));
+}
+
+// What predicate analysis can say about the best value reachable in a
+// subtree: for a minimum that is the metric's upper bound over the subtree,
+// and for a maximum its lower bound.
+ir::Expr reachable_bound(Extremum dir, const Interval &bounds) {
+    return dir == Extremum::Min ? bounds.max : bounds.min;
+}
+
+// The bound that decides whether a subtree is worth visiting: a minimum has
+// to descend when the subtree's smallest reachable value beats the running
+// best, which is the metric's lower bound over the subtree.
+ir::Expr promising_bound(Extremum dir, const Interval &bounds) {
+    return dir == Extremum::Min ? bounds.min : bounds.max;
+}
+
+// The accumulator's own interval. A running minimum is an upper bound on any
+// value that can still be accepted, and vice versa.
+Interval accumulator_interval(Extremum dir, const ir::Expr &acc) {
+    return dir == Extremum::Min ? Interval{ir::Expr(), acc}
+                                : Interval{acc, ir::Expr()};
+}
+
+// Fuse "this element improves on the running best" into an existing filter if
+// there is one, so that the value-based pruning condition participates in
+// predicate analysis. The bool reports whether an existing filter was fused
+// into; when false the caller must still update the accumulator from
+// recursive calls itself.
+std::pair<ir::Expr, bool> try_fuse_filter(Extremum dir,
+                                          const ir::Lambda *metric,
                                           ir::Expr best,
                                           ir::Expr maybe_filter) {
     if (const ir::SetOp *as_set = maybe_filter.as<ir::SetOp>()) {
@@ -431,16 +523,16 @@ std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric,
                 }
                 internal_assert(
                     equals(metric->args[i].type, predicate->args[i].type))
-                    << "Mismatched types in argmin-filter fusion: "
+                    << "Mismatched types in metric-filter fusion: "
                     << metric->args[i].type
                     << " != " << predicate->args[i].type;
             }
 
             // Check for convenient case of same naming / types.
+            ir::Expr value =
+                repls.empty() ? metric->value : replace(repls, metric->value);
             ir::Expr new_cond =
-                repls.empty() ? (predicate->value && (metric->value < best))
-                              : predicate->value &&
-                                    (replace(repls, metric->value) < best);
+                predicate->value && improves_on(dir, std::move(value), best);
             // Construct fused filter.
             ir::Expr new_lambda =
                 ir::Lambda::make(predicate->args, std::move(new_cond));
@@ -449,34 +541,32 @@ std::pair<ir::Expr, bool> try_fuse_filter(const ir::Lambda *metric,
     }
 
     // Not a nested filter, so just wrap in a filter and return
-    ir::Expr new_cond = (metric->value < best);
+    ir::Expr new_cond = improves_on(dir, metric->value, std::move(best));
     ir::Expr new_lambda = ir::Lambda::make(metric->args, std::move(new_cond));
     return {filter(std::move(new_lambda), std::move(maybe_filter)), false};
 }
 
-ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
-                      const ir::TypeMap &tree_types,
-                      const IntervalMap &intervals, ir::Type expect_type) {
-    struct RewriteArgmin : public Rewriter {
+// Algorithm 3: argmin and argmax. These mirror Algorithm 2 but also track the
+// element achieving the extremum, so the accumulator is a (metric, element)
+// pair updated with an argmin/argmax accumulate.
+ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
+                            const ir::TypeMap &tree_types,
+                            const IntervalMap &intervals,
+                            ir::Type expect_type) {
+    struct RewriteArgExtremum : public Rewriter {
+        Extremum dir;
         ir::Expr metric;
         ir::WriteLoc loc;
         ir::Type tuple_t;
-        const IntervalMap &intervals;
-        const bool update_from_yfs;
 
-        RewriteArgmin(ir::Expr met, ir::WriteLoc l, ir::Type t,
-                      const IntervalMap &intervals, const bool update_from_yfs)
-            : metric(std::move(met)), loc(std::move(l)), tuple_t(std::move(t)),
-              intervals(intervals), update_from_yfs(update_from_yfs) {}
-
-        size_t counter = 0;
-
-        std::string make_temp_name() {
-            return loc.base + "_temp" + std::to_string(counter++);
-        }
+        RewriteArgExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
+                           ir::Type t)
+            : dir(dir), metric(std::move(met)), loc(std::move(l)),
+              tuple_t(std::move(t)) {}
 
         using ir::Mutator::visit;
 
+        // yield x => upd a arg(a, (M(x), x))
         ir::Stmt visit(const ir::Yield *node) override {
             internal_assert(!volumes.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
@@ -492,8 +582,14 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
             std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
 
-            // Filter fusion will ensure that any yielded value is better
-            // than the current best.
+            // A plain write, not an Accumulate::Arg{min,max}. Filter fusion
+            // has already put the comparison against the current best into the
+            // filter this yield sits inside, so anything reaching here is
+            // better and the write is unconditional. Spelling it as an
+            // accumulate would say the same thing twice, and leave every
+            // backend to implement a compare-and-select over a tuple -- which
+            // the SSA path has no operation for, so `-p ssa` could not lower a
+            // tree query at all.
             return ir::Store::make(loc, std::move(update));
         }
 
@@ -504,39 +600,12 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
 
         ir::Stmt visit(const ir::Scan *node) override { return node; }
 
-        ir::Stmt visit(const ir::YieldFrom *node) override {
-            if (!update_from_yfs) {
-                return node;
-            }
-            const ir::Lambda *lambda = metric.as<ir::Lambda>();
-            internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
-
-            VolumeMap vols = make_volume_map(lambda->args);
-
-            Interval bounds =
-                predicate_analysis(lambda->value, vols, intervals);
-            internal_assert(bounds.max.defined())
-                << "Cannot accelerate metric: " << lambda->value
-                << " on: " << ir::Stmt(node);
-
-            // Best must be at most max.
-            ir::Expr value = bounds.max + std::numeric_limits<float>::epsilon();
-
-            ir::Expr empty_expr =
-                ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);
-            std::vector<ir::Expr> values = {std::move(value), empty_expr};
-            ir::Expr update = ir::Build::make(tuple_t, std::move(values));
-            ir::Stmt do_update = ir::Accumulate::make(
-                loc, ir::Accumulate::Argmin, std::move(update));
-            return ir::Sequence::make({std::move(do_update), node});
-        }
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
     };
 
     const ir::Lambda *lambda = metric.as<ir::Lambda>();
-    internal_assert(lambda) << "Metric is not a lambda: " << metric;
+    internal_assert(lambda)
+        << "Metric of " << name_of(dir, true) << " is not a lambda: " << metric;
     ir::Type metric_t = lambda->value.type();
 
     ir::Type ret_type = inner.type().element_of();
@@ -546,76 +615,89 @@ ir::Stmt build_argmin(ir::Expr metric, ir::Expr inner,
     std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, tuple_t);
 
-    ir::Expr inf = ir::Extrema::make(std::move(metric_t), ir::Extrema::inf);
+    // WrapWithAccumulator(a, (worst, null))
+    ir::Expr identity = extremum_identity(metric_t, dir);
     static const std::vector<ir::Expr> empty_list = {};
     ir::Expr empty = ir::Build::make(ret_type, empty_list);
-    std::vector<ir::Expr> values = {inf, std::move(empty)};
+    std::vector<ir::Expr> values = {identity, std::move(empty)};
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
     // TODO(ajr): is stack memory ok here? it's not an array.
-    // Unaliased: the query folds into this, the program never names it, and
-    // it is handed to the traversal as its own argument -- so nothing else
-    // there can be referring to it (see Allocate::unaliased).
     ir::Stmt header =
-        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack,
-                           /*unaliased=*/true);
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
 
-    // Make return
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
     ir::Expr best_metric = ir::Extract::make(ret_var, 0);
     ir::Expr best_ref = ir::Extract::make(ret_var, 1);
     // TODO: should this be a Return?
     ir::Stmt footer;
     if (!ir::equals(ret_type, expect_type)) {
-        // If (best[0] != inf) yield best[1] else {}
+        // If nothing improved on the identity, the set was empty.
         ir::Expr result = ir::Select::make(
-            best_metric != inf, ir::Build::make(expect_type, {best_ref}),
+            best_metric != identity, ir::Build::make(expect_type, {best_ref}),
             ir::Build::make(expect_type));
         footer = ir::Yield::make(std::move(result));
     } else {
-        footer = ir::Yield::make(std::move(best_ref));
+        footer = ir::Yield::make(best_ref);
     }
 
-    // No lower bound (can always get better)
-    // Upper bound is the current value (must be at least that good).
     IntervalMap local_intervals = intervals;
-    local_intervals[best_metric] = Interval{ir::Expr(), best_metric};
+    local_intervals[best_metric] = accumulator_interval(dir, best_metric);
 
     // Try to build fused filter inside.
-    // TODO(ajr): scans need to be
-    auto [fused_filter, fused] = try_fuse_filter(lambda, best_metric, inner);
+    auto [fused_filter, fused] =
+        try_fuse_filter(dir, lambda, best_metric, inner);
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
-    body = RewriteArgmin(std::move(metric), std::move(loc), std::move(tuple_t),
-                         intervals, !fused)
+    body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
+                              std::move(tuple_t))
                .mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
 }
 
-ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
-                       const ir::TypeMap &tree_types,
-                       const IntervalMap &intervals) {
-    struct RewriteMinimum : public Rewriter {
+// Algorithm 2 (LowerMin), and its mirror for maxima. These reductions are both
+// associative and idempotent, so the traversal prunes in two complementary
+// ways: value-based pruning, where a subtree whose metric cannot beat the
+// running extremum is skipped, and inclusion, where a subtree that stores its
+// own extremum updates the accumulator without being visited.
+//
+// The value-based half is expressed by fusing "improves on best" into the
+// inner filter (try_fuse_filter) and letting predicate analysis bound it; the
+// accumulator's interval is recorded so that analysis knows a candidate must
+// beat the running value.
+ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
+                        const ir::TypeMap &tree_types,
+                        const IntervalMap &intervals, ir::Type expect_type) {
+    struct RewriteExtremum : public Rewriter {
+        Extremum dir;
         ir::Expr metric;
         ir::WriteLoc loc;
         const IntervalMap &intervals;
+        // The augmentation storing this extremum over a subtree, if any.
+        std::optional<std::string> key;
+        // True when try_fuse_filter did not fuse, so recursive calls are not
+        // already guarded by the value-based condition and this rewrite must
+        // tighten the accumulator itself.
         const bool update_from_yfs;
 
-        RewriteMinimum(ir::Expr met, ir::WriteLoc l,
-                       const IntervalMap &intervals, const bool update_from_yfs)
-            : metric(std::move(met)), loc(std::move(l)), intervals(intervals),
+        RewriteExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
+                        const IntervalMap &intervals,
+                        std::optional<std::string> key,
+                        const bool update_from_yfs)
+            : dir(dir), metric(std::move(met)), loc(std::move(l)),
+              intervals(intervals), key(std::move(key)),
               update_from_yfs(update_from_yfs) {}
 
-        size_t counter = 0;
-
-        std::string make_temp_name() {
-            return loc.base + "_temp" + std::to_string(counter++);
+        ir::Accumulate::OpType accumulate_op() const {
+            return dir == Extremum::Min ? ir::Accumulate::Min
+                                        : ir::Accumulate::Max;
         }
 
         using ir::Mutator::visit;
 
+        // yield x => upd a minb(a, M(x))
         ir::Stmt visit(const ir::Yield *node) override {
             internal_assert(!volumes.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
@@ -627,19 +709,72 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
                 ir::equals(lambda->args[0].type, node->value.type()));
             ir::Expr value =
                 replace(lambda->args[0].name, node->value, lambda->value);
-            return ir::Accumulate::make(loc, ir::Accumulate::Min,
-                                        std::move(value));
+            return ir::Accumulate::make(loc, accumulate_op(), std::move(value));
         }
 
+        // iter xs => upd a minb(a, min(M, xs))
         ir::Stmt visit(const ir::Iterate *node) override {
             return mutate(
                 lower_iterate(node->value)); // lower into a concrete loop.
         }
 
+        // scan tr => if tr has min(M, tr) then upd a minb(a, min(M, tr))
+        //            else if maybe(min(M(tr)) < a): upd a minb(a, max(M, tr));
+        //                 from tr
+        //
+        // A whole subtree is included here, so a node that stores this
+        // extremum over it settles the contribution exactly and does not need
+        // to be visited at all. That is the inclusion case of Section 2.
         ir::Stmt visit(const ir::Scan *node) override {
-            internal_error << ir::Stmt(node);
+            const bool stored =
+                key.has_value() &&
+                std::all_of(
+                    aggregations.begin(), aggregations.end(),
+                    [&](const auto &agg) { return agg.contains(*key); });
+            if (stored) {
+                std::vector<ir::Stmt> stmts;
+                for (const auto &agg : aggregations) {
+                    stmts.push_back(ir::Accumulate::make(loc, accumulate_op(),
+                                                         agg.at(*key)));
+                }
+                return stmts.size() == 1 ? stmts.front()
+                                         : ir::Sequence::make(std::move(stmts));
+            }
+
+            // Nothing stored, so the subtree has to be visited. Value-based
+            // pruning still applies: skip it when it cannot beat the running
+            // best, and tighten the accumulator with what it could reach.
+            Interval bounds = subtree_bounds();
+            std::vector<ir::Stmt> stmts;
+            if (ir::Expr reachable = reachable_bound(dir, bounds);
+                reachable.defined()) {
+                stmts.push_back(ir::Accumulate::make(loc, accumulate_op(),
+                                                     std::move(reachable)));
+            }
+            stmts.push_back(ir::YieldFrom::make(node->value));
+            ir::Stmt body = stmts.size() == 1
+                                ? std::move(stmts.front())
+                                : ir::Sequence::make(std::move(stmts));
+            if (ir::Expr promising = promising_bound(dir, bounds);
+                promising.defined()) {
+                body = ir::IfElse::make(
+                    improves_on(dir, std::move(promising), loc.to_expr()),
+                    std::move(body));
+            }
+            return body;
         }
 
+        // The bounds of the metric over the subtree currently being matched.
+        Interval subtree_bounds() const {
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() == lambda->args.size());
+            VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
+            return predicate_analysis(lambda->value, vols, ints);
+        }
+
+        // from tr => upd a minb(a, max(M, tr)); from tr
         ir::Stmt visit(const ir::YieldFrom *node) override {
             if (!update_from_yfs) {
                 return node;
@@ -650,121 +785,120 @@ ir::Stmt build_minimum(ir::Expr metric, ir::Expr inner,
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
-            ir::Expr upper_bound;
-            ir::Stmt body = node;
-
-            // if any of these values have a volume wrap, use it to tighten the
-            // bound. ajr: this is some of the hackiest shit I have ever done,
-            // but I think it works...
-            // internal_error << "TODO";
-            if (!child_volumes.empty()) {
-                auto as = break_tuple(node->value);
-                std::vector<ir::Expr> upper_bounds;
-                std::vector<ir::Expr> lower_bounds;
-                for (const auto &a : as) {
-                    VolumeMap cvols = make_volume_map(lambda->args, a);
-                    Interval cbounds =
-                        predicate_analysis(lambda->value, cvols, intervals);
-                    internal_assert(cbounds.min.defined() &&
-                                    cbounds.max.defined())
-                        << cbounds.min << " and " << cbounds.max;
-                    upper_bounds.push_back(std::move(cbounds.max));
-                    lower_bounds.push_back(std::move(cbounds.min));
-                }
-
-                upper_bound = upper_bounds[0];
-                for (size_t i = 1; i < as.size(); i++) {
-                    upper_bound = max(std::move(upper_bound), upper_bounds[i]);
-                }
-                if (as.size() >= 2) {
-                    internal_assert(as.size() == 2) << ir::Stmt(node); // TODO
-                    // If a is strictly better than b, only include it
-                    ir::Expr a_winner = upper_bounds[0] < lower_bounds[1];
-                    ir::Expr b_winner = upper_bounds[1] < lower_bounds[0];
-                    // If their a has a better lb *or* eq lb and better ub
-                    ir::Expr a_closer = (lower_bounds[0] < lower_bounds[1]) |
-                                        (lower_bounds[0] == lower_bounds[1]) &
-                                            (upper_bounds[0] < upper_bounds[1]);
-                    body = ir::IfElse::make(
-                        a_winner, ir::YieldFrom::make(make_tuple({as[0]})),
-                        ir::IfElse::make(
-                            b_winner, ir::YieldFrom::make(make_tuple({as[1]})),
-                            ir::YieldFrom::make(
-                                make_tuple({select(a_closer, as[1], as[0]),
-                                            select(a_closer, as[0], as[1])}))));
-                }
-            } else {
-                VolumeMap vols = make_volume_map(lambda->args);
-
-                Interval bounds =
-                    predicate_analysis(lambda->value, vols, intervals);
-                internal_assert(bounds.max.defined())
-                    << "Cannot accelerate metric: " << lambda->value
-                    << " on: " << ir::Stmt(node);
-
-                // Best must be at most max.
-                // Epsilon only needed if subtree isn't tight / can be empty.
-                upper_bound = bounds.max;
+            ir::Expr bound = reachable_bound(dir, subtree_bounds());
+            if (!bound.defined()) {
+                // Nothing can be said about this subtree; just recurse.
+                return node;
             }
 
-            ir::Stmt do_update = ir::Accumulate::make(loc, ir::Accumulate::Min,
-                                                      std::move(upper_bound));
-            return ir::Sequence::make({std::move(do_update), std::move(body)});
+            // The best value in this subtree is no better than the metric's
+            // bound over the subtree's volume, so the accumulator can be
+            // tightened before recursing.
+            ir::Stmt do_update =
+                ir::Accumulate::make(loc, accumulate_op(), std::move(bound));
+            return ir::Sequence::make({std::move(do_update), node});
         }
     };
 
     const ir::Lambda *lambda = metric.as<ir::Lambda>();
-    internal_assert(lambda) << "Metric is not a lambda: " << metric;
+    internal_assert(lambda) << "Metric of " << name_of(dir, false)
+                            << " is not a lambda: " << metric;
     ir::Type metric_t = lambda->value.type();
 
     static size_t counter = 0;
     std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, metric_t);
 
-    ir::Expr init = ir::Extrema::make(metric_t, ir::Extrema::inf);
-
+    // WrapWithAccumulator(a, worst)
+    ir::Expr identity = extremum_identity(metric_t, dir);
     // TODO(ajr): is stack memory ok here? it's not an array.
-    // Unaliased, for the same reason as the accumulator above.
     ir::Stmt header =
-        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack,
-                           /*unaliased=*/true);
+        ir::Allocate::make(loc, identity, ir::Allocate::Memory::Stack);
 
-    // Make return
     ir::Expr ret_var = ir::Var::make(metric_t, std::move(name));
-    // TODO: should this be a Return?
+    // An extremum over a set that can be empty is optional: the accumulator is
+    // still at its identity exactly when nothing was visited.
     ir::Stmt footer;
-    footer = ir::Yield::make(ret_var);
+    if (!ir::equals(metric_t, expect_type)) {
+        ir::Expr result = ir::Select::make(
+            ret_var != identity, ir::Build::make(expect_type, {ret_var}),
+            ir::Build::make(expect_type));
+        footer = ir::Yield::make(std::move(result));
+    } else {
+        footer = ir::Yield::make(ret_var);
+    }
 
-    // No lower bound (can always get better)
-    // Upper bound is the current value (must be at least that good).
     IntervalMap local_intervals = intervals;
-    local_intervals[ret_var] = Interval{ir::Expr(), ret_var};
+    local_intervals[ret_var] = accumulator_interval(dir, ret_var);
 
-    // Try to build fused filter inside.
-    // TODO(ajr): scans need to be
-    auto [fused_filter, fused] = try_fuse_filter(lambda, ret_var, inner);
-    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
+    // An included subtree can be folded in wholesale when the node stores this
+    // extremum over the field the metric reads.
+    std::optional<std::string> key;
+    if (const ir::Access *access = lambda->value.as<ir::Access>()) {
+        if (const ir::Var *var = access->value.as<ir::Var>();
+            var != nullptr && var->name == lambda->args[0].name) {
+            key = aggregate_key(dir == Extremum::Min
+                                    ? ir::Annotation::Aggregate::min
+                                    : ir::Annotation::Aggregate::max,
+                                {access->field});
+        }
+    }
 
-    body = RewriteMinimum(std::move(metric), std::move(loc), intervals, !fused)
+    // Fusing the value-based condition into a filter is what lets predicate
+    // analysis prune on it, and it also puts the node-level bound in front of
+    // every arm, including the leaves. Synthesizing that filter consumes the
+    // `scan` standing for a wholly included subtree, so give it up only when
+    // this metric could actually read a stored extremum off a node -- that
+    // is, when the metric names a field an augmentation might cover.
+    auto [fused_filter, fused] = try_fuse_filter(dir, lambda, ret_var, inner);
+    const bool keep_scan = !fused && key.has_value();
+    ir::Stmt body = build_traversal(keep_scan ? inner : fused_filter,
+                                    tree_types, local_intervals);
+
+    body = RewriteExtremum(dir, std::move(metric), std::move(loc), intervals,
+                           std::move(key), !fused)
                .mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
 }
 
-ir::Stmt build_count(ir::Stmt body) {
-    struct RewriteCount : public Rewriter {
+// Algorithm 4: any and all. Both are idempotent reductions over the boolean
+// lattice, so a subtree can be skipped as soon as the answer it could
+// contribute is settled: for `any` once the predicate is proven always true
+// (the result is true) or never true (the subtree cannot help), and dually for
+// `all`.
+ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
+                          const ir::TypeMap &tree_types,
+                          const IntervalMap &intervals) {
+    struct RewriteQuantifier : public Rewriter {
+        bool is_any;
+        ir::Expr predicate;
         ir::WriteLoc loc;
+        const IntervalMap &intervals;
 
-        RewriteCount(ir::WriteLoc l) : loc(std::move(l)) {}
-
-        size_t counter = 0;
+        RewriteQuantifier(bool is_any, ir::Expr p, ir::WriteLoc l,
+                          const IntervalMap &intervals)
+            : is_any(is_any), predicate(std::move(p)), loc(std::move(l)),
+              intervals(intervals) {}
 
         using ir::Mutator::visit;
 
+        // `a` is settled once it reaches the absorbing element of the lattice.
+        ir::Expr still_undecided() const {
+            ir::Expr acc = loc.to_expr();
+            return is_any ? ~acc : acc;
+        }
+
+        // yield x => upd a (a | P(x))
         ir::Stmt visit(const ir::Yield *node) override {
-            return ir::Accumulate::make(loc, ir::Accumulate::Add,
-                                        make_one(loc.base_type));
+            const ir::Lambda *lambda = predicate.as<ir::Lambda>();
+            internal_assert(lambda)
+                << "Predicate is not a lambda: " << predicate;
+            ir::Expr p = apply_lambda(predicate, node->value);
+            ir::Expr acc = loc.to_expr();
+            ir::Expr combined = is_any ? (acc || p) : (acc && p);
+            return ir::Store::make(loc, std::move(combined));
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {
@@ -772,48 +906,468 @@ ir::Stmt build_count(ir::Stmt body) {
                 lower_iterate(node->value)); // lower into a concrete loop.
         }
 
-        ir::Stmt visit(const ir::Scan *node) override {
-            // TODO: how does this work with joins...?
-            // internal_assert(aggregations.size() == 1);
-            bool all_have_count = std::all_of(
-                aggregations.begin(), aggregations.end(),
-                [](const auto &agg) { return agg.contains("count()"); });
-            if (all_have_count) {
-                ir::Expr total = aggregations.front()["count()"];
-                for (size_t i = 1; i < aggregations.size(); i++) {
-                    total = total * aggregations[i].at("count()");
-                }
-                return ir::Accumulate::make(loc, ir::Accumulate::Add, total);
-            } else {
-                return ir::Scan::make(ir::AggOp::OpType::count, node->value);
-            }
+        // The bounds of the predicate over the subtree currently being matched.
+        Interval subtree_bounds() const {
+            const ir::Lambda *lambda = predicate.as<ir::Lambda>();
+            internal_assert(lambda)
+                << "Predicate is not a lambda: " << predicate;
+            internal_assert(volumes.size() == lambda->args.size());
+            VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
+            return predicate_analysis(lambda->value, vols, ints);
         }
 
-        // TODO: this should be a sum of the results!
-        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+        // scan tr => if always(P, tr): a = <settled>
+        //            elif <undecided> && maybe(P, tr): from tr
+        ir::Stmt visit(const ir::Scan *node) override {
+            Interval bounds = subtree_bounds();
+            ir::Stmt recurse = ir::YieldFrom::make(node->value);
+
+            // For `any`, a subtree the predicate can never hold on contributes
+            // nothing; for `all` it settles the answer to false.
+            ir::Stmt otherwise;
+            if (!is_any) {
+                otherwise = ir::Store::make(loc, ir::BoolImm::make(false));
+            }
+
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
+                recurse =
+                    ir::IfElse::make(still_undecided() && bounds.max,
+                                     std::move(recurse), std::move(otherwise));
+            } else if (otherwise.defined()) {
+                recurse =
+                    ir::IfElse::make(still_undecided(), std::move(recurse));
+            } else {
+                recurse =
+                    ir::IfElse::make(still_undecided(), std::move(recurse));
+            }
+
+            if (bounds.min.defined() && !is_const_zero(bounds.min)) {
+                // Proven on the whole subtree: `any` is decided, `all` learns
+                // nothing new and can skip it.
+                ir::Stmt settled =
+                    is_any ? ir::Store::make(loc, ir::BoolImm::make(true))
+                           : ir::Stmt();
+                recurse =
+                    settled.defined()
+                        ? ir::IfElse::make(bounds.min, settled,
+                                           std::move(recurse))
+                        : ir::IfElse::make(~bounds.min, std::move(recurse));
+            }
+            return recurse;
+        }
+
+        // from tr => if <undecided> && maybe(P, tr): from tr
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            Interval bounds = subtree_bounds();
+            ir::Expr cond = still_undecided();
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
+                cond = cond && bounds.max;
+            }
+            return ir::IfElse::make(std::move(cond), node);
+        }
     };
 
-    static ir::Type ret_type = ir::UInt_t::make(64); // TODO: adjustable?
+    const ir::Type bool_t = ir::Bool_t::make();
 
     static size_t counter = 0;
-    std::string name = "_count" + std::to_string(counter++);
-    ir::WriteLoc loc(name, ret_type);
+    std::string name = "_holds" + std::to_string(counter++);
+    ir::WriteLoc loc(name, bool_t);
 
-    static ir::Expr zero = make_zero(ret_type);
+    // WrapWithAccumulator(a, false) for any, (a, true) for all.
+    ir::Stmt header = ir::Allocate::make(loc, ir::BoolImm::make(!is_any),
+                                         ir::Allocate::Memory::Stack);
+    ir::Expr ret_var = ir::Var::make(bool_t, std::move(name));
+    ir::Stmt footer = ir::Yield::make(ret_var);
 
-    // Make allocation.
-    ir::Stmt header =
-        ir::Allocate::make(loc, zero, ir::Allocate::Memory::Stack);
-    // Make return
-    ir::Expr ret_var = ir::Var::make(ret_type, std::move(name));
-    ir::Stmt footer = ir::Yield::make(std::move(ret_var));
-
-    body = RewriteCount(std::move(loc)).mutate(body);
+    ir::Stmt body = build_traversal(inner, tree_types, intervals);
+    body = RewriteQuantifier(is_any, std::move(predicate), std::move(loc),
+                             intervals)
+               .mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
 }
 
+// Algorithm 1, lines 9-12. A map changes only what a traversal yields, so it
+// rewrites into the yield, iter and scan constructs without affecting how
+// recursion proceeds.
+ir::Stmt build_map(ir::Stmt body, ir::Expr func) {
+    struct RewriteMap : public Rewriter {
+        ir::Expr func;
+
+        RewriteMap(ir::Expr f) : func(std::move(f)) {}
+
+        using ir::Mutator::visit;
+
+        // yield x => yield F(x)
+        ir::Stmt visit(const ir::Yield *node) override {
+            return ir::Yield::make(apply_lambda(func, node->value));
+        }
+
+        // iter xs => iter map(F, xs)
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return ir::Iterate::make(map(func, node->value));
+        }
+
+        // scan tr => scan F(tr)
+        ir::Stmt visit(const ir::Scan *node) override {
+            internal_assert(!node->func.defined())
+                << "TODO: compose nested maps on a scan: " << ir::Stmt(node);
+            return ir::Scan::make(node->op, node->loc, func, node->value);
+        }
+
+        // A recursive call already evaluates the mapped query.
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+    };
+
+    return RewriteMap(std::move(func)).mutate(body);
+}
+
+// The augmentation, if any, that stores this reduction's value over a
+// subtree. A reduction is recognised by its combiner together with the map
+// feeding it: summing a constant 1 is a `count()`, summing a field `f` is a
+// `sum(f)`, and so on.
+std::optional<std::string> aggregate_key_for(const ir::Expr &combiner,
+                                             const ir::Expr &func) {
+    const ir::Lambda *lambda = combiner.as<ir::Lambda>();
+    if (lambda == nullptr || lambda->args.size() != 2) {
+        return {};
+    }
+    const ir::BinOp *binop = lambda->value.as<ir::BinOp>();
+    if (binop == nullptr) {
+        return {};
+    }
+    // The combiner must be exactly `|a, b| a <op> b`.
+    const ir::Var *a = binop->a.as<ir::Var>();
+    const ir::Var *b = binop->b.as<ir::Var>();
+    if (a == nullptr || b == nullptr || a->name != lambda->args[0].name ||
+        b->name != lambda->args[1].name) {
+        return {};
+    }
+
+    ir::Annotation::Aggregate::OpType op;
+    switch (binop->op) {
+    case ir::BinOp::Add:
+        op = ir::Annotation::Aggregate::sum;
+        break;
+    case ir::BinOp::Mul:
+        op = ir::Annotation::Aggregate::prod;
+        break;
+    default:
+        return {};
+    }
+
+    if (!func.defined()) {
+        // Reducing the elements themselves.
+        return aggregate_key(op, {});
+    }
+    const ir::Lambda *map_fn = func.as<ir::Lambda>();
+    if (map_fn == nullptr || map_fn->args.size() != 1) {
+        return {};
+    }
+    // Summing a constant 1 over the subtree counts it.
+    if (op == ir::Annotation::Aggregate::sum && is_const_one(map_fn->value)) {
+        return aggregate_key(ir::Annotation::Aggregate::count, {});
+    }
+    // Reducing a single field.
+    if (const ir::Access *access = map_fn->value.as<ir::Access>()) {
+        if (const ir::Var *var = access->value.as<ir::Var>();
+            var != nullptr && var->name == map_fn->args[0].name) {
+            return aggregate_key(op, {access->field});
+        }
+    }
+    return {};
+}
+
+// `upd a (a (+) v)`. Emits an Accumulate for the combiners the backends know
+// how to update in place, and otherwise inlines the combiner into a store.
+ir::Stmt make_update(const ir::WriteLoc &loc, const ir::Expr &combiner,
+                     ir::Expr value) {
+    const ir::Lambda *lambda = combiner.as<ir::Lambda>();
+    internal_assert(lambda && lambda->args.size() == 2)
+        << "Combiner is not a binary lambda: " << combiner;
+
+    if (const ir::BinOp *binop = lambda->value.as<ir::BinOp>()) {
+        const ir::Var *a = binop->a.as<ir::Var>();
+        const ir::Var *b = binop->b.as<ir::Var>();
+        if (a != nullptr && b != nullptr && a->name == lambda->args[0].name &&
+            b->name == lambda->args[1].name) {
+            switch (binop->op) {
+            case ir::BinOp::Add:
+                return ir::Accumulate::make(loc, ir::Accumulate::Add,
+                                            std::move(value));
+            case ir::BinOp::Mul:
+                return ir::Accumulate::make(loc, ir::Accumulate::Mul,
+                                            std::move(value));
+            default:
+                break;
+            }
+        }
+    }
+
+    std::map<std::string, ir::Expr> repls;
+    repls[lambda->args[0].name] = loc.to_expr();
+    repls[lambda->args[1].name] = std::move(value);
+    return ir::Store::make(loc, replace(repls, lambda->value));
+}
+
+// Algorithm 1, lines 13-22. An associative reduction is computed into an
+// accumulator: leaves update it with their own value, and a subtree that
+// stores a precomputed aggregate updates it wholesale instead of being
+// traversed.
+ir::Stmt build_reduce(ir::Expr identity, ir::Expr combiner, ir::Expr inner,
+                      const ir::TypeMap &tree_types,
+                      const IntervalMap &intervals) {
+    struct RewriteReduce : public Rewriter {
+        ir::Expr combiner;
+        ir::WriteLoc loc;
+        // The augmentation this reduction can read off a node, if any.
+        std::optional<std::string> key;
+        // The reduction, and the map feeding it, for a fallback scan.
+        std::optional<ir::AggOp::OpType> scan_op;
+        ir::Expr func;
+
+        RewriteReduce(ir::Expr c, ir::WriteLoc l,
+                      std::optional<std::string> key,
+                      std::optional<ir::AggOp::OpType> scan_op, ir::Expr func)
+            : combiner(std::move(c)), loc(std::move(l)), key(std::move(key)),
+              scan_op(std::move(scan_op)), func(std::move(func)) {}
+
+        using ir::Mutator::visit;
+
+        // yield x => upd a (a (+) x)
+        ir::Stmt visit(const ir::Yield *node) override {
+            return make_update(loc, combiner, node->value);
+        }
+
+        // iter xs => upd a (a (+) reduce(xs))
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(
+                lower_iterate(node->value)); // lower into a concrete loop.
+        }
+
+        // scan tr => if tr has C(tr) then upd a (a (+) tr.C) else scan<C> tr
+        ir::Stmt visit(const ir::Scan *node) override {
+            if (key.has_value()) {
+                const bool all_stored = std::all_of(
+                    aggregations.begin(), aggregations.end(),
+                    [&](const auto &agg) { return agg.contains(*key); });
+                if (all_stored) {
+                    // Coiterating several trees reduces over their product.
+                    ir::Expr total = aggregations.front().at(*key);
+                    for (size_t i = 1; i < aggregations.size(); i++) {
+                        total = total * aggregations[i].at(*key);
+                    }
+                    return make_update(loc, combiner, std::move(total));
+                }
+            }
+            internal_assert(scan_op.has_value())
+                << "Cannot scan a subtree for a reduction the runtime cannot "
+                   "combine: "
+                << ir::Stmt(node);
+            return ir::Scan::make(
+                scan_op, loc, func.defined() ? func : node->func, node->value);
+        }
+
+        // A recursive call updates the same accumulator.
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+    };
+
+    const ir::Type acc_t = identity.type();
+
+    static size_t counter = 0;
+    std::string name = "_acc" + std::to_string(counter++);
+    ir::WriteLoc loc(name, acc_t);
+
+    // WrapWithAccumulator(a, id)
+    ir::Stmt header = ir::Allocate::make(loc, std::move(identity),
+                                         ir::Allocate::Memory::Stack);
+    ir::Expr ret_var = ir::Var::make(acc_t, std::move(name));
+    ir::Stmt footer = ir::Yield::make(ret_var);
+
+    // Peel an immediately enclosed map so the reduction can be matched against
+    // the augmentations a node stores; the map itself is still lowered below.
+    ir::Expr func;
+    if (const ir::SetOp *as_map_op = as_map(inner)) {
+        func = as_map_op->a;
+    }
+    std::optional<std::string> key = aggregate_key_for(combiner, func);
+
+    std::optional<ir::AggOp::OpType> scan_op;
+    if (const ir::Lambda *lambda = combiner.as<ir::Lambda>()) {
+        if (const ir::BinOp *binop = lambda->value.as<ir::BinOp>()) {
+            if (binop->op == ir::BinOp::Add) {
+                scan_op = ir::AggOp::sum;
+            } else if (binop->op == ir::BinOp::Mul) {
+                scan_op = ir::AggOp::prod;
+            }
+        }
+    }
+
+    ir::Stmt body = build_traversal(inner, tree_types, intervals);
+    body = RewriteReduce(std::move(combiner), std::move(loc), std::move(key),
+                         std::move(scan_op), std::move(func))
+               .mutate(body);
+
+    return ir::Sequence::make(
+        {std::move(header), std::move(body), std::move(footer)});
+}
+
+ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
+    struct RewriteProduct : public Rewriter {
+        ir::Stmt b_body;
+        ir::Type ret_type;
+
+        RewriteProduct(ir::Stmt b_body, ir::Type ret_type)
+            : b_body(std::move(b_body)), ret_type(std::move(ret_type)) {}
+
+        using ir::Mutator::visit;
+
+        ir::Stmt a_body;
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            if (!a_body.defined()) {
+                a_body = node;
+                ir::Stmt ret = mutate(b_body);
+                a_body = ir::Stmt();
+                return ret;
+            } else {
+                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    return ir::Yield::make(
+                        make_tuple_pair(yield->value, node->value));
+                } else if (const ir::Iterate *iterate =
+                               a_body.as<ir::Iterate>()) {
+                    internal_error << "TODO: lower Yield x Iterate in product.";
+                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
+                    internal_assert(locs.size() == 2);
+                    auto as = break_tuple(scan->value);
+                    auto b = locs.back();
+                    std::vector<ir::Expr> vals;
+                    vals.reserve(as.size());
+                    for (const auto &a : as) {
+                        vals.push_back(make_tuple_pair(a, b));
+                    }
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
+                } else if (const ir::YieldFrom *from =
+                               a_body.as<ir::YieldFrom>()) {
+                    internal_error
+                        << "TODO: lower Yield + YieldFrom properly: " << a_body
+                        << " and " << ir::Stmt(node);
+                } else {
+                    internal_error << "Failure in lowering product: " << a_body
+                                   << " and " << ir::Stmt(node);
+                }
+            }
+        }
+
+        ir::Stmt visit(const ir::Iterate *node) override {
+            if (!a_body.defined()) {
+                a_body = node;
+                ir::Stmt ret = mutate(b_body);
+                a_body = ir::Stmt();
+                return ret;
+            } else {
+                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    ir::Stmt body = lower_iterate(node->value);
+                    return mutate(body);
+                } else if (const ir::Iterate *iterate =
+                               a_body.as<ir::Iterate>()) {
+                    return ir::Iterate::make(
+                        product(iterate->value, node->value));
+                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
+                    internal_assert(locs.size() == 2);
+                    auto as = break_tuple(scan->value);
+                    auto b = locs.back();
+                    std::vector<ir::Expr> vals;
+                    vals.reserve(as.size());
+                    for (const auto &a : as) {
+                        vals.push_back(make_tuple_pair(a, b));
+                    }
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
+                } else if (const ir::YieldFrom *from =
+                               a_body.as<ir::YieldFrom>()) {
+                    internal_error
+                        << "TODO: lower Iterate + YieldFrom properly: "
+                        << a_body << " and " << ir::Stmt(node);
+                } else {
+                    internal_error << "Failure in lowering product: " << a_body
+                                   << " and " << ir::Stmt(node);
+                }
+            }
+        }
+
+        ir::Stmt visit(const ir::Scan *node) override {
+            if (!a_body.defined()) {
+                a_body = node;
+                ir::Stmt ret = mutate(b_body);
+                a_body = ir::Stmt();
+                return ret;
+            } else {
+                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
+                    internal_assert(locs.size() == 2);
+                    auto bs = break_tuple(node->value);
+                    auto a = locs.front();
+                    std::vector<ir::Expr> vals;
+                    vals.reserve(bs.size());
+                    for (const auto &b : bs) {
+                        vals.push_back(make_tuple_pair(a, b));
+                    }
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
+                } else if (const ir::Iterate *iterate =
+                               a_body.as<ir::Iterate>()) {
+                    internal_assert(locs.size() == 2);
+                    auto bs = break_tuple(node->value);
+                    auto a = locs.front();
+                    std::vector<ir::Expr> vals;
+                    vals.reserve(bs.size());
+                    for (const auto &b : bs) {
+                        vals.push_back(make_tuple_pair(a, b));
+                    }
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(vals)));
+                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
+                    // Cartesian product of nodes! TODO: doesn't have to be...
+                    // Make this scheduable?
+                    auto as = break_tuple(scan->value);
+                    auto bs = break_tuple(node->value);
+                    std::vector<ir::Expr> pairs;
+                    for (const auto &av : as) {
+                        for (const auto &bv : bs) {
+                            pairs.push_back(make_tuple_pair(av, bv));
+                        }
+                    }
+                    return ir::Scan::make(ir::Expr(),
+                                          make_tuple(std::move(pairs)));
+                } else if (const ir::YieldFrom *from =
+                               a_body.as<ir::YieldFrom>()) {
+                    internal_error
+                        << "TODO: lower Scan + YieldFrom properly: " << a_body
+                        << " and " << ir::Stmt(node);
+                } else {
+                    internal_error << "Failure in lowering product: " << a_body
+                                   << " and " << ir::Stmt(node);
+                }
+            }
+        }
+
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            // TODO: this should be wrapped in a product, for cases with
+            // simplified predicates. This is required for proper predicate
+            // analysis of conjunctions/disjunctions.
+            internal_error << "Failure in lowering product: " << a_body
+                           << " and " << ir::Stmt(node);
+            // return node;
+        }
+    };
+
+    // TODO: is ordering scheduable?
+    return RewriteProduct(std::move(b_body), std::move(ret_type))
+        .mutate(a_body);
+}
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                          const IntervalMap &intervals) {
@@ -831,16 +1385,14 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         return build_base_scan(as_var->name, bvh);
     }
 
-    if (auto as_agg = expr.as<ir::AggOp>()) {
-        switch (as_agg->op) {
-        case ir::AggOp::count: {
-            ir::Stmt body = build_traversal(as_agg->a, tree_types, intervals);
-            return build_count(body);
+    if (const ir::AggOp *as_agg = expr.as<ir::AggOp>()) {
+        if (as_agg->op != ir::AggOp::reduce) {
+            // count, sum and prod are sugar for a map followed by a reduce.
+            return build_traversal(expand_aggregate(as_agg), tree_types,
+                                   intervals);
         }
-        default: {
-            internal_error << "TODO: " << expr << " tree fusion.";
-        }
-        }
+        return build_reduce(as_agg->identity, as_agg->combiner, as_agg->a,
+                            tree_types, intervals);
     }
 
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
@@ -853,18 +1405,34 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
         return build_filter(body, as_set->a, intervals);
     }
-    case ir::SetOp::argmin: {
-        // Argmin is a bit more complicated, because of filter fusion.
-        return build_argmin(as_set->a, as_set->b, tree_types, intervals,
-                            expr.type());
+    case ir::SetOp::map: {
+        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
+        return build_map(body, as_set->a);
     }
-    case ir::SetOp::minimum: {
-        return build_minimum(as_set->a, as_set->b, tree_types, intervals);
+    case ir::SetOp::argmin:
+    case ir::SetOp::argmax: {
+        // These are a bit more complicated, because of filter fusion.
+        const Extremum dir =
+            as_set->op == ir::SetOp::argmin ? Extremum::Min : Extremum::Max;
+        return build_arg_extremum(dir, as_set->a, as_set->b, tree_types,
+                                  intervals, expr.type());
+    }
+    case ir::SetOp::minimum:
+    case ir::SetOp::maximum: {
+        const Extremum dir =
+            as_set->op == ir::SetOp::minimum ? Extremum::Min : Extremum::Max;
+        return build_extremum(dir, as_set->a, as_set->b, tree_types, intervals,
+                              expr.type());
+    }
+    case ir::SetOp::any:
+    case ir::SetOp::all: {
+        return build_quantifier(as_set->op == ir::SetOp::any, as_set->a,
+                                as_set->b, tree_types, intervals);
     }
     case ir::SetOp::product: {
         ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
         ir::Stmt b_body = build_traversal(as_set->b, tree_types, intervals);
-        return build_product(a_body, b_body);
+        return build_product(a_body, b_body, expr.type().element_of());
     }
     default: {
         internal_error << "TODO: " << expr;
@@ -917,9 +1485,6 @@ struct LowerBVH : public ir::Mutator {
                 func_args.emplace_back(var.name, var.type);
             }
         }
-        if (trees.empty()) {
-            return expr;
-        }
         // TODO(ajr): relax this, when we lower trees before arrays.
         internal_assert(!trees.empty())
             << "Lowering of: " << expr << " does not contain any tree types.";
@@ -958,166 +1523,11 @@ struct LowerBVH : public ir::Mutator {
                               call_args);
     }
 
-    ir::Expr visit(const ir::SetOp *op) override {
-        if (op->op != ir::SetOp::map) {
-            // TODO: support map fusion
-            return build_func(op);
-        }
-        return ir::Mutator::visit(op);
-    }
+    ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
     ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
 };
 
 } // namespace
-
-ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body) {
-    struct RewriteProduct : public Rewriter {
-        ir::Stmt b_body;
-
-        RewriteProduct(ir::Stmt b_body)
-            : b_body(std::move(b_body)) {}
-
-        using ir::Mutator::visit;
-
-        ir::Stmt a_body;
-
-        ir::Stmt visit(const ir::Yield *node) override {
-            if (!a_body.defined()) {
-                a_body = node;
-                ir::Stmt ret = mutate(b_body);
-                a_body = ir::Stmt();
-                return ret;
-            } else {
-                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
-                    return ir::Yield::make(
-                        make_tuple_pair(yield->value, node->value));
-                } else if (const ir::Iterate *iterate =
-                               a_body.as<ir::Iterate>()) {
-                    internal_error << "TODO: lower Yield x Iterate in product.";
-                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
-                    internal_assert(locs.size() == 2);
-                    auto as = break_tuple(scan->value);
-                    auto b = locs.back();
-                    std::vector<ir::Expr> vals;
-                    vals.reserve(as.size());
-                    for (const auto &a : as) {
-                        vals.push_back(make_tuple_pair(a, b));
-                    }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
-                } else if (const ir::YieldFrom *from =
-                               a_body.as<ir::YieldFrom>()) {
-                    internal_error
-                        << "TODO: lower Yield + YieldFrom properly: " << a_body
-                        << " and " << ir::Stmt(node);
-                } else {
-                    internal_error << "Failure in lowering product: " << a_body
-                                   << " and " << ir::Stmt(node);
-                }
-            }
-        }
-
-        ir::Stmt visit(const ir::Iterate *node) override {
-            if (!a_body.defined()) {
-                a_body = node;
-                ir::Stmt ret = mutate(b_body);
-                a_body = ir::Stmt();
-                return ret;
-            } else {
-                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
-                    ir::Stmt body = lower_iterate(node->value);
-                    return mutate(body);
-                } else if (const ir::Iterate *iterate =
-                               a_body.as<ir::Iterate>()) {
-                    return ir::Iterate::make(
-                        product(iterate->value, node->value));
-                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
-                    internal_assert(locs.size() == 2);
-                    auto as = break_tuple(scan->value);
-                    auto b = locs.back();
-                    std::vector<ir::Expr> vals;
-                    vals.reserve(as.size());
-                    for (const auto &a : as) {
-                        vals.push_back(make_tuple_pair(a, b));
-                    }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
-                } else if (const ir::YieldFrom *from =
-                               a_body.as<ir::YieldFrom>()) {
-                    internal_error
-                        << "TODO: lower Iterate + YieldFrom properly: "
-                        << a_body << " and " << ir::Stmt(node);
-                } else {
-                    internal_error << "Failure in lowering product: " << a_body
-                                   << " and " << ir::Stmt(node);
-                }
-            }
-        }
-
-        ir::Stmt visit(const ir::Scan *node) override {
-            if (!a_body.defined()) {
-                a_body = node;
-                ir::Stmt ret = mutate(b_body);
-                a_body = ir::Stmt();
-                return ret;
-            } else {
-                if (const ir::Yield *yield = a_body.as<ir::Yield>()) {
-                    internal_assert(locs.size() == 2);
-                    auto bs = break_tuple(node->value);
-                    auto a = locs.front();
-                    std::vector<ir::Expr> vals;
-                    vals.reserve(bs.size());
-                    for (const auto &b : bs) {
-                        vals.push_back(make_tuple_pair(a, b));
-                    }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
-                } else if (const ir::Iterate *iterate =
-                               a_body.as<ir::Iterate>()) {
-                    internal_assert(locs.size() == 2);
-                    auto bs = break_tuple(node->value);
-                    auto a = locs.front();
-                    std::vector<ir::Expr> vals;
-                    vals.reserve(bs.size());
-                    for (const auto &b : bs) {
-                        vals.push_back(make_tuple_pair(a, b));
-                    }
-                    return ir::Scan::make({}, make_tuple(std::move(vals)));
-                } else if (const ir::Scan *scan = a_body.as<ir::Scan>()) {
-                    // Cartesian product of nodes! TODO: doesn't have to be...
-                    // Make this scheduable?
-                    auto as = break_tuple(scan->value);
-                    auto bs = break_tuple(node->value);
-                    std::vector<ir::Expr> pairs;
-                    for (const auto &av : as) {
-                        for (const auto &bv : bs) {
-                            pairs.push_back(make_tuple_pair(av, bv));
-                        }
-                    }
-                    return ir::Scan::make({}, make_tuple(std::move(pairs)));
-                } else if (const ir::YieldFrom *from =
-                               a_body.as<ir::YieldFrom>()) {
-                    internal_error
-                        << "TODO: lower Scan + YieldFrom properly: " << a_body
-                        << " and " << ir::Stmt(node);
-                } else {
-                    internal_error << "Failure in lowering product: " << a_body
-                                   << " and " << ir::Stmt(node);
-                }
-            }
-        }
-
-        ir::Stmt visit(const ir::YieldFrom *node) override {
-            // TODO: this should be wrapped in a product, for cases with
-            // simplified predicates. This is required for proper predicate
-            // analysis of conjunctions/disjunctions.
-            internal_error << "Failure in lowering product: " << a_body
-                           << " and " << ir::Stmt(node);
-            // return node;
-        }
-    };
-
-    // TODO: is ordering scheduable?
-    return RewriteProduct(std::move(b_body))
-        .mutate(a_body);
-}
 
 ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
     ir::Expr bvh_expr = ir::Var::make(bvh_t, name);
@@ -1155,20 +1565,11 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             for (const auto &c : children) {
                 cs.push_back(ir::Access::make(c.name, node));
             }
-            stmts.back() = ir::Scan::make({}, make_tuple(cs));
+            stmts.back() = ir::Scan::make(ir::Expr(), make_tuple(cs));
         }
 
         arms[i].first = bvh_t->nodes[i];
-        // A node that neither holds data nor has children contributes nothing
-        // to a traversal, which is almost always a leaf whose data was never
-        // named: `| Leaf(d : array[T])` declares the field but says nothing
-        // about it being the data, so `with data = d` is what makes the
-        // traversal yield it.
-        internal_assert(!stmts.empty())
-            << "Tree node " << bvh_t->nodes[i].name() << " yields nothing: it "
-            << "has no children, and none of its fields is the node's data. "
-            << "A leaf needs a `with data = <field>` clause saying which of "
-            << "its fields a traversal should produce.";
+        internal_assert(!stmts.empty());
         if (stmts.size() == 1) {
             // Special case.
             arms[i].second = stmts[0];

@@ -1,7 +1,7 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.__dyn_array0 = type { ptr, i32, i32, <8 x i64> }
+%struct.__dyn_array0 = type { ptr, i32, i32, <64 x i8> }
 
 define i32 @main() {
 main_entry:
@@ -44,9 +44,9 @@ continue:                                         ; preds = %unlock-mutex, %main
   ret i32 %extract
 
 grow:                                             ; preds = %lock-mutex
-  %6 = mul i32 %x.capacity5, 2
-  %7 = icmp eq i32 %x.capacity5, 0
-  %x.new-capacity = select i1 %7, i32 1, i32 %6
+  %6 = icmp eq i32 %x.capacity5, 0
+  %7 = mul i32 %x.capacity5, 2
+  %x.new-capacity = select i1 %6, i32 1, i32 %7
   %8 = zext i32 %x.new-capacity to i64
   %deref_temp = load %struct.__dyn_array0, ptr %x, align 64
   %buffer = extractvalue %struct.__dyn_array0 %deref_temp, 0
