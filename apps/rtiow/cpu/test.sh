@@ -22,8 +22,9 @@ clang++ -g -std=c++20 -O3 -I. $PREFIX/main_hook.cpp $PREFIX/main.o -o $PREFIX/bo
 # Run
 time ./$PREFIX/bonsai.out $PREFIX/rtiow-cpu-image.ppm
 
-# Clean up. main.h is generated too, but it is checked in: regenerating it is
-# how it stays current, so it is left where it was written.
+# Clean up. main.h is left where it was written, because main_hook.cpp includes
+# it and the next build wants it there. It is generated rather than committed,
+# so there is nothing to keep in step.
 rm $PREFIX/main.bir
 rm $PREFIX/main.ll
 rm $PREFIX/main.o

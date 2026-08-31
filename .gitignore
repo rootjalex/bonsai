@@ -68,14 +68,26 @@ apps/**/*_gen.cpp
 # Where apps/rtiow/cpu/compare.sh puts the two builds and their images.
 apps/rtiow/cpu/compare-out/
 
-# Where apps/pbrt/compare.sh puts pbrt's reference render and ours.
-apps/pbrt/compare-out/
+# Where apps/pbrt/compare.sh puts pbrt's reference render and ours. WORK can
+# name another directory, which is how comparing several scenes at once keeps
+# their outputs apart.
+apps/pbrt/compare-out*/
 
 # What apps/pbrt/render.sh leaves beside the source, and what Python leaves
-# beside its scripts.
+# beside its scripts. scene_dump is built on demand from PBRT's own build tree
+# rather than checked in, and scene.bin is what it writes.
 apps/pbrt/*.pfm
 apps/pbrt/*.png
+apps/pbrt/scene_dump
+apps/pbrt/scene.bin
 apps/pbrt/__pycache__/
+
+# The headers the C++ backend emits alongside a .o, which the drivers include.
+# Generated, so not committed: the scripts that build a driver compile the
+# .bonsai first, and what comes out is by definition current. A committed copy
+# could only ever drift from what the compiler actually produces.
+apps/pbrt/render.h
+apps/rtiow/cpu/main.h
 
 *.csv
 
