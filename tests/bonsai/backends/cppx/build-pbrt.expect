@@ -74,14 +74,14 @@ using int8_t4 = vector<int8_t, 4>;
 using int8_t4x3 = vector<int8_t4, 3>;
 using int8_t9 = vector<int8_t, 9>;
 using uint8_t4 = vector<uint8_t, 4>;
-struct alignas(32) Nodes {
+struct Nodes {
     float3 low;
     float3 high;
     uint16_t nprims;
     uint8_t axis;
     uint8_t pad0;
     uint8_t4 split0on_nprims;
-} __attribute__((packed));
+} __attribute__((packed, aligned(32)));
 struct Triangles {
     uint32_t primitive_count;
     Triangle* primitives;

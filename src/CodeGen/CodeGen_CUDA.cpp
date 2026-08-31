@@ -381,7 +381,12 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     }
     os << get_indent();
     os << "struct" << ' ';
-    if (std::optional<int64_t> alignment = node->alignment) {
+    // See emit_type_declaration in CPP.cpp: a packed struct carries its
+    // alignment in the attribute list, since `alignas` cannot lower it.
+    const bool align_by_attribute =
+        node->is_packed() && node->alignment.has_value();
+    if (std::optional<int64_t> alignment = node->alignment;
+        alignment.has_value() && !align_by_attribute) {
         os << "alignas(" << *alignment << ") ";
     }
     os << name << ' ' << '{' << '\n';
@@ -420,7 +425,11 @@ void CodeGen_CUDA::visit(const Struct_t *node) {
     decrement();
     os << get_indent() << '}';
     if (node->is_packed()) {
-        os << ' ' << "__attribute__((packed))";
+        os << ' ' << "__attribute__((packed";
+        if (node->alignment.has_value()) {
+            os << ", aligned(" << *node->alignment << ")";
+        }
+        os << "))";
     }
     os << ';' << '\n';
 }

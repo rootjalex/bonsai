@@ -331,7 +331,15 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         std::string name = struct_t->name;
         capitalize_first(name);
         ss << "struct";
-        if (std::optional<int64_t> alignment = struct_t->alignment) {
+        // A packed struct spells its alignment in the same attribute list.
+        // `alignas` may only raise a type's alignment, so a layout asking for
+        // a smaller one than a member's natural alignment -- an array of
+        // 16-byte-aligned nodes each holding a wide vector -- is rejected
+        // outright when written that way.
+        const bool align_by_attribute =
+            struct_t->is_packed() && struct_t->alignment.has_value();
+        if (std::optional<int64_t> alignment = struct_t->alignment;
+            alignment.has_value() && !align_by_attribute) {
             ss << " alignas(" << *alignment << ")";
         }
         ss << ' ' << name << ' ' << '{' << '\n';
@@ -373,7 +381,11 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         }
         ss << '}';
         if (struct_t->is_packed()) {
-            ss << " __attribute__((packed))";
+            ss << " __attribute__((packed";
+            if (struct_t->alignment.has_value()) {
+                ss << ", aligned(" << *struct_t->alignment << ")";
+            }
+            ss << "))";
         }
         ss << ";\n";
         return;

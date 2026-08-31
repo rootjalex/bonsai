@@ -65,14 +65,14 @@ struct Arm_Leaf {
   uint32_t poffset;
 } __attribute__((packed));
 
-struct alignas(32) Nodes {
+struct Nodes {
   float3 low;
   float3 high;
   uint16_t nprims;
   uint8_t axis;
   uint8_t pad0;
   uchar4 split0on_nprims;
-} __attribute__((packed));
+} __attribute__((packed, aligned(32)));
 
 struct Triangles {
   uint32_t primitive_count;

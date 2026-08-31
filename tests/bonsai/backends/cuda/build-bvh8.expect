@@ -53,11 +53,11 @@ struct TriangleIntersection {
   float t;
 };
 
-struct alignas(32) Interiors {
+struct Interiors {
   cuda::std::array<float3, 8> lo;
   cuda::std::array<float3, 8> hi;
   cuda::std::array<uint64_t, 8> children;
-} __attribute__((packed));
+} __attribute__((packed, aligned(32)));
 
 struct Triangles {
   uint64_t primitive_count;
