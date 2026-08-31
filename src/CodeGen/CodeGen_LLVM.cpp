@@ -179,25 +179,20 @@ CodeGen_LLVM::CodeGen_LLVM() {
 void CodeGen_LLVM::init_llvm() {
     static std::once_flag init_llvm_once;
     std::call_once(init_llvm_once, []() {
-        llvm::InitializeNativeTarget();
-        llvm::InitializeNativeTargetAsmPrinter();
-        llvm::InitializeNativeTargetAsmParser();
-
-        // TODO: allow these.
-        // #define LLVM_TARGET(target) \
-//     Initialize##target##Target();
-        // #include <llvm/Config/Targets.def>
-        // #undef LLVM_TARGET
-
-        // #define LLVM_ASM_PARSER(target) \
-//     Initialize##target##AsmParser();
-        // #include <llvm/Config/AsmParsers.def>
-        // #undef LLVM_ASM_PARSER
-
-        // #define LLVM_ASM_PRINTER(target) \
-//     Initialize##target##AsmPrinter();
-        // #include <llvm/Config/AsmPrinters.def>
-        // #undef LLVM_ASM_PRINTER
+        // Every target LLVM was built with, not just this machine's.
+        //
+        // `--triple` lets a caller name any of them, and the tests that diff
+        // generated code use it so their goldens do not depend on the machine
+        // that produced them. Registering only the native target made that
+        // work exactly when the triple happened to match the host: asking an
+        // arm64 machine for x86_64-unknown-linux-gnu got "No available targets
+        // are compatible with triple", which is how CI failed while the same
+        // tests passed on an x86-64 developer machine.
+        llvm::InitializeAllTargetInfos();
+        llvm::InitializeAllTargets();
+        llvm::InitializeAllTargetMCs();
+        llvm::InitializeAllAsmPrinters();
+        llvm::InitializeAllAsmParsers();
     });
 }
 
@@ -804,8 +799,8 @@ void CodeGen_LLVM::visit(const SizeOf *node) {
     // handing out a stride the generated code does not use.
     if (node->of.is_vector()) {
         internal_assert(bytes == node->of.bytes())
-            << "Type::bytes() says " << node->of.bytes() << " for "
-            << node->of << ", but the target lays it out in " << bytes;
+            << "Type::bytes() says " << node->of.bytes() << " for " << node->of
+            << ", but the target lays it out in " << bytes;
     }
     value = llvm::ConstantInt::get(codegen_type(node->type), bytes);
 }
@@ -827,9 +822,9 @@ void CodeGen_LLVM::visit(const Extrema *node) {
             // An integer has no infinity; the largest representable value is
             // what an unbounded starting point means for one.
             const uint32_t bits = scalar->getIntegerBitWidth();
-            const llvm::APInt max_val = node->type.is_int()
-                                            ? llvm::APInt::getSignedMaxValue(bits)
-                                            : llvm::APInt::getMaxValue(bits);
+            const llvm::APInt max_val =
+                node->type.is_int() ? llvm::APInt::getSignedMaxValue(bits)
+                                    : llvm::APInt::getMaxValue(bits);
             value = llvm::ConstantInt::get(type, max_val);
             return;
         }
@@ -1904,8 +1899,8 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
     if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
         value = load->getPointerOperand();
     } else if (node->expr.type().is<Struct_t>()) {
-        value = materialize_for_address(
-            pointee, node->expr.type().as<Struct_t>()->name);
+        value = materialize_for_address(pointee,
+                                        node->expr.type().as<Struct_t>()->name);
     } else if (node->expr.is<Extract, Access>()) {
         // Build a pointer via accesses, similar to codegen_writeloc.
         std::vector<std::variant<std::string, Expr>> accesses; // backwards
@@ -2285,8 +2280,8 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     // not, or no else at all. Only when every path returns is there nothing
     // after the chain -- and asking for both at once, as this did, left an arm
     // that falls through branching to a block that was never made.
-    needs_after_bb = needs_after_bb || !final_else.defined() ||
-                     !always_returns(final_else);
+    needs_after_bb =
+        needs_after_bb || !final_else.defined() || !always_returns(final_else);
 
     // TODO: we will support a switch statement, make sure to use Halide's
     // codegen for it!
@@ -2537,8 +2532,8 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     // slot holding a pointer to them, so that indexing it needs no load --
     // the same way an array argument arrives (see Type::is_reference).
     if (allocate_type.is_reference()) {
-        internal_assert(rhs) << "Array allocation produced no storage: "
-                             << Stmt(node);
+        internal_assert(rhs)
+            << "Array allocation produced no storage: " << Stmt(node);
         frames.add_to_frame(name, rhs);
         return;
     }
@@ -2956,8 +2951,7 @@ const Ramp *as_dense_ramp(const Expr &index) {
 
 llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
                                               llvm::Value *base,
-                                              const Expr &index,
-                                              uint32_t lanes,
+                                              const Expr &index, uint32_t lanes,
                                               const Expr &mask_expr,
                                               const std::string &name) {
     // A boolean occupies a byte in memory -- that is what the scalar path
@@ -2974,8 +2968,7 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
 
     llvm::Type *vtype = llvm::VectorType::get(etype, lanes, /*Scalable=*/false);
     const llvm::DataLayout &dl = module->getDataLayout();
-    llvm::Value *mask =
-        mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;
+    llvm::Value *mask = mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;
 
     if (const Ramp *ramp = as_dense_ramp(index)) {
         llvm::Value *first = builder->CreateInBoundsGEP(
@@ -2985,10 +2978,9 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
         }
         // A disabled lane must not touch memory at all, so the disabled
         // lanes come from the passthrough value rather than from the load.
-        return builder->CreateMaskedLoad(vtype, first,
-                                         dl.getABITypeAlign(vtype), mask,
-                                         llvm::Constant::getNullValue(vtype),
-                                         name);
+        return builder->CreateMaskedLoad(
+            vtype, first, dl.getABITypeAlign(vtype), mask,
+            llvm::Constant::getNullValue(vtype), name);
     }
 
     llvm::Value *ptrs = builder->CreateInBoundsGEP(
@@ -2997,9 +2989,9 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
         mask = llvm::Constant::getAllOnesValue(
             llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
     }
-    return builder->CreateMaskedGather(vtype, ptrs, dl.getABITypeAlign(etype),
-                                       mask, llvm::Constant::getNullValue(vtype),
-                                       name);
+    return builder->CreateMaskedGather(
+        vtype, ptrs, dl.getABITypeAlign(etype), mask,
+        llvm::Constant::getNullValue(vtype), name);
 }
 
 void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
@@ -3017,8 +3009,7 @@ void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
     }
 
     const llvm::DataLayout &dl = module->getDataLayout();
-    llvm::Value *mask =
-        mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;
+    llvm::Value *mask = mask_expr.defined() ? codegen_expr(mask_expr) : nullptr;
 
     if (const Ramp *ramp = as_dense_ramp(index)) {
         llvm::Value *first = builder->CreateInBoundsGEP(
@@ -3033,9 +3024,8 @@ void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
         return;
     }
 
-    llvm::Value *ptrs = builder->CreateInBoundsGEP(etype, base,
-                                                   codegen_expr(index),
-                                                   "store_ptrs");
+    llvm::Value *ptrs = builder->CreateInBoundsGEP(
+        etype, base, codegen_expr(index), "store_ptrs");
     if (mask == nullptr) {
         mask = llvm::Constant::getAllOnesValue(
             llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
@@ -3437,8 +3427,7 @@ void CodeGen_LLVM::declare_struct_types(
 // Unlike a struct, whose body may name a type that is still opaque, this needs
 // its members to have a size already. Answering false rather than asserting is
 // what lets declare_struct_types reach a union early and come back to it.
-bool CodeGen_LLVM::set_union_body(const Union_t *node,
-                                  llvm::StructType *made) {
+bool CodeGen_LLVM::set_union_body(const Union_t *node, llvm::StructType *made) {
     internal_assert(!node->members.empty())
         << "Union " << node->name << " has no members";
 
@@ -3474,8 +3463,8 @@ bool CodeGen_LLVM::set_union_body(const Union_t *node,
         }
     }
     internal_assert(unit) << "No type on this target is " << align
-                          << " bytes aligned to " << align
-                          << ", which union " << node->name << " needs";
+                          << " bytes aligned to " << align << ", which union "
+                          << node->name << " needs";
 
     made->setBody({llvm::ArrayType::get(unit, size / align)},
                   /*isPacked=*/false);
