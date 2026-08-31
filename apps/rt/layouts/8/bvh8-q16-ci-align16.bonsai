@@ -1,0 +1,117 @@
+element q16x3 {
+  lo: u16x3;
+  hi: u16x3;
+}
+
+element q16x3x8 = vector[q16x3, 8];
+element u32x8 = vector[u32, 8];
+
+func dequantize_bounds_lo(mlo: f32x3, mex: f32x3, bound: q16x3x8) -> f32x3x8 {
+  rcp: f32 = 1 / 65535.0;
+  return f32x3x8 { 
+    mlo + (cast[[f32x3]](bound[0].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[1].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[2].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[3].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[4].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[5].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[6].lo) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[7].lo) * rcp) * mex
+  };
+}
+
+func dequantize_bounds_hi(mlo: f32x3, mex: f32x3, bound: q16x3x8) -> f32x3x8 {
+  rcp: f32 = 1 / 65535.0;
+  return f32x3x8 { 
+    mlo + (cast[[f32x3]](bound[0].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[1].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[2].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[3].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[4].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[5].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[6].hi) * rcp) * mex,
+    mlo + (cast[[f32x3]](bound[7].hi) * rcp) * mex
+  };
+}
+
+func compute_merged_low(low: f32x3x8) -> f32x3 {
+  return min(low[0], min(low[1], min(low[2], min(low[3], min(low[4], min(low[5], min(low[6], low[7])))))));
+}
+
+func compute_merged_extent(lo: f32x3x8, hi: f32x3x8) -> f32x3 {
+  mlo: f32x3 = min(lo[0], min(lo[1], min(lo[2], min(lo[3], min(lo[4], min(lo[5], min(lo[6], lo[7])))))));
+  mhi: f32x3 = max(hi[0], max(hi[1], max(hi[2], max(hi[3], max(hi[4], max(hi[5], max(hi[6], hi[7])))))));
+  return mhi - mlo;
+}
+
+func to_u16_floor(f: f32x3) -> u16x3 {
+    f1: f32x3 = floorf(f);
+    f2: f32x3 = max(0.0, min(f1, 65535.0));
+    return cast[[u16x3]](f2);
+}
+
+func to_u16_ceil(f: f32x3) -> u16x3 {
+    f1: f32x3 = ceilf(f);
+    f2: f32x3 = max(0.0, min(f1, 65535.0));
+    return cast[[u16x3]](f2);
+}
+
+func quantize_bounds(low: f32x3x8, high: f32x3x8) -> q16x3x8 {
+  mlo: f32x3 = compute_merged_low(low);
+  mex: f32x3 = compute_merged_extent(low, high);
+  rcp: f32x3 = (1.0 / mex) * 65535.0;
+  return q16x3x8 {
+    q16x3 {to_u16_floor((low[0] - mlo) * rcp), to_u16_ceil((high[0] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[1] - mlo) * rcp), to_u16_ceil((high[1] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[2] - mlo) * rcp), to_u16_ceil((high[2] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[3] - mlo) * rcp), to_u16_ceil((high[3] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[4] - mlo) * rcp), to_u16_ceil((high[4] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[5] - mlo) * rcp), to_u16_ceil((high[5] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[6] - mlo) * rcp), to_u16_ceil((high[6] - mlo) * rcp) },
+    q16x3 {to_u16_floor((low[7] - mlo) * rcp), to_u16_ceil((high[7] - mlo) * rcp) }
+  };
+}
+
+schedule {
+    tree[[Triangle]] BVH 
+      = Interior(children: array[BVH, 8], lo: f32x3x8, hi: f32x3x8) with AABB(lo, hi) on children
+      | Leaf(nprims: u8, data: array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(I: u32 = 1u) {
+        primitive_count: u32;
+        primitives : array[Triangle, primitive_count];
+
+        interior_count: u32;
+        indirect group Interiors[size=interior_count, align=16] {
+            mlo: f32x3;
+            mex: f32x3;
+            child_bounds: q16x3x8;
+            children: u32x8;
+            lo = dequantize_bounds_lo(mlo, mex, child_bounds);
+            hi = dequantize_bounds_hi(mlo, mex, child_bounds);
+        };
+
+        group _ by I {
+            split I[0:1] {
+                1 -> Interior from Interiors[I[2:31]];
+                _ -> Leaf { nprims = cast[[u8]](I[2:6] + 1); data = primitives[I[7:31] : I[7:31] + nprims]; };
+            };
+        };
+    };
+
+    build triangles {
+      build Interior(children: array[BVH, 8], lo: f32x3x8, hi: f32x3x8) {
+        build mlo = compute_merged_low(lo);
+        build mex = compute_merged_extent(lo, hi);
+        build child_bounds = quantize_bounds(lo, hi);
+        recurse children;
+        return cast[[u32]]((this << cast[[u32]](2)) | cast[[u32]](1));
+      };
+
+      build Leaf(nprims: u8, data: array[Triangle, nprims]) {
+        let poffset: u32 = append(data, nprims);
+        return cast[[u32]]((poffset << cast[[u32]](7)) | ((nprims - cast[[u32]](1)) << cast[[u32]](2)) | cast[[u32]](0));
+      };
+    };
