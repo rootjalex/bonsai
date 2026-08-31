@@ -1,8 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include "runtime/bonsai_cpp.h"
-
+#include <cstdint>
 
 extern "C" {
 typedef float float3 __attribute__((ext_vector_type(3)));
@@ -29,20 +28,19 @@ struct Shape {
     uint8_t tag;
     Shape_payload payload;
 };
-typedef uint8_t uint8_t4 __attribute__((ext_vector_type(4)));
 struct _tree_layout1 {
     float3 center;
     float radius;
     uint16_t nPrims;
     uint8_t axis;
     uint8_t pad0;
-    uint8_t4 split0on_nPrims;
+    std::array<uint8_t, 4> split0on_nPrims;
 } __attribute__((packed));
 struct _tree_layout0 {
     uint32_t pCount;
-    Shape* prims;
+    Shape *prims;
     uint32_t nCount;
-    _tree_layout1* group0_index;
+    _tree_layout1 *group0_index;
 } __attribute__((packed));
 struct _tree_layout2 {
     uint32_t offset;
@@ -62,7 +60,8 @@ struct PerspectiveCamera {
     Transform render_from_camera;
 };
 
-void Shape_Sph(Shape& _ret0, const Sphere& s);
-void Shape_Tri(Shape& _ret1, const Triangle& t);
-void render(const PerspectiveCamera& camera, const uint32_t width, const uint32_t height, float3* out, const _tree_layout0& shapes);
+void Shape_Sph(Shape &_ret0, const Sphere &s);
+void Shape_Tri(Shape &_ret1, const Triangle &t);
+void render(const PerspectiveCamera &camera, const uint32_t width,
+            const uint32_t height, float3 *out, const _tree_layout0 &shapes);
 }

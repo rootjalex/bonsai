@@ -1,0 +1,25 @@
+//! flags: -p canonicalize -p lower-trees
+
+element Float = f32;
+element vec3f = vector[Float, 3];
+
+element AABB {
+    low, high : vec3f;
+}
+
+element Point {
+    data : vec3f;
+}
+
+extern points : set[Point];
+
+func q_closest(q : Point) = argmin(|p| distmin(q, p), points);
+func q_farthest(q : Point) = maximum(|p| distmax(q, p), points);
+
+schedule {
+    tree[[Point]] PointBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : PointBVH, right : PointBVH)
+    | Leaf(data : Point) with data = data;
+
+    points : PointBVH;
+}

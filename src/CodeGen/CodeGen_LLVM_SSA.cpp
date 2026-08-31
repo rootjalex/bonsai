@@ -96,9 +96,7 @@ struct CodeGen_LLVM::SSALowering {
             ir::ssa::overloads{
                 [&](bool b) { return BoolImm::make(b); },
                 [&](int64_t i) { return make_const(c.type, i); },
-                [&](uint64_t u) {
-                    return make_const(c.type, int64_t(u));
-                },
+                [&](uint64_t u) { return make_const(c.type, int64_t(u)); },
                 [&](double d) { return FloatImm::make(c.type, d); },
                 [&](const std::string &s) -> Expr {
                     internal_error << "String constant " << s
@@ -122,7 +120,8 @@ struct CodeGen_LLVM::SSALowering {
     // than it is in the relooper: it is an address built for a store, and is
     // walked back to the thing it indexes into.
     WriteLoc location(const std::shared_ptr<Value> &v) {
-        if (const auto *ptr = std::get_if<std::shared_ptr<Instruction>>(&v->data)) {
+        if (const auto *ptr =
+                std::get_if<std::shared_ptr<Instruction>>(&v->data)) {
             const auto &instr = *ptr;
             if (instr->op == Instruction::Op::GEP) {
                 internal_assert(instr->operands.size() == 2)
@@ -147,7 +146,8 @@ struct CodeGen_LLVM::SSALowering {
         const size_t n = args.size();
 
         auto binop = [&](BinOp::OpType op) {
-            internal_assert(n == 2) << ir::ssa::op_name(instr.op) << " takes two";
+            internal_assert(n == 2)
+                << ir::ssa::op_name(instr.op) << " takes two";
             return BinOp::make(op, std::move(args[0]), std::move(args[1]));
         };
 
@@ -249,7 +249,8 @@ struct CodeGen_LLVM::SSALowering {
             return Expr();
         default:
             internal_error
-                << "SSA-to-LLVM lowering does not handle " << ir::ssa::op_name(instr.op)
+                << "SSA-to-LLVM lowering does not handle "
+                << ir::ssa::op_name(instr.op)
                 << " yet. It is reached only by functions lowered straight "
                    "from SSA -- today the vectorized ones -- so an opcode "
                    "here means one of those grew a new kind of instruction.";
@@ -278,9 +279,8 @@ struct CodeGen_LLVM::SSALowering {
             return;
         }
         Expr value = value_of(*instr);
-        internal_assert(value.defined())
-            << "No value for " << instr->name << " (" << op_name(instr->op)
-            << ")";
+        internal_assert(value.defined()) << "No value for " << instr->name
+                                         << " (" << op_name(instr->op) << ")";
         bind(instr->name, cg.codegen_expr(value));
     }
 
@@ -329,8 +329,8 @@ struct CodeGen_LLVM::SSALowering {
             << (jump.args.size() + first) << " arguments but it takes "
             << target.size();
         for (size_t i = 0; i < jump.args.size(); i++) {
-            target[first + i]->addIncoming(cg.codegen_expr(operand(jump.args[i])),
-                                           from);
+            target[first + i]->addIncoming(
+                cg.codegen_expr(operand(jump.args[i])), from);
         }
     }
 
@@ -381,8 +381,8 @@ struct CodeGen_LLVM::SSALowering {
             cg.builder->SetInsertPoint(blocks.at(name));
             std::vector<llvm::PHINode *> made;
             for (const Argument &arg : block.args) {
-                made.push_back(cg.builder->CreatePHI(
-                    cg.codegen_type(arg.type), 0, arg.name));
+                made.push_back(cg.builder->CreatePHI(cg.codegen_type(arg.type),
+                                                     0, arg.name));
             }
             phis[name] = std::move(made);
         }
@@ -421,8 +421,7 @@ struct CodeGen_LLVM::SSALowering {
                     // targets[0] is where a false condition goes.
                     supply(d.targets[0], from, 0);
                     supply(d.targets[1], from, 0);
-                    cg.builder->CreateCondBr(cond,
-                                             blocks.at(d.targets[1].name),
+                    cg.builder->CreateCondBr(cond, blocks.at(d.targets[1].name),
                                              blocks.at(d.targets[0].name));
                 },
                 [&](const Terminator::Return &r) {
@@ -456,9 +455,9 @@ struct CodeGen_LLVM::SSALowering {
                            "into a single gang.";
                 },
                 [&](const Terminator::Yield &) {
-                    internal_error
-                        << block.name << " still yields, which only a parfor "
-                           "body does, and there is no parfor here.";
+                    internal_error << block.name
+                                   << " still yields, which only a parfor "
+                                      "body does, and there is no parfor here.";
                 },
             },
             block.terminator.data);

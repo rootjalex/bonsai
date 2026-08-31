@@ -36,3 +36,6 @@ add_bonsai_tests(
     unswitch.bonsai
     vector-immediate.bonsai
 )
+
+add_subdirectory(geomops)
+add_subdirectory(setops)

@@ -147,8 +147,7 @@ set<T> filter(Predicate &&predicate, const set<T> &input) {
 }
 
 template <typename T, typename Func>
-auto map(Func &&f, const set<T> &input)
-{
+auto map(Func &&f, const set<T> &input) {
     using U = decltype(f(std::declval<T>()));
     std::vector<U> result;
     result.reserve(input.data.size()); // direct access
@@ -249,10 +248,8 @@ inline auto product(const range<T, i_t> &input0, const range<U, j_t> &input1) {
 }
 
 template <typename Predicate, typename T, typename U>
-set<std::tuple<T, U>>
-nested_join(Predicate &&predicate,
-            const set<T> &input0,
-            const set<U> &input1) {
+set<std::tuple<T, U>> nested_join(Predicate &&predicate, const set<T> &input0,
+                                  const set<U> &input1) {
     std::vector<std::tuple<T, U>> result;
 
     const auto &data0 = input0.data;
@@ -296,11 +293,13 @@ uint64_t nested_join_count(Predicate &&predicate, const set<T> &input0,
 template <typename T>
 bool operator==(const set<T> &a, const set<T> &b) {
     if (a.size() != b.size()) {
-        std::cout << "Different sizes: " << a.size() << " vs " << b.size() << "\n";
+        std::cout << "Different sizes: " << a.size() << " vs " << b.size()
+                  << "\n";
         return false;
     }
 
-    std::set<T> std_a(a.data.begin(), a.data.end()), std_b(b.data.begin(), b.data.end());
+    std::set<T> std_a(a.data.begin(), a.data.end()),
+        std_b(b.data.begin(), b.data.end());
     return std_a == std_b;
 }
 
@@ -310,7 +309,6 @@ bool operator==(const set<T> &a, const std::set<T> &b) {
     return std_a == b;
 }
 
-
 template <typename T>
 void print_set(const set<T> &s) {
     std::cout << "{ ";
@@ -319,15 +317,12 @@ void print_set(const set<T> &s) {
 }
 
 template <typename T, typename U>
-std::set<std::tuple<T, U>>
-flatten(const set<std::tuple<T, set<U>>> &input) {
+std::set<std::tuple<T, U>> flatten(const set<std::tuple<T, set<U>>> &input) {
     std::set<std::tuple<T, U>> result;
     input.for_each([&](const std::tuple<T, set<U>> &p) {
         const T &outer = std::get<0>(p);
         const set<U> &inner = std::get<1>(p);
-        inner.for_each([&](const U &u) {
-            result.emplace(outer, u);
-        });
+        inner.for_each([&](const U &u) { result.emplace(outer, u); });
     });
     return result;
 }

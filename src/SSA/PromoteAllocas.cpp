@@ -69,30 +69,29 @@ vector<std::pair<Terminator::Jump *, size_t>> jumps(Block &block) {
 // branched on, returned, or handed to a callee.
 vector<shared_ptr<Value>> terminator_uses(const Block &block) {
     vector<shared_ptr<Value>> uses;
-    std::visit(overloads{
-                   [&](const std::monostate &) {},
-                   [&](const Terminator::Jump &) {},
-                   [&](const Terminator::Dispatch &d) {
-                       uses.push_back(d.cond);
-                   },
-                   [&](const Terminator::Return &r) {
-                       if (r.value) {
-                           uses.push_back(r.value);
-                       }
-                   },
-                   [&](const Terminator::ParFor &p) {
-                       uses.push_back(p.start);
-                       uses.push_back(p.end);
-                       uses.push_back(p.stride);
-                   },
-                   [&](const Terminator::Yield &) {},
-                   [&](const Terminator::Call &c) {
-                       for (const auto &a : c.call.args) {
-                           uses.push_back(a);
-                       }
-                   },
-               },
-               block.terminator.data);
+    std::visit(
+        overloads{
+            [&](const std::monostate &) {},
+            [&](const Terminator::Jump &) {},
+            [&](const Terminator::Dispatch &d) { uses.push_back(d.cond); },
+            [&](const Terminator::Return &r) {
+                if (r.value) {
+                    uses.push_back(r.value);
+                }
+            },
+            [&](const Terminator::ParFor &p) {
+                uses.push_back(p.start);
+                uses.push_back(p.end);
+                uses.push_back(p.stride);
+            },
+            [&](const Terminator::Yield &) {},
+            [&](const Terminator::Call &c) {
+                for (const auto &a : c.call.args) {
+                    uses.push_back(a);
+                }
+            },
+        },
+        block.terminator.data);
     return uses;
 }
 
@@ -214,11 +213,11 @@ vector<Candidate> find_candidates(Function &func, const set<string> &region) {
         }
     }
 
-    candidates.erase(
-        std::remove_if(
-            candidates.begin(), candidates.end(),
-            [&](const Candidate &c) { return rejected.count(c.name) > 0; }),
-        candidates.end());
+    candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                                    [&](const Candidate &c) {
+                                        return rejected.count(c.name) > 0;
+                                    }),
+                     candidates.end());
     return candidates;
 }
 
@@ -318,9 +317,8 @@ size_t promote_allocas(Function &func, const string &entry) {
                 if (instr.get() == c.instr.get()) {
                     continue; // the allocation itself
                 }
-                const bool addresses =
-                    !instr->operands.empty() &&
-                    refers_to(*instr->operands[0], c.name);
+                const bool addresses = !instr->operands.empty() &&
+                                       refers_to(*instr->operands[0], c.name);
 
                 if (addresses && instr->op == Instruction::Op::Store) {
                     block.lookups[c.name] = instr->operands[1];
@@ -379,7 +377,8 @@ size_t promote_allocas(Function &func, const string &entry) {
         for (const string &name : region) {
             Block &block = *blocks.at(name);
             auto substitute = [&](shared_ptr<Value> &v) {
-                const auto *instr = std::get_if<shared_ptr<Instruction>>(&v->data);
+                const auto *instr =
+                    std::get_if<shared_ptr<Instruction>>(&v->data);
                 if (instr == nullptr) {
                     return;
                 }

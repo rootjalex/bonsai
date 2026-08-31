@@ -633,10 +633,9 @@ ir::Program LoopTransforms::run(ir::Program program,
             // theirs to find; use the SSA pipeline, where the same transforms
             // work on parfor loops.
             const Stmt before = body;
-            const bool must_change =
-                std::holds_alternative<Split>(t) ||
-                std::holds_alternative<Collapse>(t) ||
-                std::holds_alternative<Bind>(t);
+            const bool must_change = std::holds_alternative<Split>(t) ||
+                                     std::holds_alternative<Collapse>(t) ||
+                                     std::holds_alternative<Bind>(t);
 
             std::visit(Overloaded{[&](const Defer &def) {
                                       // no-op, should have been handled in

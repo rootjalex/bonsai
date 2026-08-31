@@ -5,6 +5,7 @@ add_bonsai_tests(
     adt-bvh.bonsai
     bind_cpu_thread.bonsai
     mut-dynamic-array.bonsai
+    setops.bonsai
     simple.bonsai
     struct.bonsai
     swap.bonsai

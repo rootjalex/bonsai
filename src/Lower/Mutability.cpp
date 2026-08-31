@@ -107,12 +107,11 @@ struct RewriteMutables : public ir::Mutator {
 
         for (size_t i = 0; i < n; i++) {
             const ir::Type &arg_type = func_t->arg_types[i].type;
-            arg_types[i].type =
-                ((func_t->arg_types[i].is_mutable ||
-                  arg_type.is<ir::Struct_t>()) &&
-                 !arg_type.is_reference())
-                    ? ir::Ptr_t::make(arg_type)
-                    : arg_type;
+            arg_types[i].type = ((func_t->arg_types[i].is_mutable ||
+                                  arg_type.is<ir::Struct_t>()) &&
+                                 !arg_type.is_reference())
+                                    ? ir::Ptr_t::make(arg_type)
+                                    : arg_type;
             arg_types[i].is_mutable = func_t->arg_types[i].is_mutable;
         }
         return ir::Function_t::make(func_t->ret_type, std::move(arg_types));

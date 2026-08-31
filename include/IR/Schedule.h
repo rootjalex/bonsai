@@ -115,8 +115,8 @@ struct Vectorize {
     Location i;
 };
 
-using Transform = std::variant<Bind, Collapse, Defer, Loopify, MakeQueue,
-                               Split, Sort, Vectorize>;
+using Transform = std::variant<Bind, Collapse, Defer, Loopify, MakeQueue, Split,
+                               Sort, Vectorize>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

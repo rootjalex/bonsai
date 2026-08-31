@@ -232,8 +232,8 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                 return compare_primitives(u0->members[i].name,
                                           u1->members[i].name);
             }
-            if (const Cmp rec = compare_types(u0->members[i].type,
-                                              u1->members[i].type);
+            if (const Cmp rec =
+                    compare_types(u0->members[i].type, u1->members[i].type);
                 rec != Cmp::Equals) {
                 return rec;
             }
@@ -247,12 +247,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             return compare_primitives(a0->name, a1->name);
         }
         if (a0->variants.size() != a1->variants.size()) {
-            return compare_primitives(a0->variants.size(),
-                                      a1->variants.size());
+            return compare_primitives(a0->variants.size(), a1->variants.size());
         }
         for (size_t i = 0; i < a0->variants.size(); i++) {
-            if (const Cmp rec =
-                    compare_types(a0->variants[i], a1->variants[i]);
+            if (const Cmp rec = compare_types(a0->variants[i], a1->variants[i]);
                 rec != Cmp::Equals) {
                 return rec;
             }
@@ -715,6 +713,16 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         if (const Cmp op = compare_primitives(v0->op, v1->op);
             op != Cmp::Equals) {
             return op;
+        }
+        if (v0->op == AggOp::reduce) {
+            if (const Cmp id = compare_exprs(v0->identity, v1->identity);
+                id != Cmp::Equals) {
+                return id;
+            }
+            if (const Cmp c = compare_exprs(v0->combiner, v1->combiner);
+                c != Cmp::Equals) {
+                return c;
+            }
         }
         return compare_exprs(v0->a, v1->a);
     }

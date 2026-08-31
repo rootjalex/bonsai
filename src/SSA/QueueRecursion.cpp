@@ -95,10 +95,10 @@ void queue_recursion(Function &func, size_t size) {
     set<string> recursive;
     {
         const BlockMap blocks = make_block_map(func);
-        for (const string &name : reachable_from(entry_name,
-                                                 compute_successors(func))) {
-            const auto *call =
-                std::get_if<Terminator::Call>(&blocks.at(name)->terminator.data);
+        for (const string &name :
+             reachable_from(entry_name, compute_successors(func))) {
+            const auto *call = std::get_if<Terminator::Call>(
+                &blocks.at(name)->terminator.data);
             if (call != nullptr && call->call.name == entry_name) {
                 recursive.insert(name);
             }
@@ -129,9 +129,8 @@ void queue_recursion(Function &func, size_t size) {
                 << call.call.args.size() << " arguments to a function taking "
                 << params.size();
             for (size_t i = 0; i < params.size(); i++) {
-                varies[i] = varies[i] ||
-                            !is_named_argument(*call.call.args[i],
-                                               params[i].name);
+                varies[i] = varies[i] || !is_named_argument(*call.call.args[i],
+                                                            params[i].name);
             }
         }
     }
@@ -170,9 +169,9 @@ void queue_recursion(Function &func, size_t size) {
                 internal_assert(other == nullptr ||
                                 other->call.name == entry_name)
                     << "Cannot put the recursion of " << entry_name
-                    << " on a stack: " << after << " calls "
-                    << other->call.name << " after the recursive call in "
-                    << name << ", which would be deferred past it";
+                    << " on a stack: " << after << " calls " << other->call.name
+                    << " after the recursive call in " << name
+                    << ", which would be deferred past it";
             }
         }
     }
@@ -220,16 +219,15 @@ void queue_recursion(Function &func, size_t size) {
         << "The recursion of " << entry_name << " passes the same arguments "
         << "every time, so it never ends";
 
-    auto count = append(func, entry, Ptr_t::make(count_type),
-                        Instruction::Op::Alloca, {},
-                        new_storage_name(func, "!count"));
+    auto count =
+        append(func, entry, Ptr_t::make(count_type), Instruction::Op::Alloca,
+               {}, new_storage_name(func, "!count"));
 
     // The traversal starts at whatever the function was called with.
     for (const Stack &stack : stacks) {
         auto slot = append(func, entry, Ptr_t::make(params[stack.param].type),
                            Instruction::Op::GEP, {stack.storage, count_of(0)});
-        append_store(entry, slot,
-                     std::make_shared<Value>(params[stack.param]));
+        append_store(entry, slot, std::make_shared<Value>(params[stack.param]));
     }
     append_store(entry, count, count_of(1));
 
@@ -267,8 +265,7 @@ void queue_recursion(Function &func, size_t size) {
     auto more = append(func, head, Bool_t::make(), Instruction::Op::Ne,
                        {left, count_of(0)});
     head->terminator.data = Terminator::Dispatch{
-        more,
-        {Terminator::Jump{exit->name}, Terminator::Jump{pop->name}}};
+        more, {Terminator::Jump{exit->name}, Terminator::Jump{pop->name}}};
 
     // Take the top of the stack. Separate from the test above so that the
     // count is only stepped when there is something to step it for.
@@ -291,12 +288,11 @@ void queue_recursion(Function &func, size_t size) {
     const BlockMap blocks = make_block_map(func);
     for (const string &name : recursive) {
         auto block = blocks.at(name);
-        const auto call =
-            std::get<Terminator::Call>(block->terminator.data);
+        const auto call = std::get<Terminator::Call>(block->terminator.data);
 
         // Write down what the call would have been, on top of the stack.
-        auto top = append(func, block, count_type, Instruction::Op::Load,
-                          {count});
+        auto top =
+            append(func, block, count_type, Instruction::Op::Load, {count});
         for (const Stack &stack : stacks) {
             auto slot =
                 append(func, block, Ptr_t::make(params[stack.param].type),
@@ -312,13 +308,14 @@ void queue_recursion(Function &func, size_t size) {
     }
 
     // Returning from a visit is the end of that node, not of the traversal.
-    for (const string &name : reachable_from(body_name,
-                                             compute_successors(func))) {
+    for (const string &name :
+         reachable_from(body_name, compute_successors(func))) {
         auto block = blocks.count(name) ? blocks.at(name) : nullptr;
         if (block == nullptr) {
             continue;
         }
-        if (std::holds_alternative<Terminator::Return>(block->terminator.data)) {
+        if (std::holds_alternative<Terminator::Return>(
+                block->terminator.data)) {
             block->terminator.data = Terminator::Jump{head->name};
         }
     }

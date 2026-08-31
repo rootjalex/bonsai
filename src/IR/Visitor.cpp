@@ -193,7 +193,15 @@ void Visitor::visit(const SetOp *node) {
     node->b.accept(this);
 }
 
-void Visitor::visit(const AggOp *node) { node->a.accept(this); }
+void Visitor::visit(const AggOp *node) {
+    if (node->identity.defined()) {
+        node->identity.accept(this);
+    }
+    if (node->combiner.defined()) {
+        node->combiner.accept(this);
+    }
+    node->a.accept(this);
+}
 
 void Visitor::visit(const Call *node) {
     node->func.accept(this);

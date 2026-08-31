@@ -70,8 +70,7 @@ struct FunctionBuilder : Visitor {
             const Argument state{Ptr_t::make(Rand_State_t::make()),
                                  lower::rng_state_name, /*mutating=*/true};
             mut_names.insert(state.name);
-            block->lookups.insert(
-                {state.name, std::make_shared<Value>(state)});
+            block->lookups.insert({state.name, std::make_shared<Value>(state)});
         }
 
         function->blocks.push_back(block);
@@ -136,13 +135,12 @@ struct FunctionBuilder : Visitor {
         block->terminator.data = Terminator::Dispatch{
             .cond = std::move(v),
             // v == 0
-            .targets =
-            {Terminator::Jump{.name = node->else_body.defined()
-                                          ? else_case->name
-                                          : merge_block->name,
-                              .args = {}},
-             // v != 0
-             Terminator::Jump{.name = then_case->name, .args = {}}}};
+            .targets = {Terminator::Jump{.name = node->else_body.defined()
+                                                     ? else_case->name
+                                                     : merge_block->name,
+                                         .args = {}},
+                        // v != 0
+                        Terminator::Jump{.name = then_case->name, .args = {}}}};
 
         auto curr_block = std::move(block);
 
@@ -193,14 +191,13 @@ struct FunctionBuilder : Visitor {
 
         std::shared_ptr<Block> loop_end = make_block("do_while_end");
 
-        block->terminator.data =
-            Terminator::Dispatch{.cond = std::move(v),
-                                 // v == 0
-                                 .targets =
-                                 {Terminator::Jump{.name = loop_end->name, .args = {}},
-                                  // v != 0
-                                  //  TODO: copy arguments?
-                                  Terminator::Jump{.name = loop_head->name, .args = {}}}};
+        block->terminator.data = Terminator::Dispatch{
+            .cond = std::move(v),
+            // v == 0
+            .targets = {Terminator::Jump{.name = loop_end->name, .args = {}},
+                        // v != 0
+                        //  TODO: copy arguments?
+                        Terminator::Jump{.name = loop_head->name, .args = {}}}};
         loop_end->preds.push_back(block);
         loop_head->preds.push_back(block); // possible self-cycle?
         block = loop_end;
@@ -279,7 +276,8 @@ struct FunctionBuilder : Visitor {
         auto call_block = std::move(block);
 
         call_block->terminator.data = Terminator::Call{
-            .call = Terminator::Jump{.name = call_name, .args = std::move(args)},
+            .call =
+                Terminator::Jump{.name = call_name, .args = std::move(args)},
             // 'args' is empty for now (implicit capture via CFG lookup)
             // Does not receive output of call, because value is dropped.
             .cont = Terminator::Jump{.name = cont_block->name, .args = {}},
@@ -364,8 +362,8 @@ struct FunctionBuilder : Visitor {
                 // function's local SSA lookups. Also, overwriting the lookup
                 // with the raw (unwrapped) value here would stomp the
                 // pointer entry needed by any later access to this argument.
-                auto ptr =
-                    block->get_value(node->loc.base, base_lookup_type(node->loc));
+                auto ptr = block->get_value(node->loc.base,
+                                            base_lookup_type(node->loc));
                 block->make_side_effect(Instruction::Op::Store,
                                         {std::move(ptr), std::move(v)});
                 return;
@@ -382,7 +380,8 @@ struct FunctionBuilder : Visitor {
         auto v = get_value(node->value);
 
         // Create GEP
-        auto var = block->get_value(node->loc.base, base_lookup_type(node->loc));
+        auto var =
+            block->get_value(node->loc.base, base_lookup_type(node->loc));
 
         for (const auto &value : node->loc.accesses) {
             if (std::holds_alternative<std::string>(value)) {
@@ -437,8 +436,6 @@ struct FunctionBuilder : Visitor {
 
         std::shared_ptr<Value> ptr = nullptr;
 
-
-
         // Handle local variables
         if (node->loc.accesses.empty()) {
             internal_assert(node->loc.type.is_stack_allocatable())
@@ -463,7 +460,8 @@ struct FunctionBuilder : Visitor {
                     auto i = get_value(idx);
 
                     // Update ptr with GEP result
-                    ptr = block->make_instruction(Type(), Instruction::Op::GEP,
+                    ptr =
+                        block->make_instruction(Type(), Instruction::Op::GEP,
                                                 {std::move(ptr), std::move(i)});
                 }
             }
@@ -645,8 +643,7 @@ struct FunctionBuilder : Visitor {
         }
 
         const Struct_t *struct_t = node->value.type().as<Struct_t>();
-        internal_assert(struct_t)
-            << node->value.type() << " of " << Expr(node);
+        internal_assert(struct_t) << node->value.type() << " of " << Expr(node);
         auto idx = find_struct_index(node->field, struct_t->fields);
         auto vidx = make_constant(u32, (uint64_t)idx);
         value = block->make_instruction(node->type, Instruction::Op::LoadField,
@@ -795,12 +792,13 @@ struct FunctionBuilder : Visitor {
         internal_assert(!block->terminator.defined());
         auto call_block = std::move(block);
 
-        call_block->terminator.data = Terminator::Call{
-            .call = Terminator::Jump{.name = call_name, .args = std::move(args)},
-            // cont `args` takes an argument that is the result of the call.
-            // Pass any live vars!
-            .cont = Terminator::Jump{.name = cont_block->name},
-            .drop = false};
+        call_block->terminator.data =
+            Terminator::Call{.call = Terminator::Jump{.name = call_name,
+                                                      .args = std::move(args)},
+                             // cont `args` takes an argument that is the result
+                             // of the call. Pass any live vars!
+                             .cont = Terminator::Jump{.name = cont_block->name},
+                             .drop = false};
 
         block = cont_block;
 
@@ -905,8 +903,8 @@ struct FunctionBuilder : Visitor {
         // element type and broadcast when the operand is a vector. Giving a
         // constant a vector type instead makes something that says it is
         // three floats while holding one.
-        const Type elem = node->type.is_vector() ? node->type.element_of()
-                                                 : node->type;
+        const Type elem =
+            node->type.is_vector() ? node->type.element_of() : node->type;
         auto splat = [&](Constant c) {
             auto v = std::make_shared<Value>(std::move(c));
             if (!node->type.is_vector()) {
@@ -966,8 +964,9 @@ struct FunctionBuilder : Visitor {
             extract != nullptr && extract->vec.type().is_reference()) {
             auto base = get_value(extract->vec);
             auto index = get_value(extract->idx);
-            value = block->make_instruction(node->type, Instruction::Op::GEP,
-                                            {std::move(base), std::move(index)});
+            value =
+                block->make_instruction(node->type, Instruction::Op::GEP,
+                                        {std::move(base), std::move(index)});
             return;
         }
 
@@ -985,9 +984,9 @@ struct FunctionBuilder : Visitor {
         // the pointer escapes into the call it was made for and
         // SSA/PromoteAllocas.h will not promote an allocation that escapes.
         auto v = get_value(node->expr);
-        value = block->make_instruction(Ptr_t::make(node->expr.type()),
-                                        Instruction::Op::AddressOf,
-                                        {std::move(v)});
+        value =
+            block->make_instruction(Ptr_t::make(node->expr.type()),
+                                    Instruction::Op::AddressOf, {std::move(v)});
     }
 
     void visit(const Deref *node) override {
@@ -1014,9 +1013,9 @@ struct FunctionBuilder : Visitor {
         auto cond = get_value(node->cond);
         auto true_val = get_value(node->tvalue);
         auto false_val = get_value(node->fvalue);
-        value = block->make_instruction(node->type, Instruction::Op::Select,
-                                        {std::move(cond), std::move(true_val),
-                                         std::move(false_val)});
+        value = block->make_instruction(
+            node->type, Instruction::Op::Select,
+            {std::move(cond), std::move(true_val), std::move(false_val)});
     }
 
     // RESTRICT_VISITOR(IntImm);
@@ -1135,8 +1134,7 @@ parfors_reachable_from(const FuncMap &fmap, const std::string &start) {
 // because lowering labels what it invents, while a schedule names it without
 // the underscore either way.
 LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
-                      const std::string &wanted,
-                      const std::string &transform) {
+                      const std::string &wanted, const std::string &transform) {
     const auto found = parfors_reachable_from(fmap, start);
     for (const std::string &candidate : {wanted, "_" + wanted}) {
         // The function the schedule named wins over one it merely reaches.
@@ -1228,78 +1226,73 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
             // loop where the schedule asked for two. Listing every kind also
             // means a new one will not compile until someone decides which of
             // these it is.
-            std::visit(overloads{
-                           [&](const ir::Vectorize &v) {
-                               internal_assert(!v.i.names.empty())
-                                   << "vectorize() requires a loop name for: "
-                                   << name;
-                               const LoopSite at = resolve_loop(
-                                   fmap, name, v.i.names.back(), "vectorize");
-                               vectorize(fmap, at.func, at.index);
-                           },
-                           // Applied by the loop above, before anything else
-                           // sees the function.
-                           [&](const ir::Loopify &) {},
-                           // Applied earlier in lowering, by the pass named.
-                           [&](const ir::Defer &) {},    // Lower/Defers.cpp
-                           [&](const ir::MakeQueue &) {}, // Lower/Defers.cpp
-                           [&](const ir::Sort &) {},      // Lower/Sorts.cpp
-                           [&](const ir::Split &s) {
-                               internal_assert(!s.i.names.empty() &&
-                                               !s.io.names.empty() &&
-                                               !s.ii.names.empty())
-                                   << "split() requires loop names for: "
-                                   << name;
-                               const auto factor =
-                                   get_constant_value<int64_t>(s.factor);
-                               internal_assert(factor.has_value() &&
-                                               *factor > 0)
-                                   << "split(" << s.factor << ") on " << name
-                                   << " needs a constant, positive factor";
-                               const LoopSite at = resolve_loop(
-                                   fmap, name, s.i.names.back(), "split");
-                               split(fmap, at.func, at.index, int(*factor),
-                                     s.io.names.back(), s.ii.names.back(),
-                                     !s.generate_tail);
-                           },
-                           [&](const ir::Collapse &c) {
-                               internal_assert(!c.io.names.empty() &&
-                                               !c.ii.names.empty() &&
-                                               !c.i.names.empty())
-                                   << "collapse() requires loop names for: "
-                                   << name;
-                               const LoopSite at = resolve_loop(
-                                   fmap, name, c.io.names.back(), "collapse");
-                               const LoopSite in = resolve_loop(
-                                   fmap, at.func, c.ii.names.back(),
-                                   "collapse");
-                               internal_assert(in.func == at.func)
-                                   << "collapse(" << c.io.names.back() << ", "
-                                   << c.ii.names.back() << ") on " << name
-                                   << ": those loops are in different "
-                                   << "functions (" << at.func << " and "
-                                   << in.func << "), so they are not nested";
-                               collapse(fmap, at.func, at.index, in.index,
-                                        c.i.names.back());
-                           },
-                           [&](const ir::Bind &b) {
-                               internal_assert(!b.i.names.empty())
-                                   << "bind() requires a cursor for: " << name;
-                               // Not finished, and a bind that silently did
-                               // nothing would be a program that runs
-                               // somewhere other than it was told to.
-                               internal_assert(
-                                   b.resource != ir::Resource::RTCore &&
-                                   b.resource != ir::Resource::OptixThread)
-                                   << "bind(" << b.i.names.back() << ", "
-                                   << to_string(b.resource) << ") on " << name
-                                   << ": that backend is not built yet.";
-                               const LoopSite at = resolve_loop(
-                                   fmap, name, b.i.names.back(), "bind");
-                               bind(fmap, at.func, at.index, b.resource);
-                           },
-                       },
-                       t);
+            std::visit(
+                overloads{
+                    [&](const ir::Vectorize &v) {
+                        internal_assert(!v.i.names.empty())
+                            << "vectorize() requires a loop name for: " << name;
+                        const LoopSite at = resolve_loop(
+                            fmap, name, v.i.names.back(), "vectorize");
+                        vectorize(fmap, at.func, at.index);
+                    },
+                    // Applied by the loop above, before anything else
+                    // sees the function.
+                    [&](const ir::Loopify &) {},
+                    // Applied earlier in lowering, by the pass named.
+                    [&](const ir::Defer &) {},     // Lower/Defers.cpp
+                    [&](const ir::MakeQueue &) {}, // Lower/Defers.cpp
+                    [&](const ir::Sort &) {},      // Lower/Sorts.cpp
+                    [&](const ir::Split &s) {
+                        internal_assert(!s.i.names.empty() &&
+                                        !s.io.names.empty() &&
+                                        !s.ii.names.empty())
+                            << "split() requires loop names for: " << name;
+                        const auto factor =
+                            get_constant_value<int64_t>(s.factor);
+                        internal_assert(factor.has_value() && *factor > 0)
+                            << "split(" << s.factor << ") on " << name
+                            << " needs a constant, positive factor";
+                        const LoopSite at =
+                            resolve_loop(fmap, name, s.i.names.back(), "split");
+                        split(fmap, at.func, at.index, int(*factor),
+                              s.io.names.back(), s.ii.names.back(),
+                              !s.generate_tail);
+                    },
+                    [&](const ir::Collapse &c) {
+                        internal_assert(!c.io.names.empty() &&
+                                        !c.ii.names.empty() &&
+                                        !c.i.names.empty())
+                            << "collapse() requires loop names for: " << name;
+                        const LoopSite at = resolve_loop(
+                            fmap, name, c.io.names.back(), "collapse");
+                        const LoopSite in = resolve_loop(
+                            fmap, at.func, c.ii.names.back(), "collapse");
+                        internal_assert(in.func == at.func)
+                            << "collapse(" << c.io.names.back() << ", "
+                            << c.ii.names.back() << ") on " << name
+                            << ": those loops are in different "
+                            << "functions (" << at.func << " and " << in.func
+                            << "), so they are not nested";
+                        collapse(fmap, at.func, at.index, in.index,
+                                 c.i.names.back());
+                    },
+                    [&](const ir::Bind &b) {
+                        internal_assert(!b.i.names.empty())
+                            << "bind() requires a cursor for: " << name;
+                        // Not finished, and a bind that silently did
+                        // nothing would be a program that runs
+                        // somewhere other than it was told to.
+                        internal_assert(b.resource != ir::Resource::RTCore &&
+                                        b.resource != ir::Resource::OptixThread)
+                            << "bind(" << b.i.names.back() << ", "
+                            << to_string(b.resource) << ") on " << name
+                            << ": that backend is not built yet.";
+                        const LoopSite at =
+                            resolve_loop(fmap, name, b.i.names.back(), "bind");
+                        bind(fmap, at.func, at.index, b.resource);
+                    },
+                },
+                t);
         }
     }
 

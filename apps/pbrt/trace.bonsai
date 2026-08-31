@@ -12,7 +12,7 @@ func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r
 schedule {
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH)
-    | Leaf(data : array[Triangle]);
+    | Leaf(data : array[Triangle]) with data = data;
 
     triangles : TriangleBVH;
 

@@ -51,11 +51,11 @@ int main() {
     // part of the spectrum and low elsewhere is what the sigmoid has to bend
     // to fit.
     const Case cases[] = {
-        {"black", 0.0f, 0.0f, 0.0f},   {"dark", 0.05f, 0.05f, 0.05f},
+        {"black", 0.0f, 0.0f, 0.0f},    {"dark", 0.05f, 0.05f, 0.05f},
         {"mid grey", 0.5f, 0.5f, 0.5f}, {"near white", 0.99f, 0.99f, 0.99f},
-        {"red", 0.8f, 0.1f, 0.1f},     {"green", 0.1f, 0.7f, 0.2f},
-        {"blue", 0.15f, 0.2f, 0.75f},  {"orange", 0.9f, 0.5f, 0.1f},
-        {"cyan", 0.1f, 0.75f, 0.8f},   {"magenta", 0.75f, 0.1f, 0.7f},
+        {"red", 0.8f, 0.1f, 0.1f},      {"green", 0.1f, 0.7f, 0.2f},
+        {"blue", 0.15f, 0.2f, 0.75f},   {"orange", 0.9f, 0.5f, 0.1f},
+        {"cyan", 0.1f, 0.75f, 0.8f},    {"magenta", 0.75f, 0.1f, 0.7f},
     };
 
     double worst = 0.0;

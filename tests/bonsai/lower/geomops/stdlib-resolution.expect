@@ -1,0 +1,409 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type PointBVH = (const PointBVH&)
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type vec3f = f32x3
+type vec3h = f16x3
+
+extern points : tree[[struct Point{ vec : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
+
+func _traverse_tree0(q : Point, points : tree[[Point]] PointBVH) -> Point {
+  _best0 : mut (f32, Point) := ((f32)inf, build<Point>())
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (distmin_Point_AABB(q, build<AABB>((points as Interior).low, (points as Interior).high)) < _best0[0]) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (distmin_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best0[0]) {
+        if (distmin_Point_Point(q, (points as Leaf).data) < _best0[0]) {
+          _best0 = (distmin_Point_Point(q, (points as Leaf).data), (points as Leaf).data)
+        }
+      }
+    }
+  }
+  yield _best0[1]
+}
+
+func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (contains_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree10(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (ltx_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!lex_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (ltx_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (!lex_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (ltx_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree11(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (lty_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!ley_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (lty_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        yield (points as Leaf).data
+      } else if (!ley_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (lty_Point_AABB((points as Leaf).data, r)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree12(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (ltz_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!lez_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (ltz_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (!lez_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (ltz_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree13(q : Point, points : tree[[Point]] PointBVH) -> f32 {
+  _best1 : mut f32 := (f32)inf
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (distmin_Point_AABB(q, build<AABB>((points as Interior).low, (points as Interior).high)) < _best1) {
+        _best1 min= distmax_Point_AABB(q, build<AABB>((points as Interior).low, (points as Interior).high))
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (distmin_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best1) {
+        if (distmin_Point_Point(q, (points as Leaf).data) < _best1) {
+          _best1 min= distmin_Point_Point(q, (points as Leaf).data)
+        }
+      }
+    }
+  }
+  yield _best1
+}
+
+func _traverse_tree14(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (touches_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree15(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (within_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (intersects_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (within_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        yield (points as Leaf).data
+      } else if (intersects_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (within_Point_AABB((points as Leaf).data, r)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree2(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (covers_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (covers_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (covers_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree3(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (disjoint_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (disjoint_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (!contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (disjoint_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree4(q : Point, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (contains_AABB_Point(build<AABB>((points as Interior).low, (points as Interior).high), q)) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (contains_AABB_Point(build<AABB>((points as Leaf).low, (points as Leaf).high), q)) {
+        if (equals_Point_Point((points as Leaf).data, q)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree5(q : Point, points : tree[[Point]] PointBVH) -> f32 {
+  _best0 : mut f32 := -(f32)inf
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (_best0 < distmax_Point_AABB(q, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        _best0 max= distmin_Point_AABB(q, build<AABB>((points as Interior).low, (points as Interior).high))
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (_best0 < distmax_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (_best0 < distmax_Point_Point(q, (points as Leaf).data)) {
+          _best0 max= distmax_Point_Point(q, (points as Leaf).data)
+        }
+      }
+    }
+  }
+  yield _best0
+}
+
+func _traverse_tree6(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (contains_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (intersects_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree7(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (lex_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!ltx_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (lex_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (!ltx_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (lex_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree8(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (ley_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!lty_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (ley_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        yield (points as Leaf).data
+      } else if (!lty_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (ley_Point_AABB((points as Leaf).data, r)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func _traverse_tree9(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
+  rec(points : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      if (lez_AABB_AABB(r, build<AABB>((points as Interior).low, (points as Interior).high))) {
+        scan ((points as Interior).left, (points as Interior).right)
+      } else if (!ltz_AABB_AABB(build<AABB>((points as Interior).low, (points as Interior).high), r)) {
+        from ((points as Interior).left, (points as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      if (lez_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        yield (points as Leaf).data
+      } else if (!ltz_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (lez_AABB_Point(r, (points as Leaf).data)) {
+          yield (points as Leaf).data
+        }
+      }
+    }
+  }
+}
+
+func q_closest(q : Point) -> Point {
+  return _traverse_tree0(q, points)
+}
+
+func q_contains(r : AABB) -> set<Point> {
+  return _traverse_tree1(r, points)
+}
+
+func q_covers(r : AABB) -> set<Point> {
+  return _traverse_tree2(r, points)
+}
+
+func q_disjoint(r : AABB) -> set<Point> {
+  return _traverse_tree3(r, points)
+}
+
+func q_equals(q : Point) -> set<Point> {
+  return _traverse_tree4(q, points)
+}
+
+func q_farthest(q : Point) -> f32 {
+  return _traverse_tree5(q, points)
+}
+
+func q_intersects(r : AABB) -> set<Point> {
+  return _traverse_tree6(r, points)
+}
+
+func q_lex(r : AABB) -> set<Point> {
+  return _traverse_tree7(r, points)
+}
+
+func q_ley(r : AABB) -> set<Point> {
+  return _traverse_tree8(r, points)
+}
+
+func q_lez(r : AABB) -> set<Point> {
+  return _traverse_tree9(r, points)
+}
+
+func q_ltx(r : AABB) -> set<Point> {
+  return _traverse_tree10(r, points)
+}
+
+func q_lty(r : AABB) -> set<Point> {
+  return _traverse_tree11(r, points)
+}
+
+func q_ltz(r : AABB) -> set<Point> {
+  return _traverse_tree12(r, points)
+}
+
+func q_nearest(q : Point) -> f32 {
+  return _traverse_tree13(q, points)
+}
+
+func q_touches(r : AABB) -> set<Point> {
+  return _traverse_tree14(r, points)
+}
+
+func q_within(r : AABB) -> set<Point> {
+  return _traverse_tree15(r, points)
+}
+
+
+schedule host {
+
+}

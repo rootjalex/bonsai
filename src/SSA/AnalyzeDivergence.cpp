@@ -19,21 +19,21 @@ using std::string;
 using std::vector;
 
 bool Divergence::is_varying(const string &block, const Value &v) const {
-    return std::visit(
-        overloads{
-            [&](const shared_ptr<Instruction> &i) {
-                return instrs.count(i.get()) > 0;
-            },
-            [&](const Constant &) { return false; },
-            [&](const Argument &a) {
-                if (args.count({block, a.name})) {
-                    return true;
-                }
-                const auto it = in_scope.find(block);
-                return it != in_scope.end() && it->second.count(a.name) > 0;
-            },
-        },
-        v.data);
+    return std::visit(overloads{
+                          [&](const shared_ptr<Instruction> &i) {
+                              return instrs.count(i.get()) > 0;
+                          },
+                          [&](const Constant &) { return false; },
+                          [&](const Argument &a) {
+                              if (args.count({block, a.name})) {
+                                  return true;
+                              }
+                              const auto it = in_scope.find(block);
+                              return it != in_scope.end() &&
+                                     it->second.count(a.name) > 0;
+                          },
+                      },
+                      v.data);
 }
 
 namespace {
@@ -74,45 +74,46 @@ void collect_argument_flows(const Block &block,
         into[j.name].push_back({block.name, first_arg, &j.args});
     };
 
-    std::visit(
-        overloads{
-            [&](const std::monostate &) {
-                internal_error << "Block " << block.name
-                               << " has no terminator.";
-            },
-            [&](const Terminator::Jump &j) { add(j, 0); },
-            [&](const Terminator::Dispatch &d) {
-                for (const auto &target : d.targets) {
-                    add(target, 0);
-                }
-            },
-            [&](const Terminator::Return &) {},
-            [&](const Terminator::ParFor &) {
-                internal_error << "TODO: nested ParFor in " << block.name
-                               << " during divergence analysis.";
-            },
-            [&](const Terminator::Yield &) {},
-            [&](const Terminator::Call &c) {
-                // A returned value is prepended to the continuation's
-                // arguments, so the explicitly passed ones start at 1.
-                add(c.cont, c.drop ? 0 : 1);
-            },
-        },
-        block.terminator.data);
+    std::visit(overloads{
+                   [&](const std::monostate &) {
+                       internal_error << "Block " << block.name
+                                      << " has no terminator.";
+                   },
+                   [&](const Terminator::Jump &j) { add(j, 0); },
+                   [&](const Terminator::Dispatch &d) {
+                       for (const auto &target : d.targets) {
+                           add(target, 0);
+                       }
+                   },
+                   [&](const Terminator::Return &) {},
+                   [&](const Terminator::ParFor &) {
+                       internal_error << "TODO: nested ParFor in " << block.name
+                                      << " during divergence analysis.";
+                   },
+                   [&](const Terminator::Yield &) {},
+                   [&](const Terminator::Call &c) {
+                       // A returned value is prepended to the continuation's
+                       // arguments, so the explicitly passed ones start at 1.
+                       add(c.cont, c.drop ? 0 : 1);
+                   },
+               },
+               block.terminator.data);
 }
 
 template <typename T>
-const T &lookup_or(const map<string, T> &m, const string &key, const T &fallback) {
+const T &lookup_or(const map<string, T> &m, const string &key,
+                   const T &fallback) {
     const auto it = m.find(key);
     return it == m.end() ? fallback : it->second;
 }
 
 } // namespace
 
-Divergence analyze_divergence(
-    const Function &func, const string &entry, const set<string> &varying_seeds,
-    const set<const Instruction *> &varying_instrs,
-    const set<std::pair<string, string>> &varying_args) {
+Divergence
+analyze_divergence(const Function &func, const string &entry,
+                   const set<string> &varying_seeds,
+                   const set<const Instruction *> &varying_instrs,
+                   const set<std::pair<string, string>> &varying_args) {
     const BlockMap all_blocks = make_block_map(func);
     const AdjacencyMap all_succs = compute_successors(func);
 
@@ -198,12 +199,14 @@ Divergence analyze_divergence(
             // At a join whose predecessors are only partially executed, lanes
             // arrive along different edges, so an argument that is not passed
             // the same definition along every edge disagrees between lanes.
-            const vector<string> &block_preds = lookup_or(preds, name, no_names);
+            const vector<string> &block_preds =
+                lookup_or(preds, name, no_names);
             const bool divergent_join =
                 block_preds.size() > 1 &&
-                std::any_of(
-                    block_preds.begin(), block_preds.end(),
-                    [&](const string &p) { return result.masked.count(p) > 0; });
+                std::any_of(block_preds.begin(), block_preds.end(),
+                            [&](const string &p) {
+                                return result.masked.count(p) > 0;
+                            });
 
             const vector<ArgumentFlow> &incoming =
                 lookup_or(flows, name, no_flows);

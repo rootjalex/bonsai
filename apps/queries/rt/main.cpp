@@ -171,7 +171,9 @@ bool global_tree_built = false;
 _tree_layout0 global_tree;
 
 _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
-    auto bvh_ptr = dynamic_cast<fcpw::Bvh<3, fcpw::BvhNode<3>, fcpw::Triangle>*>(aggregate);
+    auto bvh_ptr =
+        dynamic_cast<fcpw::Bvh<3, fcpw::BvhNode<3>, fcpw::Triangle> *>(
+            aggregate);
     if (!bvh_ptr) {
         std::cerr << "Error: Aggregate is not a BVH<3>!\n";
         std::abort();
@@ -180,8 +182,8 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
     _tree_layout0 tree;
     tree.nCount = static_cast<uint32_t>(bvh_ptr->flatTree.size());
     if (tree.nCount > 0) {
-        tree.group0_index =
-            static_cast<_tree_layout1*>(malloc(sizeof(_tree_layout1) * tree.nCount));
+        tree.group0_index = static_cast<_tree_layout1 *>(
+            malloc(sizeof(_tree_layout1) * tree.nCount));
         if (!tree.group0_index) {
             std::cerr << "Malloc (nodes) failed" << std::endl;
             abort();
@@ -208,22 +210,32 @@ _tree_layout0 copy_tree(fcpw::Aggregate<3> *aggregate) {
 
     tree.pCount = static_cast<uint32_t>(bvh_ptr->primitives.size());
     if (tree.pCount > 0) {
-        tree.prims = static_cast<Triangle*>(malloc(sizeof(Triangle) * tree.pCount));
+        tree.prims =
+            static_cast<Triangle *>(malloc(sizeof(Triangle) * tree.pCount));
         if (!tree.prims) {
             std::cerr << "Malloc (triangles) failed" << std::endl;
             abort();
         }
         for (uint32_t i = 0; i < tree.pCount; ++i) {
             const auto soup = bvh_ptr->primitives[i]->soup;
-            tree.prims[i].p0.x = soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
-            tree.prims[i].p0.y = soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
-            tree.prims[i].p0.z = soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
-            tree.prims[i].p1.x = soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
-            tree.prims[i].p1.y = soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
-            tree.prims[i].p1.z = soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
-            tree.prims[i].p2.x = soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
-            tree.prims[i].p2.y = soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
-            tree.prims[i].p2.z = soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
+            tree.prims[i].p0.x =
+                soup->positions[bvh_ptr->primitives[i]->indices[0]][0];
+            tree.prims[i].p0.y =
+                soup->positions[bvh_ptr->primitives[i]->indices[0]][1];
+            tree.prims[i].p0.z =
+                soup->positions[bvh_ptr->primitives[i]->indices[0]][2];
+            tree.prims[i].p1.x =
+                soup->positions[bvh_ptr->primitives[i]->indices[1]][0];
+            tree.prims[i].p1.y =
+                soup->positions[bvh_ptr->primitives[i]->indices[1]][1];
+            tree.prims[i].p1.z =
+                soup->positions[bvh_ptr->primitives[i]->indices[1]][2];
+            tree.prims[i].p2.x =
+                soup->positions[bvh_ptr->primitives[i]->indices[2]][0];
+            tree.prims[i].p2.y =
+                soup->positions[bvh_ptr->primitives[i]->indices[2]][1];
+            tree.prims[i].p2.z =
+                soup->positions[bvh_ptr->primitives[i]->indices[2]][2];
         }
     } else {
         std::cerr << "No triangles?" << std::endl;
@@ -482,7 +494,7 @@ tree.nCount << "allocated\n";
 // 1:1 match with FCPW's Bvh_SurfaceArea:
 // https://github.com/rohan-sawhney/fcpw/blob/e36bc9b34af6088fb78ddbb6a93e26686779678a/include/fcpw/utilities/scene_data.h#L21
 _tree_layout0 build_triangles(std::vector<Triangle> &triangles, int leaf_size,
-                     int max_tree_depth, int nBuckets = 8) {
+                              int max_tree_depth, int nBuckets = 8) {
     constexpr auto MAX = std::numeric_limits<float>::max();
 
     struct BucketInfo {
@@ -700,7 +712,7 @@ _tree_layout0 build_triangles(std::vector<Triangle> &triangles, int leaf_size,
 
         nodes[index].offset = right - index;
 #ifdef AJR_PROFILE
-            interior_count++;
+        interior_count++;
 #endif
         return index;
     };
@@ -710,14 +722,15 @@ _tree_layout0 build_triangles(std::vector<Triangle> &triangles, int leaf_size,
 #ifdef AJR_PROFILE
     std::cout << "Bonsai tree build: node_count     = " << nodes.size() << "\n";
     std::cout << "                   leaf_count     = " << leaf_count << "\n";
-    std::cout << "                   interior_count = " << interior_count << "\n";
+    std::cout << "                   interior_count = " << interior_count
+              << "\n";
 #endif
 
     _tree_layout0 tree;
     tree.nCount = static_cast<uint32_t>(nodes.size());
     if (tree.nCount > 0) {
-        tree.group0_index =
-            static_cast<_tree_layout1*>(malloc(sizeof(_tree_layout1) * tree.nCount));
+        tree.group0_index = static_cast<_tree_layout1 *>(
+            malloc(sizeof(_tree_layout1) * tree.nCount));
         if (!tree.group0_index) {
             std::cerr << "Malloc (nodes) failed" << std::endl;
             abort();
@@ -734,7 +747,8 @@ _tree_layout0 build_triangles(std::vector<Triangle> &triangles, int leaf_size,
 
     tree.pCount = static_cast<uint32_t>(triangles.size());
     if (tree.pCount > 0) {
-        tree.prims = static_cast<Triangle*>(malloc(sizeof(Triangle) * tree.pCount));
+        tree.prims =
+            static_cast<Triangle *>(malloc(sizeof(Triangle) * tree.pCount));
         if (!tree.prims) {
             std::cerr << "Malloc (triangles) failed" << std::endl;
             abort();
@@ -761,9 +775,11 @@ void run_bonsai(const std::string &obj_dir, const std::string &object,
     assert(!triangles.empty());
 
     auto t0 = clock::now();
-    auto tree = global_tree_built ? global_tree : build_triangles(triangles, 4, 64);
+    auto tree =
+        global_tree_built ? global_tree : build_triangles(triangles, 4, 64);
     auto t1 = clock::now();
-    auto trace_time = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    auto trace_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     // std::cout << "Bonsai build time : " << trace_time << " ms\n";
 
     bool timedout = false;
@@ -987,7 +1003,9 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
     std::vector<cgalTriangle> triangles;
     triangles.reserve(tris.size());
     for (const auto &t : tris) {
-        triangles.emplace_back(cgalPoint(t.p0.x, t.p0.y, t.p0.z), cgalPoint(t.p1.x, t.p1.y, t.p1.z), cgalPoint(t.p2.x, t.p2.y, t.p2.z));
+        triangles.emplace_back(cgalPoint(t.p0.x, t.p0.y, t.p0.z),
+                               cgalPoint(t.p1.x, t.p1.y, t.p1.z),
+                               cgalPoint(t.p2.x, t.p2.y, t.p2.z));
     }
     tris.clear();
 
@@ -1021,10 +1039,10 @@ void run_cgal(const std::string &obj_dir, const std::string &object,
         rays.reserve(bRays.size());
 
         for (const auto &r : bRays) {
-            rays.emplace_back(cgalPoint(r.o.x, r.o.y, r.o.z), cgalKernel::Direction_3(r.d.x, r.d.y, r.d.z));
+            rays.emplace_back(cgalPoint(r.o.x, r.o.y, r.o.z),
+                              cgalKernel::Direction_3(r.d.x, r.d.y, r.d.z));
         }
         bRays.clear();
-
 
         if (is_first_run) {
             for (int i = 0; i < std::min<size_t>(rays.size(), 512u); ++i)

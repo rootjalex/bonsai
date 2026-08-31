@@ -19,7 +19,8 @@ namespace lower {
 //     body                        =>       let i = start + stride * j in body
 //                                        }
 //                                        ctx = { ...free variables... }
-//                                        launch (end - start + stride - 1)/stride
+//                                        launch (end - start + stride -
+//                                        1)/stride
 //                                            closure(ctx)
 //
 // A parfor with no binding is left alone: it is emitted as an ordinary

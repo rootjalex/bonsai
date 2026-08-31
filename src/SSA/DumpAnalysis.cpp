@@ -154,7 +154,8 @@ void dump_divergence(std::ostream &os, const std::string &indent,
     const Divergence div = analyze_divergence(func, entry, {index});
     const BlockMap blocks = make_block_map(func);
 
-    for (const auto &name : reverse_postorder(entry, compute_successors(func))) {
+    for (const auto &name :
+         reverse_postorder(entry, compute_successors(func))) {
         const Block &block = *blocks.at(name);
         os << indent << name << ": "
            << (div.masked.count(name) ? "masked" : "unmasked");

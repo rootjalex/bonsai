@@ -223,7 +223,8 @@ bool is_store_instr(const Instruction::Op &op) {
 void Instruction::dump(std::ostream &os) const {
     if (is_store_instr(op)) {
         internal_assert(name.empty())
-            << "Name must be empty for store/acc: " << name << " (op: " << op_name(op) << ")";
+            << "Name must be empty for store/acc: " << name
+            << " (op: " << op_name(op) << ")";
         os << op_name(op) << " ";
         // A vectorized store carries a third operand, its execution mask.
         internal_assert(operands.size() == 2 || operands.size() == 3);
@@ -416,13 +417,14 @@ Block::make_instruction(Type type, Instruction::Op op,
 }
 
 void Block::make_side_effect(Instruction::Op op,
-                        std::vector<std::shared_ptr<Value>> vs) {
+                             std::vector<std::shared_ptr<Value>> vs) {
     // Re-thread any operands from other blocks (necessary due to call
     // continuations).
     forward_block_values(vs);
 
     // No name for side-effect-y instructions.
-    auto instr = std::make_shared<Instruction>(op, std::move(vs), weak_from_this());
+    auto instr =
+        std::make_shared<Instruction>(op, std::move(vs), weak_from_this());
     instrs.push_back(instr);
 }
 

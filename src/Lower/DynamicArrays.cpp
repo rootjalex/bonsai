@@ -9,6 +9,8 @@
 #include "RuntimeABI.h"
 #include "Utils.h"
 
+#include <pthread.h>
+
 #include <algorithm>
 #include <set>
 #include <string>
@@ -18,6 +20,12 @@ namespace bonsai {
 namespace lower {
 
 namespace {
+
+// Bytes reserved in a dynamic array for its pthread_mutex_t. Fixed rather
+// than sizeof(pthread_mutex_t) so the generated layout is the same on every
+// host; see build_struct below.
+constexpr size_t MUTEX_BYTES = 64;
+
 std::string unique_dynamic_array_name() {
     static size_t counter = 0;
     return "__dyn_array" + std::to_string(counter++);
@@ -38,15 +46,19 @@ struct DynamicArraysToStructs : public ir::Mutator {
         std::string name = unique_dynamic_array_name();
         fields.push_back(ir::TypedVar("size", type));
         fields.push_back(ir::TypedVar("capacity", node->capacity.type()));
-        // Storage for the pthread mutex guarding growth, reserved as a fixed
-        // number of 64-bit words rather than `sizeof(pthread_mutex_t)`: the
-        // host's size (40 on glibc, 64 on macOS) would otherwise be baked
-        // into the generated IR, which both breaks cross-compilation and
-        // makes every IR golden host-specific. u64 rather than u8 so the
-        // reservation is aligned for a mutex on every platform.
+        // Opaque storage for the pthread_mutex_t that the backends initialise
+        // and lock through this field. Reserve a fixed upper bound rather than
+        // the host's own sizeof: that is 40 bytes on glibc/x86-64, 48 on
+        // glibc/aarch64 and 64 on Apple libc, and baking it in makes the
+        // struct's layout differ between hosts. Hand-written drivers mirror
+        // this struct -- apps/cd/cpu/fcl/main.h declares the field as a
+        // 64-byte vector -- so a host-dependent size is an ABI mismatch, not
+        // just golden churn. Over-reserving is harmless; under-reserving is
+        // not, hence the assertion.
+        static_assert(sizeof(pthread_mutex_t) <= MUTEX_BYTES,
+                      "reserved mutex storage is too small for this platform");
         fields.push_back(ir::TypedVar(
-            "mutex", ir::Vector_t::make(ir::UInt_t::make(64),
-                                        BONSAI_MUTEX_RESERVED_WORDS)));
+            "mutex", ir::Vector_t::make(ir::UInt_t::make(8), MUTEX_BYTES)));
         defaults["size"] = make_zero(type);
 
         ir::Type new_struct =

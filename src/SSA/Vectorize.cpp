@@ -4,8 +4,8 @@
 #include "SSA/Linearize.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
-#include "SSA/SplitAggregates.h"
 #include "SSA/SSA.h"
+#include "SSA/SplitAggregates.h"
 #include "SSA/UniformizeLoops.h"
 
 #include "Utils.h"
@@ -46,7 +46,8 @@ uint32_t gang_width(const Terminator::ParFor &parfor) {
                                   return 0;
                               },
                               [](const string &s) -> int64_t {
-                                  internal_error << "symbolic loop bound: " << s;
+                                  internal_error << "symbolic loop bound: "
+                                                 << s;
                                   return 0;
                               },
                           },
@@ -386,7 +387,8 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
             }
             // A call continuation is handed the result as a leading argument
             // that no jump passes, so the values line up with the last ones.
-            const size_t offset = target->second->args.size() - jump->args.size();
+            const size_t offset =
+                target->second->args.size() - jump->args.size();
             for (size_t j = 0; j < jump->args.size(); j++) {
                 const Type &wanted = target->second->args[j + offset].type;
                 if (!wanted.is_vector() ||
@@ -452,9 +454,8 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 // flow does need one, and gets the mask of the block it sits in as an extra
 // argument. Both variants can exist at once, for a function called both ways,
 // and a callee whose arguments are all uniform needs neither.
-void specialize_calls(FuncMap &funcs, Function &func,
-                      const set<string> &region, const Divergence &div,
-                      const BlockMasks &masks,
+void specialize_calls(FuncMap &funcs, Function &func, const set<string> &region,
+                      const Divergence &div, const BlockMasks &masks,
                       const set<string> &conditional_calls, uint32_t lanes,
                       const map<string, vector<uint32_t>> &call_shapes,
                       Variants &variants) {
@@ -490,8 +491,8 @@ void specialize_calls(FuncMap &funcs, Function &func,
             // A split argument is varying by construction; an unsplit one is
             // whatever the analysis says. Which arguments vary cannot come
             // from their types here, since the region is not widened yet.
-            key.varying.push_back(
-                count > 1 || div.is_varying(name, *call->call.args[arg]));
+            key.varying.push_back(count > 1 ||
+                                  div.is_varying(name, *call->call.args[arg]));
             arg += count;
         }
 
@@ -655,10 +656,9 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // Per-lane vectors become one value per component here too, which is what
     // turns a `vec3f` parameter into three `f32` ones -- matching the
     // components the caller hands over.
-    const SplitResult split =
-        split_aggregates(*variant, entry,
-                         analyze_divergence(*variant, entry, varying_names, {},
-                                            varying_args));
+    const SplitResult split = split_aggregates(
+        *variant, entry,
+        analyze_divergence(*variant, entry, varying_names, {}, varying_args));
     varying_names.insert(split.parameters.begin(), split.parameters.end());
 
     const Divergence div =
@@ -726,7 +726,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     set<string> conditional_calls;
     {
         const BlockMap blocks = make_block_map(f);
-        for (const string &name : reachable_from(entry, compute_successors(*f))) {
+        for (const string &name :
+             reachable_from(entry, compute_successors(*f))) {
             if (std::holds_alternative<Terminator::Call>(
                     blocks.at(name)->terminator.data) &&
                 before.masked.count(name)) {
@@ -745,12 +746,12 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // Fold away the branches the lanes disagree about, so that what is left
     // is control flow every lane follows together, with masks standing in for
     // the branches that were folded (see SSA/Linearize.h).
-    const BlockMasks masks = linearize(
-        *f, entry,
-        uniform.empty()
-            ? before
-            : analyze_divergence(*f, entry, {idx}, {}, varying_args),
-        nullptr, uniform.loops);
+    const BlockMasks masks =
+        linearize(*f, entry,
+                  uniform.empty()
+                      ? before
+                      : analyze_divergence(*f, entry, {idx}, {}, varying_args),
+                  nullptr, uniform.loops);
 
     const BlockMap blocks = make_block_map(f);
     const AdjacencyMap all_succs = compute_successors(*f);
@@ -777,7 +778,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     auto ramp = std::make_shared<Instruction>(
         f->get_unique_name(), widen(parfor.start->get_type(), lanes),
         Instruction::Op::Ramp,
-        vector<shared_ptr<Value>>{parfor.start, parfor.stride}, body.shared_from_this());
+        vector<shared_ptr<Value>>{parfor.start, parfor.stride},
+        body.shared_from_this());
     body.instrs.insert(body.instrs.begin(), ramp);
     auto ramp_value = std::make_shared<Value>(ramp);
 
@@ -818,11 +820,13 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // With the body vectorized, the loop is gone: it runs exactly once, so
     // its header falls straight into the body and the body's Yield falls
     // through to what followed the loop.
-    loop->terminator.data = Terminator::Jump{parfor.body.name, parfor.body.args};
+    loop->terminator.data =
+        Terminator::Jump{parfor.body.name, parfor.body.args};
 
     for (const string &name : region) {
         auto block = blocks.at(name);
-        if (!std::holds_alternative<Terminator::Yield>(block->terminator.data)) {
+        if (!std::holds_alternative<Terminator::Yield>(
+                block->terminator.data)) {
             continue;
         }
         block->terminator.data = Terminator::Jump{parfor.cont.name};

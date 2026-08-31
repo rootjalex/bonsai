@@ -1,6 +1,6 @@
 #include <cassert>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -8,7 +8,6 @@
 #include "joins_gen.h"
 
 #include "apps/queries/joins/salary/joins_gen.h"
-
 
 std::vector<Employee> load_csv(const std::string &filename) {
     std::ifstream file(filename);
@@ -30,17 +29,21 @@ std::vector<Employee> load_csv(const std::string &filename) {
         std::istringstream iss(line);
         std::string name, dept_str, salary_str, tax_str;
 
-        if (!std::getline(iss, name, ',')) continue;
-        if (!std::getline(iss, dept_str, ',')) continue;
-        if (!std::getline(iss, salary_str, ',')) continue;
-        if (!std::getline(iss, tax_str, ',')) continue;
+        if (!std::getline(iss, name, ','))
+            continue;
+        if (!std::getline(iss, dept_str, ','))
+            continue;
+        if (!std::getline(iss, salary_str, ','))
+            continue;
+        if (!std::getline(iss, tax_str, ','))
+            continue;
 
         try {
             Employee e;
             e.salary = std::stof(salary_str);
             e.tax = std::stof(tax_str);
             employees.push_back(e);
-        } catch (const std::exception& ex) {
+        } catch (const std::exception &ex) {
             std::cout << "Warning: skipping malformed line: " << line << "\n";
         }
     }
@@ -55,7 +58,8 @@ std::vector<Employee> load_csv(const std::string &filename) {
 _tree_layout0 build_tree(const set<Employee> &input) {
     _tree_layout0 tree;
     tree.pCount = input.size();
-    tree.prims = static_cast<Employee *>(std::malloc(sizeof(Employee) * tree.pCount));
+    tree.prims =
+        static_cast<Employee *>(std::malloc(sizeof(Employee) * tree.pCount));
     if (!tree.prims) {
         throw std::bad_alloc();
     }
@@ -84,20 +88,19 @@ _tree_layout0 build_tree(const set<Employee> &input) {
 
     float root_min_salary = input.data.begin()->salary;
     float root_max_salary = input.data.begin()->salary;
-    float root_min_tax    = input.data.begin()->tax;
-    float root_max_tax    = input.data.begin()->tax;
+    float root_min_tax = input.data.begin()->tax;
+    float root_max_tax = input.data.begin()->tax;
 
     for (const auto &e : input.data) {
         root_min_salary = std::min(root_min_salary, e.salary);
         root_max_salary = std::max(root_max_salary, e.salary);
-        root_min_tax    = std::min(root_min_tax, e.tax);
-        root_max_tax    = std::max(root_max_tax, e.tax);
+        root_min_tax = std::min(root_min_tax, e.tax);
+        root_max_tax = std::max(root_max_tax, e.tax);
     }
 #endif
 
     std::function<uint64_t(uint64_t, uint64_t, uint64_t)> handle_range =
         [&](uint64_t low, uint64_t high, uint64_t depth) -> uint64_t {
-
         uint64_t count = high - low;
         uint64_t this_index = next_node++;
         assert(this_index < tree.nCount);
@@ -126,17 +129,20 @@ _tree_layout0 build_tree(const set<Employee> &input) {
             tree.group0_index[this_index].nPrims = 0;
 
             // Choose split axis: longest dimension
-            bool split_on_x = (sh - sl) / (root_max_salary - root_min_salary) >= (th - tl) / (root_max_tax - root_min_tax);
+            bool split_on_x = (sh - sl) / (root_max_salary - root_min_salary) >=
+                              (th - tl) / (root_max_tax - root_min_tax);
 
             // Sort on that axis
             if (split_on_x) {
-                std::sort(
-                    tree.prims + low, tree.prims + high,
-                    [](const Employee &a, const Employee &b) { return a.salary < b.salary; });
+                std::sort(tree.prims + low, tree.prims + high,
+                          [](const Employee &a, const Employee &b) {
+                              return a.salary < b.salary;
+                          });
             } else {
-                std::sort(
-                    tree.prims + low, tree.prims + high,
-                    [](const Employee &a, const Employee &b) { return a.tax < b.tax; });
+                std::sort(tree.prims + low, tree.prims + high,
+                          [](const Employee &a, const Employee &b) {
+                              return a.tax < b.tax;
+                          });
             }
 
 #ifdef USE_APPROX_SAH
@@ -187,7 +193,7 @@ _tree_layout0 build_tree(const set<Employee> &input) {
 }
 
 // TODO: carry over timeouts?
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <csv_file>\n";
         return 1;
@@ -204,7 +210,9 @@ int main(int argc, char** argv) {
     const auto tree = build_tree(employees);
     auto end = std::chrono::high_resolution_clock::now();
 
-    auto build_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    auto build_time =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
+            .count();
 
     bool nested_timedout = (employees.size() >= 262144),
          single_timedout = false, dual_timedout = false;

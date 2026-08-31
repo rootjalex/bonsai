@@ -177,9 +177,9 @@ func [[export]] image(c : Camera) {
 }
 
 schedule {
-    tree[[Sphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
+    tree[[MaterialSphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
     | Interior(left : SphereBVH, right : SphereBVH)
-    | Leaf(data : array[MaterialSphere]);
+    | Leaf(data : array[MaterialSphere]) with data = data;
 
     spheres : SphereBVH;
 

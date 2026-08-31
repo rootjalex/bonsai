@@ -61,10 +61,20 @@ find_package(
     target
     passes
     native
-    mc              # <--- Added for TargetRegistry/Triple
-    instcombine     # <--- Added for InstCombinePass
-    scalaropts      # <--- Added for SimplifyCFG/GVN/Reassociate
-    ipo             # <--- Added for AlwaysInliner / RelLookupTable
+    # The components below are used directly by src/CodeGen (TargetRegistry,
+    # Triple, getDefaultTargetTriple, the AlwaysInliner, and the individual
+    # passes named in optimize_module). They resolve transitively through the
+    # monolithic LLVM dylib on macOS, but must be requested explicitly when
+    # LLVM is built as separate component libraries (e.g. a Linux
+    # BUILD_SHARED_LIBS install).
+    mc
+    targetparser
+    codegen
+    transformutils
+    instcombine
+    scalaropts
+    ipo
+    # irbuilder
     orcjit
     executionengine # Required for LLJIT
     runtimeDyld # Required for JIT execution
@@ -77,6 +87,18 @@ add_library(bonsai_library STATIC)
 add_library(bonsai::library ALIAS bonsai_library)
 
 target_compile_features(bonsai_library PUBLIC cxx_std_20)
+
+# include/Error.h trims this prefix off __FILE__, so that the "[internal]
+# Error: <file>:<line>" lines checked in under tests/bonsai/error/*.expect do
+# not depend on the name of the directory the repository was cloned into.
+# PUBLIC because bonsai_compiler and bonsai_test_runner include Error.h too;
+# BUILD_INTERFACE keeps a local absolute path out of anything installed.
+target_compile_definitions(
+    bonsai_library
+    PUBLIC
+    "$<BUILD_INTERFACE:BONSAI_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\">"
+)
+
 target_link_libraries(bonsai_library PUBLIC ModernLLVM::LLVM)
 
 target_sources(

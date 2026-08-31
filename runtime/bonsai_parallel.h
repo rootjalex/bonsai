@@ -60,9 +60,8 @@ BONSAI_PARALLEL_DEFN {
     if (n <= 0) {
         return;
     }
-    dispatch_apply_f(static_cast<size_t>(n),
-                     dispatch_get_global_queue(0, 0), context,
-                     reinterpret_cast<void (*)(void *, size_t)>(body));
+    dispatch_apply_f(static_cast<size_t>(n), dispatch_get_global_queue(0, 0),
+                     context, reinterpret_cast<void (*)(void *, size_t)>(body));
 }
 
 #elif defined(BONSAI_PARALLEL_SEQUENTIAL)

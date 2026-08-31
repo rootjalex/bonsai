@@ -86,6 +86,19 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const Vector_t *node) override {
             internal_assert(!contains<Ptr_t>(node->etype));
+            // A vector of bytes is packed storage of an exact width, not a
+            // value -- the only thing that produces one is a layout's switch
+            // payload (see Lower/Layouts.cpp), and the layout arithmetic has
+            // already decided it occupies exactly this many bytes. A native
+            // vector cannot say that: clang rounds ext_vector_type up to a
+            // power of two, so a seven byte payload would take eight and move
+            // every field after it. std::array is exactly its length.
+            if (node->etype.is_uint() && node->etype.bits() == 8) {
+                ss << "std::array<";
+                node->etype.accept(this);
+                ss << ", " << node->lanes << ">";
+                return;
+            }
             if (node->etype.is<Vector_t>()) {
                 node->etype.accept(this);
                 ss << "x" << node->lanes;
@@ -223,18 +236,7 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         void visit(const Extrema *node) override {
             ss << "std::numeric_limits<";
             emit_type(ss, node->type);
-            ss << ">::";
-            switch (node->op) {
-            case Extrema::inf: {
-                ss << "infinity";
-                break;
-            }
-            case Extrema::eps: {
-                ss << "epsilon";
-                break;
-            }
-            }
-            ss << "()";
+            ss << (node->op == Extrema::eps ? ">::epsilon()" : ">::infinity()");
         }
 
         void visit(const VecImm *node) override {
@@ -308,6 +310,11 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         ss << "};\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
+        // Byte vectors are spelled std::array at the point of use (see
+        // emit_type), which needs no declaration of its own.
+        if (vector_t->etype.is_uint() && vector_t->etype.bits() == 8) {
+            return;
+        }
         // A native vector rather than a struct of elements: this is the only
         // spelling whose size, alignment and argument passing match the
         // `<N x T>` the LLVM backend generates for the same type. A struct of
@@ -381,15 +388,17 @@ class BonsaiToCpp : ir::Printer {
             ss << "&";
         } else {
             emit_type(ss, type);
-            // `is_mutating` is what usually earns the reference -- that is how
-            // the callee writes back -- but a dynamically-sized array does not
-            // need one and must not have one: it is already a bare `T*`, a
-            // handle to storage the callee writes through. A reference on top
-            // of that passes the address of the caller's own pointer variable,
-            // and the first element written lands on the pointer itself.
-            if (!is_return_type &&
-                (should_be_ref(type) ||
-                 (is_mutating && !is_dynamic_array(type)))) {
+            // A mutating argument is written through by the callee, so it
+            // usually has to be a reference -- that is how a reduction's
+            // accumulator reaches its recursive traversal.
+            //
+            // A dynamically-sized array is the exception: it is already a bare
+            // `T*`, a handle to storage the callee writes through. A reference
+            // on top of that passes the address of the caller's own pointer
+            // variable, and the first element written lands on the pointer
+            // itself. See tests/bonsai/correctness/cpp/mut-dynamic-array.
+            if (!is_return_type && (should_be_ref(type) ||
+                                    (is_mutating && !is_dynamic_array(type)))) {
                 ss << "&";
             }
         }
@@ -661,27 +670,18 @@ class BonsaiToCpp : ir::Printer {
         emit_type(ss, node->of);
         ss << ")";
     }
-    void visit(const Extrema *node) override {
-        ss << "std::numeric_limits<";
-        emit_type(ss, node->type);
-        ss << ">::";
-        switch (node->op) {
-        case Extrema::inf: {
-            ss << "infinity";
-            break;
-        }
-        case Extrema::eps: {
-            ss << "epsilon";
-            break;
-        }
-        }
-        ss << "()";
-    }
+    // void visit(const Extrema *) override;
     // void visit(const Var *) override;
     // void print(const BinOp::OpType &op);
     // void visit(const BinOp *) override;
     // void print(const UnOp::OpType &op);
     // void visit(const UnOp *) override;
+    void visit(const Extrema *node) override {
+        ss << "std::numeric_limits<";
+        emit_type(ss, node->type);
+        ss << (node->op == Extrema::eps ? ">::epsilon()" : ">::infinity()");
+    }
+
     void visit(const Select *node) override {
         if (node->cond.type().is<ir::Vector_t>()) {
             ss << "select(";
@@ -986,11 +986,6 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const While *) override;
     // void visit(const Sequence *) override;
     void visit(const Allocate *node) override {
-        internal_assert(node->memory == Allocate::Memory::Stack ||
-                        node->loc.base_type.is<Set_t>())
-            << "TODO: C++ Allocate lowering: " << Stmt(node);
-        // internal_assert(node->loc.base_type.is<Set_t>())
-        //     << "TODO: C++ Allocate lowering: " << Stmt(node);
         ss << get_indent();
         if (const auto *array_t = node->loc.base_type.as<Array_t>();
             array_t && array_t->size.defined() && is_const(array_t->size)) {
@@ -1006,9 +1001,16 @@ class BonsaiToCpp : ir::Printer {
         }
         emit_type(ss, node->loc.base_type);
         ss << " " << node->loc.base;
+        // A set is default-constructed and appended to; a reduction's
+        // accumulator starts at its identity.
         if (node->value.defined()) {
+            internal_assert(!node->loc.base_type.is<Set_t>())
+                << "TODO: C++ Allocate lowering: " << Stmt(node);
             ss << " = ";
-            print(node->value);
+            print_no_parens(node->value);
+        } else {
+            internal_assert(node->loc.base_type.is<Set_t>())
+                << "TODO: C++ Allocate lowering: " << Stmt(node);
         }
         ss << ";\n";
     }
@@ -1219,8 +1221,8 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
         // Mostly for dry-run / testing purposes.
         std::cout << "// Bonsai Header" << '\n';
         std::cout << BonsaiToCpp().create_header(program,
-                                                    /* allow_mangling */ true)
-                     << '\n';
+                                                 /* allow_mangling */ true)
+                  << '\n';
         std::cout << std::string(42, '-') << '\n';
         std::cout << BonsaiToCpp().create_source(program) << '\n';
         return;

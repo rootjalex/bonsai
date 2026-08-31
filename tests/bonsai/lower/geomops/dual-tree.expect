@@ -1,0 +1,52 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type Float = f32
+type Point = struct Point{ data : f32x3 }
+type PointBVH = (const PointBVH&)
+type vec3f = f32x3
+
+extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
+extern points2 : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
+
+func _traverse_tree0(points : tree[[Point]] PointBVH, points2 : tree[[Point]] PointBVH) -> set<(Point, Point)> {
+  rec(points : tree[[Point]] PointBVH, points2 : tree[[Point]] PointBVH) {
+    match points {
+    | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+      match points2 {
+      | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+        if (intersects(build<AABB>((points as Interior).low, (points as Interior).high), build<AABB>((points2 as Interior).low, (points2 as Interior).high))) {
+          from (((points as Interior).left, (points2 as Interior).left), ((points as Interior).left, (points2 as Interior).right), ((points as Interior).right, (points2 as Interior).left), ((points as Interior).right, (points2 as Interior).right))
+        }
+      | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+        if (intersects(build<AABB>((points as Interior).low, (points as Interior).high), build<AABB>((points2 as Leaf).low, (points2 as Leaf).high))) {
+          from (((points as Interior).left, points2), ((points as Interior).right, points2))
+        }
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+      match points2 {
+      | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
+        if (intersects(build<AABB>((points as Leaf).low, (points as Leaf).high), build<AABB>((points2 as Interior).low, (points2 as Interior).high))) {
+          from ((points, (points2 as Interior).left), (points, (points2 as Interior).right))
+        }
+      | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
+        if (intersects(build<AABB>((points as Leaf).low, (points as Leaf).high), build<AABB>((points2 as Leaf).low, (points2 as Leaf).high))) {
+          if (intersects((points as Leaf).data, (points2 as Leaf).data)) {
+            yield ((points as Leaf).data, (points2 as Leaf).data)
+          }
+        }
+      }
+    }
+  }
+}
+
+func q() -> set<(Point, Point)> {
+  return _traverse_tree0(points, points2)
+}
+
+
+schedule host {
+
+}

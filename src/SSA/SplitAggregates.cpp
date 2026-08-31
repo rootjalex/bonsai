@@ -65,7 +65,8 @@ struct Splitter {
 
     // Was this value split?
     const Components *components_of(const Value &value) const {
-        if (const auto *instr = std::get_if<shared_ptr<Instruction>>(&value.data)) {
+        if (const auto *instr =
+                std::get_if<shared_ptr<Instruction>>(&value.data)) {
             const auto it = instrs.find(instr->get());
             return it == instrs.end() ? nullptr : &it->second;
         }
@@ -98,8 +99,8 @@ struct Splitter {
         if (cached != extracted.end()) {
             return cached->second;
         }
-        auto index = std::make_shared<Value>(
-            Constant{UInt_t::make(32), uint64_t(k)});
+        auto index =
+            std::make_shared<Value>(Constant{UInt_t::make(32), uint64_t(k)});
         auto value_k = emit(type.element_of(), Instruction::Op::ExtractIdx,
                             {value, std::move(index)});
         extracted[{key, k}] = value_k;
@@ -151,15 +152,15 @@ optional<uint64_t> constant_index(const Value &value) {
     if (constant == nullptr) {
         return std::nullopt;
     }
-    return std::visit(overloads{
-                          [](uint64_t u) -> optional<uint64_t> { return u; },
-                          [](int64_t i) -> optional<uint64_t> {
-                              return i < 0 ? std::nullopt
-                                           : optional<uint64_t>(uint64_t(i));
-                          },
-                          [](auto) -> optional<uint64_t> { return std::nullopt; },
-                      },
-                      constant->data);
+    return std::visit(
+        overloads{
+            [](uint64_t u) -> optional<uint64_t> { return u; },
+            [](int64_t i) -> optional<uint64_t> {
+                return i < 0 ? std::nullopt : optional<uint64_t>(uint64_t(i));
+            },
+            [](auto) -> optional<uint64_t> { return std::nullopt; },
+        },
+        constant->data);
 }
 
 } // namespace
@@ -221,9 +222,9 @@ SplitResult split_aggregates(Function &func, const string &entry,
             }
 
             const bool varying = divergence.instrs.count(instr.get()) > 0;
-            const bool produces_vector =
-                instr->type.defined() && instr->type.is_vector() &&
-                already_wide.count(instr.get()) == 0;
+            const bool produces_vector = instr->type.defined() &&
+                                         instr->type.is_vector() &&
+                                         already_wide.count(instr.get()) == 0;
 
             // Reading a component of a split vector is that component: no
             // instruction is needed for it at all.
@@ -245,8 +246,7 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 // read a value that was split -- which only makes sense for
                 // the cases handled above.
                 for (const auto &operand : instr->operands) {
-                    internal_assert(
-                        splitter.components_of(*operand) == nullptr)
+                    internal_assert(splitter.components_of(*operand) == nullptr)
                         << "Instruction " << instr->name
                         << " uses a value that was split per component, which "
                         << "vectorization only knows how to do for "
@@ -302,8 +302,9 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 // so the arithmetic keeps its type while the constants it is
                 // combined with stay scalar.
                 const Type index_type = instr->operands[1]->get_type();
-                const Type scalar_index =
-                    index_type.is_vector() ? index_type.element_of() : index_type;
+                const Type scalar_index = index_type.is_vector()
+                                              ? index_type.element_of()
+                                              : index_type;
 
                 // How far apart consecutive elements sit, in components.
                 //
@@ -314,8 +315,8 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 // what keeps this correct for a target that lays vectors out
                 // differently -- and the two sizes fold to a constant during
                 // code generation, so nothing is paid for asking.
-                auto element_size = splitter.emit(scalar_index,
-                                                  Instruction::Op::SizeOf, {});
+                auto element_size =
+                    splitter.emit(scalar_index, Instruction::Op::SizeOf, {});
                 std::get<shared_ptr<Instruction>>(element_size->data)
                     ->queried_type = instr->type;
                 auto component_size =
@@ -332,12 +333,11 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 for (uint32_t k = 0; k < lanes; k++) {
                     auto offset = std::make_shared<Value>(
                         Constant{scalar_index, int64_t(k)});
-                    auto index = splitter.emit(index_type,
-                                               Instruction::Op::Add,
+                    auto index = splitter.emit(index_type, Instruction::Op::Add,
                                                {base, offset});
-                    components.push_back(splitter.emit(
-                        element, Instruction::Op::ExtractIdx,
-                        {flat_array, std::move(index)}));
+                    components.push_back(
+                        splitter.emit(element, Instruction::Op::ExtractIdx,
+                                      {flat_array, std::move(index)}));
                 }
                 splitter.instrs[instr.get()] = std::move(components);
                 splitter.dead.insert(instr.get());

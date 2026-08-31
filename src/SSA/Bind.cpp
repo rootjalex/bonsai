@@ -92,23 +92,23 @@ void bind(FuncMap &funcs, string func, string index, Resource resource) {
                 << func << ": " << other->index << " is inside it and bound to "
                 << to_string(*other->binding)
                 << ", which does not run inside a " << to_string(resource);
-        } else if (body_of(*f, *other).count(
-                       // the block holding the loop being bound
-                       [&] {
-                           for (const auto &b : f->blocks) {
-                               if (std::get_if<Terminator::ParFor>(
-                                       &b->terminator.data) == bound) {
-                                   return b->name;
+        } else if (body_of(*f, *other)
+                       .count(
+                           // the block holding the loop being bound
+                           [&] {
+                               for (const auto &b : f->blocks) {
+                                   if (std::get_if<Terminator::ParFor>(
+                                           &b->terminator.data) == bound) {
+                                       return b->name;
+                                   }
                                }
-                           }
-                           return string();
-                       }())) {
+                               return string();
+                           }())) {
             internal_assert(may_nest(*other->binding, resource))
                 << "bind(" << index << ", " << to_string(resource) << ") on "
                 << func << ": it is inside " << other->index << ", which is "
-                << "bound to " << to_string(*other->binding)
-                << ", and a " << to_string(resource)
-                << " does not run inside that";
+                << "bound to " << to_string(*other->binding) << ", and a "
+                << to_string(resource) << " does not run inside that";
         }
     }
 }

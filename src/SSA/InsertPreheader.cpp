@@ -134,8 +134,8 @@ string insert_preheader(Function &func, const string &header,
                 << " values to a header taking " << old->args.size();
             for (size_t k = 0; k < carried.size(); k++) {
                 const auto *a = std::get_if<Argument>(&jump->args[k]->data);
-                carried[k] = carried[k] ||
-                             a == nullptr || a->name != old->args[k].name;
+                carried[k] =
+                    carried[k] || a == nullptr || a->name != old->args[k].name;
             }
         }
     }

@@ -2,8 +2,8 @@
 source_filename = "bonsai_module"
 
 %struct.Point = type { <3 x float> }
-%struct.Ray = type { <3 x float>, <3 x float>, float }
 %struct._tree_layout1 = type <{ <3 x float>, i16, i8, i8, <3 x float>, <4 x i8> }>
+%struct.Ray = type { <3 x float>, <3 x float>, float }
 %struct.FInterval = type { float, float }
 %struct._option1 = type { %struct.FInterval, i1 }
 %struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
@@ -68,31 +68,32 @@ __sqlen_f32_entry:
 }
 
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
-define void @_recloop_func0(i32 noundef %triangles_index, ptr nocapture noundef nonnull readonly %triangles, ptr nocapture noundef nonnull readonly %ray, ptr noalias nocapture noundef nonnull %_best0) local_unnamed_addr #2 {
+define void @_recloop_func0(i32 noundef %triangles_index, ptr nocapture noundef nonnull readonly %triangles, ptr nocapture noundef nonnull readonly %ray, ptr nocapture noundef nonnull %_best0) local_unnamed_addr #2 {
 _recloop_func0_entry:
   %deref_temp.elt77 = getelementptr inbounds i8, ptr %triangles, i64 16
-  %deref_temp.unpack78 = load ptr, ptr %deref_temp.elt77, align 1
-  %deref_temp.i.i = load %struct.Ray, ptr %ray, align 16
-  %"@1.d.i.i" = extractvalue %struct.Ray %deref_temp.i.i, 1
-  %0 = fdiv <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %"@1.d.i.i"
-  %1 = fcmp olt <3 x float> %0, zeroinitializer
-  %"@16.o.i.i" = extractvalue %struct.Ray %deref_temp.i.i, 0
-  %2 = getelementptr inbounds i8, ptr %ray, i64 32
+  %0 = getelementptr inbounds i8, ptr %ray, i64 32
+  %deref_temp.unpack78.pre = load ptr, ptr %deref_temp.elt77, align 1
   br label %tailrecurse
 
 tailrecurse:                                      ; preds = %then_bb19, %_recloop_func0_entry
+  %deref_temp.unpack78 = phi ptr [ %deref_temp.unpack78.pre, %_recloop_func0_entry ], [ %deref_temp21.unpack213, %then_bb19 ]
   %triangles_index.tr = phi i32 [ %triangles_index, %_recloop_func0_entry ], [ %49, %then_bb19 ]
-  %3 = sext i32 %triangles_index.tr to i64
-  %extract_ptr = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack78, i64 %3
+  %1 = sext i32 %triangles_index.tr to i64
+  %extract_ptr = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack78, i64 %1
   %extract.unpack = load <3 x float>, ptr %extract_ptr, align 1
   %extract.elt86 = getelementptr inbounds i8, ptr %extract_ptr, i64 20
   %extract.unpack87 = load <3 x float>, ptr %extract.elt86, align 1
-  %4 = select <3 x i1> %1, <3 x float> %extract.unpack87, <3 x float> %extract.unpack
-  %5 = select <3 x i1> %1, <3 x float> %extract.unpack, <3 x float> %extract.unpack87
+  %deref_temp.i.i = load %struct.Ray, ptr %ray, align 16
+  %"@1.d.i.i" = extractvalue %struct.Ray %deref_temp.i.i, 1
+  %2 = fdiv <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %"@1.d.i.i"
+  %3 = fcmp olt <3 x float> %2, zeroinitializer
+  %4 = select <3 x i1> %3, <3 x float> %extract.unpack87, <3 x float> %extract.unpack
+  %5 = select <3 x i1> %3, <3 x float> %extract.unpack, <3 x float> %extract.unpack87
+  %"@16.o.i.i" = extractvalue %struct.Ray %deref_temp.i.i, 0
   %6 = fsub <3 x float> %4, %"@16.o.i.i"
-  %7 = fmul <3 x float> %0, %6
+  %7 = fmul <3 x float> %2, %6
   %8 = fsub <3 x float> %5, %"@16.o.i.i"
-  %9 = fmul <3 x float> %0, %8
+  %9 = fmul <3 x float> %2, %8
   %tMax.0.vec.extract.i.i = extractelement <3 x float> %9, i64 0
   %10 = fmul float %tMax.0.vec.extract.i.i, 0x3FF00000C0000000
   %11 = extractelement <3 x float> %9, i64 1
@@ -130,7 +131,7 @@ intersectsp_ray_aabb.exit.i:                      ; preds = %next_bb20.i.i, %nex
 intersects_Ray_AABB.exit:                         ; preds = %intersectsp_ray_aabb.exit.i
   %interval.value.i = extractvalue %struct._option1 %common.ret.op.i.i, 0
   %extract.low.i = extractvalue %struct.FInterval %interval.value.i, 0
-  %"@4.tmax.i" = load float, ptr %2, align 4
+  %"@4.tmax.i" = load float, ptr %0, align 4
   %30 = fcmp olt float %extract.low.i, %"@4.tmax.i"
   %extract.high.i = extractvalue %struct.FInterval %interval.value.i, 1
   %31 = fcmp ogt float %extract.high.i, 0.000000e+00
@@ -173,7 +174,7 @@ distmin_Ray_AABB.exit:                            ; preds = %then_bb, %next_bb.i
   br i1 %46, label %then_bb13, label %after_bb
 
 then_bb13:                                        ; preds = %distmin_Ray_AABB.exit
-  %extract17.elt116 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack78, i64 %3, i32 1
+  %extract17.elt116 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack78, i64 %1, i32 1
   %extract17.unpack117 = load i16, ptr %extract17.elt116, align 1
   %47 = icmp eq i16 %extract17.unpack117, 0
   br i1 %47, label %then_bb19, label %next_bb20
@@ -181,7 +182,8 @@ then_bb13:                                        ; preds = %distmin_Ray_AABB.ex
 then_bb19:                                        ; preds = %then_bb13
   %48 = add i32 %triangles_index.tr, 1
   tail call void @_recloop_func0(i32 %48, ptr %triangles, ptr %ray, ptr %_best0)
-  %extract23.elt223 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack78, i64 %3, i32 5
+  %deref_temp21.unpack213 = load ptr, ptr %deref_temp.elt77, align 1
+  %extract23.elt223 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp21.unpack213, i64 %1, i32 5
   %extract23.unpack224226 = load i32, ptr %extract23.elt223, align 1
   %49 = add i32 %extract23.unpack224226, %triangles_index.tr
   br label %tailrecurse
@@ -189,14 +191,15 @@ then_bb19:                                        ; preds = %then_bb13
 next_bb20:                                        ; preds = %then_bb13
   %50 = zext i16 %extract17.unpack117 to i32
   %deref_temp28.elt127 = getelementptr inbounds i8, ptr %triangles, i64 4
-  %deref_temp28.unpack128 = load ptr, ptr %deref_temp28.elt127, align 1
-  %extract31.elt142 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack78, i64 %3, i32 5
-  %extract31.unpack143145.pre = load i32, ptr %extract31.elt142, align 1
   br label %while.body
 
 while.body:                                       ; preds = %next_bb20, %after_bb35
   %_idx0.0251 = phi i32 [ 0, %next_bb20 ], [ %54, %after_bb35 ]
-  %51 = add i32 %extract31.unpack143145.pre, %_idx0.0251
+  %deref_temp28.unpack128 = load ptr, ptr %deref_temp28.elt127, align 1
+  %deref_temp28.unpack132 = load ptr, ptr %deref_temp.elt77, align 1
+  %extract31.elt142 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp28.unpack132, i64 %1, i32 5
+  %extract31.unpack143145 = load i32, ptr %extract31.elt142, align 1
+  %51 = add i32 %extract31.unpack143145, %_idx0.0251
   %52 = sext i32 %51 to i64
   %extract_ptr33 = getelementptr inbounds %struct.Triangle, ptr %deref_temp28.unpack128, i64 %52
   %53 = tail call %struct._option2 @intersectsp_ray_tri(ptr %ray, ptr %extract_ptr33)
@@ -514,6 +517,155 @@ degrees_to_radians_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmax_AABB_AABB(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %b) local_unnamed_addr #0 {
+distmax_AABB_AABB_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %a, align 16
+  %deref_temp.elt4 = getelementptr inbounds i8, ptr %a, i64 16
+  %deref_temp.unpack5 = load <3 x float>, ptr %deref_temp.elt4, align 16
+  %deref_temp1.unpack = load <3 x float>, ptr %b, align 16
+  %deref_temp1.elt7 = getelementptr inbounds i8, ptr %b, i64 16
+  %deref_temp1.unpack8 = load <3 x float>, ptr %deref_temp1.elt7, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack8
+  %1 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %0)
+  %2 = fsub <3 x float> %deref_temp.unpack5, %deref_temp1.unpack
+  %3 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %2)
+  %4 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %1, <3 x float> %3)
+  %5 = fmul <3 x float> %4, %4
+  %6 = extractelement <3 x float> %5, i64 0
+  %7 = fmul <3 x float> %4, %4
+  %8 = extractelement <3 x float> %7, i64 1
+  %9 = fadd float %6, %8
+  %10 = extractelement <3 x float> %7, i64 2
+  %11 = fadd float %10, %9
+  %12 = tail call float @llvm.sqrt.f32(float %11)
+  ret float %12
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmax_AABB_Point(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %pt) local_unnamed_addr #0 {
+distmax_AABB_Point_entry:
+  %deref_temp.unpack.i = load <3 x float>, ptr %pt, align 16
+  %deref_temp1.unpack.i = load <3 x float>, ptr %a, align 16
+  %deref_temp1.elt5.i = getelementptr inbounds i8, ptr %a, i64 16
+  %deref_temp1.unpack6.i = load <3 x float>, ptr %deref_temp1.elt5.i, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack.i, %deref_temp1.unpack.i
+  %1 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %0)
+  %2 = fsub <3 x float> %deref_temp.unpack.i, %deref_temp1.unpack6.i
+  %3 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %2)
+  %4 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %1, <3 x float> %3)
+  %5 = fmul <3 x float> %4, %4
+  %6 = extractelement <3 x float> %5, i64 0
+  %7 = fmul <3 x float> %4, %4
+  %8 = extractelement <3 x float> %7, i64 1
+  %9 = fadd float %6, %8
+  %10 = extractelement <3 x float> %7, i64 2
+  %11 = fadd float %10, %9
+  %12 = tail call float @llvm.sqrt.f32(float %11)
+  ret float %12
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmax_Point_AABB(ptr nocapture noundef nonnull readonly %pt, ptr nocapture noundef nonnull readonly %a) local_unnamed_addr #0 {
+distmax_Point_AABB_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %pt, align 16
+  %deref_temp1.unpack = load <3 x float>, ptr %a, align 16
+  %deref_temp1.elt5 = getelementptr inbounds i8, ptr %a, i64 16
+  %deref_temp1.unpack6 = load <3 x float>, ptr %deref_temp1.elt5, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack
+  %1 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %0)
+  %2 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack6
+  %3 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %2)
+  %4 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %1, <3 x float> %3)
+  %5 = fmul <3 x float> %4, %4
+  %6 = extractelement <3 x float> %5, i64 0
+  %7 = fmul <3 x float> %4, %4
+  %8 = extractelement <3 x float> %7, i64 1
+  %9 = fadd float %6, %8
+  %10 = extractelement <3 x float> %7, i64 2
+  %11 = fadd float %10, %9
+  %12 = tail call float @llvm.sqrt.f32(float %11)
+  ret float %12
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmax_Point_Point(ptr nocapture noundef nonnull readonly %p, ptr nocapture noundef nonnull readonly %q) local_unnamed_addr #0 {
+distmax_Point_Point_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %p, align 16
+  %deref_temp1.unpack = load <3 x float>, ptr %q, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack
+  %1 = fmul <3 x float> %0, %0
+  %2 = extractelement <3 x float> %1, i64 0
+  %3 = fmul <3 x float> %0, %0
+  %4 = extractelement <3 x float> %3, i64 1
+  %5 = fadd float %2, %4
+  %6 = extractelement <3 x float> %3, i64 2
+  %7 = fadd float %6, %5
+  %8 = tail call float @llvm.sqrt.f32(float %7)
+  ret float %8
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmax_Point_Sphere(ptr nocapture noundef nonnull readonly %pt, ptr nocapture noundef nonnull readonly %s) local_unnamed_addr #0 {
+distmax_Point_Sphere_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %pt, align 16
+  %deref_temp1 = load %struct.Sphere, ptr %s, align 16
+  %"@2.center" = extractvalue %struct.Sphere %deref_temp1, 0
+  %0 = fsub <3 x float> %deref_temp.unpack, %"@2.center"
+  %1 = fmul <3 x float> %0, %0
+  %2 = extractelement <3 x float> %1, i64 0
+  %3 = fmul <3 x float> %0, %0
+  %4 = extractelement <3 x float> %3, i64 1
+  %5 = fadd float %2, %4
+  %6 = extractelement <3 x float> %3, i64 2
+  %7 = fadd float %6, %5
+  %8 = tail call float @llvm.sqrt.f32(float %7)
+  %"@42.radius" = extractvalue %struct.Sphere %deref_temp1, 1
+  %9 = fadd float %"@42.radius", %8
+  ret float %9
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmax_Point_Triangle(ptr nocapture noundef nonnull readonly %pt, ptr nocapture noundef nonnull readonly %tri) local_unnamed_addr #0 {
+distmax_Point_Triangle_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %pt, align 16
+  %deref_temp1.unpack = load <3 x float>, ptr %tri, align 16
+  %deref_temp1.elt37 = getelementptr inbounds i8, ptr %tri, i64 16
+  %deref_temp1.unpack38 = load <3 x float>, ptr %deref_temp1.elt37, align 16
+  %deref_temp1.elt39 = getelementptr inbounds i8, ptr %tri, i64 32
+  %deref_temp1.unpack40 = load <3 x float>, ptr %deref_temp1.elt39, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack
+  %1 = fmul <3 x float> %0, %0
+  %2 = extractelement <3 x float> %1, i64 0
+  %3 = fmul <3 x float> %0, %0
+  %4 = extractelement <3 x float> %3, i64 1
+  %5 = fadd float %2, %4
+  %6 = extractelement <3 x float> %3, i64 2
+  %7 = fadd float %6, %5
+  %8 = tail call float @llvm.sqrt.f32(float %7)
+  %9 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack38
+  %10 = fmul <3 x float> %9, %9
+  %11 = extractelement <3 x float> %10, i64 0
+  %12 = fmul <3 x float> %9, %9
+  %13 = extractelement <3 x float> %12, i64 1
+  %14 = fadd float %11, %13
+  %15 = extractelement <3 x float> %12, i64 2
+  %16 = fadd float %15, %14
+  %17 = tail call float @llvm.sqrt.f32(float %16)
+  %18 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack40
+  %19 = fmul <3 x float> %18, %18
+  %20 = extractelement <3 x float> %19, i64 0
+  %21 = fmul <3 x float> %18, %18
+  %22 = extractelement <3 x float> %21, i64 1
+  %23 = fadd float %20, %22
+  %24 = extractelement <3 x float> %21, i64 2
+  %25 = fadd float %24, %23
+  %26 = tail call float @llvm.sqrt.f32(float %25)
+  %27 = tail call float @llvm.maxnum.f32(float %8, float %17)
+  %28 = tail call float @llvm.maxnum.f32(float %27, float %26)
+  ret float %28
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define float @distmax_Ray_AABB(ptr nocapture noundef nonnull readonly %r, ptr nocapture noundef nonnull readonly %b) local_unnamed_addr #0 {
 distmax_Ray_AABB_entry:
   %deref_temp.i = load %struct.Ray, ptr %r, align 16
@@ -632,6 +784,51 @@ distmax_Ray_Triangle_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmin_AABB_AABB(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %b) local_unnamed_addr #0 {
+distmin_AABB_AABB_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %a, align 16
+  %deref_temp.elt4 = getelementptr inbounds i8, ptr %a, i64 16
+  %deref_temp.unpack5 = load <3 x float>, ptr %deref_temp.elt4, align 16
+  %deref_temp1.unpack = load <3 x float>, ptr %b, align 16
+  %deref_temp1.elt7 = getelementptr inbounds i8, ptr %b, i64 16
+  %deref_temp1.unpack8 = load <3 x float>, ptr %deref_temp1.elt7, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack8
+  %1 = fsub <3 x float> %deref_temp1.unpack, %deref_temp.unpack5
+  %2 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %0, <3 x float> %1)
+  %3 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %2, <3 x float> zeroinitializer)
+  %4 = fmul <3 x float> %3, %3
+  %5 = extractelement <3 x float> %4, i64 0
+  %6 = fmul <3 x float> %3, %3
+  %7 = extractelement <3 x float> %6, i64 1
+  %8 = fadd float %5, %7
+  %9 = extractelement <3 x float> %6, i64 2
+  %10 = fadd float %9, %8
+  %11 = tail call float @llvm.sqrt.f32(float %10)
+  ret float %11
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmin_AABB_Point(ptr nocapture noundef nonnull readonly %a, ptr nocapture noundef nonnull readonly %pt) local_unnamed_addr #0 {
+distmin_AABB_Point_entry:
+  %deref_temp.unpack.i = load <3 x float>, ptr %pt, align 16
+  %deref_temp1.unpack.i = load <3 x float>, ptr %a, align 16
+  %deref_temp1.elt8.i = getelementptr inbounds i8, ptr %a, i64 16
+  %deref_temp1.unpack9.i = load <3 x float>, ptr %deref_temp1.elt8.i, align 16
+  %0 = fsub <3 x float> %deref_temp1.unpack.i, %deref_temp.unpack.i
+  %1 = fmul <3 x float> %0, %0
+  %2 = fcmp olt <3 x float> %deref_temp.unpack.i, %deref_temp1.unpack.i
+  %3 = select <3 x i1> %2, <3 x float> %1, <3 x float> zeroinitializer
+  %4 = fsub <3 x float> %deref_temp.unpack.i, %deref_temp1.unpack9.i
+  %5 = fmul <3 x float> %4, %4
+  %6 = fcmp olt <3 x float> %deref_temp1.unpack9.i, %deref_temp.unpack.i
+  %7 = select <3 x i1> %6, <3 x float> %5, <3 x float> zeroinitializer
+  %8 = fadd <3 x float> %3, %7
+  %9 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %8)
+  %10 = tail call float @llvm.sqrt.f32(float %9)
+  ret float %10
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define float @distmin_Point_AABB(ptr nocapture noundef nonnull readonly %pt, ptr nocapture noundef nonnull readonly %a) local_unnamed_addr #0 {
 distmin_Point_AABB_entry:
   %deref_temp.unpack.i = load <3 x float>, ptr %pt, align 16
@@ -649,6 +846,44 @@ distmin_Point_AABB_entry:
   %8 = fadd <3 x float> %3, %7
   %9 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %8)
   %10 = tail call float @llvm.sqrt.f32(float %9)
+  ret float %10
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmin_Point_Point(ptr nocapture noundef nonnull readonly %p, ptr nocapture noundef nonnull readonly %q) local_unnamed_addr #0 {
+distmin_Point_Point_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %p, align 16
+  %deref_temp1.unpack = load <3 x float>, ptr %q, align 16
+  %0 = fsub <3 x float> %deref_temp.unpack, %deref_temp1.unpack
+  %1 = fmul <3 x float> %0, %0
+  %2 = extractelement <3 x float> %1, i64 0
+  %3 = fmul <3 x float> %0, %0
+  %4 = extractelement <3 x float> %3, i64 1
+  %5 = fadd float %2, %4
+  %6 = extractelement <3 x float> %3, i64 2
+  %7 = fadd float %6, %5
+  %8 = tail call float @llvm.sqrt.f32(float %7)
+  ret float %8
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define float @distmin_Point_Sphere(ptr nocapture noundef nonnull readonly %pt, ptr nocapture noundef nonnull readonly %s) local_unnamed_addr #0 {
+distmin_Point_Sphere_entry:
+  %deref_temp.unpack = load <3 x float>, ptr %pt, align 16
+  %deref_temp1 = load %struct.Sphere, ptr %s, align 16
+  %"@2.center" = extractvalue %struct.Sphere %deref_temp1, 0
+  %0 = fsub <3 x float> %deref_temp.unpack, %"@2.center"
+  %1 = fmul <3 x float> %0, %0
+  %2 = extractelement <3 x float> %1, i64 0
+  %3 = fmul <3 x float> %0, %0
+  %4 = extractelement <3 x float> %3, i64 1
+  %5 = fadd float %2, %4
+  %6 = extractelement <3 x float> %3, i64 2
+  %7 = fadd float %6, %5
+  %8 = tail call float @llvm.sqrt.f32(float %7)
+  %"@42.radius" = extractvalue %struct.Sphere %deref_temp1, 1
+  %9 = fsub float %8, %"@42.radius"
+  %10 = tail call float @llvm.maxnum.f32(float %9, float 0.000000e+00)
   ret float %10
 }
 
@@ -1477,6 +1712,9 @@ declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #3
 declare float @llvm.fma.f32(float, float, float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.sqrt.f32(float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
@@ -1484,9 +1722,6 @@ declare float @llvm.maxnum.f32(float, float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.minnum.f32(float, float) #3
-
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.vector.reduce.fmax.v3f32(<3 x float>) #3

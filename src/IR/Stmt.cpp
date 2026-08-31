@@ -298,10 +298,16 @@ Stmt Iterate::make(Expr value) {
     return node;
 }
 
-Stmt Scan::make(std::optional<AggOp::OpType> op, Expr value) {
+Stmt Scan::make(std::optional<AggOp::OpType> op, WriteLoc loc, Expr func,
+                Expr value) {
     internal_assert(value.defined()) << "Undefined value in Scan::make";
+    internal_assert(op.has_value() == loc.defined())
+        << "A reducing scan needs an accumulator, and only a reducing scan "
+           "has one";
     Scan *node = new Scan;
     node->op = std::move(op);
+    node->loc = std::move(loc);
+    node->func = std::move(func);
     node->value = std::move(value);
     return node;
 }
