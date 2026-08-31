@@ -191,14 +191,19 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             : frames(frames), layout(layout) {}
 
         ir::Expr visit(const ir::Access *node) override {
+            // Anything that is not the sort access below is left to the base
+            // mutator, which walks the access's children. Calling `mutate` on
+            // the node itself would dispatch straight back into this override
+            // and recur forever -- a `parent.` tree-carried dependency reaches
+            // here with a plain Var underneath.
             const auto *e = node->value.as<ir::Extract>();
             if (e == nullptr) {
-                return mutate(node);
+                return ir::Mutator::visit(node);
             }
             // TODO(cgyurgyik): hack for sorts.
             const auto *v = e->vec.as<ir::Var>();
             if (!(v && v->name == "this")) {
-                return mutate(node);
+                return ir::Mutator::visit(node);
             }
             // ll = this[left].low; (used for sorting)
             return fill(
@@ -722,6 +727,16 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Member &member,
         if (std::optional<ir::Expr> expr = frames.from_frames(field)) {
             // This was a previously materialized field.
             return ir::Var::make(expr->type(), field);
+        }
+        // A variant field may be carried by a root argument rather than stored
+        // in the layout -- an implicit hierarchy derives a child's axis from
+        // its parent's instead of writing it down. validate_layout accepts a
+        // path on exactly these terms, so lowering has to honour them too.
+        if (auto it = std::find_if(
+                layout.root.begin(), layout.root.end(),
+                [&](const ir::Argument &arg) { return arg.name == field; });
+            it != layout.root.end()) {
+            return ir::Var::make(it->type, it->name);
         }
     }
     internal_assert(concretized_field.defined())

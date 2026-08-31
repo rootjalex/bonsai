@@ -873,7 +873,12 @@ construct_count_recursive_body(const ir::BuildFunction &function,
                                              ir::Accumulate::OpType::Add,
                                              make_one(size_variable->type)));
     }
-    internal_assert(!stmts.empty()) << "[unexpected] empty count function!";
+    if (stmts.empty()) {
+        // A memoryless hierarchy stores nothing per node: its build rules
+        // write no fields, so this variant contributes nothing to the counts
+        // and its arm is just a return.
+        stmts.push_back(ir::Return::make());
+    }
     ir::Stmt sequence = ir::Sequence::make(std::move(stmts));
     sequence = AddSelfAccess(layout, function).mutate(std::move(sequence));
     return {sequence, generated_indexes};
