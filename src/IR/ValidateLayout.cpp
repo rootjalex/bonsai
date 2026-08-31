@@ -101,10 +101,13 @@ std::vector<Path> get_paths(const ir::Layout &layout,
         void visit(const Group *node) override {
             switch (node->type) {
             case Group::Type::Direct:
+            // A pointer group is the node body itself: the layout reaches it
+            // by dereferencing, not by a lookup, so its fields are on the
+            // path like any direct group's.
+            case Group::Type::Pointer:
                 node->inner.accept(this);
                 break;
             case Group::Type::Indirect:
-            case Group::Type::Pointer:
                 break; // This can only be accessed via a lookup.
             }
         }
@@ -162,6 +165,10 @@ bool is_valid_path(const Path &path, const BVH_t::Variant &variant,
                 concrete_type.is_int_tuple()) {
                 // References to children in the variant may be represented by a
                 // unique index into an array.
+                continue;
+            }
+            if (concrete_type.is<ir::Ptr_t>()) {
+                // ...or by a pointer to the node they name.
                 continue;
             }
         }
@@ -389,16 +396,19 @@ bool contains_wildcard(const std::vector<Arm> &arms) {
                        [](const Arm &arm) { return arm.is_wildcard(); });
 }
 
+// `tmin` and `tmax` bound the values the split field can actually take. They
+// are passed in rather than read off `std::numeric_limits<T>` because a field
+// is as wide as the layout declares it: a `u4` ranges over [0, 15], and
+// checking it against the whole of `uint8_t` would call an exhaustive split
+// non-exhaustive.
 template <typename T>
-void validate_arms(const Split &split) {
+void validate_arms(const Split &split, T tmin, T tmax) {
     const std::vector<Arm> &arms = split.arms;
     internal_assert(!arms.empty());
     internal_assert(
         std::count_if(arms.begin(), arms.end(),
                       [](const Arm &arm) { return arm.is_wildcard(); }) <= 1)
         << "[unexpected] two or more wildcard arms";
-    const T tmin = std::numeric_limits<T>::min(),
-            tmax = std::numeric_limits<T>::max();
 
     std::vector<std::vector<Range<T>>> arm_ranges;
     std::vector<Range<T>> all_ranges;
@@ -432,44 +442,24 @@ struct ValidateSplits : public Visitor {
     void visit(const Split *node) override {
         ir::Expr expr = node->expr;
         internal_assert(expr.type().is_scalar()) << expr.type();
+        const uint32_t bits = expr.type().bits();
+        internal_assert(bits >= 1 && bits <= 64)
+            << "[unimplemented] split field bit count: " << expr.type();
         if (expr.type().is<Bool_t>()) {
-            validate_arms<bool>(*node);
+            validate_arms<uint64_t>(*node, 0, 1);
         } else if (expr.type().is<Int_t>()) {
-            switch (expr.type().bits()) {
-            case 1:
-                validate_arms<bool>(*node);
-                break;
-            case 16:
-                validate_arms<int16_t>(*node);
-                break;
-            case 32:
-                validate_arms<int32_t>(*node);
-                break;
-            case 64:
-                validate_arms<int64_t>(*node);
-                break;
-            default:
-                internal_error << "[unimplemented] split field count: "
-                               << expr.type();
-            }
+            const int64_t tmin =
+                bits == 64 ? std::numeric_limits<int64_t>::min()
+                           : -(int64_t(1) << (bits - 1));
+            const int64_t tmax =
+                bits == 64 ? std::numeric_limits<int64_t>::max()
+                           : (int64_t(1) << (bits - 1)) - 1;
+            validate_arms<int64_t>(*node, tmin, tmax);
         } else if (expr.type().is<UInt_t>()) {
-            switch (expr.type().bits()) {
-            case 1:
-                validate_arms<bool>(*node);
-                break;
-            case 16:
-                validate_arms<uint16_t>(*node);
-                break;
-            case 32:
-                validate_arms<uint32_t>(*node);
-                break;
-            case 64:
-                validate_arms<uint64_t>(*node);
-                break;
-            default:
-                internal_error << "[unimplemented] split field bit count: "
-                               << expr.type();
-            }
+            const uint64_t tmax =
+                bits == 64 ? std::numeric_limits<uint64_t>::max()
+                           : (uint64_t(1) << bits) - 1;
+            validate_arms<uint64_t>(*node, 0, tmax);
         } else {
             internal_error << "[unimplemented] split field type: "
                            << expr.type();

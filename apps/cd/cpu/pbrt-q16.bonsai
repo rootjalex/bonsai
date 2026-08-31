@@ -56,7 +56,7 @@ schedule {
             low = dequantize_lo(world_low, world_extent, bounds_q);
             high = dequantize_hi(world_low, world_extent, bounds_q);
             metadata : u32; // offset[4:31]|nprims[0:3]
-            nprims = metadata[0:3];
+            nprims = cast[[u16]](metadata[0:3]);
             split nprims {
                 0 -> Interior { 
                     left = index1 + 1; 
@@ -106,7 +106,7 @@ schedule {
             low = dequantize_lo(world_low, world_extent, bounds_q);
             high = dequantize_hi(world_low, world_extent, bounds_q);
             metadata : u32; // offset[4:31]|nprims[0:3]
-            nprims = metadata[0:3];
+            nprims = cast[[u16]](metadata[0:3]);
             split nprims {
                 0 -> Interior { 
                     left = index2 + 1; 

@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/ValidateLayout.cpp:235
+[internal] Error: src/IR/ValidateLayout.cpp:242
 
 --> !path_to_variant.empty()
 no path found for variant: Interior in layout: `triangles`

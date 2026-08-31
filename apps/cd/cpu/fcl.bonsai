@@ -1,7 +1,7 @@
 schedule {
     tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high)
     = Interior(left : BVH, right : BVH)
-    | Leaf(nprims: u16, data : array[Triangle, nprims]);
+    | Leaf(nprims: u32, data : array[Triangle, nprims]);
 
     triangles1 : BVH;
     triangles2 : BVH;
@@ -32,7 +32,7 @@ schedule {
                     left = index1 + 1; 
                     right = index1 + (first_child & 1073741823u);
                 };
-                0 -> Leaf { 
+                _ -> Leaf { 
                     data = primitives[first_child : first_child + nprims];
                 };
             };
@@ -85,7 +85,7 @@ schedule {
                     left = index2 + 1; 
                     right = index2 + (first_child & 1073741823u);
                 };
-                0 -> Leaf { 
+                _ -> Leaf { 
                     data = primitives[first_child : first_child + nprims];
                 };
             };

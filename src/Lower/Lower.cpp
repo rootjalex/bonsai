@@ -123,9 +123,8 @@ PassManager register_passes(const CompilerOptions &options) {
     std::vector<std::unique_ptr<Pass>> core;
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<VerifyOptions>());
-    // TODO(cgyurgyik): fix these
-    // core.push_back(std::make_unique<VerifyLayouts>());
-    // core.push_back(std::make_unique<VerifyBuilds>());
+    core.push_back(std::make_unique<VerifyLayouts>());
+    core.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     core.push_back(std::make_unique<opt::Fusion>());
     core.push_back(std::make_unique<LowerMaps>());
@@ -180,8 +179,7 @@ PassManager register_passes(const CompilerOptions &options) {
     std::vector<std::unique_ptr<Pass>> d;
     d.push_back(std::make_unique<Canonicalize>());
     d.push_back(std::make_unique<VerifyOptions>());
-    // TODO(cgyurgyik): fix this
-    // d.push_back(std::make_unique<VerifyLayouts>());
+    d.push_back(std::make_unique<VerifyLayouts>());
     d.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     d.push_back(std::make_unique<opt::Fusion>());
