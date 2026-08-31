@@ -1,0 +1,2 @@
+closest_point.loopify(64);
+closest_points.gpu_thread(i0);

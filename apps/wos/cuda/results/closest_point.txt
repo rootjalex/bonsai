@@ -1,0 +1,2 @@
+lucy
+wos, cuda, pbrt-align16
