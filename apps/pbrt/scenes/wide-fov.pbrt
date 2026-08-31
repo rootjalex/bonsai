@@ -1,0 +1,37 @@
+# A wide field of view at a non-default resolution and aspect ratio.
+#
+# What this is for is the camera. three-spheres.pbrt uses 45 degrees at 16:9,
+# which is close enough to the defaults that a mistake in how the screen window
+# is derived could hide. Here the aspect ratio is taller than it is wide, so
+# the screen window is the unit square in x and larger in y -- the other branch
+# of PerspectiveCamera::Create -- and the field of view is wide enough that the
+# rays at the corners are far off axis.
+
+LookAt 3 2 4   0 0 0   0 1 0
+Camera "perspective" "float fov" [90]
+
+Sampler "independent" "integer pixelsamples" [1]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [500]
+    "integer yresolution" [700]
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1.2]
+AttributeEnd
+
+AttributeBegin
+  Translate -1.6 0.4 1.5
+  Shape "sphere" "float radius" [0.4]
+AttributeEnd
+
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -6 -1.2 -6   6 -1.2 6   6 -1.2 -6   -6 -1.2 6 ]

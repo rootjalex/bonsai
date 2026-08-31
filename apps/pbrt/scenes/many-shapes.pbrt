@@ -1,0 +1,85 @@
+# Enough shapes that the BVH is a tree rather than a formality.
+#
+# The other scenes here have a handful of primitives, which a BVH of two or
+# three levels holds; whether the traversal descends correctly, whether a leaf
+# holding several primitives is unpacked properly, and whether the SAH picked a
+# sensible split are all questions those scenes barely ask. This one is a grid
+# of spheres of varying size at varying depths, so the tree has real depth, the
+# ray order matters, and the shapes overlap along the view direction often
+# enough that picking the nearest is not automatic.
+#
+# The mesh is a grid rather than a single quad so that triangles are spread
+# through the tree too, rather than sitting together in one enormous leaf whose
+# bounds cover the whole scene.
+
+LookAt 0 3 9   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "independent" "integer pixelsamples" [1]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [600]
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin Translate -3 0.0 -3 Shape "sphere" "float radius" [0.45] AttributeEnd
+AttributeBegin Translate -1.5 0.3 -3 Shape "sphere" "float radius" [0.30] AttributeEnd
+AttributeBegin Translate 0 -0.1 -3 Shape "sphere" "float radius" [0.55] AttributeEnd
+AttributeBegin Translate 1.5 0.2 -3 Shape "sphere" "float radius" [0.35] AttributeEnd
+AttributeBegin Translate 3 0.0 -3 Shape "sphere" "float radius" [0.50] AttributeEnd
+
+AttributeBegin Translate -3 0.4 -1.5 Shape "sphere" "float radius" [0.30] AttributeEnd
+AttributeBegin Translate -1.5 -0.2 -1.5 Shape "sphere" "float radius" [0.60] AttributeEnd
+AttributeBegin Translate 0 0.3 -1.5 Shape "sphere" "float radius" [0.40] AttributeEnd
+AttributeBegin Translate 1.5 -0.1 -1.5 Shape "sphere" "float radius" [0.50] AttributeEnd
+AttributeBegin Translate 3 0.25 -1.5 Shape "sphere" "float radius" [0.35] AttributeEnd
+
+AttributeBegin Translate -3 -0.15 0 Shape "sphere" "float radius" [0.55] AttributeEnd
+AttributeBegin Translate -1.5 0.35 0 Shape "sphere" "float radius" [0.30] AttributeEnd
+AttributeBegin Translate 0 0.0 0 Shape "sphere" "float radius" [0.65] AttributeEnd
+AttributeBegin Translate 1.5 0.3 0 Shape "sphere" "float radius" [0.32] AttributeEnd
+AttributeBegin Translate 3 -0.1 0 Shape "sphere" "float radius" [0.48] AttributeEnd
+
+AttributeBegin Translate -3 0.2 1.5 Shape "sphere" "float radius" [0.38] AttributeEnd
+AttributeBegin Translate -1.5 -0.05 1.5 Shape "sphere" "float radius" [0.52] AttributeEnd
+AttributeBegin Translate 0 0.4 1.5 Shape "sphere" "float radius" [0.28] AttributeEnd
+AttributeBegin Translate 1.5 -0.2 1.5 Shape "sphere" "float radius" [0.58] AttributeEnd
+AttributeBegin Translate 3 0.15 1.5 Shape "sphere" "float radius" [0.42] AttributeEnd
+
+AttributeBegin Translate -2.2 0.9 -2.2 Shape "sphere" "float radius" [0.25] AttributeEnd
+AttributeBegin Translate 0.8 1.1 -0.8 Shape "sphere" "float radius" [0.30] AttributeEnd
+AttributeBegin Translate 2.4 0.85 0.8 Shape "sphere" "float radius" [0.22] AttributeEnd
+AttributeBegin Translate -0.9 1.3 1.1 Shape "sphere" "float radius" [0.26] AttributeEnd
+
+# A 4x4 grid of quads, so the ground is 32 triangles rather than 2.
+Shape "trianglemesh"
+    "integer indices" [
+         0  1  6    0  6  5
+         1  2  7    1  7  6
+         2  3  8    2  8  7
+         3  4  9    3  9  8
+         5  6 11    5 11 10
+         6  7 12    6 12 11
+         7  8 13    7 13 12
+         8  9 14    8 14 13
+        10 11 16   10 16 15
+        11 12 17   11 17 16
+        12 13 18   12 18 17
+        13 14 19   13 19 18
+        15 16 21   15 21 20
+        16 17 22   16 22 21
+        17 18 23   17 23 22
+        18 19 24   18 24 23
+    ]
+    "point3 P" [
+        -4 -0.8 -4   -2 -0.8 -4    0 -0.8 -4    2 -0.8 -4    4 -0.8 -4
+        -4 -0.8 -2   -2 -0.8 -2    0 -0.8 -2    2 -0.8 -2    4 -0.8 -2
+        -4 -0.8  0   -2 -0.8  0    0 -0.8  0    2 -0.8  0    4 -0.8  0
+        -4 -0.8  2   -2 -0.8  2    0 -0.8  2    2 -0.8  2    4 -0.8  2
+        -4 -0.8  4   -2 -0.8  4    0 -0.8  4    2 -0.8  4    4 -0.8  4
+    ]

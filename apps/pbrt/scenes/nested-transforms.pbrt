@@ -1,0 +1,61 @@
+# Shapes placed through a nested transform stack, and a mesh that is rotated
+# and scaled rather than only moved.
+#
+# What this is for is the parser. Every shape here needs a composition of
+# transforms to end up where it belongs, and the composition happens inside
+# PBRT rather than in the driver -- so this scene renders correctly only if the
+# render-from-object transform PBRT computed is what the shapes were built
+# with. Getting the stack wrong puts a shape somewhere plausible but wrong,
+# which is exactly the failure that comparing against PBRT catches.
+#
+# The spheres stay translation-only because a scaled sphere is an ellipsoid,
+# which the renderer holds no representation for; scene_dump says so rather
+# than quietly rendering a sphere. The mesh has no such limit, since a mesh is
+# transformed by moving its vertices.
+
+LookAt 0 2.5 6   0 0 0   0 1 0
+Camera "perspective" "float fov" [50]
+
+Sampler "independent" "integer pixelsamples" [1]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [640]
+    "integer yresolution" [480]
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+Material "diffuse"
+
+# Two levels of translation, so the sphere ends up at (1.5, 0.25, 0.5).
+AttributeBegin
+  Translate 1 0 0
+  AttributeBegin
+    Translate 0.5 0.25 0.5
+    Shape "sphere" "float radius" [0.6]
+  AttributeEnd
+AttributeEnd
+
+# A translation either side of the shape's own, which must compose in order.
+AttributeBegin
+  Translate -1.5 0 0
+  Translate 0 0.5 -1
+  Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+# Rotated and scaled, so its vertices only land correctly if the whole
+# transform was applied. A unit quad in x/z, turned up on edge and stretched.
+AttributeBegin
+  Translate 0 0.5 -2.5
+  Rotate 90 1 0 0
+  Scale 3 2 1
+  Shape "trianglemesh"
+      "integer indices" [0 1 2  0 2 3]
+      "point3 P" [ -1 -1 0   1 -1 0   1 1 0   -1 1 0 ]
+AttributeEnd
+
+# The ground, unrotated, for something to miss onto.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -0.6 -8   8 -0.6 8   8 -0.6 -8   -8 -0.6 8 ]
