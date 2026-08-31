@@ -1,0 +1,90 @@
+//! flags: -b llvm -e
+
+// The same name declared twice in one function, in scopes that do not overlap.
+//
+// Legal source, and it used to crash the compiler rather than run. Scopes nest
+// in the source but names do not in the IR -- `LetStmt` and `Var` carry plain
+// strings, and the free variable analysis and SSA construction both take a
+// name to mean one value per function. Two `let`s called `r` broke that: SSA
+// conversion decided the second one was live coming into the merge block, gave
+// the block a parameter for it, and left the block empty, then asserted. The
+// non-SSA pipeline got as far as LLVM and failed verification.
+//
+// The parser now resolves a use to the declaration it belongs to and gives the
+// second declaration a name of its own, so what reaches the IR is already
+// unique. Every shape below is one where the two declarations are siblings
+// rather than nested, which is the only way to reach this -- shadowing a name
+// that is still in scope is a separate error, and stays one.
+element Pair {
+    a, b : f32;
+}
+
+// The original repro: a `let` in a branch that returns, and another after it.
+func pick(x : f32) -> Pair {
+    if x > 0.0 {
+        r : Pair = {x, x};
+        return r;
+    }
+    r : Pair = {0.0 - x, 0.0 - x};
+    return r;
+}
+
+// Both arms of an if, neither of which returns.
+func spread(x : f32) -> f32 {
+    out : mut f32 = 0.0;
+    if x > 0.0 {
+        step = x * 2.0;
+        out = step;
+    } else {
+        step = x * 3.0;
+        out = step;
+    }
+    return out;
+}
+
+// A match arm's binding against a plain `let` of the same name in another arm.
+// These come from different sides of the compiler -- one is an arm binding,
+// one is a declaration -- and used to collide just as hard.
+element Shape =
+    | Flat(v : f32)
+    | Deep(v : f32);
+
+func measure(s : Shape) -> f32 {
+    match s {
+        Flat(v) => return v;
+        Deep(w) => {
+            v = w * 10.0;
+            return v;
+        }
+    }
+}
+
+// Sibling loops reusing an index, which is a third kind of declaration.
+func total(n : u32) -> u32 {
+    acc : mut u32 = 0u;
+    parfor i in 0u:n {
+        acc += i;
+    }
+    parfor i in 0u:n {
+        acc += i * 2u;
+    }
+    return acc;
+}
+
+func main() -> i32 {
+    p = pick(3.0);
+    print(p.a + p.b);
+    q = pick(0.0 - 4.0);
+    print(q.a + q.b);
+
+    print(spread(1.0));
+    print(spread(0.0 - 1.0));
+
+    flat : Shape = Flat(2.0);
+    print(measure(flat));
+    deep : Shape = Deep(2.0);
+    print(measure(deep));
+
+    print(total(4u));
+    return 0;
+}

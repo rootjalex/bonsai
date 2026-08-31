@@ -2,28 +2,28 @@ func _lambda0(x : i32) -> i32 {
   return x + 1
 }
 
-func _lambda1(x : i32, y : i32) -> i32 {
-  return (x + 1) + y
+func _lambda1(x$1 : i32, y : i32) -> i32 {
+  return (x$1 + 1) + y
 }
 
 func _lambda2(e : bool, f : bool) -> bool {
   return e || f
 }
 
-func _lambda3(e : bool, f : bool) -> bool {
-  return e || f
+func _lambda3(e$1 : bool, f$1 : bool) -> bool {
+  return e$1 || f$1
 }
 
-func _lambda4(y : i32) -> i32 {
-  return y
+func _lambda4(y$1 : i32) -> i32 {
+  return y$1
 }
 
-func _lambda5(x : i32, y : i32) -> i32 {
-  return x + y
+func _lambda5(x$2 : i32, y$2 : i32) -> i32 {
+  return x$2 + y$2
 }
 
-func _lambda6(x : i32) -> Fn(i32) -> i32 {
-  return |y : i32| y
+func _lambda6(x$3 : i32) -> Fn(i32) -> i32 {
+  return |y$3 : i32| y$3
 }
 
 func foo() -> i32 {
@@ -32,15 +32,15 @@ func foo() -> i32 {
   let c = (a || b) || false in
   let d = true || b in
   let L1 = |x : i32| x + 1 in
-  let L2 = |x : i32, y : i32| (x + 1) + y in
+  let L2 = |x$1 : i32, y : i32| (x$1 + 1) + y in
   let L3 = |e : bool, f : bool| e || f in
-  let L4 = |e : bool, f : bool| e || f in
-  let L5 = |y : i32| y in
-  let L6 = |x : i32, y : i32| x + y in
-  let L7 = |x : i32| |y : i32| y in
-  let x = _lambda0(0) in
-  let y = _lambda1(1, 2) in
-  return _lambda5(x, y)
+  let L4 = |e$1 : bool, f$1 : bool| e$1 || f$1 in
+  let L5 = |y$1 : i32| y$1 in
+  let L6 = |x$2 : i32, y$2 : i32| x$2 + y$2 in
+  let L7 = |x$3 : i32| |y$3 : i32| y$3 in
+  let x$4 = _lambda0(0) in
+  let y$4 = _lambda1(1, 2) in
+  return _lambda5(x$4, y$4)
 }
 
 func relu(v : set<i32>) -> set<i32> {

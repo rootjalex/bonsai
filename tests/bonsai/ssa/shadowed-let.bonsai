@@ -1,0 +1,24 @@
+//! flags: -p ssa
+
+// The IR side of correctness/llvm/shadowed-let.bonsai: what the parser hands
+// the SSA builder when one function declares a name twice in scopes that do
+// not overlap.
+//
+// The golden is here to pin the resolution rather than the crash. SSA
+// construction takes a name to mean one value per function, so the second
+// declaration has to arrive under a different one; what to look for below is
+// `r$1` in the else branch, and every use of it inside that branch resolving
+// to `r$1` rather than to the `r` above. The suffix uses a character the lexer
+// cannot produce, so it can never be a name someone wrote.
+element Pair {
+    a, b : f32;
+}
+
+func [[export]] pick(x : f32) -> Pair {
+    if x > 0.0 {
+        r : Pair = {x, x};
+        return r;
+    }
+    r : Pair = {0.0 - x, 0.0 - x};
+    return r;
+}

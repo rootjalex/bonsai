@@ -1,0 +1,31 @@
+type Pair = struct Pair{ a : f32; b : f32 }
+
+func _unexported_pick(x : f32) -> Pair {
+  let @0 = 0f < x in
+  if (@0) {
+    let r = build<Pair>(x, x) in
+    return r
+  } else {
+    let @2 = 0f - x in
+    let @3 = 0f - x in
+    let r$1 = build<Pair>(@2, @3) in
+    return r$1
+  }
+}
+
+func [[export]] pick(_ret0 : mut (Pair*), x : f32) -> void {
+  let @0 = 0f < x in
+  if (@0) {
+    let r = build<Pair>(x, x) in
+    _ret0 = r
+    return
+  } else {
+    let @2 = 0f - x in
+    let @3 = 0f - x in
+    let r$1 = build<Pair>(@2, @3) in
+    _ret0 = r$1
+    return
+  }
+}
+
+

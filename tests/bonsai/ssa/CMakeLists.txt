@@ -13,6 +13,7 @@ add_bonsai_tests(
     paper_example.bonsai
     parfor.bonsai
     print.bonsai
+    shadowed-let.bonsai
     simple.bonsai
     split.bonsai
     traverse.bonsai

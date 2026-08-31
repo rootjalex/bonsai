@@ -183,12 +183,42 @@ struct Parser {
     // the program, so naming one is enough to say which type is being built or
     // matched against.
     std::map<std::string, std::string> variant_owners;
-    // Function variable frames. Maps name to type and mutability.
+    // Function variable frames. Maps name to type, mutability, and the name it
+    // goes by in the IR.
     struct FunctionVariable {
         ir::Type type;
         bool mutating;
+        // Usually the source name; see used_names for when it is not.
+        std::string ir_name;
     };
     ir::MapStack<std::string, FunctionVariable> frames;
+    // Every name already spent in the function being parsed.
+    //
+    // Scopes nest in the source but names do not in the IR: `LetStmt` and
+    // `Var` carry plain strings, and everything downstream -- the free
+    // variable analysis, and SSA construction most of all -- takes a name to
+    // mean one value per function. Two `let`s of the same name in scopes that
+    // do not overlap are perfectly legal source and break that assumption, so
+    // the second one is given a name of its own here and uses of it are
+    // resolved to that name as they are parsed.
+    //
+    // This is what a C compiler does in its semantic analysis, where a use
+    // resolves to a declaration rather than to an identifier; the difference is
+    // only that bonsai's IR keeps names, so identity has to be *made* unique
+    // rather than replaced by a pointer.
+    //
+    // The suffix contains a character the lexer cannot produce, so a generated
+    // name can never collide with one someone wrote.
+    std::set<std::string> used_names;
+    // Whether a declaration may be renamed, which is true inside a function
+    // body and nowhere else.
+    //
+    // Outside one a name is part of an interface. A layout's fields name the
+    // struct the driver writes into, and a schedule binds a lambda's
+    // parameters to the tree it is sorting by name -- `.sort(t.Interior, |i,
+    // ray, axis| ...)` finds `axis` because that is what the variant's field is
+    // called. Renaming those would break the binding rather than preserve it.
+    bool renaming_declarations = false;
     // TODO: if we allow nested functions or any other way to allow nested
     // generics, we need this to be a stack!
     ir::TypeMap current_generics;
@@ -256,11 +286,45 @@ struct Parser {
         return false;
     }
 
+    // Bring a name into scope under itself. For things whose name is part of
+    // an interface -- externs, function arguments, the fields a layout names --
+    // where renaming would change what the outside world sees.
     void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
+        used_names.insert(name);
         frames.add_to_frame(name, FunctionVariable{
                                       .type = type,
                                       .mutating = mut,
+                                      .ir_name = name,
                                   });
+    }
+
+    // Bring a name into scope under a name no other variable in this function
+    // has used, and answer what that is. Callers must put the result in the IR
+    // they build; `ir_name_of` resolves later uses to it.
+    std::string declare(const std::string &name, ir::Type type, bool mut) {
+        if (!renaming_declarations) {
+            add_type_to_frame(name, std::move(type), mut);
+            return name;
+        }
+        std::string ir_name = name;
+        for (uint32_t n = 0; !used_names.insert(ir_name).second;) {
+            ir_name = name + "$" + std::to_string(++n);
+        }
+        frames.add_to_frame(name, FunctionVariable{
+                                      .type = std::move(type),
+                                      .mutating = mut,
+                                      .ir_name = ir_name,
+                                  });
+        return ir_name;
+    }
+
+    // The name an in-scope variable goes by in the IR.
+    std::string ir_name_of(const std::string &name) const {
+        std::optional<FunctionVariable> variable = frames.from_frames(name);
+        if (!variable.has_value()) {
+            report_error() << "Cannot resolve unknown var: " << name;
+        }
+        return variable->ir_name;
     }
 
     void modify_type_in_frame(const std::string &name, ir::Type type) {
@@ -631,6 +695,8 @@ struct Parser {
                               std::vector<ir::Function::Attribute> attributes) {
         // TODO: support generics for geometric intrinsics.
         push_frame();
+        used_names.clear();
+        renaming_declarations = true;
         std::vector<ir::Function::Argument> args = parse_func_args();
 
         // Build a unique identifier, because all function names are unique.
@@ -707,6 +773,7 @@ struct Parser {
         }
 
         pop_frame();
+        renaming_declarations = false;
 
         auto func = std::make_shared<ir::Function>(
             typed_name, std::move(args), std::move(ret_type), std::move(body),
@@ -760,6 +827,8 @@ struct Parser {
 
         ir::Function::InterfaceList interfaces = parse_func_interfaces();
         push_frame();
+        used_names.clear();
+        renaming_declarations = true;
         std::vector<ir::Function::Argument> args = parse_func_args();
 
         // Optional RARROW with return_type: otherwise, requires type inference!
@@ -802,6 +871,7 @@ struct Parser {
         }
 
         pop_frame();
+        renaming_declarations = false;
         current_generics.clear();
 
         internal_assert(!program.funcs[name]->body.defined())
@@ -920,8 +990,8 @@ struct Parser {
             // inside it, and nowhere else.
             push_frame();
             for (size_t i = 0; i < arm.bindings.size(); i++) {
-                add_type_to_frame(arm.bindings[i], fields[i].type,
-                                  /*mutable=*/false);
+                arm.bindings[i] = declare(arm.bindings[i], fields[i].type,
+                                          /*mutable=*/false);
             }
             arm.body = parse_statement();
             pop_frame();
@@ -998,7 +1068,7 @@ struct Parser {
 
             push_frame();
 
-            add_type_to_frame(idx, low.type(), /*mutating=*/false);
+            idx = declare(idx, low.type(), /*mutating=*/false);
 
             ir::Stmt body = parse_statement();
 
@@ -1040,7 +1110,7 @@ struct Parser {
                 id = get_id();
                 expect(Token::Type::COL);
                 ir::Type type = parse_type();
-                add_type_to_frame(id, type, /*mutable=*/true);
+                id = declare(id, type, /*mutable=*/true);
                 ir::WriteLoc loc(id, type);
                 expect(Token::Type::SEMICOL);
                 return ir::Allocate::make(loc);
@@ -1058,7 +1128,12 @@ struct Parser {
                 // Just a regular variable write
                 // might be an Assign/Store (if labelled `mut`)
                 return parse_name_decl(std::move(loc));
-            } else if (consume(Token::Type::ASSIGN)) {
+            }
+            // Everything below writes to a variable that already exists, so
+            // the base is a use and resolves to whatever that declaration was
+            // named.
+            loc.base = ir_name_of(loc.base);
+            if (consume(Token::Type::ASSIGN)) {
                 return parse_assign(std::move(loc));
             } else {
                 // Must be an accumulate.
@@ -1115,9 +1190,10 @@ struct Parser {
             // Allow type inference to occur when the value type is not defined.
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
-        add_type_to_frame(loc.base, write_type, _mutable);
-
-        loc = ir::WriteLoc(loc.base, std::move(write_type));
+        // Sequenced, because `declare` reads the type that the WriteLoc below
+        // moves from, and argument evaluation order would not be.
+        std::string ir_name = declare(loc.base, write_type, _mutable);
+        loc = ir::WriteLoc(std::move(ir_name), std::move(write_type));
         if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
@@ -1398,8 +1474,8 @@ struct Parser {
         } else if (consume(Token::Type::BAR)) {
             std::vector<ir::TypedVar> args = parse_lambda_args();
             push_frame();
-            for (const auto &arg : args) {
-                add_type_to_frame(arg.name, arg.type, /* mutable */ false);
+            for (auto &arg : args) {
+                arg.name = declare(arg.name, arg.type, /* mutable */ false);
             }
             // Optionally allow squiggles for lambda expression body.
             const bool has_squiggles =
@@ -1654,7 +1730,7 @@ struct Parser {
             if (name_in_scope(name)) {
                 ir::Type var_type =
                     get_type_from_frame(name); // never undefined.
-                ir::Expr expr = ir::Var::make(var_type, name);
+                ir::Expr expr = ir::Var::make(var_type, ir_name_of(name));
                 return ir::Call::make(std::move(expr), std::move(args));
             }
 
@@ -1687,7 +1763,7 @@ struct Parser {
         }
 
         ir::Type var_type = get_type_from_frame(name); // never undefined.
-        ir::Expr expr = ir::Var::make(var_type, name);
+        ir::Expr expr = ir::Var::make(var_type, ir_name_of(name));
         return expr;
     }
 
@@ -2035,6 +2111,9 @@ struct Parser {
         return def;
     }
 
+    // The base is left as it was written. Whether it is a use to resolve or a
+    // declaration to name is the caller's to decide, and it needs the source
+    // name to tell which.
     ir::WriteLoc parse_write_loc(std::string base) {
         ir::Type base_type;
         if (name_in_scope(base)) {

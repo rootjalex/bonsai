@@ -5,13 +5,13 @@ func foo(x : f32, y : f32) -> f32 {
     let w = (x * y) + (*z) in
     return sqrt(w)
   } else {
-    z : mut f32 := 1f
-    z *= 2f
-    let w = abs(x + y) / (*z) in
+    z$1 : mut f32 := 1f
+    z$1 *= 2f
+    let w$1 = abs(x + y) / (*z$1) in
     if ((x < 0f) && (0f < y)) {
-      return w
+      return w$1
     } else {
-      return w + 1f
+      return w$1 + 1f
     }
   }
 }
