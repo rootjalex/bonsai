@@ -1020,13 +1020,19 @@ class BonsaiToCpp : ir::Printer {
     void visit(const Accumulate *node) override {
         const WriteLoc &current = node->loc;
         const ir::Expr &update = node->value;
+        // This is the C++ *source* emitter, which `-b cppx` uses. It is not
+        // what `-b cpp` does: that name emits a C++ header and compiles the
+        // program itself through LLVM, so it gets atomics from the backend
+        // like `-b llvm` does. Only source generation lacks them, and giving
+        // it them means std::atomic_ref or a compare-and-swap in the runtime.
+        //
         // Refused rather than ignored: emitting the ordinary read-modify-write
         // for something the program asked to be indivisible would be a race
         // the source went out of its way to rule out, and it would look like
-        // it worked. The LLVM backend has this; giving it to the C++ one means
-        // std::atomic_ref or a compare-and-swap loop in the runtime.
+        // it worked.
         internal_assert(!node->atomic)
-            << "the C++ backend cannot emit an atomic accumulate yet: "
+            << "generated C++ source cannot express an atomic accumulate yet "
+               "(-b cppx); -b cpp and -b llvm can: "
             << Stmt(node);
         ss << get_indent();
         /*
