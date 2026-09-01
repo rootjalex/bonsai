@@ -911,7 +911,15 @@ std::string to_string(const UnOp::OpType &op) {
 }
 
 void Printer::visit(const UnOp *node) {
-    os << to_string(node->op);
+    // One node, two spellings: complementing bits reads as `~` and negating a
+    // truth value as `!`, and which one this is has always been decided by the
+    // operand's type rather than by the node.
+    if (node->op == UnOp::Not && node->a.type().defined() &&
+        node->a.type().is_int_or_uint()) {
+        os << "~";
+    } else {
+        os << to_string(node->op);
+    }
     print(node->a);
 }
 

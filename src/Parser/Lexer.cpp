@@ -202,6 +202,48 @@ std::optional<Token> Lexer::lex_number(std::ifstream &program_stream) {
                     /*column_begin=*/column_no());
     std::string token_string = consume_digits(program_stream);
 
+    // Hexadecimal, which is how a bit pattern is written and so how every
+    // reference worth checking a constant against writes one. There is no
+    // decimal point or exponent to follow, and no sign: `0x...` is a pattern
+    // rather than a magnitude, so it lexes unsigned and is narrowed by
+    // whatever it is assigned to.
+    if (token_string == "0" &&
+        (program_stream.peek() == 'x' || program_stream.peek() == 'X')) {
+        consume(program_stream);
+        std::string digits;
+        while (std::isxdigit(program_stream.peek())) {
+            digits += consume(program_stream);
+        }
+        if (digits.empty()) {
+            report_error("expected at least one hexadecimal digit after 0x");
+            consume_until_space(program_stream);
+            return Token::ErrorToken();
+        }
+        // A trailing `u` is allowed but says nothing extra.
+        if (program_stream.peek() == 'u') {
+            consume(program_stream);
+        }
+        uint64_t value = 0;
+        for (const char c : digits) {
+            const uint64_t digit =
+                std::isdigit(c) ? uint64_t(c - '0')
+                                : uint64_t(std::tolower(c) - 'a' + 10);
+            // Sixteen digits is the whole of a u64; a seventeenth has nowhere
+            // to go, and silently keeping the low ones is how a constant goes
+            // wrong without saying so.
+            if (value > (~uint64_t(0) >> 4)) {
+                report_error("hexadecimal literal does not fit in 64 bits");
+                consume_until_space(program_stream);
+                return Token::ErrorToken();
+            }
+            value = value * 16 + digit;
+        }
+        new_token.type = Token::Type::UINT_LITERAL;
+        new_token.value = value;
+        new_token.update_line_end(line_no());
+        return new_token;
+    }
+
     // Handle decimal.
     if (program_stream.peek() == '.') {
         new_token.type = Token::Type::FLOAT_LITERAL;
@@ -243,13 +285,29 @@ std::optional<Token> Lexer::lex_number(std::ifstream &program_stream) {
     // TODO: Handle f (float), h (half) modifiers.
 
     // Handle u (unsigned) modifier.
+    //
+    // The two conversions below throw on a value too large to hold, which used
+    // to escape as an uncaught std::out_of_range and end the process with
+    // `terminate called`. A number someone wrote is input, so it gets a
+    // diagnostic pointing at it like any other bad input.
     if (program_stream.peek() == 'u') {
         consume(program_stream);
         new_token.type = Token::Type::UINT_LITERAL;
-        new_token.value = static_cast<uint64_t>(std::stoull(token_string));
+        try {
+            new_token.value = static_cast<uint64_t>(std::stoull(token_string));
+        } catch (const std::out_of_range &) {
+            report_error("unsigned literal does not fit in 64 bits");
+            return Token::ErrorToken();
+        }
     } else if (new_token.type == Token::Type::INT_LITERAL) {
         new_token.type = Token::Type::INT_LITERAL;
-        new_token.value = static_cast<int64_t>(std::stoll(token_string));
+        try {
+            new_token.value = static_cast<int64_t>(std::stoll(token_string));
+        } catch (const std::out_of_range &) {
+            report_error("integer literal does not fit in 64 bits; write it "
+                         "unsigned or in hexadecimal if that is what it is");
+            return Token::ErrorToken();
+        }
     } else {
         internal_assert(new_token.type == Token::Type::FLOAT_LITERAL)
             << "State error in literal parsing: " << token_string;
@@ -367,6 +425,10 @@ void Lexer::lex() {
                 } else {
                     add_token(Token::Type::NOT);
                 }
+                break;
+            case '~':
+                program_stream.get();
+                add_token(Token::Type::BITWISE_NOT);
                 break;
             case '+':
                 program_stream.get();

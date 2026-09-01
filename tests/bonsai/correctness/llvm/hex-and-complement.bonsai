@@ -1,0 +1,61 @@
+//! flags: -b llvm -e
+
+// Hexadecimal literals and `~`.
+//
+// Neither existed, and both are how bit-twiddling code is written everywhere
+// it might be copied from -- so transcribing any of it meant converting
+// constants to decimal by hand and rewriting `~x + 1` as `32 - x`. Both steps
+// are places for a constant to change value silently on the way in, which is
+// the one thing a transcription must not do.
+//
+// A hex literal lexes unsigned, because `0x...` is a bit pattern rather than a
+// magnitude; what it is assigned to narrows it. Sixteen digits is a whole u64
+// and a seventeenth is an error rather than a silent truncation.
+element RNG {
+    state, inc : u64;
+}
+
+// pbrt: RNG::Uniform<uint32_t>, now written the way pbrt writes it -- the
+// constants in hex, and the rotate as the two's complement it is. Before these
+// two features this same function needed every constant converted and the
+// rotate re-derived.
+func next_uint(r : mut RNG) -> u32 {
+    old = r.state;
+    r.state = old * 0x5851f42d4c957f2d + r.inc;
+    xorshifted = cast[[u32]](((old >> 18u) ^ old) >> 27u);
+    rot = cast[[u32]](old >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31u));
+}
+
+func main() -> i32 {
+    // A hex literal past 32 bits, both halves.
+    a : u64 = 0x853c49e6748fea9b;
+    print(cast[[u32]](a >> 32)); // 2235320806
+    print(cast[[u32]](a));       // 1955588763
+
+    // Hex and decimal are the same number written twice.
+    print(0x853c49e6748fea9b == 9600629759793949339u);
+    print(0xFF == 255u);
+    print(0Xff == 255u); // capital X, and capital digits
+    print(0xffffffffffffffff == 18446744073709551615u); // the whole width
+
+    // Complementing an integer, which is bitwise.
+    m : u32 = 0xFF00;
+    print(m);  // 65280
+    print(~m); // 4294902015
+
+    // Two's complement negation, the idiom that wanted this.
+    rot : u32 = 5u;
+    print((~rot + 1u) & 31u); // 27
+
+    // Complementing a bool is still logical, and still spelled `!`.
+    print(!(m == 0u));
+
+    // pbrt's default-seeded stream, whose first four values are pbrt's.
+    r : mut RNG = {0x853c49e6748fea9b, 0xda3e39cb94b95bdb};
+    print(next_uint(r));
+    print(next_uint(r));
+    print(next_uint(r));
+    print(next_uint(r));
+    return 0;
+}

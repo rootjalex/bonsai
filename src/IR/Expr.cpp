@@ -383,13 +383,19 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
-            internal_assert(is_valid_logical_operation(a.type())) << a.type();
+            // An option is a truth value as soon as it is asked whether it is
+            // set, so it becomes one first.
             if (a.type().is<Option_t>()) {
                 a = Cast::make(Bool_t::make(), a);
             }
-            // not on only integers and boolean? what does not of float mean
+            // Complementing a bool is logical and complementing an integer is
+            // bitwise; a float has no reading. This used to be guarded by a
+            // stricter check above that admitted only bools and options, which
+            // made the integer half of this one unreachable -- so `~x` on an
+            // integer was well-typed in principle and rejected in practice.
             internal_assert(a.type().is_int_or_uint() || a.type().is_bool())
-                << "Cannot not non-([u]int | bool): " << to_string(op) << a;
+                << "Cannot complement non-([u]int | bool): " << to_string(op)
+                << a;
             node->type = a.type();
         } else {
             // Must be signed int or float?

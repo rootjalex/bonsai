@@ -1260,7 +1260,13 @@ struct Parser {
         if (consume(Token::Type::MINUS)) {
             ir::Expr inner = parse_unary();
             return ir::UnOp::make(ir::UnOp::Neg, std::move(inner));
-        } else if (consume(Token::Type::NOT)) {
+        } else if (consume(Token::Type::NOT) ||
+                   consume(Token::Type::BITWISE_NOT)) {
+            // One node for both spellings, because what it means already
+            // follows the operand: complementing a bool is `!` and
+            // complementing an integer's bits is `~`, and UnOp::Not is defined
+            // over exactly those two. Keeping them separate would be two names
+            // for one operation distinguished by a type the node already has.
             ir::Expr inner = parse_unary();
             return ir::UnOp::make(ir::UnOp::Not, std::move(inner));
         } else {

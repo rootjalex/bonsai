@@ -80,6 +80,7 @@ class Token {
         XOR,         // ^
         BITWISE_AND, // &
         NOT,         // !
+        BITWISE_NOT, // ~
         PLUS,        // +
         INC,         // ++
         MINUS,       // -

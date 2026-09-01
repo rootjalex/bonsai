@@ -14,6 +14,7 @@ add_bonsai_tests(
     extrema.bonsai
     function-type.bonsai
     gamma.bonsai
+    hex-and-complement.bonsai
     if-else-returns.bonsai
     int64.bonsai
     loop-transforms.bonsai

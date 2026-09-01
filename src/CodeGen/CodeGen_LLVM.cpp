@@ -1106,7 +1106,12 @@ void CodeGen_LLVM::visit(const UnOp *node) {
         return;
     }
     case UnOp::Not: {
-        internal_assert(node->type.is_bool());
+        // Bools and integers alike: LLVM's not is xor with all ones, which is
+        // the complement at whatever width the operand has. The type rule in
+        // UnOp::make already admits both, so refusing integers here was the
+        // one place that did not.
+        internal_assert(node->type.is_bool() || node->type.is_int_or_uint())
+            << "Cannot complement: " << node->type;
         value = builder->CreateNot(a);
         return;
     }
