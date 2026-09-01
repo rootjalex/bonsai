@@ -417,8 +417,8 @@ struct Rename : public ir::Mutator {
         return make(ir::Store::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
-        return make(
-            ir::Accumulate::make(node->loc, node->op, mutate(node->value)));
+        return make(ir::Accumulate::make(node->loc, node->op,
+                                         mutate(node->value), node->atomic));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {
@@ -702,7 +702,8 @@ class LVN : public ir::Mutator {
         if (!mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
-        return ir::Accumulate::make(node->loc, node->op, mutate(node->value));
+        return ir::Accumulate::make(node->loc, node->op, mutate(node->value),
+                                    node->atomic);
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {

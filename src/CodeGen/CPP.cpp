@@ -1020,6 +1020,14 @@ class BonsaiToCpp : ir::Printer {
     void visit(const Accumulate *node) override {
         const WriteLoc &current = node->loc;
         const ir::Expr &update = node->value;
+        // Refused rather than ignored: emitting the ordinary read-modify-write
+        // for something the program asked to be indivisible would be a race
+        // the source went out of its way to rule out, and it would look like
+        // it worked. The LLVM backend has this; giving it to the C++ one means
+        // std::atomic_ref or a compare-and-swap loop in the runtime.
+        internal_assert(!node->atomic)
+            << "the C++ backend cannot emit an atomic accumulate yet: "
+            << Stmt(node);
         ss << get_indent();
         /*
         if (program.globals.contains(current.to_expr())) {

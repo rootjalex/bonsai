@@ -1031,6 +1031,19 @@ struct Parser {
             ir::Expr ret = parse_expr();
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
+        } else if (consume(Token::Type::ATOMIC)) {
+            // `atomic x += v;` -- the read, the combine and the write happen
+            // as one step. What it is for is an accumulate whose location two
+            // iterations of a parfor may share, which is otherwise a race the
+            // program has no way to describe. Whether the cost is paid is the
+            // schedule's business: an atomic under a loop nothing parallelised
+            // is demoted back to a plain accumulate.
+            ir::WriteLoc loc = parse_write_loc(get_id());
+            if (loc.accesses.empty() && !name_in_scope(loc.base)) {
+                report_error() << "atomic on an undeclared name: " << loc.base;
+            }
+            loc.base = ir_name_of(loc.base);
+            return parse_accumulate(std::move(loc), /*atomic=*/true);
         } else if (consume(Token::Type::PARFOR)) {
             Loop loop = parse_loop("parfor");
             return ir::ParFor::make(
@@ -1266,7 +1279,7 @@ struct Parser {
         }
     }
 
-    ir::Stmt parse_accumulate(ir::WriteLoc loc) {
+    ir::Stmt parse_accumulate(ir::WriteLoc loc, bool atomic = false) {
         ir::Accumulate::OpType op = ir::Accumulate::OpType::Add;
         // Try to parse an accumulate
         if (consume(Token::Type::PLUS)) {
@@ -1279,7 +1292,8 @@ struct Parser {
         expect(Token::Type::ASSIGN);
         ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
-        return ir::Accumulate::make(std::move(loc), op, std::move(value));
+        return ir::Accumulate::make(std::move(loc), op, std::move(value),
+                                    atomic);
     }
 
     ir::Expr parse_unary() {

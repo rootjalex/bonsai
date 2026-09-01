@@ -256,7 +256,8 @@ Stmt codegen_instruction(const Instruction &instr) {
             WriteLoc loc = codegen_gep(instr.operands[0]);
             auto op = codegen_acc_op(instr.op);
             auto val = codegen_value(instr.operands[1]);
-            return Accumulate::make(std::move(loc), op, std::move(val));
+            return Accumulate::make(std::move(loc), op, std::move(val),
+                                    instr.atomic);
         }
         case Instruction::Op::Print:
             return Print::make(codegen_values(instr.operands));

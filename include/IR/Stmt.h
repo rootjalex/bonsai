@@ -230,7 +230,19 @@ struct Accumulate : StmtNode<Accumulate> {
     OpType op;
     Expr value;
 
-    static Stmt make(WriteLoc loc, OpType op, Expr value);
+    // Whether the read, the combine and the write happen as one indivisible
+    // step.
+    //
+    // A `parfor` promises its iterations are independent, and an accumulate to
+    // a location two of them share is not -- so a program doing that has to
+    // say this, and one that says it without needing it has told the truth in
+    // a costly way. The schedule is what decides whether the loop is actually
+    // parallel, so it is also what decides whether the cost is real: an atomic
+    // under a loop nothing parallelised is a plain accumulate, and demoting it
+    // is the compiler's job rather than the program's.
+    bool atomic = false;
+
+    static Stmt make(WriteLoc loc, OpType op, Expr value, bool atomic = false);
 
     static const IRStmtEnum node_type = IRStmtEnum::Accumulate;
 };

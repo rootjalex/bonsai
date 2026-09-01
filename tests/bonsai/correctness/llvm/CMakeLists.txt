@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     address-of.bonsai
     adt.bonsai
+    atomic-accumulate.bonsai
     bitwise.bonsai
     collapse.bonsai
     dce.bonsai

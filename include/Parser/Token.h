@@ -51,6 +51,7 @@ class Token {
         MATCH,  // match
 
         PARFOR,
+        ATOMIC, // atomic
         // WHILE, // while
         FOR,   // for
         IF,    // if

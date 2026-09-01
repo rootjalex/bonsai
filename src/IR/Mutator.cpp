@@ -649,7 +649,8 @@ Stmt Mutator::visit(const Accumulate *node) {
     if (not_changed && value.same_as(node->value)) {
         return node;
     }
-    return Accumulate::make(std::move(loc), node->op, std::move(value));
+    return Accumulate::make(std::move(loc), node->op, std::move(value),
+                            node->atomic);
 }
 
 Stmt Mutator::visit(const Label *node) {

@@ -133,6 +133,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::PARFOR;
     if (token == "for")
         return Token::Type::FOR;
+    if (token == "atomic")
+        return Token::Type::ATOMIC;
     if (token == "layout")
         return Token::Type::LAYOUT;
     if (token == "group")

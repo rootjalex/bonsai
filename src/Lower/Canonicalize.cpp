@@ -100,7 +100,7 @@ struct RewriteVectorFields : public ir::Mutator {
             return node;
         } else {
             return ir::Accumulate::make(std::move(loc), node->op,
-                                        std::move(value));
+                                        std::move(value), node->atomic);
         }
     }
 

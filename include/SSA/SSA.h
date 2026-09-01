@@ -165,6 +165,12 @@ struct Instruction {
     // Which reduction this is. Only meaningful for Op::Reduce.
     ir::VectorReduce::OpType reduce = ir::VectorReduce::Add;
 
+    // Whether an accumulate is indivisible. Only meaningful for the Acc ops.
+    // Carried rather than acted on, the way a ParFor's binding is: what it
+    // costs is decided when code is generated, and whether it is needed at all
+    // is decided by whether the schedule made the loop around it parallel.
+    bool atomic = false;
+
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;
 
@@ -263,7 +269,8 @@ struct Block : public std::enable_shared_from_this<Block> {
                      std::vector<std::shared_ptr<Value>> vs,
                      bool allow_rename = false);
     void make_side_effect(Instruction::Op op,
-                          std::vector<std::shared_ptr<Value>> vs);
+                          std::vector<std::shared_ptr<Value>> vs,
+                          bool atomic = false);
 
     // If value is defined in this block, returns it, otherwise adds it as an
     // argument recursively until it finds the block it is defined in!

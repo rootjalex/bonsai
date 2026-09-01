@@ -1,0 +1,69 @@
+//! flags: -p ssa -b llvm -e
+
+// `atomic x += v`, an accumulate whose read, combine and write are one step.
+//
+// A parfor promises its iterations are independent, so accumulating to a
+// location two of them share is a promise the program does not keep -- and
+// bonsai had no way to write it otherwise. The alternative, a sequential loop,
+// is not one: a `for` cannot be scheduled, so choosing it to buy safety
+// forecloses ever parallelising that loop. The algorithm should say what may
+// run in parallel and what must be indivisible, and leave the schedule to
+// decide what that costs.
+//
+// Whether the cost is real is the schedule's business. An atomic under a loop
+// nothing parallelised is a plain accumulate wearing a lock, and demoting it
+// is the compiler's job rather than the program's.
+element Float = f32;
+
+func [[export]] atomic_sum(n : u32, out : mut array[Float]) -> void {
+    parfor i in 0u:n {
+        atomic out[0u] += 1.0;
+    }
+    return;
+}
+
+// Integers as well as floats: the two take different atomicrmw operations, and
+// picking the float one for an integer would be a type error at emission
+// rather than a wrong answer, which is worth knowing has not happened.
+func [[export]] atomic_count(n : u32, out : mut array[u32]) -> void {
+    parfor i in 0u:n {
+        atomic out[0u] += 1u;
+    }
+    return;
+}
+
+// Accumulating to a location no two iterations share, which needs nothing and
+// says nothing -- next to the others so that a change making everything atomic
+// would show up here.
+func [[export]] per_lane(n : u32, out : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        out[i] += 2.0;
+    }
+    return;
+}
+
+func main() -> i32 {
+    alloc f : array[Float, 1];
+    f[0u] = 0.0;
+    atomic_sum(1000u, f);
+    print(f[0u]);
+
+    alloc c : array[u32, 1];
+    c[0u] = 0u;
+    atomic_count(1000u, c);
+    print(c[0u]);
+
+    alloc lanes : array[Float, 4];
+    parfor i in 0u:4u {
+        lanes[i] = 1.0;
+    }
+    per_lane(4u, lanes);
+    print(lanes[0u]);
+    print(lanes[3u]);
+
+    // Subtraction, min and max have atomicrmw forms too and go through the
+    // same switch, but the parser only spells `+=` and `*=`, so there is no
+    // way to write one yet -- Accumulate::Sub exists in the IR with no syntax
+    // reaching it.
+    return 0;
+}

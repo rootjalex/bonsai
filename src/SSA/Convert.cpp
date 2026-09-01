@@ -469,7 +469,7 @@ struct FunctionBuilder : Visitor {
 
         std::vector<std::shared_ptr<Value>> args = {std::move(ptr),
                                                     std::move(v)};
-        block->make_side_effect(op, std::move(args));
+        block->make_side_effect(op, std::move(args), node->atomic);
     }
 
     void visit(const ParFor *node) override {

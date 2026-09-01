@@ -417,7 +417,8 @@ Block::make_instruction(Type type, Instruction::Op op,
 }
 
 void Block::make_side_effect(Instruction::Op op,
-                             std::vector<std::shared_ptr<Value>> vs) {
+                             std::vector<std::shared_ptr<Value>> vs,
+                             bool atomic) {
     // Re-thread any operands from other blocks (necessary due to call
     // continuations).
     forward_block_values(vs);
@@ -425,6 +426,7 @@ void Block::make_side_effect(Instruction::Op op,
     // No name for side-effect-y instructions.
     auto instr =
         std::make_shared<Instruction>(op, std::move(vs), weak_from_this());
+    instr->atomic = atomic;
     instrs.push_back(instr);
 }
 

@@ -2858,6 +2858,47 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     llvm::Value *loc = codegen_write_loc(node->loc);
     llvm::Value *update = codegen_expr(node->value);
 
+    if (node->atomic) {
+        // One indivisible read-modify-write, rather than the load, combine and
+        // store below -- which is three steps another thread can land between.
+        //
+        // Monotonic ordering: an accumulate makes no claim about anything
+        // other than itself becoming visible, so the stronger orderings would
+        // be paying for a guarantee nobody asked for. What it does promise is
+        // that no update is lost.
+        llvm::AtomicRMWInst::BinOp op;
+        switch (node->op) {
+        case Accumulate::Add:
+            op = node->value.type().is_float() ? llvm::AtomicRMWInst::FAdd
+                                               : llvm::AtomicRMWInst::Add;
+            break;
+        case Accumulate::Sub:
+            op = node->value.type().is_float() ? llvm::AtomicRMWInst::FSub
+                                               : llvm::AtomicRMWInst::Sub;
+            break;
+        case Accumulate::Min:
+            op = node->value.type().is_float()  ? llvm::AtomicRMWInst::FMin
+                 : node->value.type().is_int()  ? llvm::AtomicRMWInst::Min
+                                                : llvm::AtomicRMWInst::UMin;
+            break;
+        case Accumulate::Max:
+            op = node->value.type().is_float()  ? llvm::AtomicRMWInst::FMax
+                 : node->value.type().is_int()  ? llvm::AtomicRMWInst::Max
+                                                : llvm::AtomicRMWInst::UMax;
+            break;
+        default:
+            // Multiply and the argmins have no atomicrmw; they would need a
+            // compare-and-swap loop, which is worth writing when something
+            // wants one rather than in advance.
+            internal_error << "atomic is not supported for this accumulate: "
+                           << Stmt(node);
+            return;
+        }
+        builder->CreateAtomicRMW(op, loc, update, llvm::MaybeAlign(),
+                                 llvm::AtomicOrdering::Monotonic);
+        return;
+    }
+
     llvm::Value *current =
         create_aligned_load(update->getType(), loc, "acc_base");
 

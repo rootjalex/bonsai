@@ -1407,6 +1407,9 @@ void Printer::visit(const Store *node) {
 
 void Printer::visit(const Accumulate *node) {
     os << get_indent();
+    if (node->atomic) {
+        os << "atomic ";
+    }
     print(node->loc);
     switch (node->op) {
     case Accumulate::OpType::Add: {

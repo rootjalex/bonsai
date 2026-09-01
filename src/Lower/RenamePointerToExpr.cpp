@@ -59,7 +59,8 @@ struct Rename : public ir::Mutator {
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
         return make(
-            ir::Accumulate::make(node->loc, node->op, mutate(node->value)));
+            ir::Accumulate::make(node->loc, node->op, mutate(node->value),
+                                 node->atomic));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {
