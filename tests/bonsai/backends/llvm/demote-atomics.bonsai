@@ -1,0 +1,63 @@
+//! flags: -p ssa -b llvm
+
+// Taking the lock off an atomic nothing can contend for.
+//
+// A program says `atomic` because the parfor around it *may* be run in
+// parallel, not because it is -- whether it is at all is the schedule's
+// decision, made later and elsewhere. So the algorithm can expose its
+// parallelism honestly and the compiler works out what that costs. The
+// alternative, writing a sequential loop to dodge the atomic, buys the same
+// speed by giving up the ability to schedule the loop at all.
+//
+// Three cases, and what to look for in the golden is which of them keeps its
+// `atomicrmw`:
+//
+//   per_lane_bound   parallel, but each iteration writes its own element, so
+//                    no two collide and the atomic goes.
+//   shared_bound     parallel and every iteration writes the same element:
+//                    the one case where the atomic is doing real work.
+//   shared_unbound   the same body with nothing bound to the loop, so nothing
+//                    runs two iterations at once and the atomic goes.
+//
+// The middle one is the whole point. A pass that demoted everything would look
+// correct on the other two and lose updates on that one, which is why it is
+// here rather than left to the two easy cases.
+element Float = f32;
+
+func [[export]] shared_bound(n : u32, out : mut array[Float]) -> void {
+    parfor i in 0u:n {
+        atomic out[0u] += 1.0;
+    }
+    return;
+}
+
+func [[export]] shared_unbound(n : u32, out : mut array[Float]) -> void {
+    parfor i in 0u:n {
+        atomic out[0u] += 1.0;
+    }
+    return;
+}
+
+func [[export]] per_lane_bound(n : u32, out : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        atomic out[i] += 1.0;
+    }
+    return;
+}
+
+// The index derived from the loop's rather than being it. Whether `i / 2` is
+// injective over the iteration space is an arithmetic question the syntactic
+// check does not attempt, so this stays atomic -- the answer that costs speed
+// rather than correctness, and the case an affine test would settle later.
+func [[export]] derived_bound(n : u32, out : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        atomic out[i / 2u] += 1.0;
+    }
+    return;
+}
+
+schedule {
+    shared_bound.bind(i, CPUThread);
+    per_lane_bound.bind(i, CPUThread);
+    derived_bound.bind(i, CPUThread);
+}

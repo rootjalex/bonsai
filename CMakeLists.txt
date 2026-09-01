@@ -178,7 +178,9 @@ target_sources(
     src/SSA/CloneFunction.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
+    src/SSA/Contention.cpp
     src/SSA/Convert.cpp
+    src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp
     src/SSA/InsertPreheader.cpp
     src/SSA/Linearize.cpp

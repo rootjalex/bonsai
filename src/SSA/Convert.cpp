@@ -1,6 +1,7 @@
 #include "SSA/Convert.h"
 
 #include "SSA/CodeGen_Stmt.h"
+#include "SSA/DemoteAtomics.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
@@ -1294,6 +1295,15 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 },
                 t);
         }
+    }
+
+    // Now that every bind has been applied, it is settled which loops run
+    // iterations at the same time -- and so which atomics were asked for
+    // against a parallelism the schedule did not take up. Those cost nothing
+    // to remove and everything to keep, so they go here, after the schedule
+    // and before the graph is turned back into statements.
+    for (const auto &[name, f] : fmap) {
+        DemoteAtomics::run(*f);
     }
 
     // A transform may have added functions -- vectorize() specializes the

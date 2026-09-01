@@ -6,6 +6,7 @@ add_bonsai_tests(
     # machines.
     FLAGS --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
+    demote-atomics.bonsai
     dynamic-array.bonsai
     exported-function.bonsai
     float.bonsai
