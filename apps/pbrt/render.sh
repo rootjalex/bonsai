@@ -10,11 +10,26 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 
 PREFIX="apps/pbrt"
-# The driver has to be built with clang rather than with whatever CXX happens
-# to be: the generated header declares its vectors with ext_vector_type, which
-# is what makes the C++ side's float3 the same thing as LLVM's <3 x float>, and
-# only clang has it. See src/CodeGen/CPP.cpp.
-CXX="${CXX:-clang++}"
+# The driver has to be built with clang: the generated header declares its
+# vectors with ext_vector_type, and only clang has it. gcc's vector_size takes a
+# size in bytes and requires a power of two, so it cannot spell a three-element
+# vector laid out the way LLVM lays one out. See src/CodeGen/CPP.cpp.
+#
+# Deliberately not $CXX, which conda's compiler packages export as their gcc
+# wrapper -- honouring it would mean this picks gcc inside an activated
+# environment and fails a hundred lines later.
+BONSAI_CXX="${BONSAI_CXX:-clang++}"
+# Asked rather than assumed: gcc merely warns that it is ignoring the attribute
+# and then fails on every use of the type. The swizzle is what makes this fail
+# there -- with the attribute ignored, f3 is a plain float and .y is not a
+# member of it.
+if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
+           float pick(f3 v) { return v.y; }' |
+    "$BONSAI_CXX" -x c++ -std=c++20 -fsyntax-only - >/dev/null 2>&1; then
+  echo "$BONSAI_CXX cannot compile the generated header: it needs clang's" >&2
+  echo "ext_vector_type. Set BONSAI_CXX to a clang++." >&2
+  exit 1
+fi
 SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 # The renderer writes linear float, as pbrt does; the PNG beside it is the
 # post-processing step, and is what to actually look at.
@@ -35,7 +50,8 @@ bash $PREFIX/build_scene_dump.sh
 # The spectral data is generated (see make_spectrum_tables.py) and the fit that
 # uses it is a port, so check the round trip before rendering with it: a fit
 # that is subtly wrong still produces plausible numbers, just the wrong colour.
-"$CXX" -std=c++20 -O2 -I$PREFIX $PREFIX/rgb2spec_check.cpp -o $PREFIX/rgb2spec_check
+"$BONSAI_CXX" -std=c++20 -O2 -I$PREFIX $PREFIX/rgb2spec_check.cpp \
+    -o $PREFIX/rgb2spec_check
 ./$PREFIX/rgb2spec_check
 rm $PREFIX/rgb2spec_check
 
@@ -47,8 +63,8 @@ rm $PREFIX/rgb2spec_check
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
-"$CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
-    -o $PREFIX/render.out
+"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
+    $PREFIX/render.o -o $PREFIX/render.out
 
 ./$PREFIX/render.out "$PREFIX/scene.txt" "$OUT"
 
