@@ -99,6 +99,7 @@ uint64_t Token::size() const {
     case Token::Type::RARROW:
     case Token::Type::BY:
     case Token::Type::ON:
+    case Token::Type::IN:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
