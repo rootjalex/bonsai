@@ -1,0 +1,63 @@
+//! flags: -b llvm -e
+
+// A constant takes the type the annotation names, inside an aggregate literal
+// as well as outside one.
+//
+// A written number has no type of its own until something says what it is, so
+// `n : u64 = 5u` is a u32 constant widened on the way into a u64 name. The
+// elements of an array or a struct literal are the same constants, and used to
+// have no such rule: they reached the aggregate still the width the lexer gave
+// them and were rejected for not matching, which made
+//
+//     xs : array[u64, 2] = {0u, 1u};
+//
+// an error where the scalar spelling of the same thing was fine. Nothing in the
+// program could see why, and the fix -- writing `cast[[u64]](0u)` in a list of
+// literals -- said nothing a reader needed.
+//
+// What matters is that the value survives, not just the type: a widening that
+// reinterpreted instead of converting would give the right type and the wrong
+// number, and only for the values that differ between the two widths.
+element Float = f32;
+
+element Mixed {
+    small : u32;
+    wide : u64;
+    signed_wide : i64;
+    real : Float;
+}
+
+func main() -> i32 {
+    // The case that failed: u32 literals in a u64 array.
+    xs : array[u64, 4] = {0u, 1u, 4294967295u, 5u};
+    print(xs[0]);
+    print(xs[1]);
+    // The largest u32, which a widening that went through i32 would turn
+    // negative and a reinterpreting one would leave alone.
+    print(xs[2]);
+    print(xs[3]);
+
+    // The same for a signed element type, where the sign has to be carried.
+    ys : array[i64, 3] = {0, -7, 2147483647};
+    print(ys[0]);
+    print(ys[1]);
+    print(ys[2]);
+
+    // An integer literal in a float array, which is a conversion rather than a
+    // widening and is the other thing an annotation can ask for.
+    zs : array[Float, 3] = {0, 1, 2};
+    print(zs[0] + zs[1] + zs[2]);
+
+    // A struct, where each field names its own type rather than sharing one.
+    m : Mixed = {7u, 9u, -3, 2};
+    print(m.small);
+    print(m.wide);
+    print(m.signed_wide);
+    print(m.real);
+
+    // And arithmetic on what came out, so the test fails if the value is right
+    // in the array and wrong once read back.
+    print(xs[2] + 1u);
+    print(ys[2] * 2);
+    return 0;
+}

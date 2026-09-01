@@ -1227,6 +1227,44 @@ struct Parser {
                     std::move(stride), std::move(body)};
     }
 
+    // Constants inside an aggregate literal take the type the annotation names,
+    // the same way a constant in a scalar declaration does.
+    //
+    // A literal has no type of its own until something says what it is, so
+    // `n : u64 = 5u` is a u32 constant widened on the way into a u64 name. The
+    // elements of `v : array[u64, 2] = {0u, 5u}` are the same constants and had
+    // no such rule: they reached Build still u32 and were rejected for not
+    // matching the element type, which made the aggregate case stricter than
+    // the scalar one for no reason a program could see.
+    std::vector<ir::Expr> coerce_elements(const ir::Type &aggregate,
+                                          std::vector<ir::Expr> values) {
+        if (!aggregate.defined()) {
+            return values;
+        }
+        const ir::Struct_t *struct_t = aggregate.as<ir::Struct_t>();
+        const bool indexed =
+            aggregate.is<ir::Array_t>() || aggregate.is<ir::Vector_t>();
+        if (!struct_t && !indexed) {
+            return values;
+        }
+        for (size_t i = 0; i < values.size(); i++) {
+            ir::Type want;
+            if (struct_t) {
+                if (i >= struct_t->fields.size()) {
+                    break;
+                }
+                want = struct_t->fields[i].type;
+            } else {
+                want = aggregate.element_of();
+            }
+            if (want.defined() && values[i].type().defined() &&
+                !ir::equals(want, values[i].type()) && is_const(values[i])) {
+                values[i] = constant_cast(want, values[i]);
+            }
+        }
+        return values;
+    }
+
     ir::Stmt parse_name_decl(ir::WriteLoc loc) {
         // This is a never-seen-before write to a variable.
         internal_assert(!loc.type.defined());
@@ -1261,7 +1299,8 @@ struct Parser {
                             [](const ir::Expr &e) { return is_const(e); })) {
                 value = ir::VecImm::make(build->values);
             } else {
-                value = ir::Build::make(type_label, build->values);
+                value = ir::Build::make(
+                    type_label, coerce_elements(type_label, build->values));
             }
         }
 
@@ -1860,7 +1899,8 @@ struct Parser {
             }
             // Otherwise just a regular list-like struct build.
             auto args = parse_expr_list_until(Token::Type::RSQUIGGLE);
-            return ir::Build::make(std::move(type), std::move(args));
+            auto coerced = coerce_elements(type, std::move(args));
+            return ir::Build::make(std::move(type), std::move(coerced));
         }
 
         ir::Type var_type = get_type_from_frame(name); // never undefined.

@@ -17,9 +17,11 @@ add_bonsai_tests(
     field-store-ssa.bonsai
     function-type.bonsai
     gamma.bonsai
+    halton.bonsai
     hex-and-complement.bonsai
     if-else-returns.bonsai
     int64.bonsai
+    literal-widening.bonsai
     loop-transforms.bonsai
     loopify.bonsai
     loopify-queue.bonsai
