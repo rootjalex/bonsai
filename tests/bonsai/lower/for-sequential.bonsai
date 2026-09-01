@@ -1,0 +1,45 @@
+// A sequential `for`, next to the `parfor` it is not.
+//
+// The two parse identically and differ in one thing: what they promise. A
+// parfor says its iterations may run in any order, which a schedule may take
+// it at its word on; a for says they run in the order written. Until this
+// existed, bonsai's only loop was the one that promised independence, so a
+// loop carrying a dependence from one iteration to the next had to be written
+// as a lie that happened to hold for as long as nothing acted on it.
+//
+// What to look for in the golden is that `carried` lowers to a ForAll and
+// `independent` to a ParFor, from source that is otherwise the same shape.
+element Float = f32;
+
+// Each iteration reads what the last one wrote. No schedule could spread this
+// across threads, so no schedule should be offered the chance.
+func [[export]] carried(n : u32) -> u64 {
+    acc : mut u64 = 1u;
+    for i in 0u:n {
+        acc = acc * 3u + cast[[u64]](i);
+    }
+    return acc;
+}
+
+// The same loop shape with no dependence between iterations, which is what a
+// parfor is for.
+func [[export]] independent(n : u32, a : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        a[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+// A `for` with an explicit stride, and one nested inside a parfor -- the
+// combination a render wants, where pixels are independent and the samples
+// within a pixel accumulate in order.
+func [[export]] nested(n : u32, a : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        total : mut Float = 0.0;
+        for s in 0u:8u:2u {
+            total += cast[[Float]](s);
+        }
+        a[i] = total;
+    }
+    return;
+}

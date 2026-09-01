@@ -10,6 +10,7 @@ add_bonsai_tests(
     exported-function.bonsai
     externs-order.bonsai
     float.bonsai
+    for-sequential.bonsai
     import_float.bonsai
     import_twice.bonsai
     import_vec3f.bonsai

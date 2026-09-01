@@ -1032,57 +1032,21 @@ struct Parser {
             expect(Token::Type::SEMICOL);
             return ir::Return::make(std::move(ret));
         } else if (consume(Token::Type::PARFOR)) {
-            std::string idx = get_id();
-            if (name_in_scope(idx)) {
-                report_error() << idx << " already in scope.";
-            }
-            ir::Type type;
-            if (consume(Token::Type::COL)) {
-                type = parse_type();
-            }
-            expect(Token::Type::IN);
-            ir::Expr low = parse_expr();
-            expect(Token::Type::COL);
-            ir::Expr high = parse_expr();
-            ir::Expr stride;
-            if (consume(Token::Type::COL)) {
-                stride = parse_expr();
-            }
-
-            if (type.defined()) {
-                low = cast_to(type, low);
-                high = cast_to(type, low);
-
-                stride =
-                    stride.defined() ? cast_to(type, stride) : make_one(type);
-            }
-
-            internal_assert(low.type().defined() && high.type().defined())
-                << "Expected types for parfor bounds: " << low << " and "
-                << high;
-
-            internal_assert(ir::equals(low.type(), high.type()))
-                << "Expected matching types for parfor bounds: " << low
-                << " vs. " << high;
-
-            if (!stride.defined()) {
-                stride = make_one(low.type());
-            }
-
-            push_frame();
-
-            idx = declare(idx, low.type(), /*mutating=*/false);
-
-            ir::Stmt body = parse_statement();
-
-            pop_frame();
-
-            ir::ParFor::Slice slice{.begin = std::move(low),
-                                    .end = std::move(high),
-                                    .stride = std::move(stride)};
-
-            return ir::ParFor::make(std::move(idx), std::move(slice),
-                                    std::move(body));
+            Loop loop = parse_loop("parfor");
+            return ir::ParFor::make(
+                std::move(loop.index),
+                ir::ParFor::Slice{.begin = std::move(loop.begin),
+                                  .end = std::move(loop.end),
+                                  .stride = std::move(loop.stride)},
+                std::move(loop.body));
+        } else if (consume(Token::Type::FOR)) {
+            Loop loop = parse_loop("for");
+            return ir::ForAll::make(
+                std::move(loop.index),
+                ir::ForAll::Slice{.begin = std::move(loop.begin),
+                                  .end = std::move(loop.end),
+                                  .stride = std::move(loop.stride)},
+                std::move(loop.body));
         } else if (consume(Token::Type::PRINT)) {
             expect(Token::Type::LPAREN);
             std::vector<ir::Expr> args =
@@ -1145,6 +1109,68 @@ struct Parser {
         }
         internal_error << "[unimplemented] parse_statement for "
                        << peek().to_string();
+    }
+
+    // Everything `for` and `parfor` have in common, which is everything except
+    // what they promise.
+    //
+    // A parfor says its iterations may run in any order, and a schedule may
+    // take it at its word. A for says they run in the order written, which is
+    // what a loop carrying a dependence from one iteration to the next needs
+    // -- PCG32's jump-ahead folds its state forward, and no schedule could
+    // ever spread that across threads. Writing such a loop as a parfor would
+    // be a promise the code does not keep, true only for as long as nothing
+    // took it up on the offer.
+    struct Loop {
+        std::string index;
+        ir::Expr begin, end, stride;
+        ir::Stmt body;
+    };
+
+    Loop parse_loop(const char *what) {
+        std::string idx = get_id();
+        if (name_in_scope(idx)) {
+            report_error() << idx << " already in scope.";
+        }
+        ir::Type type;
+        if (consume(Token::Type::COL)) {
+            type = parse_type();
+        }
+        expect(Token::Type::IN);
+        ir::Expr low = parse_expr();
+        expect(Token::Type::COL);
+        ir::Expr high = parse_expr();
+        ir::Expr stride;
+        if (consume(Token::Type::COL)) {
+            stride = parse_expr();
+        }
+
+        if (type.defined()) {
+            low = cast_to(type, low);
+            high = cast_to(type, low);
+
+            stride = stride.defined() ? cast_to(type, stride) : make_one(type);
+        }
+
+        internal_assert(low.type().defined() && high.type().defined())
+            << "Expected types for " << what << " bounds: " << low << " and "
+            << high;
+
+        internal_assert(ir::equals(low.type(), high.type()))
+            << "Expected matching types for " << what << " bounds: " << low
+            << " vs. " << high;
+
+        if (!stride.defined()) {
+            stride = make_one(low.type());
+        }
+
+        push_frame();
+        idx = declare(idx, low.type(), /*mutating=*/false);
+        ir::Stmt body = parse_statement();
+        pop_frame();
+
+        return Loop{std::move(idx), std::move(low), std::move(high),
+                    std::move(stride), std::move(body)};
     }
 
     ir::Stmt parse_name_decl(ir::WriteLoc loc) {

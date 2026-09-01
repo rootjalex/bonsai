@@ -10,11 +10,8 @@
 // which was right. So the numbers below are pbrt's own, printed by
 // `apps/pbrt/scene_dump --print-sampler`, and this reproduces them.
 //
-// Sample 0 only. StartPixelSample also calls RNG::Advance(sampleIndex * 65536
-// + dimension), which is a no-op at sample zero and a loop for every sample
-// after it -- and bonsai's only loop is `parfor`, which is the wrong shape for
-// a sequential jump-ahead. So sample 1 and beyond wait on a sequential loop in
-// the source language.
+// Samples zero and one, so that RNG::Advance is exercised as well as skipped:
+// the advance is a no-op at sample zero and a real jump ahead after it.
 element Float = f32;
 
 // pbrt: RNG, from util/rng.h.
@@ -85,7 +82,37 @@ func set_sequence(seq : u64, offset : u64) -> RNG {
     return r;
 }
 
-// pbrt: IndependentSampler::StartPixelSample, at sample zero.
+// pbrt: RNG::Advance, the log-time jump ahead that puts the stream where the
+// sample index says. Each step squares the multiplier and folds the increment
+// forward, so what one iteration produces the next consumes -- a loop that
+// carries a dependence, and the reason bonsai needed a sequential `for`.
+// Writing this as a parfor would promise an independence it does not have.
+//
+// pbrt stops as soon as the remaining delta is zero; this runs the full
+// sixty-four steps a u64 can need and lets the guard make the rest do nothing,
+// because a `for` runs its whole range.
+func advance(r : mut RNG, delta : u64) -> void {
+    cur_mult : mut u64 = 0x5851f42d4c957f2d;
+    cur_plus : mut u64 = r.inc;
+    acc_mult : mut u64 = 1u;
+    acc_plus : mut u64 = 0u;
+    d : mut u64 = delta;
+    for step in 0u:64u {
+        if (d & 1u) != 0u {
+            acc_mult = acc_mult * cur_mult;
+            acc_plus = acc_plus * cur_mult + cur_plus;
+        }
+        cur_plus = (cur_mult + 1u) * cur_plus;
+        cur_mult = cur_mult * cur_mult;
+        d = d >> 1u;
+    }
+    r.state = acc_mult * r.state + acc_plus;
+    return;
+}
+
+// pbrt: IndependentSampler::StartPixelSample. The advance is by
+// `sampleIndex * 65536 + dimension`, and starting at dimension zero leaves the
+// second term out.
 func start_pixel(x : i32, y : i32, seed : i32) -> RNG {
     seq = hash_pixel(x, y, seed);
     return set_sequence(seq, mix_bits(seq));
@@ -93,6 +120,16 @@ func start_pixel(x : i32, y : i32, seed : i32) -> RNG {
 
 func draw4(x : i32, y : i32) -> void {
     r : mut RNG = start_pixel(x, y, 0);
+    print(next_float(r));
+    print(next_float(r));
+    print(next_float(r));
+    print(next_float(r));
+    return;
+}
+
+func draw4_at(x : i32, y : i32, sample : u32) -> void {
+    r : mut RNG = start_pixel(x, y, 0);
+    advance(r, cast[[u64]](sample) * 65536u);
     print(next_float(r));
     print(next_float(r));
     print(next_float(r));
@@ -116,5 +153,13 @@ func main() -> i32 {
     draw4(0, 1);
     draw4(37, 11);
     draw4(1279, 719);
+
+    // Sample one, which is where Advance stops being a no-op and the jump
+    // ahead has to land on exactly the state pbrt's would.
+    draw4_at(0, 0, 1u);
+    draw4_at(1, 0, 1u);
+    draw4_at(0, 1, 1u);
+    draw4_at(37, 11, 1u);
+    draw4_at(1279, 719, 1u);
     return 0;
 }

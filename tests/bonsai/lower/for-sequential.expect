@@ -1,0 +1,29 @@
+type Float = f32
+
+func [[export]] carried(n : u32) -> u64 {
+  acc : mut u64 := 1u
+  forall i in [0u:n:1u] {
+    acc = ((*acc) * 3u) + cast<u64>(i)
+  }
+  return (*acc)
+}
+
+func [[export]] independent(n : u32, a : mut f32[n]) -> void {
+  parfor i in [0u:n:1u] {
+    a[i] = a[i] * 2f
+  }
+  return
+}
+
+func [[export]] nested(n : u32, a : mut f32[n]) -> void {
+  parfor i in [0u:n:1u] {
+    total : mut f32 := 0f
+    forall s in [0u:8u:2u] {
+      total += cast<f32>(s)
+    }
+    a[i] = (*total)
+  }
+  return
+}
+
+
