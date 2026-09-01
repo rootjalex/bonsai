@@ -22,6 +22,11 @@ fi
 
 PREFIX="apps/pbrt"
 PBRT="${PBRT:-$HOME/projects/pbrt-v4/build/pbrt}"
+# The driver has to be built with clang rather than with whatever CXX happens
+# to be: the generated header declares its vectors with ext_vector_type, which
+# is what makes the C++ side's float3 the same thing as LLVM's <3 x float>, and
+# only clang has it. See src/CodeGen/CPP.cpp.
+CXX="${CXX:-clang++}"
 IMGTOOL="${IMGTOOL:-$(dirname "$PBRT")/imgtool}"
 WORK="${WORK:-$PREFIX/compare-out}"
 # The scene both sides render. Any .pbrt this renderer understands will do.
@@ -33,6 +38,10 @@ if [[ ! -x "$PBRT" ]]; then
 fi
 if [[ ! -f "$SCENE" ]]; then
   echo "no scene at $SCENE" >&2
+  exit 1
+fi
+if ! command -v "$CXX" >/dev/null; then
+  echo "no clang at $CXX -- set CXX to one (the generated header needs it)" >&2
   exit 1
 fi
 
@@ -72,11 +81,13 @@ REPEATS="${REPEATS:-5}"
 # time is what gets compared rather than the wall clock out here.
 PBRT_SECONDS=""
 for _ in $(seq 1 "$REPEATS"); do
-  # --disable-wavelength-jitter fixes the four wavelengths at u = 0.5 for every
-  # pixel, which is what the renderer samples at; without it pbrt draws a
-  # different four per pixel and the albedo is a different estimate.
-  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --disable-wavelength-jitter \
-      --quiet "$OLDPWD/$SCENE")
+  # Wavelength jitter is left on. Both sides now draw the wavelength from the
+  # scene's sampler as its sample's first 1D value, and this renderer
+  # reproduces pbrt's stream exactly -- see sampler.bonsai -- so the two draw
+  # the same four wavelengths for the same pixel and sample. Turning the jitter
+  # off would fix them both at u = 0.5 and so hide any disagreement about the
+  # sampler, which is the thing worth checking.
+  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$SCENE")
   # pbrt's own render time, which its progress reporter measures from after the
   # scene and the BVH are built.
   RUN=$("$IMGTOOL" info "$WORK/ref.exr" |
@@ -100,7 +111,7 @@ done
 # else, so there is no longer a second place for it to disagree. It repeats
 # inside one process, so there is no per-run startup to pay.
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
-clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
+"$CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o "$WORK/render.out"
 BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
     "$WORK/bonsai.pfm")

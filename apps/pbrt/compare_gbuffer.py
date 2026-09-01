@@ -22,7 +22,10 @@ Three things are reported, and they fail for different reasons:
   wavelengths, multiplied by the illuminant and integrated back to RGB -- and
   none of that round trip is the identity. It is a colour rather than a
   direction, so it is reported as a difference rather than as a hit mask; the
-  geometry is already covered above.
+  geometry is already covered above. Two numbers, because it disagrees in two
+  ways: a mean, which is what a wrong fit or a wrong illuminant moves, and a
+  count of the pixels where a wavelength rounded to a different nanometre and
+  so read the adjacent entry of a table. See compare_albedo.
 
 Also writes pbrt.png, bonsai.png and diff.png beside the inputs, because a
 number saying the images match is not the same as being able to look at them.
@@ -44,10 +47,22 @@ NORMAL_TOLERANCE = 2e-3
 # far below one pixel level, so shown honestly the image would be black.
 DIFF_GAIN = 255.0
 
-# See compare_albedo: an order of magnitude above the agreement observed, which
-# leaves room for the half-float gbuffer and the sigmoid fit without leaving
-# room for a wrong wavelength sampler.
+# See compare_albedo. A pixel further apart than this is counted rather than
+# tolerated; what it means is that the two rounded a wavelength to different
+# nanometres, which is a discontinuity rather than an error.
 ALBEDO_TOLERANCE = 5e-3
+
+# What the albedo is actually held to. Half floats hold about three decimal
+# digits, so a pixel pair drawn from the same wavelengths cannot agree better
+# than this, and the mean over the image should sit at that level.
+ALBEDO_MEAN_TOLERANCE = 5e-4
+
+# How many pixels may round a wavelength differently, as a fraction of those
+# with an albedo at all. An order of magnitude above what is observed, which
+# leaves room for the discontinuity and none for a wrong sampler: sampling
+# wavelengths uniformly rather than by visible response -- the mistake this was
+# written to catch -- moves every pixel, not one in seventy thousand.
+ALBEDO_OUTLIER_FRACTION = 1e-4
 
 
 def diff_png(path, width, height, ref, got):
@@ -121,16 +136,29 @@ def take_pair(args, name):
 
 
 def compare_albedo(pbrt_path, bonsai_path, width, height):
-    """The spectral round trip, as a difference rather than a hit mask.
+    """The spectral round trip, reported as a mean and a count of outliers.
 
-    The bound is what pbrt's half-float gbuffer can express, which near one is
-    about 5e-4, plus whatever the sigmoid fit differs by -- this renderer runs
-    the fit where pbrt looks it up in a table its own fitting tool produced, so
-    the two are the same computation but not the same arithmetic. The tolerance
-    is set an order of magnitude above the agreement actually observed, which
-    is enough room for that and nowhere near enough to hide a wrong sampler:
-    sampling wavelengths uniformly instead of by visible response, the mistake
-    this was written to catch, moves a channel by tenths.
+    Two numbers rather than one, because the albedo disagrees in two quite
+    different ways.
+
+    Almost everywhere the two agree to what pbrt's half-float gbuffer can
+    express, which near one is about 5e-4. That is the mean, and it is what a
+    wrong sigmoid fit or a wrong illuminant would move.
+
+    A handful of pixels are much further apart, and those are not a matter of
+    degree. A sampled spectrum is looked up per nanometre, so a wavelength is
+    rounded to the nearest one before it indexes anything -- and the two
+    renderers do not compute that wavelength with bit-identical arithmetic.
+    They cannot: pbrt is built by a compiler that fuses its multiplies and adds
+    where it likes, and its libm is not this one. Where a wavelength lands
+    within an ulp of a half-nanometre the two round it to adjacent entries, and
+    the answers are a table step apart rather than an ulp apart. About one pixel
+    in seventy thousand does this, and no amount of care upstream removes them
+    -- only making the spectrum continuous would, and pbrt's is not.
+
+    So the count is what is bounded, the way the silhouette pixels are counted
+    separately from the normals: a few is the discontinuity, and a lot is a
+    sampler that draws the wrong wavelengths altogether.
     """
     pw, ph, pbrt = read_pfm(pbrt_path)
     bw, bh, bonsai = read_pfm(bonsai_path)
@@ -141,29 +169,37 @@ def compare_albedo(pbrt_path, bonsai_path, width, height):
     worst_at = None
     total = 0.0
     counted = 0
+    outliers = 0
     for i in range(0, len(pbrt), 3):
         a = pbrt[i:i + 3]
         b = bonsai[i:i + 3]
-        # Where pbrt recorded nothing, there is no surface to have an albedo.
-        if a == (0.0, 0.0, 0.0):
+        # Where neither found a surface there is nothing to have an albedo, and
+        # counting the agreement would be counting the background -- which is
+        # two fifths of this scene and would drag the mean down by that much.
+        # Only where one of them found something is there a claim to check.
+        if not any(a) and not any(b):
             continue
         difference = max(abs(a[c] - b[c]) for c in range(3))
         total += difference
         counted += 1
+        if difference > ALBEDO_TOLERANCE:
+            outliers += 1
         if difference > worst:
             worst = difference
             worst_at = (i // 3 % width, i // 3 // width, a, b)
 
     if counted == 0:
         raise SystemExit("no pixels with an albedo to compare")
-    print(f"albedo: {counted} pixels, mean difference {total / counted:.2e}, "
-          f"worst {worst:.2e}")
+    mean = total / counted
+    fraction = outliers / counted
+    print(f"albedo: {counted} pixels, mean difference {mean:.2e}, "
+          f"{outliers} over {ALBEDO_TOLERANCE:.0e} ({100 * fraction:.4f}%)")
     if worst_at:
         x, y, a, b = worst_at
-        print(f"  worst at ({x}, {y}) "
+        print(f"  worst {worst:.2e} at ({x}, {y}) "
               f"pbrt ({a[0]:+.4f} {a[1]:+.4f} {a[2]:+.4f}) "
               f"bonsai ({b[0]:+.4f} {b[1]:+.4f} {b[2]:+.4f})")
-    return worst
+    return mean, fraction
 
 
 def main(argv):
@@ -264,11 +300,18 @@ def main(argv):
     # renderers, but not one that means anything is wrong here.
     albedo_failed = False
     if albedo_pair is not None:
-        worst = compare_albedo(albedo_pair[0], albedo_pair[1], ref_w, ref_h)
-        albedo_failed = worst > ALBEDO_TOLERANCE
-        if albedo_failed:
-            print(f"FAILED: albedo differs by {worst:.2e}, over the "
-                  f"{ALBEDO_TOLERANCE:.0e} a half-float gbuffer allows for")
+        mean, fraction = compare_albedo(albedo_pair[0], albedo_pair[1], ref_w,
+                                        ref_h)
+        if mean > ALBEDO_MEAN_TOLERANCE:
+            albedo_failed = True
+            print(f"FAILED: albedo differs by {mean:.2e} on average, over the "
+                  f"{ALBEDO_MEAN_TOLERANCE:.0e} a half-float gbuffer allows for")
+        if fraction > ALBEDO_OUTLIER_FRACTION:
+            albedo_failed = True
+            print(f"FAILED: {100 * fraction:.4f}% of pixels are further apart "
+                  f"than {ALBEDO_TOLERANCE:.0e}, over the "
+                  f"{100 * ALBEDO_OUTLIER_FRACTION:.4f}% that rounding a "
+                  f"wavelength to the nearest nanometre accounts for")
 
     if interior:
         print(f"FAILED: {len(interior)} pixels disagree away from any edge")

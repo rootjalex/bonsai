@@ -10,6 +10,11 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 
 PREFIX="apps/pbrt"
+# The driver has to be built with clang rather than with whatever CXX happens
+# to be: the generated header declares its vectors with ext_vector_type, which
+# is what makes the C++ side's float3 the same thing as LLVM's <3 x float>, and
+# only clang has it. See src/CodeGen/CPP.cpp.
+CXX="${CXX:-clang++}"
 SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 # The renderer writes linear float, as pbrt does; the PNG beside it is the
 # post-processing step, and is what to actually look at.
@@ -30,7 +35,7 @@ bash $PREFIX/build_scene_dump.sh
 # The spectral data is generated (see make_spectrum_tables.py) and the fit that
 # uses it is a port, so check the round trip before rendering with it: a fit
 # that is subtly wrong still produces plausible numbers, just the wrong colour.
-clang++ -std=c++20 -O2 -I$PREFIX $PREFIX/rgb2spec_check.cpp -o $PREFIX/rgb2spec_check
+"$CXX" -std=c++20 -O2 -I$PREFIX $PREFIX/rgb2spec_check.cpp -o $PREFIX/rgb2spec_check
 ./$PREFIX/rgb2spec_check
 rm $PREFIX/rgb2spec_check
 
@@ -42,7 +47,7 @@ rm $PREFIX/rgb2spec_check
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
-clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
+"$CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o \
     -o $PREFIX/render.out
 
 ./$PREFIX/render.out "$PREFIX/scene.txt" "$OUT"
