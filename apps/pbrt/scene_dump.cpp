@@ -679,11 +679,201 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
     return nullptr;
 }
 
+// The gbuffer PBRT would have written, rendered here with PBRT's own code.
+//
+// The comparison used to be against the `pbrt` binary's output, which meant the
+// scene had to ask for `Film "gbuffer"` -- and no scene anyone else wrote does.
+// They say `Film "rgb"`, and PBRT has a command-line override for the sample
+// count but none for the film, so the comparison simply could not be run on
+// them. Rewriting someone's scene to change one line is not a fix; asking PBRT
+// directly is.
+//
+// Nothing here is a reimplementation. The camera, the sampler, the aggregate,
+// the intersection and the BSDF are PBRT's, assembled the way RenderCPU
+// assembles them and driven the way the path integrator drives them at depth
+// zero. What is left out is everything past the first hit, which is the part
+// the gbuffer does not record.
+//
+// A consequence worth having: `bsdf.rho` is PBRT's, so the albedo is right for
+// every material PBRT has, whether or not this renderer can yet reproduce it --
+// and the normals, which no material affects, compare exactly regardless.
+//
+// The normals are in render space, which is where the rays are. PBRT's gbuffer
+// film writes them in whichever space `coordinatesystem` names, and matching
+// that used to mean every scene here saying "world"; a scene someone else wrote
+// says nothing and gets "camera". Reporting the space both renderers actually
+// work in removes the question rather than answering it.
+void render_reference(pbrt::BasicScene &scene,
+                      const pbrt::RGBColorSpace *colour_space,
+                      const std::string &prefix) {
+    // Sampled at the pixel centre, which main() asked for before parsing began.
+    // GetCameraSample below is PBRT's own and reads PBRT's own option, so there
+    // is no second implementation of what that flag means.
+    std::map<std::string, pbrt::Medium> media = scene.CreateMedia();
+    pbrt::NamedTextures textures = scene.CreateTextures();
+    std::map<int, pstd::vector<pbrt::Light> *> shape_index_to_area_lights;
+    std::vector<pbrt::Light> lights =
+        scene.CreateLights(textures, &shape_index_to_area_lights);
+    std::map<std::string, pbrt::Material> named_materials;
+    std::vector<pbrt::Material> materials;
+    scene.CreateMaterials(textures, &named_materials, &materials);
+    pbrt::Primitive accel = scene.CreateAggregate(
+        textures, shape_index_to_area_lights, media, named_materials, materials);
+
+    pbrt::Camera camera = scene.GetCamera();
+    pbrt::Film film = camera.GetFilm();
+    pbrt::Filter filter = film.GetFilter();
+    pbrt::Sampler sampler = scene.GetSampler();
+    const pbrt::Bounds2i bounds = film.PixelBounds();
+    const pbrt::Vector2i extent = bounds.Diagonal();
+    const int width = extent.x, height = extent.y;
+    const int spp = sampler.SamplesPerPixel();
+
+    // PBRT's fixed sample arrays for the reflectance estimate, from the path
+    // integrator. Fixed rather than drawn, so the albedo of a pixel does not
+    // depend on where in the sampler's stream the estimate happens to fall.
+    static constexpr int kRhoSamples = 16;
+    const pbrt::Float uc_rho[kRhoSamples] = {
+        0.75741637, 0.37870818, 0.7083487,  0.18935409, 0.9149363,  0.35417435,
+        0.5990858,  0.09467703, 0.8578725,  0.45746812, 0.686759,   0.17708716,
+        0.9674518,  0.2995429,  0.5083201,  0.047338516};
+    const pbrt::Point2f u_rho[kRhoSamples] = {
+        {0.855985f, 0.570367f}, {0.381823f, 0.851844f}, {0.285328f, 0.764262f},
+        {0.733380f, 0.114073f}, {0.542663f, 0.344465f}, {0.127274f, 0.414848f},
+        {0.964700f, 0.947162f}, {0.594089f, 0.643463f}, {0.095109f, 0.170369f},
+        {0.825444f, 0.263359f}, {0.429467f, 0.454469f}, {0.244460f, 0.816459f},
+        {0.756135f, 0.731258f}, {0.516165f, 0.152852f}, {0.180888f, 0.214174f},
+        {0.898579f, 0.503897f}};
+
+    std::vector<float> normals(size_t(width) * height * 3, 0.f);
+    std::vector<float> albedos(size_t(width) * height * 3, 0.f);
+
+    pbrt::ThreadLocal<pbrt::ScratchBuffer> buffers(
+        []() { return pbrt::ScratchBuffer(); });
+    pbrt::ThreadLocal<pbrt::Sampler> samplers(
+        [&sampler]() { return sampler.Clone({}); });
+
+    pbrt::ParallelFor2D(bounds, [&](pbrt::Bounds2i tile) {
+        pbrt::ScratchBuffer &scratch = buffers.Get();
+        pbrt::Sampler tile_sampler = samplers.Get();
+        for (pbrt::Point2i p : tile) {
+            // The accumulator widths are PBRT's, from GBufferFilm::Pixel: the
+            // colour sums are double and the normal sum is not. A float sum
+            // here would agree to about six digits and disagree in the last
+            // bit of the half the film writes, which is a difference nobody
+            // could explain from the source.
+            pbrt::Normal3f n_sum(0, 0, 0);
+            double albedo_sum[3] = {0., 0., 0.};
+            double weight_sum = 0.;
+
+            for (int i = 0; i < spp; i++) {
+                scratch.Reset();
+                tile_sampler.StartPixelSample(p, i);
+
+                // The order the path integrator draws in: the wavelength
+                // first, then the camera sample. Getting it wrong would put
+                // every later draw one value out.
+                pbrt::Float lu = tile_sampler.Get1D();
+                if (pbrt::GetOptions().disableWavelengthJitter) {
+                    lu = 0.5f;
+                }
+                pbrt::SampledWavelengths lambda = film.SampleWavelengths(lu);
+                pbrt::CameraSample cs =
+                    pbrt::GetCameraSample(tile_sampler, p, filter);
+                pstd::optional<pbrt::CameraRayDifferential> cr =
+                    camera.GenerateRayDifferential(cs, lambda);
+                weight_sum += cs.filterWeight;
+                if (!cr) {
+                    continue;
+                }
+
+                pstd::optional<pbrt::ShapeIntersection> si =
+                    accel.Intersect(cr->ray, pbrt::Infinity);
+                if (!si) {
+                    continue;
+                }
+                pbrt::SurfaceInteraction &isect = si->intr;
+                pbrt::BSDF bsdf = isect.GetBSDF(cr->ray, lambda, camera,
+                                                scratch, tile_sampler);
+                if (!bsdf) {
+                    continue;
+                }
+
+                // pbrt: VisibleSurface's constructor, which turns the normal to
+                // face the way the ray came from -- the film's convention
+                // rather than the geometry's winding.
+                const pbrt::Normal3f n =
+                    pbrt::FaceForward(isect.n, isect.wo);
+                n_sum += cs.filterWeight * n;
+
+                // pbrt: GBufferFilm::AddSample, which lights the reflectance by
+                // the colour space's illuminant before converting it, so that
+                // the answer is a colour under a white point rather than a
+                // reflectance under an equal-energy light.
+                const pbrt::SampledSpectrum rho =
+                    bsdf.rho(isect.wo, uc_rho, u_rho);
+                const pbrt::SampledSpectrum lit =
+                    rho * colour_space->illuminant.Sample(lambda);
+                const pbrt::RGB rgb = lit.ToRGB(lambda, *colour_space);
+                for (int c = 0; c < 3; c++) {
+                    albedo_sum[c] += cs.filterWeight * rgb[c];
+                }
+            }
+
+            const size_t at =
+                (size_t(p.y - bounds.pMin.y) * width + (p.x - bounds.pMin.x)) * 3;
+            // pbrt: GetImage. The normal is normalized rather than averaged --
+            // a direction has no magnitude to average -- while the albedo is
+            // divided by the whole weight, including the samples that hit
+            // nothing, so a pixel on a silhouette comes out darker.
+            if (pbrt::LengthSquared(n_sum) > 0) {
+                const pbrt::Normal3f n = pbrt::Normalize(n_sum);
+                normals[at + 0] = float(n.x);
+                normals[at + 1] = float(n.y);
+                normals[at + 2] = float(n.z);
+            }
+            if (weight_sum != 0) {
+                for (int c = 0; c < 3; c++) {
+                    albedos[at + c] = float(albedo_sum[c] / weight_sum);
+                }
+            }
+        }
+    });
+
+    const auto write = [&](const std::string &path,
+                           const std::vector<float> &pixels) {
+        std::ofstream out(path, std::ios::binary);
+        if (!out) {
+            fail("cannot open " + path + " for writing");
+        }
+        // PFM rows run bottom to top, and a negative scale says little-endian.
+        out << "PF\n" << width << ' ' << height << "\n-1.000000\n";
+        for (int y = height - 1; y >= 0; y--) {
+            out.write(reinterpret_cast<const char *>(
+                          pixels.data() + size_t(y) * width * 3),
+                      std::streamsize(sizeof(float)) * width * 3);
+        }
+        if (!out) {
+            fail("cannot write " + path);
+        }
+    };
+    write(prefix + ".pfm", normals);
+    write(prefix + "-albedo.pfm", albedos);
+    printf("scene_dump: reference %s.pfm and %s-albedo.pfm (%dx%d, %d spp)\n",
+           prefix.c_str(), prefix.c_str(), width, height, spp);
+    // What PBRT's own binary would write this scene to, so that a comparison
+    // script can find the image it timed. A scene names it and no two need
+    // agree.
+    printf("scene_dump: film filename %s\n",
+           film.GetFilename().c_str());
+}
+
 // Parse and convert. Everything PBRT owns is local to this function, so all of
 // it is destroyed on the way out -- before CleanupPBRT takes the arenas it was
 // allocated from out from under it. Doing this inline in main instead crashes
 // on the way out, because the locals outlive the cleanup call.
-void load(const char *filename, bonsai_scene::Scene &out) {
+void load(const char *filename, bonsai_scene::Scene &out,
+          const std::string &reference_prefix) {
     std::vector<float> matrices;
     std::vector<bonsai_scene::Shape> &shapes = out.shapes;
 
@@ -691,6 +881,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     CapturingBuilder builder(&scene);
     const std::vector<std::string> filenames = {filename};
     pbrt::ParseFiles(&builder, filenames);
+
 
     if (builder.camera_name != "perspective") {
         fail("only the perspective camera is supported, scene asks for \"" +
@@ -827,6 +1018,16 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     }
     for (size_t i = 0; i < matrices.size(); i++) {
         out.matrices[i] = matrices[i];
+    }
+
+    // Last, because CreateAggregate empties `scene.shapes` on its way through
+    // -- it hands the entities to the primitives it builds -- and the
+    // conversion above reads them.
+    if (!reference_prefix.empty()) {
+        // The film's colour space rather than sRGB by assumption: it is what
+        // GBufferFilm converts the albedo with, and a scene can name another.
+        render_reference(scene, builder.film_params.ColorSpace(),
+                         reference_prefix);
     }
 }
 
@@ -977,6 +1178,12 @@ int main(int argc, char **argv) {
     bool pbrt_tree = false;
     bool tables_only = false;
     bool sampler_only = false;
+    // --reference writes the gbuffer PBRT would have written, rendered with
+    // PBRT's own camera, aggregate and BSDFs. It is how the comparison runs on
+    // a scene someone else wrote: those say `Film "rgb"`, PBRT has no
+    // command-line override for the film, and rewriting a scene to change one
+    // line would make the comparison about our copy of it.
+    std::string reference_prefix;
     std::vector<const char *> positional;
     for (int i = 1; i < argc; i++) {
         const std::string arg(argv[i]);
@@ -986,12 +1193,18 @@ int main(int argc, char **argv) {
             tables_only = true;
         } else if (arg == "--print-sampler") {
             sampler_only = true;
+        } else if (arg == "--reference") {
+            if (i + 1 >= argc) {
+                fail("--reference needs a path prefix to write to");
+            }
+            reference_prefix = argv[++i];
         } else {
             positional.push_back(argv[i]);
         }
     }
     if (!tables_only && !sampler_only && positional.size() != 2) {
-        fail("usage: scene_dump [--pbrt-tree] <scene.pbrt> <out.txt>\n"
+        fail("usage: scene_dump [--pbrt-tree] [--reference <prefix>]"
+             " <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
              "       scene_dump --print-sampler");
     }
@@ -1015,7 +1228,7 @@ int main(int argc, char **argv) {
     }
 
     bonsai_scene::Scene scene;
-    load(positional[0], scene);
+    load(positional[0], scene, reference_prefix);
     if (pbrt_tree) {
         build_pbrt_tree(scene.shapes, scene.nodes);
     }

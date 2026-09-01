@@ -84,7 +84,20 @@ DUMP_FLAGS=()
 if [[ -n "${PBRT_TREE:-}" ]]; then
   DUMP_FLAGS+=(--pbrt-tree)
 fi
-"$WORK/scene_dump" "${DUMP_FLAGS[@]}" "$SCENE" "$WORK/scene.txt"
+# --reference renders the gbuffer with pbrt's own camera, aggregate and BSDFs
+# rather than running the pbrt binary and pulling channels out of its EXR. The
+# binary can only produce those channels for a scene that asks for
+# `Film "gbuffer"`, and no scene anyone else wrote does -- they say
+# `Film "rgb"`, and pbrt has a command-line override for the sample count but
+# none for the film. Verified against the binary on a scene that does ask for a
+# gbuffer: the normals are identical once ours are rounded to the half floats
+# the binary stores.
+DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" --reference "$WORK/pbrt" \
+    "$SCENE" "$WORK/scene.txt")
+echo "$DUMP_OUT"
+# What the pbrt binary will write this scene to, which is the scene's business
+# and differs from one to the next.
+FILM_FILE=$(echo "$DUMP_OUT" | sed -n 's/^scene_dump: film filename //p')
 
 # Both sides are timed as the best of several runs. Every source of noise on a
 # shared machine adds time and none removes it, so the minimum is the closest
@@ -92,39 +105,32 @@ fi
 # how busy the machine was. REPEATS=1 to skip it.
 REPEATS="${REPEATS:-5}"
 
-# pbrt's reference. --disable-pixel-jitter puts the sample at the pixel centre,
-# which is where this renderer puts its one sample.
+# The pbrt binary, run only for its render time now that the images come from
+# scene_dump. --disable-pixel-jitter puts the sample at the pixel centre, which
+# is where this renderer puts its samples.
 #
 # pbrt renders once per invocation, so repeating means running it again -- and
 # paying for parsing and the BVH build each time, which is why its own reported
 # time is what gets compared rather than the wall clock out here.
+#
+# Wavelength jitter is left on. Both sides draw the wavelength from the scene's
+# sampler as its sample's first 1D value, and this renderer reproduces pbrt's
+# stream exactly -- see sampler.bonsai -- so the two draw the same four
+# wavelengths for the same pixel and sample. Turning the jitter off would fix
+# them both at u = 0.5 and hide any disagreement about the sampler.
 PBRT_SECONDS=""
 for _ in $(seq 1 "$REPEATS"); do
-  # Wavelength jitter is left on. Both sides now draw the wavelength from the
-  # scene's sampler as its sample's first 1D value, and this renderer
-  # reproduces pbrt's stream exactly -- see sampler.bonsai -- so the two draw
-  # the same four wavelengths for the same pixel and sample. Turning the jitter
-  # off would fix them both at u = 0.5 and so hide any disagreement about the
-  # sampler, which is the thing worth checking.
   (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$SCENE")
   # pbrt's own render time, which its progress reporter measures from after the
   # scene and the BVH are built.
-  RUN=$("$IMGTOOL" info "$WORK/ref.exr" |
+  RUN=$("$IMGTOOL" info "$WORK/$FILM_FILE" |
       sed -n 's/.*render time:.*(total \([0-9.]*\)s).*/\1/p')
   PBRT_SECONDS=$(awk -v best="$PBRT_SECONDS" -v now="$RUN" \
       'BEGIN { if (best == "" || now + 0 < best + 0) print now; else print best }')
 done
 
-# imgtool warns that the three channels are not R, G and B, which is the point:
-# what is being extracted is a vector field, not a colour. Dropped rather than
-# left to look like something went wrong, since it is expected every run.
-"$IMGTOOL" convert --channels N.X,N.Y,N.Z --outfile "$WORK/pbrt.pfm" "$WORK/ref.exr" \
-    2>&1 | grep -v "they are not R, G, and B" || true
-# The gbuffer's other half: the reflectance of whatever the camera ray found,
-# which is what the spectral pipeline has to reproduce.
-"$IMGTOOL" convert --channels Albedo.R,Albedo.G,Albedo.B \
-    --outfile "$WORK/pbrt-albedo.pfm" "$WORK/ref.exr" \
-    2>&1 | grep -v "they are not R, G, and B" || true
+# pbrt.pfm and pbrt-albedo.pfm were written by `scene_dump --reference` above,
+# at full float rather than the half floats the binary's EXR holds.
 
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
