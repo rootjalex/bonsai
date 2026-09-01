@@ -161,7 +161,7 @@ struct Parser {
     ir::Program parse_program() {
         internal_assert(frames.empty());
         push_frame();
-        parse_program_stream(/*allow_externs=*/true);
+        parse_program_stream();
         pop_frame();
         internal_assert(frames.empty());
         return std::move(program);
@@ -394,13 +394,13 @@ struct Parser {
         return id;
     }
 
-    void parse_program_stream(const bool allow_externs) {
+    void parse_program_stream() {
         while (!tokens().empty()) {
-            parse_program_element(allow_externs);
+            parse_program_element();
         }
     }
 
-    void parse_program_element(const bool allow_externs) {
+    void parse_program_element() {
         switch (peek().type) {
         case Token::Type::IMPORT:
             return parse_import();
@@ -409,9 +409,11 @@ struct Parser {
         case Token::Type::INTERFACE:
             return parse_interface_def();
         case Token::Type::EXTERN:
-            if (!allow_externs) {
-                report_error() << "Parsed extern during import.";
-            }
+            // An imported module may declare the data it needs. Imports are
+            // inlining, so this is the same declaration as one written at the
+            // top of the importing file -- and an extern nothing calls costs
+            // nothing, since LowerExterns threads a declaration into a function
+            // only where that function actually reads it.
             return parse_extern();
         case Token::Type::FUNC:
             return parse_function();
@@ -450,7 +452,7 @@ struct Parser {
         try {
             TokenStream tokens = lex(name);
             context.emplace_back(std::move(tokens));
-            parse_program_stream(/*allow_externs=*/false);
+            parse_program_stream();
             context.pop_back();
         } catch (const Error &e) {
             std::rethrow_exception(std::current_exception());

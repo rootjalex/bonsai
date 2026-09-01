@@ -1,0 +1,24 @@
+// Used in import_externs_use.bonsai. A module that declares the data it needs.
+//
+// Imports are inlining, so an extern here is the same declaration as one
+// written at the top of the importing file. It used to be rejected outright --
+// "Parsed extern during import" -- which meant a module could not say what it
+// read, and whoever imported it had to declare it on the module's behalf and
+// keep the two spellings in step. There was never a reason for it downstream:
+// LowerExterns threads a declaration into a function only where that function
+// actually reads it, so an extern nothing calls costs nothing.
+element Float = f32;
+
+extern scale : array[Float, 4];
+extern offset : array[Float, 4];
+
+// Reads both, in the opposite order to their declaration, which is where
+// declaration order and discovery order come apart. See externs-order.bonsai.
+func adjust(i : u32) -> Float {
+    return offset[i] + scale[i] * 10.0;
+}
+
+// Reads only one of them, so a caller of this must be handed exactly that one.
+func amplify(i : u32) -> Float {
+    return scale[i] * 100.0;
+}

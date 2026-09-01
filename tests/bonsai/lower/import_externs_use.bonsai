@@ -1,0 +1,23 @@
+// Externs declared by an imported module, reaching a function that never
+// mentions them.
+//
+// `both` below reads neither `scale` nor `offset`; it only calls two functions
+// that do, and one of those is in another file. What to look for in the golden
+// is that `both` still ends up taking both of them, in declaration order, and
+// passes each callee exactly what that callee reads -- the same threading
+// externs-order.bonsai pins, but with the declarations on the far side of an
+// import.
+//
+// A third extern is declared here as well, so the ordering being checked spans
+// the two files rather than being an ordering within one of them.
+import tests/bonsai/lower/import_externs;
+
+extern bias : array[Float, 4];
+
+func biased(i : u32) -> Float {
+    return bias[i] + amplify(i);
+}
+
+func [[export]] both(i : u32) -> Float {
+    return adjust(i) + biased(i);
+}
