@@ -1065,6 +1065,26 @@ struct Parser {
             }
             loc.base = ir_name_of(loc.base);
             return parse_accumulate(std::move(loc), /*atomic=*/true);
+        } else if (consume(Token::Type::DO)) {
+            // `do body while (cond);` -- a loop whose trip count is not known
+            // before it runs. `for` and `parfor` both say their range up front,
+            // which is what lets a schedule split or bind them; a loop that
+            // stops when it stops can be neither, and writing one as a `for`
+            // over a bound big enough with the body guarded is a lie about how
+            // much work there is.
+            //
+            // Tested first would be the more usual spelling, but the body of a
+            // rejection sampler -- pbrt's PermutationElement, which is what
+            // wanted this -- always runs at least once, and a `do` says so.
+            ir::Stmt body = parse_statement();
+            expect(Token::Type::WHILE);
+            ir::Expr cond = parse_expr();
+            expect(Token::Type::SEMICOL);
+            return ir::DoWhile::make(std::move(body), std::move(cond));
+        } else if (consume(Token::Type::WHILE)) {
+            ir::Expr cond = parse_expr();
+            ir::Stmt body = parse_statement();
+            return ir::While::make(std::move(cond), std::move(body));
         } else if (consume(Token::Type::PARFOR)) {
             Loop loop = parse_loop("parfor");
             return ir::ParFor::make(

@@ -41,4 +41,5 @@ add_bonsai_tests(
     mutability.bonsai
     struct.bonsai
     void-fallthrough.bonsai
+    while-loops.bonsai
 )

@@ -135,6 +135,10 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::FOR;
     if (token == "atomic")
         return Token::Type::ATOMIC;
+    if (token == "do")
+        return Token::Type::DO;
+    if (token == "while")
+        return Token::Type::WHILE;
     if (token == "layout")
         return Token::Type::LAYOUT;
     if (token == "group")

@@ -191,21 +191,87 @@ struct FunctionBuilder : Visitor {
         internal_assert(!block->terminator.defined());
 
         std::shared_ptr<Block> loop_end = make_block("do_while_end");
+        // The body may have branched, so the block the back edge leaves from
+        // is whichever one it ended in rather than the header itself.
+        auto latch = block;
 
         block->terminator.data = Terminator::Dispatch{
             .cond = std::move(v),
             // v == 0
             .targets = {Terminator::Jump{.name = loop_end->name, .args = {}},
                         // v != 0
-                        //  TODO: copy arguments?
-                        Terminator::Jump{.name = loop_head->name, .args = {}}}};
+                        Terminator::Jump{.name = loop_head->name,
+                                         .args = close_back_edge(latch,
+                                                                 loop_head)}}};
         loop_end->preds.push_back(block);
         loop_head->preds.push_back(block); // possible self-cycle?
         block = loop_end;
     }
 
+    // What a latch has to hand back to the header it jumps to.
+    //
+    // Reading a variable the header does not define gives the header an
+    // argument and threads the value in from the preds it has -- which, while
+    // the loop is being built, is only the block before it. Everything the body
+    // read from outside the loop is therefore a header argument by the time the
+    // body is done, and closing the cycle means passing each one on as the body
+    // left it.
+    //
+    // The list is walked by index rather than copied first, because fetching
+    // one value can thread another in: the latch is downstream of the header,
+    // so asking it for a name neither has adds an argument to both. New
+    // arguments are appended, so the answers stay lined up with them.
+    std::vector<std::shared_ptr<Value>>
+    close_back_edge(const std::shared_ptr<Block> &latch,
+                    const std::shared_ptr<Block> &header) {
+        std::vector<std::shared_ptr<Value>> back;
+        for (size_t i = 0; i < header->args.size(); i++) {
+            const Argument carried = header->args[i];
+            back.push_back(latch->get_value(carried.name, carried.type));
+        }
+        return back;
+    }
+
     void visit(const While *node) override {
-        internal_error << "TODO: convert While to SSA\n";
+        // The same three blocks as a do-while, except that the test is at the
+        // top rather than the bottom: a header holding the condition, a body,
+        // and the block after. The header is its own block because control
+        // comes back to it, and it must hold the condition rather than merely
+        // dispatch on one computed before the loop -- the value is recomputed
+        // every time round.
+        std::shared_ptr<Block> header = make_block("while");
+        internal_assert(!block->terminator.defined());
+        block->terminator.data = Terminator::Jump{.name = header->name};
+        header->preds.push_back(block);
+
+        block = header;
+        auto v = get_value(node->cond);
+        // The condition may itself have branched, in which case the dispatch
+        // belongs at the end of wherever evaluating it left us.
+        std::shared_ptr<Block> test = block;
+
+        std::shared_ptr<Block> body = make_block("while_body");
+        std::shared_ptr<Block> end = make_block("while_end");
+        internal_assert(!test->terminator.defined());
+        test->terminator.data = Terminator::Dispatch{
+            .cond = std::move(v),
+            // v == 0 leaves the loop; v != 0 enters the body.
+            .targets = {Terminator::Jump{.name = end->name, .args = {}},
+                        Terminator::Jump{.name = body->name, .args = {}}}};
+        end->preds.push_back(test);
+        body->preds.push_back(test);
+
+        block = body;
+        node->body.accept(this);
+        // A body that returned has already terminated, and there is no back
+        // edge from it.
+        if (!block->terminator.defined()) {
+            auto latch = block;
+            latch->terminator.data = Terminator::Jump{
+                .name = header->name, .args = close_back_edge(latch, header)};
+            header->preds.push_back(latch);
+        }
+        block = end;
     }
 
     void visit(const LetStmt *node) override {

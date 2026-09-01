@@ -22,4 +22,5 @@ add_bonsai_tests(
     vectorize-ir.bonsai
     vectorize-loop.bonsai
     vectorize-soa.bonsai
+    while-loops.bonsai
 )

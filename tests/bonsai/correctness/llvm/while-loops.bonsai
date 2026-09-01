@@ -1,0 +1,100 @@
+//! flags: -b llvm -e
+
+// `while` and `do ... while`, the loops whose trip count is not known before
+// they run.
+//
+// `for` and `parfor` both state their range up front, which is what lets a
+// schedule split, tile or bind them. A loop that stops when it stops can be
+// neither, and the alternative -- a `for` over a bound big enough, with the
+// body guarded so the remaining iterations do nothing -- is a lie about how
+// much work there is, and pays for every iteration it does not need.
+//
+// pbrt's PermutationElement is what wanted these: it is a rejection sampler,
+// so it draws until it draws something in range and there is no bound on how
+// many that takes.
+element Float = f32;
+
+// A loop whose body may not run at all, which is the case a `do` cannot cover.
+func count_down(n : u32) -> u32 {
+    i : mut u32 = n;
+    steps : mut u32 = 0u;
+    while i > 0u {
+        i = i - 1u;
+        steps = steps + 1u;
+    }
+    return steps;
+}
+
+// The body runs once before the test, which is the case a `while` covers only
+// by repeating the body ahead of it.
+func at_least_once(n : u32) -> u32 {
+    i : mut u32 = n;
+    steps : mut u32 = 0u;
+    do {
+        i = i + 1u;
+        steps = steps + 1u;
+    } while i < 4u;
+    return steps;
+}
+
+// Newton's method, which is a while loop's usual shape: iterate until the
+// answer stops moving, with no way to say in advance how long that is.
+func isqrt(x : Float) -> Float {
+    guess : mut Float = x;
+    previous : mut Float = 0.0;
+    while abs(guess - previous) > 1.0e-6 {
+        previous = guess;
+        guess = 0.5 * (guess + x / guess);
+    }
+    return guess;
+}
+
+// A loop around a branch, so that the body is more than one block and the back
+// edge comes from a join rather than from the block the header dispatched to.
+func collatz(start : u32) -> u32 {
+    n : mut u32 = start;
+    steps : mut u32 = 0u;
+    while n != 1u {
+        if n % 2u == 0u {
+            n = n / 2u;
+        } else {
+            n = 3u * n + 1u;
+        }
+        steps = steps + 1u;
+    }
+    return steps;
+}
+
+// Nested, and the inner one's bound depends on the outer index.
+func triangular(n : u32) -> u32 {
+    i : mut u32 = 0u;
+    total : mut u32 = 0u;
+    while i < n {
+        j : mut u32 = 0u;
+        while j < i {
+            total = total + 1u;
+            j = j + 1u;
+        }
+        i = i + 1u;
+    }
+    return total;
+}
+
+func main() -> i32 {
+    print(count_down(5u));
+    // Zero times, which is the whole difference between the two.
+    print(count_down(0u));
+
+    print(at_least_once(0u));
+    // Once, because the test comes after the body.
+    print(at_least_once(9u));
+
+    print(isqrt(16.0));
+    print(isqrt(2.0));
+
+    print(collatz(6u));
+    print(collatz(1u));
+
+    print(triangular(5u));
+    return 0;
+}

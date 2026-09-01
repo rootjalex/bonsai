@@ -114,8 +114,8 @@ bool is_side_effecty(Instruction::Op op) {
     // produce a value, and this says whether an instruction is emitted as a
     // bare statement rather than bound to a name. It is bound, in the order
     // the block puts it in, which is what makes it happen exactly once.
-    // Nothing here duplicates it: inline_expr has no case for Op::Intrinsic
-    // and so refers to the binding.
+    // Nothing here duplicates it: inline_expr refuses to inline this one
+    // intrinsic and so refers to the binding.
     case Instruction::Op::Intrinsic:
     case Instruction::Op::Eq:
     case Instruction::Op::ExtractIdx:
@@ -263,6 +263,8 @@ uint64_t get_const_u64(const Expr &e) {
     return e.as<UIntImm>()->value;
 }
 
+Expr pure_expr(const Instruction &instr, std::vector<Expr> args);
+
 Stmt codegen_instruction(const Instruction &instr) {
     if (is_side_effecty(instr.op)) {
         switch (instr.op) {
@@ -329,8 +331,23 @@ Stmt codegen_instruction(const Instruction &instr) {
 
     // Codegen LetStmt
 
-    std::vector<Expr> args = codegen_values(instr.operands);
+    return LetStmt::make(WriteLoc(instr.name, instr.type),
+                         pure_expr(instr, codegen_values(instr.operands)));
+}
 
+// The expression a pure instruction stands for, given its operands as
+// expressions.
+//
+// Separate from codegen_instruction because there are two ways to reach it. An
+// instruction is normally bound to a name, and this is what the name is bound
+// to. But the condition of a while loop has to be re-evaluated on every
+// iteration, so the instructions computing it are not emitted as statements at
+// all and are folded into the condition expression instead -- see inline_expr,
+// which walks the operands itself and then asks this the same question. Having
+// one of them know how an SSA opcode becomes an expression and the other know
+// a subset of it is how a `while` whose test called `abs` came to be a compile
+// error.
+Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
     Expr value;
 
     switch (instr.op) {
@@ -566,7 +583,8 @@ Stmt codegen_instruction(const Instruction &instr) {
         // in place (see Block::make_instruction). A binding, not storage: an
         // allocation would mean the name held the address of the value
         // instead of the value, and every read of it would have to say so.
-        return LetStmt::make(WriteLoc(instr.name, instr.type), args[0]);
+        value = std::move(args[0]);
+        break;
     }
     case Instruction::Op::Sub: {
         internal_assert(args.size() == 2) << args.size();
@@ -580,8 +598,7 @@ Stmt codegen_instruction(const Instruction &instr) {
     }
     }
 
-    // Eventually, need to sanitize names. Maybe not here though.
-    return LetStmt::make(WriteLoc(instr.name, instr.type), std::move(value));
+    return value;
 }
 
 // Recursively inline a pure SSA value as an expression, following def-use
@@ -610,60 +627,32 @@ Expr inline_expr(const std::shared_ptr<Value> &v,
         return codegen_value(v); // don't inline side effects
     }
 
-    // Recursively inline operands
-    std::vector<Expr> args;
-    for (auto &op : instr.operands)
-        args.push_back(inline_expr(op, unbound));
-
-    switch (instr.op) {
-    case Instruction::Op::Lt:
-        return BinOp::make(BinOp::OpType::Lt, args[0], args[1]);
-    case Instruction::Op::Leq:
-        return BinOp::make(BinOp::OpType::Le, args[0], args[1]);
-    case Instruction::Op::Eq:
-        return BinOp::make(BinOp::OpType::Eq, args[0], args[1]);
-    case Instruction::Op::LAnd:
-        return BinOp::make(BinOp::OpType::LAnd, args[0], args[1]);
-    case Instruction::Op::LOr:
-        return BinOp::make(BinOp::OpType::LOr, args[0], args[1]);
-    case Instruction::Op::Add:
-        return BinOp::make(BinOp::OpType::Add, args[0], args[1]);
-    case Instruction::Op::Sub:
-        return BinOp::make(BinOp::OpType::Sub, args[0], args[1]);
-    case Instruction::Op::Mul:
-        return BinOp::make(BinOp::OpType::Mul, args[0], args[1]);
-    case Instruction::Op::Div:
-        return BinOp::make(BinOp::OpType::Div, args[0], args[1]);
-    case Instruction::Op::Mod:
-        return BinOp::make(BinOp::OpType::Mod, args[0], args[1]);
-    case Instruction::Op::Cast:
-        return Cast::make(instr.type, args[0]);
-    case Instruction::Op::Set:
-        return args[0];
-    case Instruction::Op::Ne:
-        return BinOp::make(BinOp::OpType::Neq, args[0], args[1]);
-    case Instruction::Op::Not:
-        return UnOp::make(UnOp::Not, args[0]);
-    case Instruction::Op::Select:
-        return Select::make(args[0], args[1], args[2]);
-    case Instruction::Op::Load:
-        // Reading storage, which for a loop condition is the point: what the
-        // body wrote is what decides whether to go round again.
-        return Deref::make(args[0]);
-    case Instruction::Op::Any:
-        // A while loop's test is re-evaluated on every iteration, so a
-        // uniformized loop's "is any lane still live" has to be part of the
-        // condition rather than a value computed once ahead of it.
-        return args[0].type().is_vector()
-                   ? VectorReduce::make(VectorReduce::Or, args[0])
-                   : args[0];
-    default:
-        // Not inlineable — fall back to variable reference
+    // Two more that cannot be repeated even though nothing calls them
+    // side-effecting. `rand` advances a generator, so writing it into a
+    // condition tested every iteration would draw a new number every
+    // iteration rather than reuse the one the block bound. A GEP is an
+    // address its Store or Accumulate consumes directly and has no expression
+    // of its own; see codegen_gep.
+    const bool repeatable =
+        instr.op != Instruction::Op::GEP &&
+        (instr.op != Instruction::Op::Intrinsic ||
+         instr.intrinsic != ir::Intrinsic::rand);
+    if (!repeatable) {
         internal_assert(!must_inline)
             << "Cannot inline " << instr.name
             << " into an expression that has nowhere to be bound";
         return codegen_value(v);
     }
+
+    // Recursively inline operands
+    std::vector<Expr> args;
+    for (auto &op : instr.operands)
+        args.push_back(inline_expr(op, unbound));
+
+    // Everything else is a function of its operands, so it says the same thing
+    // wherever it is written -- and what it says is the same thing the binding
+    // would have been bound to.
+    return pure_expr(instr, std::move(args));
 }
 
 // The blocks reachable from `name`. `stop` is not followed past: reachability
@@ -1049,7 +1038,18 @@ Stmt structurize(const std::string &start, const std::string &exit,
         // A do-while is built by wrapping up everything emitted since the
         // region began, so the loop gets a region of its own -- starting here,
         // at its header -- and what came before it stays outside.
-        if (bi.role == BlockInfo::Role::DoWhileHeader && name != start) {
+        //
+        // A block whose back edge points at itself is its own header, and so
+        // has the latch's role rather than the header's -- one block cannot
+        // carry both. Without this it would be reached in the middle of the
+        // region it is entered from, and everything before it, the values it is
+        // entered with above all, would be wrapped into its body and redone on
+        // every iteration. `do body while (cond);` with no branch in the body
+        // is exactly this shape.
+        const bool own_header = bi.role == BlockInfo::Role::DoWhileLatch &&
+                                bi.loop_header == name;
+        if ((bi.role == BlockInfo::Role::DoWhileHeader || own_header) &&
+            name != start) {
             append(structurize(name, bi.loop_exit, block_map, dom, info,
                                mut_map, func_type_map, loop_header));
             name = bi.loop_exit;

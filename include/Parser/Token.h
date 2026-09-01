@@ -52,7 +52,8 @@ class Token {
 
         PARFOR,
         ATOMIC, // atomic
-        // WHILE, // while
+        DO,     // do
+        WHILE,  // while
         FOR,   // for
         IF,    // if
         ELIF,  // elif

@@ -97,6 +97,7 @@ uint64_t Token::size() const {
     case Token::Type::RARROW:
     case Token::Type::ON:
     case Token::Type::IN:
+    case Token::Type::DO:
         return 2;
     case Token::Type::MUT:
     case Token::Type::FOR:
@@ -111,6 +112,7 @@ uint64_t Token::size() const {
     case Token::Type::GROUP:
     case Token::Type::PRINT:
     case Token::Type::FALSE:
+    case Token::Type::WHILE:
         return 5;
     case Token::Type::LAYOUT:
     case Token::Type::SWITCH:
@@ -198,6 +200,10 @@ std::string Token::token_type_string(Token::Type type) {
         return "parfor";
     case Token::Type::ATOMIC:
         return "atomic";
+    case Token::Type::DO:
+        return "do";
+    case Token::Type::WHILE:
+        return "while";
     case Token::Type::FOR:
         return "for";
     case Token::Type::IF:

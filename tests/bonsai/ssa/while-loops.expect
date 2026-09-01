@@ -1,0 +1,32 @@
+func [[export]] countdown(n : u32) -> u32 {
+  i : mut u32
+  i = n
+  steps : mut u32
+  steps = 0u
+  while (0u < (*i)) {
+    let @2 = (*i) in
+    let @3 = @2 - 1u in
+    i = @3
+    let @4 = (*steps) in
+    let @5 = @4 + 1u in
+    steps = @5
+  }
+  let @6 = (*steps) in
+  return @6
+}
+
+func [[export]] doubling(n : u32) -> u32 {
+  total : mut u32
+  total = 1u
+  do {
+    let @0 = (*total) in
+    let @1 = @0 << 1u in
+    total = @1
+    let @2 = (*total) in
+    let @3 = @2 < n in
+  } while (@3)
+  let @4 = (*total) in
+  return @4
+}
+
+

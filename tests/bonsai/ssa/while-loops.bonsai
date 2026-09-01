@@ -1,0 +1,40 @@
+//! flags: -p ssa
+
+// The SSA side of correctness/llvm/while-loops.bonsai: what a loop with no
+// stated trip count becomes on the way through SSA and back.
+//
+// Three things to look for in the golden, each of which was broken.
+//
+// A `while` reached the SSA builder as a TODO and stopped the compiler. It is
+// three blocks -- a header holding the test, a body, and what comes after --
+// and the test lives in the header because it is asked again every time round.
+//
+// A loop carries values, and the back edge has to hand them on. The builder
+// gives a block an argument when something inside it reads a name the block
+// does not define, and threads the value in from the predecessors it has --
+// which, while the loop is being built, is only the block before it. Closing
+// the cycle means passing each of those on as the body left it, and the back
+// edge used to pass nothing at all, which failed as a bad argument count.
+//
+// A `do ... while` with no branch in its body is one block that jumps to
+// itself: its own header and its own latch. The relooper wraps everything
+// emitted since the region began into the body, so a block that is its own
+// header has to start a region -- otherwise `total` and its initialiser, which
+// come before the loop, end up inside it and are redone on every iteration.
+func [[export]] countdown(n : u32) -> u32 {
+    i : mut u32 = n;
+    steps : mut u32 = 0u;
+    while i > 0u {
+        i = i - 1u;
+        steps = steps + 1u;
+    }
+    return steps;
+}
+
+func [[export]] doubling(n : u32) -> u32 {
+    total : mut u32 = 1u;
+    do {
+        total = total * 2u;
+    } while total < n;
+    return total;
+}
