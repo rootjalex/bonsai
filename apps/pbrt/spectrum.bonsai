@@ -1,0 +1,131 @@
+// pbrt: SampledSpectrum, SampledWavelengths and the colour conversion the film
+// ends with, from util/spectrum.h and util/colorspace.h.
+//
+// A spectrum here is not a curve but four samples of one, at four wavelengths
+// chosen per ray. That is v4's central representation and it maps onto a bonsai
+// vector exactly, which is why the plan puts spectra early: every function that
+// carries radiance has to carry these, and retrofitting them later would be the
+// expensive edit.
+import stdlib/numerics;
+
+element vec2f = vector[Float, 2];
+element vec4f = vector[Float, 4];
+
+element SampledWavelengths {
+    lambda : vec4f;
+    pdf : vec4f;
+}
+
+// pbrt: SampleVisibleWavelengths and VisibleWavelengthsPDF. A fit to where the
+// eye actually responds, so that four samples are spent near the middle of the
+// visible range rather than spread evenly across a span whose ends contribute
+// almost nothing.
+//
+// This is what a film samples with -- FilmBase::SampleWavelengths calls
+// SampleVisible, and GBufferFilm inherits it. SampleUniform, which is the
+// obvious reading of "four wavelengths", belongs to SpectralFilm and gives
+// visibly different colours; the difference was measured before it was
+// believed.
+// The two are written with atanh and cosh rather than with the logarithm and
+// the exponential they can be built from, because the algebraically equal forms
+// are not equal in floating point: 0.5*log((1+x)/(1-x)) differs from atanh(x)
+// in the last bit for about half of all inputs. That last bit would not matter
+// if the result were used directly, but a wavelength is rounded to the nearest
+// nanometre to index a densely sampled spectrum, so a difference of one ulp
+// occasionally picks the neighbouring entry -- which showed up as a scattering
+// of pixels, about one in seventy thousand, whose albedo was a percent out.
+// pbrt writes this as `538 - 138.888889f * std::atanh(...)`, and the compiler
+// it is built with contracts that into a fused multiply-add. Written as the fma
+// here for the same reason the Horner evaluation below is: a fused multiply-add
+// rounds once where a multiply and a subtract round twice, so the two are not
+// the same number, and this one is a wavelength about to be rounded to the
+// nearest nanometre.
+func sample_visible_wavelengths(u : vec4f) -> vec4f {
+    return fma(-138.888889, atanh(0.85691062 - 1.82750197 * u), 538.0);
+}
+
+func visible_wavelengths_pdf(lambda : vec4f) -> vec4f {
+    c = cosh(0.0072 * (lambda - 538.0));
+    density = 0.0039398042 / (c * c);
+    outside = (lambda < 360.0) | (lambda > 830.0);
+    return select(outside, 0.0, density);
+}
+
+// pbrt: SampledWavelengths::SampleVisible. One number becomes four, spread a
+// quarter of the way apart through the sample's own space and wrapped, so that
+// the four are stratified rather than four draws of the same distribution.
+func sample_wavelengths_visible(u : Float) -> SampledWavelengths {
+    offsets = vec4f{0.0, 0.25, 0.5, 0.75};
+    raw = u + offsets;
+    up = select(raw > 1.0, raw - 1.0, raw);
+    lambda = sample_visible_wavelengths(up);
+    w : SampledWavelengths = {lambda, visible_wavelengths_pdf(lambda)};
+    return w;
+}
+
+// pbrt: RGBSigmoidPolynomial, the three coefficients an RGB albedo is fitted
+// to. The driver runs the fit -- see rgb2spec.h -- exactly as pbrt looks it up
+// in a table it generated offline, because a Gauss-Newton solve is not
+// something to do per ray.
+element SigmoidPolynomial {
+    c0, c1, c2 : Float;
+}
+
+// pbrt: RGBSigmoidPolynomial::s, the sigmoid that keeps a reflectance inside
+// zero and one however the polynomial swings.
+func sigmoid(x : vec4f) -> vec4f {
+    return 0.5 + x / (2.0 * sqrt(1.0 + x * x));
+}
+
+func spectrum_at(p : SigmoidPolynomial, w : SampledWavelengths) -> vec4f {
+    // pbrt evaluates the quadratic by Horner, so this does too: the grouping
+    // is part of the answer in floating point.
+    x = fma(fma(p.c0, w.lambda, p.c1), w.lambda, p.c2);
+    return sigmoid(x);
+}
+
+// The CIE curves and the film's illuminant, tabulated once per nanometre from
+// 360 to 830. Generated from pbrt's own source and checked against a running
+// pbrt; see make_spectrum_tables.py and `scene_dump --check-tables`.
+extern cie_x : array[Float, 471];
+extern cie_y : array[Float, 471];
+extern cie_z : array[Float, 471];
+extern illuminant_d65 : array[Float, 471];
+
+// pbrt: DenselySampledSpectrum::operator(), which rounds to the nearest
+// nanometre rather than interpolating -- the table is dense enough that it
+// does not, and matching means rounding the same way.
+func spectrum_at_dense(table : array[Float, 471],
+                       w : SampledWavelengths) -> vec4f {
+    // Every wavelength SampleVisible produces is already inside the table's
+    // range, so this indexes without clamping; a sampler that could stray
+    // outside it would need pbrt's zero-outside-the-range answer here.
+    o = cast[[vector[i32, 4]]](round(w.lambda) - 360.0);
+    return vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
+}
+
+// pbrt: SampledSpectrum::ToXYZ followed by RGBColorSpace::ToRGB.
+//
+// Each of X, Y and Z is the spectrum against that matching curve, averaged
+// over the four samples and divided by the probability each was drawn with --
+// a Monte Carlo estimate of an integral, which is what four samples of a
+// spectrum can give. The division by the CIE Y integral is what makes a
+// perfectly reflecting surface come out at one rather than at 106.
+func average_over_pdf(v : vec4f, w : SampledWavelengths) -> Float {
+    // pbrt: SafeDiv, because a wavelength can be drawn with zero density.
+    return sum(select(w.pdf == 0.0, 0.0, v / w.pdf)) / 4.0;
+}
+
+func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
+    x = average_over_pdf(spectrum_at_dense(cie_x, w) * s, w);
+    y = average_over_pdf(spectrum_at_dense(cie_y, w) * s, w);
+    z = average_over_pdf(spectrum_at_dense(cie_z, w) * s, w);
+    xyz = vec3f{x, y, z} / 106.856895;
+
+    // pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because
+    // the driver would otherwise have to pass a matrix that never changes.
+    return vec3f{
+        3.2406 * xyz.x - 1.5372 * xyz.y - 0.4986 * xyz.z,
+        -0.9689 * xyz.x + 1.8758 * xyz.y + 0.0415 * xyz.z,
+        0.0557 * xyz.x - 0.2040 * xyz.y + 1.0570 * xyz.z};
+}

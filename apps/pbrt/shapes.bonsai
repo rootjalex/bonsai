@@ -1,0 +1,380 @@
+// pbrt: the shapes a ray can hit, and the bounding volume a BVH node uses.
+//
+// Sphere::BasicIntersect, IntersectTriangle and Bounds3::IntersectP, together
+// with the Shape variant that dispatches between the first two. The geometry
+// deliberately does not come from bonsai's stdlib: stdlib/sphere.bonsai and
+// stdlib/intersects.bonsai are derived from Ray Tracing in One Weekend and are
+// not numerically what pbrt does, which showed up as pixels disagreeing along
+// silhouettes.
+import stdlib/numerics;
+import apps/pbrt/interval;
+
+// pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
+// alongside; the tree lowering needs a bound to prune against.
+element Ray {
+    o : vec3f;
+    d : vec3f;
+    tmax : Float = inf;
+}
+
+// pbrt: Sphere. pbrt keeps a transform and a radius and works in object space,
+// where the sphere is at the origin; these are placed by a translation only,
+// so object space is reached by subtracting the centre.
+element Sphere {
+    center : vec3f;
+    radius : Float;
+}
+
+// pbrt: Triangle, as three positions rather than an index into a mesh.
+element Triangle {
+    p0 : vec3f;
+    p1 : vec3f;
+    p2 : vec3f;
+}
+
+// The two solutions of the quadratic, each still an interval, so that the
+// caller can ask about a bound rather than about a value.
+element Roots {
+    t0, t1 : Interval;
+}
+
+// pbrt: Sphere::BasicIntersect, in the interval arithmetic pbrt carries the
+// coefficients in.
+//
+// The intervals are what make the decisions trustworthy at grazing incidence.
+// A ray that nearly misses gives a discriminant whose exact sign is lost to
+// rounding; asking `discrim.LowerBound() < 0` instead asks whether it is
+// *certainly* negative, so a ray is only rejected when no rounding of the
+// inputs could have made it hit.
+//
+// The discriminant is also factored the way pbrt factors it -- the distance
+// from the centre to the ray's closest approach, rather than b^2 - 4ac -- so
+// that the subtraction happens between two numbers that are not nearly equal.
+// Both matter: the factoring keeps the value accurate, the intervals keep the
+// comparison honest about what accuracy is left.
+func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
+    // Object space: the sphere is at the origin. These spheres are placed by a
+    // translation, so that is the transform whose error the intervals carry.
+    oix = point_to_object(r.o.x, s.center.x);
+    oiy = point_to_object(r.o.y, s.center.y);
+    oiz = point_to_object(r.o.z, s.center.z);
+    dix = vector_to_object(r.d.x);
+    diy = vector_to_object(r.d.y);
+    diz = vector_to_object(r.d.z);
+
+    a = iadd(iadd(isqr(dix), isqr(diy)), isqr(diz));
+    b = imul(exact(2.0), iadd(iadd(imul(dix, oix), imul(diy, oiy)),
+                              imul(diz, oiz)));
+    c = isub(iadd(iadd(isqr(oix), isqr(oiy)), isqr(oiz)),
+             isqr(exact(s.radius)));
+
+    // v = oi - (b / 2a) * di, the vector from the centre to the ray's closest
+    // approach, and |v| its distance.
+    half = idiv(b, imul(exact(2.0), a));
+    vx = isub(oix, imul(half, dix));
+    vy = isub(oiy, imul(half, diy));
+    vz = isub(oiz, imul(half, diz));
+    length = isqrt(iadd(iadd(isqr(vx), isqr(vy)), isqr(vz)));
+
+    // Grouped as pbrt groups it: ((4a)(r + |v|))(r - |v|). Interval
+    // multiplication is not associative, so the grouping is part of the answer.
+    radius = exact(s.radius);
+    discrim = imul(imul(imul(exact(4.0), a), iadd(radius, length)),
+                   isub(radius, length));
+    // Certainly negative, rather than negative once rounded.
+    if discrim.low < 0.0 {
+        return {};
+    }
+
+    root_discrim = isqrt(discrim);
+    // The pairing that avoids cancelling in whichever root is small.
+    q : mut = imul(exact(-0.5), iadd(b, root_discrim));
+    if mid(b) < 0.0 {
+        q = imul(exact(-0.5), isub(b, root_discrim));
+    }
+
+    t0 : mut = idiv(q, a);
+    t1 : mut = idiv(c, q);
+    // Ordered by lower bound, which is the order that survives rounding.
+    if t0.low > t1.low {
+        swap = t0;
+        t0 = t1;
+        t1 = swap;
+    }
+
+    roots : Roots = {t0, t1};
+    return roots;
+}
+
+// pbrt: the tail of BasicIntersect, which picks the nearer root that is
+// actually ahead of the ray and within tMax. Every test is on a bound rather
+// than on the interval's value: a root is only rejected when it is certainly
+// out of range, so a hit is never dropped because rounding pushed it a few ulp
+// past the boundary. This is the test for a sphere the ray is trying to *hit*.
+func sphere_t(r : Ray, s : Sphere) -> option[Float] {
+    found = sphere_roots(r, s);
+    if !found {
+        return {};
+    }
+    roots = *found;
+    if (roots.t0.high > r.tmax) | (roots.t1.low <= 0.0) {
+        return {};
+    }
+    if roots.t0.low <= 0.0 {
+        // The near root is behind the ray, so the far one is the hit -- if it
+        // is in range at all.
+        if roots.t1.high > r.tmax {
+            return {};
+        }
+        return mid(roots.t1);
+    }
+    return mid(roots.t0);
+}
+
+// pbrt: Bounds3f, and the bounding volume the schedule gives a BVH node.
+element AABB {
+    low, high : vec3f;
+}
+
+// The stretch of the ray that lies inside a box, which is a different question
+// from where it hits a surface.
+element Span {
+    lo, hi : Float;
+}
+
+// pbrt: Bounds3::IntersectP, the overload the BVH traversal calls, which is a
+// slab test: the ray is clipped against the pair of parallel planes on each
+// axis, and what survives all three is the interval it spends inside the box.
+//
+// This is deliberately not interval arithmetic, and pbrt does not use it here
+// either. A node test only has to be conservative -- never report a miss where
+// something inside could be hit -- and it runs at every node of the tree, so
+// pbrt buys that conservatism with a single widening of the far bound rather
+// than with a proof. The provable bound is spent where it decides something,
+// in sphere_t. Measured on this scene, a node test carrying intervals cost
+// 355ms against 50ms for the identical image.
+//
+// The widening is the whole robustness argument: the divisions and
+// subtractions above it can each round the far plane inwards, and a ray
+// entering exactly at a face would then be clipped out of a node it really
+// does touch. gamma(3) bounds those three roundings, and doubling it is
+// pbrt's margin.
+func aabb_span(r : Ray, b : AABB) -> option[Span] {
+    inv_dir = 1.0 / r.d;
+    dir_is_neg = inv_dir < 0.0;
+
+    // Which face of each slab the ray meets first depends on its direction.
+    near_face = select(dir_is_neg, b.high, b.low);
+    far_face = select(dir_is_neg, b.low, b.high);
+    t_near = (near_face - r.o) * inv_dir;
+    t_far : mut = (far_face - r.o) * inv_dir;
+    t_far *= 1.0 + 2.0 * gamma(3);
+
+    // x against y, then the survivor against z. Ordered as pbrt orders it so
+    // that a NaN from a zero direction component falls the same way.
+    if (t_near.x > t_far.y) | (t_near.y > t_far.x) {
+        return {};
+    }
+    lo : mut = max(t_near.x, t_near.y);
+    hi : mut = min(t_far.x, t_far.y);
+
+    if (lo > t_far.z) | (t_near.z > hi) {
+        return {};
+    }
+    lo = max(lo, t_near.z);
+    hi = min(hi, t_far.z);
+
+    span : Span = {lo, hi};
+    return span;
+}
+
+// What the tree lowering prunes with. `intersects` is pbrt's return value from
+// IntersectP; the two distances are the ends of the span, and a miss reports
+// an empty interval the wrong way round so that nothing selects it.
+func distmin(r : Ray, b : AABB) -> Float {
+    found = aabb_span(r, b);
+    if found {
+        span = *found;
+        return span.lo;
+    }
+    return -inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    found = aabb_span(r, b);
+    if found {
+        span = *found;
+        return span.hi;
+    }
+    return inf;
+}
+
+func intersects(r : Ray, b : AABB) -> bool {
+    found = aabb_span(r, b);
+    if found {
+        span = *found;
+        return (span.lo < r.tmax) & (span.hi > 0.0);
+    }
+    return false;
+}
+
+// pbrt: IntersectTriangle from shapes.cpp, which is watertight: the ray is
+// moved to its own coordinate space, the largest component of its direction
+// is permuted into z, and the vertices are sheared so that the edge tests are
+// exact in sign. The error bounds at the end are pbrt's, and they are what
+// keeps a ray from slipping between two triangles that share an edge.
+func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
+    // Degenerate triangles have no interior to hit.
+    if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
+        return {};
+
+    // Translate the vertices so the ray starts at the origin.
+    p0t : mut = tri.p0 - ray.o;
+    p1t : mut = tri.p1 - ray.o;
+    p2t : mut = tri.p2 - ray.o;
+
+    // Permute so that the ray's dominant direction is z.
+    kz : u32 = idxmax(abs(ray.d));
+    kx = (kz + 1) % 3;
+    ky = (kx + 1) % 3;
+    d = permute(ray.d, {kx, ky, kz});
+    p0t = permute(p0t, {kx, ky, kz});
+    p1t = permute(p1t, {kx, ky, kz});
+    p2t = permute(p2t, {kx, ky, kz});
+
+    // Shear, so that the ray becomes +z and the edge tests are 2D.
+    Sx = -d.x / d.z;
+    Sy = -d.y / d.z;
+    Sz = 1 / d.z;
+    p0t.x += Sx * p0t.z;
+    p0t.y += Sy * p0t.z;
+    p1t.x += Sx * p1t.z;
+    p1t.y += Sy * p1t.z;
+    p2t.x += Sx * p2t.z;
+    p2t.y += Sy * p2t.z;
+
+    // Edge functions, by a difference of products that does not cancel.
+    e0 = prod_diff[[Float]](p1t.x, p2t.y, p1t.y, p2t.x);
+    e1 = prod_diff[[Float]](p2t.x, p0t.y, p2t.y, p0t.x);
+    e2 = prod_diff[[Float]](p0t.x, p1t.y, p0t.y, p1t.x);
+
+    // TODO: pbrt falls back to double precision when an edge function is
+    // exactly zero, which is where a ray meets a shared edge.
+
+    if ((e0 < 0 || e1 < 0 || e2 < 0) && (e0 > 0 || e1 > 0 || e2 > 0))
+        return {};
+    det = e0 + e1 + e2;
+    if (det == 0)
+        return {};
+
+    p0t.z *= Sz;
+    p1t.z *= Sz;
+    p2t.z *= Sz;
+
+    tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
+    if (det < 0 && (tScaled >= 0 || tScaled < ray.tmax * det))
+        return {};
+    else if (det > 0 && (tScaled <= 0 || tScaled > ray.tmax * det))
+        return {};
+
+    invDet = 1 / det;
+    t = tScaled * invDet;
+
+    // pbrt's bound on the error in t, so that a hit is only reported when it
+    // is conservatively in front of the ray.
+    maxZt = max(abs(vec3f{p0t.z, p1t.z, p2t.z}));
+    deltaZ = gamma(3) * maxZt;
+    maxXt = max(abs(vec3f{p0t.x, p1t.x, p2t.x}));
+    maxYt = max(abs(vec3f{p0t.y, p1t.y, p2t.y}));
+    deltaX = gamma(5) * (maxXt + maxZt);
+    deltaY = gamma(5) * (maxYt + maxZt);
+    deltaE = 2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
+    maxE = max(abs(vec3f{e0, e1, e2}));
+    deltaT = 3 * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * abs(invDet);
+    if (t <= deltaT)
+        return {};
+
+    return t;
+}
+
+// A triangle is flat, so the near and far distance to it are the same one.
+func distmin(r : Ray, tri : Triangle) -> Float {
+    t = triangle_t(r, tri);
+    if t {
+        return *t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    t = triangle_t(r, tri);
+    if t {
+        return *t;
+    }
+    return -inf;
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool {
+    return cast[[bool]](triangle_t(r, tri));
+}
+
+// pbrt: Shape, the closed set of things a ray can hit. v4 dispatches this
+// through a TaggedPointer over Sphere, Triangle, and the rest; a variant type
+// says the same thing without the pointer.
+//
+// Both shapes are in render space. PBRT keeps a transform per shape and works
+// in object space, tracking error bounds through the round trip; placing
+// shapes is what brings that back, and nothing here needs it yet.
+element Shape =
+    | Sph(s : Sphere)
+    | Tri(t : Triangle);
+
+// pbrt: Shape::Intersect and Shape::IntersectP, as one function each that
+// matches on which shape it has. The tree the schedule builds calls these
+// without knowing a shape has variants at all.
+//
+// These are the primitive queries, so the Sph arm goes to sphere_t, pbrt's
+// hit. The bounding-volume overloads above answer for AABB and are a separate
+// question -- the node a shape is in, not the shape. A shape that is not hit
+// is infinitely far, the same answer the triangle gives.
+func distmin(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => {
+            hit = sphere_t(r, s);
+            if hit {
+                return *hit;
+            }
+            return inf;
+        }
+        Tri(t) => return distmin(r, t);
+    }
+}
+
+func distmax(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => {
+            hit = sphere_t(r, s);
+            if hit {
+                return *hit;
+            }
+            return -inf;
+        }
+        Tri(t) => return distmax(r, t);
+    }
+}
+
+func intersects(r : Ray, sh : Shape) -> bool {
+    match sh {
+        Sph(s) => return cast[[bool]](sphere_t(r, s));
+        Tri(t) => return intersects(r, t);
+    }
+}
+
+// pbrt: the geometric normal at a hit. A sphere's points away from the centre;
+// a triangle's is the same everywhere on it.
+func normal_at(sh : Shape, p : vec3f) -> vec3f {
+    match sh {
+        Sph(s) => return (p - s.center) / s.radius;
+        Tri(t) => return unit_vector(cross(t.p1 - t.p0, t.p2 - t.p0));
+    }
+}

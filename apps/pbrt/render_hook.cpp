@@ -374,6 +374,20 @@ int main(int argc, char **argv) {
     camera.camera_from_raster = to_bonsai(&loaded.matrices[0]);
     camera.render_from_camera = to_bonsai(&loaded.matrices[16]);
 
+    // Which sampler the scene asked for, built through the generated
+    // constructors rather than by setting the tag -- how a variant is laid out
+    // is the compiler's business, and writing it by hand here would be a second
+    // place that has to agree with it.
+    Sampler sampler;
+    if (loaded.sampler.tag == bonsai_scene::SamplerTag::Stratified) {
+        Sampler_Stratified(sampler, loaded.sampler.x_samples,
+                           loaded.sampler.y_samples, loaded.sampler.seed,
+                           loaded.sampler.jitter != 0);
+    } else {
+        Sampler_Independent(sampler, loaded.sampler.samples_per_pixel,
+                            loaded.sampler.seed);
+    }
+
     // pbrt fits every RGB albedo to three sigmoid coefficients once, offline,
     // into a table it looks up while building the scene. This runs the same
     // fit here for the same reason: a Gauss-Newton solve has no business
@@ -449,8 +463,8 @@ int main(int argc, char **argv) {
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
-        render(camera, uint32_t(width), uint32_t(height), out, albedo, x, y, z,
-               d65, tree);
+        render(camera, uint32_t(width), uint32_t(height), sampler, out, albedo,
+               x, y, z, d65, tree);
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());

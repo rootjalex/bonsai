@@ -32,6 +32,7 @@
 #include <pbrt/util/hash.h>
 #include <pbrt/shapes.h>
 #include <pbrt/util/colorspace.h>
+#include <pbrt/util/math.h>
 #include <pbrt/util/mesh.h>
 #include <pbrt/util/spectrum.h>
 #include <pbrt/util/transform.h>
@@ -85,6 +86,14 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Film(type, std::move(params), loc);
     }
 
+    void Sampler(const std::string &name, pbrt::ParsedParameterVector params,
+                 pbrt::FileLoc loc) override {
+        sampler_name = name;
+        sampler_params = pbrt::ParameterDictionary(
+            pbrt::ParsedParameterVector(params), pbrt::RGBColorSpace::sRGB);
+        pbrt::BasicSceneBuilder::Sampler(name, std::move(params), loc);
+    }
+
     // What M1 needs of a material: its kind, and the reflectance if it names
     // one as RGB. The parameters are read here in their parsed form rather than
     // through a ParameterDictionary, because an `rgb reflectance` reaches a
@@ -125,6 +134,8 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     std::string camera_name;
     pbrt::ParameterDictionary camera_params;
     pbrt::ParameterDictionary film_params;
+    std::string sampler_name = "zsobol";
+    pbrt::ParameterDictionary sampler_params;
     std::vector<MaterialInfo> materials;
 };
 
@@ -244,9 +255,8 @@ bool check_tables() {
     return ok;
 }
 
-// Print what PBRT's own IndependentSampler produces, so that the one written
-// in bonsai can be checked against it rather than against a reading of the
-// source.
+// Print what PBRT's own samplers produce, so that the ones written in bonsai
+// can be checked against them rather than against a reading of the source.
 //
 // The sampler is where matching PBRT stops being about arithmetic and starts
 // being about reproducing a stream exactly: the same RNG, seeded by the same
@@ -277,6 +287,58 @@ void print_sampler() {
         const uint64_t h = pbrt::Hash(p, 0);
         printf("hash %d %d: %llu\n", p.x, p.y,
                static_cast<unsigned long long>(h));
+    }
+
+    // The stratified sampler, which is a different construction rather than a
+    // differently-seeded one: a draw is the sample's own cell of a grid, and
+    // which cell that is comes from a permutation of the sample indices chosen
+    // by the pixel, the dimension and the seed. Two more things to reproduce,
+    // and both are printed on their own below for the same reason the hash is.
+    for (const pbrt::Point2i &p : pixels) {
+        for (int sample = 0; sample < 2; sample++) {
+            // Not a square grid, so that x and y cannot be swapped unnoticed.
+            pbrt::StratifiedSampler sampler(4, 2, /*jitter=*/true, /*seed=*/0);
+            sampler.StartPixelSample(p, sample, 0);
+            printf("strat %d %d sample %d:", p.x, p.y, sample);
+            for (int i = 0; i < 2; i++) {
+                printf(" %.9g", double(sampler.Get1D()));
+            }
+            const pbrt::Point2f uv = sampler.Get2D();
+            printf(" | %.9g %.9g\n", double(uv.x), double(uv.y));
+        }
+    }
+    // And without the jitter, where the sampler draws nothing at all from its
+    // generator -- which is the part easiest to get wrong by evaluating both
+    // sides of what PBRT writes as a conditional.
+    for (const pbrt::Point2i &p : pixels) {
+        pbrt::StratifiedSampler sampler(4, 2, /*jitter=*/false, /*seed=*/0);
+        sampler.StartPixelSample(p, 1, 0);
+        printf("strat-nojitter %d %d:", p.x, p.y);
+        for (int i = 0; i < 2; i++) {
+            printf(" %.9g", double(sampler.Get1D()));
+        }
+        const pbrt::Point2f uv = sampler.Get2D();
+        printf(" | %.9g %.9g\n", double(uv.x), double(uv.y));
+    }
+
+    // The sixteen-byte hash the stratified sampler asks for, whose block loop
+    // runs twice and has no tail where the twelve-byte one runs once and does.
+    for (const pbrt::Point2i &p : pixels) {
+        for (int dim = 0; dim < 2; dim++) {
+            printf("hash3 %d %d %d: %llu\n", p.x, p.y, dim,
+                   static_cast<unsigned long long>(pbrt::Hash(p, dim, 0)));
+        }
+    }
+    // And the permutation on its own, over a range that is not a power of two
+    // so that the rejection loop runs more than once for some of its inputs.
+    for (uint32_t l : {8u, 13u}) {
+        for (uint32_t seed : {0u, 0x9e3779b9u}) {
+            printf("perm %u %u:", l, seed);
+            for (uint32_t i = 0; i < l; i++) {
+                printf(" %d", pbrt::PermutationElement(i, l, seed));
+            }
+            printf("\n");
+        }
     }
 }
 
@@ -428,6 +490,35 @@ void load(const char *filename, bonsai_scene::Scene &out) {
 
     out.width = uint32_t(x_resolution);
     out.height = uint32_t(y_resolution);
+
+    // The two samplers that are a stream of uniforms. The others -- halton,
+    // sobol, zsobol -- are low-discrepancy sequences built quite differently,
+    // so a scene asking for one would get noise that is not pbrt's while
+    // looking perfectly reasonable, which is the failure worth refusing.
+    //
+    // The defaults below are pbrt's own, from IndependentSampler::Create and
+    // StratifiedSampler::Create; a scene that names a sampler without naming
+    // its parameters has to get the same ones pbrt would have given it.
+    if (builder.sampler_name == "independent") {
+        out.sampler.tag = bonsai_scene::SamplerTag::Independent;
+        out.sampler.samples_per_pixel =
+            uint32_t(builder.sampler_params.GetOneInt("pixelsamples", 4));
+    } else if (builder.sampler_name == "stratified") {
+        out.sampler.tag = bonsai_scene::SamplerTag::Stratified;
+        out.sampler.x_samples =
+            uint32_t(builder.sampler_params.GetOneInt("xsamples", 4));
+        out.sampler.y_samples =
+            uint32_t(builder.sampler_params.GetOneInt("ysamples", 4));
+        out.sampler.jitter =
+            builder.sampler_params.GetOneBool("jitter", true) ? 1u : 0u;
+        out.sampler.samples_per_pixel =
+            out.sampler.x_samples * out.sampler.y_samples;
+    } else {
+        fail("only the independent and stratified samplers are supported, "
+             "scene asks for \"" +
+             builder.sampler_name + "\"");
+    }
+    out.sampler.seed = builder.sampler_params.GetOneInt("seed", 0);
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,

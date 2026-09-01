@@ -1,0 +1,306 @@
+// pbrt: RNG and the samplers built on it, from util/rng.h and samplers.h.
+//
+// Reproduced exactly rather than merely in spirit. Two renderers with different
+// noise converge to the same image, so at low sample counts no comparison of
+// two renders could say which one was pbrt's -- matching the stream is what
+// makes the comparison mean anything at all. Every constant and step here is
+// checked against pbrt's own sampler in
+// tests/bonsai/correctness/llvm/sampler.bonsai.
+//
+// The sampler is a variant rather than one hard-coded kind, so that which one a
+// scene asks for is a property of the scene. Adding another is a case here and
+// a case in each of the three functions below it, and nothing outside this file
+// changes.
+import stdlib/numerics;
+
+element RNG {
+    state, inc : u64;
+}
+
+// pbrt: RNG::Uniform<uint32_t>. The state advances and the value comes out of
+// what the state was, which is why the two lines below are in that order.
+func next_uint(r : mut RNG) -> u32 {
+    old = r.state;
+    r.state = old * 0x5851f42d4c957f2d + r.inc;
+    xorshifted = cast[[u32]](((old >> 18u) ^ old) >> 27u);
+    rot = cast[[u32]](old >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31u));
+}
+
+// pbrt: RNG::Uniform<Float>, held below one so a sample never lands on the far
+// edge of whatever it indexes.
+func next_float(r : mut RNG) -> Float {
+    return min(cast[[Float]](next_uint(r)) * 0.00000000023283064365386963,
+               0.99999994);
+}
+
+func mix_bits(v : u64) -> u64 {
+    a : mut u64 = v ^ (v >> 31u);
+    a = a * 0x7fb5d329728ea185;
+    a = a ^ (a >> 27u);
+    a = a * 0x81dadef4bc2dd44d;
+    a = a ^ (a >> 33u);
+    return a;
+}
+
+// pbrt: MurmurHash64A, which is what Hash(...) runs over the bytes its
+// arguments occupy. The constant and the shift are Murmur's own.
+func murmur_m() -> u64 = 0xc6a4a7935bd1e995;
+
+// One eight-byte block folded into the running hash.
+func murmur_block(h : u64, block : u64) -> u64 {
+    k : mut u64 = block * murmur_m();
+    k = k ^ (k >> 47u);
+    k = k * murmur_m();
+    return (h ^ k) * murmur_m();
+}
+
+// The avalanche at the end, which is what stops the last block from being
+// visible in the answer.
+func murmur_finish(h : u64) -> u64 {
+    a : mut u64 = h ^ (h >> 47u);
+    a = a * murmur_m();
+    return a ^ (a >> 47u);
+}
+
+// A pair of 32-bit values in the eight bytes they occupy side by side, which is
+// how two ints reach the hash on a little-endian machine.
+func packed(low : i32, high : i32) -> u64 =
+    cast[[u64]](cast[[u32]](low)) | (cast[[u64]](cast[[u32]](high)) << 32u);
+
+// pbrt: Hash(Point2i, int) -- twelve bytes, so the block loop runs exactly once
+// over the pixel and the tail is the seed's four. The tail is the four bytes
+// exclusive-ored in and one more multiply, which is what the fallthrough in
+// Murmur's switch comes to for a length of four.
+func hash_pixel(x : i32, y : i32, seed : i32) -> u64 {
+    h = murmur_block(12u * murmur_m(), packed(x, y));
+    return murmur_finish((h ^ cast[[u64]](cast[[u32]](seed))) * murmur_m());
+}
+
+// pbrt: Hash(Point2i, int, int) -- sixteen bytes, so two blocks and no tail at
+// all. The stratified sampler asks for this one, because which stratum a sample
+// takes has to differ per dimension as well as per pixel.
+func hash_pixel_dim(x : i32, y : i32, dim : i32, seed : i32) -> u64 {
+    h = murmur_block(16u * murmur_m(), packed(x, y));
+    return murmur_finish(murmur_block(h, packed(dim, seed)));
+}
+
+// pbrt: PermutationElement, from util/math.h.
+//
+// The i'th element of a random permutation of 0..l-1 chosen by p, computed
+// without materialising the permutation. It is a small block cipher on the
+// numbers up to the next power of two above l, run again whenever it lands
+// outside the range -- which is what makes it a permutation rather than a hash,
+// and why the loop has no bound: each pass rejects with probability under a
+// half, so it stops quickly and not after any fixed number of tries.
+func permutation_element(index : u32, l : u32, p : u32) -> u32 {
+    // The mask of every bit below the next power of two, which is the block
+    // width the cipher works in.
+    w : mut u32 = l - 1u;
+    w = w | (w >> 1u);
+    w = w | (w >> 2u);
+    w = w | (w >> 4u);
+    w = w | (w >> 8u);
+    w = w | (w >> 16u);
+
+    i : mut u32 = index;
+    do {
+        i = i ^ p;
+        i = i * 0xe170893du;
+        i = i ^ (p >> 16u);
+        i = i ^ ((i & w) >> 4u);
+        i = i ^ (p >> 8u);
+        i = i * 0x0929eb3fu;
+        i = i ^ (p >> 23u);
+        i = i ^ ((i & w) >> 1u);
+        i = i * (1u | (p >> 27u));
+        i = i * 0x6935fa69u;
+        i = i ^ ((i & w) >> 11u);
+        i = i * 0x74dcb303u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0x9e501cc3u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0xc860a3dfu;
+        i = i & w;
+        i = i ^ (i >> 5u);
+    } while i >= l;
+    return (i + p) % l;
+}
+
+// pbrt: RNG::SetSequence. The two draws are discarded on purpose; they are what
+// mixes the sequence and the offset into the state.
+func set_sequence(seq : u64, offset : u64) -> RNG {
+    zero : u64 = 0u;
+    r : mut RNG = {zero, (seq << 1u) | 1u};
+    warm0 = next_uint(r);
+    r.state = r.state + offset;
+    warm1 = next_uint(r);
+    return r;
+}
+
+// pbrt: RNG::Advance, the log-time jump ahead. Each step squares the multiplier
+// and folds the increment forward, so one iteration consumes what the last
+// produced -- a dependence, and why this is a `for` and not a parfor.
+func advance(r : mut RNG, delta : u64) -> void {
+    cur_mult : mut u64 = 0x5851f42d4c957f2d;
+    cur_plus : mut u64 = r.inc;
+    acc_mult : mut u64 = 1u;
+    acc_plus : mut u64 = 0u;
+    d : mut u64 = delta;
+    // pbrt stops as soon as what is left is zero; a `for` runs its whole range,
+    // so the guard makes the remaining steps do nothing. Sixty-four is the
+    // width of the delta.
+    for step in 0u:64u {
+        if (d & 1u) != 0u {
+            acc_mult = acc_mult * cur_mult;
+            acc_plus = acc_plus * cur_mult + cur_plus;
+        }
+        cur_plus = (cur_mult + 1u) * cur_plus;
+        cur_mult = cur_mult * cur_mult;
+        d = d >> 1u;
+    }
+    r.state = acc_mult * r.state + acc_plus;
+    return;
+}
+
+// Which sampler a scene asked for.
+//
+// pbrt dispatches this through a TaggedPointer over its sampler types; a
+// variant says the same thing. Both carry the sample count and the seed,
+// because every sampler needs them and the renderer should not have to ask
+// which kind it has to find out.
+//
+// Stratified is here beside Independent because it is the other sampler that
+// is a stream of uniforms rather than a low-discrepancy sequence: halton,
+// sobol and zsobol are a different construction, and pretending to have them
+// by drawing uniforms would give noise that is not pbrt's while looking
+// perfectly reasonable.
+element Sampler =
+    | Independent(spp : u32, seed : i32)
+    | Stratified(x_samples : u32, y_samples : u32, seed : i32, jitter : bool);
+
+func samples_per_pixel(s : Sampler) -> u32 {
+    match s {
+        Independent(spp, seed) => return spp;
+        Stratified(x_samples, y_samples, seed, jitter) =>
+            return x_samples * y_samples;
+    }
+}
+
+func sampler_seed(s : Sampler) -> i32 {
+    match s {
+        Independent(spp, seed) => return seed;
+        Stratified(x_samples, y_samples, seed, jitter) => return seed;
+    }
+}
+
+// What a sampler is part way through.
+//
+// pbrt's samplers are objects, and these are their members: the generator, the
+// pixel and sample they were started on, and how many values have been drawn.
+// The stratified sampler needs all of them -- which stratum a draw takes is a
+// function of the pixel, the sample and the dimension -- and the independent
+// one needs only the generator, but they answer the same questions and so carry
+// the same thing.
+//
+// Separate from the Sampler above, which is what the scene asked for and does
+// not change. This is what changes, and it is per pixel and per sample: nothing
+// here is shared between two samples, which is what lets the sample loop run in
+// whatever order the schedule likes.
+element SamplerState {
+    rng : RNG;
+    // The pixel and sample this was started on, which the stratified sampler
+    // hashes and the independent one does not look at again.
+    px, py : i32;
+    sample : u32;
+    // How many values have been drawn. pbrt counts these because a stratified
+    // draw has to be stratified independently in each dimension; the
+    // independent sampler ignores it.
+    dimension : i32;
+}
+
+// pbrt: StartPixelSample, at dimension zero.
+//
+// Both samplers reseed per sample rather than running one stream down the
+// image, which is what makes a sample's draws depend on nothing but its own
+// index -- so the sample loop may be run in any order and still produce pbrt's
+// numbers. They also seed it identically: StratifiedSampler::StartPixelSample
+// hashes the pixel and the seed the same way and advances by the same amount.
+func start_pixel_sample(s : Sampler, x : i32, y : i32,
+                        sample : u32) -> SamplerState {
+    seq = hash_pixel(x, y, sampler_seed(s));
+    r : mut RNG = set_sequence(seq, mix_bits(seq));
+    // pbrt: Advance(sampleIndex * 65536 + dimension), at dimension zero.
+    advance(r, cast[[u64]](sample) * 65536u);
+    st : SamplerState = {r, x, y, sample, 0};
+    return st;
+}
+
+// pbrt: Get1D.
+//
+// The independent sampler draws the next uniform. The stratified one divides
+// the unit interval into one cell per sample, decides which cell this sample
+// takes -- by a permutation of the sample indices chosen by the pixel, the
+// dimension and the seed, so that the cells are covered exactly once in an
+// order that differs everywhere -- and places the sample inside that cell. That
+// is the whole of what stratification is, and it is why a stratified render is
+// less noisy than an independent one at the same sample count.
+func get_1d(s : Sampler, st : mut SamplerState) -> Float {
+    match s {
+        Independent(spp, seed) => return next_float(st.rng);
+        Stratified(x_samples, y_samples, seed, jitter) => {
+            spp = x_samples * y_samples;
+            hash = hash_pixel_dim(st.px, st.py, st.dimension, seed);
+            stratum = permutation_element(st.sample, spp, cast[[u32]](hash));
+            st.dimension = st.dimension + 1;
+            // A branch rather than a select, because the draw must happen only
+            // when it is used: select is a function and would evaluate both
+            // arms, and an unjittered stratified sampler takes nothing from its
+            // generator at all. Getting that wrong leaves the stream one value
+            // ahead of pbrt's from here on.
+            delta : mut Float = 0.5;
+            if jitter {
+                delta = next_float(st.rng);
+            }
+            return (cast[[Float]](stratum) + delta) / cast[[Float]](spp);
+        }
+    }
+}
+
+// pbrt: Get2D. The stratified sampler's two dimensions come from one stratum in
+// a grid rather than from two independent strata, which is what makes a pair of
+// samples cover the square instead of each axis separately.
+func get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
+    match s {
+        Independent(spp, seed) => {
+            u = next_float(st.rng);
+            v = next_float(st.rng);
+            return vec2f{u, v};
+        }
+        Stratified(x_samples, y_samples, seed, jitter) => {
+            spp = x_samples * y_samples;
+            hash = hash_pixel_dim(st.px, st.py, st.dimension, seed);
+            stratum = permutation_element(st.sample, spp, cast[[u32]](hash));
+            st.dimension = st.dimension + 2;
+            sx = stratum % x_samples;
+            sy = stratum / x_samples;
+            // See get_1d: branches rather than selects, so that an unjittered
+            // sampler draws nothing.
+            dx : mut Float = 0.5;
+            dy : mut Float = 0.5;
+            if jitter {
+                dx = next_float(st.rng);
+                dy = next_float(st.rng);
+            }
+            return vec2f{(cast[[Float]](sx) + dx) / cast[[Float]](x_samples),
+                         (cast[[Float]](sy) + dy) / cast[[Float]](y_samples)};
+        }
+    }
+}
+
+// pbrt: GetPixel2D, which for both of these samplers is Get2D. It is its own
+// function because a low-discrepancy sampler answers it differently -- the
+// pixel sample is what its stratification is built around -- and the renderer
+// asks for the one it means.
+func get_pixel_2d(s : Sampler, st : mut SamplerState) -> vec2f =
+    get_2d(s, st);

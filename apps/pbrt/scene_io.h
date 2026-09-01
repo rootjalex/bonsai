@@ -65,9 +65,34 @@ struct Node {
     uint16_t axis;
 };
 
+enum SamplerTag : uint32_t {
+    Independent = 0,
+    Stratified = 1,
+};
+
+// Which sampler the scene asked for, and what it was given.
+//
+// A scene names its sampler, so this travels with the scene rather than being
+// a switch on the renderer. Reproducing pbrt's noise means drawing from the
+// same stream, and which stream that is depends on the kind of sampler as much
+// as on the pixel and the seed.
+struct Sampler {
+    uint32_t tag = SamplerTag::Independent;
+    // Independent: `integer pixelsamples`. Stratified: the product of the two
+    // grid dimensions, which is what pbrt reports as its sample count.
+    uint32_t samples_per_pixel = 1;
+    int32_t seed = 0;
+    // Stratified only. Its grid, and whether a sample is jittered inside its
+    // cell or sits at the centre.
+    uint32_t x_samples = 1;
+    uint32_t y_samples = 1;
+    uint32_t jitter = 1;
+};
+
 struct Scene {
     uint32_t width = 0;
     uint32_t height = 0;
+    Sampler sampler;
     // camera_from_raster then render_from_camera, each 4x4 in row order.
     float matrices[32] = {};
     std::vector<Shape> shapes;
@@ -92,6 +117,14 @@ inline bool write(const char *path, const Scene &scene) {
         return false;
     }
     out << "resolution " << scene.width << ' ' << scene.height << '\n';
+    if (scene.sampler.tag == SamplerTag::Stratified) {
+        out << "sampler stratified " << scene.sampler.x_samples << ' '
+            << scene.sampler.y_samples << ' ' << scene.sampler.seed << ' '
+            << scene.sampler.jitter << '\n';
+    } else {
+        out << "sampler independent " << scene.sampler.samples_per_pixel << ' '
+            << scene.sampler.seed << '\n';
+    }
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
@@ -147,6 +180,25 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     in >> scene.width >> scene.height;
+
+    if (!(in >> word) || word != "sampler") {
+        return false;
+    }
+    if (!(in >> word)) {
+        return false;
+    }
+    if (word == "stratified") {
+        scene.sampler.tag = SamplerTag::Stratified;
+        in >> scene.sampler.x_samples >> scene.sampler.y_samples >>
+            scene.sampler.seed >> scene.sampler.jitter;
+        scene.sampler.samples_per_pixel =
+            scene.sampler.x_samples * scene.sampler.y_samples;
+    } else if (word == "independent") {
+        scene.sampler.tag = SamplerTag::Independent;
+        in >> scene.sampler.samples_per_pixel >> scene.sampler.seed;
+    } else {
+        return false;
+    }
 
     if (!(in >> word) || word != "camera_from_raster") {
         return false;

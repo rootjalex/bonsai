@@ -1,6 +1,6 @@
 //! flags: -b llvm -e
 
-// pbrt's IndependentSampler, reproduced exactly.
+// pbrt's IndependentSampler and StratifiedSampler, reproduced exactly.
 //
 // Matching pbrt stops being about arithmetic here and becomes about
 // reproducing a stream: the same RNG, seeded by the same hash of the same
@@ -137,6 +137,117 @@ func draw4_at(x : i32, y : i32, sample : u32) -> void {
     return;
 }
 
+// pbrt: Hash(Point2i, int, int) -- sixteen bytes rather than twelve, so the
+// block loop runs twice and there is no tail at all where the shorter one has
+// four bytes of it. The stratified sampler asks for this one, because which
+// stratum a draw takes has to differ per dimension as well as per pixel.
+func hash_pixel_dim(x : i32, y : i32, dim : i32, seed : i32) -> u64 {
+    m : u64 = 0xc6a4a7935bd1e995;
+    h : mut u64 = 16u * m;
+    k0 : mut u64 = cast[[u64]](cast[[u32]](x)) |
+                   (cast[[u64]](cast[[u32]](y)) << 32u);
+    k0 = k0 * m;
+    k0 = k0 ^ (k0 >> 47u);
+    k0 = k0 * m;
+    h = h ^ k0;
+    h = h * m;
+    k1 : mut u64 = cast[[u64]](cast[[u32]](dim)) |
+                   (cast[[u64]](cast[[u32]](seed)) << 32u);
+    k1 = k1 * m;
+    k1 = k1 ^ (k1 >> 47u);
+    k1 = k1 * m;
+    h = h ^ k1;
+    h = h * m;
+    // len & 7 is zero, so no tail.
+    h = h ^ (h >> 47u);
+    h = h * m;
+    h = h ^ (h >> 47u);
+    return h;
+}
+
+// pbrt: PermutationElement, from util/math.h. The i'th element of a random
+// permutation of 0..l-1 chosen by p, computed without building the permutation:
+// a small block cipher over the numbers below the next power of two, run again
+// whenever it lands outside the range. The loop has no bound -- each pass
+// rejects with probability under a half -- which is what a `do ... while` is
+// for and what a `for` over a fixed count could not say.
+func permutation_element(index : u32, l : u32, p : u32) -> u32 {
+    w : mut u32 = l - 1u;
+    w = w | (w >> 1u);
+    w = w | (w >> 2u);
+    w = w | (w >> 4u);
+    w = w | (w >> 8u);
+    w = w | (w >> 16u);
+
+    i : mut u32 = index;
+    do {
+        i = i ^ p;
+        i = i * 0xe170893du;
+        i = i ^ (p >> 16u);
+        i = i ^ ((i & w) >> 4u);
+        i = i ^ (p >> 8u);
+        i = i * 0x0929eb3fu;
+        i = i ^ (p >> 23u);
+        i = i ^ ((i & w) >> 1u);
+        i = i * (1u | (p >> 27u));
+        i = i * 0x6935fa69u;
+        i = i ^ ((i & w) >> 11u);
+        i = i * 0x74dcb303u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0x9e501cc3u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0xc860a3dfu;
+        i = i & w;
+        i = i ^ (i >> 5u);
+    } while i >= l;
+    return (i + p) % l;
+}
+
+// pbrt: StratifiedSampler, over a 4 by 2 grid so that its two axes cannot be
+// swapped unnoticed. Two Get1Ds and then a Get2D, which is what the renderer
+// asks for: a wavelength and then a point in the pixel.
+func stratified(x : i32, y : i32, sample : u32, jitter : bool) -> void {
+    xs : u32 = 4u;
+    ys : u32 = 2u;
+    spp = xs * ys;
+    // The same seeding as the independent sampler, which is worth checking
+    // rather than assuming: the two samplers differ in what they do with the
+    // stream, not in how they start it.
+    r : mut RNG = start_pixel(x, y, 0);
+    advance(r, cast[[u64]](sample) * 65536u);
+    dim : mut i32 = 0;
+
+    // Get1D, twice.
+    for k in 0:2 {
+        hash = hash_pixel_dim(x, y, dim, 0);
+        stratum = permutation_element(sample, spp, cast[[u32]](hash));
+        dim = dim + 1;
+        // A branch rather than a select: pbrt draws only when it jitters, and
+        // evaluating both sides would leave the stream one value ahead.
+        delta : mut Float = 0.5;
+        if jitter {
+            delta = next_float(r);
+        }
+        print((cast[[Float]](stratum) + delta) / cast[[Float]](spp));
+    }
+
+    // Get2D: one stratum in the grid rather than two along the axes.
+    hash = hash_pixel_dim(x, y, dim, 0);
+    stratum = permutation_element(sample, spp, cast[[u32]](hash));
+    dim = dim + 2;
+    sx = stratum % xs;
+    sy = stratum / xs;
+    dx : mut Float = 0.5;
+    dy : mut Float = 0.5;
+    if jitter {
+        dx = next_float(r);
+        dy = next_float(r);
+    }
+    print((cast[[Float]](sx) + dx) / cast[[Float]](xs));
+    print((cast[[Float]](sy) + dy) / cast[[Float]](ys));
+    return;
+}
+
 func main() -> i32 {
     // The hashes on their own, high half then low, because the hash is the
     // part most easily transcribed wrongly and the hardest to see through the
@@ -161,5 +272,43 @@ func main() -> i32 {
     draw4_at(0, 1, 1u);
     draw4_at(37, 11, 1u);
     draw4_at(1279, 719, 1u);
+
+    // The stratified sampler's two extra pieces on their own, for the same
+    // reason the hash is printed on its own above: both are easy to transcribe
+    // wrongly and impossible to see through the draws that use them. The
+    // permutation is over thirteen as well as eight so that the rejection loop
+    // runs more than once for some inputs, which is the case a fixed number of
+    // tries would get wrong.
+    print(hash_pixel_dim(0, 0, 0, 0));
+    print(hash_pixel_dim(0, 0, 1, 0));
+    print(hash_pixel_dim(1279, 719, 0, 0));
+    print(hash_pixel_dim(1279, 719, 1, 0));
+
+    for i in 0u:8u {
+        print(permutation_element(i, 8u, 0u));
+    }
+    for i in 0u:8u {
+        print(permutation_element(i, 8u, 0x9e3779b9u));
+    }
+    for i in 0u:13u {
+        print(permutation_element(i, 13u, 0u));
+    }
+    for i in 0u:13u {
+        print(permutation_element(i, 13u, 0x9e3779b9u));
+    }
+
+    // And the sampler itself, jittered and not. Unjittered is the case that
+    // draws nothing at all from the generator, so its numbers are exact
+    // sixteenths and eighths and a stream one value out would be obvious.
+    stratified(0, 0, 0u, true);
+    stratified(0, 0, 1u, true);
+    stratified(1, 0, 0u, true);
+    stratified(37, 11, 1u, true);
+    stratified(1279, 719, 1u, true);
+
+    stratified(0, 0, 1u, false);
+    stratified(1, 0, 1u, false);
+    stratified(37, 11, 1u, false);
+    stratified(1279, 719, 1u, false);
     return 0;
 }

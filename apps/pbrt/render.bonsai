@@ -2,8 +2,17 @@
 // `bind` is an SSA rewrite, so this needs the SSA pipeline rather than the
 // default one.
 
-// PBRT v4: a perspective camera over a scene of shapes, shaded by their
-// normals. Sampling and spectra are still to come.
+// PBRT v4: the scene query, the film, and the schedule that decides how both
+// are run. The pieces they are built from live beside this file:
+//
+//   interval.bonsai   pbrt's outward-rounded arithmetic, which is what makes a
+//                     decision about a grazing ray trustworthy.
+//   shapes.bonsai     Sphere, Triangle, their intersections, and the AABB a
+//                     BVH node is bounded by.
+//   camera.bonsai     Transform and PerspectiveCamera.
+//   spectrum.bonsai   SampledWavelengths, the sigmoid fit, and the conversion
+//                     back to RGB that a film ends with.
+//   sampler.bonsai    pbrt's RNG and the samplers built on it.
 //
 // The rule for this app is that the source stays a straight transcription of
 // PBRT and every performance decision lives in the `schedule` block at the
@@ -13,710 +22,18 @@
 //
 // The clearest instance of that rule is the scene query. PBRT builds a
 // `BVHAggregate` and hand-writes the traversal; here `trace` says only what it
-// wants -- the nearest shape the ray hits -- and the schedule below decides
+// wants -- the nearest primitive the ray hits -- and the schedule below decides
 // that the answer comes from a BVH, what its nodes look like, and that the
 // traversal is a loop over an explicit stack rather than recursion.
-//
-// What PBRT computes in a constructor is computed by the driver and passed in
-// as data. That is faithful to PBRT's hot path, which only ever *applies* the
-// camera transforms; building them is a one-off that bonsai has no file I/O to
-// drive anyway. The BVH is built there too, for now: tree construction is not
-// yet expressible in bonsai, and only the traversal runs per ray.
-
-// stdlib/numerics only, and only for the type aliases and the helpers that are
-// themselves transcriptions of pbrt (prod_diff is DifferenceOfProducts, gamma
-// is pbrt's gamma). The geometry deliberately does *not* come from the stdlib:
-// stdlib/sphere.bonsai and stdlib/intersects.bonsai are derived from Ray
-// Tracing in One Weekend and are not numerically what pbrt does, which showed
-// up as pixels disagreeing along silhouettes. What this app needs is pbrt's
-// arithmetic, so pbrt's arithmetic is written out below.
 import stdlib/numerics;
-
-// pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
-// alongside; the tree lowering needs a bound to prune against.
-element Ray {
-    o : vec3f;
-    d : vec3f;
-    tmax : Float = inf;
-}
-
-// pbrt: Sphere. pbrt keeps a transform and a radius and works in object space,
-// where the sphere is at the origin; these are placed by a translation only,
-// so object space is reached by subtracting the centre.
-element Sphere {
-    center : vec3f;
-    radius : Float;
-}
-
-// pbrt: Triangle, as three positions rather than an index into a mesh.
-element Triangle {
-    p0 : vec3f;
-    p1 : vec3f;
-    p2 : vec3f;
-}
-
-element vec2f = vector[Float, 2];
-element vec4f = vector[Float, 4];
-
-// pbrt: Transform, minus the inverse it carries alongside the matrix. Nothing
-// in M0 inverts one -- the driver hands over both directions it needs already
-// inverted -- so storing mInv would be storing something never read.
-//
-// Rows rather than a flat 16, so that applying one is four dot products.
-element Transform {
-    r0, r1, r2, r3 : vec4f;
-}
-
-// pbrt: Transform::operator()(Point3f), which divides through by w. The
-// perspective transform is the whole reason that divide is here: for an
-// affine transform w comes out 1 and PBRT skips it.
-func apply_point(t : Transform, p : vec3f) -> vec3f {
-    h = vec4f{p.x, p.y, p.z, 1.0};
-    xp = dot(t.r0, h);
-    yp = dot(t.r1, h);
-    zp = dot(t.r2, h);
-    wp = dot(t.r3, h);
-    v = vec3f{xp, yp, zp};
-    return select(wp == 1.0, v, v / wp);
-}
-
-// pbrt: Transform::operator()(Vector3f). A direction ignores the translation
-// column, so this is the upper-left 3x3 and no divide.
-func apply_vector(t : Transform, v : vec3f) -> vec3f {
-    h = vec4f{v.x, v.y, v.z, 0.0};
-    return vec3f{dot(t.r0, h), dot(t.r1, h), dot(t.r2, h)};
-}
-
-// pbrt: CameraSample. M0 takes one sample at the centre of each pixel, so
-// p_lens and time are always zero and filter_weight is always one -- but they
-// are here because GenerateRay's signature is what M2's sampler will fill in.
-element CameraSample {
-    p_film : vec2f;
-    p_lens : vec2f;
-    time : Float = 0.0;
-    filter_weight : Float = 1.0;
-}
-
-// pbrt: PerspectiveCamera. The two transforms its ctor derives from the field
-// of view, the screen window and the resolution; see render_hook.cpp.
-element PerspectiveCamera {
-    camera_from_raster : Transform;
-    render_from_camera : Transform;
-}
-
-// pbrt: PerspectiveCamera::GenerateRay. Every ray leaves the camera's origin
-// and passes through the sample's point on the film plane. The differentials
-// PBRT also computes here are for texture filtering, which M0 has none of.
-func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
-    p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
-    p_camera = apply_point(camera.camera_from_raster, p_film);
-    o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
-    d = apply_vector(camera.render_from_camera, unit_vector(p_camera));
-    return Ray{o, d};
-}
-
-// pbrt: NextFloatUp/NextFloatDown, from util/float.h.
-//
-// One step along the real line, in the only sense a float has one: the next
-// representable value is the next bit pattern. This is what makes the interval
-// arithmetic below sound -- every operation is nudged outwards by one ulp, so
-// the interval is guaranteed to contain the exact answer.
-func next_float_up(v : Float) -> Float {
-    if v == inf { return v; }
-    w = select(v == 0.0, 0.0, v);
-    ui = reinterpret[[u32]](w);
-    return reinterpret[[Float]](select(w >= 0.0, ui + 1u, ui - 1u));
-}
-
-func next_float_down(v : Float) -> Float {
-    if v == -inf { return v; }
-    w = select(v == 0.0, -0.0, v);
-    ui = reinterpret[[u32]](w);
-    return reinterpret[[Float]](select(w > 0.0, ui - 1u, ui + 1u));
-}
-
-// pbrt: the outward-rounded operations of util/float.h. Without hardware
-// rounding modes these are the plain operation stepped one ulp the right way,
-// which is what pbrt itself does off the GPU.
-func add_round_up(a : Float, b : Float) -> Float = next_float_up(a + b);
-func add_round_down(a : Float, b : Float) -> Float = next_float_down(a + b);
-func sub_round_up(a : Float, b : Float) -> Float = add_round_up(a, -b);
-func sub_round_down(a : Float, b : Float) -> Float = add_round_down(a, -b);
-func mul_round_up(a : Float, b : Float) -> Float = next_float_up(a * b);
-func mul_round_down(a : Float, b : Float) -> Float = next_float_down(a * b);
-func div_round_up(a : Float, b : Float) -> Float = next_float_up(a / b);
-func div_round_down(a : Float, b : Float) -> Float = next_float_down(a / b);
-func sqrt_round_up(a : Float) -> Float = next_float_up(sqrt(a));
-func sqrt_round_down(a : Float) -> Float = max(0.0, next_float_down(sqrt(a)));
-
-// pbrt: Interval, from util/math.h. A range that certainly contains the exact
-// value, so that a decision made on its bounds -- "is the discriminant surely
-// negative?" -- is one the rounding cannot have got wrong.
-element Interval {
-    low, high : Float;
-}
-
-// A value known exactly has zero width.
-func exact(v : Float) -> Interval {
-    i : Interval = {v, v};
-    return i;
-}
-
-// pbrt: operator Float(), the value to use once the reasoning is done.
-func mid(i : Interval) -> Float = 0.5 * (i.low + i.high);
-
-func iadd(a : Interval, b : Interval) -> Interval {
-    r : Interval = {add_round_down(a.low, b.low), add_round_up(a.high, b.high)};
-    return r;
-}
-
-func isub(a : Interval, b : Interval) -> Interval {
-    r : Interval = {sub_round_down(a.low, b.high), sub_round_up(a.high, b.low)};
-    return r;
-}
-
-// Every pairing of the endpoints, because the sign of either operand decides
-// which pairing is extreme.
-func imul(a : Interval, b : Interval) -> Interval {
-    lo = min(min(mul_round_down(a.low, b.low), mul_round_down(a.high, b.low)),
-             min(mul_round_down(a.low, b.high), mul_round_down(a.high, b.high)));
-    hi = max(max(mul_round_up(a.low, b.low), mul_round_up(a.high, b.low)),
-             max(mul_round_up(a.low, b.high), mul_round_up(a.high, b.high)));
-    r : Interval = {lo, hi};
-    return r;
-}
-
-func in_range(v : Float, i : Interval) -> bool = (v >= i.low) & (v <= i.high);
-
-func idiv(a : Interval, b : Interval) -> Interval {
-    // A divisor straddling zero says nothing about the quotient.
-    if in_range(0.0, b) {
-        unbounded : Interval = {-inf, inf};
-        return unbounded;
-    }
-    lo = min(min(div_round_down(a.low, b.low), div_round_down(a.high, b.low)),
-             min(div_round_down(a.low, b.high), div_round_down(a.high, b.high)));
-    hi = max(max(div_round_up(a.low, b.low), div_round_up(a.high, b.low)),
-             max(div_round_up(a.low, b.high), div_round_up(a.high, b.high)));
-    r : Interval = {lo, hi};
-    return r;
-}
-
-// pbrt: Sqr(Interval). A square is never negative, so an interval containing
-// zero has zero for its lower bound rather than the smaller endpoint squared.
-func isqr(i : Interval) -> Interval {
-    alow = min(abs(i.low), abs(i.high));
-    ahigh = max(abs(i.low), abs(i.high));
-    lo = select(in_range(0.0, i), 0.0, mul_round_down(alow, alow));
-    r : Interval = {lo, mul_round_up(ahigh, ahigh)};
-    return r;
-}
-
-func isqrt(i : Interval) -> Interval {
-    r : Interval = {sqrt_round_down(i.low), sqrt_round_up(i.high)};
-    return r;
-}
-
-// pbrt: Interval::FromValueAndError. An exact value keeps zero width, which
-// matters: widening it would be widening every interval downstream.
-func from_value_and_error(v : Float, err : Float) -> Interval {
-    lo = select(err == 0.0, v, sub_round_down(v, err));
-    hi = select(err == 0.0, v, add_round_up(v, err));
-    i : Interval = {lo, hi};
-    return i;
-}
-
-// pbrt: Transform::operator()(Point3fi) and operator()(Vector3fi), for the
-// translation that carries a sphere into object space.
-//
-// The width here is not one ulp. It is pbrt's gamma(3) bound over the terms of
-// a matrix row -- three products and three sums, any of which may round -- and
-// it is several times wider than a single step. That width is the whole game
-// for a grazing ray: it is what makes the discriminant's lower bound negative
-// and the ray therefore a miss. Deriving these intervals from the arithmetic
-// actually performed here, rather than from the matrix pbrt performs it with,
-// would give something narrower and so report hits that pbrt does not.
-//
-// The row for a translation is (1, 0, 0, -c), so of the four terms only the
-// product with one and the translation itself are nonzero.
-func point_to_object(p : Float, c : Float) -> Interval =
-    from_value_and_error(p - c, gamma(3) * (abs(p) + abs(c)));
-
-// A direction ignores the translation column, leaving only the product.
-func vector_to_object(d : Float) -> Interval =
-    from_value_and_error(d, gamma(3) * abs(d));
-
-// The two solutions of the quadratic, each still an interval, so that the
-// caller can ask about a bound rather than about a value.
-element Roots {
-    t0, t1 : Interval;
-}
-
-// pbrt: Sphere::BasicIntersect, in the interval arithmetic pbrt carries the
-// coefficients in.
-//
-// The intervals are what make the decisions trustworthy at grazing incidence.
-// A ray that nearly misses gives a discriminant whose exact sign is lost to
-// rounding; asking `discrim.LowerBound() < 0` instead asks whether it is
-// *certainly* negative, so a ray is only rejected when no rounding of the
-// inputs could have made it hit.
-//
-// The discriminant is also factored the way pbrt factors it -- the distance
-// from the centre to the ray's closest approach, rather than b^2 - 4ac -- so
-// that the subtraction happens between two numbers that are not nearly equal.
-// Both matter: the factoring keeps the value accurate, the intervals keep the
-// comparison honest about what accuracy is left.
-func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
-    // Object space: the sphere is at the origin. These spheres are placed by a
-    // translation, so that is the transform whose error the intervals carry.
-    oix = point_to_object(r.o.x, s.center.x);
-    oiy = point_to_object(r.o.y, s.center.y);
-    oiz = point_to_object(r.o.z, s.center.z);
-    dix = vector_to_object(r.d.x);
-    diy = vector_to_object(r.d.y);
-    diz = vector_to_object(r.d.z);
-
-    a = iadd(iadd(isqr(dix), isqr(diy)), isqr(diz));
-    b = imul(exact(2.0), iadd(iadd(imul(dix, oix), imul(diy, oiy)),
-                              imul(diz, oiz)));
-    c = isub(iadd(iadd(isqr(oix), isqr(oiy)), isqr(oiz)),
-             isqr(exact(s.radius)));
-
-    // v = oi - (b / 2a) * di, the vector from the centre to the ray's closest
-    // approach, and |v| its distance.
-    half = idiv(b, imul(exact(2.0), a));
-    vx = isub(oix, imul(half, dix));
-    vy = isub(oiy, imul(half, diy));
-    vz = isub(oiz, imul(half, diz));
-    length = isqrt(iadd(iadd(isqr(vx), isqr(vy)), isqr(vz)));
-
-    // Grouped as pbrt groups it: ((4a)(r + |v|))(r - |v|). Interval
-    // multiplication is not associative, so the grouping is part of the answer.
-    radius = exact(s.radius);
-    discrim = imul(imul(imul(exact(4.0), a), iadd(radius, length)),
-                   isub(radius, length));
-    // Certainly negative, rather than negative once rounded.
-    if discrim.low < 0.0 {
-        return {};
-    }
-
-    root_discrim = isqrt(discrim);
-    // The pairing that avoids cancelling in whichever root is small.
-    q : mut = imul(exact(-0.5), iadd(b, root_discrim));
-    if mid(b) < 0.0 {
-        q = imul(exact(-0.5), isub(b, root_discrim));
-    }
-
-    t0 : mut = idiv(q, a);
-    t1 : mut = idiv(c, q);
-    // Ordered by lower bound, which is the order that survives rounding.
-    if t0.low > t1.low {
-        swap = t0;
-        t0 = t1;
-        t1 = swap;
-    }
-
-    roots : Roots = {t0, t1};
-    return roots;
-}
-
-// pbrt: the tail of BasicIntersect, which picks the nearer root that is
-// actually ahead of the ray and within tMax. Every test is on a bound rather
-// than on the interval's value: a root is only rejected when it is certainly
-// out of range, so a hit is never dropped because rounding pushed it a few ulp
-// past the boundary. This is the test for a sphere the ray is trying to *hit*.
-func sphere_t(r : Ray, s : Sphere) -> option[Float] {
-    found = sphere_roots(r, s);
-    if !found {
-        return {};
-    }
-    roots = *found;
-    if (roots.t0.high > r.tmax) | (roots.t1.low <= 0.0) {
-        return {};
-    }
-    if roots.t0.low <= 0.0 {
-        // The near root is behind the ray, so the far one is the hit -- if it
-        // is in range at all.
-        if roots.t1.high > r.tmax {
-            return {};
-        }
-        return mid(roots.t1);
-    }
-    return mid(roots.t0);
-}
-
-// pbrt: Bounds3f, and the bounding volume the schedule gives a BVH node.
-element AABB {
-    low, high : vec3f;
-}
-
-// The stretch of the ray that lies inside a box, which is a different question
-// from where it hits a surface.
-element Span {
-    lo, hi : Float;
-}
-
-// pbrt: Bounds3::IntersectP, the overload the BVH traversal calls, which is a
-// slab test: the ray is clipped against the pair of parallel planes on each
-// axis, and what survives all three is the interval it spends inside the box.
-//
-// This is deliberately not interval arithmetic, and pbrt does not use it here
-// either. A node test only has to be conservative -- never report a miss where
-// something inside could be hit -- and it runs at every node of the tree, so
-// pbrt buys that conservatism with a single widening of the far bound rather
-// than with a proof. The provable bound is spent where it decides something,
-// in sphere_t. Measured on this scene, a node test carrying intervals cost
-// 355ms against 50ms for the identical image.
-//
-// The widening is the whole robustness argument: the divisions and
-// subtractions above it can each round the far plane inwards, and a ray
-// entering exactly at a face would then be clipped out of a node it really
-// does touch. gamma(3) bounds those three roundings, and doubling it is
-// pbrt's margin.
-func aabb_span(r : Ray, b : AABB) -> option[Span] {
-    inv_dir = 1.0 / r.d;
-    dir_is_neg = inv_dir < 0.0;
-
-    // Which face of each slab the ray meets first depends on its direction.
-    near_face = select(dir_is_neg, b.high, b.low);
-    far_face = select(dir_is_neg, b.low, b.high);
-    t_near = (near_face - r.o) * inv_dir;
-    t_far : mut = (far_face - r.o) * inv_dir;
-    t_far *= 1.0 + 2.0 * gamma(3);
-
-    // x against y, then the survivor against z. Ordered as pbrt orders it so
-    // that a NaN from a zero direction component falls the same way.
-    if (t_near.x > t_far.y) | (t_near.y > t_far.x) {
-        return {};
-    }
-    lo : mut = max(t_near.x, t_near.y);
-    hi : mut = min(t_far.x, t_far.y);
-
-    if (lo > t_far.z) | (t_near.z > hi) {
-        return {};
-    }
-    lo = max(lo, t_near.z);
-    hi = min(hi, t_far.z);
-
-    span : Span = {lo, hi};
-    return span;
-}
-
-// What the tree lowering prunes with. `intersects` is pbrt's return value from
-// IntersectP; the two distances are the ends of the span, and a miss reports
-// an empty interval the wrong way round so that nothing selects it.
-func distmin(r : Ray, b : AABB) -> Float {
-    found = aabb_span(r, b);
-    if found {
-        span = *found;
-        return span.lo;
-    }
-    return -inf;
-}
-
-func distmax(r : Ray, b : AABB) -> Float {
-    found = aabb_span(r, b);
-    if found {
-        span = *found;
-        return span.hi;
-    }
-    return inf;
-}
-
-func intersects(r : Ray, b : AABB) -> bool {
-    found = aabb_span(r, b);
-    if found {
-        span = *found;
-        return (span.lo < r.tmax) & (span.hi > 0.0);
-    }
-    return false;
-}
-
-// pbrt: IntersectTriangle from shapes.cpp, which is watertight: the ray is
-// moved to its own coordinate space, the largest component of its direction
-// is permuted into z, and the vertices are sheared so that the edge tests are
-// exact in sign. The error bounds at the end are pbrt's, and they are what
-// keeps a ray from slipping between two triangles that share an edge.
-func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
-    // Degenerate triangles have no interior to hit.
-    if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
-        return {};
-
-    // Translate the vertices so the ray starts at the origin.
-    p0t : mut = tri.p0 - ray.o;
-    p1t : mut = tri.p1 - ray.o;
-    p2t : mut = tri.p2 - ray.o;
-
-    // Permute so that the ray's dominant direction is z.
-    kz : u32 = idxmax(abs(ray.d));
-    kx = (kz + 1) % 3;
-    ky = (kx + 1) % 3;
-    d = permute(ray.d, {kx, ky, kz});
-    p0t = permute(p0t, {kx, ky, kz});
-    p1t = permute(p1t, {kx, ky, kz});
-    p2t = permute(p2t, {kx, ky, kz});
-
-    // Shear, so that the ray becomes +z and the edge tests are 2D.
-    Sx = -d.x / d.z;
-    Sy = -d.y / d.z;
-    Sz = 1 / d.z;
-    p0t.x += Sx * p0t.z;
-    p0t.y += Sy * p0t.z;
-    p1t.x += Sx * p1t.z;
-    p1t.y += Sy * p1t.z;
-    p2t.x += Sx * p2t.z;
-    p2t.y += Sy * p2t.z;
-
-    // Edge functions, by a difference of products that does not cancel.
-    e0 = prod_diff[[Float]](p1t.x, p2t.y, p1t.y, p2t.x);
-    e1 = prod_diff[[Float]](p2t.x, p0t.y, p2t.y, p0t.x);
-    e2 = prod_diff[[Float]](p0t.x, p1t.y, p0t.y, p1t.x);
-
-    // TODO: pbrt falls back to double precision when an edge function is
-    // exactly zero, which is where a ray meets a shared edge.
-
-    if ((e0 < 0 || e1 < 0 || e2 < 0) && (e0 > 0 || e1 > 0 || e2 > 0))
-        return {};
-    det = e0 + e1 + e2;
-    if (det == 0)
-        return {};
-
-    p0t.z *= Sz;
-    p1t.z *= Sz;
-    p2t.z *= Sz;
-
-    tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
-    if (det < 0 && (tScaled >= 0 || tScaled < ray.tmax * det))
-        return {};
-    else if (det > 0 && (tScaled <= 0 || tScaled > ray.tmax * det))
-        return {};
-
-    invDet = 1 / det;
-    t = tScaled * invDet;
-
-    // pbrt's bound on the error in t, so that a hit is only reported when it
-    // is conservatively in front of the ray.
-    maxZt = max(abs(vec3f{p0t.z, p1t.z, p2t.z}));
-    deltaZ = gamma(3) * maxZt;
-    maxXt = max(abs(vec3f{p0t.x, p1t.x, p2t.x}));
-    maxYt = max(abs(vec3f{p0t.y, p1t.y, p2t.y}));
-    deltaX = gamma(5) * (maxXt + maxZt);
-    deltaY = gamma(5) * (maxYt + maxZt);
-    deltaE = 2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
-    maxE = max(abs(vec3f{e0, e1, e2}));
-    deltaT = 3 * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * abs(invDet);
-    if (t <= deltaT)
-        return {};
-
-    return t;
-}
-
-// A triangle is flat, so the near and far distance to it are the same one.
-func distmin(r : Ray, tri : Triangle) -> Float {
-    t = triangle_t(r, tri);
-    if t {
-        return *t;
-    }
-    return inf;
-}
-
-func distmax(r : Ray, tri : Triangle) -> Float {
-    t = triangle_t(r, tri);
-    if t {
-        return *t;
-    }
-    return -inf;
-}
-
-func intersects(r : Ray, tri : Triangle) -> bool {
-    return cast[[bool]](triangle_t(r, tri));
-}
-
-// pbrt: Shape, the closed set of things a ray can hit. v4 dispatches this
-// through a TaggedPointer over Sphere, Triangle, and the rest; a variant type
-// says the same thing without the pointer.
-//
-// Both shapes are in render space. PBRT keeps a transform per shape and works
-// in object space, tracking error bounds through the round trip; placing
-// shapes is what brings that back, and nothing here needs it yet.
-element Shape =
-    | Sph(s : Sphere)
-    | Tri(t : Triangle);
-
-// pbrt: Shape::Intersect and Shape::IntersectP, as one function each that
-// matches on which shape it has. The tree the schedule builds calls these
-// without knowing a shape has variants at all.
-//
-// These are the primitive queries, so the Sph arm goes to sphere_t, pbrt's
-// hit. The bounding-volume overloads above answer for AABB and are a separate
-// question -- the node a shape is in, not the shape. A shape that is not hit
-// is infinitely far, the same answer the triangle gives.
-func distmin(r : Ray, sh : Shape) -> Float {
-    match sh {
-        Sph(s) => {
-            hit = sphere_t(r, s);
-            if hit {
-                return *hit;
-            }
-            return inf;
-        }
-        Tri(t) => return distmin(r, t);
-    }
-}
-
-func distmax(r : Ray, sh : Shape) -> Float {
-    match sh {
-        Sph(s) => {
-            hit = sphere_t(r, s);
-            if hit {
-                return *hit;
-            }
-            return -inf;
-        }
-        Tri(t) => return distmax(r, t);
-    }
-}
-
-func intersects(r : Ray, sh : Shape) -> bool {
-    match sh {
-        Sph(s) => return cast[[bool]](sphere_t(r, s));
-        Tri(t) => return intersects(r, t);
-    }
-}
-
-// pbrt: the geometric normal at a hit. A sphere's points away from the centre;
-// a triangle's is the same everywhere on it.
-func normal_at(sh : Shape, p : vec3f) -> vec3f {
-    match sh {
-        Sph(s) => return (p - s.center) / s.radius;
-        Tri(t) => return unit_vector(cross(t.p1 - t.p0, t.p2 - t.p0));
-    }
-}
-
-// pbrt: SampledSpectrum and SampledWavelengths, from util/spectrum.h.
-//
-// A spectrum is not a curve here but four samples of one, at four wavelengths
-// chosen per ray. That is v4's central representation and it maps onto a
-// bonsai vector exactly, which is why the plan puts spectra this early: every
-// function that carries radiance has to carry these, and retrofitting them
-// later would be the expensive edit.
-element SampledWavelengths {
-    lambda : vec4f;
-    pdf : vec4f;
-}
-
-// pbrt: SampleVisibleWavelengths and VisibleWavelengthsPDF, from
-// util/spectrum.h. A fit to where the eye actually responds, so that four
-// samples are spent near the middle of the visible range rather than spread
-// evenly across a span whose ends contribute almost nothing.
-//
-// This is what a film samples with -- FilmBase::SampleWavelengths calls
-// SampleVisible, and GBufferFilm inherits it. SampleUniform, which is the
-// obvious reading of "four wavelengths", belongs to SpectralFilm and gives
-// visibly different colours; the difference was measured before it was
-// believed.
-func sample_visible_wavelengths(u : vec4f) -> vec4f {
-    // atanh, which bonsai spells with a logarithm.
-    x = 0.85691062 - 1.82750197 * u;
-    atanh = 0.5 * log((1.0 + x) / (1.0 - x));
-    return 538.0 - 138.888889 * atanh;
-}
-
-func visible_wavelengths_pdf(lambda : vec4f) -> vec4f {
-    // cosh, likewise, with an exponential.
-    x = 0.0072 * (lambda - 538.0);
-    cosh = 0.5 * (exp(x) + exp(0.0 - x));
-    density = 0.0039398042 / (cosh * cosh);
-    outside = (lambda < 360.0) | (lambda > 830.0);
-    return select(outside, 0.0, density);
-}
-
-// pbrt: SampledWavelengths::SampleVisible. One number becomes four, spread a
-// quarter of the way apart through the sample's own space and wrapped, so that
-// the four are stratified rather than four draws of the same distribution.
-func sample_wavelengths_visible(u : Float) -> SampledWavelengths {
-    offsets = vec4f{0.0, 0.25, 0.5, 0.75};
-    raw = u + offsets;
-    up = select(raw > 1.0, raw - 1.0, raw);
-    lambda = sample_visible_wavelengths(up);
-    w : SampledWavelengths = {lambda, visible_wavelengths_pdf(lambda)};
-    return w;
-}
-
-// pbrt: RGBSigmoidPolynomial, the three coefficients an RGB albedo is fitted
-// to. The driver runs the fit -- see rgb2spec.h -- exactly as pbrt looks it up
-// in a table it generated offline, because a Gauss-Newton solve is not
-// something to do per ray.
-element SigmoidPolynomial {
-    c0, c1, c2 : Float;
-}
-
-// pbrt: RGBSigmoidPolynomial::s, the sigmoid that keeps a reflectance inside
-// zero and one however the polynomial swings.
-func sigmoid(x : vec4f) -> vec4f {
-    return 0.5 + x / (2.0 * sqrt(1.0 + x * x));
-}
-
-func spectrum_at(p : SigmoidPolynomial, w : SampledWavelengths) -> vec4f {
-    // pbrt evaluates the quadratic by Horner, so this does too: the grouping
-    // is part of the answer in floating point.
-    x = fma(fma(p.c0, w.lambda, p.c1), w.lambda, p.c2);
-    return sigmoid(x);
-}
-
-// The CIE curves and the film's illuminant, tabulated once per nanometre from
-// 360 to 830. Generated from pbrt's own source and checked against a running
-// pbrt; see make_spectrum_tables.py and `scene_dump --check-tables`.
-extern cie_x : array[Float, 471];
-extern cie_y : array[Float, 471];
-extern cie_z : array[Float, 471];
-extern illuminant_d65 : array[Float, 471];
-
-// pbrt: DenselySampledSpectrum::operator(), which rounds to the nearest
-// nanometre rather than interpolating -- the table is dense enough that it
-// does not, and matching means rounding the same way.
-func spectrum_at_dense(table : array[Float, 471],
-                       w : SampledWavelengths) -> vec4f {
-    // Every wavelength SampleUniform produces is already inside the table's
-    // range, so this indexes without clamping; a sampler that could stray
-    // outside it would need pbrt's zero-outside-the-range answer here.
-    o = cast[[vector[i32, 4]]](round(w.lambda) - 360.0);
-    return vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
-}
-
-// pbrt: SampledSpectrum::ToXYZ followed by RGBColorSpace::ToRGB.
-//
-// Each of X, Y and Z is the spectrum against that matching curve, averaged
-// over the four samples and divided by the probability each was drawn with --
-// a Monte Carlo estimate of an integral, which is what four samples of a
-// spectrum can give. The division by the CIE Y integral is what makes a
-// perfectly reflecting surface come out at one rather than at 106.
-func average_over_pdf(v : vec4f, w : SampledWavelengths) -> Float {
-    // pbrt: SafeDiv, because a wavelength can be drawn with zero density.
-    return sum(select(w.pdf == 0.0, 0.0, v / w.pdf)) / 4.0;
-}
-
-func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
-    x = average_over_pdf(spectrum_at_dense(cie_x, w) * s, w);
-    y = average_over_pdf(spectrum_at_dense(cie_y, w) * s, w);
-    z = average_over_pdf(spectrum_at_dense(cie_z, w) * s, w);
-    xyz = vec3f{x, y, z} / 106.856895;
-
-    // pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because
-    // the driver would otherwise have to pass a matrix that never changes.
-    return vec3f{
-        3.2406 * xyz.x - 1.5372 * xyz.y - 0.4986 * xyz.z,
-        -0.9689 * xyz.x + 1.8758 * xyz.y + 0.0415 * xyz.z,
-        0.0557 * xyz.x - 0.2040 * xyz.y + 1.0570 * xyz.z};
-}
+import apps/pbrt/camera;
+import apps/pbrt/sampler;
+import apps/pbrt/shapes;
+import apps/pbrt/spectrum;
 
 // pbrt: GeometricPrimitive, which is what a BVH is actually built over -- a
 // shape paired with the material it is made of. The geometry answers where a
 // ray hits; the material answers what is there.
-//
-// M1 needs one number from a material, the reflectance of pbrt's `diffuse`,
-// so that is what this carries. A material of its own, behind a tag the way
-// Shape is, is M5.
 element Primitive {
     shape : Shape;
     // pbrt: the RGBAlbedoSpectrum a diffuse material holds, which is its RGB
@@ -800,37 +117,64 @@ func visible_surface(r : Ray,
 // One flat loop over pixels rather than two nested ones, because the schedule
 // wants a single index to bind.
 //
-// The film has no size on it: the caller owns the allocation, and how many
-// pixels there are is the resolution, which is already here. Naming a length
-// as well would be naming the same fact twice and inviting the two to
-// disagree.
 // Two outputs because pbrt's gbuffer film records several channels from one
 // render, and comparing only one of them was how a normal pointing the wrong
 // way went unnoticed for as long as it did.
+//
+// The film has no size on it: the caller owns the allocation, and how many
+// pixels there are is the resolution, which is already here.
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
+                       sampler : Sampler,
                        normal_out : mut array[vec3f],
                        albedo_out : mut array[vec3f]) -> void {
+    spp = samples_per_pixel(sampler);
     parfor p in 0u:(width * height) {
         i = p % width;
         j = p / width;
-        // pbrt: GetCameraSample, at the pixel centre with no filter.
-        sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
-                                    cast[[Float]](j) + 0.5},
-                              vec2f{0.0, 0.0}, 0.0, 1.0};
-        ray = generate_ray(camera, sample);
-        // pbrt draws the wavelengths from the sampler and, with
-        // --disable-wavelength-jitter, uses 0.5 for every pixel. That is what
-        // the comparison runs, so it is what this does.
-        lambda = sample_wavelengths_visible(0.5);
-        found = visible_surface(ray, lambda);
-        if found {
-            surface = *found;
-            normal_out[p] = surface.n;
-            albedo_out[p] = surface.albedo;
-        } else {
-            normal_out[p] = vec3f{0.0, 0.0, 0.0};
-            albedo_out[p] = vec3f{0.0, 0.0, 0.0};
+
+        normal_out[p] = vec3f{0.0, 0.0, 0.0};
+        albedo_out[p] = vec3f{0.0, 0.0, 0.0};
+
+        // The samples of a pixel are a parfor and an atomic accumulate, not a
+        // sequential loop, because a sequential loop cannot be scheduled: the
+        // algorithm says what may run at once and the schedule decides what to
+        // spend on it. Nothing binds `s` here, so the compiler takes the lock
+        // back off and the sum runs in sample order -- which is also what
+        // makes this agree with pbrt down to the last bit, since pbrt adds a
+        // pixel's samples in that order too. Binding `s` would trade that for
+        // parallelism, which is a trade the schedule is allowed to make.
+        parfor s in 0u:spp {
+            // pbrt: EvaluatePixelSample. StartPixelSample reseeds per sample,
+            // so a sample's draws depend on nothing but its own index.
+            state : mut SamplerState =
+                start_pixel_sample(sampler, cast[[i32]](i), cast[[i32]](j), s);
+            // The first draw of the sample is the wavelength's; pbrt makes it
+            // whether or not --disable-wavelength-jitter then overrides the
+            // result, so the stream is in the same place either way. Through
+            // the sampler rather than from the generator directly, because a
+            // stratified sampler's first draw is a stratum rather than a
+            // uniform.
+            lambda = sample_wavelengths_visible(get_1d(sampler, state));
+
+            // pbrt: GetCameraSample. With --disable-pixel-jitter every sample
+            // sits at the pixel's centre and weighs one, so the film's
+            // weighted sum is a plain average.
+            sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
+                                        cast[[Float]](j) + 0.5},
+                                  vec2f{0.5, 0.5}, 0.5, 1.0};
+            ray = generate_ray(camera, sample);
+
+            found = visible_surface(ray, lambda);
+            if found {
+                surface = *found;
+                atomic normal_out[p] += surface.n;
+                atomic albedo_out[p] += surface.albedo;
+            }
         }
+
+        inv = 1.0 / cast[[Float]](spp);
+        normal_out[p] = normal_out[p] * inv;
+        albedo_out[p] = albedo_out[p] * inv;
     }
     return;
 }

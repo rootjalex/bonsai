@@ -1,0 +1,137 @@
+// pbrt: interval arithmetic, from util/float.h and util/math.h.
+//
+// A range that certainly contains the exact value, so that a decision made on
+// its bounds -- "is the discriminant surely negative?" -- is one the rounding
+// cannot have got wrong. This is what lets a grazing ray be rejected only when
+// no rounding of the inputs could have made it a hit, and it is the difference
+// between agreeing with pbrt along a silhouette and not.
+import stdlib/numerics;
+
+// pbrt: NextFloatUp/NextFloatDown.
+//
+// One step along the real line, in the only sense a float has one: the next
+// representable value is the next bit pattern. This is what makes the interval
+// arithmetic below sound -- every operation is nudged outwards by one ulp, so
+// the interval is guaranteed to contain the exact answer.
+func next_float_up(v : Float) -> Float {
+    if v == inf { return v; }
+    w = select(v == 0.0, 0.0, v);
+    ui = reinterpret[[u32]](w);
+    return reinterpret[[Float]](select(w >= 0.0, ui + 1u, ui - 1u));
+}
+
+func next_float_down(v : Float) -> Float {
+    if v == -inf { return v; }
+    w = select(v == 0.0, -0.0, v);
+    ui = reinterpret[[u32]](w);
+    return reinterpret[[Float]](select(w > 0.0, ui - 1u, ui + 1u));
+}
+
+// pbrt: the outward-rounded operations of util/float.h. Without hardware
+// rounding modes these are the plain operation stepped one ulp the right way,
+// which is what pbrt itself does off the GPU.
+func add_round_up(a : Float, b : Float) -> Float = next_float_up(a + b);
+func add_round_down(a : Float, b : Float) -> Float = next_float_down(a + b);
+func sub_round_up(a : Float, b : Float) -> Float = add_round_up(a, -b);
+func sub_round_down(a : Float, b : Float) -> Float = add_round_down(a, -b);
+func mul_round_up(a : Float, b : Float) -> Float = next_float_up(a * b);
+func mul_round_down(a : Float, b : Float) -> Float = next_float_down(a * b);
+func div_round_up(a : Float, b : Float) -> Float = next_float_up(a / b);
+func div_round_down(a : Float, b : Float) -> Float = next_float_down(a / b);
+func sqrt_round_up(a : Float) -> Float = next_float_up(sqrt(a));
+func sqrt_round_down(a : Float) -> Float = max(0.0, next_float_down(sqrt(a)));
+
+// pbrt: Interval, from util/math.h.
+element Interval {
+    low, high : Float;
+}
+
+// A value known exactly has zero width.
+func exact(v : Float) -> Interval {
+    i : Interval = {v, v};
+    return i;
+}
+
+// pbrt: operator Float(), the value to use once the reasoning is done.
+func mid(i : Interval) -> Float = 0.5 * (i.low + i.high);
+
+func iadd(a : Interval, b : Interval) -> Interval {
+    r : Interval = {add_round_down(a.low, b.low), add_round_up(a.high, b.high)};
+    return r;
+}
+
+func isub(a : Interval, b : Interval) -> Interval {
+    r : Interval = {sub_round_down(a.low, b.high), sub_round_up(a.high, b.low)};
+    return r;
+}
+
+// Every pairing of the endpoints, because the sign of either operand decides
+// which pairing is extreme.
+func imul(a : Interval, b : Interval) -> Interval {
+    lo = min(min(mul_round_down(a.low, b.low), mul_round_down(a.high, b.low)),
+             min(mul_round_down(a.low, b.high), mul_round_down(a.high, b.high)));
+    hi = max(max(mul_round_up(a.low, b.low), mul_round_up(a.high, b.low)),
+             max(mul_round_up(a.low, b.high), mul_round_up(a.high, b.high)));
+    r : Interval = {lo, hi};
+    return r;
+}
+
+func in_range(v : Float, i : Interval) -> bool = (v >= i.low) & (v <= i.high);
+
+func idiv(a : Interval, b : Interval) -> Interval {
+    // A divisor straddling zero says nothing about the quotient.
+    if in_range(0.0, b) {
+        unbounded : Interval = {-inf, inf};
+        return unbounded;
+    }
+    lo = min(min(div_round_down(a.low, b.low), div_round_down(a.high, b.low)),
+             min(div_round_down(a.low, b.high), div_round_down(a.high, b.high)));
+    hi = max(max(div_round_up(a.low, b.low), div_round_up(a.high, b.low)),
+             max(div_round_up(a.low, b.high), div_round_up(a.high, b.high)));
+    r : Interval = {lo, hi};
+    return r;
+}
+
+// pbrt: Sqr(Interval). A square is never negative, so an interval containing
+// zero has zero for its lower bound rather than the smaller endpoint squared.
+func isqr(i : Interval) -> Interval {
+    alow = min(abs(i.low), abs(i.high));
+    ahigh = max(abs(i.low), abs(i.high));
+    lo = select(in_range(0.0, i), 0.0, mul_round_down(alow, alow));
+    r : Interval = {lo, mul_round_up(ahigh, ahigh)};
+    return r;
+}
+
+func isqrt(i : Interval) -> Interval {
+    r : Interval = {sqrt_round_down(i.low), sqrt_round_up(i.high)};
+    return r;
+}
+
+// pbrt: Interval::FromValueAndError. An exact value keeps zero width, which
+// matters: widening it would be widening every interval downstream.
+func from_value_and_error(v : Float, err : Float) -> Interval {
+    lo = select(err == 0.0, v, sub_round_down(v, err));
+    hi = select(err == 0.0, v, add_round_up(v, err));
+    i : Interval = {lo, hi};
+    return i;
+}
+
+// pbrt: Transform::operator()(Point3fi) and operator()(Vector3fi), for the
+// translation that carries a sphere into object space.
+//
+// The width here is not one ulp. It is pbrt's gamma(3) bound over the terms of
+// a matrix row -- three products and three sums, any of which may round -- and
+// it is several times wider than a single step. That width is the whole game
+// for a grazing ray: it is what makes the discriminant's lower bound negative
+// and the ray therefore a miss. Deriving these intervals from the arithmetic
+// actually performed here, rather than from the matrix pbrt performs it with,
+// would give something narrower and so report hits that pbrt does not.
+//
+// The row for a translation is (1, 0, 0, -c), so of the four terms only the
+// product with one and the translation itself are nonzero.
+func point_to_object(p : Float, c : Float) -> Interval =
+    from_value_and_error(p - c, gamma(3) * (abs(p) + abs(c)));
+
+// A direction ignores the translation column, leaving only the product.
+func vector_to_object(d : Float) -> Interval =
+    from_value_and_error(d, gamma(3) * abs(d));

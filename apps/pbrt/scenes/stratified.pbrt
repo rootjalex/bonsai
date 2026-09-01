@@ -1,0 +1,48 @@
+# The same geometry as three-spheres, sampled with pbrt's stratified sampler.
+#
+# It exists so that the sampler is something the scene chooses rather than
+# something the renderer hardcodes. The stratified sampler is not a
+# differently-seeded independent one: a draw is the sample's own cell of a grid,
+# and which cell that is comes from a permutation of the sample indices chosen
+# by the pixel, the dimension and the seed. Rendering this and the independent
+# scene to the same answer would mean the choice was being ignored.
+#
+# Smaller than three-spheres because what is being checked here is the sampler
+# rather than the traversal, and sixteen samples a pixel is sixteen times the
+# work.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+# A non-square grid, so that the two axes cannot be swapped unnoticed.
+Sampler "stratified" "integer xsamples" [4] "integer ysamples" [2]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [450]
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]
