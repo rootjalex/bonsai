@@ -68,6 +68,16 @@ struct Node {
 enum SamplerTag : uint32_t {
     Independent = 0,
     Stratified = 1,
+    Halton = 2,
+};
+
+// pbrt: RandomizeStrategy, which is how a Halton sampler breaks up the
+// correlation between its dimensions. `permutedigits` is what a scene gets
+// when it does not say.
+enum RandomizeTag : uint32_t {
+    RandomizeNone = 0,
+    RandomizePermuteDigits = 1,
+    RandomizeOwen = 2,
 };
 
 // Which sampler the scene asked for, and what it was given.
@@ -87,6 +97,16 @@ struct Sampler {
     uint32_t x_samples = 1;
     uint32_t y_samples = 1;
     uint32_t jitter = 1;
+    // Halton only. The randomization, and what pbrt's constructor derives from
+    // the film resolution: how far the first two dimensions of the sequence
+    // tile before repeating, as a scale and its exponent, and the
+    // multiplicative inverse of each scale modulo the other. Those last are
+    // what combine a pixel's two radical-inverse offsets into one index, and
+    // they are derived rather than authored -- see scene_dump.cpp.
+    uint32_t randomize = RandomizeTag::RandomizePermuteDigits;
+    int32_t base_scales[2] = {1, 1};
+    int32_t base_exponents[2] = {0, 0};
+    int32_t mult_inverse[2] = {0, 0};
 };
 
 struct Scene {
@@ -121,6 +141,15 @@ inline bool write(const char *path, const Scene &scene) {
         out << "sampler stratified " << scene.sampler.x_samples << ' '
             << scene.sampler.y_samples << ' ' << scene.sampler.seed << ' '
             << scene.sampler.jitter << '\n';
+    } else if (scene.sampler.tag == SamplerTag::Halton) {
+        out << "sampler halton " << scene.sampler.samples_per_pixel << ' '
+            << scene.sampler.seed << ' ' << scene.sampler.randomize << ' '
+            << scene.sampler.base_scales[0] << ' '
+            << scene.sampler.base_scales[1] << ' '
+            << scene.sampler.base_exponents[0] << ' '
+            << scene.sampler.base_exponents[1] << ' '
+            << scene.sampler.mult_inverse[0] << ' '
+            << scene.sampler.mult_inverse[1] << '\n';
     } else {
         out << "sampler independent " << scene.sampler.samples_per_pixel << ' '
             << scene.sampler.seed << '\n';
@@ -193,6 +222,13 @@ inline bool read(const char *path, Scene &scene) {
             scene.sampler.seed >> scene.sampler.jitter;
         scene.sampler.samples_per_pixel =
             scene.sampler.x_samples * scene.sampler.y_samples;
+    } else if (word == "halton") {
+        scene.sampler.tag = SamplerTag::Halton;
+        in >> scene.sampler.samples_per_pixel >> scene.sampler.seed >>
+            scene.sampler.randomize >> scene.sampler.base_scales[0] >>
+            scene.sampler.base_scales[1] >> scene.sampler.base_exponents[0] >>
+            scene.sampler.base_exponents[1] >> scene.sampler.mult_inverse[0] >>
+            scene.sampler.mult_inverse[1];
     } else if (word == "independent") {
         scene.sampler.tag = SamplerTag::Independent;
         in >> scene.sampler.samples_per_pixel >> scene.sampler.seed;

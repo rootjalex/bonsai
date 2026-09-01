@@ -32,7 +32,11 @@
 #include <pbrt/util/hash.h>
 #include <pbrt/shapes.h>
 #include <pbrt/util/colorspace.h>
+#include <pbrt/util/file.h>
+#include <pbrt/util/loopsubdiv.h>
+#include <pbrt/util/lowdiscrepancy.h>
 #include <pbrt/util/math.h>
+#include <pbrt/util/primes.h>
 #include <pbrt/util/mesh.h>
 #include <pbrt/util/spectrum.h>
 #include <pbrt/util/transform.h>
@@ -340,6 +344,84 @@ void print_sampler() {
             printf("\n");
         }
     }
+
+    // The Halton sampler, which is what scenes in the wild actually ask for.
+    // Not a stream of uniforms at all: a deterministic sequence shared by the
+    // whole image, so a pixel's samples are the entries of it that land inside
+    // that pixel. Three separate things have to be reproduced -- the radical
+    // inverses, the digit permutations that randomize them, and the index
+    // arithmetic that decides where a pixel starts -- and each is printed on
+    // its own below before the sampler that combines them.
+    for (int base_index : {0, 1, 4, 25}) {
+        printf("radinv %d:", base_index);
+        for (uint64_t a : {0ull, 1ull, 2ull, 7ull, 1000ull, 123456789ull}) {
+            printf(" %.9g", double(pbrt::RadicalInverse(base_index, a)));
+        }
+        printf("\n");
+    }
+    for (int base : {2, 3, 7}) {
+        for (int n : {1, 4}) {
+            printf("invradinv %d %d:", base, n);
+            for (uint64_t v : {0ull, 1ull, 5ull, 40ull}) {
+                printf(" %llu", static_cast<unsigned long long>(
+                                    pbrt::InverseRadicalInverse(v, base, n)));
+            }
+            printf("\n");
+        }
+    }
+    // The permutations are built once for every dimension; asking for a few
+    // checks both the table and the hash that seeds each digit of it.
+    {
+        pstd::vector<pbrt::DigitPermutation> *perms =
+            pbrt::ComputeRadicalInversePermutations(0, pbrt::Allocator());
+        for (int base_index : {0, 1, 4, 25}) {
+            printf("scramrad %d:", base_index);
+            for (uint64_t a : {0ull, 1ull, 2ull, 7ull, 1000ull, 123456789ull}) {
+                printf(" %.9g", double(pbrt::ScrambledRadicalInverse(
+                                    base_index, a, (*perms)[base_index])));
+            }
+            printf("\n");
+        }
+    }
+    for (int base_index : {0, 1, 4}) {
+        printf("owenrad %d:", base_index);
+        for (uint64_t a : {0ull, 1ull, 7ull, 1000ull}) {
+            const uint32_t h =
+                pbrt::MixBits(1 + (uint64_t(base_index) << 4));
+            printf(" %.9g",
+                   double(pbrt::OwenScrambledRadicalInverse(base_index, a, h)));
+        }
+        printf("\n");
+    }
+    // And the sampler itself. A resolution that is not square and not a power
+    // of two, so the two base scales differ and neither is trivial.
+    {
+        const pbrt::Point2i res(700, 700);
+        const pbrt::Point2i pixels[] = {{0, 0}, {1, 0}, {0, 1}, {37, 11},
+                                        {699, 699}};
+        for (const pbrt::Point2i &p : pixels) {
+            for (int sample = 0; sample < 2; sample++) {
+                pbrt::HaltonSampler sampler(
+                    16, res, pbrt::RandomizeStrategy::PermuteDigits, 0);
+                sampler.StartPixelSample(p, sample, 0);
+                printf("halton %d %d sample %d:", p.x, p.y, sample);
+                for (int i = 0; i < 2; i++) {
+                    printf(" %.9g", double(sampler.Get1D()));
+                }
+                const pbrt::Point2f uv = sampler.Get2D();
+                const pbrt::Point2f pix = sampler.GetPixel2D();
+                printf(" | %.9g %.9g | %.9g %.9g\n", double(uv.x), double(uv.y),
+                       double(pix.x), double(pix.y));
+            }
+        }
+    }
+    // The first ten primes, so a mistranscribed table is caught here rather
+    // than as a wrong answer three functions later.
+    printf("primes:");
+    for (int i = 0; i < 10; i++) {
+        printf(" %d", pbrt::Primes[i]);
+    }
+    printf(" ... %d\n", pbrt::Primes[pbrt::PrimeTableSize - 1]);
 }
 
 // PBRT's LinearBVHNode, which is declared in aggregates.h but defined inside
@@ -467,6 +549,136 @@ bool translation_only(const pbrt::Transform &t, pbrt::Vector3f *offset) {
     return true;
 }
 
+// What PBRT's HaltonSampler constructor derives from the film resolution.
+//
+// The first two dimensions of the Halton sequence are base 2 and base 3, and
+// their leading digits are what decide which pixel a sample lands in. So the
+// scales are the smallest power of each base that covers the image -- capped at
+// MaxHaltonResolution, above which the pattern repeats rather than growing --
+// and the exponents say how many digits that took.
+//
+// The multiplicative inverses are the Chinese remainder theorem: given where a
+// sample sits along each axis, they recover the one sequence index that puts it
+// there. Powers of two and three are coprime, so each is invertible modulo the
+// other.
+//
+// Here rather than in bonsai because PBRT computes it in a constructor, once per
+// render, from numbers the scene already fixed -- the same reason the sigmoid
+// fit and the spectral tables are computed out here.
+void halton_scales(int x_resolution, int y_resolution,
+                   bonsai_scene::Sampler &sampler) {
+    static constexpr int kMaxHaltonResolution = 128;
+    const int resolution[2] = {x_resolution, y_resolution};
+    for (int i = 0; i < 2; i++) {
+        const int base = (i == 0) ? 2 : 3;
+        int scale = 1, exponent = 0;
+        while (scale < std::min(resolution[i], kMaxHaltonResolution)) {
+            scale *= base;
+            ++exponent;
+        }
+        sampler.base_scales[i] = scale;
+        sampler.base_exponents[i] = exponent;
+    }
+
+    // PBRT's extendedGCD, iteratively. `x` is the inverse of a modulo n once
+    // the recursion unwinds, and Mod rather than % because it can come out
+    // negative.
+    const auto inverse = [](int64_t a, int64_t n) {
+        int64_t old_r = a, r = n;
+        int64_t old_s = 1, s = 0;
+        while (r != 0) {
+            const int64_t q = old_r / r;
+            int64_t t = old_r - q * r;
+            old_r = r;
+            r = t;
+            t = old_s - q * s;
+            old_s = s;
+            s = t;
+        }
+        const int64_t m = old_s % n;
+        return int32_t(m < 0 ? m + n : m);
+    };
+    sampler.mult_inverse[0] =
+        inverse(sampler.base_scales[1], sampler.base_scales[0]);
+    sampler.mult_inverse[1] =
+        inverse(sampler.base_scales[0], sampler.base_scales[1]);
+}
+
+// The triangles a shape entity comes to, or null if it is not a mesh.
+//
+// A .pbrt file spells its geometry many ways -- an explicit index buffer, a PLY
+// file, a subdivision control cage -- and all but a handful of them are a
+// triangle mesh by the time PBRT is finished with them. Only the last step of
+// that is shared, so this dispatches on the name exactly as PBRT's own
+// Shape::Create does, and each arm hands the work straight back to PBRT: the
+// PLY reader, the Loop subdivider, the mesh constructor. Nothing here
+// reimplements any of it, which matters most for `loopsubdiv` -- the tessellated
+// vertex positions are a limit surface, not a copy of the control cage, and a
+// second implementation of Loop subdivision would be a second answer.
+//
+// Returning the mesh rather than PBRT's `Shape`s is what keeps this to public
+// API. A built Triangle knows its vertices only through private members, where
+// TriangleMesh publishes an index buffer and a vertex array -- and the mesh is
+// what every one of these factories produces anyway.
+//
+// Render space, not object space: TriangleMesh's constructor applies the
+// transform to the vertices rather than storing it, so a shape's placement is
+// already baked in here the same way it is in PBRT.
+const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
+    const std::string name(entity.name);
+    pbrt::Allocator alloc;
+
+    if (name == "trianglemesh") {
+        return pbrt::Triangle::CreateMesh(entity.renderFromObject,
+                                          entity.reverseOrientation,
+                                          entity.parameters, &entity.loc, alloc);
+    }
+
+    if (name == "loopsubdiv") {
+        // PBRT's default is three levels, and the level count changes the
+        // geometry rather than merely refining it, so the default has to be
+        // PBRT's default and not a cheaper one.
+        const int levels = entity.parameters.GetOneInt("levels", 3);
+        const std::vector<int> indices =
+            entity.parameters.GetIntArray("indices");
+        const std::vector<pbrt::Point3f> P =
+            entity.parameters.GetPoint3fArray("P");
+        if (indices.empty() || P.empty()) {
+            fail("a loopsubdiv shape is missing \"indices\" or \"P\"");
+        }
+        return pbrt::LoopSubdivide(entity.renderFromObject,
+                                   entity.reverseOrientation, levels, indices,
+                                   P, alloc);
+    }
+
+    if (name == "plymesh") {
+        const std::string file =
+            pbrt::ResolveFilename(entity.parameters.GetOneString("filename", ""));
+        if (file.empty()) {
+            fail("a plymesh has no \"filename\"");
+        }
+        const pbrt::TriQuadMesh ply = pbrt::TriQuadMesh::ReadPLY(file);
+        // A PLY may hold quads as well as triangles, and PBRT makes those a
+        // bilinear patch mesh rather than splitting them -- a bilinear patch is
+        // not two triangles unless it happens to be planar. Refusing is the
+        // honest answer until the renderer has the shape.
+        if (!ply.quadIndices.empty()) {
+            fail("the PLY file " + file +
+                 " contains quads, which are bilinear patches in pbrt rather "
+                 "than pairs of triangles");
+        }
+        if (ply.triIndices.empty()) {
+            fail("the PLY file " + file + " has no triangles");
+        }
+        return alloc.new_object<pbrt::TriangleMesh>(
+            *entity.renderFromObject, entity.reverseOrientation, ply.triIndices,
+            ply.p, std::vector<pbrt::Vector3f>(), ply.n, ply.uv,
+            ply.faceIndices, alloc);
+    }
+
+    return nullptr;
+}
+
 // Parse and convert. Everything PBRT owns is local to this function, so all of
 // it is destroyed on the way out -- before CleanupPBRT takes the arenas it was
 // allocated from out from under it. Doing this inline in main instead crashes
@@ -491,10 +703,10 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     out.width = uint32_t(x_resolution);
     out.height = uint32_t(y_resolution);
 
-    // The two samplers that are a stream of uniforms. The others -- halton,
-    // sobol, zsobol -- are low-discrepancy sequences built quite differently,
-    // so a scene asking for one would get noise that is not pbrt's while
-    // looking perfectly reasonable, which is the failure worth refusing.
+    // The three samplers the renderer reproduces. Sobol and zsobol are a
+    // different construction again and are refused rather than approximated: a
+    // stand-in would give noise that is not pbrt's while looking perfectly
+    // reasonable, which is the failure worth refusing.
     //
     // The defaults below are pbrt's own, from IndependentSampler::Create and
     // StratifiedSampler::Create; a scene that names a sampler without naming
@@ -503,6 +715,25 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         out.sampler.tag = bonsai_scene::SamplerTag::Independent;
         out.sampler.samples_per_pixel =
             uint32_t(builder.sampler_params.GetOneInt("pixelsamples", 4));
+    } else if (builder.sampler_name == "halton") {
+        out.sampler.tag = bonsai_scene::SamplerTag::Halton;
+        out.sampler.samples_per_pixel =
+            uint32_t(builder.sampler_params.GetOneInt("pixelsamples", 16));
+        const std::string randomization =
+            builder.sampler_params.GetOneString("randomization",
+                                                "permutedigits");
+        if (randomization == "none") {
+            out.sampler.randomize = bonsai_scene::RandomizeTag::RandomizeNone;
+        } else if (randomization == "permutedigits") {
+            out.sampler.randomize =
+                bonsai_scene::RandomizeTag::RandomizePermuteDigits;
+        } else if (randomization == "owen") {
+            out.sampler.randomize = bonsai_scene::RandomizeTag::RandomizeOwen;
+        } else {
+            // "fastowen" is what PBRT itself refuses for this sampler.
+            fail("unknown Halton randomization \"" + randomization + "\"");
+        }
+        halton_scales(x_resolution, y_resolution, out.sampler);
     } else if (builder.sampler_name == "stratified") {
         out.sampler.tag = bonsai_scene::SamplerTag::Stratified;
         out.sampler.x_samples =
@@ -514,8 +745,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         out.sampler.samples_per_pixel =
             out.sampler.x_samples * out.sampler.y_samples;
     } else {
-        fail("only the independent and stratified samplers are supported, "
-             "scene asks for \"" +
+        fail("only the independent, stratified and halton samplers are "
+             "supported, scene asks for \"" +
              builder.sampler_name + "\"");
     }
     out.sampler.seed = builder.sampler_params.GetOneInt("seed", 0);
@@ -562,22 +793,15 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             memcpy(shape.reflectance, reflectance, sizeof(reflectance));
             shapes.push_back(shape);
 
-        } else if (name == "trianglemesh") {
-            const std::vector<int> indices =
-                entity.parameters.GetIntArray("indices");
-            const std::vector<pbrt::Point3f> P =
-                entity.parameters.GetPoint3fArray("P");
-            if (indices.size() % 3 != 0) {
-                fail("a trianglemesh has an index count that is not a multiple "
-                     "of three");
-            }
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                // Object space to render space, which for a mesh is a matter of
-                // moving the vertices; PBRT does the same in TriangleMesh's
-                // constructor rather than keeping the transform.
-                const pbrt::Point3f p0 = render_from_object(P[indices[i + 0]]);
-                const pbrt::Point3f p1 = render_from_object(P[indices[i + 1]]);
-                const pbrt::Point3f p2 = render_from_object(P[indices[i + 2]]);
+        } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
+            // Everything that is ultimately a mesh arrives here already
+            // triangulated by PBRT, in render space, so there is one loop for
+            // all of them rather than one per shape type. See `triangulate`.
+            const int *v = mesh->vertexIndices;
+            for (int i = 0; i < mesh->nTriangles; i++) {
+                const pbrt::Point3f p0 = mesh->p[v[3 * i + 0]];
+                const pbrt::Point3f p1 = mesh->p[v[3 * i + 1]];
+                const pbrt::Point3f p2 = mesh->p[v[3 * i + 2]];
                 bonsai_scene::Shape shape = {};
                 shape.tag = bonsai_scene::ShapeTag::Triangle;
                 shape.p0[0] = float(p0.x);

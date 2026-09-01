@@ -383,9 +383,36 @@ int main(int argc, char **argv) {
         Sampler_Stratified(sampler, loaded.sampler.x_samples,
                            loaded.sampler.y_samples, loaded.sampler.seed,
                            loaded.sampler.jitter != 0);
+    } else if (loaded.sampler.tag == bonsai_scene::SamplerTag::Halton) {
+        Sampler_Halton(sampler, loaded.sampler.samples_per_pixel,
+                       loaded.sampler.seed, int32_t(loaded.sampler.randomize),
+                       loaded.sampler.base_scales[0],
+                       loaded.sampler.base_scales[1],
+                       loaded.sampler.base_exponents[0],
+                       loaded.sampler.base_exponents[1],
+                       loaded.sampler.mult_inverse[0],
+                       loaded.sampler.mult_inverse[1]);
     } else {
         Sampler_Independent(sampler, loaded.sampler.samples_per_pixel,
                             loaded.sampler.seed);
+    }
+
+    // pbrt: the first thousand primes, which are the Halton sequence's bases,
+    // one per dimension. Sieved rather than tabulated -- a table of a thousand
+    // numbers is a thousand chances to mistype one, and this is checked against
+    // pbrt's own table by `scene_dump --print-sampler`.
+    std::array<int32_t, 1000> primes;
+    {
+        size_t found = 0;
+        for (int32_t n = 2; found < primes.size(); n++) {
+            bool prime = true;
+            for (int32_t d = 2; d * d <= n && prime; d++) {
+                prime = n % d != 0;
+            }
+            if (prime) {
+                primes[found++] = n;
+            }
+        }
     }
 
     // pbrt fits every RGB albedo to three sigmoid coefficients once, offline,
@@ -464,7 +491,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, out, albedo,
-               x, y, z, d65, tree);
+               x, y, z, d65, primes, tree);
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());

@@ -1,0 +1,296 @@
+//! flags: -b llvm -e
+
+// pbrt's HaltonSampler and the low-discrepancy machinery under it, reproduced
+// exactly. Every number below is pbrt's own, printed by
+// `apps/pbrt/scene_dump --print-sampler`.
+//
+// This is the sampler every scene in the wild actually asks for -- 81 of the 87
+// scenes in pbrt-v4-scenes name it and none name any other -- and it is not a
+// stream of uniforms. It is one deterministic sequence shared by the whole
+// image: a pixel's samples are the entries of it that happen to land inside
+// that pixel, found by inverting the first two radical inverses. Nothing about
+// it can be approximated by drawing random numbers, which is the reason it is
+// implemented rather than stood in for.
+//
+// The pieces are checked separately before the sampler that combines them,
+// because a wrong digit permutation and a wrong index both come out as a
+// plausible number in [0,1) and only disagree with pbrt in the fourth decimal.
+//
+// The functions here are a copy of apps/pbrt/sampler.bonsai rather than an
+// import of it, for the same reason the RNG in sampler.bonsai is a copy: the
+// app takes its prime table as an extern, and an extern becomes a parameter
+// that a `main` with no arguments cannot supply. The table below is the first
+// twenty-six primes, which covers every base index used here and can be checked
+// by looking at it.
+element Float = f32;
+
+func primes(i : i32) -> i32 {
+    table : array[i32, 26] = {2,  3,  5,  7,  11, 13, 17, 19, 23,
+                              29, 31, 37, 41, 43, 47, 53, 59, 61,
+                              67, 71, 73, 79, 83, 89, 97, 101};
+    return table[i];
+}
+
+func one_minus_epsilon() -> Float = 0.99999994;
+
+// pbrt: MixBits, from util/hash.h.
+func mix_bits(v : u64) -> u64 {
+    a : mut u64 = v ^ (v >> 31u);
+    a = a * 0x7fb5d329728ea185;
+    a = a ^ (a >> 27u);
+    a = a * 0x81dadef4bc2dd44d;
+    a = a ^ (a >> 33u);
+    return a;
+}
+
+// pbrt: Hash(a, b, c), MurmurHash64A over the twelve bytes three ints occupy.
+func hash3(a : i32, b : i32, c : i32) -> u64 {
+    m : u64 = 0xc6a4a7935bd1e995;
+    k : mut u64 = cast[[u64]](cast[[u32]](a)) |
+                  (cast[[u64]](cast[[u32]](b)) << 32u);
+    h : mut u64 = 12u * m;
+    k = k * m;
+    k = k ^ (k >> 47u);
+    k = k * m;
+    h = h ^ k;
+    h = h * m;
+    h = h ^ cast[[u64]](cast[[u32]](c));
+    h = h * m;
+    h = h ^ (h >> 47u);
+    h = h * m;
+    h = h ^ (h >> 47u);
+    return h;
+}
+
+// pbrt: PermutationElement, from util/math.h.
+func permutation_element(index : u32, l : u32, p : u32) -> u32 {
+    w : mut u32 = l - 1u;
+    w = w | (w >> 1u);
+    w = w | (w >> 2u);
+    w = w | (w >> 4u);
+    w = w | (w >> 8u);
+    w = w | (w >> 16u);
+
+    i : mut u32 = index;
+    do {
+        i = i ^ p;
+        i = i * 0xe170893du;
+        i = i ^ (p >> 16u);
+        i = i ^ ((i & w) >> 4u);
+        i = i ^ (p >> 8u);
+        i = i * 0x0929eb3fu;
+        i = i ^ (p >> 23u);
+        i = i ^ ((i & w) >> 1u);
+        i = i * (1u | (p >> 27u));
+        i = i * 0x6935fa69u;
+        i = i ^ ((i & w) >> 11u);
+        i = i * 0x74dcb303u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0x9e501cc3u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0xc860a3dfu;
+        i = i & w;
+        i = i ^ (i >> 5u);
+    } while i >= l;
+    return (i + p) % l;
+}
+
+// pbrt: RadicalInverse. The digits of `a` in the base for this dimension,
+// reflected about the decimal point.
+func radical_inverse(base_index : i32, a : u64) -> Float {
+    base = primes(base_index);
+    b : u64 = cast[[u64]](base);
+    limit = 0xffffffffffffffff / b - b;
+    inv_base = 1.0 / cast[[Float]](base);
+    inv_base_m : mut Float = 1.0;
+    reversed : mut u64 = 0u;
+    v : mut u64 = a;
+    while (v != 0u) && (reversed < limit) {
+        next = v / b;
+        digit = v - next * b;
+        reversed = reversed * b + digit;
+        inv_base_m = inv_base_m * inv_base;
+        v = next;
+    }
+    return min(cast[[Float]](reversed) * inv_base_m, one_minus_epsilon());
+}
+
+// pbrt: InverseRadicalInverse, the reflection undone.
+func inverse_radical_inverse(inverse : u64, base : i32, n_digits : i32) -> u64 {
+    b : u64 = cast[[u64]](base);
+    index : mut u64 = 0u;
+    v : mut u64 = inverse;
+    for i in 0:n_digits {
+        digit = v % b;
+        v = v / b;
+        index = index * b + digit;
+    }
+    return index;
+}
+
+// pbrt: DigitPermutation::Permute, computed rather than looked up in the table
+// pbrt builds -- the table is a cache of exactly this function.
+func permuted_digit(base : i32, digit_index : i32, digit_value : i32,
+                    seed : i32) -> i32 {
+    dseed = hash3(base, digit_index, seed);
+    return cast[[i32]](permutation_element(cast[[u32]](digit_value),
+                                           cast[[u32]](base),
+                                           cast[[u32]](dseed)));
+}
+
+// pbrt: ScrambledRadicalInverse, which is the randomization a scene gets when
+// it says nothing.
+func scrambled_radical_inverse(base_index : i32, a : u64, seed : i32) -> Float {
+    base = primes(base_index);
+    b : u64 = cast[[u64]](base);
+    limit = 0xffffffffffffffff / b - b;
+    inv_base = 1.0 / cast[[Float]](base);
+    inv_base_m : mut Float = 1.0;
+    reversed : mut u64 = 0u;
+    digit_index : mut i32 = 0;
+    v : mut u64 = a;
+    while (1.0 - cast[[Float]](base - 1) * inv_base_m < 1.0) &&
+          (reversed < limit) {
+        next = v / b;
+        digit_value = cast[[i32]](v - next * b);
+        permuted = permuted_digit(base, digit_index, digit_value, seed);
+        reversed = reversed * b + cast[[u64]](permuted);
+        inv_base_m = inv_base_m * inv_base;
+        digit_index = digit_index + 1;
+        v = next;
+    }
+    return min(inv_base_m * cast[[Float]](reversed), one_minus_epsilon());
+}
+
+// pbrt: OwenScrambledRadicalInverse. The permutation for a digit depends on
+// every digit above it, which is what makes the scramble nested.
+func owen_scrambled_radical_inverse(base_index : i32, a : u64,
+                                    hash : u32) -> Float {
+    base = primes(base_index);
+    b : u64 = cast[[u64]](base);
+    limit = 0xffffffffffffffff / b - b;
+    inv_base = 1.0 / cast[[Float]](base);
+    inv_base_m : mut Float = 1.0;
+    reversed : mut u64 = 0u;
+    v : mut u64 = a;
+    while (1.0 - inv_base_m < 1.0) && (reversed < limit) {
+        next = v / b;
+        digit_value = cast[[i32]](v - next * b);
+        digit_hash = cast[[u32]](mix_bits(cast[[u64]](hash) ^ reversed));
+        permuted = permutation_element(cast[[u32]](digit_value),
+                                       cast[[u32]](base), digit_hash);
+        reversed = reversed * b + cast[[u64]](permuted);
+        inv_base_m = inv_base_m * inv_base;
+        v = next;
+    }
+    return min(inv_base_m * cast[[Float]](reversed), one_minus_epsilon());
+}
+
+// pbrt: HaltonSampler::StartPixelSample and the four draws after it, for a
+// 700 by 700 film with the default `permutedigits` randomization. The base
+// scales that follow from that resolution are 128 and 243 with exponents 7 and
+// 5, and the multiplicative inverses of each modulo the other are 59 and 131 --
+// what pbrt's constructor derives, computed here by hand so the test does not
+// depend on the driver having done it.
+func halton_draws(x : i32, y : i32, sample : u32) -> void {
+    bsx : i32 = 128;
+    bsy : i32 = 243;
+    bex : i32 = 7;
+    bey : i32 = 5;
+    mix : i32 = 59;
+    miy : i32 = 131;
+    seed : i32 = 0;
+
+    stride = bsx * bsy;
+    index : mut i64 = 0;
+    if stride > 1 {
+        pmx = x % 128;
+        pmy = y % 128;
+        d0 = inverse_radical_inverse(cast[[u64]](pmx), 2, bex);
+        d1 = inverse_radical_inverse(cast[[u64]](pmy), 3, bey);
+        index = cast[[i64]](d0) * cast[[i64]]((stride / bsx) * mix) +
+                cast[[i64]](d1) * cast[[i64]]((stride / bsy) * miy);
+        index = index % cast[[i64]](stride);
+    }
+    index = index + cast[[i64]](sample) * cast[[i64]](stride);
+
+    // Get1D twice, then Get2D, starting at dimension two -- zero and one are
+    // spent placing the sample in its pixel.
+    a = cast[[u64]](index);
+    print(scrambled_radical_inverse(2, a, seed));
+    print(scrambled_radical_inverse(3, a, seed));
+    print(scrambled_radical_inverse(4, a, seed));
+    print(scrambled_radical_inverse(5, a, seed));
+
+    // GetPixel2D, which is unscrambled: a permutation of those digits would
+    // move the sample into a different pixel.
+    print(radical_inverse(0, a >> cast[[u64]](bex)));
+    print(radical_inverse(1, a / cast[[u64]](bsy)));
+    return;
+}
+
+// Indices to take the inverses of: zero, the first few, and one large enough to
+// have digits all the way down.
+func sample_indices() -> array[u64, 6] {
+    xs : array[u64, 6] = {0u, 1u, 2u, 7u, 1000u, 123456789u};
+    return xs;
+}
+
+// The dimensions to check, whose bases are 2, 3, 11 and 101 -- so a prime table
+// read at the wrong offset shows up here rather than as a plausible number.
+func check_dimensions() -> array[i32, 4] {
+    ds : array[i32, 4] = {0, 1, 4, 25};
+    return ds;
+}
+
+func main() -> i32 {
+    xs = sample_indices();
+    ds = check_dimensions();
+
+    // The radical inverses on their own.
+    for d in 0:4 {
+        for i in 0:6 {
+            print(radical_inverse(ds[d], xs[i]));
+        }
+    }
+
+    // The inverse, at one digit and at four -- the sampler uses several.
+    vs : array[u64, 4] = {0u, 1u, 5u, 40u};
+    bases : array[i32, 3] = {2, 3, 7};
+    digits : array[i32, 2] = {1, 4};
+    for b in 0:3 {
+        for n in 0:2 {
+            for i in 0:4 {
+                print(inverse_radical_inverse(vs[i], bases[b], digits[n]));
+            }
+        }
+    }
+
+    // The digit-permuted inverses, which is what the sampler actually draws.
+    for d in 0:4 {
+        for i in 0:6 {
+            print(scrambled_radical_inverse(ds[d], xs[i], 0));
+        }
+    }
+
+    // And the Owen scramble, which a scene can ask for by name.
+    owen_ds : array[i32, 3] = {0, 1, 4};
+    owen_xs : array[u64, 4] = {0u, 1u, 7u, 1000u};
+    for d in 0:3 {
+        b = owen_ds[d];
+        h = cast[[u32]](mix_bits(cast[[u64]](1 + (b << 4))));
+        for i in 0:4 {
+            print(owen_scrambled_radical_inverse(b, owen_xs[i], h));
+        }
+    }
+
+    // The sampler itself. Pixels chosen to be unalike, and samples zero and
+    // one, so the index arithmetic has to be right in both terms.
+    halton_draws(0, 0, 0u);
+    halton_draws(0, 0, 1u);
+    halton_draws(1, 0, 0u);
+    halton_draws(0, 1, 0u);
+    halton_draws(37, 11, 0u);
+    halton_draws(699, 699, 1u);
+    return 0;
+}

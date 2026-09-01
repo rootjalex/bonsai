@@ -1,0 +1,47 @@
+# The three-spheres geometry sampled with pbrt's Halton sampler.
+#
+# Halton is what scenes in the wild actually ask for -- 81 of the 87 in
+# pbrt-v4-scenes name it and none name anything else -- and it is not a stream
+# of uniforms. It is one deterministic low-discrepancy sequence shared by the
+# whole image: a pixel's samples are the entries of it that land inside that
+# pixel, found by inverting the first two radical inverses. Nothing about that
+# can be approximated by drawing random numbers, so this scene is here to hold
+# the renderer to the real sequence.
+#
+# The randomization is left unstated, which means `permutedigits` -- pbrt's
+# default, and so the one every scene in the collection gets.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "halton" "integer pixelsamples" [8]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [450]
+    "string coordinatesystem" ["world"]
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]
