@@ -14,6 +14,8 @@
 
 #include "Utils.h"
 
+#include <limits>
+
 #include <functional>
 #include <iostream>
 #include <optional>
@@ -516,6 +518,16 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
             if (const auto *i = std::get_if<int64_t>(&c->data)) {
                 return *i;
             }
+            // An unsigned loop index makes an unsigned constant, and reading
+            // only the signed one meant a `parfor i in 0u:n` could not be
+            // split at all -- its stride is the constant one, spelled `1u`.
+            // Strides are small and positive; anything that would not survive
+            // the narrowing is not a stride.
+            if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+                if (*u <= uint64_t(std::numeric_limits<int64_t>::max())) {
+                    return int64_t(*u);
+                }
+            }
             return std::nullopt;
         };
 
@@ -559,8 +571,17 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         // two loops afterwards, or reason about the inner one on its own. The
         // Stmt-level split makes the same choice.
         Type itype = parfor.start->get_type();
-        auto split_factor = std::make_shared<Value>(Constant{itype, factor});
-        auto zero = std::make_shared<Value>(Constant{itype, int64_t(0)});
+        // A constant has to go into the arm its type will be read back out
+        // of: an unsigned index becomes a UIntImm, and a signed constant
+        // carrying an unsigned type asserts on the way out rather than here.
+        // Both of these are small and non-negative whatever the index is.
+        const auto index_constant = [&](int64_t v) {
+            return itype.is_uint()
+                       ? std::make_shared<Value>(Constant{itype, uint64_t(v)})
+                       : std::make_shared<Value>(Constant{itype, v});
+        };
+        auto split_factor = index_constant(factor);
+        auto zero = index_constant(0);
 
         // TODO: truly unique name generation?
         shared_ptr<Block> outer_yield = std::make_shared<Block>();

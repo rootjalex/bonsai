@@ -1,0 +1,37 @@
+//! flags: -p ssa
+
+// Splitting a loop whose index is unsigned.
+//
+// `split` could not touch one. Two separate places assumed a signed index: the
+// check that the chunk size lines up with the loop's stride read only the
+// signed arm of the constant, so a `parfor i in 0u:n` looked as though it had
+// no constant stride at all -- when its stride is the constant one, spelled
+// `1u`. Past that, the rewrite built its own constants signed and handed them
+// the loop's unsigned type, which asserted on the way back out.
+//
+// Neither is exotic: an index into an array is naturally unsigned, and
+// apps/pbrt's render loop is `parfor p in 0u:(width * height)`, so the whole
+// renderer was unsplittable.
+element Float = f32;
+
+func [[export]] scale(n : u32, a : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        a[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+// The signed case, which always worked, next to it -- so that a change
+// breaking one and not the other shows up as a difference rather than as two
+// separate failures.
+func [[export]] scale_signed(n : i32, a : mut array[Float, n]) -> void {
+    parfor i in 0:n {
+        a[i] = a[i] * 3.0;
+    }
+    return;
+}
+
+schedule {
+    scale.split(i, io, ii, 16, false);
+    scale_signed.split(i, io, ii, 16, false);
+}

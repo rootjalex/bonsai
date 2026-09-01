@@ -1,0 +1,38 @@
+type Float = f32
+
+func [[export]] scale(n : u32, a : mut f32[n]) -> void {
+  parfor io in [0u:n:16u] {
+    parfor ii in [0u:16u:1u] {
+      let @3 = io + ii in
+      let i = @3 in
+      let @0 = a[i] in
+      let @1 = @0 * 2f in
+      a[i] = @1
+      continue
+    }
+    continue
+  }
+  return
+}
+
+func [[export]] scale_signed(n : i32, a : mut f32[n]) -> void {
+  parfor io in [0:n:16] {
+    parfor ii in [0:16:1] {
+      let @3 = io + ii in
+      let i = @3 in
+      let @0 = a[i] in
+      let @1 = @0 * 3f in
+      a[i] = @1
+      continue
+    }
+    continue
+  }
+  return
+}
+
+
+schedule host {
+    scale.split(i, io, ii, (i32)16, 0)
+    scale_signed.split(i, io, ii, (i32)16, 0)
+
+}

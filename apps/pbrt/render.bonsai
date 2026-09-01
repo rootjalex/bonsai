@@ -745,50 +745,42 @@ func trace(r : Ray) =
            filter(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001,
                   primitives));
 
-// The geometric normal at the nearest hit, or zero where the ray escapes.
+// pbrt: VisibleSurface, what a camera ray leaves behind for the film to
+// record. pbrt fills one of these from a single intersection and the gbuffer
+// writes every channel out of it.
 //
-// This is what pbrt's `gbuffer` film records in its N channels, which is what
-// makes an image from this app comparable against one from pbrt -- see
-// compare.sh. It stands in for the integrator until there is a light to
-// integrate; turning a normal into a colour is the film's business, and the
-// driver does it, exactly as pbrt leaves N unmapped in the EXR.
-//
-// pbrt: VisibleSurface's constructor, which records `FaceForward(si.n, wo)`
-// rather than the normal itself -- the recorded normal always points back
-// towards where the ray came from. That is the film's convention and not the
-// geometry's, which is why it is here and not in normal_at: a shape's normal
-// is still whichever way its winding says. It matters for any surface seen
-// from its back, and a scene wound the other way from this one is the ordinary
-// case rather than a strange one.
-func li(r : Ray) -> vec3f {
-    isect : option[Primitive] = trace(r);
-    if isect {
-        prim = *isect;
-        n = normal_at(prim.shape, r.o + distmin(r, prim) * r.d);
-        wo = -r.d;
-        return select(dot(n, wo) < 0.0, -n, n);
-    }
-    return vec3f{0.0, 0.0, 0.0};
+// One structure rather than a function per channel, for the reason pbrt has
+// one: asking separately meant tracing the same ray once per channel, and the
+// scene query is the expensive part of a render. Two channels doubled the
+// render time, which is what that costs.
+element VisibleSurface {
+    n : vec3f;
+    albedo : vec3f;
 }
 
-// pbrt: the Albedo channels of the same gbuffer, which is the other half of
-// what a camera ray leaves behind.
+// What the camera ray found, or nothing where it escaped.
 //
-// pbrt records `bsdf.rho(wo, ...)` -- the hemispherical reflectance of the
-// surface's BSDF, estimated with sixteen samples. For the diffuse material
-// that is every material here, every one of those samples returns the same
-// number, because a Lambertian BRDF's hemispherical reflectance is exactly its
-// reflectance. So this is the reflectance, and it will stop being so trivial
-// the moment there is a second kind of material.
+// The normal here is `FaceForward(si.n, wo)` -- pbrt records the normal
+// pointing back towards where the ray came from, not the one the winding
+// says. That is the film's convention rather than the geometry's, which is why
+// it is here and not in normal_at.
 //
-// What makes it worth computing rather than copying is what the film does with
-// it afterwards: the reflectance is an RGB, and pbrt turns it into a spectrum,
-// multiplies by the illuminant, and integrates back down to RGB. Nothing about
-// that round trip is the identity, which is the whole reason spectra are here.
-func albedo(r : Ray, lambda : SampledWavelengths) -> vec3f {
+// The albedo is pbrt's `bsdf.rho(wo, ...)`, the hemispherical reflectance of
+// the surface's BSDF. For the diffuse material that is every material here,
+// pbrt's sixteen cosine-weighted samples all return the same number, because a
+// Lambertian BRDF's hemispherical reflectance is exactly its reflectance. What
+// makes it worth computing rather than copying is the round trip afterwards:
+// the reflectance is an RGB, and it becomes a spectrum, is lit by the
+// illuminant, and is integrated back to RGB, none of which is the identity.
+func visible_surface(r : Ray,
+                     lambda : SampledWavelengths) -> option[VisibleSurface] {
     isect : option[Primitive] = trace(r);
     if isect {
         prim = *isect;
+        geometric = normal_at(prim.shape, r.o + distmin(r, prim) * r.d);
+        wo = -r.d;
+        facing = select(dot(geometric, wo) < 0.0, -geometric, geometric);
+
         // `reflectance` is Schlick's approximation in stdlib/numerics, so the
         // name is taken.
         rho = spectrum_at(prim.albedo, lambda);
@@ -797,9 +789,11 @@ func albedo(r : Ray, lambda : SampledWavelengths) -> vec3f {
         // reflectance under an equal-energy light, which is not what a colour
         // space means by white.
         lit = rho * spectrum_at_dense(illuminant_d65, lambda);
-        return spectrum_to_rgb(lit, lambda);
+
+        surface : VisibleSurface = {facing, spectrum_to_rgb(lit, lambda)};
+        return surface;
     }
-    return vec3f{0.0, 0.0, 0.0};
+    return {};
 }
 
 // pbrt: the render loop, which in v4 is ParallelFor2D over the film tiles.
@@ -828,8 +822,15 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
         // --disable-wavelength-jitter, uses 0.5 for every pixel. That is what
         // the comparison runs, so it is what this does.
         lambda = sample_wavelengths_visible(0.5);
-        normal_out[p] = li(ray);
-        albedo_out[p] = albedo(ray, lambda);
+        found = visible_surface(ray, lambda);
+        if found {
+            surface = *found;
+            normal_out[p] = surface.n;
+            albedo_out[p] = surface.albedo;
+        } else {
+            normal_out[p] = vec3f{0.0, 0.0, 0.0};
+            albedo_out[p] = vec3f{0.0, 0.0, 0.0};
+        }
     }
     return;
 }

@@ -16,6 +16,7 @@ add_bonsai_tests(
     shadowed-let.bonsai
     simple.bonsai
     split.bonsai
+    split-unsigned.bonsai
     traverse.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
