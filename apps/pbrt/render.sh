@@ -51,6 +51,13 @@ clang++ -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp $PREFIX/render.o
 # that makes a direction visible rather than pbrt's sRGB curve.
 python3 $PREFIX/to_png.py "$OUT" "$PNG" --normals
 
+# The albedo beside it is a colour, so it gets the sRGB curve. One spectral
+# sample per pixel, so what this shows is a reflectance seen at four
+# wavelengths rather than the colour a converged render would give -- see the
+# note on `albedo` in render.bonsai.
+ALBEDO="${OUT%.pfm}-albedo.pfm"
+python3 $PREFIX/to_png.py "$ALBEDO" "${ALBEDO%.pfm}.png"
+
 # render.h is left where it was written, because render_hook.cpp includes it
 # and the next build wants it there. It is generated rather than committed, so
 # there is nothing to keep in step.
