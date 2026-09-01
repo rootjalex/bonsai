@@ -1,0 +1,120 @@
+//! flags: -b llvm -e
+
+// pbrt's IndependentSampler, reproduced exactly.
+//
+// Matching pbrt stops being about arithmetic here and becomes about
+// reproducing a stream: the same RNG, seeded by the same hash of the same
+// pixel, drawn from in the same order. Get any of that wrong and the result is
+// noise that looks perfectly good, converges to the same image, and is not
+// pbrt's -- and no comparison of two renders at low sample counts could say
+// which was right. So the numbers below are pbrt's own, printed by
+// `apps/pbrt/scene_dump --print-sampler`, and this reproduces them.
+//
+// Sample 0 only. StartPixelSample also calls RNG::Advance(sampleIndex * 65536
+// + dimension), which is a no-op at sample zero and a loop for every sample
+// after it -- and bonsai's only loop is `parfor`, which is the wrong shape for
+// a sequential jump-ahead. So sample 1 and beyond wait on a sequential loop in
+// the source language.
+element Float = f32;
+
+// pbrt: RNG, from util/rng.h.
+element RNG {
+    state, inc : u64;
+}
+
+func next_uint(r : mut RNG) -> u32 {
+    old = r.state;
+    r.state = old * 0x5851f42d4c957f2d + r.inc;
+    xorshifted = cast[[u32]](((old >> 18u) ^ old) >> 27u);
+    rot = cast[[u32]](old >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31u));
+}
+
+// pbrt: RNG::Uniform<Float>, which is the top 32 bits scaled into [0,1) and
+// then held below one -- a uniform that reached exactly one would put a sample
+// on the far edge of whatever it indexes.
+func next_float(r : mut RNG) -> Float {
+    // 0x1p-32, and pbrt's FloatOneMinusEpsilon.
+    return min(cast[[Float]](next_uint(r)) * 0.00000000023283064365386963,
+               0.99999994);
+}
+
+// pbrt: MixBits, from util/hash.h.
+func mix_bits(v : u64) -> u64 {
+    a : mut u64 = v ^ (v >> 31u);
+    a = a * 0x7fb5d329728ea185;
+    a = a ^ (a >> 27u);
+    a = a * 0x81dadef4bc2dd44d;
+    a = a ^ (a >> 33u);
+    return a;
+}
+
+// pbrt: Hash(Point2i, int), which is MurmurHash64A over the twelve bytes those
+// two occupy. Written out for that one length rather than in general: the
+// block loop runs exactly once for twelve bytes, and the tail is the four the
+// seed sits in, so what would be a loop is a single step.
+func hash_pixel(x : i32, y : i32, seed : i32) -> u64 {
+    m : u64 = 0xc6a4a7935bd1e995;
+    // The two ints fill the first eight bytes, low half first, which is how
+    // memcpy leaves them on a little-endian machine.
+    k : mut u64 = cast[[u64]](cast[[u32]](x)) |
+                  (cast[[u64]](cast[[u32]](y)) << 32u);
+    h : mut u64 = 12u * m;
+    k = k * m;
+    k = k ^ (k >> 47u);
+    k = k * m;
+    h = h ^ k;
+    h = h * m;
+    // len & 7 is four, so the tail is the seed and nothing else.
+    h = h ^ cast[[u64]](cast[[u32]](seed));
+    h = h * m;
+    h = h ^ (h >> 47u);
+    h = h * m;
+    h = h ^ (h >> 47u);
+    return h;
+}
+
+// pbrt: RNG::SetSequence. The two draws are discarded on purpose -- they are
+// what mixes the sequence and the offset into the state.
+func set_sequence(seq : u64, offset : u64) -> RNG {
+    zero : u64 = 0u;
+    r : mut RNG = {zero, (seq << 1u) | 1u};
+    warm0 = next_uint(r);
+    r.state = r.state + offset;
+    warm1 = next_uint(r);
+    return r;
+}
+
+// pbrt: IndependentSampler::StartPixelSample, at sample zero.
+func start_pixel(x : i32, y : i32, seed : i32) -> RNG {
+    seq = hash_pixel(x, y, seed);
+    return set_sequence(seq, mix_bits(seq));
+}
+
+func draw4(x : i32, y : i32) -> void {
+    r : mut RNG = start_pixel(x, y, 0);
+    print(next_float(r));
+    print(next_float(r));
+    print(next_float(r));
+    print(next_float(r));
+    return;
+}
+
+func main() -> i32 {
+    // The hashes on their own, high half then low, because the hash is the
+    // part most easily transcribed wrongly and the hardest to see through the
+    // RNG that follows it.
+    print(cast[[u32]](hash_pixel(0, 0, 0) >> 32u));
+    print(cast[[u32]](hash_pixel(0, 0, 0)));
+    print(cast[[u32]](hash_pixel(1279, 719, 0) >> 32u));
+    print(cast[[u32]](hash_pixel(1279, 719, 0)));
+
+    // Pixels chosen to be unalike, so a hash ignoring part of its input would
+    // still have to differ here.
+    draw4(0, 0);
+    draw4(1, 0);
+    draw4(0, 1);
+    draw4(37, 11);
+    draw4(1279, 719);
+    return 0;
+}

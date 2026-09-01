@@ -27,7 +27,9 @@
 #include <pbrt/cpu/primitive.h>
 #include <pbrt/options.h>
 #include <pbrt/parser.h>
+#include <pbrt/samplers.h>
 #include <pbrt/scene.h>
+#include <pbrt/util/hash.h>
 #include <pbrt/shapes.h>
 #include <pbrt/util/colorspace.h>
 #include <pbrt/util/mesh.h>
@@ -240,6 +242,42 @@ bool check_tables() {
            "worst %.3g at %g nm)\n",
            exact, CIE_SAMPLES, worst, double(worst_lambda));
     return ok;
+}
+
+// Print what PBRT's own IndependentSampler produces, so that the one written
+// in bonsai can be checked against it rather than against a reading of the
+// source.
+//
+// The sampler is where matching PBRT stops being about arithmetic and starts
+// being about reproducing a stream exactly: the same RNG, seeded by the same
+// hash of the same pixel, advanced by the same amount, drawn from in the same
+// order. Any of those wrong gives noise that looks perfectly good and is not
+// PBRT's, and no image comparison at low sample counts would say which of the
+// two was right. These numbers are what tests/bonsai/correctness/llvm's
+// sampler golden holds.
+void print_sampler() {
+    // Pixels chosen to be unalike: the origin, a small one, and one far out,
+    // so a hash that ignored part of its input would still differ here.
+    const pbrt::Point2i pixels[] = {{0, 0}, {1, 0}, {0, 1}, {37, 11},
+                                    {1279, 719}};
+    for (const pbrt::Point2i &p : pixels) {
+        for (int sample = 0; sample < 2; sample++) {
+            pbrt::IndependentSampler sampler(16, /*seed=*/0);
+            sampler.StartPixelSample(p, sample, 0);
+            printf("pixel %d %d sample %d:", p.x, p.y, sample);
+            for (int i = 0; i < 4; i++) {
+                printf(" %.9g", double(sampler.Get1D()));
+            }
+            printf("\n");
+        }
+    }
+    // The hash on its own, which is the part most likely to be transcribed
+    // wrongly and the hardest to see through the RNG.
+    for (const pbrt::Point2i &p : pixels) {
+        const uint64_t h = pbrt::Hash(p, 0);
+        printf("hash %d %d: %llu\n", p.x, p.y,
+               static_cast<unsigned long long>(h));
+    }
 }
 
 // PBRT's LinearBVHNode, which is declared in aggregates.h but defined inside
@@ -623,6 +661,7 @@ int main(int argc, char **argv) {
     // produced rather than about whose builder found a better tree.
     bool pbrt_tree = false;
     bool tables_only = false;
+    bool sampler_only = false;
     std::vector<const char *> positional;
     for (int i = 1; i < argc; i++) {
         const std::string arg(argv[i]);
@@ -630,13 +669,16 @@ int main(int argc, char **argv) {
             pbrt_tree = true;
         } else if (arg == "--check-tables") {
             tables_only = true;
+        } else if (arg == "--print-sampler") {
+            sampler_only = true;
         } else {
             positional.push_back(argv[i]);
         }
     }
-    if (!tables_only && positional.size() != 2) {
+    if (!tables_only && !sampler_only && positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] <scene.pbrt> <out.txt>\n"
-             "       scene_dump --check-tables");
+             "       scene_dump --check-tables\n"
+             "       scene_dump --print-sampler");
     }
 
     pbrt::PBRTOptions options;
@@ -650,6 +692,11 @@ int main(int argc, char **argv) {
         const bool ok = check_tables();
         pbrt::CleanupPBRT();
         return ok ? 0 : 1;
+    }
+    if (sampler_only) {
+        print_sampler();
+        pbrt::CleanupPBRT();
+        return 0;
     }
 
     bonsai_scene::Scene scene;

@@ -28,6 +28,7 @@ add_bonsai_tests(
     print.bonsai
     reinterpret.bonsai
     round.bonsai
+    sampler.bonsai
     shadowed-let.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
