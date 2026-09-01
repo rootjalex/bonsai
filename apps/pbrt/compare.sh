@@ -49,6 +49,9 @@ cmake --build build -j
 # tree. Off by default, because building our own is the general case: the day a
 # schedule asks for a tree PBRT has no equivalent of, PBRT has none to give.
 bash $PREFIX/build_scene_dump.sh "$WORK/scene_dump"
+# See render.sh: the film's D65 is reproduced from pbrt's construction rather
+# than copied out of it, so it is checked against a running pbrt.
+"$WORK/scene_dump" --check-tables
 DUMP_FLAGS=()
 if [[ -n "${PBRT_TREE:-}" ]]; then
   DUMP_FLAGS+=(--pbrt-tree)

@@ -23,6 +23,7 @@ change upstream.
 """
 
 import re
+import struct
 import sys
 import urllib.request
 
@@ -147,6 +148,92 @@ def write(path, lines):
     print(f"wrote {path}")
 
 
+def f32(x):
+    """Round to float, which is what pbrt computes the illuminant in.
+
+    Every step below is put through this, so what comes out is the table pbrt
+    would build at startup rather than a more accurate one. It agrees to the
+    last bit on 396 of the 471 samples and is one ulp out on the rest, because
+    pbrt is compiled with contraction on and its multiply-adds become fused
+    ones; which expressions a compiler chooses to fuse is not something this
+    can predict, and is not stable across pbrt builds either. One ulp of a
+    float is about 6e-8 relative, against a gbuffer written in half floats --
+    five decimal orders below anything the comparison can see.
+
+    scene_dump --check-tables measures the gap against a running pbrt rather
+    than leaving that claim to be taken on trust.
+    """
+    return struct.unpack("f", struct.pack("f", x))[0]
+
+
+def as_number(text):
+    """`numbers_in` leaves an N()-wrapped value as the division pbrt writes."""
+    wrapped = re.fullmatch(r"\(([0-9.eE+-]+) / ([0-9.eE+-]+)\)", text)
+    if wrapped:
+        return f32(float(wrapped.group(1)) / float(wrapped.group(2)))
+    return f32(float(text.rstrip("f")))
+
+
+def piecewise_linear(lambdas, values, x):
+    """pbrt: PiecewiseLinearSpectrum::operator(), in float throughout."""
+    if x < lambdas[0] or x > lambdas[-1]:
+        return 0.0
+    lo, hi = 0, len(lambdas) - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if lambdas[mid] <= x:
+            lo = mid
+        else:
+            hi = mid
+    t = f32(f32(x - lambdas[lo]) / f32(lambdas[lo + 1] - lambdas[lo]))
+    # pbrt: Lerp(t, a, b) == (1 - t) * a + t * b.
+    return f32(f32(f32(1.0 - t) * values[lo]) + f32(t * values[lo + 1]))
+
+
+def film_d65(cpp, cie_y, lambda_min, lambda_max, cie_y_integral):
+    """pbrt's `stdillum-D65`, which is what a film's colour space illuminates with.
+
+    This is not the D65 in rgb2spec_tables.h. That one is the 95-sample table
+    pbrt's fitting tool integrates against; this is the illuminant the film
+    multiplies a reflectance by before converting it to RGB, and pbrt builds it
+    by a different route: interleaved samples from spectrum.cpp, made piecewise
+    linear, scaled to unit luminance, then sampled at every nanometre. Using
+    one where the other belongs gives colours that look right and are not.
+    """
+    interleaved = [as_number(v) for v in extract_array(cpp, "CIE_Illum_D6500", "")]
+    if len(interleaved) % 2 != 0:
+        raise SystemExit("CIE_Illum_D6500 is not (lambda, value) pairs")
+    lambdas = [interleaved[2 * i] for i in range(len(interleaved) // 2)]
+    values = [interleaved[2 * i + 1] for i in range(len(interleaved) // 2)]
+
+    # pbrt: FromInterleaved extends the ends flat so the whole visible range is
+    # covered rather than falling to zero outside the samples.
+    if lambdas[0] > lambda_min:
+        lambdas.insert(0, lambda_min - 1)
+        values.insert(0, values[0])
+    if lambdas[-1] < lambda_max:
+        lambdas.append(lambda_max + 1)
+        values.append(values[-1])
+
+    # pbrt: InnerProduct against the CIE Y curve, summed at every nanometre.
+    # Spectra::Y() is CIE_Y sampled the same way, and CIE_lambda is already one
+    # nanometre apart, so at integer wavelengths it is the table entry itself.
+    integral = 0.0
+    for i, x in enumerate(range(lambda_min, lambda_max + 1)):
+        integral = f32(integral + f32(piecewise_linear(lambdas, values, x) * cie_y[i]))
+
+    # pbrt: Scale(CIE_Y_integral / InnerProduct(...)), which is what "normalize
+    # to have luminance of 1" means.
+    scale = f32(cie_y_integral / integral)
+    values = [f32(v * scale) for v in values]
+
+    # pbrt: DenselySampledSpectrum, one sample per nanometre over the range.
+    return [
+        piecewise_linear(lambdas, values, x)
+        for x in range(lambda_min, lambda_max + 1)
+    ]
+
+
 def make_cie_tables(cpp, header):
     tables = {
         name: extract_array(cpp, name, "nCIESamples")
@@ -179,6 +266,25 @@ def make_cie_tables(cpp, header):
     for name in ("CIE_lambda", "CIE_X", "CIE_Y", "CIE_Z"):
         emitted = "CIE_LAMBDA" if name == "CIE_lambda" else name.upper()
         emit_array(out, "float", emitted, "CIE_SAMPLES", tables[name])
+
+    lambda_min = int(float(extract_constant(header, "Lambda_min")))
+    lambda_max = int(float(extract_constant(header, "Lambda_max")))
+    d65 = film_d65(
+        cpp,
+        [as_number(v) for v in tables["CIE_Y"]],
+        lambda_min,
+        lambda_max,
+        float(extract_constant(header, "CIE_Y_integral")),
+    )
+    if len(d65) != count:
+        raise SystemExit(f"the film illuminant has {len(d65)} entries, expected {count}")
+    out.append("// pbrt's `stdillum-D65`, the illuminant an sRGB film converts a")
+    out.append("// reflectance under: normalised to unit luminance and sampled once")
+    out.append("// per nanometre, which is the form pbrt's colour space holds it in.")
+    out.append("// Not the same table as rgb2spec_tables.h's D65 -- see the comment")
+    out.append("// on film_d65 in make_spectrum_tables.py.")
+    emit_array(out, "float", "CIE_D65_FILM", "CIE_SAMPLES", [repr(v) for v in d65])
+
     write("apps/pbrt/cie_tables.h", out)
     return count
 

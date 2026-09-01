@@ -29,9 +29,13 @@
 #include <pbrt/parser.h>
 #include <pbrt/scene.h>
 #include <pbrt/shapes.h>
+#include <pbrt/util/colorspace.h>
 #include <pbrt/util/mesh.h>
+#include <pbrt/util/spectrum.h>
 #include <pbrt/util/transform.h>
 #include <pbrt/util/vecmath.h>
+
+#include "cie_tables.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -164,6 +168,78 @@ void material_reflectance(const std::vector<CapturingBuilder::MaterialInfo> &mat
             rgb[i] = m.reflectance[i];
         }
     }
+}
+
+// Check the generated spectral tables against the ones a running PBRT holds.
+//
+// make_spectrum_tables.py transcribes the CIE curves and reproduces the film's
+// D65 by following what PBRT does to build it. Transcription can go stale and a
+// reproduction can be subtly wrong -- picking the other D65 in the source, say,
+// which is a table of the same name at a different resolution and would give
+// colours that look plausible and are not. This asks PBRT instead of assuming.
+//
+// The tolerance is one ulp rather than zero: PBRT is built with contraction on,
+// so some of its multiply-adds are fused and the last bit of a few samples
+// cannot be reproduced from Python. Anything larger than that is a real
+// difference and worth stopping for.
+bool check_tables() {
+    const pbrt::DenselySampledSpectrum &illuminant =
+        pbrt::RGBColorSpace::sRGB->illuminant;
+    struct Curve {
+        const char *name;
+        const float *ours;
+        const pbrt::DenselySampledSpectrum &theirs;
+    };
+    const Curve curves[] = {
+        {"CIE_X", CIE_X, pbrt::Spectra::X()},
+        {"CIE_Y", CIE_Y, pbrt::Spectra::Y()},
+        {"CIE_Z", CIE_Z, pbrt::Spectra::Z()},
+    };
+
+    bool ok = true;
+    for (const Curve &c : curves) {
+        for (int i = 0; i < CIE_SAMPLES; i++) {
+            const float lambda = CIE_LAMBDA_MIN + float(i);
+            const float theirs = c.theirs(lambda);
+            if (theirs != c.ours[i]) {
+                printf("scene_dump: %s differs at %g nm: pbrt %.9g, ours %.9g\n",
+                       c.name, double(lambda), double(theirs), double(c.ours[i]));
+                ok = false;
+                break;
+            }
+        }
+    }
+
+    int exact = 0;
+    double worst = 0;
+    float worst_lambda = 0;
+    for (int i = 0; i < CIE_SAMPLES; i++) {
+        const float lambda = CIE_LAMBDA_MIN + float(i);
+        const float theirs = illuminant(lambda);
+        const float ours = CIE_D65_FILM[i];
+        if (theirs == ours) {
+            exact++;
+        }
+        // One ulp of a float, relative, with a floor for values near zero.
+        const double tolerance =
+            std::max(1e-30, double(std::fabs(theirs)) * 1.2e-7);
+        const double difference = std::fabs(double(theirs) - double(ours));
+        if (difference > worst) {
+            worst = difference;
+            worst_lambda = lambda;
+        }
+        if (difference > tolerance) {
+            printf("scene_dump: the film illuminant differs at %g nm: "
+                   "pbrt %.9g, ours %.9g\n",
+                   double(lambda), double(theirs), double(ours));
+            ok = false;
+            break;
+        }
+    }
+    printf("scene_dump: spectral tables match pbrt (film illuminant %d/%d exact, "
+           "worst %.3g at %g nm)\n",
+           exact, CIE_SAMPLES, worst, double(worst_lambda));
+    return ok;
 }
 
 // PBRT's LinearBVHNode, which is declared in aggregates.h but defined inside
@@ -546,16 +622,21 @@ int main(int argc, char **argv) {
     // timing comparison is made to be about the traversal the schedule
     // produced rather than about whose builder found a better tree.
     bool pbrt_tree = false;
+    bool tables_only = false;
     std::vector<const char *> positional;
     for (int i = 1; i < argc; i++) {
-        if (std::string(argv[i]) == "--pbrt-tree") {
+        const std::string arg(argv[i]);
+        if (arg == "--pbrt-tree") {
             pbrt_tree = true;
+        } else if (arg == "--check-tables") {
+            tables_only = true;
         } else {
             positional.push_back(argv[i]);
         }
     }
-    if (positional.size() != 2) {
-        fail("usage: scene_dump [--pbrt-tree] <scene.pbrt> <out.bin>");
+    if (!tables_only && positional.size() != 2) {
+        fail("usage: scene_dump [--pbrt-tree] <scene.pbrt> <out.txt>\n"
+             "       scene_dump --check-tables");
     }
 
     pbrt::PBRTOptions options;
@@ -564,6 +645,12 @@ int main(int argc, char **argv) {
     // because it is read while the scene is built.
     options.disablePixelJitter = true;
     pbrt::InitPBRT(options);
+
+    if (tables_only) {
+        const bool ok = check_tables();
+        pbrt::CleanupPBRT();
+        return ok ? 0 : 1;
+    }
 
     bonsai_scene::Scene scene;
     load(positional[0], scene);

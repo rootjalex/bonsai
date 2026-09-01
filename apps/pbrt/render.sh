@@ -21,6 +21,10 @@ cmake --build build -j
 # The scene comes from a .pbrt file, read by PBRT's own parser. Needs a built
 # pbrt; see build_scene_dump.sh.
 bash $PREFIX/build_scene_dump.sh
+# The spectral tables are generated from pbrt's source, and one of them -- the
+# film's D65 -- is reproduced by following what pbrt does rather than copied.
+# Ask a running pbrt whether the result is right before rendering with it.
+./$PREFIX/scene_dump --check-tables
 ./$PREFIX/scene_dump "$SCENE" "$PREFIX/scene.txt"
 
 # The spectral data is generated (see make_spectrum_tables.py) and the fit that
