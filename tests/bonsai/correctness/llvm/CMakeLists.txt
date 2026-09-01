@@ -9,6 +9,7 @@ add_bonsai_tests(
     defer-sum.bonsai
     dynamic-array.bonsai
     exported-function.bonsai
+    exp-log.bonsai
     exported-recursive-function.bonsai
     extrema.bonsai
     function-type.bonsai

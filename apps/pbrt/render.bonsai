@@ -605,33 +605,41 @@ element SampledWavelengths {
     pdf : vec4f;
 }
 
-// pbrt: SampledWavelengths::SampleUniform. One wavelength is chosen, and the
-// other three are spaced evenly across the visible range from it, wrapping
-// round -- stratified rather than independent, so four samples cover the range
-// instead of clustering.
+// pbrt: SampleVisibleWavelengths and VisibleWavelengthsPDF, from
+// util/spectrum.h. A fit to where the eye actually responds, so that four
+// samples are spent near the middle of the visible range rather than spread
+// evenly across a span whose ends contribute almost nothing.
 //
-// NOT what a gbuffer film samples with. FilmBase::SampleWavelengths calls
-// SampleVisible, which draws wavelengths towards where the eye responds and
-// carries the matching density, and the two disagree by far more than the
-// comparison would tolerate -- measured, not assumed, on scenes/coloured.pbrt.
-// SampleVisible needs atanh and cosh, so it needs exp and log, and bonsai has
-// neither intrinsic yet. Until it does, the albedo channel below is computed
-// and written but deliberately not compared: see compare.sh.
-//
-// SampleUniform is still what a SpectralFilm uses, so this is not wasted, only
-// early.
-func sample_wavelengths_uniform(u : Float) -> SampledWavelengths {
-    lambda_min = 360.0;
-    lambda_max = 830.0;
-    delta = (lambda_max - lambda_min) / 4.0;
-    first = lambda_min + u * (lambda_max - lambda_min);
-    raw = vec4f{first, first + delta, first + 2.0 * delta,
-                first + 3.0 * delta};
-    // Past the top of the range it wraps to the bottom.
-    wrapped = select(raw > lambda_max, raw - (lambda_max - lambda_min), raw);
-    density = 1.0 / (lambda_max - lambda_min);
-    w : SampledWavelengths = {wrapped,
-                              vec4f{density, density, density, density}};
+// This is what a film samples with -- FilmBase::SampleWavelengths calls
+// SampleVisible, and GBufferFilm inherits it. SampleUniform, which is the
+// obvious reading of "four wavelengths", belongs to SpectralFilm and gives
+// visibly different colours; the difference was measured before it was
+// believed.
+func sample_visible_wavelengths(u : vec4f) -> vec4f {
+    // atanh, which bonsai spells with a logarithm.
+    x = 0.85691062 - 1.82750197 * u;
+    atanh = 0.5 * log((1.0 + x) / (1.0 - x));
+    return 538.0 - 138.888889 * atanh;
+}
+
+func visible_wavelengths_pdf(lambda : vec4f) -> vec4f {
+    // cosh, likewise, with an exponential.
+    x = 0.0072 * (lambda - 538.0);
+    cosh = 0.5 * (exp(x) + exp(0.0 - x));
+    density = 0.0039398042 / (cosh * cosh);
+    outside = (lambda < 360.0) | (lambda > 830.0);
+    return select(outside, 0.0, density);
+}
+
+// pbrt: SampledWavelengths::SampleVisible. One number becomes four, spread a
+// quarter of the way apart through the sample's own space and wrapped, so that
+// the four are stratified rather than four draws of the same distribution.
+func sample_wavelengths_visible(u : Float) -> SampledWavelengths {
+    offsets = vec4f{0.0, 0.25, 0.5, 0.75};
+    raw = u + offsets;
+    up = select(raw > 1.0, raw - 1.0, raw);
+    lambda = sample_visible_wavelengths(up);
+    w : SampledWavelengths = {lambda, visible_wavelengths_pdf(lambda)};
     return w;
 }
 
@@ -819,7 +827,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
         // pbrt draws the wavelengths from the sampler and, with
         // --disable-wavelength-jitter, uses 0.5 for every pixel. That is what
         // the comparison runs, so it is what this does.
-        lambda = sample_wavelengths_uniform(0.5);
+        lambda = sample_wavelengths_visible(0.5);
         normal_out[p] = li(ray);
         albedo_out[p] = albedo(ray, lambda);
     }

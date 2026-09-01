@@ -683,6 +683,12 @@ struct PredicateAnalysis : public ir::Visitor {
             return;
         }
         case ir::Intrinsic::round:
+        // exp and log are increasing wherever they are defined, so the same
+        // reasoning holds: the bounds of the result are the function of the
+        // bounds. log of a non-positive lower bound gives -inf or a NaN, which
+        // is an unusable bound rather than a wrong one.
+        case ir::Intrinsic::exp:
+        case ir::Intrinsic::log:
         case ir::Intrinsic::sqrt: {
             // For monotonic, pure, single-argument functions, we can
             // make two calls for the min and the max.

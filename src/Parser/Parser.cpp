@@ -98,7 +98,9 @@ struct Parser {
             "cos",
             "cross",
             "dot",
+            "exp",
             "fma",
+            "log",
             "max",
             "min",
             "norm",
@@ -1566,7 +1568,9 @@ struct Parser {
             {"cos", 1, ir::Intrinsic::cos},
             {"cross", 2, ir::Intrinsic::cross},
             {"dot", 2, ir::Intrinsic::dot},
+            {"exp", 1, ir::Intrinsic::exp},
             {"fma", 3, ir::Intrinsic::fma},
+            {"log", 1, ir::Intrinsic::log},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
             {"max", 2, ir::Intrinsic::max, /*skippable=*/true},

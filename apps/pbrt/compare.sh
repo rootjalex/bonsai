@@ -72,7 +72,11 @@ REPEATS="${REPEATS:-5}"
 # time is what gets compared rather than the wall clock out here.
 PBRT_SECONDS=""
 for _ in $(seq 1 "$REPEATS"); do
-  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$SCENE")
+  # --disable-wavelength-jitter fixes the four wavelengths at u = 0.5 for every
+  # pixel, which is what the renderer samples at; without it pbrt draws a
+  # different four per pixel and the albedo is a different estimate.
+  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --disable-wavelength-jitter \
+      --quiet "$OLDPWD/$SCENE")
   # pbrt's own render time, which its progress reporter measures from after the
   # scene and the BVH are built.
   RUN=$("$IMGTOOL" info "$WORK/ref.exr" |
@@ -86,6 +90,11 @@ done
 # left to look like something went wrong, since it is expected every run.
 "$IMGTOOL" convert --channels N.X,N.Y,N.Z --outfile "$WORK/pbrt.pfm" "$WORK/ref.exr" \
     2>&1 | grep -v "they are not R, G, and B" || true
+# The gbuffer's other half: the reflectance of whatever the camera ray found,
+# which is what the spectral pipeline has to reproduce.
+"$IMGTOOL" convert --channels Albedo.R,Albedo.G,Albedo.B \
+    --outfile "$WORK/pbrt-albedo.pfm" "$WORK/ref.exr" \
+    2>&1 | grep -v "they are not R, G, and B" || true
 
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
@@ -98,7 +107,8 @@ BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
 
-python3 $PREFIX/compare_normals.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
+python3 $PREFIX/compare_gbuffer.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
+    --albedo "$WORK/pbrt-albedo.pfm" "$WORK/bonsai-albedo.pfm" \
     --pbrt-seconds "${PBRT_SECONDS:-0}" --bonsai-seconds "${BONSAI_SECONDS:-0}" \
     --repeats "$REPEATS"
 

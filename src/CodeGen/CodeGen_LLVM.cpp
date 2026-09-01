@@ -1605,6 +1605,15 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         intrin = llvm::Intrinsic::round;
         break;
     }
+    case Intrinsic::exp: {
+        intrin = llvm::Intrinsic::exp;
+        break;
+    }
+    case Intrinsic::log: {
+        // Natural log, as C's log is, not log2 or log10.
+        intrin = llvm::Intrinsic::log;
+        break;
+    }
     case Intrinsic::cross: {
         Expr expr = lower::cross_product(node->args[0], node->args[1]);
         value = codegen_expr(expr);

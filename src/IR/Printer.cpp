@@ -1045,8 +1045,12 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "cross";
     case Intrinsic::dot:
         return "dot";
+    case Intrinsic::exp:
+        return "exp";
     case Intrinsic::fma:
         return "fma";
+    case Intrinsic::log:
+        return "log";
     case Intrinsic::max:
         return "max";
     case Intrinsic::min:

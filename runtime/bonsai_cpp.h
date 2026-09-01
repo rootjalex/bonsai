@@ -37,6 +37,8 @@ __attribute__((always_inline)) T reinterpret(const U &bits) {
 }
 
 using std::abs;
+using std::exp;
+using std::log;
 using std::max;
 using std::min;
 using std::round;

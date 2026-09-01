@@ -1,0 +1,61 @@
+//! flags: -b llvm -e
+
+// `exp` and `log`, which bonsai had neither of.
+//
+// They are here because pbrt's film samples wavelengths with SampleVisible,
+// whose two halves are atanh and cosh -- and neither of those can be written
+// without a logarithm and an exponential. Nothing about a renderer needed them
+// until a spectrum did.
+//
+// `log` is the natural logarithm, as C's is. Getting log2 or log10 instead
+// would still be monotonic, still look plausible in an image, and still be
+// wrong by a constant factor everywhere, so the round trips below pin the base
+// rather than just the shape.
+element Float = f32;
+
+func close(a : Float, b : Float) -> bool = abs(a - b) < 1.0e-5;
+
+// pbrt: the two functions SampleVisible is built from, which is the reason
+// these intrinsics exist. Written out here so the composition is tested and
+// not just the pieces.
+func cosh_(x : Float) -> Float = 0.5 * (exp(x) + exp(0.0 - x));
+func atanh_(x : Float) -> Float = 0.5 * log((1.0 + x) / (1.0 - x));
+
+func main() -> i32 {
+    // The two fixed points, which fail loudly for any wrong base.
+    print(close(exp(0.0), 1.0));
+    print(close(log(1.0), 0.0));
+
+    // e itself, which is what pins the base.
+    print(close(exp(1.0), 2.718281828));
+    print(close(log(2.718281828), 1.0));
+
+    // Round trips, either way round.
+    print(close(exp(log(7.5)), 7.5));
+    print(close(log(exp(0.0 - 3.25)), 0.0 - 3.25));
+
+    // Against known values, so a wrong base cannot hide behind a round trip.
+    print(close(exp(2.0), 7.389056099));
+    print(close(log(10.0), 2.302585093));
+
+    // Element-wise over a vector, which is how the spectral code uses them.
+    v : vector[Float, 4] = {0.0, 1.0, 2.0, 3.0};
+    e = exp(v);
+    print(close(e.x, 1.0));
+    print(close(e.y, 2.718281828));
+    print(close(e.z, 7.389056099));
+    print(close(e.w, 20.08553692));
+
+    l = log(e);
+    print(close(l.x, 0.0));
+    print(close(l.y, 1.0));
+    print(close(l.z, 2.0));
+    print(close(l.w, 3.0));
+
+    // The compositions pbrt actually needs.
+    print(close(cosh_(1.0), 1.543080635));
+    print(close(cosh_(0.0), 1.0));
+    print(close(atanh_(0.5), 0.549306144));
+    print(close(atanh_(0.0), 0.0));
+    return 0;
+}

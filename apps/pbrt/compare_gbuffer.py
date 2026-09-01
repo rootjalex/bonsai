@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Compare two PFM images of surface normals, one from pbrt and one from here.
+"""Compare the channels of pbrt's gbuffer against the ones this renderer writes.
 
-    python3 apps/pbrt/compare_normals.py <pbrt.pfm> <bonsai.pfm>
-        [--pbrt-seconds <s>] [--bonsai-seconds <s>]
+    python3 apps/pbrt/compare_gbuffer.py <pbrt.pfm> <bonsai.pfm>
+        [--albedo <pbrt-albedo.pfm> <bonsai-albedo.pfm>]
+        [--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]
 
-Two things are reported, and they fail for different reasons:
+Three things are reported, and they fail for different reasons:
 
   the hit mask -- which pixels have a normal at all. A disagreement here is a
   disagreement about geometry: the camera is pointing somewhere slightly
@@ -15,6 +16,13 @@ Two things are reported, and they fail for different reasons:
   the normals themselves, where both renderers hit something. pbrt writes its
   gbuffer as half floats, so agreement is bounded by that: around 5e-4 near
   0.5, and there is no point asking for better.
+
+  the albedo, when --albedo names the pair. This is the spectral pipeline end
+  to end -- an RGB reflectance fitted to a sigmoid, evaluated at four sampled
+  wavelengths, multiplied by the illuminant and integrated back to RGB -- and
+  none of that round trip is the identity. It is a colour rather than a
+  direction, so it is reported as a difference rather than as a hit mask; the
+  geometry is already covered above.
 
 Also writes pbrt.png, bonsai.png and diff.png beside the inputs, because a
 number saying the images match is not the same as being able to look at them.
@@ -35,6 +43,11 @@ NORMAL_TOLERANCE = 2e-3
 # How much the difference image is brightened. The differences worth seeing are
 # far below one pixel level, so shown honestly the image would be black.
 DIFF_GAIN = 255.0
+
+# See compare_albedo: an order of magnitude above the agreement observed, which
+# leaves room for the half-float gbuffer and the sigmoid fit without leaving
+# room for a wrong wavelength sampler.
+ALBEDO_TOLERANCE = 5e-3
 
 
 def diff_png(path, width, height, ref, got):
@@ -96,8 +109,66 @@ def take_option(args, name):
     return value
 
 
+def take_pair(args, name):
+    if name not in args:
+        return None
+    i = args.index(name)
+    if i + 2 >= len(args):
+        raise SystemExit(f"{name} needs two filenames")
+    pair = (args[i + 1], args[i + 2])
+    del args[i:i + 3]
+    return pair
+
+
+def compare_albedo(pbrt_path, bonsai_path, width, height):
+    """The spectral round trip, as a difference rather than a hit mask.
+
+    The bound is what pbrt's half-float gbuffer can express, which near one is
+    about 5e-4, plus whatever the sigmoid fit differs by -- this renderer runs
+    the fit where pbrt looks it up in a table its own fitting tool produced, so
+    the two are the same computation but not the same arithmetic. The tolerance
+    is set an order of magnitude above the agreement actually observed, which
+    is enough room for that and nowhere near enough to hide a wrong sampler:
+    sampling wavelengths uniformly instead of by visible response, the mistake
+    this was written to catch, moves a channel by tenths.
+    """
+    pw, ph, pbrt = read_pfm(pbrt_path)
+    bw, bh, bonsai = read_pfm(bonsai_path)
+    if (pw, ph) != (width, height) or (bw, bh) != (width, height):
+        raise SystemExit("albedo images are not the size of the normals")
+
+    worst = 0.0
+    worst_at = None
+    total = 0.0
+    counted = 0
+    for i in range(0, len(pbrt), 3):
+        a = pbrt[i:i + 3]
+        b = bonsai[i:i + 3]
+        # Where pbrt recorded nothing, there is no surface to have an albedo.
+        if a == (0.0, 0.0, 0.0):
+            continue
+        difference = max(abs(a[c] - b[c]) for c in range(3))
+        total += difference
+        counted += 1
+        if difference > worst:
+            worst = difference
+            worst_at = (i // 3 % width, i // 3 // width, a, b)
+
+    if counted == 0:
+        raise SystemExit("no pixels with an albedo to compare")
+    print(f"albedo: {counted} pixels, mean difference {total / counted:.2e}, "
+          f"worst {worst:.2e}")
+    if worst_at:
+        x, y, a, b = worst_at
+        print(f"  worst at ({x}, {y}) "
+              f"pbrt ({a[0]:+.4f} {a[1]:+.4f} {a[2]:+.4f}) "
+              f"bonsai ({b[0]:+.4f} {b[1]:+.4f} {b[2]:+.4f})")
+    return worst
+
+
 def main(argv):
     args = argv[1:]
+    albedo_pair = take_pair(args, "--albedo")
     pbrt_seconds = take_option(args, "--pbrt-seconds")
     bonsai_seconds = take_option(args, "--bonsai-seconds")
     repeats = take_option(args, "--repeats")
@@ -191,13 +262,21 @@ def main(argv):
     # a grazing ray, and which surface it lands on is decided by how carefully
     # the intersection rounds -- a genuine difference between the two
     # renderers, but not one that means anything is wrong here.
+    albedo_failed = False
+    if albedo_pair is not None:
+        worst = compare_albedo(albedo_pair[0], albedo_pair[1], ref_w, ref_h)
+        albedo_failed = worst > ALBEDO_TOLERANCE
+        if albedo_failed:
+            print(f"FAILED: albedo differs by {worst:.2e}, over the "
+                  f"{ALBEDO_TOLERANCE:.0e} a half-float gbuffer allows for")
+
     if interior:
         print(f"FAILED: {len(interior)} pixels disagree away from any edge")
     else:
         print(f"ok: matches pbrt except on {len(on_edge)} silhouette pixels")
     print(f"images: {out_dir}/pbrt.png, {out_dir}/bonsai.png, "
           f"{out_dir}/diff.png (difference brightened {DIFF_GAIN:.0f}x)")
-    return 1 if interior else 0
+    return 1 if (interior or albedo_failed) else 0
 
 
 if __name__ == "__main__":
