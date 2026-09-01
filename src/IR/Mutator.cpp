@@ -1,9 +1,13 @@
 #include "IR/Mutator.h"
 
+#include "IR/Build.h"
 #include "IR/Expr.h"
+#include "IR/Layout.h"
 #include "IR/Printer.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
+
+#include "Log.h"
 
 namespace bonsai {
 namespace ir {
@@ -42,8 +46,20 @@ Stmt Mutator::mutate(const Stmt &stmt) {
     return stmt.defined() ? stmt.get()->mutate_stmt(this) : Stmt();
 }
 
+Member Mutator::mutate(const Member &member) {
+    return member.defined() ? member.get()->mutate_member(this) : Member();
+}
+
+BuildIR Mutator::mutate(const BuildIR &ir) {
+    return ir.defined() ? ir.get()->mutate_build(this) : BuildIR();
+}
+
 std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
-    WriteLoc new_loc(loc.base, loc.base_type);
+    // Keep the base expression itself rather than rebuilding it from its name
+    // and type. Once Mutability has rewritten a mutable argument, the base
+    // reads through a pointer, and naming it again would write to the pointer
+    // instead of to what it points at.
+    WriteLoc new_loc(loc.b);
     bool not_changed = true;
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<Expr>(value)) {
@@ -51,8 +67,11 @@ std::pair<WriteLoc, bool> Mutator::mutate_writeloc(const WriteLoc &loc) {
             not_changed =
                 not_changed && new_value.same_as(std::get<Expr>(value));
             new_loc.add_index_access(std::move(new_value));
-        } else {
+        } else if (std::holds_alternative<std::string>(value)) {
             new_loc.add_struct_access(std::get<std::string>(value));
+        } else if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+            auto cast = std::get<ir::WriteLoc::Cast>(value);
+            new_loc.add_cast(cast.type, cast.mode);
         }
     }
     return {std::move(new_loc), not_changed};
@@ -116,7 +135,7 @@ Type Mutator::visit(const Struct_t *node) {
         return node;
     }
     return Struct_t::make(node->name, std::move(fields), std::move(defaults),
-                          node->attributes);
+                          node->attributes, node->alignment);
 }
 
 Type Mutator::visit(const Tuple_t *node) {
@@ -200,9 +219,8 @@ Type Mutator::visit(const BVH_t *node) {
                 return annot;
             }
             not_changed = false;
-            return Annotation{Annotation::Volume{vol->geometry, std::move(type),
-                                                 vol->initializers,
-                                                 vol->broadcast}};
+            return Annotation{Annotation::Volume{vol->boundee, std::move(type),
+                                                 vol->initializers}};
         } else {
             const auto *interval = annot.as<Annotation::Interval>();
             const auto *aggregate = annot.as<Annotation::Aggregate>();
@@ -214,7 +232,7 @@ Type Mutator::visit(const BVH_t *node) {
         }
     };
 
-    const auto visit_node = [&](const BVH_t::Node &node) {
+    const auto visit_node = [&](const BVH_t::Variant &node) {
         bool cache_changed = not_changed;
 
         Type struct_type = mutate(node.struct_type);
@@ -230,20 +248,21 @@ Type Mutator::visit(const BVH_t *node) {
             not_changed = cache_changed;
             return node;
         }
-        return BVH_t::Node{std::move(struct_type), std::move(annotations)};
+        return BVH_t::Variant{std::move(struct_type), std::move(annotations)};
     };
 
-    const size_t nnodes = node->nodes.size();
-    std::vector<BVH_t::Node> nodes(nnodes);
+    const size_t nvariants = node->variants.size();
+    std::vector<BVH_t::Variant> variants(nvariants);
 
-    for (size_t i = 0; i < nnodes; i++) {
-        nodes[i] = visit_node(node->nodes[i]);
+    for (size_t i = 0; i < nvariants; i++) {
+        variants[i] = visit_node(node->variants[i]);
     }
 
     if (not_changed) {
         return node;
     } else {
-        return BVH_t::make(std::move(primitive), node->name, std::move(nodes));
+        return BVH_t::make(std::move(primitive), node->name,
+                           std::move(variants));
     }
 }
 
@@ -264,6 +283,8 @@ Interface Mutator::visit(const IVector *node) {
 Expr Mutator::visit(const IntImm *node) { return node; }
 
 Expr Mutator::visit(const UIntImm *node) { return node; }
+
+Expr Mutator::visit(const IdxImm *node) { return node; }
 
 Expr Mutator::visit(const FloatImm *node) { return node; }
 
@@ -357,6 +378,19 @@ Expr Mutator::visit(const Extract *node) {
     return Extract::make(std::move(vec), std::move(idx));
 }
 
+Expr Mutator::visit(const Slice *node) {
+    Expr value = mutate(node->value);
+    Expr begin = mutate(node->begin);
+    Expr end = mutate(node->end);
+    Expr step = mutate(node->step);
+    if (value.same_as(node->value) && begin.same_as(node->begin) &&
+        end.same_as(node->end) && step.same_as(node->step)) {
+        return node;
+    }
+    return Slice::make(std::move(value), std::move(begin), std::move(end),
+                       std::move(step));
+}
+
 Expr Mutator::visit(const Build *node) {
     auto [values, not_changed] = visit_list(this, node->values);
     if (not_changed) {
@@ -397,6 +431,15 @@ Expr Mutator::visit(const Generator *node) {
         return node;
     }
     return Generator::make(node->op, std::move(args));
+}
+
+Expr Mutator::visit(const Append *node) {
+    ir::Expr input = mutate(node->input);
+    ir::Expr size = mutate(node->size);
+    if (input.same_as(node->input) && size.same_as(node->size)) {
+        return node;
+    }
+    return ir::Append::make(std::move(input), std::move(size));
 }
 
 Expr Mutator::visit(const Lambda *node) {
@@ -689,6 +732,8 @@ Stmt Mutator::visit(const ForAll *node) {
 
 Stmt Mutator::visit(const Continue *node) { return node; }
 
+Stmt Mutator::visit(const Break *node) { return node; }
+
 Stmt Mutator::visit(const Launch *node) {
     Expr n = mutate(node->n);
     auto [args, not_changed] = visit_list(this, node->args);
@@ -698,13 +743,111 @@ Stmt Mutator::visit(const Launch *node) {
     return Launch::make(node->func, std::move(n), std::move(args));
 }
 
-Stmt Mutator::visit(const Append *node) {
+Stmt Mutator::visit(const AppendStmt *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
     if (not_changed && value.same_as(node->value)) {
         return node;
     }
-    return Append::make(std::move(loc), std::move(value));
+    return AppendStmt::make(std::move(loc), std::move(value));
+}
+
+Stmt Mutator::visit(const Swap *node) {
+    auto [a, not_changed1] = mutate_writeloc(node->a);
+    auto [b, not_changed2] = mutate_writeloc(node->b);
+    if (not_changed1 && not_changed2) {
+        return node;
+    }
+
+    return Swap::make(std::move(a), std::move(b));
+}
+
+Member Mutator::visit(const Field *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Pad *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Split *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Chain *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+    auto [members, not_changed] = visit_list(this, node->members);
+    if (not_changed) {
+        return node;
+    }
+    return Chain::make(std::move(members));
+}
+
+Member Mutator::visit(const Group *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+}
+
+Member Mutator::visit(const Materialize *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+    ir::Expr value = mutate(node->value);
+    if (value.same_as(node->value)) {
+        return node;
+    }
+    return Materialize::make(node->loc, std::move(value));
+}
+Member Mutator::visit(const Lookup *node) {
+    internal_error << "[unimplemented] mutate " << ir::Member(node);
+    return node;
+}
+
+// Build
+BuildIR Mutator::visit(const BuildLet *node) {
+    ir::Stmt stmt = mutate(node->stmt);
+    if (stmt.same_as(node->stmt)) {
+        return node;
+    }
+    return BuildLet::make(std::move(stmt));
+}
+
+BuildIR Mutator::visit(const BuildRecurse *node) {
+    ir::Expr field = mutate(node->field);
+    if (field.same_as(node->field)) {
+        return node;
+    }
+    return BuildRecurse::make(std::move(field));
+}
+
+BuildIR Mutator::visit(const BuildReturn *node) {
+    ir::Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr)) {
+        return node;
+    }
+    return BuildReturn::make(std::move(expr));
+}
+
+BuildIR Mutator::visit(const BuildRoot *node) {
+    ir::BuildIR rules = mutate(node->rules);
+    if (rules.same_as(node->rules)) {
+        return node;
+    }
+    return BuildRoot::make(std::move(rules));
+}
+
+BuildIR Mutator::visit(const BuildRule *node) {
+    ir::Expr field = mutate(node->field);
+    ir::Expr expr = mutate(node->expr);
+    if (expr.same_as(node->expr) && field.same_as(node->field)) {
+        return node;
+    }
+    return BuildRule::make(std::move(field), std::move(expr));
+}
+
+BuildIR Mutator::visit(const BuildSequence *node) {
+    auto [ir, not_changed] = visit_list(this, node->sequence);
+    if (not_changed) {
+        return node;
+    }
+    return BuildSequence::make(std::move(ir));
 }
 
 } // namespace ir

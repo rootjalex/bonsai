@@ -5,7 +5,7 @@ func _traverse_array0(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
       _alloc0[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
     }
   }
-  return reinterpret_cast<f32[n][m]>((*_alloc0))
+  return reinterpret_cast<f32[n][m]>(_alloc0)
 }
 
 func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
@@ -15,7 +15,7 @@ func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
     let _i1 = _i_a % n in
     _alloc1[(_i0 * n) + _i1] = sqrt(a[_i0][_i1])
   }
-  return reinterpret_cast<f32[n][m]>((*_alloc1))
+  return reinterpret_cast<f32[n][m]>(_alloc1)
 }
 
 func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
@@ -25,7 +25,7 @@ func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
     let _i1 = _i_b & 7 in
     _alloc2[(_i0 << 3) + _i1] = sqrt(a[_i0][_i1])
   }
-  return reinterpret_cast<f32[8][32]>((*_alloc2))
+  return reinterpret_cast<f32[8][32]>(_alloc2)
 }
 
 func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
@@ -35,21 +35,23 @@ func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
     let _i1 = _i_c % h in
     _alloc3[(_i0 * h) + _i1] = f(_i0, _i1)
   }
-  return reinterpret_cast<i32[h][w]>((*_alloc3))
+  return reinterpret_cast<i32[h][w]>(_alloc3)
 }
 
 func _traverse_array4(w : i32) -> i32[w] {
   alloc _alloc4 : mut i32[w]
   forall _i in [0:((w + 3) / 4) << 2:1] {
-    let _io = (_i / 4) << 2 in
-    let _ii = _i & 3 in
-    if (_io < w) {
-      if (_ii < 4) {
+    let _t62 = (_i / 4) << 2 in
+    let _io = _t62 in
+    let _t52 = _i & 3 in
+    let _ii = _t52 in
+    if (_t62 < w) {
+      if (_t52 < 4) {
         _alloc4[_io + _ii] = f(_io + _ii, 1)
       }
     }
   }
-  return (*_alloc4)
+  return _alloc4
 }
 
 func f(x : i32, y : i32) -> i32 {

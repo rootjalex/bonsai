@@ -4,24 +4,27 @@ type _option0 = struct _option0{ value : i32; set : bool = false }
 type _option1 = struct _option1{ value : f32; set : bool = false }
 
 func get_flpat(n : (NumberOption*)) -> f32 {
-  if ((*n).f.set) {
-    return (*n).f.value
+  let _t1 = (*n).f in
+  if (_t1.set) {
+    return _t1.value
   } else {
     return 0f
   }
 }
 
 func get_int(n : (NumberOption*)) -> i32 {
-  if ((*n).i.set) {
-    return (*n).i.value
+  let _t3 = (*n).i in
+  if (_t3.set) {
+    return _t3.value
   } else {
     return 0
   }
 }
 
 func use_option(s : (S*)) -> i32 {
-  if ((*s).i.set) {
-    return (*s).i.value
+  let _t5 = (*s).i in
+  if (_t5.set) {
+    return _t5.value
   }
   return 42
 }

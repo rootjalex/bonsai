@@ -1,6 +1,7 @@
 #include "Lower/Lower.h"
 
 #include "IR/Mutator.h"
+#include "Lower/Builds.h"
 #include "Lower/Canonicalize.h"
 #include "Lower/Defers.h"
 #include "Lower/DynamicArrays.h"
@@ -16,6 +17,7 @@
 #include "Lower/Maps.h"
 #include "Lower/Mutability.h"
 #include "Lower/Options.h"
+#include "Lower/PostLayoutDefers.h"
 #include "Lower/Random.h"
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
@@ -24,9 +26,11 @@
 #include "Lower/Sorts.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
+#include "Lower/VerifyBuilds.h"
 #include "Lower/VerifyLayouts.h"
 #include "Lower/VerifyOptions.h"
 #include "Lower/Yields.h"
+#include "Opt/CSE.h"
 #include "Opt/DCE.h"
 #include "Opt/Fusion.h"
 #include "Opt/Inline.h"
@@ -62,6 +66,9 @@ void lower(ir::Program &program, const CompilerOptions &options) {
     // Run the passes.
     for (Pass *pass : passes) {
         program = pass->run(std::move(program), options);
+        if (pass->name() == options.up_to) {
+            break;
+        }
     }
 }
 
@@ -79,28 +86,32 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerOptions>();
     manager.register_pass<VerifyOptions>();
     manager.register_pass<LowerGenerics>();
+    manager.register_pass<VerifyBuilds>();
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
+    manager.register_pass<LowerScans>();
     manager.register_pass<LowerSorts>();
     manager.register_pass<LowerDefers>();
+    manager.register_pass<LowerPostLayoutDefers>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerMaps>();
     manager.register_pass<LowerDynamicSets>();
     manager.register_pass<LowerGeometrics>();
     manager.register_pass<LowerLayouts>();
+    manager.register_pass<LowerBuilds>();
     manager.register_pass<LowerTuples>();
     manager.register_pass<LowerDynamicArrays>();
     manager.register_pass<LowerYields>();
     manager.register_pass<LowerExterns>();
     manager.register_pass<LowerLogicalOperations>();
     manager.register_pass<LowerRandom>();
-    manager.register_pass<LowerScans>();
     manager.register_pass<LowerRecLoops>();
     manager.register_pass<ReturnToOutParameter>();
     manager.register_pass<RenamePointerToExpr>();
     manager.register_pass<Mutability>();
     // Optimizing pass registration.
+    manager.register_pass<opt::CSE>();
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Fusion>();
     manager.register_pass<opt::Inline>();
@@ -113,6 +124,7 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<Canonicalize>());
     core.push_back(std::make_unique<VerifyOptions>());
     core.push_back(std::make_unique<VerifyLayouts>());
+    core.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     core.push_back(std::make_unique<opt::Fusion>());
     core.push_back(std::make_unique<LowerMaps>());
@@ -122,27 +134,42 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerDefers>());
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerGeometrics>());
+    // A scan walks a subtree by matching on its variants, so it has to run
+    // while the traversal still names a tree, before LowerLayouts rewrites
+    // that into indices. A reducing scan is fully lowerable here; a
+    // set-union one is not, and is left for the second run below.
+    core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerLayouts>());
+    core.push_back(std::make_unique<LowerPostLayoutDefers>());
+    core.push_back(std::make_unique<LowerBuilds>());
     core.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
     // and before Mutability
-    core.push_back(std::make_unique<LowerRandom>());
+    if (options.target != BackendTarget::CPPX) {
+        core.push_back(std::make_unique<LowerRandom>());
+    }
     core.push_back(std::make_unique<LowerDynamicSets>());
     core.push_back(std::make_unique<LowerYields>());
-    core.push_back(std::make_unique<LowerScans>());
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
-    core.push_back(std::make_unique<LowerOptions>());
-    core.push_back(std::make_unique<LowerTuples>());
-    core.push_back(std::make_unique<LowerDynamicArrays>());
+    if (options.target != BackendTarget::CPPX &&
+        options.target != BackendTarget::CUDA) {
+        core.push_back(std::make_unique<LowerOptions>());
+        core.push_back(std::make_unique<LowerTuples>());
+        core.push_back(std::make_unique<LowerDynamicArrays>());
+    }
     core.push_back(std::make_unique<LowerLogicalOperations>());
     core.push_back(std::make_unique<LowerGenerics>());
     // This should always run last! It duplicates the exported functions.
-    core.push_back(std::make_unique<ReturnToOutParameter>());
+    if (options.target != BackendTarget::CUDA &&
+        options.target != BackendTarget::CPPX) {
+        core.push_back(std::make_unique<ReturnToOutParameter>());
+    }
     core.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
+    if (options.target == BackendTarget::CUDA ||
+        options.target == BackendTarget::CPPX) {
         // This must go after Mutability, since it requires PtrTo.
         core.push_back(std::make_unique<RenamePointerToExpr>());
     }
@@ -153,6 +180,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<Canonicalize>());
     d.push_back(std::make_unique<VerifyOptions>());
     d.push_back(std::make_unique<VerifyLayouts>());
+    d.push_back(std::make_unique<VerifyBuilds>());
     // Fusion must always run before Array or Tree lowering!
     d.push_back(std::make_unique<opt::Fusion>());
     d.push_back(std::make_unique<LowerMaps>());
@@ -162,37 +190,57 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerDefers>());
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerGeometrics>());
+    // A scan walks a subtree by matching on its variants, so it has to run
+    // while the traversal still names a tree, before LowerLayouts rewrites
+    // that into indices. A reducing scan is fully lowerable here; a
+    // set-union one is not, and is left for the second run below.
+    d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerLayouts>());
+    d.push_back(std::make_unique<LowerPostLayoutDefers>());
+    d.push_back(std::make_unique<LowerBuilds>());
     d.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
     // and before Mutability
-    d.push_back(std::make_unique<LowerRandom>());
+    if (options.target != BackendTarget::CPPX) {
+        d.push_back(std::make_unique<LowerRandom>());
+    }
     d.push_back(std::make_unique<LowerDynamicSets>());
     d.push_back(std::make_unique<LowerYields>());
-    d.push_back(std::make_unique<LowerScans>());
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
-    d.push_back(std::make_unique<LowerOptions>());
-    d.push_back(std::make_unique<LowerTuples>());
-    d.push_back(std::make_unique<LowerDynamicArrays>());
+    if (options.target != BackendTarget::CPPX &&
+        options.target != BackendTarget::CUDA) {
+        d.push_back(std::make_unique<LowerOptions>());
+        d.push_back(std::make_unique<LowerTuples>());
+        d.push_back(std::make_unique<LowerDynamicArrays>());
+    }
     d.push_back(std::make_unique<opt::Unswitch>());
     d.push_back(std::make_unique<LowerLogicalOperations>());
     d.push_back(std::make_unique<LowerGenerics>());
-    d.push_back(std::make_unique<opt::Simplify>());
     // TODO(cgyurgyik): Right now, we don't update functions that are "dead" in
     // the LowerRandom pass because we need to propagate through live functions
     // to get the analysis correct. Ideally we could run this DCE pass much
     // earlier, but this has caused issues that need to be investigated.
-    d.push_back(std::make_unique<opt::DCE>());
-    d.push_back(std::make_unique<opt::Inline>());
+    for (int i = 0; i <= 3; ++i) {
+        // Old cases reveal new cases.
+        d.push_back(std::make_unique<opt::Inline>());
+        d.push_back(std::make_unique<opt::DCE>());
+        d.push_back(std::make_unique<opt::CSE>());
+        d.push_back(std::make_unique<opt::Simplify>());
+        d.push_back(std::make_unique<opt::DCE>());
+    }
+
     // Clean up any dead functions after inlining.
-    d.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.
-    d.push_back(std::make_unique<ReturnToOutParameter>());
+    if (options.target != BackendTarget::CUDA &&
+        options.target != BackendTarget::CPPX) {
+        d.push_back(std::make_unique<ReturnToOutParameter>());
+    }
     d.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
+    if (options.target == BackendTarget::CUDA ||
+        options.target == BackendTarget::CPPX) {
         // This must go after Mutability, since it requires PtrTo.
         d.push_back(std::make_unique<RenamePointerToExpr>());
     }

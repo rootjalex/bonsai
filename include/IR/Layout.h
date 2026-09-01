@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Argument.h"
 #include "Error.h"
 #include "Expr.h"
 #include "IRHandle.h"
@@ -7,50 +8,56 @@
 #include "IntrusivePtr.h"
 #include "Mutator.h"
 #include "Visitor.h"
+#include "WriteLoc.h"
 
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
 namespace bonsai {
 namespace ir {
 
-struct Layout;
+struct Member;
 
 enum class IRLayoutEnum {
-    Name,
+    Field,
     Pad,
-    Switch,
+    Split,
     Chain,
     Group,
     Materialize,
+    Lookup,
 };
 
-using IRLayoutNode = IRNode<Layout, IRLayoutEnum>;
+using IRLayoutMember = IRNode<Member, IRLayoutEnum>;
 
 /* This is necessary to get mutate() to work properly... */
-struct BaseLayoutNode : public IRLayoutNode {
-    BaseLayoutNode(IRLayoutEnum t) : IRLayoutNode(t) {}
-    // virtual Layout mutate_layout(Mutator *m) const = 0;
+struct BaseLayoutMember : public IRLayoutMember {
+    BaseLayoutMember(IRLayoutEnum t) : IRLayoutMember(t) {}
+    virtual Member mutate_member(Mutator *m) const = 0;
 };
 
 template <typename T>
-struct LayoutNode : public BaseLayoutNode {
+struct LayoutMember : public BaseLayoutMember {
     void accept(Visitor *v) const override { return v->visit((const T *)this); }
-    // Layout mutate_layout(Mutator *m) const override;
-    LayoutNode() : BaseLayoutNode(T::node_type) {}
-    ~LayoutNode() override = default;
+    Member mutate_member(Mutator *m) const override;
+    LayoutMember() : BaseLayoutMember(T::node_type) {}
+    ~LayoutMember() override = default;
 };
 
-struct Layout : public IRHandle<IRLayoutNode> {
-    /** Make an undefined Layout */
-    Layout() = default;
+struct Member : public IRHandle<IRLayoutMember> {
+    /** Make an undefined Member */
+    Member() = default;
 
-    /** Make a Layout from a concrete Layout node pointer (e.g. Int_t) */
-    Layout(const IRLayoutNode *n) : IRHandle<IRLayoutNode>(n) {}
+    /** Make a Member from a concrete Member node pointer (e.g. Int_t) */
+    Member(const IRLayoutMember *n) : IRHandle<IRLayoutMember>(n) {}
 
-    /** Override get() to return a BaseLayoutNode * instead of an IRNode.
+    /** Override get() to return a BaseLayoutMember * instead of an IRNode.
      *  This is necessary to get mutate() to work properly. **/
-    const BaseLayoutNode *get() const { return (const BaseLayoutNode *)ptr; }
+    const BaseLayoutMember *get() const {
+        return (const BaseLayoutMember *)ptr;
+    }
 
     // Number of bits of this layout.
     // Assumptions: ptrs are 64 bits, indexes are u32.
@@ -58,88 +65,160 @@ struct Layout : public IRHandle<IRLayoutNode> {
     // Number of elements this layout represents.
     Expr count() const;
 
+    // The name of this member, if it exists.
+    std::string name() const;
+
     // TODO: implement copy/move semantics!
 };
 
-// template <typename T>
-// Layout LayoutNode<T>::mutate_layout(Mutator *m) const {
-//     return m->visit((const T *)this);
-// }
+template <typename T>
+Member LayoutMember<T>::mutate_member(Mutator *m) const {
+    return m->visit((const T *)this);
+}
 
-struct Name : LayoutNode<Name> {
+struct Field : LayoutMember<Field> {
     std::string name;
     Type type; // primitive type.
 
-    static Layout make(std::string name, Type type);
+    static Member make(std::string name, Type type);
 
-    static const IRLayoutEnum node_type = IRLayoutEnum::Name;
+    static const IRLayoutEnum node_type = IRLayoutEnum::Field;
 };
 
-struct Pad : LayoutNode<Pad> {
+struct Pad : LayoutMember<Pad> {
     uint32_t bits;
 
-    static Layout make(uint32_t bits);
+    static Member make(uint32_t bits);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Pad;
 };
 
-// split from https://dl.acm.org/doi/pdf/10.1145/3607858
-struct Switch : LayoutNode<Switch> {
-    // TODO: allow switching on unnamed bits?
-    std::string field; // switch param
-    // TODO: support non-constant or field ranges?
-    struct Arm {
-        std::optional<int64_t> value;
-        std::optional<std::string> name; // Tree branch name
-        Layout layout;
+struct Arm {
+    enum class Comparator {
+        EQ = 0,
+        NE = 1,
+        GT = 2,
+        GE = 3,
+        LT = 4,
+        LE = 5,
     };
-    std::vector<Arm> arms;
+    Comparator comparator;
+    // The integer value used in the comparison; wildcard if none provided.
+    std::optional<int64_t> value;
+    // The type associated with this arm, if any.
+    std::optional<std::string> name;
+    // The body of this split arm.
+    Member member;
 
-    static Layout make(std::string field, std::vector<Arm> arms);
-
-    static const IRLayoutEnum node_type = IRLayoutEnum::Switch;
+    bool is_wildcard() const { return !value.has_value(); }
 };
 
-struct Chain : LayoutNode<Chain> {
-    std::vector<Layout> layouts;
+// split from https://dl.acm.org/doi/pdf/10.1145/3607858
+struct Split : LayoutMember<Split> {
+    Expr expr; // split parameter
+    std::vector<Arm> arms;
 
-    static Layout make(std::vector<Layout> layouts);
+    static Member make(Expr expr, std::vector<Arm> arms);
+
+    static const IRLayoutEnum node_type = IRLayoutEnum::Split;
+
+    // Returns the name of the field that is being split.
+    std::string field_name() const;
+};
+
+struct Chain : LayoutMember<Chain> {
+    std::vector<Member> members;
+
+    static Member make(std::vector<Member> members);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Chain;
 };
 
-struct Group : LayoutNode<Group> {
+struct Group : LayoutMember<Group> {
     Expr size;
+    Expr alignment;
+    Expr index;
+    // A group has two names, and they answer different questions.
+    //
+    // `name` is the field of the layout's struct that stores the group. It is
+    // always set: a group the source left anonymous still needs somewhere to
+    // live. An indirect group's declared name also names the struct it
+    // generates, so its field is that name lower-cased.
+    //
+    // `declared_name` is what the source wrote, and is the group's identity:
+    // it is what `<variant> from <group>[<index>]` resolves against and what
+    // diagnostics quote. It is empty for an anonymous group, which is exactly
+    // why such a group cannot be looked up.
     std::string name;
-    Type index_t;
-    Layout inner;
+    std::string declared_name;
+    Member inner;
 
-    static Layout make(Expr size, std::string name, Type index_t, Layout inner);
+    enum class Type { Direct, Indirect, Pointer };
+    Type type;
+
+    static Member make(std::string name, std::string declared_name, Expr size,
+                       Expr alignment, Expr index, Member inner,
+                       Type type = Type::Direct);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };
 
-struct Materialize : LayoutNode<Materialize> {
-    std::string name;
+struct Materialize : LayoutMember<Materialize> {
+    ir::WriteLoc loc;
     Expr value;
 
-    static Layout make(std::string name, Expr value);
+    static Member make(ir::WriteLoc loc, Expr value);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Materialize;
 };
 
+struct Lookup : LayoutMember<Lookup> {
+    std::string group_name;
+    Expr index;
+
+    static Member make(std::string group_name, Expr index);
+
+    static const IRLayoutEnum node_type = IRLayoutEnum::Lookup;
+};
+
+struct Layout {
+    std::string name;
+    Type type; // The algebraic data type associated with this layout.
+    std::vector<ir::Argument> root;
+    Member body;
+
+    std::vector<ir::BVH_t::Variant> variants() const;
+
+    std::vector<ir::Member> find_all_groups() const;
+
+    std::vector<ir::Member> find_all_fields() const;
+
+    std::vector<ir::Member> find_groups(ir::Group::Type) const;
+
+    ir::Type get_index_type() const;
+
+    ir::Member find_primitives_group() const;
+
+    ir::Member find_group_for(const std::string &field_name) const;
+
+    std::vector<std::pair<std::string, ir::Expr>> tree_carried_updates() const;
+
+    std::set<std::string> tree_carried_dependencies() const;
+};
+
 using LayoutMap = std::map<std::string, Layout>;
+std::ostream &operator<<(std::ostream &os, const LayoutMap &map);
 
 } // namespace ir
 
 template <>
 inline RefCount &
-ref_count<ir::IRLayoutNode>(const ir::IRLayoutNode *t) noexcept {
+ref_count<ir::IRLayoutMember>(const ir::IRLayoutMember *t) noexcept {
     return t->ref_count;
 }
 
 template <>
-inline void destroy<ir::IRLayoutNode>(const ir::IRLayoutNode *t) {
+inline void destroy<ir::IRLayoutMember>(const ir::IRLayoutMember *t) {
     delete t;
 }
 

@@ -1,5 +1,7 @@
 #include "IR/Equality.h"
 
+#include <optional>
+
 #include "IR/Printer.h"
 
 namespace bonsai {
@@ -52,6 +54,9 @@ std::optional<Cmp> compare_node_types(const T &a, const T &b) {
     }
 
     // Must both be defined.
+    if (a.same_as(b)) {
+        return Cmp::Equals;
+    }
 
     if (a.node_type() < b.node_type()) {
         return Cmp::Less;
@@ -126,7 +131,30 @@ Cmp compare_interfaces(const Interface &i0, const Interface &i1) {
 Cmp compare_exprs(const Expr &e0, const Expr &e1);
 Cmp compare_types(const Type &t0, const Type &t1);
 
+// The name of the tree a type denotes, if it denotes one. A tree is nominal:
+// the parser binds its name to a Ref_t so that a variant can hold a child
+// without the type recurring forever, while the schedule holds the BVH_t that
+// name refers to. They are the folded and unfolded form of one type, and the
+// IR moves between them freely -- a child access has the reference type, and
+// the traversal that receives it is declared over the tree itself.
+std::optional<std::string> denoted_tree(const Type &t) {
+    if (const auto *ref = t.as<Ref_t>()) {
+        return ref->name;
+    }
+    if (const auto *bvh = t.as<BVH_t>()) {
+        return bvh->name;
+    }
+    return std::nullopt;
+}
+
 Cmp compare_types(const Type &t0, const Type &t1) {
+    if (t0.defined() && t1.defined() && t0.node_type() != t1.node_type()) {
+        const std::optional<std::string> n0 = denoted_tree(t0);
+        const std::optional<std::string> n1 = denoted_tree(t1);
+        if (n0.has_value() && n1.has_value()) {
+            return compare_primitives(*n0, *n1);
+        }
+    }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(t0, t1)) {
         return *nodes_cmp;
     }
@@ -183,6 +211,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         // TODO: can name ever match without fields matching?
         if (s0->fields.size() != s1->fields.size()) {
             return compare_primitives(s0->fields.size(), s1->fields.size());
+        }
+        if (const Cmp c = compare_primitives(s0->alignment, s1->alignment);
+            c != ir::Cmp::Equals) {
+            return c;
         }
         const size_t n = s0->fields.size();
         for (size_t i = 0; i < n; i++) {
@@ -282,16 +314,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
                     return Cmp::Greater;
                 }
 
-                if (const Cmp geometry =
-                        compare_primitives(vol0->geometry, vol1->geometry);
-                    geometry != Cmp::Equals) {
-                    return geometry;
-                }
-
-                if (const Cmp broadcast =
-                        compare_primitives(vol0->broadcast, vol1->broadcast);
-                    broadcast != Cmp::Equals) {
-                    return broadcast;
+                if (const Cmp boundee =
+                        compare_primitives(vol0->boundee, vol1->boundee);
+                    boundee != Cmp::Equals) {
+                    return boundee;
                 }
 
                 if (const Cmp vtype =
@@ -381,14 +407,14 @@ Cmp compare_types(const Type &t0, const Type &t1) {
             };
 
         // Compare node types.
-        if (b0->nodes.size() != b1->nodes.size()) {
-            return compare_primitives(b0->nodes.size(), b1->nodes.size());
+        if (b0->variants.size() != b1->variants.size()) {
+            return compare_primitives(b0->variants.size(), b1->variants.size());
         }
 
-        const size_t n = b0->nodes.size();
+        const size_t n = b0->variants.size();
         for (size_t i = 0; i < n; i++) {
-            const auto &node0 = b0->nodes[i];
-            const auto &node1 = b1->nodes[i];
+            const auto &node0 = b0->variants[i];
+            const auto &node1 = b1->variants[i];
             if (const Cmp rec =
                     compare_types(node0.struct_type, node1.struct_type);
                 rec != Cmp::Equals) {
@@ -411,7 +437,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
 }
 
 Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
-    if (const Cmp types = compare_types(w0.base_type, w1.base_type);
+    if (const Cmp types = compare_types(w0.base_type(), w1.base_type());
         types != Cmp::Equals) {
         return types;
     }
@@ -419,7 +445,7 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
         base_types != Cmp::Equals) {
         return base_types;
     }
-    if (const Cmp names = compare_primitives(w0.base, w1.base);
+    if (const Cmp names = compare_primitives(w0.base(), w1.base());
         names != Cmp::Equals) {
         return names;
     }
@@ -588,6 +614,23 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_exprs(v0->idx, v1->idx);
     }
+    case IRExprEnum::Slice: {
+        const Slice *v0 = e0.as<Slice>();
+        const Slice *v1 = e1.as<Slice>();
+        if (const Cmp base = compare_exprs(v0->value, v1->value);
+            base != Cmp::Equals) {
+            return base;
+        }
+        if (const Cmp base = compare_exprs(v0->begin, v1->begin);
+            base != Cmp::Equals) {
+            return base;
+        }
+        if (const Cmp base = compare_exprs(v0->end, v1->end);
+            base != Cmp::Equals) {
+            return base;
+        }
+        return compare_exprs(v0->step, v1->step);
+    }
     case IRExprEnum::Build: {
         const Build *v0 = e0.as<Build>();
         const Build *v1 = e1.as<Build>();
@@ -628,6 +671,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
             return op;
         }
         return compare_lists(v0->args, v1->args, compare_exprs);
+    }
+    case IRExprEnum::Append: {
+        const Append *v0 = e0.as<Append>();
+        const Append *v1 = e1.as<Append>();
+        if (const Cmp op = compare_exprs(v0->input, v1->input);
+            op != Cmp::Equals) {
+            return op;
+        }
+        return compare_exprs(v0->size, v1->size);
     }
     case IRExprEnum::Lambda: {
         const Lambda *v0 = e0.as<Lambda>();
@@ -724,15 +776,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     }
 }
 
-Cmp compare_layouts(const Layout &l0, const Layout &l1) {
+Cmp compare_members(const Member &l0, const Member &l1) {
     if (std::optional<Cmp> nodes_cmp = compare_node_types(l0, l1)) {
         return *nodes_cmp;
     }
 
     switch (l0.node_type()) {
-    case IRLayoutEnum::Name: {
-        const Name *n0 = l0.as<Name>();
-        const Name *n1 = l1.as<Name>();
+    case IRLayoutEnum::Field: {
+        const Field *n0 = l0.as<Field>();
+        const Field *n1 = l1.as<Field>();
         if (const Cmp cmp = compare_primitives(n0->name, n1->name);
             cmp != Cmp::Equals) {
             return cmp;
@@ -744,11 +796,10 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
         const Pad *p1 = l1.as<Pad>();
         return compare_primitives(p0->bits, p1->bits);
     }
-    case IRLayoutEnum::Switch: {
-        const Switch *s0 = l0.as<Switch>();
-        const Switch *s1 = l1.as<Switch>();
-        if (Cmp cmp = compare_primitives(s0->field, s1->field);
-            cmp != Cmp::Equals) {
+    case IRLayoutEnum::Split: {
+        const Split *s0 = l0.as<Split>();
+        const Split *s1 = l1.as<Split>();
+        if (Cmp cmp = compare_exprs(s0->expr, s1->expr); cmp != Cmp::Equals) {
             return cmp;
         }
         if (Cmp cmp = compare_primitives(s0->arms.size(), s1->arms.size());
@@ -766,7 +817,7 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
                 cmp != Cmp::Equals) {
                 return cmp;
             }
-            if (Cmp cmp = compare_layouts(a0.layout, a1.layout);
+            if (Cmp cmp = compare_members(a0.member, a1.member);
                 cmp != Cmp::Equals) {
                 return cmp;
             }
@@ -777,12 +828,12 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
         const Chain *c0 = l0.as<Chain>();
         const Chain *c1 = l1.as<Chain>();
         if (Cmp cmp =
-                compare_primitives(c0->layouts.size(), c1->layouts.size());
+                compare_primitives(c0->members.size(), c1->members.size());
             cmp != Cmp::Equals) {
             return cmp;
         }
-        for (size_t i = 0; i < c0->layouts.size(); ++i) {
-            if (Cmp cmp = compare_layouts(c0->layouts[i], c1->layouts[i]);
+        for (size_t i = 0; i < c0->members.size(); ++i) {
+            if (Cmp cmp = compare_members(c0->members[i], c1->members[i]);
                 cmp != Cmp::Equals) {
                 return cmp;
             }
@@ -799,20 +850,31 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
             cmp != Cmp::Equals) {
             return cmp;
         }
-        if (Cmp cmp = compare_types(g0->index_t, g1->index_t);
+        if (Cmp cmp = compare_exprs(g0->alignment, g1->alignment);
             cmp != Cmp::Equals) {
             return cmp;
         }
-        return compare_layouts(g0->inner, g1->inner);
+        if (Cmp cmp = compare_exprs(g0->index, g1->index); cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_members(g0->inner, g1->inner);
     }
     case IRLayoutEnum::Materialize: {
         const Materialize *m0 = l0.as<Materialize>();
         const Materialize *m1 = l1.as<Materialize>();
-        if (Cmp cmp = compare_primitives(m0->name, m1->name);
-            cmp != Cmp::Equals) {
+        if (Cmp cmp = compare_writelocs(m0->loc, m1->loc); cmp != Cmp::Equals) {
             return cmp;
         }
         return compare_exprs(m0->value, m1->value);
+    }
+    case IRLayoutEnum::Lookup: {
+        const Lookup *m0 = l0.as<Lookup>();
+        const Lookup *m1 = l1.as<Lookup>();
+        if (Cmp cmp = compare_primitives(m0->group_name, m1->group_name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_exprs(m0->index, m1->index);
     }
     }
 }
@@ -835,12 +897,12 @@ bool ExprLessThan::operator()(const Expr &e0, const Expr &e1) const {
     return compare_exprs(e0, e1) == Cmp::Less;
 }
 
-bool equals(const Layout &l0, const Layout &l1) {
-    return compare_layouts(l0, l1) == Cmp::Equals;
+bool equals(const Member &l0, const Member &l1) {
+    return compare_members(l0, l1) == Cmp::Equals;
 }
 
-bool LayoutLessThan::operator()(const Layout &l0, const Layout &l1) const {
-    return compare_layouts(l0, l1) == Cmp::Less;
+bool MemberLessThan::operator()(const Member &l0, const Member &l1) const {
+    return compare_members(l0, l1) == Cmp::Less;
 }
 
 bool WriteLocLessThan::operator()(const WriteLoc &w0,

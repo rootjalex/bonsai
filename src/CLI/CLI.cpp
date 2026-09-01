@@ -2,13 +2,44 @@
 
 #include "Bonsai.h"
 #include "IR/Printer.h"
+#include "IR/TypeEnforcement.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 
 namespace {
 
 using namespace bonsai;
+
+int combine_files(std::string a, std::string b, std::string &combined) {
+    std::ifstream in_a(a);
+    if (!in_a) {
+        std::cerr << "Error: Cannot open input file " << a << std::endl;
+        return 1;
+    }
+
+    std::ifstream in_b(b);
+    if (!in_b) {
+        std::cerr << "Error: Cannot open input file " << b << std::endl;
+        return 1;
+    }
+
+    std::filesystem::path path = std::filesystem::temp_directory_path();
+    path /= "combined.bonsai";
+    std::ofstream out(path.string(), std::ios::trunc);
+    if (!out) {
+        std::cerr << "Error: Cannot open temporary file " << path.string()
+                  << " for writing" << std::endl;
+        return 1;
+    }
+
+    out << in_a.rdbuf(); // Copy all of file `a` into the temporary file.
+    out << in_b.rdbuf(); // Copy all of file `b` into the temporary file.
+
+    combined = path.string();
+    return 0;
+}
 
 // Returns a helpful message to outline the command line arguments for the
 // Bonsai compiler.
@@ -17,8 +48,12 @@ std::string command_help() {
     s << "Bonsai Command Line:\n"
       << "-b   | --backend <backend>         | e.g., `-b llvm`\n"
       << "-p   | --pass <pass>               | e.g., `-p dce`\n"
+      << "     | --up-to <pass>              | e.g., `--up-to lower-trees`\n"
+      << "     | --target <triple>           | e.g., `--target "
+         "x86_64-linux-gnu`"
       << "-e   | --execute,                  | e.g., `-e`\n"
       << "-i   | --input <input file name>   | e.g., `-i in.bonsai`\n"
+      << "-l   | --layout <layout file name> | e.g., `-l pbrt.bonsai`\n"
       << "-o   | --output <output file name> | e.g., `-o out.bonsai`\n"
       << "-v   | --verbose                   | e.g., `-v`\n"
       << "-O<n>| n/a                         | e.g., `-O3`\n"
@@ -104,18 +139,27 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "-O0") {
             options.level = BackendOptimizationLevel::O0;
-            ++i;
             continue;
         }
         if (arg == "-O3") {
             options.level = BackendOptimizationLevel::O3;
-            ++i;
             continue;
         }
         if (arg == "-b" || arg == "--backend") {
             internal_assert(i + 1 < args.size());
             internal_assert(!target.has_value());
             target = string_to_backend(args[i + 1]);
+            ++i;
+            continue;
+        }
+        if (arg == "--up-to") {
+            options.up_to = args[i + 1];
+            ++i;
+            continue;
+        }
+        if (arg == "--target") {
+            internal_assert(i + 1 < args.size());
+            options.target_triple = args[i + 1];
             ++i;
             continue;
         }
@@ -141,6 +185,14 @@ Flags parse(const std::vector<std::string> &args) {
             ++i;
             continue;
         }
+        if (arg == "-l" || arg == "--layout") {
+            internal_assert(options.layout_file.empty())
+                << "already received layout file: " << options.layout_file;
+            internal_assert(i + 1 < args.size());
+            options.layout_file = args[i + 1];
+            ++i;
+            continue;
+        }
 
         internal_error << "unexpected argument: " << arg;
     }
@@ -163,7 +215,16 @@ int run(const Flags &flags) {
         verify_options(options);
 
         // Parse the input file.
-        ir::Program program = parser::parse(options.input_file);
+        std::string input = options.input_file;
+        if (!options.layout_file.empty()) {
+            combine_files(options.input_file, options.layout_file, input);
+        }
+        // A program may leave a type to be inferred -- `x = f(y)` where `f`
+        // declares no return type -- so the IR the parser builds is only
+        // partially typed. infer_types turns enforcement back on once it has
+        // resolved them.
+        ir::global_disable_type_enforcement();
+        ir::Program program = parser::parse(input);
 
         // Perform type inference.
         program = lower::infer_types(program);

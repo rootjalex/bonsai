@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "Argument.h"
 #include "Expr.h"
 #include "IRHandle.h"
 #include "IRNode.h"
@@ -38,8 +39,10 @@ enum class IRStmtEnum {
     ForAll,
     ForEach,
     Continue,
+    Break,
     Launch,
-    Append,
+    AppendStmt,
+    Swap,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -153,6 +156,7 @@ struct Allocate : StmtNode<Allocate> {
         Stack,
         Device,
         Host,
+        Global,
     };
     Memory memory;
 
@@ -218,16 +222,17 @@ struct Label : StmtNode<Label> {
 // A (currently inlined) recursive loop
 // Contains `From` nodes that match the args list.
 struct RecLoop : StmtNode<RecLoop> {
-    std::vector<TypedVar> args;
+    std::vector<ir::Argument> args;
     Stmt body;
 
-    static Stmt make(std::vector<TypedVar> args, Stmt body);
+    static Stmt make(std::vector<ir::Argument> args, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::RecLoop;
 };
 
 struct Match : StmtNode<Match> {
-    using Arms = std::vector<std::pair<BVH_t::Node, Stmt>>;
+    // TODO(cgyurgyik): replace this with named fields...
+    using Arms = std::vector<std::pair<BVH_t::Variant, Stmt>>;
     Expr loc; // Of type BVH_t
     Arms arms;
 
@@ -317,6 +322,12 @@ struct Continue : StmtNode<Continue> {
     static const IRStmtEnum node_type = IRStmtEnum::Continue;
 };
 
+struct Break : StmtNode<Break> {
+    static Stmt make();
+
+    static const IRStmtEnum node_type = IRStmtEnum::Break;
+};
+
 // Launch n calls to func with arguments
 struct Launch : StmtNode<Launch> {
     std::string func;
@@ -327,12 +338,24 @@ struct Launch : StmtNode<Launch> {
     static const IRStmtEnum node_type = IRStmtEnum::Launch;
 };
 
-struct Append : StmtNode<Append> {
+struct AppendStmt : StmtNode<AppendStmt> {
     WriteLoc loc;
     Expr value;
     static Stmt make(WriteLoc loc, Expr value);
 
-    static const IRStmtEnum node_type = IRStmtEnum::Append;
+    static const IRStmtEnum node_type = IRStmtEnum::AppendStmt;
+};
+
+// t = a;
+// a = b;
+// b = t;
+struct Swap : StmtNode<Swap> {
+    WriteLoc a;
+    WriteLoc b;
+
+    static Stmt make(WriteLoc a, WriteLoc b);
+
+    static const IRStmtEnum node_type = IRStmtEnum::Swap;
 };
 
 } // namespace ir

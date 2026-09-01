@@ -29,6 +29,7 @@ enum class IRExprEnum {
     UnOp,
     Select,
     Cast,
+    Slice,
     // Vector ops
     Broadcast,
     VectorReduce,
@@ -48,6 +49,7 @@ enum class IRExprEnum {
     AggOp,
     Call,
     Instantiate,
+    Append,
     // Pointer operations
     PtrTo,
     Deref,
@@ -119,7 +121,7 @@ struct UIntImm : ExprNode<UIntImm> {
 struct IdxImm : ExprNode<IdxImm> {
     int64_t value;
 
-    static Expr make(int64_t value);
+    static Expr make(uint64_t value);
 
     static const IRExprEnum node_type = IRExprEnum::IdxImm;
 };
@@ -158,6 +160,8 @@ struct Var : ExprNode<Var> {
     std::string name;
 
     static Expr make(Type t, const std::string &name);
+
+    static Expr from(const TypedVar &typed_variable);
 
     static const IRExprEnum node_type = IRExprEnum::Var;
 };
@@ -291,10 +295,19 @@ struct Ramp : ExprNode<Ramp> {
 struct Extract : ExprNode<Extract> {
     Expr vec, idx;
 
-    static Expr make(Expr vec, int idx);
+    static Expr make(Expr vec, int32_t idx);
     static Expr make(Expr vec, Expr idx);
 
     static const IRExprEnum node_type = IRExprEnum::Extract;
+};
+
+struct Slice : ExprNode<Slice> {
+    Expr value;
+    Expr begin, end, step;
+
+    static Expr make(Expr vec, Expr begin, Expr end, Expr step = Expr(1));
+
+    static const IRExprEnum node_type = IRExprEnum::Slice;
 };
 
 // Construct a value of a Type (e.g. Vector_t or Struct_t)
@@ -336,16 +349,31 @@ struct Intrinsic : ExprNode<Intrinsic> {
     // https://llvm.org/docs/LangRef.html#standard-c-c-library-intrinsics
     enum OpType {
         abs,
+        ceilf,
         cos,
         cross,
         dot,
+        fadd_rd,
+        fadd_ru,
+        floorf,
         fma,
+        fdiv_rd,
+        fdiv_ru,
+        fmul_rd,
+        fmul_ru,
+        frcp_rd,
+        frcp_ru,
+        fsub_rd,
+        fsub_ru,
+        argmax,
         max,
         min,
         norm,
         pow,
         rand,
-        round,
+        roundf,
+        frexpf,
+        exp2f,
         sin,
         sqr,
         sqrt,
@@ -513,6 +541,18 @@ struct AtomicAdd : ExprNode<AtomicAdd> {
     static Expr make(Expr ptr, Expr value);
 
     static const IRExprEnum node_type = IRExprEnum::AtomicAdd;
+};
+
+// (Layout language construct). Appends the input with the respective size. The
+// write location can be automatically inferred during lowering. The output of
+// an `append` is the initial index in the collection before appending occurs.
+struct Append : ExprNode<Append> {
+    ir::Expr input;
+    ir::Expr size;
+
+    static Expr make(ir::Expr input, ir::Expr size);
+
+    static const IRExprEnum node_type = IRExprEnum::Append;
 };
 
 // TODO: need Load with more info than Halide, can load from arbitrary

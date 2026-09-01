@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Lower/TypeInference.cpp:514
+[internal] Error: src/Lower/TypeInference.cpp:519
 
 --> returns_on_all_paths
 Function: foo does not return in all code paths.

@@ -1,4 +1,4 @@
-//! flags: -b cpp
+//! flags: -b cpp --target x86_64-unknown-linux-gnu
 
 element F { x: i32; y: i32; }
 element G { f: F; }

@@ -3,6 +3,7 @@
 #include "Lower/TopologicalOrder.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
@@ -86,7 +87,7 @@ ir::Program LowerExterns::run(ir::Program program,
             continue;
         }
 
-        std::vector<ir::Function::Argument> new_args(free_vars.size());
+        std::vector<ir::Argument> new_args(free_vars.size());
         size_t counter = 0;
         // Insert externs in extern parsed order.
         for (const auto &ext : program.externs) {

@@ -48,6 +48,9 @@ std::optional<T> get_constant_value(const ir::Expr &e,
         // Conservatively fail if the bit size is > 64.
         internal_assert(type.bits() <= 64) << type;
     }
+    if (const auto *v = e.as<ir::IdxImm>()) {
+        return std::bit_cast<T>(v->value);
+    }
     if (const auto *v = e.as<ir::UIntImm>()) {
         return std::bit_cast<T>(v->value);
     }
@@ -97,6 +100,8 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
         return ir::IntImm::make(t, (int64_t)v);
     } else if (t.is<ir::UInt_t>()) {
         return ir::UIntImm::make(t, (uint64_t)v);
+    } else if (t.is<ir::Index_t>()) {
+        return ir::IdxImm::make((int64_t)v);
     } else if (t.is<ir::Bool_t>()) {
         return ir::BoolImm::make((bool)v);
     } else if (t.is<ir::Float_t>()) {
@@ -110,6 +115,8 @@ ir::Expr make_const(const ir::Type &t, const T &v) {
             values.push_back(make_const(struct_t->fields[i].type, v));
         }
         return ir::Build::make(t, values);
+    } else if (t.is<ir::Ref_t, ir::Ptr_t>() && v == T{}) {
+        return ir::Var::make(t, "nullptr");
     } else {
         internal_error
             << "make_const does not know how to build constant of type: " << t
@@ -213,5 +220,9 @@ std::string get_specifier(const ir::Type &type);
 
 // Returns whether this type is a dynamic array.
 bool is_dynamic_array_struct_type(const ir::Type &type);
+
+void try_match_types(ir::Expr &a, ir::Expr &b);
+
+std::string get_field_name(ir::Expr e);
 
 } // namespace bonsai

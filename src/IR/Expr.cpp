@@ -86,6 +86,14 @@ Expr UIntImm::make(Type t, uint64_t value) {
     return node;
 }
 
+Expr IdxImm::make(uint64_t value) {
+
+    IdxImm *node = new IdxImm;
+    node->type = ir::Index_t::make();
+    node->value = value;
+    return node;
+}
+
 Expr FloatImm::make(Type t, double value) {
     // internal_assert(t.is_float() && t.is_scalar())
     //     << "FloatImm must be a scalar Float\n";
@@ -190,6 +198,10 @@ Expr Var::make(Type type, const std::string &name) {
     return node;
 }
 
+Expr Var::from(const TypedVar &typed_variable) {
+    return Var::make(typed_variable.type, typed_variable.name);
+}
+
 bool BinOp::is_numeric_op(const BinOp::OpType &op) {
     switch (op) {
     // Technically, And, Or, BwAnd, BwOr, and Xor keep the type of the operands.
@@ -245,65 +257,6 @@ bool is_valid_logical_operation(Type type) {
     return type.is<Option_t, Bool_t>();
 }
 
-void try_match_types(Expr &a, Expr &b) {
-    if (a.type().defined() && b.type().defined()) {
-        if (equals(a.type(), b.type())) {
-            return;
-        }
-        if (a.type().is<Option_t>() && b.type().is_bool()) {
-            a = Cast::make(Bool_t::make(), a);
-        } else if (b.type().is<Option_t>() && a.type().is_bool()) {
-            b = Cast::make(Bool_t::make(), b);
-            return;
-        }
-        internal_assert(!a.type().is<Option_t>())
-            << "Trying to match option type: " << a << " with: " << b;
-        internal_assert(!b.type().is<Option_t>())
-            << "Trying to match: " << a << " with option type: " << b;
-
-        // Try broadcasting
-        if (a.type().is_vector() && b.type().is_scalar()) {
-            b = Broadcast::make(a.type().lanes(), b);
-            // recurse in case wrong constant types still.
-            try_match_types(a, b);
-            return;
-        } else if (b.type().is_vector() && a.type().is_scalar()) {
-            a = Broadcast::make(b.type().lanes(), a);
-            // recurse in case wrong constant types still.
-            try_match_types(a, b);
-            return;
-        }
-
-        internal_assert(is_const(a) || is_const(b))
-            << "Implicit casting of types: " << a << " is not the same type as "
-            << b << ": " << a.type() << " versus " << b.type();
-        if (is_const(a)) {
-            a = constant_cast(b.type(), a);
-        } else {
-            b = constant_cast(a.type(), b);
-        }
-        // // TODO: is this right?
-        // // Cast to the larger bitwidth
-        // if (a.type().bits() > b.type().bits()) {
-        //     b = constant_cast(a.type(), b);
-        // } else if (b.type().bits() > a.type().bits()) {
-        //     a = constant_cast(b.type(), a);
-        // } else {
-        //     internal_error << "Same bitwidth, not sure how to cast: " << a <<
-        //     " and " << b
-        //                    << " are types " << a.type() << " and " <<
-        //                    b.type();
-        // }
-    } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
-        internal_assert(!a.type().is<Option_t>());
-        b = constant_cast(a.type(), b);
-    } else if (b.type().defined() && !a.type().defined() && is_const(a)) {
-        internal_assert(!b.type().is<Option_t>());
-        a = constant_cast(b.type(), a);
-    }
-    // otherwise can't (currently) do better.
-}
-
 } // namespace
 
 Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
@@ -312,12 +265,18 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
         << "BinOp of undefined: " << a << to_string(op) << b;
 
     BinOp *node = new BinOp;
-
     try_match_types(a, b);
 
     const bool infer_types = type_enforcement_enabled() ||
                              (a.type().defined() && b.type().defined());
-    if (infer_types) {
+    // TODO(cgyurgyik): hot fix for the build language / nullptr.
+    if (a.type().is<Ref_t, BVH_t, Ptr_t>() &&
+        b.type().is<Ref_t, BVH_t, Ptr_t>()) {
+        node->type = ir::Bool_t::make();
+    } else if (a.type().is<Ref_t, BVH_t, Ptr_t>() &&
+               !equals(a.type(), b.type())) {
+        node->type = b.type();
+    } else if (infer_types) {
         internal_assert(equals(a.type(), b.type()))
             << "BinOp of mismatched types: " << a << " : " << a.type() << " "
             << to_string(op) << " " << b << " : " << b.type();
@@ -342,7 +301,6 @@ Expr BinOp::make(BinOp::OpType op, Expr a, Expr b) {
                 << "BinOp of non-number or boolean types: " << a << " : "
                 << a.type() << " " << to_string(op) << " " << b << " : "
                 << b.type();
-
             if (BinOp::is_numeric_op(op)) {
                 node->type = a.type();
             } else if (BinOp::is_boolean_op(op)) {
@@ -368,15 +326,22 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     const bool infer_types = type_enforcement_enabled() || a.type().defined();
     if (infer_types) {
         if (op == UnOp::Not) {
-            internal_assert(is_valid_logical_operation(a.type())) << a.type();
-            if (a.type().is<Option_t>()) {
-                a = Cast::make(Bool_t::make(), a);
+            if (a.type().is<Ref_t, Ptr_t>()) {
+                node->type = ir::Bool_t::make(); // nullptr check
+            } else {
+                internal_assert(is_valid_logical_operation(a.type()))
+                    << a.type();
+                if (a.type().is<Option_t>()) {
+                    a = Cast::make(Bool_t::make(), a);
+                }
+                // not on only integers and boolean? what does not of float mean
+                internal_assert(a.type().is_int_or_uint() || a.type().is_bool())
+                    << "Cannot not non-([u]int | bool): " << to_string(op) << a;
+                node->type = a.type();
             }
-            // not on only integers and boolean? what does not of float mean
-            internal_assert(a.type().is_int_or_uint() || a.type().is_bool())
-                << "Cannot not non-([u]int | bool): " << to_string(op) << a;
-            node->type = a.type();
+
         } else {
+            internal_assert(op == UnOp::Neg);
             // Must be signed int or float?
             internal_assert(a.type().is_float() || a.type().is_int())
                 << "Cannot negate non-(int | float): " << to_string(op) << a;
@@ -598,16 +563,17 @@ Expr Extract::make(Expr vec, Expr idx) {
             // (for atomic purposes).
             type = Access::make("buffer", vec).type().element_of();
         } else {
-            internal_assert(
-                (vec.type().is<Vector_t, Array_t, Tuple_t, DynArray_t>()))
-                << "Extract of non-aggregate: " << vec << " : " << vec.type();
+            internal_assert((
+                vec.type().is<Vector_t, DynArray_t, Array_t, Tuple_t, Set_t>()))
+                << "Extract of non-aggregate: " << vec << " at index: " << idx
+                << ", with type: " << vec.type();
             internal_assert(idx.type().is_int_or_uint())
                 << "Extract with non-integer index: " << idx;
             if (vec.type().is<Tuple_t>()) {
                 internal_assert(is_const(idx))
                     << "Extract on tuple with non-constant index: " << vec
                     << "[" << idx << "]";
-                return Extract::make(std::move(vec), *as_const_int(idx));
+                return Extract::make(std::move(vec), *get_constant_value(idx));
             }
             type = vec.type().element_of();
         }
@@ -617,6 +583,21 @@ Expr Extract::make(Expr vec, Expr idx) {
     node->type = std::move(type);
     node->vec = std::move(vec);
     node->idx = std::move(idx);
+    return node;
+}
+
+Expr Slice::make(Expr value, Expr begin, Expr end, Expr step) {
+    internal_assert(value.defined()) << "Slice of undefined value";
+    internal_assert(begin.defined());
+    internal_assert(end.defined());
+    internal_assert(step.defined());
+
+    Slice *node = new Slice;
+    node->type = value.type();
+    node->value = std::move(value);
+    node->step = cast_to(begin.type(), std::move(step));
+    node->begin = std::move(begin);
+    node->end = std::move(end);
     return node;
 }
 
@@ -827,12 +808,12 @@ Expr Access::make(std::string field, Expr value) {
 Expr Unwrap::make(size_t index, Expr value) {
     internal_assert(value.defined() && value.type().is<BVH_t>())
         << "Bad Unwrap parameters: " << value << " has type: " << value.type();
-    internal_assert(index < value.type().as<BVH_t>()->nodes.size())
+    internal_assert(index < value.type().as<BVH_t>()->variants.size())
         << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 
     Unwrap *node = new Unwrap;
 
-    Type type = value.type().as<BVH_t>()->nodes[index].struct_type;
+    Type type = value.type().as<BVH_t>()->variants[index].struct_type;
     internal_assert(type.defined());
 
     node->type = std::move(type);
@@ -975,6 +956,21 @@ Expr Generator::make(OpType op, std::vector<Expr> args) {
     }
     node->op = op;
     node->args = std::move(args);
+    return node;
+}
+
+Expr Append::make(ir::Expr input, ir::Expr size) {
+    internal_assert(input.defined());
+    internal_assert(size.defined());
+
+    internal_assert(input.type().is_iterable())
+        << input << " : " << input.type();
+    internal_assert(size.type().is_scalar()) << size << " : " << size.type();
+
+    Append *node = new Append;
+    node->input = std::move(input);
+    node->size = std::move(size);
+    node->type = ir::Index_t::make();
     return node;
 }
 

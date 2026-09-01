@@ -1,0 +1,147 @@
+//! flags: -b cuda
+
+import stdlib/intersects;
+import stdlib/ray;
+import stdlib/distance;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+// TODO(cgyurgyik): can we do load-sinking with this?
+element DOP14 { early_exit: u1; low: f32x7; high: f32x7; }
+
+// Performs clipping for each slab in the DOP14.
+func clip(r: Ray, tmin: f32, tmax: f32, normal: f32x3, d_low: f32, d_high: f32) -> FInterval {
+    denom : f32 = dot(r.d, normal);
+    t1 : f32 = (d_low - dot(r.o, normal)) / denom;
+    t2 : f32 = (d_high - dot(r.o, normal)) / denom;
+    
+    new_tmin : f32 = max(tmin, min(t1, t2));
+    new_tmax : f32 = min(tmax, max(t1, t2));
+
+    return FInterval{new_tmin, new_tmax};
+}
+
+func intersectsp_ray_dop14(r : Ray, d : DOP14) -> option[FInterval] {
+    invDir : f32x3 = 1 / r.d;
+    dirIsNeg = invDir < 0;
+
+    // First, try intersectiong the AABB slabs.
+    b_low : f32x3 = f32x3{d.low[0], d.low[1], d.low[2]};
+    b_high : f32x3 = f32x3{d.high[0], d.high[1], d.high[2]};
+
+    low_parts : f32x3 = select(dirIsNeg, b_high, b_low);
+    high_parts : f32x3 = select(dirIsNeg, b_low, b_high);
+
+    tMin : f32x3 = (low_parts - r.o) * invDir;
+    tMax : f32x3 = (high_parts - r.o) * invDir;
+    // Update to ensure robust bounds intersection.
+    tMax *= 1 + 2 * gamma(3);
+    
+    tmin: f32 = max(tMin.x, max(tMin.y, tMin.z));
+    tmax: f32 = min(tMax.x, min(tMax.y, tMax.z));
+
+    if tmin > tmax { return {}; }
+    // (optimization per section 4.4)
+    if d.early_exit { return FInterval{tmin, tmax}; }
+
+    // Now, try the rest of the slabs.
+    N3 : f32x3 = f32x3{ 1.0,  1.0,  1.0};
+    n3: FInterval = clip(r, tmin, tmax, N3, d.low[3], d.high[3]);
+    if (n3.low > n3.high) { return {}; }
+
+    N4 : f32x3 = f32x3{ 1.0, -1.0,  1.0};
+    n4: FInterval = clip(r, n3.low, n3.high, N4, d.low[4], d.high[4]);
+    if (n4.low > n4.high) { return {}; }
+
+    N5 : f32x3 = f32x3{ 1.0,  1.0, -1.0};
+    n5: FInterval = clip(r, n4.low, n4.high, N5, d.low[5], d.high[5]);
+    if (n5.low > n5.high) { return {}; }
+
+    N6 : f32x3 = f32x3{-1.0,  1.0,  1.0};
+    n6: FInterval = clip(r, n5.low, n5.high, N6, d.low[6], d.high[6]);
+    return n6;
+}
+
+func distmin_Ray_DOP14(r : Ray, b : DOP14) -> f32 {
+    interval: option[FInterval] = intersectsp_ray_dop14(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return -inf;
+}
+
+func intersects_Ray_DOP14(r : Ray, d : DOP14) -> bool {
+    interval: option[FInterval] = intersectsp_ray_dop14(r, d);
+    if interval {
+        extract = *interval;
+        return extract.low < r.tmax & extract.high > 0;
+    }
+    return false;
+}
+
+schedule {
+    // 14-dop in https://dl.acm.org/doi/pdf/10.1145/3675391#page=7.35
+
+    tree[[Triangle]] BVH(lo: f32x7, hi: f32x7, ee: u1) with DOP14(ee, lo, hi)
+    = Interior(left: BVH, right: BVH)
+    | Leaf(leaf_size: u4, data: array[Triangle, leaf_size]);
+
+    triangles : BVH;
+    
+    layout triangles(index: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group dop36[size=node_count] by index {
+            lo2: f32x4; // planes 3-6
+            hi2: f32x4; // planes 3-6
+        };
+        // TODO(cgyurgyik): fix this, match to fit paper
+        group nodes[size=node_count] by index {
+            lo1: f32x3; // planes 0-2
+            hi1: f32x3; // planes 0-2
+            ee: u1; // whether to early exit per section 4.4
+            is_leaf_flag: u1;
+            30;
+            right: u32;
+            lo = f32x7{ lo1[0], lo1[1], lo1[2], lo2[0], lo2[1], lo2[2], lo2[3] };
+            hi = f32x7{ hi1[0], hi1[1], hi1[2], hi2[0], hi2[1], hi2[2], hi2[3] };
+            split is_leaf_flag {
+                0 -> Interior {
+                    left: u32;
+                };
+                1 -> Leaf {
+                    leaf_size: u4;
+                    tri_address: u28;
+                    data = primitives[tri_address : tri_address + leaf_size];
+                };
+            };
+        };
+    };
+
+
+   build triangles {
+      build Interior(lo: f32x7, hi: f32x7, left: BVH, right: BVH) {
+        build lo1 = f32x3 {lo[0], lo[1], lo[2] };
+        build hi1 = f32x3 {hi[0], hi[1], hi[2] };
+        build lo2 = f32x4 {lo[3], lo[4], lo[5], lo[6] };
+        build hi2 = f32x4 {hi[3], hi[4], hi[5], hi[6] };
+        // TODO(cgyurgyik): need to use surface area formula from paper to calculate this.
+        build ee = false; 
+        build is_leaf_flag = 0;
+        recurse left;
+        recurse right;
+        return this;
+      };
+      build Leaf(lo: f32x7, hi: f32x7, ee: u1, leaf_size: u4, data: array[Triangle, leaf_size]) {
+        build is_leaf_flag = 1;
+        build ee;
+        build tri_address = append(data, leaf_size);
+        return this;
+      };
+    };
+}

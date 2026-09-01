@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS lower
     FILES
     array.bonsai
+    build-no-memory.bonsai
     bvh.bonsai
     collision.bonsai
     defer-dbl-buffer.bonsai
@@ -14,6 +15,9 @@ add_bonsai_tests(
     index.bonsai
     ivector.bonsai
     lambda-simple.bonsai
+    layout-childwise-product.bonsai
+    layout-no-memory.bonsai
+    layout-tree.bonsai
     logical-operation.bonsai
     map-func.bonsai
     multiple-options.bonsai

@@ -1,7 +1,5 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/IR/Expr.cpp:277
-
---> is_const(a) || is_const(b)
+[internal] Error: src/Utils.cpp:641
 Implicit casting of types: x is not the same type as y: i32 versus f32

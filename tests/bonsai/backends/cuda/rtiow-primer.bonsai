@@ -178,23 +178,23 @@ func [[export]] image(c : Camera) {
 }
 
 schedule {
-    tree[[MaterialSphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius) =
-    | Interior(left : SphereBVH, right : SphereBVH)
-    | Leaf(d : array[MaterialSphere]) with data = d;
+    tree[[MaterialSphere]] SphereBVH(center : vec3f, radius : Float) with Sphere(center, radius)
+    = Interior(left : SphereBVH, right : SphereBVH)
+    | Leaf(data : array[MaterialSphere]) with data = data;
 
     spheres : SphereBVH;
 
-    layout spheres {
+    layout spheres(index: u16) {
         pCount : u32;
         prims : array[MaterialSphere, pCount];
         count : u32;
-        group[count] index : u16 {
+        group nodes[count] by index {
             center : vec3f;
             radius : Float;
             nPrims : u16;
-            switch nPrims {
-                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u16; d = range(prims, pOffset, nPrims); };
+            split nPrims {
+                0 -> Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ -> Leaf { pOffset : u16; data = prims[pOffset : pOffset + nPrims]; };
             };
         };
     };

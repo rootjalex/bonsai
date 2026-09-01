@@ -4,6 +4,8 @@
 #include "Parser/Token.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
+#include "IR/Build.h"
 #include "IR/Equality.h"
 #include "IR/Frame.h"
 #include "IR/Layout.h"
@@ -16,6 +18,7 @@
 #include <iostream>
 #include <regex>
 #include <set>
+#include <source_location>
 #include <span>
 #include <sstream>
 #include <tuple>
@@ -33,9 +36,9 @@ namespace {
 class ParseErrorReport {
   public:
     ParseErrorReport(std::string back_trace, std::string file_name,
-                     Token current)
+                     Token current, std::source_location call_site)
         : back_trace(back_trace), file_name(file_name),
-          current(std::move(current)) {}
+          current(std::move(current)), call_site(std::move(call_site)) {}
 
     [[noreturn]] ~ParseErrorReport() noexcept(false) {
         const uint64_t begin_line = current.line_begin(),
@@ -47,8 +50,18 @@ class ParseErrorReport {
         }
 
         std::stringstream ss;
-        ss << back_trace << ":" << begin_line << ":" << begin_column
-           << ": [parse error] " << os.str() << "\n"
+        // No column: std::source_location::column() is compiler-defined, so
+        // Apple Clang and GCC report different columns for the same call, which
+        // would make this diagnostic -- and every golden recording it --
+        // host-specific. The file and line locate the throw site well enough.
+        ss << "-> " << detail::source_relative_path(call_site.file_name())
+           << ":" << call_site.line() << " \n";
+
+        // The caret below marks the column, so the location does not print
+        // one. Column numbers in diagnostics are noise here and, when they come
+        // from a host compiler, make the output machine-specific.
+        ss << back_trace << ":" << begin_line << ": [parse error] " << os.str()
+           << "\n"
            << "\n";
         ss << line << "\n";
         const std::string pointer = std::string(
@@ -70,8 +83,29 @@ class ParseErrorReport {
     std::string back_trace;
     std::string file_name;
     Token current;
+    std::source_location call_site;
     std::ostringstream os;
 };
+
+ir::Arm::Comparator token_to_comparator(Token::Type type) {
+    switch (type) {
+    case Token::Type::LEQ:
+        return ir::Arm::Comparator::LE;
+    case Token::Type::GEQ:
+        return ir::Arm::Comparator::GE;
+    case Token::Type::GT:
+        return ir::Arm::Comparator::GT;
+    case Token::Type::LT:
+        return ir::Arm::Comparator::LT;
+    case Token::Type::EQ:
+        return ir::Arm::Comparator::EQ;
+    case Token::Type::NEQ:
+        return ir::Arm::Comparator::NE;
+    default:
+        internal_error << "unexpected token: "
+                       << Token::token_type_string(type);
+    }
+}
 
 /*
 program := program_element*
@@ -95,16 +129,31 @@ struct Parser {
         builtins = {
             // Intrinsics
             "abs",
+            "argmax",
+            "ceilf",
             "cos",
             "cross",
             "dot",
+            "fadd_rd",
+            "fadd_ru",
+            "floorf",
             "fma",
+            "fdiv_rd",
+            "fdiv_ru",
+            "fmul_rd",
+            "fmul_ru",
+            "frcp_rd",
+            "frcp_ru",
+            "fsub_rd",
+            "fsub_ru",
             "max",
             "min",
             "norm",
             "pow",
             "rand",
-            "round",
+            "roundf",
+            "frexpf",
+            "exp2f",
             "sin",
             "sqr",
             "sqrt",
@@ -146,11 +195,14 @@ struct Parser {
             "reduce",
             // Other builtins
             "cast",
+            "bitcast",
             "eps",
             "permute",
             "select",
             "range",
             "iter",
+            // Build language
+            "append",
         };
     }
 
@@ -176,6 +228,8 @@ struct Parser {
     TokenStream &tokens() { return context.back(); }
 
     ir::Program program;
+    // Names the groups a layout leaves anonymous, per layout.
+    uint32_t anonymous_group_count = 0;
     // Function variable frames. Maps name to type and mutability.
     struct FunctionVariable {
         ir::Type type;
@@ -203,11 +257,17 @@ struct Parser {
 
     // Reports the error with relevant token location information. This will
     // always point at the last consumed token.
-    inline ParseErrorReport report_error() const {
-        return ParseErrorReport{back_trace(), file_name(),
-                                tokens().current_token()};
+    inline ParseErrorReport
+    report_error_impl(std::source_location location) const {
+        return ParseErrorReport{
+            back_trace(),
+            file_name(),
+            tokens().current_token(),
+            location,
+        };
     }
-
+// Required to lazily capture the call site of the error reporter.
+#define report_error() report_error_impl(std::source_location::current())
     ir::Type get_type_from_frame(const std::string &name) const {
         std::optional<FunctionVariable> variable_type =
             frames.from_frames(name);
@@ -222,7 +282,7 @@ struct Parser {
         if (auto it = program.funcs.find(name); it != program.funcs.end()) {
             return it->second->call_type();
         }
-        report_error() << "Cannot check type of unknown var: " << name;
+        report_error() << "cannot check type of unknown var: " << name;
     }
 
     bool name_in_scope(const std::string &name) const {
@@ -250,6 +310,9 @@ struct Parser {
     }
 
     void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
+        if (frames.contains(name)) {
+            return;
+        }
         frames.add_to_frame(name, FunctionVariable{
                                       .type = type,
                                       .mutating = mut,
@@ -275,6 +338,8 @@ struct Parser {
 
     Token peek(uint32_t k = 0) const { return tokens().peek(k); }
 
+    Token::Type peek_type(uint32_t k = 0) const { return peek(k).type; }
+
     std::optional<Token> consume(Token::Type type) {
         const Token token = peek();
 
@@ -294,15 +359,18 @@ struct Parser {
 
     // Consumes the next token in the stream if the expected type
     //  is met, and reports an error otherwise.
-    Token expect(Token::Type type) {
+    Token expect_impl(Token::Type type, std::source_location location) {
         if (std::optional<Token> token = consume(type)) {
             return *token;
         }
         Token current = consume();
-        report_error() << "expected: " << Token::token_type_string(type)
-                       << ", received: "
-                       << Token::token_type_string(current.type);
+        report_error_impl(location)
+            << "expected: " << Token::token_type_string(type)
+            << ", received: " << Token::token_type_string(current.type);
     }
+
+// Required to lazily capture the call site of the expect.
+#define expect(token) expect_impl(token, std::source_location::current())
 
     std::string get_id() {
         const Token token = expect(Token::Type::IDENTIFIER);
@@ -327,7 +395,7 @@ struct Parser {
     }
 
     void parse_program_element(const bool allow_externs) {
-        switch (peek().type) {
+        switch (peek_type()) {
         case Token::Type::IMPORT:
             return parse_import();
         case Token::Type::ELEMENT:
@@ -390,10 +458,14 @@ struct Parser {
         expect(Token::Type::ELEMENT);
 
         std::vector<ir::Struct_t::Attribute> attributes;
+        std::optional<int64_t> alignment;
         if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
             std::string attribute = get_id();
             if (attribute == "packed") {
                 attributes.push_back(ir::Struct_t::Attribute::packed);
+            } else if (attribute == "align") {
+                expect(Token::Type::ASSIGN);
+                alignment = parse_int_literal();
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }
@@ -477,12 +549,13 @@ struct Parser {
             expect(Token::Type::SEMICOL);
         } while (!consume(Token::Type::RSQUIGGLE));
 
-        program.types[name] = defaults.empty()
-                                  ? ir::Struct_t::make(name, std::move(fields),
-                                                       std::move(attributes))
-                                  : ir::Struct_t::make(name, std::move(fields),
-                                                       std::move(defaults),
-                                                       std::move(attributes));
+        program.types[name] =
+            defaults.empty()
+                ? ir::Struct_t::make(name, std::move(fields),
+                                     std::move(attributes), alignment)
+                : ir::Struct_t::make(name, std::move(fields),
+                                     std::move(defaults), std::move(attributes),
+                                     alignment);
     }
 
     void parse_interface_def() {
@@ -507,10 +580,10 @@ struct Parser {
         program.externs.emplace_back(name, std::move(type));
     }
 
-    std::vector<ir::Function::Argument> parse_func_args() {
+    std::vector<ir::Argument> parse_func_args(bool is_layout = false) {
         expect(Token::Type::LPAREN);
-        std::vector<ir::Function::Argument> args;
-        if (peek().type != Token::Type::RPAREN) {
+        std::vector<ir::Argument> args;
+        if (peek_type() != Token::Type::RPAREN) {
             // parse arg list
             do {
                 // TODO: can we accept multiple args with one type here, as in
@@ -531,15 +604,23 @@ struct Parser {
                     // For now, assume that's done in type inference.
                     // TODO: this should not perform computation!
                     // Can we easily prevent that? Enforce is_constant?
-                    default_value = parse_expr();
-                    if (!ir::is_constant_expr(default_value)) {
-                        report_error()
-                            << "Function default values must be constants";
+                    if (is_layout && peek_type() == Token::Type::IDENTIFIER) {
+                        // The root of a layout may refer to layout members.
+                        // This is necessary for, e.g., defining the base case
+                        // of a KD-tree.
+                        std::string id = get_id();
+                        default_value = ir::Var::make(type, id);
+                    } else {
+                        default_value = parse_expr();
+                        if (!ir::is_constant_expr(default_value)) {
+                            report_error()
+                                << "Function default values must be constants";
+                        }
                     }
                 }
 
                 add_type_to_frame(arg_name, type, mutating);
-                args.push_back(ir::Function::Argument{
+                args.push_back(ir::Argument{
                     std::move(arg_name),
                     std::move(type),
                     std::move(default_value),
@@ -580,7 +661,7 @@ struct Parser {
     void parse_geometric_intrinsic(const std::string &name) {
         // TODO: support generics for geometric intrinsics.
         push_frame();
-        std::vector<ir::Function::Argument> args = parse_func_args();
+        std::vector<ir::Argument> args = parse_func_args();
 
         // Build a unique identifier, because all function names are unique.
         std::string typed_name = name;
@@ -706,7 +787,7 @@ struct Parser {
 
         ir::Function::InterfaceList interfaces = parse_func_interfaces();
         push_frame();
-        std::vector<ir::Function::Argument> args = parse_func_args();
+        std::vector<ir::Argument> args = parse_func_args();
 
         // Optional RARROW with return_type: otherwise, requires type inference!
         ir::Type ret_type;
@@ -831,7 +912,7 @@ struct Parser {
     // call? no bc no side effects...
     // for? not while.
     ir::Stmt parse_statement() {
-        if (peek().type == Token::Type::LSQUIGGLE) {
+        if (peek_type() == Token::Type::LSQUIGGLE) {
             return parse_sequence();
         } else if (consume(Token::Type::IF)) {
             ir::Expr cond = parse_expr(); // no required parens
@@ -859,7 +940,7 @@ struct Parser {
                 parse_expr_list_until(Token::Type::RPAREN);
             expect(Token::Type::SEMICOL);
             return ir::Print::make(std::move(args));
-        } else if (peek().type == Token::Type::IDENTIFIER) {
+        } else if (peek_type() == Token::Type::IDENTIFIER) {
             std::string id = get_id();
             // TODO(cgyurgyik): having this imperative code for debugging code
             // generation is really useful. We should probably enable this kind
@@ -877,7 +958,7 @@ struct Parser {
                 ir::Expr value = parse_expr();
                 expect(Token::Type::RPAREN);
                 expect(Token::Type::SEMICOL);
-                return ir::Append::make(std::move(loc), std::move(value));
+                return ir::AppendStmt::make(std::move(loc), std::move(value));
             }
             if (id == "alloc") {
                 id = get_id();
@@ -888,6 +969,21 @@ struct Parser {
                 expect(Token::Type::SEMICOL);
                 return ir::Allocate::make(loc);
             }
+            if (id == "global") {
+                // Useful for gather program statistics.
+                id = get_id();
+                expect(Token::Type::COL);
+                ir::Type type = parse_type();
+                add_type_to_frame(id, type, /*mutable=*/true);
+                ir::WriteLoc loc(id, type);
+                expect(Token::Type::SEMICOL);
+                auto [_, inserted] = program.globals.insert(loc.to_expr());
+                if (!inserted) {
+                    report_error()
+                        << "global variable: `" << id << "` already exists";
+                }
+                return ir::Allocate::make(loc, ir::Allocate::Memory::Global);
+            }
             // TODO(cgyurgyik): This assumes that functions are declared before
             // they're called. This isn't the only place this constraint holds,
             // we should eventual support mutual recursion.
@@ -897,7 +993,7 @@ struct Parser {
             // TODO: allow tuple declaration/assignment?
             // TODO: how to do SSA in parsing?
             ir::WriteLoc loc = parse_write_loc(std::move(id));
-            if (loc.accesses.empty() && !name_in_scope(loc.base)) {
+            if (loc.accesses.empty() && !name_in_scope(loc.base())) {
                 // Just a regular variable write
                 // might be an Assign/Store (if labelled `mut`)
                 return parse_name_decl(std::move(loc));
@@ -921,7 +1017,7 @@ struct Parser {
         if (consume(Token::Type::COL)) {
             if (consume(Token::Type::MUT)) {
                 _mutable = true;
-                if (peek().type == Token::Type::IDENTIFIER) {
+                if (peek_type() == Token::Type::IDENTIFIER) {
                     type_label = parse_type();
                 } // otherwise just a `mut` label.
                 // TODO: should we ever allow "just" a mut label?
@@ -958,9 +1054,9 @@ struct Parser {
             // Allow type inference to occur when the value type is not defined.
         }
         ir::Type write_type = type_label.defined() ? type_label : type;
-        add_type_to_frame(loc.base, write_type, _mutable);
+        add_type_to_frame(loc.base(), write_type, _mutable);
 
-        loc = ir::WriteLoc(loc.base, std::move(write_type));
+        loc = ir::WriteLoc(loc.base(), std::move(write_type));
         if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
         } else {
@@ -972,11 +1068,11 @@ struct Parser {
         ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
 
-        const bool mutating = name_in_scope(loc.base);
+        const bool mutating = name_in_scope(loc.base());
 
-        if (mutating && !is_mutable(loc.base)) {
+        if (mutating && !is_mutable(loc.base())) {
             report_error() << "Cannot assign to non-mutable variable: "
-                           << loc.base;
+                           << loc.base();
         }
 
         // TODO: do type forcing here!
@@ -990,8 +1086,8 @@ struct Parser {
         if (!loc.type.defined() && value.type().defined()) {
             // TODO: do type forcing here!
             if (loc.accesses.empty()) {
-                modify_type_in_frame(loc.base, value.type());
-                loc = ir::WriteLoc(loc.base, value.type());
+                modify_type_in_frame(loc.base(), value.type());
+                loc = ir::WriteLoc(loc.base(), value.type());
             }
             // e.g. if accesses wasn't empty, we could still infer a partial
             // type.
@@ -1175,21 +1271,47 @@ struct Parser {
     ir::Expr parse_fields_expr() {
         ir::Expr base = parse_base_expr();
 
-        while (true) {
+        for (;;) {
             if (consume(Token::Type::PERIOD)) {
                 // Field access.
                 std::string field = get_id();
                 base = ir::Access::make(std::move(field), std::move(base));
-            } else if (consume(Token::Type::LBRACKET)) {
-                // Can have multiple indexes in one `[` `]`
-                std::vector<ir::Expr> idxs =
-                    parse_expr_list_until(Token::Type::RBRACKET);
-                for (auto &idx : idxs) {
-                    base = ir::Extract::make(std::move(base), std::move(idx));
-                }
-            } else {
-                break;
+                continue;
             }
+            if (consume(Token::Type::LBRACKET)) {
+                // TODO(cgyurgyik): just use [i]* syntax. I probably broke
+                // something here. Previously, you could have multiple indexes
+                // in one `[` `]`.
+                //
+                // TODO(cgyurgyik): This is incorrect for open/close-ended
+                // slices.
+                std::vector<ir::Expr> indexes = parse_expr_list_until(
+                    /*token=*/Token::Type::RBRACKET,
+                    /*separator=*/Token::Type::COL);
+                internal_assert(!indexes.empty());
+                switch (indexes.size()) {
+                case 1:
+                    base = ir::Extract::make(std::move(base),
+                                             std::move(indexes[0]));
+                    continue;
+                case 2:
+                    base = ir::Slice::make(base,
+                                           /*begin=*/std::move(indexes[0]),
+                                           /*end=*/std::move(indexes[1]));
+                    continue;
+                case 3:
+                    base = ir::Slice::make(base,
+                                           /*begin=*/std::move(indexes[0]),
+                                           /*end=*/std::move(indexes[1]),
+                                           /*step=*/std::move(indexes[2]));
+                    continue;
+                default:
+                    internal_error
+                        << "unexpected number of indices in a slice: "
+                        << indexes.size();
+                }
+            }
+            break;
         }
         return base;
     }
@@ -1214,25 +1336,25 @@ struct Parser {
             }
             expect(Token::Type::RPAREN);
             return inner;
-        } else if (peek().type == Token::Type::IDENTIFIER) {
+        } else if (peek_type() == Token::Type::IDENTIFIER) {
             return parse_identifier();
             // Parse literals.
         } else if (consume(Token::Type::TRUE)) {
             return ir::BoolImm::make(true);
         } else if (consume(Token::Type::FALSE)) {
             return ir::BoolImm::make(false);
-        } else if (peek().type == Token::Type::INT_LITERAL) {
+        } else if (peek_type() == Token::Type::INT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
             const int64_t value = parse_int_literal();
             // default (pre-type casting) is i32
             return ir::IntImm::make(i32, value);
-        } else if (peek().type == Token::Type::UINT_LITERAL) {
+        } else if (peek_type() == Token::Type::UINT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
             const Token token = expect(Token::Type::UINT_LITERAL);
             const uint64_t value = std::get<uint64_t>(token.value);
             // default (pre-type casting) is u32
             return ir::UIntImm::make(u32, value);
-        } else if (peek().type == Token::Type::FLOAT_LITERAL) {
+        } else if (peek_type() == Token::Type::FLOAT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
             const Token token = expect(Token::Type::FLOAT_LITERAL);
             const double value = std::get<double>(token.value);
@@ -1242,7 +1364,7 @@ struct Parser {
             std::vector<ir::TypedVar> args = parse_lambda_args();
             push_frame();
             for (const auto &arg : args) {
-                add_type_to_frame(arg.name, arg.type, /* mutable */ false);
+                add_type_to_frame(arg.name, arg.type, /*mutable=*/false);
             }
             // Optionally allow squiggles for lambda expression body.
             const bool has_squiggles =
@@ -1277,14 +1399,13 @@ struct Parser {
             ir::Type etype = atype.as<ir::Option_t>()->etype;
             // TODO(ajr): do we want an explicit Deref IR node?
             return ir::Cast::make(std::move(etype), std::move(arg));
-        } else if (peek().type == Token::Type::STRING_LITERAL) {
+        } else if (peek_type() == Token::Type::STRING_LITERAL) {
             const Token val = expect(Token::Type::STRING_LITERAL);
             std::string str = std::get<std::string>(val.value);
             return ir::StringImm::make(std::move(str));
         }
-        Token token = consume();
-        report_error() << "unexpected token: "
-                       << Token::token_type_string(token);
+        consume();
+        report_error() << "unexpected token: " << peek();
     }
 
     template <typename OpType, typename Container>
@@ -1330,10 +1451,24 @@ struct Parser {
 
         static constexpr auto IPATTERNS = std::to_array<IntrinsicPattern>({
             {"abs", 1, ir::Intrinsic::abs},
+            // Skippable: `argmax(|x| m(x), s)` is the set operator below.
+            {"argmax", 1, ir::Intrinsic::argmax, /*skippable=*/true},
+            {"ceilf", 1, ir::Intrinsic::ceilf},
             {"cos", 1, ir::Intrinsic::cos},
             {"cross", 2, ir::Intrinsic::cross},
             {"dot", 2, ir::Intrinsic::dot},
+            {"fadd_rd", 2, ir::Intrinsic::fadd_rd},
+            {"fadd_ru", 2, ir::Intrinsic::fadd_ru},
+            {"floorf", 1, ir::Intrinsic::floorf},
             {"fma", 3, ir::Intrinsic::fma},
+            {"fdiv_rd", 2, ir::Intrinsic::fdiv_rd},
+            {"fdiv_ru", 2, ir::Intrinsic::fdiv_ru},
+            {"fmul_rd", 2, ir::Intrinsic::fmul_rd},
+            {"fmul_ru", 2, ir::Intrinsic::fmul_ru},
+            {"frcp_rd", 1, ir::Intrinsic::frcp_rd},
+            {"frcp_ru", 1, ir::Intrinsic::frcp_ru},
+            {"fsub_rd", 2, ir::Intrinsic::fsub_rd},
+            {"fsub_ru", 2, ir::Intrinsic::fsub_ru},
             // These two are skippable because they might be parsed as
             // single-argument reductions below.
             {"max", 2, ir::Intrinsic::max, /*skippable=*/true},
@@ -1341,9 +1476,12 @@ struct Parser {
             {"norm", 1, ir::Intrinsic::norm},
             {"pow", 2, ir::Intrinsic::pow},
             // rand() can have 0 or 1 args (a seed).
-            {"round", 1, ir::Intrinsic::round},
+            {"round", 1, ir::Intrinsic::roundf},
             {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
+            {"roundf", 1, ir::Intrinsic::roundf},
+            {"frexpf", 1, ir::Intrinsic::frexpf},
+            {"exp2f", 1, ir::Intrinsic::exp2f},
             {"sin", 1, ir::Intrinsic::sin},
             {"sqr", 1, ir::Intrinsic::sqr},
             {"sqrt", 1, ir::Intrinsic::sqrt},
@@ -1494,6 +1632,10 @@ struct Parser {
         if (name == "eps") {
             return ir::Extrema::make(f32, ir::Extrema::eps);
         }
+        if (name == "array") {
+            report_error() << "[unimplemented] parsing an array type as an "
+                              "explicit identifier";
+        }
 
         if (consume(Token::Type::LPAREN)) {
             std::vector<ir::Expr> args =
@@ -1507,7 +1649,7 @@ struct Parser {
 
             // TODO: could be a ctor of a type?
             report_error() << "Unknown function call " << name;
-        } else if (peek().type == Token::Type::LSQUIGGLE &&
+        } else if (peek_type() == Token::Type::LSQUIGGLE &&
                    program.types.contains(name)) {
             consume(Token::Type::LSQUIGGLE);
             // Type constructor
@@ -1532,7 +1674,6 @@ struct Parser {
             auto args = parse_expr_list_until(Token::Type::RSQUIGGLE);
             return ir::Build::make(std::move(type), std::move(args));
         }
-
         ir::Type var_type = get_type_from_frame(name); // never undefined.
         ir::Expr expr = ir::Var::make(var_type, name);
         return expr;
@@ -1549,7 +1690,7 @@ struct Parser {
                                       "but did not receive any for name: "
                                    << name;
                 }
-                if (peek().type != Token::Type::LPAREN) {
+                if (peek_type() != Token::Type::LPAREN) {
                     report_error() << "Template syntax supported only for "
                                       "function calls, found on name: "
                                    << name;
@@ -1599,6 +1740,21 @@ struct Parser {
                 }
                 return ir::Cast::make(std::move(template_types[0]),
                                       std::move(args[0]));
+            } else if (name == "bitcast") {
+                // equivalent to c++20's std::bitcast.
+                if (template_types.size() != 1) {
+                    report_error() << "cast() expects a single template "
+                                      "parameter, instead received: "
+                                   << template_types.size();
+                }
+                if (args.size() != 1) {
+                    report_error() << "cast() expects a single argument, "
+                                      "instead received: "
+                                   << args.size();
+                }
+                return ir::Cast::make(std::move(template_types[0]),
+                                      std::move(args[0]),
+                                      ir::Cast::Mode::Reinterpret);
             } else if (name == "eps") {
                 if (template_types.size() != 1) {
                     report_error() << "eps() expects a single template "
@@ -1649,6 +1805,10 @@ struct Parser {
             } else if (name == "iter") {
                 return ir::Generator::make(ir::Generator::iter,
                                            std::move(args));
+            } else if (name == "append") {
+                internal_assert(args.size() == 2)
+                    << "append takes 2 arguments, received: " << args.size();
+                return ir::Append::make(args.front(), args.back());
             }
             report_error() << "Unknown builtin: " << name;
         }
@@ -1733,15 +1893,43 @@ struct Parser {
         return ir::Call::make(std::move(f), std::move(args));
     }
 
-    std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {
+    std::vector<ir::Expr> parse_slice() {
+        if (consume(Token::Type::RBRACKET)) {
+            return {};
+        }
+
+        std::vector<ir::Expr> indices;
+        if (peek_type() != Token::Type::COL) {
+            indices.emplace_back(parse_expr());
+        } else {
+            indices.emplace_back(ir::Expr()); // empty expression
+        }
+
+        // Parse additional expressions separated by colons
+        while (consume(Token::Type::COL)) {
+            if (peek_type() == Token::Type::COL ||
+                peek_type() == Token::Type::RBRACKET) {
+                // Empty expression between colons or at end
+                indices.emplace_back(ir::Expr());
+            } else {
+                indices.emplace_back(parse_expr());
+            }
+        }
+
+        expect(Token::Type::RBRACKET);
+        return indices;
+    }
+
+    std::vector<ir::Expr>
+    parse_expr_list_until(const Token::Type &token,
+                          Token::Type separator = Token::Type::COMMA) {
         std::vector<ir::Expr> exprs;
         if (consume(token)) {
             return exprs;
         }
         do {
-            ir::Expr expr = parse_expr();
-            exprs.emplace_back(std::move(expr));
-        } while (consume(Token::Type::COMMA));
+            exprs.emplace_back(parse_expr());
+        } while (consume(separator));
         expect(token);
         return exprs;
     }
@@ -1817,7 +2005,7 @@ struct Parser {
             if (consume(Token::Type::MUT)) {
                 def.mut = true;
                 // might have no type label, just mut
-                if (peek().type != Token::Type::ASSIGN) {
+                if (peek_type() != Token::Type::ASSIGN) {
                     def.type = parse_type();
                 }
             } else {
@@ -1845,8 +2033,8 @@ struct Parser {
 
         ir::WriteLoc loc(std::move(base), base_type);
 
-        while ((peek().type == Token::Type::PERIOD) ||
-               (peek().type == Token::Type::LBRACKET)) {
+        while ((peek_type() == Token::Type::PERIOD) ||
+               (peek_type() == Token::Type::LBRACKET)) {
             if (consume(Token::Type::PERIOD)) {
                 const std::string field_name = get_id();
                 loc.add_struct_access(field_name);
@@ -1872,6 +2060,17 @@ struct Parser {
                 report_error() << "Cannot construct empty tuple type.";
             }
             return ir::Tuple_t::make(std::move(etypes));
+        }
+        if (consume(Token::Type::POINTER)) {
+            expect(Token::Type::LBRACKET);
+            ir::Type element;
+            if (peek_type() == Token::Type::IDENTIFIER) {
+                element = ir::Ref_t::make(get_id());
+            } else {
+                element = parse_type();
+            }
+            expect(Token::Type::RBRACKET);
+            return ir::Ptr_t::make(std::move(element));
         }
         // TODO: support tuples of types! AKA unnamed structs.
         const std::string name = get_id();
@@ -2035,15 +2234,17 @@ struct Parser {
 
         ir::Schedule schedule;
 
-        ir::TypeMap trees;
+        ir::TypeMap trees, declaration_to_tree_type;
         do {
-            switch (peek().type) {
+            switch (peek_type()) {
             case Token::Type::TREE: {
-                ir::Type tree = parse_tree();
-                internal_assert(tree.is<ir::BVH_t>());
-                internal_assert(!trees.contains(tree.as<ir::BVH_t>()->name));
-                // Would std::move() but I think rhs is evaluated before lhs.
-                trees[tree.as<ir::BVH_t>()->name] = tree;
+                push_frame();
+                ir::Type tree = parse_adt();
+                const auto *bvh_t = tree.as<ir::BVH_t>();
+                internal_assert(bvh_t);
+                internal_assert(!trees.contains(bvh_t->name));
+                trees[bvh_t->name] = tree;
+                pop_frame();
                 break;
             }
             case Token::Type::IDENTIFIER: {
@@ -2056,58 +2257,88 @@ struct Parser {
                 }
 
                 // Otherwise, must be tree label on set extern.
-                const auto extern_iter = std::find_if(
+                const auto extern_it = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
                     [&name](const auto &p) { return p.name == name; });
-                if (extern_iter != program.externs.cend()) {
-                    // name : tree_type;
-                    if (!extern_iter->type.is<ir::Set_t>()) {
-                        report_error() << "Extern: " << name
-                                       << " is not a set, cannot be "
-                                          "type-reassigned in a schedule.";
-                    }
-
-                    expect(Token::Type::COL);
-                    const std::string tree_name = get_id();
-                    expect(Token::Type::SEMICOL);
-
-                    const auto tree_iter = trees.find(tree_name);
-
-                    if (tree_iter == trees.cend()) {
-                        report_error() << "Assigning extern: " << name
-                                       << " to non-tree type: " << tree_name;
-                    }
-
-                    // TODO: assert Set[Primitive] matches Tree type!
-                    schedule.tree_types[name] = tree_iter->second;
-                } else {
+                if (extern_it == program.externs.cend()) {
                     // TODO: support func schedule parsing.
                     report_error()
                         << "Schedule name: " << name << " is not an extern.";
                 }
+                // name : tree_type;
+                if (!extern_it->type.is<ir::Set_t>()) {
+                    report_error() << "Extern: " << name
+                                   << " is not a set, cannot be "
+                                      "type-reassigned in a schedule.";
+                }
+
+                expect(Token::Type::COL);
+                const std::string tree_type = get_id();
+                expect(Token::Type::SEMICOL);
+
+                auto it = trees.find(tree_type);
+                if (it == trees.cend()) {
+                    report_error() << "Assigning extern: " << name
+                                   << " to non-tree type: " << tree_type;
+                }
+                // TODO: assert Set[Primitive] matches Tree type!
+                schedule.tree_types[name] = it->second;
+                const auto [_, inserted] =
+                    declaration_to_tree_type.emplace(name, it->second);
+                if (!inserted) {
+                    report_error()
+                        << "declaration: " << name
+                        << "already exists, with type: " << tree_type;
+                }
                 break;
             }
+            case Token::Type::BUILD: {
+                expect(Token::Type::BUILD);
+                std::string name = get_id();
+                {
+                    const auto it = std::find_if(
+                        program.externs.cbegin(), program.externs.cend(),
+                        [&name](const auto &p) { return p.name == name; });
+                    if (it == program.externs.cend()) {
+                        report_error()
+                            << "Build name: " << name << " is not an extern.";
+                    }
+                }
+                ir::BuildLayout layout = parse_top_level_build(name, schedule);
+                const auto [_, inserted] =
+                    schedule.tree_builds.emplace(name, std::move(layout));
+                if (!inserted) {
+                    report_error()
+                        << "Build for " << name << " already exists.";
+                }
+
+            } break;
             case Token::Type::LAYOUT: {
                 expect(Token::Type::LAYOUT);
                 std::string name = get_id();
-                const auto extern_iter = std::find_if(
-                    program.externs.cbegin(), program.externs.cend(),
-                    [&name](const auto &p) { return p.name == name; });
-
-                if (extern_iter == program.externs.cend()) {
-                    report_error()
-                        << "Layout name: " << name << " is not an extern.";
+                {
+                    const auto it = std::find_if(
+                        program.externs.cbegin(), program.externs.cend(),
+                        [&name](const auto &p) { return p.name == name; });
+                    if (it == program.externs.cend()) {
+                        report_error()
+                            << "Layout name: " << name << " is not an extern.";
+                    }
                 }
+                auto it = declaration_to_tree_type.find(name);
+                if (it == declaration_to_tree_type.end()) {
+                    report_error() << "Layout name: " << name
+                                   << " is not associated with an ADT.";
+                }
+                ir::Layout layout = parse_top_level_layout(name, it->second);
 
-                ir::Layout layout = parse_top_level_layout();
                 const auto [_, inserted] =
                     schedule.tree_layouts.emplace(name, std::move(layout));
                 if (!inserted) {
                     report_error()
                         << "Layout for " << name << " already exists.";
                 }
-                break;
-            }
+            } break;
             default: {
                 consume();
                 report_error() << "Unknown schedule statement.";
@@ -2173,7 +2404,7 @@ struct Parser {
                     ir::Parallelize{std::move(i), ir::Parallelize::GPUBlock});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
-                if (peek().type != Token::Type::RPAREN) {
+                if (peek_type() != Token::Type::RPAREN) {
                     queue_size = parse_expr();
                 }
                 schedule.func_transforms[func].emplace_back(
@@ -2184,7 +2415,7 @@ struct Parser {
                 expect(Token::Type::COMMA);
                 ir::Location loop = parse_location();
                 std::optional<ir::Expr> queue_size;
-                if (peek().type != Token::Type::RPAREN) {
+                if (peek_type() != Token::Type::RPAREN) {
                     expect(Token::Type::COMMA);
                     queue_size = parse_expr();
                 }
@@ -2200,7 +2431,7 @@ struct Parser {
                     << lambda;
                 schedule.func_transforms[func].emplace_back(
                     ir::Sort{std::move(loc), std::move(lambda)});
-            } else if (rewrite == "split") {
+            } else if (rewrite == "loop_split") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Location io = parse_location();
@@ -2214,19 +2445,19 @@ struct Parser {
                     expect(Token::Type::FALSE);
                 }
                 schedule.func_transforms[func].emplace_back(
-                    ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), generate_tail});
+                    ir::LoopSplit{std::move(i), std::move(io), std::move(ii),
+                                  std::move(factor), generate_tail});
             } else {
-                report_error()
-                    << "Unknown rewrite: " << rewrite << " on func: " << func;
+                report_error() << "Unknown rewrite: `" << rewrite
+                               << "` on func: `" << func << "`";
             }
 
             expect(Token::Type::RPAREN);
         } while (!consume(Token::Type::SEMICOL));
     }
 
-    // tree := `tree` name = (`|` adt_node (`with` volume)?)+
-    ir::Type parse_tree() {
+    ir::Type parse_adt() {
+        // First, parse the signature.
         expect(Token::Type::TREE);
         expect(Token::Type::LBRACKET);
         expect(Token::Type::LBRACKET);
@@ -2240,26 +2471,28 @@ struct Parser {
                            << " conflicts with existing type: "
                            << program.types[name];
         }
-
         if (annotations.empty() != params.empty()) {
             report_error() << "Parsing of tree " << name
                            << " has incompatible volume and params";
         }
-
-        expect(Token::Type::ASSIGN);
-        expect(Token::Type::BAR);
-
         // Empty reference for now.
         program.types[name] = ir::Ref_t::make(name);
 
-        std::vector<ir::BVH_t::Node> nodes;
-
+        // Fields and annotations written on the signature are sugar for every
+        // variant carrying them, e.g. `tree T(x: i32) = | T1(y: i32)` is
+        // `tree T = | T1(x: i32, y: i32)`. BVH_t::make distributes them.
+        expect(Token::Type::ASSIGN);
+        // A leading bar before the first variant is optional.
+        consume(Token::Type::BAR);
+        std::vector<ir::BVH_t::Variant> variants;
         do {
-            auto [nname, nparams, nvolume] = parse_node();
+            auto [nname, nparams, nannotations] = parse_node();
             ir::Type struct_type =
                 ir::Struct_t::make(std::move(nname), std::move(nparams));
-            ir::BVH_t::Node node{std::move(struct_type), std::move(nvolume)};
-            nodes.emplace_back(std::move(node));
+            variants.emplace_back(ir::BVH_t::Variant{
+                .struct_type = std::move(struct_type),
+                .annotations = std::move(nannotations),
+            });
         } while (consume(Token::Type::BAR));
 
         expect(Token::Type::SEMICOL);
@@ -2270,11 +2503,11 @@ struct Parser {
         ir::Type type;
         if (!annotations.empty()) {
             type = ir::BVH_t::make(std::move(primitive), std::move(name),
-                                   std::move(params), std::move(nodes),
+                                   std::move(params), std::move(variants),
                                    std::move(annotations));
         } else {
             type = ir::BVH_t::make(std::move(primitive), std::move(name),
-                                   std::move(nodes));
+                                   std::move(variants));
         }
 
         return type;
@@ -2326,15 +2559,15 @@ struct Parser {
 
             expect(Token::Type::RPAREN);
 
-            std::string gname;
+            // `on <field>` stores one volume per child rather than a single
+            // volume enclosing the whole subtree.
+            std::string boundee;
             if (consume(Token::Type::ON)) {
-                gname = get_id();
+                boundee = get_id();
             }
-            // TODO: support broadcast checking...
 
             return ir::Annotation{ir::Annotation::Volume{
-                std::move(gname), std::move(type), std::move(initializers),
-                /* broadcast */ false}};
+                std::move(boundee), std::move(type), std::move(initializers)}};
         } else if (consume(Token::Type::IN)) {
             expect(Token::Type::LBRACKET);
             auto low = get_id();
@@ -2356,7 +2589,7 @@ struct Parser {
         std::vector<ir::Annotation> annotations;
 
         if (consume(Token::Type::LPAREN)) {
-            params = parse_tree_params();
+            params = parse_adt_variant_fields();
             expect(Token::Type::RPAREN);
         }
 
@@ -2367,7 +2600,7 @@ struct Parser {
         return {std::move(name), std::move(params), std::move(annotations)};
     }
 
-    std::vector<ir::TypedVar> parse_tree_params() {
+    std::vector<ir::TypedVar> parse_adt_variant_fields() {
         // arg := name (':' type)?
         // args := arg (',' arg)*
         // no mutability allowed.
@@ -2379,7 +2612,8 @@ struct Parser {
             } while (!consume(Token::Type::COL));
 
             ir::Type type = parse_type();
-
+            std::string name = names.back();
+            add_type_to_frame(name, type, /*mutable=*/false);
             for (auto &name : names) {
                 args.push_back({std::move(name), type});
             }
@@ -2387,140 +2621,361 @@ struct Parser {
         return args;
     }
 
-    // Wrapper that adds built-ins into scope and then calls parse_layout()
-    ir::Layout parse_top_level_layout() {
-        push_frame();
+    ir::BuildIR parse_build() {
+        switch (Token token = consume(); token.type) {
+        case Token::Type::LSQUIGGLE: {
+            std::vector<ir::BuildIR> ir;
+            do {
+                ir.emplace_back(parse_build());
+            } while (!consume(Token::Type::RSQUIGGLE));
+            return ir::BuildSequence::make(std::move(ir));
+        }
+        case Token::Type::RECURSE: {
+            ir::Expr field = parse_expr();
+            expect(Token::Type::SEMICOL);
+            return ir::BuildRecurse::make(std::move(field));
+        }
+        case Token::Type::RETURN: {
+            ir::Expr expr = parse_expr();
+            expect(Token::Type::SEMICOL);
+            return ir::BuildReturn::make(std::move(expr));
+        }
+        case Token::Type::BUILD: {
+            if (auto value = peek().value;
+                peek_type() == Token::Type::IDENTIFIER &&
+                std::get<std::string>(value) == "root") {
+                consume();
+                return ir::BuildRoot::make(parse_build());
+            }
+            ir::Expr field = parse_expr();
+            ir::Expr expr;
+            if (consume(Token::Type::ASSIGN)) {
+                expr = parse_expr();
+            }
+            expect(Token::Type::SEMICOL);
+            return ir::BuildRule::make(std::move(field), std::move(expr));
+        }
+        case Token::Type::LET: {
+            std::string id = get_id();
+            ir::WriteLoc loc = parse_write_loc(std::move(id));
+            return ir::BuildLet::make(parse_name_decl(std::move(loc)));
+        }
+        default:
+            internal_error << "[unexpected] token: " << token;
+        }
+    }
 
-        // TODO: support other non-u32 indexing.
-        ir::Layout layout = parse_layout();
+    ir::BuildLayout parse_top_level_build(std::string name,
+                                          const ir::Schedule &schedule) {
+        expect(Token::Type::LSQUIGGLE);
+
+        auto it = schedule.tree_layouts.find(name);
+        internal_assert(it != schedule.tree_layouts.end()) << name;
+        const ir::Layout &tree_layout = it->second;
+        push_frame();
+        const auto *bvh_t = tree_layout.type.as<ir::BVH_t>();
+        internal_assert(bvh_t) << tree_layout.type;
+        add_type_to_frame("this", ir::Ref_t::make(bvh_t->name), /*mut=*/false);
+
+        std::vector<ir::BuildFunction> functions;
+        do {
+            push_frame();
+            expect(Token::Type::BUILD);
+            std::string name = get_id();
+            std::vector<ir::Argument> arguments = parse_func_args();
+            for (const ir::Argument &arg : arguments) {
+                add_type_to_frame(arg.name, arg.type, /*mut=*/false);
+            }
+            auto it = std::find_if(
+                bvh_t->variants.begin(), bvh_t->variants.end(),
+                [&](const ir::BVH_t::Variant &v) { return v.name() == name; });
+            if (it == bvh_t->variants.end()) {
+                report_error() << "build for nonexistent variant: `" << name
+                               << "` for ADT: " << tree_layout.type;
+            }
+            // Add layout fields to the scope for type checking purposes. An
+            // example where this is necessary is in PBRT, where we need to set
+            // `nprims` to zero for the `Interior` variant. Note, this is done
+            // *after* the build function arguments are added to the scope so
+            // their type is not overwritten, e.g., a layout BVH type may just
+            // be a u32 type but the canonical tree argument should be a
+            // reference type for the purposes of tree building.
+            const std::vector<ir::Member> fields =
+                tree_layout.find_all_fields();
+            for (const ir::Member &member : fields) {
+                const auto *field = member.as<ir::Field>();
+                internal_assert(field) << member;
+                if (frames.contains(field->name)) {
+                    continue;
+                }
+                add_type_to_frame(field->name, field->type, /*mut=*/false);
+            }
+            ir::BuildIR body = parse_build();
+            expect(Token::Type::SEMICOL);
+            functions.push_back(ir::BuildFunction{
+                .variant = std::move(*it),
+                .arguments = std::move(arguments),
+                .body = std::move(body),
+            });
+            pop_frame();
+        } while (!consume(Token::Type::RSQUIGGLE));
         expect(Token::Type::SEMICOL);
 
         pop_frame();
-        return layout;
+        return ir::BuildLayout{
+            .name = std::move(name),
+            .type = tree_layout.type,
+            .functions = std::move(functions),
+        };
     }
 
-    ir::Layout parse_layout() {
+    // Wrapper that adds built-ins into scope and then calls
+    // parse_member()
+    ir::Layout parse_top_level_layout(std::string name, ir::Type type) {
+        anonymous_group_count = 0;
+        push_frame();
+        // TODO(cgyurgyik): For references in `sort`.
+        add_type_to_frame("this", ir::Type(), /*mut=*/false);
+        // A layout that carries nothing down the tree writes no root list.
+        std::vector<ir::Argument> root;
+        if (peek_type() == Token::Type::LPAREN) {
+            root = parse_func_args(/*is_layout=*/true);
+        }
+        {
+            std::vector<ir::TypedVar> fields;
+            std::map<std::string, ir::Expr> defaults;
+            for (const ir::Argument &arg : root) {
+                fields.push_back(ir::TypedVar(arg.name, arg.type));
+                if (!arg.default_value.defined()) {
+                    continue;
+                }
+                defaults.emplace(arg.name, arg.default_value);
+            }
+            ir::Type parent_type =
+                ir::Struct_t::make("parent_t", fields, defaults);
+            add_type_to_frame("parent", parent_type, /*mutable=*/false);
+        }
+        ir::Member member = parse_member(type);
+        expect(Token::Type::SEMICOL);
+        pop_frame();
+
+        return ir::Layout{
+            .name = std::move(name),
+            .type = std::move(type),
+            .root = std::move(root),
+            .body = std::move(member),
+        };
+    }
+
+    ir::Arm parse_arm(const ir::Type &abstract_type) {
+        std::optional<int64_t> value;
+        ir::Arm::Comparator comparator = ir::Arm::Comparator::EQ;
+        switch (peek_type()) {
+        case Token::Type::LT:
+        case Token::Type::GT:
+        case Token::Type::GEQ:
+        case Token::Type::LEQ:
+        case Token::Type::NEQ: {
+            comparator = token_to_comparator(consume().type);
+            [[fallthrough]];
+        }
+        case Token::Type::INT_LITERAL: {
+            value = parse_int_literal();
+            break;
+        }
+        case Token::Type::IDENTIFIER: {
+            if (const std::string id = get_id(); id != "_") {
+                report_error() << "Unknown switch parameter id: " << id;
+            }
+            break;
+        }
+        default: {
+            report_error() << "Unknown switch parameter." << peek();
+        }
+        }
+        expect(Token::Type::RARROW);
+        std::optional<std::string> node_name;
+        node_name = get_id();
+
+        if (consume(Token::Type::FROM)) {
+            std::string group_name = get_id();
+            expect(Token::Type::LBRACKET);
+            ir::Expr index = parse_expr();
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::SEMICOL);
+            return ir::Arm{
+                .comparator = comparator,
+                .value = value,
+                .name = std::move(node_name),
+                .member = ir::Lookup::make(group_name, index),
+            };
+        }
+
+        ir::Member body = parse_member(abstract_type);
+        expect(Token::Type::SEMICOL);
+        return ir::Arm{
+            .comparator = comparator,
+            .value = value,
+            .name = std::move(node_name),
+            .member = std::move(body),
+        };
+    }
+
+    ir::Member parse_member(const ir::Type &abstract_type) {
         // Default.
-        static ir::Expr count = ir::Var::make(u32, "count");
-        switch (peek().type) {
+        std::optional<ir::Group::Type> group_type;
+        switch (peek_type()) {
         case Token::Type::LSQUIGGLE: {
             consume();
-            std::vector<ir::Layout> layouts;
-            push_frame();
+            std::vector<ir::Member> members;
             do {
-                layouts.emplace_back(parse_layout());
+                members.emplace_back(parse_member(abstract_type));
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
-            pop_frame();
-            return ir::Chain::make(std::move(layouts));
+            return ir::Chain::make(std::move(members));
+        }
+        case Token::Type::INDIRECT: {
+            group_type = ir::Group::Type::Indirect;
+            consume(); // consume indirect
+            [[fallthrough]];
+        }
+        case Token::Type::POINTER: {
+            if (!group_type.has_value()) {
+                group_type = ir::Group::Type::Pointer;
+            }
+            [[fallthrough]];
         }
         case Token::Type::GROUP: {
-            consume();
-            ir::Expr size;
+            if (!group_type.has_value()) {
+                group_type = ir::Group::Type::Direct;
+            }
+            // ptr|group <name>[<size>]+ (by <index>)+ { <layout> }
+            consume(); // consume ptr|group
+            std::string name, declared_name;
+            if (peek_type() == Token::Type::IDENTIFIER) {
+                name = declared_name = get_id();
+            } else {
+                // An anonymous group cannot be referred to by name, but it
+                // still occupies a field of the layout's struct.
+                name = "group_" + std::to_string(anonymous_group_count++);
+            }
+            ir::Expr size, alignment;
             if (consume(Token::Type::LBRACKET)) {
-                size = parse_expr();
+                do {
+                    // A bare expression is the group's size, as in
+                    // `group nodes[count]`. Named attributes spell it out, as
+                    // in `group nodes[size = count, align = 8]`.
+                    const bool is_attribute =
+                        peek_type() == Token::Type::IDENTIFIER &&
+                        peek_type(1) == Token::Type::ASSIGN;
+                    if (!is_attribute) {
+                        internal_assert(!size.defined());
+                        size = parse_expr();
+                        continue;
+                    }
+                    std::string key = get_id();
+                    expect(Token::Type::ASSIGN);
+                    if (key == "size") {
+                        internal_assert(!size.defined());
+                        size = parse_expr();
+                    } else if (key == "align") {
+                        internal_assert(!alignment.defined());
+                        alignment = parse_expr();
+                    } else {
+                        report_error() << "unexpected group attribute: " << key;
+                    }
+                } while (consume(Token::Type::COMMA));
+
                 expect(Token::Type::RBRACKET);
             }
-            std::string name;
-            ir::Type index_t;
-            if (peek().type == Token::Type::IDENTIFIER) {
-                name = get_id();
-                expect(Token::Type::COL);
-                index_t = parse_type();
-                if (!index_t.is_int_or_uint()) {
-                    report_error()
-                        << "Group index type must be integer: " << name
-                        << " is labelled " << index_t;
+            ir::Expr index;
+            switch (*group_type) {
+            case ir::Group::Type::Direct: {
+                if (consume(Token::Type::BY)) {
+                    std::string index_name = get_id();
+                    index = ir::Var::make(get_type_from_frame(index_name),
+                                          index_name);
                 }
-                add_type_to_frame(name, index_t, /* mutable=*/false);
+                break;
             }
-            ir::Layout inner = parse_layout();
-            if (!size.defined()) {
-                ir::Expr isize = inner.count();
-                if (!isize.defined() || !is_const(isize)) {
-                    report_error() << "Cannot infer size of doubly-nested "
-                                      "dynamic-sized layout groups";
-                }
-                size = (count + (isize - make_one(isize.type()))) / isize;
+            case ir::Group::Type::Indirect:
+                // The declared name also names the struct this group
+                // generates, so the field holding it is spelled in lower case.
+                name.front() = std::tolower(name.front());
+                break;
+            case ir::Group::Type::Pointer:
+                break;
             }
-            return ir::Group::make(std::move(size), std::move(name),
-                                   std::move(index_t), std::move(inner));
+
+            ir::Member body = parse_member(abstract_type);
+            return ir::Group::make(std::move(name), std::move(declared_name),
+                                   std::move(size), std::move(alignment),
+                                   std::move(index), std::move(body),
+                                   *group_type);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();
+            ir::Type found_type;
+            if (name_in_scope(name)) {
+                found_type = get_type_from_frame(name);
+            } else if (peek_type() != Token::Type::COL) {
+                // We need to find types for materializations from the ADT.
+                const auto *bvh_t = abstract_type.as<ir::BVH_t>();
+                internal_assert(bvh_t) << abstract_type;
+                for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
+                    for (const auto &[fname, ftype] : variant.fields()) {
+                        add_type_to_frame(fname, ftype, /*mut=*/false);
+                        if (fname != name) {
+                            continue;
+                        }
+                        found_type = ftype;
+                        break;
+                    }
+                }
+            }
+            ir::WriteLoc loc = parse_write_loc(name);
             if (consume(Token::Type::COL)) {
                 ir::Type type = parse_type();
                 if (!type.is_primitive()) {
-                    report_error() << "Layout received name: " << name
+                    report_error() << "Layout member received name: " << loc
                                    << " with non-primitive type: " << type;
                 }
-                add_type_to_frame(name, type, /* mutable=*/false);
-                return ir::Name::make(std::move(name), std::move(type));
-            } else {
-                expect(Token::Type::ASSIGN);
-                // TODO: insert built-ins to frame, here or somewhere?
-                ir::Expr expr = parse_expr();
-                if (!expr.defined() || !expr.type().defined() ||
-                    !expr.type().is_primitive()) {
-                    report_error()
-                        << "Layout received materialization of name: " << name
-                        << " with non-primitive type: " << expr;
-                }
-                add_type_to_frame(name, expr.type(), /* mutable=*/false);
-                return ir::Materialize::make(std::move(name), std::move(expr));
+                add_type_to_frame(name, type, /*mutable=*/false);
+                return ir::Field::make(std::move(name), std::move(type));
             }
+            expect(Token::Type::ASSIGN);
+            // TODO: insert built-ins to frame, here or somewhere?
+            ir::Expr expr = parse_expr();
+            if (!found_type.defined() && !reads(expr, {"this"})) {
+                // TODO(cgyurgyik): hack for sort, where we materialize
+                // references to bounding boxes for each {low, high}.
+                report_error()
+                    << "no type found for materialization of `" << name << "`";
+            }
+            const ir::Type &type = expr.type();
+            // if (!expr.defined() || !expr.type().defined() ||
+            //     !expr.type().is_primitive()) {
+            //     report_error()
+            //         << "Layout received materialization of name: " <<
+            //         name
+            //         << " with non-primitive type: " << expr;
+            // }
+            return ir::Materialize::make(std::move(loc), std::move(expr));
         }
         case Token::Type::INT_LITERAL: {
             const int64_t value = parse_int_literal();
             return ir::Pad::make(value);
         }
-        case Token::Type::SWITCH: {
-            consume();
-            std::string name = get_id();
+        case Token::Type::SPLIT: {
+            consume(Token::Type::SPLIT);
+            ir::Expr expr = parse_expr();
             expect(Token::Type::LSQUIGGLE);
 
-            std::vector<ir::Switch::Arm> arms;
+            std::vector<ir::Arm> arms;
             do {
-                std::optional<int64_t> value;
-                switch (peek().type) {
-                case Token::Type::INT_LITERAL: {
-                    value = parse_int_literal();
-                    break;
-                }
-                case Token::Type::IDENTIFIER: {
-                    const std::string id = get_id();
-                    if (id != "_") {
-                        report_error() << "Unknown switch parameter id: " << id;
-                    }
-                    break;
-                }
-                default: {
-                    // internal_error << "Unknown switch parameter." <<
-                    // tokens();
-                    report_error() << "Unknown switch parameter." << peek();
-                }
-                }
-                if (std::any_of(arms.begin(), arms.end(), [&](const auto &arm) {
-                        return arm.value == value;
-                    })) {
-                    report_error()
-                        << "Duplicate switch parameter: "
-                        << (value.has_value() ? std::to_string(*value) : "_");
-                }
-                expect(Token::Type::ASSIGN);
-                expect(Token::Type::GT);
-                std::optional<std::string> node_name;
-                if (peek().type == Token::Type::IDENTIFIER &&
-                    peek(1).type == Token::Type::LSQUIGGLE) {
-                    // named split.
-                    node_name = get_id();
-                }
-                ir::Layout inner = parse_layout();
-                expect(Token::Type::SEMICOL);
-                arms.push_back(
-                    {std::move(value), std::move(node_name), std::move(inner)});
+                arms.push_back(parse_arm(abstract_type));
             } while (!consume(Token::Type::RSQUIGGLE));
-            return ir::Switch::make(std::move(name), std::move(arms));
+            return ir::Split::make(expr, std::move(arms));
         }
         default: {
             internal_error << "TODO: " << tokens();

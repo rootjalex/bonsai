@@ -3,6 +3,7 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
 #include "IR/Analysis.h"
+#include "IR/Equality.h"
 #include "IR/Program.h"
 #include "IR/Type.h"
 #include "IR/Visitor.h"
@@ -32,6 +33,50 @@
 
 namespace bonsai {
 namespace codegen {
+namespace {
+
+// TODO(cgyurgyik): (For gathering memory utilization)
+static constexpr bool PRINT_MEMORY_UTILIZATION = false;
+
+void capitalize_first(std::string &name) {
+    if (!name.empty() && std::isalpha(name.front())) {
+        name.front() = std::toupper(name.front());
+    }
+}
+
+std::string cpp_intrinsic(std::string intrinsic, const ir::Type &type) {
+    const auto *float_t = type.as<ir::Float_t>();
+    if (float_t == nullptr) {
+        return intrinsic;
+    }
+    internal_assert(float_t->is_ieee754()) << type;
+    switch (float_t->bits()) {
+    case 64:
+        return intrinsic + "l";
+    case 32:
+        return intrinsic + "f";
+    default:
+        internal_error << "unimplemented: " << type;
+    }
+}
+
+uint64_t nearest_power_of_two(uint32_t n) {
+    if (n == 0) {
+        return 1; // convention: next power of two of 0 is 1
+    }
+    if ((n & (n - 1)) == 0) {
+        return std::max<uint64_t>(8, n);
+    }
+    int msb_pos = 31 - std::countl_zero(n);
+    uint64_t upper = 1ULL << (msb_pos + 1);
+    return std::max<uint64_t>(8, upper);
+}
+
+bool is_reference_type(const ir::Type &type) {
+    return type.is<ir::Ref_t, ir::Set_t, ir::BVH_t>();
+}
+
+} // namespace
 
 using namespace ir;
 
@@ -44,59 +89,101 @@ void emit_type(std::ostream &ss, Type type) {
         void visit(const Void_t *node) override { ss << "void"; }
 
         void visit(const Int_t *node) override {
-            ss << "int" << node->bits << "_t";
+            ss << "int" << nearest_power_of_two(node->bits) << "_t";
         }
 
         void visit(const UInt_t *node) override {
-            ss << "uint" << node->bits << "_t";
+            ss << "uint" << nearest_power_of_two(node->bits) << "_t";
         }
-
-        // TODO: Index_t
-        RESTRICT_VISITOR(Index_t);
 
         // TODO(cgyurgyik): use std::float when it is supported:
         // https://en.cppreference.com/w/cpp/types/floating-point
         void visit(const Float_t *type) override {
+            internal_assert(type->is_ieee754())
+                << "[unimplemented]: " << ir::Type(type) << " (e"
+                << type->exponent << "m" << type->mantissa << ")";
             switch (type->bits()) {
             case 64:
-                internal_assert(type->is_ieee754());
                 ss << "double";
                 break;
             case 32:
-                internal_assert(type->is_ieee754());
                 ss << "float";
                 break;
+            case 16:
+                ss << "uint16_t";
+                break;
             default:
-                internal_error << "unimplemented: e" << type->exponent << "m"
-                               << type->mantissa;
+                internal_error << "unimplemented: " << ir::Type(type) << " (e"
+                               << type->exponent << "m" << type->mantissa
+                               << ")";
             }
         }
 
-        void visit(const Bool_t *node) override { ss << "bool"; }
+        void visit(const Index_t *) override { ss << "size_t"; }
 
-        void visit(const String_t *node) override { ss << "std::string"; }
+        void visit(const Bool_t *) override { ss << "bool"; }
+
+        void visit(const String_t *) override { ss << "std::string"; }
 
         void visit(const Ptr_t *node) override {
             node->etype.accept(this);
             ss << " *";
         }
 
-        RESTRICT_VISITOR(Ref_t);
-
-        void visit(const Vector_t *node) override {
-            ss << "vec" << node->lanes << "_";
-            // TODO: this breaks on vectors of ptrs.
-            internal_assert(!contains<Ptr_t>(node->etype));
-            node->etype.accept(this);
+        void visit(const Ref_t *node) override {
+            std::string name = node->name;
+            capitalize_first(name);
+            ss << name;
         }
 
-        void visit(const Struct_t *node) override { ss << node->name; }
+        void visit(const Vector_t *node) override {
+            // TODO: this breaks on vectors of ptrs.
+            internal_assert(!contains<Ptr_t>(node->etype));
+            if (node->etype.is<Vector_t>()) {
+                node->etype.accept(this);
+                ss << "x" << node->lanes;
+                return;
+            }
+            node->etype.accept(this);
+            ss << node->lanes;
+        }
 
-        RESTRICT_VISITOR(Tuple_t);
+        void visit(const Struct_t *node) override {
+            std::string name = node->name;
+            capitalize_first(name);
+            ss << name;
+        }
+
+        void visit(const Tuple_t *node) override {
+            ss << "std::tuple<";
+            for (int i = 0, e = node->etypes.size(); i < e; ++i) {
+                node->etypes[i].accept(this);
+                if (i + 1 == e) {
+                    continue;
+                }
+                ss << ", ";
+            }
+            ss << ">";
+        }
 
         void visit(const Array_t *node) override {
+            if (node->size.defined() && is_const(node->size)) {
+                ss << "std::array<";
+                node->etype.accept(this);
+                ss << ", ";
+                ir::Printer printer(ss);
+                printer.print_no_parens(node->size);
+                ss << ">";
+                return;
+            }
             node->etype.accept(this);
             ss << "*";
+        }
+
+        void visit(const DynArray_t *node) override {
+            ss << "std::vector<";
+            node->etype.accept(this);
+            ss << ">";
         }
 
         void visit(const Set_t *node) override {
@@ -107,11 +194,13 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const BVH_t *node) override { ss << node->name; }
 
-        RESTRICT_VISITOR(Option_t);
-        // RESTRICT_VISITOR(Set_t);
+        void visit(const Option_t *node) override {
+            ss << "std::optional<";
+            node->etype.accept(this);
+            ss << ">";
+        }
         RESTRICT_VISITOR(Function_t);
         RESTRICT_VISITOR(Generic_t);
-        // RESTRICT_VISITOR(BVH_t);
         RESTRICT_VISITOR(Rand_State_t);
     };
 
@@ -122,7 +211,7 @@ void emit_type(std::ostream &ss, Type type) {
 namespace {
 
 void emit_const_var(std::stringstream &ss, const Expr &expr) {
-    internal_assert(is_const(expr));
+    internal_assert(is_const(expr)) << expr;
 
     // This *must* support printing any Expr considered is_const.
     struct EmitConstVar : public Visitor {
@@ -154,10 +243,18 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         }
 
         void visit(const IntImm *node) override { ss << node->value; }
-
-        void visit(const UIntImm *node) override { ss << node->value; }
+        void visit(const IdxImm *node) override { ss << node->value << "u"; }
+        void visit(const UIntImm *node) override { ss << node->value << "u"; }
 
         void visit(const FloatImm *node) override {
+            if (double x = node->value; x == std::floor(x)) {
+                ss << static_cast<int64_t>(x) << ".0";
+                if (node->type.bits() == 32) {
+                    ss << "f";
+                }
+                return;
+            }
+
             // Save current formatting flags and precision
             std::ios::fmtflags f = ss.flags();
             std::streamsize p = ss.precision();
@@ -182,6 +279,7 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         }
 
         void visit(const VecImm *node) override {
+            emit_type(ss, node->type);
             ss << "{";
             for (size_t i = 0; i < node->values.size(); i++) {
                 if (i != 0) {
@@ -201,11 +299,50 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
     expr.accept(&emitter);
 }
 
+std::set<std::string> gather_pointer_children(const ir::Type &type) {
+    const auto *struct_t = type.as<ir::Struct_t>();
+    if (struct_t == nullptr) {
+        return {};
+    }
+    std::set<std::string> pointers;
+    for (const auto &[name, child] : struct_t->fields) {
+        const auto *ptr_t = child.as<ir::Ptr_t>();
+        if (ptr_t == nullptr) {
+            continue;
+        }
+        const auto *ref_t = ptr_t->etype.as<ir::Ref_t>();
+        if (ref_t == nullptr) {
+            continue;
+        }
+        pointers.insert(ref_t->name);
+    }
+    return pointers;
+}
+
 void emit_type_declaration(std::stringstream &ss, Type type) {
     auto indent = std::string(4, ' ');
-
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
-        ss << "struct" << ' ' << struct_t->name << ' ' << '{' << '\n';
+        std::set<std::string> pointers = gather_pointer_children(type);
+        for (const std::string &pointer : pointers) {
+            std::string name = pointer;
+            capitalize_first(name);
+            ss << "struct " << name << ";\n";
+        }
+        std::string name = struct_t->name;
+        capitalize_first(name);
+        ss << "struct";
+        // A packed struct spells its alignment in the same attribute list.
+        // `alignas` may only raise a type's alignment, so a layout asking for
+        // a smaller one than a member's natural alignment -- an array of
+        // 16-byte-aligned nodes each holding a wide vector -- is rejected
+        // outright when written that way.
+        const bool align_by_attribute =
+            struct_t->is_packed() && struct_t->alignment.has_value();
+        if (std::optional<int64_t> alignment = struct_t->alignment;
+            alignment.has_value() && !align_by_attribute) {
+            ss << " alignas(" << *alignment << ")";
+        }
+        ss << ' ' << name << ' ' << '{' << '\n';
         for (const auto &[name, child] : struct_t->fields) {
             ss << indent;
             if (const Array_t *array_t = child.as<Array_t>();
@@ -213,15 +350,27 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
                 // The buffer field of dynamic arrays should always be treated
                 // as a pointers, since its capacity may be resized.
                 !is_dynamic_array_struct_type(type)) {
-
-                emit_type(ss, array_t->etype);
                 std::optional<uint64_t> size =
                     get_constant_value(array_t->size);
-                internal_assert(size.has_value());
-                ss << " " << name << "[" << *size << "]";
+                internal_assert(size.has_value()) << array_t;
+                ss << "std::array<";
+                emit_type(ss, array_t->etype);
+                if (is_reference_type(array_t->etype)) {
+                    ss << "*";
+                }
+                ss << ", " << *size << "> " << name;
             } else {
                 emit_type(ss, child);
+                if (is_reference_type(child)) {
+                    ss << "*";
+                }
                 ss << " " << name;
+                if (child.is_scalar()) {
+                    if (uint64_t b = child.bits();
+                        b < 8 || !is_power_of_two(b)) {
+                        ss << " : " << b;
+                    }
+                }
             }
             if (const auto &it = struct_t->defaults.find(name);
                 it != struct_t->defaults.cend()) {
@@ -232,11 +381,16 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         }
         ss << '}';
         if (struct_t->is_packed()) {
-            ss << " __attribute__((packed))";
+            ss << " __attribute__((packed";
+            if (struct_t->alignment.has_value()) {
+                ss << ", aligned(" << *struct_t->alignment << ")";
+            }
+            ss << "))";
         }
         ss << ";\n";
         return;
-    } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
+    }
+    if (const Vector_t *vector_t = type.as<Vector_t>()) {
         ss << "using ";
         emit_type(ss, type); // get the name
         ss << " = vector<";
@@ -244,15 +398,16 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         // ss << " __attribute__((vector_size(";
         ss << ", " << vector_t->lanes << ">;\n";
         return;
-    } else if (const BVH_t *bvh_t = type.as<BVH_t>()) {
-        for (const auto &node : bvh_t->nodes) {
+    }
+    if (const BVH_t *bvh_t = type.as<BVH_t>()) {
+        for (const auto &node : bvh_t->variants) {
             // Forward declare
             ss << "struct " << node.name() << ";\n";
         }
         ss << "using " << bvh_t->name << " = ";
-        ss << "tree<";
+        ss << "std::variant<";
         bool first = true;
-        for (const auto &node : bvh_t->nodes) {
+        for (const auto &node : bvh_t->variants) {
             if (!first) {
                 ss << ", ";
             }
@@ -265,57 +420,85 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
     internal_error << "Can't emit type declaration for: " << type;
 }
 
+// RenamePointerToExpr runs for the targets below and not for plain C++. Where
+// it has run, a body spells its indirections out as `(*x).f`, so the signature
+// has to pass a pointer; where it has not, the body reads `x.f` and the
+// argument is a reference.
+// The plain C++ backend emits a header describing a program's exported
+// interface, so it declares only the types that interface mentions. CPPX emits
+// a whole standalone program and needs every type the program uses.
+bool emits_whole_program(const CompilerOptions &options) {
+    return options.target == BackendTarget::CPPX;
+}
+
+bool takes_pointer_arguments(const CompilerOptions &options) {
+    return options.target == BackendTarget::CUDA ||
+           options.target == BackendTarget::CPPX;
+}
+
 class BonsaiToCpp : ir::Printer {
   public:
-    BonsaiToCpp() : ir::Printer(ss, 1) {}
+    BonsaiToCpp(const ir::Program &program, const CompilerOptions &options)
+        : ir::Printer(ss, 1), program(program),
+          pointer_arguments(takes_pointer_arguments(options)),
+          whole_program(emits_whole_program(options)) {}
 
     // Creates the bonsai header with external functions and their respective
     // struct definitions.
-    std::string create_header(const Program &program, bool allow_mangling) {
+    std::string create_header(bool allow_mangling) {
         emit_prologue(allow_mangling);
+        emit_globals(program, /*is_header=*/true);
         emit_program(program);
         emit_epilogue(allow_mangling);
         return ss.str();
     }
 
-    std::string create_source(const Program &program,
-                              std::string header_name = "") {
+    std::string create_source(std::string header_name = "") {
         if (!header_name.empty()) {
             ss << "#include \"" << header_name << "\""
                << '\n'; // c++ runtime types.
         }
+        emit_globals(program, /*is_header=*/false);
         emit_funcs(program.funcs);
         return ss.str();
     }
 
   private:
     std::stringstream ss;
+    const ir::Program &program;
+    const bool pointer_arguments;
+    const bool whole_program;
+
+    void emit_indirection() {
+        ss << (pointer_arguments ? "* __restrict__" : "&");
+    }
 
     void emit_signature_type(const Type &type, bool is_mutating = false,
                              bool is_return_type = false) {
         // TODO: understand why this was here.
         // internal_assert(!type.is<Struct_t>()) << type;
-        const bool is_const = !is_mutating && !is_return_type;
+        const bool is_const =
+            !is_mutating && !is_return_type && !type.is<DynArray_t>();
         if (is_const) {
             ss << "const ";
         }
         if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
             emit_type(ss, ptr_t->etype);
-            ss << "&";
-        } else {
-            emit_type(ss, type);
-            // A mutating argument is written through by the callee, so it has
-            // to be a reference no matter what it holds. This is how a
-            // reduction's accumulator reaches its recursive traversal.
-            if (!is_return_type && (is_mutating || should_be_ref(type))) {
-                ss << "&";
-            }
+            emit_indirection();
+            return;
         }
-    }
-
-    bool should_be_ref(const Type &type) const {
-        // TODO: finish
-        return type.is<Set_t>() || type.is<BVH_t>();
+        emit_type(ss, type);
+        // A mutating argument is written through by the callee, so it has to
+        // be an indirection no matter what it holds. This is how a reduction's
+        // accumulator reaches its recursive traversal.
+        if (!is_return_type && (is_mutating || is_reference_type(type))) {
+            emit_indirection();
+            return;
+        }
+        if (!is_return_type && type.is<DynArray_t>()) {
+            ss << "&";
+            return;
+        }
     }
 
     void emit_func_decl(const Function &func) {
@@ -329,7 +512,7 @@ class BonsaiToCpp : ir::Printer {
         ss << ' ' << func.name;
         ss << '(';
         for (int i = 0, e = func.args.size(); i < e; ++i) {
-            const Function::Argument &arg = func.args[i];
+            const ir::Argument &arg = func.args[i];
             emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
             ss << ' ' << arg.name;
             if (i + 1 == e) {
@@ -341,7 +524,8 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // Recursively acquire all *unique* types and inserted them into `types`.
-    void get_declared_types(const Type &type, std::set<Type> &deduplicate,
+    void get_declared_types(const Type &type,
+                            std::set<Type, ir::TypeLessThan> &deduplicate,
                             std::vector<Type> &types) {
         if (const Vector_t *vector_t = type.as<Vector_t>()) {
             get_declared_types(vector_t->etype, deduplicate, types);
@@ -349,56 +533,89 @@ class BonsaiToCpp : ir::Printer {
                 types.push_back(type);
             }
             return;
-        } else if (const Array_t *array_t = type.as<Array_t>()) {
+        }
+        if (const Array_t *array_t = type.as<Array_t>()) {
             get_declared_types(array_t->etype, deduplicate, types);
             return;
-        } else if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
+        }
+        if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
             get_declared_types(ptr_t->etype, deduplicate, types);
             return;
-        } else if (const Struct_t *struct_t = type.as<Struct_t>()) {
+        }
+        if (const Struct_t *struct_t = type.as<Struct_t>()) {
             for (const auto &[_, field_type] : struct_t->fields) {
                 get_declared_types(field_type, deduplicate, types);
             }
             if (auto [_, inserted] = deduplicate.insert(type); inserted) {
                 types.push_back(type);
             }
-        } else if (const BVH_t *bvh_t = type.as<BVH_t>()) {
+            return;
+        }
+        if (const BVH_t *bvh_t = type.as<BVH_t>()) {
             if (auto [_, inserted] = deduplicate.insert(type); inserted) {
                 types.push_back(type);
             }
-            for (const auto &node : bvh_t->nodes) {
-                get_declared_types(node.struct_type, deduplicate, types);
-                for (const auto &annot : node.annotations) {
-                    if (const auto *vol = annot.as<Annotation::Volume>()) {
-                        get_declared_types(vol->struct_type, deduplicate,
-                                           types);
-                    }
+            for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
+                get_declared_types(variant.struct_type, deduplicate, types);
+                if (const ir::Annotation::Volume *volume =
+                        variant.find_volume()) {
+                    get_declared_types(volume->struct_type, deduplicate, types);
                 }
             }
+            return;
+        }
+    }
+
+    void emit_globals(const Program &program, bool is_header) {
+        for (const ir::Expr &global : program.globals) {
+            internal_assert(global.type().is_scalar())
+                << "[unimplemented] non-scalar globals: `" << global << "`";
+            ss << get_indent();
+            if (is_header) {
+                ss << "extern ";
+            }
+            ss << "std::atomic<";
+            emit_type(ss, global.type());
+            ss << "> ";
+            global.accept(this);
+            if (!is_header) {
+                ss << "{";
+                make_zero(global.type()).accept(this);
+                ss << "}";
+            }
+            ss << ";\n";
         }
     }
 
     void emit_program(const Program &program) {
-        std::set<Type> deduplicate;
-        std::vector<Type> exported_types;
+        std::set<Type, ir::TypeLessThan> deduplicate;
+        std::vector<Type> types;
 
         // Any generated structs might be used in code generated,
-        // and therefore must be ommitted.
+        // and therefore must be emitted.
+        if (auto it = program.schedules.find(ir::Target::Host);
+            it != program.schedules.end()) {
+            for (const auto &[_, type] : it->second.tree_types) {
+                get_declared_types(type, deduplicate, types);
+            }
+        }
         for (const auto &[name, type] : program.types) {
-            if (name.starts_with("_tree"))
-                get_declared_types(type, deduplicate, exported_types);
+            if (whole_program || name.starts_with("_tree")) {
+                get_declared_types(type, deduplicate, types);
+            }
         }
 
         for (const auto &[_, func] : program.funcs) {
-            if (!func->is_exported()) {
+            if (!whole_program && !func->is_exported()) {
                 continue;
             }
-            get_declared_types(func->ret_type, deduplicate, exported_types);
-            for (const auto &arg_sig : func->argument_types()) {
-                get_declared_types(arg_sig.type, deduplicate, exported_types);
+            get_declared_types(func->ret_type, deduplicate, types);
+            for (const ir::Function_t::ArgSig &sig : func->argument_types()) {
+                get_declared_types(sig.type, deduplicate, types);
             }
         }
-        for (const Type &type : exported_types) {
+
+        for (const Type &type : types) {
             ss << get_indent();
             emit_type_declaration(ss, type);
         }
@@ -417,9 +634,9 @@ class BonsaiToCpp : ir::Printer {
         ss << "#pragma once";
         ss << '\n' << '\n';
 
-        // Headers for C++ types.
-        ss << "#include <cstdint>" << '\n'; // integer
-        ss << "#include \"runtime/bonsai_cpp.h\"\n\n";
+        // The runtime header carries the standard headers generated code
+        // needs, so a generated file includes only it.
+        ss << "#include \"runtime/CPP/bonsai_cpp.h\"\n\n";
 
         // Disable C++ name mangling.
         if (!allow_mangling) {
@@ -457,17 +674,28 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // Exprs
-    // void visit(const IntImm *) override;
-    // void visit(const UIntImm *) override;
+    void visit(const IntImm *node) override { ss << node->value; }
+    void visit(const UIntImm *node) override { ss << node->value << "u"; }
+    void visit(const IdxImm *node) override { ss << node->value << "u"; }
     void visit(const FloatImm *node) override {
+        if (double x = node->value; x == std::floor(x)) {
+            ss << static_cast<int64_t>(x) << ".0";
+            if (node->type.bits() == 32) {
+                ss << "f";
+            }
+            return;
+        }
         std::ios::fmtflags f = ss.flags();
         std::streamsize p = ss.precision();
 
         double val = node->value;
 
         // Ensure float is parsed correctly in C++ by forcing float literal
-        // syntax Add 'f' suffix and a decimal point if needed
-        if (std::isnan(val)) {
+        // syntax Add 'f' suffix and a decimal point if needed.
+        if (val == 0.0) {
+            // `0f` is interpreted as an octal constant so we special case this.
+            ss << "0.0";
+        } else if (std::isnan(val)) {
             ss << "NAN";
         } else if (std::isinf(val)) {
             ss << (val < 0 ? "-" : "") << "INFINITY";
@@ -478,54 +706,131 @@ class BonsaiToCpp : ir::Printer {
         ss.flags(f);
         ss.precision(p);
     }
-    // void visit(const BoolImm *) override;
-    // void visit(const VecImm *) override;
-    // void visit(const StringImm *) override;
-    // void visit(const Extrema *) override;
-    // void visit(const Var *) override;
-    // void print(const BinOp::OpType &op);
-    // void visit(const BinOp *) override;
-    // void print(const UnOp::OpType &op);
-    // void visit(const UnOp *) override;
-    void visit(const Extrema *node) override {
-        ss << "std::numeric_limits<";
-        emit_type(ss, node->type);
-        ss << (node->op == Extrema::eps ? ">::epsilon()" : ">::infinity()");
-    }
-
-    void visit(const Build *node) override {
-        // Aggregate initialisation, e.g. `AABB{low, high}`. A vector builds
-        // from a braced list of its lanes.
+    void visit(const VecImm *node) override {
         emit_type(ss, node->type);
         ss << "{";
-        for (size_t i = 0, e = node->values.size(); i < e; i++) {
-            if (i != 0) {
-                ss << ", ";
+        for (int i = 0, e = node->values.size(); i < e; ++i) {
+            node->values[i].accept(this);
+            if (i + 1 == e) {
+                continue;
             }
-            print_no_parens(node->values[i]);
+            ss << ", ";
         }
         ss << "}";
     }
 
-    void visit(const Select *node) override {
+    // void visit(const StringImm *) override;
+    void visit(const Extrema *node) override {
+        ss << "std::numeric_limits<";
+        emit_type(ss, node->type);
+        // Mirrors the LLVM backend: an integral "infinity" is the largest
+        // representable value, since there is no infinity to reach for.
+        if (node->op == Extrema::eps) {
+            internal_assert(node->type.is_float())
+                << "Epsilon is only defined for floating point types: "
+                << node->type;
+            ss << ">::epsilon()";
+        } else if (node->type.is_float()) {
+            ss << ">::infinity()";
+        } else {
+            ss << ">::max()";
+        }
+    }
+
+    void visit(const Var *node) override { ss << node->name; }
+
+    void visit(const Slice *node) override {
+        // Slicing a sequence names a sub-range of it; slicing a scalar takes
+        // a run of its bits. They are spelled the same and mean different
+        // things, so the value's type decides which.
+        if (!node->value.type().is_scalar()) {
+            ss << "range(";
+            print_no_parens(node->value);
+            ss << ", ";
+            print_no_parens(node->begin);
+            ss << ", ";
+            print_no_parens(
+                ir::BinOp::make(ir::BinOp::Sub, node->end, node->begin));
+            ss << ")";
+            return;
+        }
+        ss << "slice";
+        const bool is_constant_bounds =
+            is_const(node->begin) && is_const(node->end);
+        ss << (is_constant_bounds ? "<" : "(");
+        node->begin.accept(this);
+        ss << ", ";
+        node->end.accept(this);
+        ss << (is_constant_bounds ? ">(" : ",");
+        node->value.accept(this);
+        ss << ")";
+    }
+
+    void visit(const BinOp *node) override {
+        if (node->op != BinOp::OpType::Eq) {
+            ss << "(";
+        }
+        node->a.accept(this);
+        ss << " " << to_string(node->op) << " ";
+        node->b.accept(this);
+        if (node->op != BinOp::OpType::Eq) {
+            ss << ")";
+        }
+    }
+    void visit(const UnOp *node) override {
         ss << "(";
-        print(node->cond);
+        ss << to_string(node->op);
+        node->a.accept(this);
+        ss << ")";
+    }
+
+    void visit(const Select *node) override {
+        if (node->cond.type().is<ir::Vector_t>()) {
+            ss << "select(";
+            node->cond.accept(this);
+            ss << ", ";
+            node->tvalue.accept(this);
+            ss << ", ";
+            node->fvalue.accept(this);
+            ss << ")";
+            return;
+        }
+        ss << "(";
+        node->cond.accept(this);
         ss << " ? ";
-        print(node->tvalue);
+        node->tvalue.accept(this);
         ss << " : ";
-        print(node->fvalue);
+        node->fvalue.accept(this);
         ss << ")";
     }
 
     void visit(const Cast *node) override {
-        if (node->mode == Cast::Mode::Reinterpret) {
-            ss << "reinterpret<";
+        switch (node->mode) {
+        case Cast::Mode::Reinterpret: {
+            ss << "reinterpret";
+            if (node->type.is<ir::Ptr_t, ir::Array_t>()) {
+                // If this is already a pointer, just use the C++ built-in cast.
+                // (Otherwise, we use the bonsai runtime reinterpret cast.)
+                ss << "_cast";
+            }
+            ss << "<";
             emit_type(ss, node->type);
             ss << ">(";
             print_no_parens(node->value);
             ss << ")";
             return;
-        } else {
+        }
+        case Cast::Mode::Convert: {
+            if (node->value.type().is<ir::Option_t>()) {
+                if (node->type.is<ir::Bool_t>()) {
+                    print_no_parens(node->value);
+                    ss << ".has_value()";
+                    return;
+                }
+                ss << "*";
+                print_no_parens(node->value);
+                return;
+            }
             ss << "(";
             emit_type(ss, node->type);
             ss << ")(";
@@ -533,24 +838,278 @@ class BonsaiToCpp : ir::Printer {
             ss << ")";
             return;
         }
-        internal_error << "TODO: cast C++ codegen: " << Expr(node);
+        }
     }
-    // void visit(const Broadcast *) override;
-    // void print(const VectorReduce::OpType &op);
-    // void visit(const VectorReduce *) override;
+
+    void visit(const Broadcast *node) override {
+        emit_type(ss, ir::Vector_t::make(node->value.type(), node->lanes));
+        ss << "{";
+        node->value.accept(this);
+        ss << "}";
+    }
+
+    void visit(const VectorReduce *node) override {
+        ss << "reduce_";
+        switch (node->op) {
+        case VectorReduce::Add:
+            ss << "add";
+            break;
+        case VectorReduce::Mul:
+            ss << "mul";
+            break;
+        case VectorReduce::And:
+            ss << "and";
+            break;
+        case VectorReduce::Or:
+            ss << "or";
+            break;
+        case VectorReduce::Max:
+            ss << "max";
+            break;
+        case VectorReduce::Min:
+            ss << "min";
+            break;
+        case VectorReduce::Idxmax:
+            ss << "idxmax";
+            break;
+        case VectorReduce::Idxmin:
+            ss << "idxmin";
+            break;
+        }
+        ss << "(";
+        node->value.accept(this);
+        ss << ")";
+    }
+
+    void visit(const ir::Intrinsic *node) override {
+        switch (node->op) {
+        case ir::Intrinsic::OpType::dot: {
+            ss << "dot" << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::sqrt: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << cpp_intrinsic("sqrt", element_type) << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::argmax: {
+            ir::Type element_type = node->args.front().type();
+            ss << "argmax(";
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::min: {
+            ir::Type element_type = node->args.front().type();
+            ss << "min(";
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::max: {
+            ir::Type element_type = node->args.front().type();
+            ss << "max(";
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::cos: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << cpp_intrinsic("cos", element_type) << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::sin: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << cpp_intrinsic("sin", element_type) << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::tan: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << cpp_intrinsic("tan", element_type) << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::pow: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << cpp_intrinsic("pow", element_type) << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::abs: {
+            ss << "abs(";
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::norm: {
+            ss << "norm" << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::cross: {
+            ss << "cross" << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::rand: {
+            internal_assert(node->args.empty());
+            const auto *float_t = node->type.as<Float_t>();
+            internal_assert(float_t && float_t->is_ieee754()) << node->type;
+            ss << "random_float" << '<';
+            emit_type(ss, node->type);
+            ss << '>' << '(' << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::fma: {
+            ir::Type element_type = node->args.front().type();
+            internal_assert(element_type.is<ir::Float_t>()) << element_type;
+            ss << cpp_intrinsic("fma", element_type) << '(';
+            print_expr_list(node->args);
+            ss << ')';
+            return;
+        }
+        case ir::Intrinsic::OpType::floorf: {
+            ss << "floor(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::ceilf: {
+            ss << "ceil(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::roundf: {
+            ss << "round(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::frexpf: {
+            ss << "frexpf(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::exp2f: {
+            ss << "exp2f(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        case ir::Intrinsic::OpType::fadd_rd:
+        case ir::Intrinsic::OpType::fadd_ru:
+        case ir::Intrinsic::OpType::fsub_rd:
+        case ir::Intrinsic::OpType::fsub_ru:
+        case ir::Intrinsic::OpType::fmul_rd:
+        case ir::Intrinsic::OpType::fmul_ru:
+        case ir::Intrinsic::OpType::fdiv_rd:
+        case ir::Intrinsic::OpType::fdiv_ru:
+        case ir::Intrinsic::OpType::frcp_rd:
+        case ir::Intrinsic::OpType::frcp_ru: {
+            ss << to_string(node->op) << "(";
+            print_expr_list(node->args);
+            ss << ")";
+            return;
+        }
+        default:
+            internal_error << "[unimplemented] intrinsic CPP codegen: "
+                           << Expr(node);
+        }
+    }
+
     // void visit(const VectorShuffle *) override;
     // void visit(const Ramp *) override;
-    // void visit(const Extract *) override;
-    // void visit(const Build *) override;
-    void visit(const Access *node) override {
-        if (node->type.is<Ref_t>()) {
-            ss << "(*"; // deref
-        }
-        ir::Printer::visit(node);
-        if (node->type.is<Ref_t>()) {
+    void visit(const Extract *node) override {
+        if (node->vec.type().is<ir::Tuple_t>()) {
+            ss << "std::get<";
+            node->idx.accept(this);
+            ss << ">(";
+            node->vec.accept(this);
             ss << ")";
+            return;
         }
+        node->vec.accept(this);
+        ss << "[";
+        node->idx.accept(this);
+        ss << "]";
     }
+    void visit(const Build *node) override {
+        if (const auto *vector_t = node->type.as<ir::Vector_t>()) {
+            emit_type(ss, node->type);
+            ss << "{";
+            for (size_t i = 0; i < node->values.size(); i++) {
+                if (i > 0) {
+                    ss << ", ";
+                }
+                node->values[i].accept(this);
+            }
+            ss << "}";
+            return;
+        }
+        if (const auto *tuple_t = node->type.as<ir::Tuple_t>()) {
+            emit_type(ss, node->type);
+            ss << "{";
+            for (size_t i = 0; i < node->values.size(); i++) {
+                if (i > 0) {
+                    ss << ", ";
+                }
+                node->values[i].accept(this);
+            }
+            ss << "}";
+            return;
+        }
+        if (node->type.is<ir::Option_t>()) {
+            if (node->values.empty()) {
+                ss << "std::nullopt";
+                return;
+            }
+            // Field designators do not work through std::optional, and the
+            // payload need not be a struct in the first place.
+            emit_type(ss, node->type);
+            ss << "{";
+            for (size_t i = 0; i < node->values.size(); i++) {
+                if (i > 0) {
+                    ss << ", ";
+                }
+                node->values[i].accept(this);
+            }
+            ss << "}";
+            return;
+        }
+        const auto *struct_t = node->type.as<ir::Struct_t>();
+        internal_assert(struct_t) << node->type;
+        emit_type(ss, node->type);
+        ss << "{";
+        for (size_t i = 0; i < node->values.size(); i++) {
+            if (i > 0) {
+                ss << ", ";
+            }
+            ss << "." << struct_t->fields[i].name << "=";
+            node->values[i].accept(this);
+        }
+        ss << "}";
+    }
+
+    void visit(const Access *node) override { ir::Printer::visit(node); }
     void visit(const Unwrap *node) override {
         // TODO: be less hacky about this. relies on current Match lowering.
         print_no_parens(node->value);
@@ -577,74 +1136,286 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Call *) override;
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
-    // void visit(const Deref *) override;
-    // void visit(const AtomicAdd *) override;
+    void visit(const AtomicAdd *node) override {
+        const auto *ptr_to = node->ptr.as<ir::PtrTo>();
+        internal_assert(ptr_to) << node->ptr;
+        ptr_to->expr.accept(this);
+        ss << ".fetch_add(";
+        node->value.accept(this);
+        ss << ", std::memory_order_relaxed)";
+    }
+
     // Stmts
-    // void visit(const CallStmt *) override;
-    // void visit(const Print *) override;
-
-    // needs to override for ending `;`
-    // void visit(const Return *node) override;
-
-    // void visit(const LetStmt *) override;
-    // void visit(const IfElse *) override;
-    // void visit(const DoWhile *) override;
-    // void visit(const Sequence *) override;
-    void visit(const Allocate *node) override {
+    void visit(const CallStmt *node) override {
         ss << get_indent();
-        emit_type(ss, node->loc.base_type);
-        ss << " " << node->loc.base;
-        // A set is default-constructed and appended to; a reduction's
-        // accumulator starts at its identity.
-        if (node->value.defined()) {
-            internal_assert(!node->loc.base_type.is<Set_t>())
-                << "TODO: C++ Allocate lowering: " << Stmt(node);
-            ss << " = ";
-            print_no_parens(node->value);
-        } else {
-            internal_assert(node->loc.base_type.is<Set_t>())
-                << "TODO: C++ Allocate lowering: " << Stmt(node);
+        node->func.accept(this);
+        ss << "(";
+        for (int i = 0, e = node->args.size(); i < e; ++i) {
+            node->args[i].accept(this);
+            if (i + 1 == e)
+                continue;
+            ss << ", ";
+        }
+        ss << ");\n";
+    }
+
+    void visit(const Deref *node) override {
+        ss << "(*";
+        node->expr.accept(this);
+        ss << ")";
+    }
+
+    void visit(const Print *node) override {
+        ss << "std::cout ";
+        for (int i = 0, e = node->args.size(); i < e; ++i) {
+            ss << "<< ";
+            node->args[i].accept(this);
+            if (i + 1 == e) {
+                continue;
+            }
+            ss << ' ';
         }
         ss << ";\n";
     }
-    // void visit(const Free *) override;
-    // void visit(const Store *) override;
-    void visit(const Accumulate *node) override {
+
+    void visit(const Return *node) override {
+        ss << get_indent() << "return";
+        if (node->value.defined()) {
+            ss << " ";
+            node->value.accept(this);
+        }
+        ss << ";\n";
+    }
+
+    void visit(const Continue *node) override {
+        ss << get_indent() << "continue;\n";
+    }
+
+    void visit(const Break *node) override { ss << get_indent() << "break;\n"; }
+
+    void visit(const LetStmt *node) override {
         ss << get_indent();
-        print(node->loc);
+        if (!node->loc.base_type().is<ir::Ptr_t>()) {
+            // We don't emit const qualifier for pointers since we may need to
+            // assign it to another value, which would result in a type error.
+            ss << "const ";
+        }
+        emit_type(ss, node->loc.base_type());
+        if (node->loc.type.is<Struct_t>() && !node->value.is<ir::Build>()) {
+            ss << "&"; // let's avoid copies
+        }
+        ss << " " << node->loc.base() << " = ";
+        node->value.accept(this);
+        ss << ";\n";
+    }
+
+    void visit(const Accumulate *node) override {
+        const WriteLoc &current = node->loc;
+        const ir::Expr &update = node->value;
+        ss << get_indent();
+        if (program.globals.contains(current.to_expr())) {
+            internal_assert(node->op == Accumulate::OpType::Add);
+            ir::AtomicAdd::make(PtrTo::make(current.to_expr()), update)
+                .accept(this);
+            ss << ";\n";
+            return;
+        }
+        current.to_expr().accept(this);
+        ss << ' ';
         switch (node->op) {
-        case Accumulate::Add:
-            ss << " += ";
+        case Accumulate::OpType::Add:
+            ss << '+';
             break;
-        case Accumulate::Sub:
-            ss << " -= ";
+        case Accumulate::OpType::Sub:
+            ss << '-';
             break;
-        case Accumulate::Mul:
-            ss << " *= ";
+        case Accumulate::OpType::Mul:
+            ss << '*';
             break;
-        case Accumulate::Min:
-        case Accumulate::Max: {
-            // No compound assignment for these, so spell out the update.
-            ss << " = " << (node->op == Accumulate::Min ? "min(" : "max(");
-            print(node->loc);
+        case Accumulate::OpType::Min:
+        case Accumulate::OpType::Max:
+            // There is no compound assignment for these, so spell the update
+            // out. A reduction's accumulator arrives here.
+            ss << "= "
+               << (node->op == Accumulate::OpType::Min ? "min(" : "max(");
+            current.to_expr().accept(this);
             ss << ", ";
-            print_no_parens(node->value);
+            update.accept(this);
+            ss << ");\n";
+            return;
+        case Accumulate::OpType::Argmax: {
+        case Accumulate::OpType::Argmin:
+            // We assume arg{min,max} is a tuple with one or more arguments, and
+            // the comparison is done with the first argument.
+            ss << '=' << ' ';
+            ss << "arg"
+               << (node->op == Accumulate::OpType::Argmax ? "max" : "min");
+
+            ss << '<';
+            const auto *tuple_t = current.type.as<ir::Tuple_t>();
+            internal_assert(tuple_t) << current.type;
+            for (int i = 0, e = tuple_t->etypes.size(); i < e; ++i) {
+                emit_type(ss, tuple_t->etypes[i]);
+                if (i + 1 == e)
+                    continue;
+                ss << ", ";
+            }
+            ss << '>';
+
+            ss << '(';
+            Var::make(current.type, current.base()).accept(this);
+            ss << ',' << ' ';
+            update.accept(this);
+            ss << ')';
+            ss << ';' << '\n';
+            return;
+        }
+        }
+        ss << '=' << ' ';
+        update.accept(this);
+        ss << ';' << '\n';
+    }
+
+    // void visit(const IfElse *) override;
+    // void visit(const Sequence *) override;
+
+    void print_utilization(const std::string &name, const ir::Type &type,
+                           const ir::Expr &size) {
+        ss << get_indent() << "std::cout << \";; " << name << ": \" << ";
+        ss << "sizeof(";
+        emit_type(ss, type);
+        ss << ") << ";
+        ss << " \",\" << ";
+        size.accept(this);
+        ss << "<< \"\\n\"";
+        ss << ";\n";
+    }
+
+    void visit(const Allocate *node) override {
+        if (node->memory == ir::Allocate::Memory::Global) {
+            return; // handled in prologue
+        }
+        ss << get_indent();
+        const ir::Type &base_type = node->loc.base_type();
+        emit_type(ss, base_type);
+        ss << " " << node->loc.base();
+        if (node->value.defined()) {
+            ss << " = ";
+            node->value.accept(this);
+            ss << ";\n";
+            return;
+        }
+        if (const auto *dyn_array_t = base_type.as<ir::DynArray_t>()) {
+            ss << ";\n";
+            ss << get_indent() << node->loc.base();
+            ss << ".reserve(";
+            dyn_array_t->capacity.accept(this);
             ss << ");\n";
             return;
         }
-        default:
-            internal_error << "TODO: C++ codegen for accumulate: "
-                           << Stmt(node);
+        if (base_type.is_scalar()) {
+            ss << " = ";
+            ss << make_const(base_type, 0);
+            ss << ";\n";
+            return;
         }
-        print_no_parens(node->value);
+        if (base_type.is<ir::Set_t>()) {
+            // A set owns its storage and starts empty, so it needs neither a
+            // size nor an initializer, on the stack or the heap.
+            ss << ";\n";
+            return;
+        }
+        switch (node->memory) {
+        case ir::Allocate::Memory::Stack:
+            if (base_type.is_iterable()) {
+                internal_assert(base_type.size().defined()) << base_type;
+                ss << ";\n";
+                return;
+            }
+            if (base_type.is<ir::Ptr_t>()) {
+                ss << " = new ";
+                emit_type(ss, base_type.element_of());
+                ss << "();\n";
+                return;
+            }
+            break;
+        case ir::Allocate::Memory::Heap:
+            if (base_type.is_iterable()) {
+                ss << " = ";
+                ss << "reinterpret_cast<";
+                emit_type(ss, base_type.element_of());
+                ss << "*>(";
+                std::optional<int64_t> alignment;
+                if (const auto *struct_t =
+                        base_type.element_of().as<ir::Struct_t>()) {
+                    alignment = struct_t->alignment;
+                }
+                if (alignment.has_value()) {
+                    ss << "std::aligned_alloc(" << *alignment;
+                    ss << ", (((sizeof(";
+                    emit_type(ss, base_type.element_of());
+                    ss << ") * ";
+                    base_type.size().accept(this);
+                    ss << ") + " << *alignment - 1;
+                    ss << ") / ";
+                    ss << *alignment << ") * ";
+                    ss << *alignment << ")";
+                    ss << ");\n";
+                    if constexpr (PRINT_MEMORY_UTILIZATION) {
+                        print_utilization(node->loc.base(),
+                                          base_type.element_of(),
+                                          base_type.size());
+                    }
+                    return;
+                }
+                ss << "malloc(";
+                ss << "sizeof(";
+                emit_type(ss, base_type.element_of());
+                ss << ") * ";
+                base_type.size().accept(this);
+                ss << "));\n";
+                if constexpr (PRINT_MEMORY_UTILIZATION) {
+                    if constexpr (PRINT_MEMORY_UTILIZATION) {
+                        print_utilization(node->loc.base(),
+                                          base_type.element_of(),
+                                          base_type.size());
+                    }
+                }
+                return;
+            }
+            break;
+        default:
+            internal_error << "unexpected memory for CPPx backend: "
+                           << ir::Stmt(node);
+        }
         ss << ";\n";
     }
+
+    void visit(const DoWhile *node) override {
+        ss << get_indent() << "do {\n";
+        increment();
+        node->body.accept(this);
+        decrement();
+        ss << "} while (";
+        node->cond.accept(this);
+        ss << ");\n";
+    }
+
+    // void visit(const Free *) override;
+
+    void visit(const Store *node) override {
+        ss << get_indent();
+        print_loc(ss, node->loc, /*is_assignment=*/true);
+        ss << " = ";
+        node->value.accept(this);
+        ss << ";\n";
+    }
+
     // void visit(const Label *) override;
     // void visit(const RecLoop *) override;
     void visit(const Match *node) override {
         ss << get_indent();
-        print(node->loc);
-        ss << ".match(\n";
+        ss << "return std::visit(overloaded{\n";
         increment();
         for (size_t i = 0, e = node->arms.size(); i < e; i++) {
             const auto &arm = node->arms[i];
@@ -652,9 +1423,6 @@ class BonsaiToCpp : ir::Printer {
             ss << arm.first.struct_type.as<Struct_t>()->name;
             ss << "& ";
             print(node->loc);
-            ss << "_";
-            ss << arm.first.struct_type.as<Struct_t>()->name;
-            // e.g. (const Interior& tree_Interior) { . . . }
             ss << ") {\n";
             increment();
             print(arm.second);
@@ -667,7 +1435,9 @@ class BonsaiToCpp : ir::Printer {
             }
         }
         decrement();
-        ss << get_indent() << ");\n";
+        ss << get_indent() << "}, *";
+        print(node->loc);
+        ss << ");\n";
     }
     // void visit(const Yield *) override;
     // void visit(const Iterate *) override;
@@ -681,28 +1451,98 @@ class BonsaiToCpp : ir::Printer {
         print_no_parens(node->slice.begin);
         ss << "; " << node->index << " < ";
         print_no_parens(node->slice.end);
-        ss << "; " << node->index << " += ";
-        print_no_parens(node->slice.stride);
+        ss << "; ";
+        if (is_const_one(node->slice.stride)) {
+            ss << "++" << node->index;
+        } else {
+            ss << node->index << " += ";
+            print_no_parens(node->slice.stride);
+        }
+
         ss << ") {\n";
         increment();
-        print(node->body);
+        node->body.accept(this);
         decrement();
         ss << get_indent() << "}\n";
     }
+
     // void visit(const ForEach *) override;
     // void visit(const Continue *) override;
     // void visit(const Launch *) override;
-    void visit(const Append *node) override {
+
+    void visit(const AppendStmt *node) override {
         ss << get_indent();
-        print(node->loc);
+        print_loc(ss, node->loc, /*is_assignment=*/false);
         ss << ".push_back(";
         print_no_parens(node->value);
-        // if (node->value.type().is<Array_t>() &&
-        // !node->loc.type.is<Array_t>()) {
-        //     ss << ", ";
-        //     print_no_parens(node->value.type().as<Array_t>()->size);
-        // }
         ss << ");\n";
+    }
+
+    void visit(const Swap *node) override {
+        // A bit misleading, we are actually just doing a move.
+        ss << get_indent();
+        print_loc(ss, node->a, /*is_assignment=*/false);
+        ss << " = std::move(";
+        print_loc(ss, node->b, /*is_assignment=*/false);
+        ss << ");\n";
+    }
+
+    // This is almost identical to the Printer version, except needs to take the
+    // address for assignments.
+    void print_loc(std::stringstream &os, const ir::WriteLoc &loc,
+                   bool is_assignment) {
+        std::string ss;
+        const bool should_deref = loc.base_is_dereferenced();
+        if (should_deref) {
+            ss += "(*";
+        }
+        ss += loc.base();
+        if (should_deref) {
+            ss += ")";
+        }
+        bool is_pointer = false;
+        for (const auto &value : loc.accesses) {
+            if (std::holds_alternative<std::string>(value)) {
+                if (is_pointer) {
+                    ss += "->";
+                    is_pointer = false;
+                } else {
+                    ss += ".";
+                }
+                ss += std::get<std::string>(value);
+                continue;
+            }
+            if (std::holds_alternative<ir::Expr>(value)) {
+                ss += "[";
+                ss += to_string(std::get<ir::Expr>(value));
+                ss += "]";
+                continue;
+            }
+            if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+                auto cast = std::get<ir::WriteLoc::Cast>(value);
+                std::string b;
+                if (cast.mode == ir::Cast::Mode::Reinterpret) {
+                    b += "reinterpret";
+                    b += '_';
+                }
+                b += "cast<";
+                std::stringstream t;
+                emit_type(t, cast.type);
+                b += t.str();
+                b += ">(";
+                if (is_assignment) {
+                    b += "&"; // *must* take the address for assignment.
+                    is_pointer = true;
+                }
+                b += ss;
+                b += ")";
+                ss = std::move(b);
+
+                continue;
+            }
+            internal_error << "unexpected WriteLoc access type";
+        }
+        os << ss;
     }
 };
 
@@ -723,8 +1563,9 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp().create_header(program,
-                                                    /*allow_mangling=*/false)
+        llvm::outs() << BonsaiToCpp(program, options)
+                            .create_header(
+                                /*allow_mangling=*/false)
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -749,8 +1590,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream file;
     file.open(options.output_file + ".h");
-    file << BonsaiToCpp().create_header(program,
-                                        /*allow_mangling=*/false);
+    file << BonsaiToCpp(program, options)
+                .create_header(/*allow_mangling=*/false);
     file.close();
 }
 
@@ -759,27 +1600,26 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
 
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
-        llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp().create_header(program,
-                                                    /* allow_mangling */ true)
-                     << '\n';
-        llvm::outs() << std::string(42, '-') << '\n';
-        llvm::outs() << BonsaiToCpp().create_source(program) << '\n';
+        std::cout << "// Bonsai Header" << std::endl;
+        std::cout << BonsaiToCpp(program, options)
+                         .create_header(/*allow_mangling=*/true)
+                  << std::endl;
+        std::cout << BonsaiToCpp(program, options).create_source() << std::endl;
         return;
     }
 
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream h_file;
     h_file.open(options.output_file + ".h");
-    h_file << BonsaiToCpp().create_header(program,
-                                          /* allow_mangling */ true);
+    h_file
+        << BonsaiToCpp(program, options).create_header(/*allow_mangling=*/true);
     h_file.close();
 
     // Write C++ source file with struct and function declarations (`.cpp`).
     std::ofstream src_file;
     src_file.open(options.output_file + ".cpp");
-    src_file << BonsaiToCpp().create_source(program,
-                                            options.output_file + ".h");
+    src_file << BonsaiToCpp(program, options)
+                    .create_source(options.output_file + ".h");
     src_file.close();
 }
 

@@ -3,5 +3,5 @@ func process(n : i32, a : array[f32, n]) -> array[f32, n] {
 }
 
 schedule {
-    process.split(i0, io, ii, 16, false);
+    process.loop_split(i0, io, ii, 16, false);
 }

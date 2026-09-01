@@ -1,4 +1,4 @@
-//! flags: -b llvm
+//! flags: -b llvm --target x86_64-unknown-linux-gnu
 
 func check0(a : i32, b : array[f32]) {
     if a >= 0 && b[a] < 0 {

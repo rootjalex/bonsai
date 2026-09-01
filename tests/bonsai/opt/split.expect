@@ -5,7 +5,7 @@ func _traverse_array0(n : i32, a : f32[n]) -> f32[n] {
       _alloc0[_io + _ii] = sqrt(a[_io + _ii])
     }
   }
-  return (*_alloc0)
+  return _alloc0
 }
 
 func process(n : i32, a : f32[n]) -> f32[n] {

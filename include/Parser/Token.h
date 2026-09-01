@@ -40,17 +40,26 @@ class Token {
         RETURN, // return
         PRINT,  // print
 
-        // Data structure specification related keywords
-        TREE,   // tree
-        WITH,   // with
-        ON,     // on
-        IN,     // in
-        LAYOUT, // layout
-        GROUP,  // group
-        SWITCH, // switch
+        // Layout specification keywords
+        TREE,     // tree
+        WITH,     // with
+        BY,       // by
+        LAYOUT,   // layout
+        INDIRECT, // indirect
+        GROUP,    // group
+        POINTER,  // ptr
+        SPLIT,    // split
+        ON,       // on
+        FROM,     // from
+
+        // Build specification keywords
+        BUILD,   // build
+        RECURSE, // recurse
+        LET,     // let
 
         // WHILE, // while
         FOR,   // for
+        IN,    // in
         IF,    // if
         ELIF,  // elif
         ELSE,  // else

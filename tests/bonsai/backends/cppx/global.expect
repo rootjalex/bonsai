@@ -1,0 +1,14 @@
+// Bonsai Header
+#pragma once
+
+#include "runtime/CPP/bonsai_cpp.h"
+
+extern std::atomic<int32_t> counter;
+
+
+std::atomic<int32_t> counter{0};
+void foo() {
+  counter.fetch_add(1, std::memory_order_relaxed);
+  return;
+}
+

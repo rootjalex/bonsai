@@ -61,7 +61,7 @@ Stmt LetStmt::make(WriteLoc loc, Expr value) {
 Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     internal_assert(cond.defined()) << "Undefined condition in IfElse::make";
     internal_assert(cond.type().defined() &&
-                    (cond.type().is_bool() || cond.type().is<Option_t>()))
+                    (cond.type().is<Option_t>() || cond.type().bits() == 1))
         << "Non-boolean condition in IfElse::make: " << cond << " of type "
         << cond.type();
     if (cond.type().is<Option_t>()) {
@@ -179,14 +179,15 @@ Stmt Label::make(std::string name, Stmt body) {
     return node;
 }
 
-Stmt RecLoop::make(std::vector<TypedVar> args, Stmt body) {
+Stmt RecLoop::make(std::vector<ir::Argument> args, Stmt body) {
     internal_assert(body.defined()) << "RecLoop::make received undefined body";
 
-    for (const auto &arg : args) {
+    for (const ir::Argument &arg : args) {
         internal_assert(!arg.name.empty())
             << "RecLoop::make received empty arg name";
         internal_assert(arg.type.defined())
-            << "RecLoop::make received undefined arg type: " << arg.name;
+            << "RecLoop::make received undefined arg type with name: "
+            << arg.name;
     }
 
     RecLoop *node = new RecLoop;
@@ -199,15 +200,20 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";
     const BVH_t *bvh = loc.type().as<BVH_t>();
+    if (bvh == nullptr && loc.type().is<ir::Ptr_t>()) {
+        bvh = loc.type().element_of().as<BVH_t>();
+    }
     internal_assert(bvh) << "Match is only implemented for BVH_t, received: "
-                         << loc;
-    internal_assert(bvh->nodes.size() == arms.size())
+                         << loc << " : " << loc.type();
+    internal_assert(bvh->variants.size() == arms.size())
         << "Incorrect number of match arms for BVH type: " << loc.type()
-        << " with " << arms.size() << " arms.";
+        << " (requiring size: " << bvh->variants.size() << "), received "
+        << arms.size() << " arm(s):\n"
+        << arms;
     // Make sure all match arms exist.
-    const size_t n = bvh->nodes.size();
+    const size_t n = bvh->variants.size();
     for (size_t i = 0; i < n; i++) {
-        std::string_view name = bvh->nodes[i].name();
+        std::string_view name = bvh->variants[i].name();
         const bool found =
             arms.cend() !=
             std::find_if(arms.cbegin(), arms.cend(), [&name](const auto &arm) {
@@ -282,9 +288,17 @@ Stmt ForAll::make(std::string index, Slice slice, Stmt body) {
         << "Undefined Slice.end in ForAll::make";
     internal_assert(slice.stride.defined())
         << "Undefined Slice.stride in ForAll::make";
-    internal_assert(body.defined()) << "Undefined body in ForAll::make";
-    internal_assert(equals(slice.begin.type(), slice.end.type()));
-    internal_assert(equals(slice.begin.type(), slice.stride.type()));
+    internal_assert(body.defined())
+        << "Undefined body in ForAll::make, with index: " << index;
+    try_match_types(slice.begin, slice.end);
+    try_match_types(slice.end, slice.stride);
+
+    internal_assert(equals(slice.begin.type(), slice.end.type()))
+        << slice.begin.type() << " vs " << slice.end.type()
+        << ", with index: " << index;
+    internal_assert(equals(slice.begin.type(), slice.stride.type()))
+        << slice.begin.type() << " vs " << slice.stride.type()
+        << ", with index: " << index;
     node->index = std::move(index);
     node->slice = std::move(slice);
     node->body = std::move(body);
@@ -304,7 +318,12 @@ Expr ForAll::count() const {
 }
 
 Stmt Continue::make() {
-    static Stmt global_break = new Continue;
+    static Stmt global_continue = new Continue;
+    return global_continue;
+}
+
+Stmt Break::make() {
+    static Stmt global_break = new Break;
     return global_break;
 }
 
@@ -323,15 +342,31 @@ Stmt Launch::make(std::string func, Expr n, std::vector<Expr> args) {
     return node;
 }
 
-Stmt Append::make(WriteLoc loc, Expr value) {
-    internal_assert(!loc.base.empty())
-        << "Append::make received empty allocation name";
+Stmt AppendStmt::make(WriteLoc loc, Expr value) {
+    internal_assert(!loc.base().empty())
+        << "AppendStmt::make received empty allocation name";
     internal_assert(loc.type.defined())
-        << "Append::make received untyped allocation";
-    internal_assert(value.defined()) << "Append::make received undefined value";
-    Append *node = new Append;
+        << "AppendStmt::make received untyped allocation";
+    internal_assert(value.defined())
+        << "AppendStmt::make received undefined value";
+    AppendStmt *node = new AppendStmt;
     node->loc = std::move(loc);
     node->value = std::move(value);
+    return node;
+}
+
+Stmt Swap::make(WriteLoc a, WriteLoc b) {
+    internal_assert(a.defined()) << "Undefined write location in Swap::make";
+    internal_assert(b.defined()) << "Undefined write location in Swap::make";
+    internal_assert(ir::equals(a.type, b.type));
+    // TODO(cgyurgyik): Support other pointer types.
+    internal_assert((a.type.is<Array_t, DynArray_t>()))
+        << "unsupported Swap type: " << a.type;
+    internal_assert((b.type.is<Array_t, DynArray_t>()))
+        << "unsupported Swap type: " << b.type;
+    Swap *node = new Swap;
+    node->a = std::move(a);
+    node->b = std::move(b);
     return node;
 }
 

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/IR/ValidateLayout.cpp:583
+
+--> root.indirect_groups.contains(indirect_group)
+indirect group: `Wrong` is not defined at root level in layout `triangles`

@@ -1,6 +1,8 @@
 #include "IR/Printer.h"
 
+#include "IR/Argument.h"
 #include "IR/Expr.h"
+#include "IR/Function.h"
 #include "IR/Stmt.h"
 #include "IR/Type.h"
 #include "Utils.h"
@@ -18,6 +20,7 @@ void print_annotation(const IRNode &node, std::ostream &os) {
         os << ' ' << '\"' << ann << '\"';
     }
 }
+
 } // namespace
 
 std::ostream &operator<<(std::ostream &os, const Program &program) {
@@ -64,6 +67,18 @@ std::string to_string(const Type &type) {
     return oss.str();
 }
 
+std::ostream &operator<<(std::ostream &os, const std::vector<Type> &types) {
+    os << "[";
+    for (int i = 0, e = types.size(); i < e; ++i) {
+        os << types[i];
+        if (i + 1 == e)
+            continue;
+        os << ", ";
+    }
+    os << "]\n";
+    return os;
+}
+
 std::ostream &operator<<(std::ostream &os, const Type &type) {
     if (type.defined()) {
         Printer printer(os);
@@ -108,20 +123,77 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc) {
 }
 
 std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars) {
-    os << "{";
     for (size_t i = 0; i < vars.size(); i++) {
         if (i > 0) {
             os << ", ";
         }
         os << vars[i].name << " : " << vars[i].type;
     }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const TypeMap &map) {
+    auto it = map.begin();
+    os << "{";
+    for (int i = 0, e = map.size(); i < e; ++i) {
+        auto current = it++;
+        auto [name, type] = *current;
+        os << "(" << name << " : " << type << ")";
+        if (i + 1 == e) {
+            continue;
+        }
+        os << ", ";
+    }
     os << "}";
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Match::Arms &arms) {
+    auto it = arms.begin();
+    for (int i = 0, e = arms.size(); i < e; ++i) {
+        os << "[arm " << i << "] ";
+        auto current = it++;
+        auto [variant, statement] = *current;
+        os << variant << " =>\n  " << statement;
+        if (i + 1 == e) {
+            continue;
+        }
+        os << "\n";
+    }
     return os;
 }
 
 std::ostream &operator<<(std::ostream &os, const Function &func) {
     Printer printer(os);
     printer.print(func);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Argument &argument) {
+    os << argument.name;
+    if (argument.type.defined()) {
+        os << " : ";
+        if (argument.mutating) {
+            os << "mut ";
+        }
+        os << argument.type;
+    }
+    if (argument.default_value.defined()) {
+        os << " = " << argument.default_value;
+    }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os,
+                         const std::vector<ir::Argument> &arguments) {
+    bool first = true;
+    for (const ir::Argument &argument : arguments) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << argument;
+    }
     return os;
 }
 
@@ -151,19 +223,82 @@ std::ostream &operator<<(std::ostream &os, const Location &loc) {
     return os;
 }
 
-std::string to_string(const Layout &layout) {
-    std::ostringstream oss;
-    oss << layout;
-    return oss.str();
+std::ostream &operator<<(std::ostream &os, const Member &member) {
+    if (member.defined()) {
+        Printer printer(os);
+        printer.print(member);
+    } else {
+        os << "(undef-member)";
+    }
+    return os;
 }
 
 std::ostream &operator<<(std::ostream &os, const Layout &layout) {
-    if (layout.defined()) {
-        Printer printer(os);
-        printer.print(layout);
-    } else {
-        os << "(undef-layout)";
+    Printer printer(os);
+    printer.print(layout);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Arm &arm) {
+    switch (arm.comparator) {
+    case Arm::Comparator::LT:
+        os << "< ";
+    case Arm::Comparator::LE:
+        os << "<= ";
+    case Arm::Comparator::GT:
+        os << "> ";
+    case Arm::Comparator::GE:
+        os << ">= ";
+    case Arm::Comparator::NE:
+        os << "~";
+    case Arm::Comparator::EQ:
+        break;
     }
+    if (arm.value.has_value()) {
+        os << *arm.value;
+    } else {
+        os << "_";
+    }
+    os << " -> ";
+    if (arm.name.has_value()) {
+        os << *arm.name;
+    }
+    os << "\n";
+    os << arm.member;
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BuildIR &ir) {
+    if (ir.defined()) {
+        Printer printer(os);
+        printer.print(ir);
+    } else {
+        os << "(undef-build)";
+    }
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BuildLayout &layout) {
+    Printer printer(os);
+    printer.print(layout);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BuildFunction &function) {
+    Printer printer(os);
+    printer.print(function);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const BVH_t::Variant &variant) {
+    Printer printer(os);
+    printer.print(variant);
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const Annotation::Volume &volume) {
+    Printer printer(os);
+    printer.print(volume);
     return os;
 }
 
@@ -173,7 +308,7 @@ void Printer::print(const Program &program) {
         ScopedValue<bool> _(verbose, true);
         for (const auto &[name, type] : program.types) {
             os << "type " << name << " = ";
-            print(type);
+            print_declaration(type);
             os << "\n";
         }
         if (!program.types.empty()) {
@@ -257,26 +392,7 @@ void Printer::print(const Function &function) {
         os << ">";
     }
     os << "(";
-    bool first = true;
-    for (const auto &arg : function.args) {
-        if (!first) {
-            os << ", ";
-        }
-        first = false;
-
-        os << arg.name;
-        if (arg.type.defined()) {
-            os << " : ";
-            if (arg.mutating) {
-                os << "mut ";
-            }
-            os << arg.type;
-        }
-        if (arg.default_value.defined()) {
-            os << " = " << arg.default_value;
-        }
-    }
-
+    os << function.args;
     os << ") -> " << function.ret_type << " {\n";
     set_indent(1);
     function.body.accept(this);
@@ -292,10 +408,10 @@ void Printer::print(const Schedule &schedule) {
         os << '\n';
     }
 
-    for (const auto &[name, layout] : schedule.tree_layouts) {
+    for (const auto &[name, member] : schedule.tree_layouts) {
         os << get_indent() << name << " : ";
         indent++;
-        print(layout);
+        print(member);
         indent--;
         os << '\n';
     }
@@ -342,7 +458,7 @@ void Printer::print(const Schedule &schedule) {
                                       print(sort.lambda);
                                       os << ")";
                                   },
-                                  [&](const Split &split) {
+                                  [&](const LoopSplit &split) {
                                       os << "split(";
                                       print(split.i);
                                       os << ", ";
@@ -392,6 +508,12 @@ void Printer::print(const Schedule &schedule) {
     // TODO: the rest of the schedule.
 }
 
+void Printer::print(const Layout &layout) {
+    os << "layout" << ' ' << layout.name << '(';
+    os << layout.root;
+    os << ')' << layout.body << '\n';
+}
+
 void Printer::print(const Location &loc) {
     for (size_t i = 0; i < loc.names.size(); i++) {
         if (i > 0) {
@@ -400,6 +522,21 @@ void Printer::print(const Location &loc) {
         os << loc.names[i];
     }
 }
+
+void Printer::print(const BuildLayout &layout) {
+    os << get_indent() << "build" << ' ' << layout.name << '{' << '\n';
+    for (const BuildFunction &function : layout.functions) {
+        set_indent(1);
+        os << get_indent() << function;
+    }
+    os << '}';
+}
+
+void Printer::print(const BuildFunction &function) {
+    os << "build" << ' ' << function.variant.name() << '(';
+    os << function.arguments << ')' << function.body;
+}
+void Printer::print(const BuildIR &ir) { ir.accept(this); }
 
 void Printer::print(const Interface &interface) {
     internal_assert(interface.defined());
@@ -419,6 +556,16 @@ void Printer::print(const Expr &expr) {
     ScopedValue<bool> old(implicit_parens, false);
     expr.accept(this);
     print_annotation(expr, os);
+}
+
+std::ostream &operator<<(std::ostream &os, const std::vector<Expr> &exprs) {
+    os << "[\n";
+    for (int i = 0, e = exprs.size(); i < e; ++i) {
+        os << "  " << exprs[i];
+        os << ",\n";
+    }
+    os << "]\n";
+    return os;
 }
 
 void Printer::print_no_parens(const Expr &expr) {
@@ -441,24 +588,49 @@ void Printer::print(const Stmt &stmt) {
 }
 
 void Printer::print(const WriteLoc &loc) {
+    std::string ss;
     if (verbose) {
-        os << "(";
+        ss += "(";
         print(loc.type);
-        os << ")";
+        ss += ")";
     }
-    os << loc.base;
+    ss += loc.base();
     for (const auto &value : loc.accesses) {
         if (std::holds_alternative<std::string>(value)) {
-            os << "." << std::get<std::string>(value);
-        } else {
-            os << "[";
-            print_no_parens(std::get<Expr>(value));
-            os << "]";
+            ss += ".";
+            ss += std::get<std::string>(value);
+            continue;
         }
+        if (std::holds_alternative<ir::Expr>(value)) {
+            // The brackets already group the index, as in Extract.
+            std::ostringstream index;
+            Printer(index).print_no_parens(std::get<Expr>(value));
+            ss += "[";
+            ss += index.str();
+            ss += "]";
+            continue;
+        }
+        if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+            auto cast = std::get<ir::WriteLoc::Cast>(value);
+            std::string b;
+            if (cast.mode == Cast::Mode::Reinterpret) {
+                b += "reinterpret";
+                b += '_';
+            }
+            b += "cast<";
+            b += to_string(cast.type);
+            b += ">(";
+            b += ss;
+            b += ")";
+            ss = std::move(b);
+            continue;
+        }
+        internal_error << "unexpected WriteLoc access type";
     }
+    os << ss;
 }
 
-void Printer::print(const Layout &layout) { layout->accept(this); }
+void Printer::print(const Member &member) { member->accept(this); }
 
 void Printer::visit(const Void_t *node) { os << "void"; }
 
@@ -492,6 +664,16 @@ void Printer::visit(const Ref_t *node) {
     os << "(const " << node->name << "&)";
 }
 
+void Printer::print_declaration(const Type &type) {
+    if (const auto *vec = type.as<Vector_t>()) {
+        os << "vector[";
+        print(vec->etype);
+        os << ", " << vec->lanes << "]";
+        return;
+    }
+    print(type);
+}
+
 void Printer::visit(const Vector_t *node) {
     print(node->etype);
     os << "x" << node->lanes;
@@ -501,6 +683,9 @@ void Printer::visit(const Struct_t *node) {
     if (verbose) {
         if (node->is_packed()) {
             os << "[[packed]] ";
+        }
+        if (node->alignment.has_value()) {
+            os << "[[alignas(" << *node->alignment << ")]] ";
         }
         os << "struct ";
     }
@@ -597,7 +782,21 @@ void Printer::visit(const Generic_t *node) {
     }
 }
 
-void Printer::print(const BVH_t::Node &node) {
+void Printer::print(const Annotation::Volume &volume) {
+    internal_assert(volume.struct_type.is<Struct_t>());
+    os << volume.struct_type.as<Struct_t>()->name;
+    internal_assert(!volume.initializers.empty());
+    os << "(";
+    for (size_t i = 0; i < volume.initializers.size(); i++) {
+        if (i != 0) {
+            os << ", ";
+        }
+        os << volume.initializers[i];
+    }
+    os << ")";
+}
+
+void Printer::print(const BVH_t::Variant &node) {
     const auto print_annotation = [&](const Annotation &annot) {
         if (const auto *data = annot.as<Annotation::Data>()) {
             os << "data = " << data->name;
@@ -613,8 +812,8 @@ void Printer::print(const BVH_t::Node &node) {
                 os << vol->initializers[i];
             }
             os << ")";
-            if (!vol->geometry.empty()) {
-                os << " on " << vol->geometry;
+            if (!vol->boundee.empty()) {
+                os << " on " << vol->boundee;
             }
             // TODO: print broadcast somehow?
         } else if (const auto *interval = annot.as<Annotation::Interval>()) {
@@ -665,10 +864,10 @@ void Printer::visit(const BVH_t *node) {
         return;
     }
 
-    internal_assert(!node->nodes.empty());
-    for (size_t i = 0; i < node->nodes.size(); i++) {
+    internal_assert(!node->variants.empty());
+    for (size_t i = 0; i < node->variants.size(); i++) {
         os << "\n  | ";
-        print(node->nodes[i]);
+        print(node->variants[i]);
     }
 }
 
@@ -704,6 +903,16 @@ void Printer::visit(const UIntImm *node) {
         return;
     }
     os << node->value << 'u';
+}
+
+void Printer::visit(const IdxImm *node) {
+    if (verbose) {
+        os << "(";
+        print(node->type);
+        os << ")" << node->value;
+        return;
+    }
+    os << node->value;
 }
 
 void Printer::visit(const FloatImm *node) {
@@ -968,6 +1177,20 @@ void Printer::visit(const Extract *node) {
     os << "]";
 }
 
+void Printer::visit(const Slice *node) {
+    print(node->value);
+    os << "[";
+    print_no_parens(node->begin);
+    os << ":";
+    print_no_parens(node->end);
+    if (auto v = get_constant_value<uint64_t>(node->step); v != 1) {
+        os << ":";
+        print_no_parens(node->step);
+    }
+
+    os << "]";
+}
+
 void Printer::visit(const Build *node) {
     if (!node->type.is<Tuple_t>()) {
         os << "build<";
@@ -989,21 +1212,54 @@ void Printer::visit(const Unwrap *node) {
     // TODO: parens?
     os << "(";
     print_no_parens(node->value);
-    os << " as " << node->type.as<Struct_t>()->name << ")";
+
+    os << " as ";
+    if (const auto *struct_t = node->type.as<Struct_t>()) {
+        os << struct_t->name;
+    } else {
+        os << node->type;
+    }
+    os << ")";
 }
 
 std::string to_string(const Intrinsic::OpType &op) {
     switch (op) {
     case Intrinsic::abs:
         return "abs";
+    case Intrinsic::argmax:
+        return "argmax";
+    case Intrinsic::ceilf:
+        return "ceilf";
     case Intrinsic::cos:
         return "cos";
     case Intrinsic::cross:
         return "cross";
     case Intrinsic::dot:
         return "dot";
+    case Intrinsic::fadd_rd:
+        return "fadd_rd";
+    case Intrinsic::fadd_ru:
+        return "fadd_ru";
+    case Intrinsic::floorf:
+        return "floorf";
+    case Intrinsic::fdiv_rd:
+        return "fdiv_rd";
+    case Intrinsic::fdiv_ru:
+        return "fdiv_ru";
     case Intrinsic::fma:
         return "fma";
+    case Intrinsic::fmul_rd:
+        return "fmul_rd";
+    case Intrinsic::fmul_ru:
+        return "fmul_ru";
+    case Intrinsic::frcp_rd:
+        return "frcp_rd";
+    case Intrinsic::frcp_ru:
+        return "frcp_ru";
+    case Intrinsic::fsub_rd:
+        return "fsub_rd";
+    case Intrinsic::fsub_ru:
+        return "fsub_ru";
     case Intrinsic::max:
         return "max";
     case Intrinsic::min:
@@ -1014,7 +1270,7 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "pow";
     case Intrinsic::rand:
         return "rand";
-    case Intrinsic::round:
+    case Intrinsic::roundf:
         return "round";
     case Intrinsic::sin:
         return "sin";
@@ -1047,6 +1303,11 @@ void Printer::visit(const Generator *node) {
     os << to_string(node->op) << "(";
     print_expr_list(node->args);
     os << ")";
+}
+
+void Printer::visit(const Append *node) {
+    os << "append(";
+    os << node->input << ", " << node->size << ")";
 }
 
 // TODO: work on syntax?
@@ -1290,7 +1551,7 @@ void Printer::visit(const Allocate *node) {
     }
     print(node->loc);
     os << " : mut ";
-    print(node->loc.base_type);
+    print(node->loc.base_type());
     if (node->value.defined()) {
         os << " := ";
         print_no_parens(node->value);
@@ -1368,16 +1629,7 @@ void Printer::visit(const Label *node) {
 
 void Printer::visit(const RecLoop *node) {
     os << get_indent() << "rec(";
-
-    const size_t n = node->args.size();
-    for (size_t i = 0; i < n; i++) {
-        os << node->args[i].name;
-        os << " : ";
-        print(node->args[i].type);
-        if (i < n - 1) {
-            os << ", ";
-        }
-    }
+    os << node->args;
     os << ") {\n";
     indent++;
     print(node->body);
@@ -1472,6 +1724,11 @@ void Printer::visit(const Continue *node) {
     end_stmt();
 }
 
+void Printer::visit(const Break *node) {
+    os << get_indent();
+    os << "break\n";
+}
+
 void Printer::visit(const Launch *node) {
     os << get_indent() << "launch ";
     print_no_parens(node->n);
@@ -1481,7 +1738,7 @@ void Printer::visit(const Launch *node) {
     end_stmt();
 }
 
-void Printer::visit(const Append *node) {
+void Printer::visit(const AppendStmt *node) {
     os << get_indent() << "append<";
     print(node->loc);
     os << ">(";
@@ -1490,7 +1747,15 @@ void Printer::visit(const Append *node) {
     end_stmt();
 }
 
-void Printer::visit(const Name *node) {
+void Printer::visit(const Swap *node) {
+    os << get_indent() << "swap(";
+    print(node->a);
+    os << ", ";
+    print(node->b);
+    os << ")\n";
+}
+
+void Printer::visit(const Field *node) {
     os << get_indent();
     os << node->name;
     os << " : ";
@@ -1504,33 +1769,46 @@ void Printer::visit(const Pad *node) {
     os << ";\n";
 }
 
-void Printer::visit(const Switch *node) {
+void Printer::visit(const Split *node) {
     os << get_indent();
-    os << "switch " << node->field << " {\n";
-    for (const auto &[value, name, layout] : node->arms) {
-        os << get_indent();
+    os << "split " << node->expr << " {\n";
+    for (const auto &[comparator, value, name, member] : node->arms) {
+        os << get_indent() << "  ";
+        switch (comparator) {
+        case Arm::Comparator::LT:
+            os << "< ";
+        case Arm::Comparator::LE:
+            os << "<= ";
+        case Arm::Comparator::GT:
+            os << "> ";
+        case Arm::Comparator::GE:
+            os << ">= ";
+        case Arm::Comparator::NE:
+            os << "~";
+        case Arm::Comparator::EQ:
+            break;
+        }
         if (value.has_value()) {
             os << *value;
         } else {
             os << "_";
         }
-        os << " => ";
+        os << " -> ";
         if (name.has_value()) {
             os << *name;
         }
-        os << "\n";
         indent++;
-        layout.accept(this);
+        member.accept(this);
         indent--;
     }
     os << get_indent() << "};\n";
 }
 
 void Printer::visit(const Chain *node) {
-    os << get_indent() << "{\n";
+    os << " {\n";
     indent++;
-    for (const auto &layout : node->layouts) {
-        print(layout);
+    for (const auto &member : node->members) {
+        print(member);
     }
     indent--;
     os << get_indent() << "};\n";
@@ -1538,24 +1816,85 @@ void Printer::visit(const Chain *node) {
 
 void Printer::visit(const Group *node) {
     os << get_indent();
-    os << "group[";
-    print_no_parens(node->size);
-    os << "]";
-    if (!node->name.empty()) {
-        os << " " << node->name;
-        os << " : ";
-        print(node->index_t);
+    switch (node->type) {
+    case Group::Type::Direct:
+        os << "group";
+        break;
+    case Group::Type::Indirect:
+        os << "indirect group";
+        break;
+    case Group::Type::Pointer:
+        os << "ptr";
+        break;
     }
-    os << "\n";
+    // Print the group as the source spelled it: an anonymous group has no
+    // name to show, and an indirect group's is not the lower-cased field.
+    if (!node->declared_name.empty()) {
+        os << " " << node->declared_name;
+    }
+    if (node->size.defined()) {
+        os << "[";
+        print_no_parens(node->size);
+        if (node->alignment.defined()) {
+            os << ", ";
+            node->alignment.accept(this);
+        }
+        os << "]";
+    }
+    if (node->index.defined()) {
+        os << " by ";
+        print(node->index);
+    }
     print(node->inner);
 }
 
 void Printer::visit(const Materialize *node) {
     os << get_indent();
-    os << node->name;
+    os << node->loc;
     os << " = ";
     print_no_parens(node->value);
     os << ";\n";
+}
+
+void Printer::visit(const Lookup *node) {
+    os << " from " << node->group_name;
+    os << "[";
+    print_no_parens(node->index);
+    os << "];\n";
+}
+
+void Printer::visit(const BuildLet *node) {
+    os << "build " << node->stmt << ";\n";
+}
+
+void Printer::visit(const BuildRecurse *node) {
+    os << "recurse " << node->field << ";\n";
+}
+
+void Printer::visit(const BuildReturn *node) {
+    os << "return " << node->expr << ";\n";
+}
+
+void Printer::visit(const BuildRule *node) {
+    os << "build " << node->field;
+    if (node->expr.defined()) {
+        os << " = " << node->expr;
+    }
+    os << ";\n";
+}
+
+void Printer::visit(const BuildRoot *node) {
+    os << "build root " << node->rules;
+}
+
+void Printer::visit(const BuildSequence *node) {
+    os << " {\n";
+    ++indent;
+    for (const BuildIR &ir : node->sequence) {
+        print(ir);
+    }
+    --indent;
+    os << get_indent() << "};\n";
 }
 
 } // namespace ir

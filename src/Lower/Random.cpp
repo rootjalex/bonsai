@@ -98,8 +98,8 @@ bool calls_rand(const Function &f, const std::set<std::string> &funcs_call_rand,
 // Splits functions that exist on both host and device and use rand() on CUDA.
 // There are two separate paths for these, since cuRAND is only allowed on host.
 void split_functions_with_rand(FuncMap &funcs) {
-    std::set<std::string> devices = find_device_functions(funcs),
-                          hosts = find_host_functions(funcs);
+    std::set<std::string> hosts = find_host_functions(funcs);
+    std::set<std::string> devices = find_device_functions(funcs, hosts);
     std::vector<std::string> intersection;
     std::set_intersection(devices.begin(), devices.end(), hosts.begin(),
                           hosts.end(), std::back_inserter(intersection));
@@ -253,6 +253,31 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
                 func.attributes.push_back(Function::Attribute::setup_rng);
             }
         }
+        // Propagating down from the kernels leaves any function outside that
+        // cone alone, but a function calling one that now takes the state has
+        // to have a state to hand it, whether a kernel reaches it or not.
+        // Close the set upwards so that no call disagrees with its callee.
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (const auto &[name, func] : funcs) {
+                // A kernel supplies the state itself, and its body is fixed
+                // up separately below.
+                if (call_rand.contains(name) || func->is_kernel()) {
+                    continue;
+                }
+                const auto it = call_graph.find(name);
+                if (it == call_graph.end()) {
+                    continue;
+                }
+                for (const std::string &callee : it->second) {
+                    if (call_rand.contains(callee)) {
+                        call_rand.insert(name);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
         // Fix up the bodies of kernel functions.
         for (const auto &[name, func] : funcs) {
             if (!func->is_kernel()) {
@@ -264,6 +289,12 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
         for (const std::string &name : call_rand) {
             auto &func = funcs[name];
             func->body = insert_rand_state(func->body, call_rand);
+            if (name == "main" || func->is_exported()) {
+                // An entry point has no caller to take the state from, so it
+                // sets one up instead.
+                func->attributes.push_back(Function::Attribute::setup_rng);
+                continue;
+            }
             func->args.emplace_back(rng_state_name, Rand_State_t::make(),
                                     /*default_value=*/Expr(),
                                     /*mutating=*/true);

@@ -632,7 +632,8 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::VectorReduce);
     RESTRICT_VISITOR(ir::VectorShuffle);
     RESTRICT_VISITOR(ir::Ramp);
-    RESTRICT_VISITOR(ir::Extract);
+    // RESTRICT_VISITOR(ir::Extract);
+    // RESTRICT_VISITOR(ir::Access);
     RESTRICT_VISITOR(ir::Build);
 
     void visit(const ir::Access *node) override {
@@ -682,7 +683,7 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
-        case ir::Intrinsic::round:
+        case ir::Intrinsic::roundf:
         case ir::Intrinsic::sqrt: {
             // For monotonic, pure, single-argument functions, we can
             // make two calls for the min and the max.

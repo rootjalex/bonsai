@@ -33,6 +33,21 @@ struct CallGraphBuilder : public ir::Visitor {
         in_call = false;
     }
 
+    void visit(const ir::CallStmt *node) override {
+        internal_assert(!in_call)
+            << "Nested call, how can that happen?" << node;
+        in_call = true;
+        node->func.accept(this);
+        internal_assert(in_call)
+            << "Somehow un-nested call, how can that happen?" << node;
+        in_call = false;
+
+        // possibly gather call values from arguments.
+        for (const auto &a : node->args) {
+            a.accept(this);
+        }
+    }
+
     void visit(const ir::Call *node) override {
         internal_assert(!in_call)
             << "Nested call, how can that happen?" << node;
@@ -72,21 +87,6 @@ struct CallGraphBuilder : public ir::Visitor {
             if (!undef_calls || !node->type.defined()) {
                 calls.insert(node->name);
             }
-        }
-    }
-
-    void visit(const ir::CallStmt *node) override {
-        internal_assert(!in_call)
-            << "Nested call, how can that happen?" << node;
-        in_call = true;
-        node->func.accept(this);
-        internal_assert(in_call)
-            << "Somehow un-nested call, how can that happen?" << node;
-        in_call = false;
-
-        // possibly gather call values from arguments.
-        for (const auto &a : node->args) {
-            a.accept(this);
         }
     }
 };
@@ -220,7 +220,9 @@ std::ostream &operator<<(std::ostream &os, const CallGraph &call_graph) {
     return os;
 }
 
-std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
+std::set<std::string>
+find_device_functions(const ir::FuncMap &funcs,
+                      const std::set<std::string> &hosts) {
     std::set<std::string> devices;
     lower::CallGraph call_graph = lower::build_call_graph(funcs);
 
@@ -232,7 +234,7 @@ std::set<std::string> find_device_functions(const ir::FuncMap &funcs) {
         auto it = funcs.find(name);
         internal_assert(it != funcs.end()) << name;
         const auto &func = *it->second;
-        if (!func.is_kernel() && !devices.contains(name)) {
+        if (hosts.contains(func.name)) {
             continue;
         }
         auto cit = call_graph.find(name);
@@ -270,7 +272,12 @@ std::set<std::string> find_host_functions(const ir::FuncMap &funcs) {
             internal_assert(cit != call_graph.end()) << name;
             const auto &graph = cit->second;
             hosts.insert(name);
-            visit.insert(visit.end(), graph.begin(), graph.end());
+            for (const std::string &call : graph) {
+                if (hosts.contains(call)) {
+                    continue;
+                }
+                visit.push_back(call);
+            }
         }
     }
     return hosts;

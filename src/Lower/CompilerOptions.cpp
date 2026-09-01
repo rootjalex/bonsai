@@ -39,6 +39,12 @@ void verify_options(const CompilerOptions &options) {
     case BackendTarget::LLVM:
         break;
     }
+
+    if (!options.up_to.empty()) {
+        internal_assert(options.passes.size() == 1)
+            << "uenxpected: multiple passes and an --up-to command: `"
+            << options.up_to << "`";
+    }
 }
 
 std::string backend_to_string(BackendTarget target) {
@@ -63,6 +69,8 @@ BackendTarget string_to_backend(std::string_view in) {
         return BackendTarget::ASM;
     if (in == "cpp")
         return BackendTarget::CPP;
+    if (in == "cppx")
+        return BackendTarget::CPPX;
     if (in == "cuda")
         return BackendTarget::CUDA;
     if (in == "llvm")

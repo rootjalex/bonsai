@@ -1,5 +1,7 @@
+type Interior = struct Interior{ idl : i32; idh : i32; left : (const ItemTree&); right : (const ItemTree&) }
 type Item = struct Item{ id : i32 }
 type ItemTree = (const ItemTree&)
+type Leaf = struct Leaf{ idl : i32; idh : i32; data : struct Item{ id : i32 } }
 
 extern items : tree[[struct Item{ id : i32 }]] ItemTree
   | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh]
@@ -32,5 +34,8 @@ func q(lo : i32, hi : i32) -> set<Item> {
 
 
 schedule host {
+    items : tree[[struct Item{ id : i32 }]] ItemTree
+  | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh]
+  | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh]
 
 }

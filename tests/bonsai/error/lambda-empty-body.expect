@@ -1,8 +1,9 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:60
-tests/bonsai/error/lambda-empty-body.bonsai:3:21: [parse error] unexpected token: rsquiggle
+[internal] Error: src/Parser/Parser.cpp:73
+-> src/Parser/Parser.cpp:1408 
+tests/bonsai/error/lambda-empty-body.bonsai:3: [parse error] unexpected token: (semicol, 3:22-3:23)
 
     L1 = |x: i32| { };
                     ^

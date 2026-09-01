@@ -1,5 +1,6 @@
 #include "IR/Layout.h"
 
+#include "IR/Equality.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
 
@@ -7,43 +8,168 @@
 
 namespace bonsai {
 namespace ir {
+namespace {
 
-uint64_t Layout::bits() const {
+std::vector<ir::Member> find_group_with_type(const ir::Group::Type type,
+                                             const ir::Member &body) {
+
+    if (const ir::Group *group = body.as<ir::Group>()) {
+        if (group->type == type) {
+            return {group};
+        }
+    }
+    std::vector<ir::Member> groups;
+    if (const ir::Chain *chain = body.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            if (const ir::Group *group = member.as<ir::Group>()) {
+                if (group->type == type) {
+                    groups.push_back(group);
+                }
+            }
+        }
+    }
+    return groups;
+}
+
+class GatherTreeCarriedDependencies : public ir::Visitor {
+  public:
+    explicit GatherTreeCarriedDependencies() {}
+
+    void visit(const ir::Materialize *node) override {
+        node->value.accept(this);
+        if (parent_accesses.contains(node->loc.name())) {
+            parent_updates.push_back({node->loc.name(), node->value});
+        }
+    }
+
+    void visit(const ir::Access *node) override {
+        if (const ir::Struct_t *struct_t =
+                node->value.type().as<ir::Struct_t>();
+            struct_t && struct_t->name == "parent_t") {
+            parent_accesses.insert(node->field);
+        }
+    }
+
+    std::vector<std::pair<std::string, ir::Expr>> updates() {
+        return parent_updates;
+    }
+
+    std::set<std::string> dependencies() { return parent_accesses; }
+
+  private:
+    std::set<std::string> parent_accesses;
+    std::vector<std::pair<std::string, ir::Expr>> parent_updates;
+};
+
+// TODO(cgyurgyik): there is an underlying assumption that every layout is a
+// chain. This seems in general brittle, and breaks for arms with lookups.
+// https://www.youtube.com/watch?v=C6ZnwuhqALY&ab_channel=2ChainzVEVO
+const ir::Chain *to_chainz(const ir::Member &member) {
+    const ir::Chain *chain = member.as<ir::Chain>();
+    if (chain == nullptr) {
+        static ir::Chain *m = new ir::Chain;
+        m->members = {member};
+        return m;
+    }
+    return chain;
+}
+
+bool contains_field(const std::string &field_name, const ir::Member &member) {
+    const ir::Chain *chain = to_chainz(member);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field: {
+            const auto *field = m.as<ir::Field>();
+            if (field->name == field_name) {
+                return true;
+            }
+            continue;
+        }
+        // TODO(cgyurgyik): Handle nested groups.
+        case ir::IRLayoutEnum::Group: {
+            const auto *group = m.as<ir::Group>();
+            return contains_field(field_name, group->inner);
+        }
+        default:
+            continue;
+        }
+    }
+    return false;
+}
+
+void collect_fields(const ir::Member &member, std::vector<ir::Member> &fields) {
+    if (const ir::Field *field = member.as<ir::Field>()) {
+        fields.push_back(field);
+    }
+    if (const ir::Chain *chain = member.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            collect_fields(member, fields);
+        }
+    }
+    if (const ir::Group *group = member.as<ir::Group>()) {
+        collect_fields(group->inner, fields);
+    }
+    if (const ir::Split *split = member.as<ir::Split>()) {
+        for (const auto &arm : split->arms) {
+            collect_fields(arm.member, fields);
+        }
+    }
+}
+
+} // namespace
+
+uint64_t Member::bits() const {
     switch (node_type()) {
-    case IRLayoutEnum::Name: {
-        return as<Name>()->type.bits();
+    case IRLayoutEnum::Field: {
+        return as<Field>()->type.bits();
     }
     case IRLayoutEnum::Pad: {
         return as<Pad>()->bits;
     }
-    case IRLayoutEnum::Switch: {
+    case IRLayoutEnum::Split: {
         uint64_t bits = 0;
-        for (const auto &arm : as<Switch>()->arms) {
-            bits = std::max(bits, arm.layout.bits());
+        for (const auto &arm : as<Split>()->arms) {
+            bits = std::max(bits, arm.member.bits());
         }
         return bits;
     }
     case IRLayoutEnum::Chain: {
         uint64_t bits = 0;
-        for (const auto &l : as<Chain>()->layouts) {
+        for (const auto &l : as<Chain>()->members) {
             bits += l.bits();
         }
         return bits;
     }
     case IRLayoutEnum::Group: {
         const Group *node = as<Group>();
-        internal_assert(!node->size.defined() || !is_const(node->size))
-            << "TODO: should a constant-sized group be inlined? " << *this;
-        return 64; // pointer
+        switch (node->type) {
+        case ir::Group::Type::Direct:
+        case ir::Group::Type::Indirect: {
+            if (node->size.defined()) {
+                if (std::optional<uint64_t> size =
+                        get_constant_value(node->size)) {
+                    // treat constant sized groups as "inlined."
+                    return *size * node->inner.bits();
+                }
+            }
+            if (node->inner.bits() == 0) {
+                return 0;
+            }
+        }
+            [[fallthrough]];
+        case ir::Group::Type::Pointer:
+            return 64; // pointer
+        }
     }
+    case IRLayoutEnum::Lookup:
     case IRLayoutEnum::Materialize: {
         return 0; // computed field, not stored.
     }
     }
-    internal_error << "TODO: Layout::bits()";
+    internal_error << "TODO: Member::bits()";
 }
 
-Expr Layout::count() const {
+Expr Member::count() const {
     if (const Group *node = as<Group>()) {
         ir::Expr icount = node->inner.count();
         if (!is_const_one(icount)) {
@@ -57,85 +183,251 @@ Expr Layout::count() const {
     return u64_1;
 }
 
-Layout Pad::make(uint32_t bits) {
+std::string Member::name() const {
+    if (const auto *field = as<ir::Field>()) {
+        return field->name;
+    }
+    if (const auto *group = as<ir::Group>()) {
+        return group->name;
+    }
+    internal_error << "[unimplemented] name: " << *this;
+}
+
+Member Pad::make(uint32_t bits) {
     internal_assert(bits > 0) << "0 bits in Pad::make";
     Pad *node = new Pad;
     node->bits = bits;
     return node;
 }
 
-Layout Name::make(std::string name, Type type) {
+Member Field::make(std::string name, Type type) {
     internal_assert(!name.empty())
-        << "empty name in Name::make with Type: " << type;
+        << "empty name in Field::make with Type: " << type;
     internal_assert(type.defined())
-        << "Undefined type in Name::make with name: " << name;
+        << "Undefined type in Field::make with name: " << name;
     internal_assert(type.is_primitive())
-        << "Non-primitive type in Name::make: " << type;
+        << "Non-primitive type in Field::make: " << type;
 
-    Name *node = new Name;
+    Field *node = new Field;
     node->name = std::move(name);
     node->type = std::move(type);
     return node;
 }
 
-// Layout Star::make(Layout inner) {
-//     internal_assert(inner.defined()) << "empty layout in Star::make";
-
-//     Star *node = new Star;
-//     node->inner = std::move(inner);
-//     node->count = 0; // all
-//     return node;
-// }
-
-Layout Switch::make(std::string field, std::vector<Switch::Arm> arms) {
-    internal_assert(!field.empty()) << "empty field in Switch::make";
+Member Split::make(ir::Expr expr, std::vector<ir::Arm> arms) {
+    internal_assert(expr.defined()) << "empty expr in Split::make";
     internal_assert(!arms.empty())
-        << "empty arms in Switch::make for field: " << field;
+        << "empty arms in Split::make for expr: " << expr;
 
-    Switch *node = new Switch;
-    node->field = std::move(field);
+    Split *node = new Split;
+    node->expr = std::move(expr);
     node->arms = std::move(arms);
     return node;
 }
 
-Layout Chain::make(std::vector<Layout> layouts) {
-    internal_assert(!layouts.empty()) << "Empty layouts in Chain::make";
-    for (const auto &l : layouts) {
-        internal_assert(l.defined()) << "Undefined layout in Chain::make";
+std::string Split::field_name() const { return get_field_name(this->expr); }
+
+Member Chain::make(std::vector<Member> members) {
+    internal_assert(!members.empty()) << "Empty members in Chain::make";
+    for (const auto &l : members) {
+        internal_assert(l.defined()) << "Undefined member in Chain::make";
     }
     Chain *node = new Chain;
-    node->layouts = std::move(layouts);
+    node->members = std::move(members);
     return node;
 }
 
-Layout Group::make(Expr size, std::string name, Type index_t, Layout inner) {
-    internal_assert(size.defined())
-        << "Cannot make Group with undefined size, named: " << name;
-    // Groups can have no label, name can be empty and index_t can be undefined
-    // (default: u32).
-    internal_assert(name.empty() != index_t.defined())
-        << "Cannot have name without index_t and vice versa: " << name << " : "
-        << index_t;
+Member Group::make(std::string name, std::string declared_name, Expr size,
+                   Expr alignment, Expr index, Member inner, Group::Type type) {
+    switch (type) {
+    case Group::Type::Direct:
+        if (!index.defined()) {
+            // TODO(cgyurgyik): is this too restrictive? What is a realistic
+            // case where this is necessary?
+            internal_assert(is_const(size))
+                << "[unexpected] undefined index with non-constant size: "
+                << size;
+        }
+        break;
+    case Group::Type::Indirect:
+    case Group::Type::Pointer:
+        break;
+    }
     internal_assert(inner.defined())
-        << "Cannot make Group with undefined inner, named: " << name;
+        << "Cannot make Group: " << name << " with undefined body";
 
     Group *node = new Group;
+    node->declared_name = std::move(declared_name);
     node->size = std::move(size);
+    node->alignment = std::move(alignment);
     node->name = std::move(name);
-    node->index_t = std::move(index_t);
+    node->index = std::move(index);
     node->inner = std::move(inner);
+    node->type = type;
     return node;
 }
 
-Layout Materialize::make(std::string name, Expr value) {
-    internal_assert(!name.empty()) << "Materialize::make received empty name";
+Member Materialize::make(ir::WriteLoc loc, Expr value) {
+    internal_assert(loc.defined())
+        << "Materialize::make received undefined name";
     internal_assert(value.defined())
-        << "Materialize::make received undefined value for name: " << name;
+        << "Materialize::make received undefined value for name: " << loc;
 
     Materialize *node = new Materialize;
-    node->name = std::move(name);
+    node->loc = std::move(loc);
     node->value = std::move(value);
     return node;
+}
+
+Member Lookup::make(std::string group_name, Expr index) {
+    internal_assert(!group_name.empty()) << "Lookup::make received empty name";
+    internal_assert(index.defined())
+        << "Lookup::make received undefined index for group name: "
+        << group_name;
+
+    Lookup *node = new Lookup;
+    node->group_name = std::move(group_name);
+    node->index = std::move(index);
+    return node;
+}
+
+[[maybe_unused]] std::ostream &operator<<(std::ostream &os,
+                                          const LayoutMap &map) {
+    os << "name -> layout {\n";
+    for (const auto &[member, type] : map) {
+        os << member << " : " << type << "\n";
+    }
+    os << "}\n";
+    return os;
+}
+
+std::vector<ir::BVH_t::Variant> Layout::variants() const {
+    const BVH_t *bvh_t = type.as<BVH_t>();
+    internal_assert(bvh_t);
+    return bvh_t->variants;
+}
+
+std::vector<ir::Member> Layout::find_all_groups() const {
+    if (const ir::Group *group = body.as<ir::Group>()) {
+        return {group};
+    }
+    std::vector<ir::Member> groups;
+    if (const ir::Chain *chain = body.as<ir::Chain>()) {
+        for (const ir::Member &member : chain->members) {
+            if (const ir::Field *field = member.as<ir::Field>()) {
+                if (field->type.is<ir::Array_t>()) {
+                    // An array is syntactic sugar for an indirect group.
+                    groups.push_back(field);
+                }
+            } else if (const ir::Group *group = member.as<ir::Group>()) {
+                groups.push_back(group);
+            }
+        }
+    }
+    return groups;
+}
+
+std::vector<ir::Member> Layout::find_all_fields() const {
+    std::vector<ir::Member> fields;
+    collect_fields(body, fields);
+    return fields;
+}
+
+std::vector<ir::Member> Layout::find_groups(ir::Group::Type type) const {
+    return find_group_with_type(type, body);
+}
+
+ir::Type Layout::get_index_type() const {
+    std::set<ir::Expr, ir::ExprLessThan> indexes;
+    std::vector<ir::Member> groups = find_groups(ir::Group::Type::Direct);
+    for (const ir::Member &member : groups) {
+        const auto *group = member.as<ir::Group>();
+        internal_assert(group) << member;
+        indexes.insert(group->index);
+    }
+    if (!indexes.empty()) {
+
+        internal_assert(indexes.size() == 1)
+            << "[unexpected] multiple indexes, expected 1 but found: "
+            << indexes.size();
+        auto it = indexes.begin();
+        return it->type();
+    }
+    // Otherwise, look for the pointer group.
+    std::set<std::string> names;
+    groups = find_groups(ir::Group::Type::Pointer);
+    for (const ir::Member &member : groups) {
+        const auto *group = member.as<ir::Group>();
+        internal_assert(group) << member;
+        names.insert(group->name);
+    }
+    internal_assert(names.size() == 1)
+        << "[unexpected] multiple pointer groups, expected 1 but found: "
+        << names.size();
+    auto it = names.begin();
+    return ir::Ptr_t::make(ir::Ref_t::make(*it));
+}
+
+ir::Member Layout::find_primitives_group() const {
+    const auto *bvh_t = type.as<ir::BVH_t>();
+    internal_assert(bvh_t);
+    ir::Type primitive_type = bvh_t->primitive;
+    const ir::Chain *chain = to_chainz(body);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field: {
+            const auto *field = m.as<ir::Field>();
+            if (!field->type.is_iterable()) {
+                continue;
+            }
+            if (!ir::equals(field->type.element_of(), bvh_t->primitive)) {
+                continue;
+            }
+            return field;
+        }
+        case ir::IRLayoutEnum::Group: {
+            // TODO(cgyurgyik): a group may contain the primitives too!
+        }
+        default:
+            continue;
+        }
+    }
+    return ir::Member();
+}
+
+ir::Member Layout::find_group_for(const std::string &field_name) const {
+    const auto *bvh_t = type.as<ir::BVH_t>();
+    internal_assert(bvh_t);
+    ir::Type primitive_type = bvh_t->primitive;
+    const ir::Chain *chain = to_chainz(body);
+    for (const auto &m : chain->members) {
+        switch (m.node_type()) {
+        case ir::IRLayoutEnum::Field:
+            // TODO(cgyurgyik): what about members in the base layout?
+            continue;
+        case ir::IRLayoutEnum::Group:
+            if (contains_field(field_name, m)) {
+                return m;
+            }
+            [[fallthrough]];
+        default:
+            continue;
+        }
+    }
+    return ir::Member();
+}
+
+std::vector<std::pair<std::string, ir::Expr>>
+Layout::tree_carried_updates() const {
+    GatherTreeCarriedDependencies gtcd;
+    body.accept(&gtcd);
+    return gtcd.updates();
+}
+
+std::set<std::string> Layout::tree_carried_dependencies() const {
+    GatherTreeCarriedDependencies gtcd;
+    body.accept(&gtcd);
+    return gtcd.dependencies();
 }
 
 } // namespace ir

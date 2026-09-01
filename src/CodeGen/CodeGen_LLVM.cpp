@@ -88,8 +88,12 @@ using namespace ir;
 std::unique_ptr<llvm::TargetMachine>
 CodeGen_LLVM::make_target_machine(llvm::Module &module,
                                   const CompilerOptions &options) {
-    // TODO(cgyurgyik): This effectively makes our tests host-machine specific.
-    std::string target_triple = llvm::sys::getDefaultTargetTriple(),
+    // A named triple keeps generated code identical on every machine, so the
+    // codegen goldens do not depend on whoever ran the test. Falling back to
+    // the host's triple is what the backends that execute code need.
+    std::string target_triple = options.target_triple.empty()
+                                    ? llvm::sys::getDefaultTargetTriple()
+                                    : options.target_triple,
                 error_string;
     const llvm::Target *llvm_target =
         llvm::TargetRegistry::lookupTarget(target_triple, error_string);
@@ -172,25 +176,14 @@ CodeGen_LLVM::CodeGen_LLVM() {
 void CodeGen_LLVM::init_llvm() {
     static std::once_flag init_llvm_once;
     std::call_once(init_llvm_once, []() {
-        llvm::InitializeNativeTarget();
-        llvm::InitializeNativeTargetAsmPrinter();
-        llvm::InitializeNativeTargetAsmParser();
-
-        // TODO: allow these.
-        // #define LLVM_TARGET(target) \
-//     Initialize##target##Target();
-        // #include <llvm/Config/Targets.def>
-        // #undef LLVM_TARGET
-
-        // #define LLVM_ASM_PARSER(target) \
-//     Initialize##target##AsmParser();
-        // #include <llvm/Config/AsmParsers.def>
-        // #undef LLVM_ASM_PARSER
-
-        // #define LLVM_ASM_PRINTER(target) \
-//     Initialize##target##AsmPrinter();
-        // #include <llvm/Config/AsmPrinters.def>
-        // #undef LLVM_ASM_PRINTER
+        // Every target LLVM was built with, not just the host's, so that
+        // --target can name another triple. Initializing only the native
+        // target is what forced the codegen tests to be host-specific.
+        llvm::InitializeAllTargetInfos();
+        llvm::InitializeAllTargets();
+        llvm::InitializeAllTargetMCs();
+        llvm::InitializeAllAsmPrinters();
+        llvm::InitializeAllAsmParsers();
     });
 }
 
@@ -313,7 +306,6 @@ void CodeGen_LLVM::compile_function(const Function &func,
         internal_assert(!arg_info.type.is<Struct_t>());
 
         // TODO(ajr): lift loads from immutable ptr args.
-
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
     }
@@ -374,7 +366,6 @@ CodeGen_LLVM::compile_program(const Program &program,
     declare_struct_types(struct_types);
 
     frames.push_frame();
-    // TODO: add program.externs to the global frame.
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
         func_map[fname] = this->declare_function(*func);
@@ -732,6 +723,11 @@ void CodeGen_LLVM::visit(const Extrema *node) {
 void CodeGen_LLVM::visit(const Var *node) {
     auto frame_value = frames.from_frames(node->name);
     internal_assert(frame_value.has_value()) << node->name;
+    if (allocations.contains(*frame_value)) {
+        value = create_aligned_load(codegen_type(node->type), *frame_value,
+                                    node->name);
+        return;
+    }
     value = *frame_value;
 }
 
@@ -1316,7 +1312,6 @@ void CodeGen_LLVM::visit(const VectorShuffle *node) {
             load_index = builder->CreateZExtOrTrunc(load_index, i32_t);
         }
 
-        // llvm::errs() << *_value << " and " << *load_index << "\n";
         llvm::Value *element =
             builder->CreateExtractElement(_value, load_index);
 
@@ -1352,6 +1347,59 @@ void CodeGen_LLVM::visit(const Extract *node) {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << vec_expr.type();
     }
+}
+
+void CodeGen_LLVM::visit(const Slice *node) {
+    llvm::Value *v = codegen_expr(node->value);
+
+    if (node->value.type().is_scalar()) {
+        internal_assert(node->value.type().is_int_or_uint())
+            << "bit slicing only supported for integral types: "
+            << node->value.type();
+        internal_assert(is_const(node->begin) && is_const(node->end))
+            << "bit slicing requires constant indices: slice(" << node->begin
+            << ", " << node->end << ")" << " : " << node->value.type();
+
+        const int64_t begin = *get_constant_value(node->begin);
+        const int64_t end = *get_constant_value(node->end);
+        const int64_t width = node->value.type().bits();
+
+        internal_assert(begin >= 0 && end > begin && end <= width)
+            << "invalid bit slice range: [" << begin << ", " << end << ") for "
+            << width << "-bit type";
+        const int64_t slice_width = end - begin;
+
+        // Implement: (x >> begin) & ((1U << (end - begin)) - 1)
+        llvm::Type *src_type = v->getType();
+        llvm::Type *result_type = llvm::Type::getIntNTy(*context, slice_width);
+
+        if (begin == 0 && end == width) {
+            // full width: x
+            value = v;
+        } else if (begin == 0) {
+            // truncation: (x & ((1U << end) - 1))
+            uint64_t mask = (1ULL << slice_width) - 1;
+            llvm::Value *masked =
+                builder->CreateAnd(v, llvm::ConstantInt::get(src_type, mask));
+            value = builder->CreateTrunc(masked, result_type);
+        } else {
+            // general case: (x >> begin) & ((1U << (end - begin)) - 1)
+            llvm::Value *shift_amount = llvm::ConstantInt::get(src_type, begin);
+            llvm::Value *shifted = builder->CreateLShr(v, shift_amount);
+            if (slice_width == width - begin) {
+                // No need to mask if we're taking all remaining bits
+                value = builder->CreateTrunc(shifted, result_type);
+            } else {
+                uint64_t mask = (1ULL << slice_width) - 1;
+                llvm::Value *masked = builder->CreateAnd(
+                    shifted, llvm::ConstantInt::get(src_type, mask));
+                value = builder->CreateTrunc(masked, result_type);
+            }
+        }
+        return;
+    }
+    internal_error << "Slice operation not supported for type: "
+                   << node->value.type();
 }
 
 void CodeGen_LLVM::visit(const Intrinsic *node) {
@@ -1899,10 +1947,19 @@ void CodeGen_LLVM::visit(const Access *node) {
     if (const auto *var = value_e.as<Var>()) {
         name = var->name + "." + name;
     }
+    const auto &fields = value_e.type().as<Struct_t>()->fields;
     if (field->getType()->isStructTy()) {
-        const auto &fields = value_e.type().as<Struct_t>()->fields;
         const size_t idx = find_struct_index(node->field, fields);
         value = builder->CreateExtractValue(field, idx, name);
+        return;
+    }
+    // A struct that lives in an allocation is addressed rather than held in a
+    // register, so index to the field and load it.
+    if (field->getType()->isPointerTy()) {
+        const size_t idx = find_struct_index(node->field, fields);
+        llvm::Value *ptr = builder->CreateStructGEP(
+            codegen_type(value_e.type()), field, idx, name);
+        value = create_aligned_load(codegen_type(fields[idx].type), ptr, name);
         return;
     }
     llvm::errs() << *field << " : " << *field->getType() << "\n";
@@ -1955,7 +2012,7 @@ void CodeGen_LLVM::visit(const Return *node) {
 void CodeGen_LLVM::visit(const LetStmt *node) {
     internal_assert(node->loc.accesses.empty());
     llvm::Value *v = codegen_expr(node->value);
-    frames.add_to_frame(node->loc.base, v);
+    frames.add_to_frame(node->loc.base(), v);
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -2096,13 +2153,13 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     // Following statements should write to end_bb
     builder->SetInsertPoint(end_bb);
 
-    // Pop for-loop local scope names.
+    // Pop do-while local scope names.
     frames.pop_frame();
 }
 
 void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
-    std::string name = node->loc.base;
-    Type type = node->loc.base_type;
+    std::string name = node->loc.base();
+    Type type = node->loc.base_type();
     internal_assert(is_dynamic_array_struct_type(type)) << type;
     const auto *dynamic_array_t = type.as<Struct_t>();
 
@@ -2163,8 +2220,8 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
 // TODO(ajr): Figure out which parts of Halide's Store
 // codegen we can steal. They do better with __restrict
 void CodeGen_LLVM::visit(const Allocate *node) {
-    std::string name = node->loc.base;
-    Type allocate_type = node->loc.base_type;
+    std::string name = node->loc.base();
+    Type allocate_type = node->loc.base_type();
     ir::Expr value = node->value;
 
     if (is_dynamic_array_struct_type(allocate_type)) {
@@ -2194,9 +2251,10 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         << "Allocating Allocate to non-local value: " << Stmt(node);
     internal_assert(!frames.from_frames(name).has_value()) << name;
 
-    llvm::Type *value_type = codegen_type(node->loc.base_type);
+    llvm::Type *value_type = codegen_type(node->loc.base_type());
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
+    allocations.insert(loc);
     // TODO: when is isVolatile true?
     builder->CreateStore(rhs, loc, /*isVolatile=*/false);
 }
@@ -2339,18 +2397,19 @@ void CodeGen_LLVM::ensure_capacity(
 }
 
 // TODO(bonsai/issues/200): add test for parallel appends.
-void CodeGen_LLVM::visit(const Append *node) {
+void CodeGen_LLVM::visit(const AppendStmt *node) {
     llvm::Value *dynamic_array = codegen_write_loc(node->loc);
-    std::string base_n = node->loc.base;
-    const auto *struct_t = node->loc.base_type.as<Struct_t>();
+    std::string base_n = node->loc.base();
+    const auto *struct_t = node->loc.base_type().as<Struct_t>();
     llvm::Type *llvm_struct_t = codegen_type(struct_t);
-    internal_assert(struct_t) << node->loc.base_type;
+    internal_assert(struct_t) << node->loc.base_type();
     llvm::Value *rhs = codegen_expr(node->value);
 
     // Pointer to the statically sized array.
     // Dynamic arrays are always mutable, so stored as pointers to the
     // underlying struct type. Need to dereference that pointer to load buffer.
-    Expr base_v = Deref::make(Var::make(Ptr_t::make(struct_t), node->loc.base));
+    Expr base_v =
+        Deref::make(Var::make(Ptr_t::make(struct_t), node->loc.base()));
     Expr ptr = Access::make("buffer", base_v);
     const auto *array_t = ptr.type().as<Array_t>();
     internal_assert(array_t) << ptr.type();
@@ -2401,13 +2460,15 @@ void CodeGen_LLVM::visit(const Append *node) {
 }
 
 void CodeGen_LLVM::visit(const Accumulate *node) {
-    if (node->loc.base_type.is<Vector_t>() && node->loc.accesses.size() == 1) {
+    if (node->loc.base_type().is<Vector_t>() &&
+        node->loc.accesses.size() == 1) {
         // Update a single element of a vector.
         // For now, we rewrite this into an equivalent expr.
         // This is an unfortunate hack.
         // TODO(ajr): fix.
-        Type vtype = node->loc.base_type;
-        Expr load = Deref::make(Var::make(Ptr_t::make(vtype), node->loc.base));
+        Type vtype = node->loc.base_type();
+        Expr load =
+            Deref::make(Var::make(Ptr_t::make(vtype), node->loc.base()));
         Expr lane = std::get<Expr>(node->loc.accesses[0]);
         const size_t lanes = vtype.lanes();
         Type etype = vtype.element_of();
@@ -2437,7 +2498,7 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
                            << Stmt(node);
         }
         }
-        WriteLoc base(node->loc.base, node->loc.base_type);
+        WriteLoc base(node->loc.base(), node->loc.base_type());
         Stmt equiv_stmt = Store::make(std::move(base), std::move(equiv));
         codegen_stmt(equiv_stmt);
         return;
@@ -2707,7 +2768,9 @@ void CodeGen_LLVM::visit(const Launch *node) {
         << "Launch function " << node->func << " not found";
 
     internal_assert(node->args.size() == 1); // context
-    llvm::Value *ctx = codegen_expr(node->args[0]);
+    // The launched function takes the context by pointer, so pass its
+    // address rather than its value.
+    llvm::Value *ctx = codegen_expr(ir::PtrTo::make(node->args[0]));
 
     llvm::StructType *dispatch_queue_s_type =
         llvm::StructType::getTypeByName(*context, "struct.dispatch_queue_s");
@@ -2836,7 +2899,7 @@ void CodeGen_LLVM::add_tbaa_metadata(llvm::Instruction *inst,
     //         int64_t b = (base / w) * w;
 
     //         std::stringstream level;
-    //         level << buffer << ".width" << w << ".base" << b;
+    //         level << buffer << ".width" << w << ".base()" << b;
     //         tbaa = builder.createTBAAScalarTypeNode(level.str(), tbaa);
     //     }
     // }
@@ -2968,11 +3031,11 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 }
 
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
-    std::string name = wloc.base;
+    std::string name = wloc.base();
     auto frame_value = frames.from_frames(name);
     internal_assert(frame_value.has_value()) << name;
     llvm::Value *loc = *frame_value;
-    Type bonsai_type = wloc.base_type;
+    Type bonsai_type = wloc.base_type();
 
     for (const auto &value : wloc.accesses) {
         if (std::holds_alternative<std::string>(value)) {

@@ -1,8 +1,10 @@
 type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type Float = f32
+type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const PointBVH&); right : (const PointBVH&) }
+type Leaf = struct Leaf{ low : f32x3; high : f32x3; data : struct Point{ data : f32x3 } }
 type Point = struct Point{ data : f32x3 }
 type PointBVH = (const PointBVH&)
-type vec3f = f32x3
+type vec3f = vector[f32, 3]
 
 extern points : tree[[struct Point{ data : f32x3 }]] PointBVH
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
@@ -85,5 +87,8 @@ func q_z(r : AABB) -> set<Point> {
 
 
 schedule host {
+    points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
 
 }

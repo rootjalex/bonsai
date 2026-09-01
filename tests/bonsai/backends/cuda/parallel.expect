@@ -1,9 +1,9 @@
-#include "helpers.h"
+#include "runtime/CUDA/helpers.h"
 
 struct _ctx0 {
   int32_t n;
-  int32_t* _alloc0; // of size n
-  int32_t* fs; // of size n
+  int32_t* _alloc0;
+  int32_t* fs;
 };
 
 __device__ int32_t f(int32_t i) {
@@ -14,7 +14,7 @@ __device__ int32_t f(int32_t i) {
 __global__ void _parfunc0(_ctx0 ctx0) {
   int32_t tid = ((blockIdx.x * blockDim.x) + threadIdx.x);
   int32_t _i0 = tid;
-  if (ctx0.n <= _i0) {
+  if (ctx0.n <= tid) {
     return;
   }
   ctx0._alloc0[_i0] = f(ctx0.fs[_i0]);
@@ -27,7 +27,7 @@ __host__ int32_t* _traverse_array0(int32_t n, int32_t* fs) {
   int32_t* d_fs;
   cudaMallocAndCopyToDevice((void**)&d_fs, fs, n * sizeof(int32_t));
   _ctx0 ctx = _ctx0{n, _alloc0, d_fs};
-  _parfunc0<<<((n + 511) / 512), 512>>>(ctx);
+  _parfunc0<<<((n + 255) / 256), 256>>>(ctx);
   cudaDeviceSynchronize();
   int32_t* h__alloc0;
   mallocAndCopyFromDevice((void**)&h__alloc0, _alloc0, n * sizeof(int32_t));

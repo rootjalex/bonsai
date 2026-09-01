@@ -1,4 +1,4 @@
-//! flags: -b cpp
+//! flags: -b cpp --target x86_64-unknown-linux-gnu
 
 func [[export]] add(i: i32, j: i32) -> i32 {
     return i + j;

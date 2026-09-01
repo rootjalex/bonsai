@@ -2,6 +2,7 @@
 
 #include <list>
 #include <map>
+#include <ranges>
 #include <string>
 
 #include "Error.h"
@@ -68,9 +69,22 @@ struct MapStack {
         frames.back()[std::move(k)] = std::move(v);
     }
 
+    void maybe_add_to_frame(K k, V v) {
+        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
+            const auto &frame = *it;
+            const auto &found = frame.find(k);
+            if (found != frame.end()) {
+                return;
+            }
+        }
+        frames.back()[std::move(k)] = std::move(v);
+    }
+
     void push_frame() { frames.emplace_back(); }
 
     void pop_frame() { frames.pop_back(); }
+
+    const std::vector<std::map<K, V, H>> &get_frames() const { return frames; }
 
   private:
     std::vector<std::map<K, V, H>> frames = {{}};

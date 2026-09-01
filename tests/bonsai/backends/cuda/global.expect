@@ -1,0 +1,7 @@
+#include "runtime/CUDA/helpers.h"
+
+inline __managed__ int32_t counter = 0;
+__host__ void foo() {
+  atomicAdd((&counter), 1);
+  return;
+}

@@ -1,11 +1,28 @@
 # Prerequisites
 *.d
 
-# Compiled Object files
+# Scenes
 *.slo
 *.lo
 *.o
 *.obj
+*.mtl
+*.png
+license.txt
+copyright.txt
+textures
+
+# benchmarks
+apps/cd/cpu/results/*
+apps/wos/fcpw/results/*
+apps/wos/embree/results/*
+
+apps/rt/cpu/results-camera/*
+apps/rt/cpu/results-secondary/*
+apps/rt/cuda/results-camera/*
+apps/rt/cuda/results-secondary/*
+apps/rt/embree/results-camera/*
+apps/rt/embree/results-secondary/*
 
 # Precompiled Headers
 *.gch
@@ -32,6 +49,7 @@
 *.app
 
 build
+__pycache__
 build-dbg
 cmake-build-*
 .idea
@@ -56,7 +74,12 @@ deps/llvm-install
 
 .DS_Store
 
-# Generates header/source files
-apps/queries/*/*_gen.cpp
-apps/queries/*/*_gen.h
-apps/queries/*/*.out
+# randomly generated rays for ray-tracing app.
+*.rays
+
+# packaged up rays / scenes
+*.tar.gz
+
+# results for artifact
+artifact/results/*
+bonsai-artifact/*

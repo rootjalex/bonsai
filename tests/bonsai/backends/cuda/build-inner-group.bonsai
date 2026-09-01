@@ -1,0 +1,64 @@
+//! flags: -b cuda
+
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+schedule {
+    tree[[Triangle]] BVH(low high : f32x3) with AABB(low, high) 
+      = Interior(left : BVH, right : BVH, axis : u8)
+      | Leaf(nprims: u16, data : array[Triangle, nprims]);
+
+    triangles : BVH;
+
+    layout triangles(index: u32) {
+        primitive_count : u32;
+        primitives : array[Triangle, primitive_count];
+        node_count : u32;
+        group volumes[node_count] by index {
+            group lows[4]  { low : f32x3;  };
+            group highs[4] { high : f32x3; };
+        };
+        group nodes[node_count] by index {
+            nprims : u16;
+            axis : u8;
+            8;
+            split nprims {
+                0 -> Interior { 
+                    offset : u32; 
+                    left = (index + 1); 
+                    right = (index + offset); 
+                };
+                _ -> Leaf { 
+                    poffset : u32; 
+                    data = primitives[poffset : poffset + nprims]; 
+                };
+            };
+        };
+    };
+
+    build triangles {
+      build Interior(low: f32x3, high: f32x3, left: BVH, right: BVH) {
+        build low;
+        build high;
+        build nprims = 0;
+        build axis = argmax(high - low);
+        recurse left;
+        recurse right;
+        build offset = right - this;
+        return this;
+      };
+      build Leaf(low: f32x3, high: f32x3, nprims: u16, data: array[Triangle, nprims]) {
+        build low; 
+        build high;
+        build axis = argmax(high - low);
+        build nprims;
+        build poffset = append(data, nprims);
+        return this;
+      };
+    };
+}

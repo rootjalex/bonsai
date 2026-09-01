@@ -1,0 +1,342 @@
+#include "runtime/CUDA/helpers.h"
+
+struct Interior;
+struct Leaf;
+using BVH = std::variant<Interior, Leaf>;
+
+struct AABB {
+  float3 low;
+  float3 high;
+};
+
+struct FInterval {
+  float low;
+  float high;
+};
+
+struct Interior {
+  float3 low;
+  float3 high;
+  BVH* left;
+  BVH* right;
+};
+
+struct Triangle {
+  float3 p0;
+  float3 p1;
+  float3 p2;
+};
+
+struct Leaf {
+  float3 low;
+  float3 high;
+  uint16_t nprims;
+  Triangle* data;
+};
+
+struct Point {
+  float3 vec;
+};
+
+struct Ray {
+  float3 o;
+  float3 d;
+  float tmax = INFINITY;
+};
+
+struct Sphere {
+  float3 center;
+  float radius;
+};
+
+struct TriangleIntersection {
+  float b0;
+  float b1;
+  float b2;
+  float t;
+};
+
+struct Arm_Interior {
+  uint32_t offset;
+} __attribute__((packed));
+
+struct Arm_Leaf {
+  uint32_t poffset;
+} __attribute__((packed));
+
+struct Nodes {
+  uint32_t q_min : 30;
+  uint32_t q_max : 30;
+  uint8_t pad0 : 4;
+  uint16_t nprims;
+  uint16_t pad1;
+  uchar4 split0on_nprims;
+} __attribute__((packed));
+
+struct Triangles {
+  float3 wlow;
+  float3 whigh;
+  float3 bins;
+  float3 bins_inv;
+  uint32_t primitive_count;
+  Triangle* primitives;
+  uint32_t node_count;
+  Nodes* nodes;
+} __attribute__((packed));
+
+__host__ float __prod_diff_f32(float a, float b, float c, float d) {
+  float cd = (c * d);
+  float diff = fmaf(a, b, -cd);
+  float err = fmaf(-c, d, cd);
+  return (diff + err);
+}
+
+__host__ thrust::universal_vector<Triangle> _scan_BVH(uint32_t index, Triangles* triangles) {
+  thrust::universal_vector<Triangle> _dyn_alloc;
+  _dyn_alloc.reserve(16);
+  Nodes _t540 = (*triangles).nodes[index];
+  uint16_t _t220 = _t540.nprims;
+  if (_t220 == 0u) {
+    _dyn_alloc.push_back(_scan_BVH(index + 1u, triangles));
+    _dyn_alloc.push_back(_scan_BVH(index + bonsai_reinterpret<Arm_Interior>(_t540.split0on_nprims).offset, triangles));
+  } else {
+    uint32_t _t544 = bonsai_reinterpret<Arm_Leaf>(_t540.split0on_nprims).poffset;
+    _dyn_alloc.push_back(slice(_t544, _t544 + (uint32_t)_t220,(*triangles).primitives));
+  }
+  return _dyn_alloc;
+}
+
+__host__ float3 dequantize(uint32_t v, float3 bins) {
+  uint32_t x_ = ((v >> 20u) & 1023u);
+  uint32_t y_ = ((v >> 10u) & 1023u);
+  uint32_t z_ = ((v >> 0u) & 1023u);
+  return float3{fmul_rd((float)x_, bins.x), fmul_rd((float)y_, bins.y), fmul_rd((float)z_, bins.z)};
+}
+
+__host__ bool sat_axis_separates(float3 axis, float3 e, float3 v0, float3 v1, float3 v2) {
+  float p0 = dot(axis, v0);
+  float p1 = dot(axis, v1);
+  float p2 = dot(axis, v2);
+  float r = dot(abs(axis), e);
+  return ((r < fminf(fminf(p0, p1), p2)) | (fmaxf(fmaxf(p0, p1), p2) < -r));
+}
+
+__host__ void _recloop_func0(uint32_t index, Triangles* triangles, AABB* a, thrust::universal_vector<Triangle>* _dyn_alloc) {
+  if (index == 4294967295u) {
+    return;
+  }
+  Nodes _t484 = (*triangles).nodes[index];
+  uint16_t _t201 = _t484.nprims;
+  if (_t201 == 0u) {
+    float3 _t52 = (*a).low;
+    float3 _t57 = (*triangles).bins;
+    AABB _t493 = AABB{fadd_rd((*triangles).wlow, dequantize(_t484.q_min, _t57)), fsub_ru((*triangles).whigh, dequantize(_t484.q_max, _t57))};
+    float3 _t68 = _t493.low;
+    float3 _t85 = _t493.high;
+    float3 _t86 = (*a).high;
+    if (reduce_and((_t52 <= _t68) & (_t85 <= _t86))) {
+      (*_dyn_alloc).push_back(_scan_BVH(index + 1u, triangles));
+      (*_dyn_alloc).push_back(_scan_BVH(index + bonsai_reinterpret<Arm_Interior>(_t484.split0on_nprims).offset, triangles));
+    } else {
+      if (reduce_and(max(_t52, _t68) <= min(_t86, _t85))) {
+        _recloop_func0(index + 1u, triangles, a, _dyn_alloc);
+        _recloop_func0(index + bonsai_reinterpret<Arm_Interior>(_t484.split0on_nprims).offset, triangles, a, _dyn_alloc);
+      }
+    }
+  } else {
+    float3 _t162 = (*a).low;
+    float3 _t167 = (*triangles).bins;
+    AABB _t512 = AABB{fadd_rd((*triangles).wlow, dequantize(_t484.q_min, _t167)), fsub_ru((*triangles).whigh, dequantize(_t484.q_max, _t167))};
+    float3 _t178 = _t512.low;
+    float3 _t195 = _t512.high;
+    float3 _t196 = (*a).high;
+    if (reduce_and((_t162 <= _t178) & (_t195 <= _t196))) {
+      uint32_t _t515 = bonsai_reinterpret<Arm_Leaf>(_t484.split0on_nprims).poffset;
+      for (uint32_t _idx0 = _t515; _idx0 < (_t515 + (uint32_t)_t201); _idx0 += 1u) {
+        (*_dyn_alloc).push_back((*triangles).primitives[_idx0]);
+      }
+    } else {
+      if (reduce_and(max(_t162, _t178) <= min(_t196, _t195))) {
+        uint32_t _t521 = bonsai_reinterpret<Arm_Leaf>(_t484.split0on_nprims).poffset;
+        for (uint32_t _idx0 = _t521; _idx0 < (_t521 + (uint32_t)_t201); _idx0 += 1u) {
+          Triangle _t523 = (*triangles).primitives[_idx0];
+          bool _t0 = true;
+          float3 _t525 = (make_float3((float)0.5) * (_t162 + _t196));
+          float3 _t527 = (make_float3((float)0.5) * (_t196 - _t162));
+          float3 _t529 = (_t523.p0 - _t525);
+          float3 _t531 = (_t523.p1 - _t525);
+          float3 _t533 = (_t523.p2 - _t525);
+          if (!reduce_and(((min(min(_t529, _t531), _t533) <= _t527) & (-_t527 <= max(max(_t529, _t531), _t533))))) {
+            _t0 = false;
+          }
+          float3 __inline27 = (_t531 - _t529);
+          float3 __inline28 = (_t533 - _t531);
+          float3 __inline29 = (_t529 - _t533);
+          float __inline7 = 0;
+          float __inline8 = __inline27.z;
+          float __inline10 = __inline27.y;
+          float __inline11 = __inline27.x;
+          float __inline12 = (float)4.60718e+18;
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline7, __inline8, __inline7, __inline10), __prod_diff_f32(__inline7, __inline11, __inline12, __inline8), __prod_diff_f32(__inline12, __inline10, __inline7, __inline11)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          float __inline13 = __inline28.z;
+          float __inline14 = __inline28.y;
+          float __inline15 = __inline28.x;
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline7, __inline13, __inline7, __inline14), __prod_diff_f32(__inline7, __inline15, __inline12, __inline13), __prod_diff_f32(__inline12, __inline14, __inline7, __inline15)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          float __inline16 = __inline29.z;
+          float __inline17 = __inline29.y;
+          float __inline18 = __inline29.x;
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline7, __inline16, __inline7, __inline17), __prod_diff_f32(__inline7, __inline18, __inline12, __inline16), __prod_diff_f32(__inline12, __inline17, __inline7, __inline18)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline12, __inline8, __inline7, __inline10), __prod_diff_f32(__inline7, __inline11, __inline7, __inline8), __prod_diff_f32(__inline7, __inline10, __inline12, __inline11)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline12, __inline13, __inline7, __inline14), __prod_diff_f32(__inline7, __inline15, __inline7, __inline13), __prod_diff_f32(__inline7, __inline14, __inline12, __inline15)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline12, __inline16, __inline7, __inline17), __prod_diff_f32(__inline7, __inline18, __inline7, __inline16), __prod_diff_f32(__inline7, __inline17, __inline12, __inline18)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline7, __inline8, __inline12, __inline10), __prod_diff_f32(__inline12, __inline11, __inline7, __inline8), __prod_diff_f32(__inline7, __inline10, __inline7, __inline11)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline7, __inline13, __inline12, __inline14), __prod_diff_f32(__inline12, __inline15, __inline7, __inline13), __prod_diff_f32(__inline7, __inline14, __inline7, __inline15)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          if (sat_axis_separates(float3{__prod_diff_f32(__inline7, __inline16, __inline12, __inline17), __prod_diff_f32(__inline12, __inline18, __inline7, __inline16), __prod_diff_f32(__inline7, __inline17, __inline7, __inline18)}, _t527, _t529, _t531, _t533)) {
+            _t0 = false;
+          }
+          float3 _t537 = float3{__prod_diff_f32(__inline10, __inline13, __inline8, __inline14), __prod_diff_f32(__inline8, __inline15, __inline11, __inline13), __prod_diff_f32(__inline11, __inline14, __inline10, __inline15)};
+          float __inline26 = dot(_t529, _t537);
+          float __inline30 = dot(abs(_t537), _t527);
+          if ((__inline30 < __inline26) | (__inline26 < -__inline30)) {
+            _t0 = false;
+          }
+          if (_t0) {
+            (*_dyn_alloc).push_back(_t523);
+          }
+        }
+      }
+    }
+  }
+  return;
+}
+
+__host__ thrust::universal_vector<Triangle> _traverse_tree0(AABB* a, Triangles* triangles) {
+  thrust::universal_vector<Triangle> _dyn_alloc;
+  _dyn_alloc.reserve(16);
+  _recloop_func0(0u, triangles, a, (&_dyn_alloc));
+  return _dyn_alloc;
+}
+
+__host__ float3 build_bins_inverse(float3 low, float3 high) {
+  float3 L1 = float3{fsub_ru(high.x, low.x), fsub_ru(high.y, low.y), fsub_ru(high.z, low.z)};
+  float3 L2 = make_float3(1);
+  if (0 < L1.x) {
+    L2.x = L1.x;
+  }
+  if (0 < L1.y) {
+    L2.y = L1.y;
+  }
+  if (0 < L1.z) {
+    L2.z = L1.z;
+  }
+  return float3{fdiv_rd((float)1023, L2.x), fdiv_rd((float)1023, L2.y), fdiv_rd((float)1023, L2.z)};
+}
+
+__host__ float3 build_bins(float3 low, float3 high) {
+  float3 bins_inverse = build_bins_inverse(low, high);
+  return float3{frcp_rd(bins_inverse.x), frcp_rd(bins_inverse.y), frcp_rd(bins_inverse.z)};
+}
+
+__host__ uint32_t quantize_hi(float3 current, float3 world, float3 bin_inverse) {
+  uint32_t x = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(world.x, current.x), bin_inverse.x)));
+  uint32_t y = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(world.y, current.y), bin_inverse.y)));
+  uint32_t z = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(world.z, current.z), bin_inverse.z)));
+  return ((((x & 1023u) << 20u) | ((y & 1023u) << 10u)) | (z & 1023u));
+}
+
+__host__ uint32_t quantize_lo(float3 current, float3 world, float3 bin_inverse) {
+  uint32_t x = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(current.x, world.x), bin_inverse.x)));
+  uint32_t y = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(current.y, world.y), bin_inverse.y)));
+  uint32_t z = (uint32_t)fmaxf(0, floorf(fmul_rd(fsub_rd(current.z, world.z), bin_inverse.z)));
+  return ((((x & 1023u) << 20u) | ((y & 1023u) << 10u)) | (z & 1023u));
+}
+
+__host__ uint32_t rec_build_triangles(BVH* node_, Triangles* ST, size_t* nodes_index, size_t* primitives_index) {
+  if (!node_) {
+    return 4294967295u;
+  }
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
+      size_t this_index = (*nodes_index);
+      (*nodes_index) += 1;
+      if (this_index == 0) {
+        (*ST).wlow = node.low;
+        (*ST).whigh = node.high;
+        (*ST).bins_inv = build_bins_inverse(node.low, node.high);
+        (*ST).bins = build_bins(node.low, node.high);
+      }
+      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].nprims = 0;
+      uint32_t left_index = rec_build_triangles(node.left, ST, nodes_index, primitives_index);
+      uint32_t right_index = rec_build_triangles(node.right, ST, nodes_index, primitives_index);
+      reinterpret_cast<Arm_Interior *>(&(*ST).nodes[this_index].split0on_nprims)->offset = (right_index - this_index);
+      return this_index;
+    }
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
+      size_t this_index = (*nodes_index);
+      (*nodes_index) += 1;
+      (*ST).nodes[this_index].q_min = quantize_lo(node.low, (*ST).wlow, (*ST).bins_inv);
+      (*ST).nodes[this_index].q_max = quantize_hi(node.high, (*ST).whigh, (*ST).bins_inv);
+      (*ST).nodes[this_index].nprims = node.nprims;
+      reinterpret_cast<Arm_Leaf *>(&(*ST).nodes[this_index].split0on_nprims)->poffset = (*primitives_index);
+      for (uint16_t __p = 0u; __p < node.nprims; __p += 1u) {
+        (*ST).primitives[(__p + (*primitives_index))] = node.data[__p];
+      }
+      (*primitives_index) += node.nprims;
+      return this_index;
+    }
+}
+
+__host__ void rec_count_triangles(BVH* node_, Triangles* ST) {
+  if (!node_) {
+    return;
+  }
+    if (std::holds_alternative<Interior>(*node_)) {
+      const Interior& node = std::get<Interior>(*node_);
+      rec_count_triangles(node.left, ST);
+      rec_count_triangles(node.right, ST);
+      (*ST).node_count += 1u;
+    }
+    else if (std::holds_alternative<Leaf>(*node_)) {
+      const Leaf& node = std::get<Leaf>(*node_);
+      (*ST).primitive_count += node.nprims;
+      (*ST).node_count += 1u;
+    }
+}
+
+__host__ Triangles build_triangles(BVH* CT) {
+  Triangles ST;
+  size_t primitives_index = 0;
+  size_t nodes_index = 0;
+  ST.primitive_count = 0u;
+  ST.node_count = 0u;
+  rec_count_triangles(CT, (&ST));
+  Triangle* primitives = reinterpret_cast<Triangle*>(malloc(sizeof(Triangle) * ST.primitive_count));
+  ST.primitives = primitives;
+  Nodes* nodes = reinterpret_cast<Nodes*>(malloc(sizeof(Nodes) * ST.node_count));
+  ST.nodes = nodes;
+  rec_build_triangles(CT, (&ST), (&nodes_index), (&primitives_index));
+  return ST;
+}
+
+__host__ thrust::universal_vector<Triangle> find_neighbors(AABB* a, Triangles* triangles) {
+  return _traverse_tree0(a, triangles);
+}

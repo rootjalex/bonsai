@@ -1,8 +1,10 @@
 #include "Lower/Canonicalize.h"
 
-#include "Error.h"
 #include "IR/Analysis.h"
 #include "IR/Mutator.h"
+
+#include "Error.h"
+#include "Log.h"
 #include "Utils.h"
 
 #include <algorithm>
@@ -48,7 +50,7 @@ struct RewriteVectorFields : public ir::Mutator {
     }
 
     std::pair<ir::WriteLoc, bool> canonicalize_loc(const ir::WriteLoc &loc) {
-        ir::WriteLoc new_loc(loc.base, loc.base_type);
+        ir::WriteLoc new_loc(loc.base(), loc.base_type());
         bool changed = false;
         for (const auto &value : loc.accesses) {
             if (std::holds_alternative<std::string>(value)) {
@@ -62,12 +64,15 @@ struct RewriteVectorFields : public ir::Mutator {
                 } else {
                     new_loc.add_struct_access(std::get<std::string>(value));
                 }
-            } else {
+            } else if (std::holds_alternative<ir::Expr>(value)) {
                 ir::Expr idx = mutate(std::get<ir::Expr>(value));
                 if (!idx.same_as(std::get<ir::Expr>(value))) {
                     changed = true;
                 }
                 new_loc.add_index_access(idx);
+            } else if (std::holds_alternative<ir::WriteLoc::Cast>(value)) {
+                auto cast = std::get<ir::WriteLoc::Cast>(value);
+                new_loc.add_cast(cast.type, cast.mode);
             }
         }
         return {new_loc, changed};

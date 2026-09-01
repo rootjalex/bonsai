@@ -7,7 +7,6 @@
 namespace bonsai {
 namespace lower {
 
-// TODO: implement
 class LowerLayouts : public Pass {
   public:
     const std::string name() const override { return "lower-layouts"; }

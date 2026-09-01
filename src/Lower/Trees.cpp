@@ -3,19 +3,25 @@
 #include "Lower/PredicateAnalysis.h"
 
 #include "IR/Analysis.h"
+#include "IR/Argument.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
+#include "IR/Printer.h"
 
 #include "Error.h"
+#include "Log.h"
+
 #include "Utils.h"
 
 #include "Opt/Simplify.h"
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace bonsai {
@@ -30,43 +36,115 @@ static size_t counter = 0;
 
 std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
 
-// returns has_data, has_children
-std::pair<std::vector<ir::TypedVar>, std::vector<ir::TypedVar>>
-analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
-    std::vector<ir::TypedVar> data, children;
-    // Search for nodes annotated as data.
-    for (const auto &annot : node.annotations) {
+// The fields of a variant that a traversal cares about.
+struct VariantData {
+    std::vector<ir::TypedVar> payload;
+
+    struct ChildAccess {
+        ir::TypedVar child;
+        // Set when the child lives at an index of an array of children, as in
+        // a wide BVH.
+        std::optional<uint32_t> index = {};
+    };
+    std::vector<ChildAccess> children;
+};
+
+// Which fields of a variant hold primitives, and which hold child references.
+// Payload is recognised by type: any field whose type is the tree's primitive,
+// or an iterable of it. A `data` annotation, where one is present, restricts
+// the search to the named field and is checked for consistency.
+VariantData analyze_node(const ir::BVH_t::Variant &variant,
+                         const ir::Type &primitive_type, const ir::BVH_t *bvh) {
+    internal_assert(bvh);
+    const ir::Type tree_reference = ir::Ref_t::make(bvh->name);
+
+    // A `with data = x` annotation names the payload field explicitly.
+    std::set<std::string> annotated;
+    // Every other annotation names fields that describe the subtree rather
+    // than belong to it: an interval's bounds, a volume's initializers, the
+    // field an aggregate is stored in. They can share the tree's primitive
+    // type -- an interval over f32 data has f32 bounds -- so type alone
+    // cannot tell them apart from payload.
+    std::set<std::string> metadata;
+    for (const auto &annot : variant.annotations) {
         if (const auto *d = annot.as<ir::Annotation::Data>()) {
-            // TODO: make this not n^2.
-            for (const auto &param : node.fields()) {
-                if (param.name == d->name) {
-                    const bool is_prim = ir::equals(prim_t, param.type);
-                    const bool is_array_prim =
-                        (param.type.is<ir::Array_t>() &&
-                         ir::equals(prim_t,
-                                    param.type.as<ir::Array_t>()->etype));
-                    const bool is_vector_prim =
-                        (param.type.is<ir::Vector_t>() &&
-                         ir::equals(prim_t,
-                                    param.type.as<ir::Vector_t>()->etype));
+            annotated.insert(d->name);
+        } else if (const auto *v = annot.as<ir::Annotation::Volume>()) {
+            metadata.insert(v->initializers.begin(), v->initializers.end());
+        } else if (const auto *i = annot.as<ir::Annotation::Interval>()) {
+            metadata.insert(i->low);
+            metadata.insert(i->high);
+        } else if (const auto *a = annot.as<ir::Annotation::Aggregate>()) {
+            metadata.insert(a->value);
+        }
+    }
 
-                    internal_assert(is_prim || is_array_prim || is_vector_prim)
-                        << param.type << " versus " << prim_t << "\n";
-                    data.push_back(param);
-                }
+    std::vector<ir::TypedVar> payload;
+    std::vector<VariantData::ChildAccess> children;
+    for (const ir::TypedVar &parameter : variant.fields()) {
+        const ir::Type parameter_type = parameter.type;
+        const bool is_primitive =
+            ir::equals(parameter_type, primitive_type) ||
+            (parameter_type.is_iterable() &&
+             ir::equals(primitive_type, parameter_type.element_of()));
+        if (is_primitive) {
+            // With annotations present, only the annotated fields count.
+            const bool is_payload = annotated.empty()
+                                        ? !metadata.contains(parameter.name)
+                                        : annotated.contains(parameter.name);
+            if (is_payload) {
+                payload.push_back(parameter);
             }
+            continue;
+        }
+        internal_assert(!annotated.contains(parameter.name))
+            << "Field " << parameter.name << " is annotated as data but has "
+            << "type " << parameter_type << ", not the tree's primitive "
+            << primitive_type;
+        if (ir::equals(parameter_type, tree_reference)) {
+            children.emplace_back(VariantData::ChildAccess{.child = parameter});
+            continue;
+        }
+        if (parameter_type.is_iterable() &&
+            ir::equals(parameter_type.element_of(), tree_reference)) {
+            // An array of children, as in a wide BVH.
+            std::optional<uint32_t> size =
+                get_constant_value(parameter_type.size());
+            internal_assert(size.has_value()) << parameter_type;
+            for (uint32_t i = 0, e = *size; i < e; ++i) {
+                children.push_back(
+                    VariantData::ChildAccess{.child = parameter, .index = i});
+            }
+            continue;
         }
     }
 
-    // Search for recursive references.
-    for (const auto &param : node.fields()) {
-        if (param.type.is<ir::Ref_t>()) { // TODO: and is ref to
-                                          // current tree type?
-            children.push_back(param);
+    return VariantData{.payload = std::move(payload),
+                       .children = std::move(children)};
+}
+
+int64_t get_child_reference_count(const ir::BVH_t::Variant &variant,
+                                  const ir::Type tree) {
+    const ir::BVH_t *bvh = tree.as<ir::BVH_t>();
+    internal_assert(bvh) << tree;
+    ir::Type tree_reference = ir::Ref_t::make(bvh->name);
+
+    int64_t count = 0;
+    for (const auto &[_, type] : variant.fields()) {
+        if (type.is<ir::Ref_t>() &&
+            ir::equals(type.element_of(), tree_reference)) {
+            ++count;
+            continue;
+        }
+        if (type.is_iterable() && type.element_of().is<ir::Ref_t>() &&
+            ir::equals(type.element_of(), tree_reference)) {
+            std::optional<uint32_t> size = get_constant_value(type.size());
+            internal_assert(size.has_value()) << type;
+            count += *size;
+            continue;
         }
     }
-
-    return {data, children};
+    return count;
 }
 
 // Key under which a node's precomputed aggregate is recorded, e.g. "count()"
@@ -148,11 +226,15 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
 }
 
 struct Rewriter : public ir::Mutator {
-    // The list of volumes for the currently match arms.
-    std::vector<ir::Expr> volumes;
-    // Volumes annotated on a node's children rather than on the node itself.
-    // Keyed by the matched tree variable, then by child field name.
-    std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
+    // The list of volumes for the current match arms. Each arm contributes
+    // one entry: a single undefined expression when the arm has no volume,
+    // one volume when the bound is enclosing, and one per child when the
+    // bound is childwise.
+    struct VolumeMetadata {
+        std::vector<ir::Expr> volumes;
+        ir::Annotation::Volume::BoundType type;
+    };
+    mutable std::vector<VolumeMetadata> volume_metadata;
     // The list of tagged intervals. Holds scalar interval OR map of field
     // intervals.
     std::vector<
@@ -168,7 +250,8 @@ struct Rewriter : public ir::Mutator {
 
     ir::Stmt visit(const ir::Match *node) final override {
         const ir::Var *var = node->loc.as<ir::Var>();
-        internal_assert(var) << "TODO: handle Match on non-Var";
+        internal_assert(var)
+            << "[unimplemented] Match location of type: " << node->loc.type();
         locs.push_back(node->loc);
 
         const size_t n = node->arms.size();
@@ -186,28 +269,11 @@ struct Rewriter : public ir::Mutator {
                 return Interval{std::move(low_expr), std::move(high_expr)};
             };
 
-            const auto make_volume =
-                [&](const ir::Annotation::Volume *volume) -> ir::Expr {
-                const auto &inits = volume->initializers;
-                const size_t n_args = inits.size();
-                std::vector<ir::Expr> args(n_args);
-                for (size_t j = 0; j < n_args; j++) {
-                    const auto &name = inits[j];
-                    args[j] = ir::Access::make(name, tree);
-                }
-                return ir::Build::make(volume->struct_type, args);
-            };
-
-            if (bvh_node.has_volume()) {
-                volumes.emplace_back(make_volume(bvh_node.get_volume()));
-            } else {
-                volumes.emplace_back(); // undef volume
-            }
+            update_volumes(bvh_node, tree, node->loc.type());
             std::variant<std::monostate, Interval,
                          std::map<std::string, Interval>>
                 interval;
             std::map<std::string, ir::Expr> aggregation;
-            std::map<std::string, ir::Expr> built_child_volumes;
             for (const auto &annot : node->arms[i].first.annotations) {
                 if (const auto *a_interval =
                         annot.as<ir::Annotation::Interval>()) {
@@ -235,28 +301,15 @@ struct Rewriter : public ir::Mutator {
                                annot.as<ir::Annotation::Aggregate>()) {
                     aggregation[aggregate_key(*agg)] =
                         ir::Access::make(agg->value, tree);
-                } else if (const auto *vol =
-                               annot.as<ir::Annotation::Volume>()) {
-                    if (vol->geometry.empty()) {
-                        continue; // the node's own volume, handled above
-                    }
-                    // Tagged on a child.
-                    built_child_volumes[vol->geometry] = make_volume(vol);
                 }
             }
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
-            if (!built_child_volumes.empty()) {
-                child_volumes[var->name] = built_child_volumes;
-            }
 
             ir::Stmt stmt = mutate(node->arms[i].second);
-            volumes.pop_back();
+            volume_metadata.pop_back();
             intervals.pop_back();
             aggregations.pop_back();
-            if (!built_child_volumes.empty()) {
-                child_volumes.erase(var->name);
-            }
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
@@ -264,49 +317,39 @@ struct Rewriter : public ir::Mutator {
         return ir::Match::make(node->loc, std::move(new_arms));
     }
 
+  protected:
+    // Creates a mapping from lambda argument in a given geometric operation to
+    // its respective bounding volume.
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
-        VolumeMap vols;
-        const size_t n = volumes.size();
-        internal_assert(n == args.size())
-            << "Making volume map with incorrect number of arguments: "
-            << args.size() << " vs. " << n;
+        VolumeMap volume_map;
+        const size_t n = volume_metadata.size(), m = args.size();
+        internal_assert(n == m)
+            << "volume map with incorrect number of arguments: " << m << " vs "
+            << n;
         for (size_t i = 0; i < n; i++) {
-            // Even if a volume is undefined, needs to be added so
+            auto &[children, type] = volume_metadata[i];
+            // Even if a volume is undefined, it needs to be added so
             // predicate analysis knows it's non-varying.
-            vols[args[i].name] = volumes[i];
-        }
-        return vols;
-    }
-
-    // Build a volume map from the child volumes attached to `value`, for the
-    // case where a node annotates its children's bounds rather than its own.
-    VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
-                              const ir::Expr &value) const {
-        const auto get_volume = [&](const ir::Expr &e) {
-            const ir::Access *access = e.as<ir::Access>();
-            internal_assert(access) << e;
-            const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
-            internal_assert(unwrap) << e;
-            const ir::Var *var = unwrap->value.as<ir::Var>();
-            internal_assert(var) << e;
-            const auto &iter = child_volumes.find(var->name);
-            internal_assert(iter != child_volumes.cend()) << e;
-            const auto &citer = iter->second.find(access->field);
-            internal_assert(citer != iter->second.cend()) << e;
-            return citer->second;
-        };
-        VolumeMap vols;
-        if (args.size() == 1) {
-            vols[args[0].name] = get_volume(value);
-        } else {
-            const auto values = break_tuple(value);
-            internal_assert(args.size() == values.size()) << value;
-            for (size_t i = 0; i < args.size(); i++) {
-                // TODO(ajr): this doesn't work with mismatching BVHs.
-                vols[args[i].name] = get_volume(values[i]);
+            internal_assert(!children.empty());
+            const std::string &argument_name = args[i].name;
+            volume_map[argument_name] = children.back();
+            if (type == ir::Annotation::Volume::BoundType::Childwise) {
+                // TODO(cgyurgyik): the issue here is we actually want to reuse
+                // volumes when doing the cross product of two trees's
+                // variants. A simple solution would just store a map from
+                // an Unwrap -> Volume, e.g.,
+                // `(triangles1 as AABBNode).children[0]` -> `AABB`
+                //
+                // ...but what about `triangles2` in the code below:
+                // from (((triangles1 as AABBNode).children[0], triangles2),
+                //                                              ^^^^^^^^^^
+                // what is the AABB stored for this...?
+                // code reference:
+                // https://gist.github.com/cgyurgyik/eefcdfac0866ec7d5b6a7d7e694f6937
+                children.pop_back();
             }
         }
-        return vols;
+        return volume_map;
     }
 
     IntervalMap make_interval_map(const std::vector<ir::TypedVar> &args,
@@ -334,6 +377,62 @@ struct Rewriter : public ir::Mutator {
     }
 
     using ir::Mutator::visit;
+
+  private:
+    void update_volumes(const ir::BVH_t::Variant &variant,
+                        const ir::Expr &unwrap, const ir::Type &tree_type) {
+        const ir::Annotation::Volume *volume = variant.find_volume();
+        if (volume == nullptr) {
+            volume_metadata.push_back(VolumeMetadata{
+                {ir::Expr()},
+                ir::Annotation::Volume::BoundType::Enclosing,
+            });
+            return;
+        }
+        const size_t n_args = volume->initializers.size();
+        switch (volume->bound_type()) {
+        case ir::Annotation::Volume::BoundType::Enclosing: {
+            std::vector<ir::Expr> args;
+            args.reserve(n_args);
+            for (size_t j = 0; j < n_args; ++j) {
+                const std::string &name = volume->initializers[j];
+                args.push_back(ir::Access::make(name, unwrap));
+            }
+            volume_metadata.push_back(VolumeMetadata{
+                .volumes = {ir::Build::make(volume->struct_type, args)},
+                .type = volume->bound_type(),
+            });
+            return;
+        }
+        case ir::Annotation::Volume::BoundType::Childwise: {
+            int32_t child_count = get_child_reference_count(variant, tree_type);
+            std::vector<ir::Expr> child_volumes;
+            for (int i = 0; i < child_count; ++i) {
+                std::vector<ir::Expr> args;
+                args.reserve(n_args);
+                const auto *struct_t = volume->struct_type.as<ir::Struct_t>();
+                internal_assert(struct_t);
+                for (size_t j = 0; j < n_args; ++j) {
+                    const std::string &name = volume->initializers[j];
+                    ir::Expr arg = ir::Access::make(name, unwrap);
+                    if (!ir::equals(arg.type(), struct_t->fields[j].type)) {
+                        arg = ir::Extract::make(arg, ir::Expr(i));
+                    }
+                    args.push_back(arg);
+                }
+                child_volumes.emplace_back(
+                    ir::Build::make(volume->struct_type, args));
+            }
+            // Reverse it, since we'll be popping from the back.
+            std::reverse(child_volumes.begin(), child_volumes.end());
+            volume_metadata.push_back(VolumeMetadata{
+                .volumes = std::move(child_volumes),
+                .type = volume->bound_type(),
+            });
+            return;
+        }
+        }
+    }
 };
 
 ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
@@ -348,18 +447,20 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         using ir::Mutator::visit;
 
         ir::Stmt visit(const ir::Yield *node) override {
-            internal_assert(!volumes.empty());
+            internal_assert(!volume_metadata.empty());
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
             const size_t n_args = lambda->args.size();
 
             std::map<std::string, ir::Expr> repls;
 
             if (n_args == 1) {
                 internal_assert(
-                    ir::equals(lambda->args[0].type, node->value.type()));
+                    ir::equals(lambda->args[0].type, node->value.type()))
+                    << "Predicate takes " << lambda->args[0].type
+                    << " but the traversal yields " << node->value.type()
+                    << ": " << predicate;
                 repls[lambda->args[0].name] = node->value;
             } else {
                 internal_assert(node->value.type().is<ir::Tuple_t>());
@@ -402,11 +503,10 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
-            internal_assert(!volumes.empty());
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
 
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
@@ -553,20 +653,22 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         ir::Expr metric;
         ir::WriteLoc loc;
         ir::Type tuple_t;
+        const IntervalMap &intervals;
+        const bool update_from_yfs;
 
         RewriteArgExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
-                           ir::Type t)
+                           ir::Type t, const IntervalMap &intervals,
+                           const bool update_from_yfs)
             : dir(dir), metric(std::move(met)), loc(std::move(l)),
-              tuple_t(std::move(t)) {}
+              tuple_t(std::move(t)), intervals(intervals),
+              update_from_yfs(update_from_yfs) {}
 
         using ir::Mutator::visit;
 
         // yield x => upd a arg(a, (M(x), x))
         ir::Stmt visit(const ir::Yield *node) override {
-            internal_assert(!volumes.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
             internal_assert(
@@ -590,7 +692,39 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
         ir::Stmt visit(const ir::Scan *node) override { return node; }
 
-        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            if (!update_from_yfs) {
+                return node;
+            }
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            // internal_assert(volume_metadata.size() == lambda->args.size());
+            // TODO: handle tuple data, e.g. from product()
+            internal_assert(lambda->args.size() == 1);
+
+            VolumeMap vols = make_volume_map(lambda->args);
+
+            Interval bounds =
+                predicate_analysis(lambda->value, vols, intervals);
+            internal_assert(bounds.max.defined())
+                << "Cannot accelerate metric: " << lambda->value
+                << " on: " << ir::Stmt(node);
+
+            // Best must be at most max. The bound is not tight, so nudge it
+            // by an epsilon: the comparisons that gate the traversal are
+            // strict, and a witness sitting exactly on the bound has to
+            // survive them.
+            ir::Expr value = bounds.max + ir::Extrema::make(bounds.max.type(),
+                                                            ir::Extrema::eps);
+
+            ir::Expr empty_expr =
+                ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);
+            std::vector<ir::Expr> values = {std::move(value), empty_expr};
+            ir::Expr update = ir::Build::make(tuple_t, std::move(values));
+            ir::Stmt do_update = ir::Accumulate::make(
+                loc, ir::Accumulate::Argmin, std::move(update));
+            return ir::Sequence::make({std::move(do_update), node});
+        }
     };
 
     const ir::Lambda *lambda = metric.as<ir::Lambda>();
@@ -640,7 +774,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
 
     body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
-                              std::move(tuple_t))
+                              std::move(tuple_t), intervals, !fused)
                .mutate(body);
 
     return ir::Sequence::make(
@@ -689,10 +823,10 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
         // yield x => upd a minb(a, M(x))
         ir::Stmt visit(const ir::Yield *node) override {
-            internal_assert(!volumes.empty());
+            internal_assert(!volume_metadata.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
             internal_assert(
@@ -758,7 +892,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         Interval subtree_bounds() const {
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -771,7 +905,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             }
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             // TODO: handle tuple data, e.g. from product()
             internal_assert(lambda->args.size() == 1);
 
@@ -901,7 +1035,7 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volume_metadata.size() == lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -1362,7 +1496,7 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                          const IntervalMap &intervals) {
     // TODO: not necessarily always a Var, could be e.g. an Access.
-    if (auto as_var = expr.as<ir::Var>()) {
+    if (const auto *as_var = expr.as<ir::Var>()) {
         internal_assert(as_var->type.is<ir::Set_t>())
             << "Cannot build traversal for non-set: " << expr;
         const auto &iter = tree_types.find(as_var->name);
@@ -1425,16 +1559,17 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         return build_product(a_body, b_body, expr.type().element_of());
     }
     default: {
-        internal_error << "TODO: " << expr;
+        internal_error << "[unimplemented] build_traversal(" << expr << " : "
+                       << expr.type() << ")";
     }
     }
 }
 
 // Wrap the first Match seen in a recursive loop on all trees seen in the body.
 struct WrapMatchInRecLoop : public ir::Mutator {
-    std::vector<ir::TypedVar> trees;
+    std::vector<ir::Argument> trees;
 
-    WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
+    WrapMatchInRecLoop(std::vector<ir::Argument> trees)
         : trees(std::move(trees)) {}
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -1461,13 +1596,13 @@ struct LowerBVH : public ir::Mutator {
         const std::string func = new_func_name();
         const auto free_vars = ir::gather_free_vars(expr);
 
-        std::vector<ir::TypedVar> trees;
-        std::vector<ir::Function::Argument> func_args;
+        std::vector<ir::Argument> trees;
+        std::vector<ir::Argument> func_args;
         func_args.reserve(free_vars.size());
         for (const auto &var : free_vars) {
             if (const auto &iter = tree_types.find(var.name);
                 iter != tree_types.cend()) {
-                trees.push_back({var.name, iter->second});
+                trees.push_back(ir::Argument(var.name, iter->second));
                 func_args.emplace_back(var.name, iter->second);
             } else {
                 // TODO: mutability? only if the free vars are mutated in the
@@ -1522,12 +1657,12 @@ struct LowerBVH : public ir::Mutator {
 ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
     ir::Expr bvh_expr = ir::Var::make(bvh_t, name);
 
-    const size_t n_nodes = bvh_t->nodes.size();
+    const size_t n_nodes = bvh_t->variants.size();
     ir::Match::Arms arms(n_nodes);
     for (size_t i = 0; i < n_nodes; i++) {
         ir::Expr node = ir::Unwrap::make(i, bvh_expr);
         const auto [data, children] =
-            analyze_node(bvh_t->nodes[i], bvh_t->primitive);
+            analyze_node(bvh_t->variants[i], bvh_t->primitive, bvh_t);
 
         std::vector<ir::Stmt> stmts(data.size() + !children.empty());
         // TODO: visit order should be scheduable?
@@ -1535,14 +1670,6 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             ir::Expr access = ir::Access::make(data[i].name, node);
             if (data[i].type.is_iterable()) {
                 // forall d in data: yield d
-                if (data[i].type.is<ir::Array_t>() &&
-                    data[i].type.as<ir::Array_t>()->size.defined() &&
-                    !is_const(data[i].type.as<ir::Array_t>()->size)) {
-                    // Size must be a parameter of the type, need to change the
-                    // size somehow...
-                    internal_error
-                        << "TODO: handle array size in tree params\n";
-                }
                 stmts[i] = ir::Iterate::make(std::move(access));
             } else {
                 // yield d
@@ -1553,12 +1680,18 @@ ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
             std::vector<ir::Expr> cs;
             cs.reserve(children.size());
             for (const auto &c : children) {
-                cs.push_back(ir::Access::make(c.name, node));
+                ir::Expr access = ir::Access::make(c.child.name, node);
+                // A wide BVH stores its children in an array; pick the lane.
+                if (c.index.has_value()) {
+                    access = ir::Extract::make(
+                        access, ir::Expr(static_cast<int32_t>(*c.index)));
+                }
+                cs.push_back(std::move(access));
             }
             stmts.back() = ir::Scan::make(ir::Expr(), make_tuple(cs));
         }
 
-        arms[i].first = bvh_t->nodes[i];
+        arms[i].first = bvh_t->variants[i];
         internal_assert(!stmts.empty());
         if (stmts.size() == 1) {
             // Special case.
@@ -1579,10 +1712,23 @@ ir::Program LowerTrees::run(ir::Program program,
         << "TODO: support selecting a schedule target!\n";
 
     // Pop tree schedule, no longer necessary.
-    ir::TypeMap tree_types =
-        std::move(program.schedules[ir::Target::Host].tree_types);
+    const ir::TypeMap &tree_types =
+        program.schedules[ir::Target::Host].tree_types;
 
-    LowerBVH converter(tree_types);
+    for (const auto &[name, type] : tree_types) {
+        if (const auto *bvh_t = type.as<ir::BVH_t>()) {
+            for (const ir::BVH_t::Variant &variant : bvh_t->variants) {
+                if (program.types.contains(variant.name())) {
+                    continue;
+                }
+                program.types.insert(
+                    {variant.name(),
+                     ir::Struct_t::make(variant.name(), variant.fields())});
+            }
+        }
+    }
+
+    LowerBVH lower(tree_types);
 
     // Remap externs.
     for (auto &[name, type] : program.externs) {
@@ -1593,10 +1739,10 @@ ir::Program LowerTrees::run(ir::Program program,
     }
 
     for (auto &[_, f] : program.funcs) {
-        f->body = converter.mutate(f->body);
+        f->body = lower.mutate(f->body);
     }
 
-    for (auto &[name, f] : converter.new_funcs) {
+    for (auto &[name, f] : lower.new_funcs) {
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(name), std::move(f));
         internal_assert(inserted);

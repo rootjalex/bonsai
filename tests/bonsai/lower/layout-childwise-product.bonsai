@@ -1,0 +1,24 @@
+//! flags: -p canonicalize -p verify-layouts -p lower-trees
+
+element f32x3 = vector[f32, 3];
+element f32x3x2 = vector[f32x3, 2];
+element u64x2 = vector[u64, 2];
+element Ray { o : f32x3; d : f32x3; t : f32 = 0; }
+element Triangle { p0, p1, p2 : f32x3; }
+element AABB { low, high : f32x3; }
+
+extern triangles1 : set[Triangle];
+extern triangles2 : set[Triangle];
+
+// TODO(cgyurgyik): broken
+// https://gist.github.com/cgyurgyik/eefcdfac0866ec7d5b6a7d7e694f6937
+func collisions() = filter(|t0 : Triangle, t1 : Triangle| intersects(t0, t1), product(triangles1, triangles2));
+
+schedule {
+    tree[[Triangle]] BVH 
+      = AABBNode(children: array[BVH, 2], low: f32x3x2, high: f32x3x2) with AABB(low, high) on children
+      | Leaf(nprims: u8, data: array[Triangle, nprims]);
+
+    triangles1 : BVH;
+    triangles2 : BVH;
+}

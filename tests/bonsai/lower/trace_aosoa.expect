@@ -2,6 +2,8 @@ type AABB = struct AABB{ low : f32x3; high : f32x3 }
 type FInterval = struct FInterval{ low : f32; high : f32 }
 type Float = f32
 type Half = f16
+type Interior = struct Interior{ low : f32x3; high : f32x3; left : (const TriangleBVH&); right : (const TriangleBVH&) }
+type Leaf = struct Leaf{ low : f32x3; high : f32x3; data : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[] }
 type Point = struct Point{ vec : f32x3 }
 type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
@@ -14,27 +16,84 @@ type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : f32x3; high_32 : f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }[count] }
-type _tree_layout1 = [[packed]] struct _tree_layout1{ low_32 : f32x3; high_32 : f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }
-type _tree_layout2 = [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }
-type _tree_layout3 = [[packed]] struct _tree_layout3{ offset : u32 }
-type _tree_layout4 = [[packed]] struct _tree_layout4{ pOffset : u32 }
-type vec3f = f32x3
-type vec3h = f16x3
+type arm_Interior = [[packed]] struct arm_Interior{ offset : u32 }
+type arm_Leaf = [[packed]] struct arm_Leaf{ pOffset : u32 }
+type boolx3 = vector[bool, 3]
+type f32x2 = vector[f32, 2]
+type f32x3 = vector[f32, 3]
+type f32x3x2 = vector[f32x3, 2]
+type f32x3x4 = vector[f32x3, 4]
+type f32x3x8 = vector[f32x3, 8]
+type f32x4 = vector[f32, 4]
+type f32x4x3 = vector[f32x4, 3]
+type f32x5 = vector[f32, 5]
+type f32x6 = vector[f32, 6]
+type f32x7 = vector[f32, 7]
+type f32x8 = vector[f32, 8]
+type f32x9 = vector[f32, 9]
+type group_0 = [[packed]] struct group_0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }
+type i8x3 = vector[i8, 3]
+type i8x4 = vector[i8, 4]
+type i8x4x3 = vector[i8x4, 3]
+type i8x9 = vector[i8, 9]
+type nodes = [[packed]] struct nodes{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct group_0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }
+type ts = [[packed]] struct ts{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; nodes : [[packed]] struct nodes{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct group_0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }[count] }
+type u16x3 = vector[u16, 3]
+type u64x4 = vector[u64, 4]
+type u8x3 = vector[u8, 3]
+type u8x3x4 = vector[u8x3, 4]
+type vec3f = vector[f32, 3]
+type vec3h = vector[f16, 3]
 
-extern ts : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : f32x3; high_32 : f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }[count] }
+extern ts : [[packed]] struct ts{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; count : u32; nodes : [[packed]] struct nodes{ low_32 : f32x3; high_32 : f32x3; group_0 : [[packed]] struct group_0{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }[count] }
 
-func _recloop_func0(ts_index : u32, ts_bit : u1, ts : (_tree_layout0*), ray : (Ray*), _best0 : mut (__tuple_0*)) -> void {
-  if (intersects_Ray_AABB(ray, (&build<AABB>((*ts).group0_index[ts_index].low_32 + cast<f32x3>((*ts).group0_index[ts_index].group0_bit[ts_bit].low_16), (*ts).group0_index[ts_index].high_32 + cast<f32x3>((*ts).group0_index[ts_index].group0_bit[ts_bit].high_16))))) {
-    if (distmin_Ray_AABB(ray, (&build<AABB>((*ts).group0_index[ts_index].low_32 + cast<f32x3>((*ts).group0_index[ts_index].group0_bit[ts_bit].low_16), (*ts).group0_index[ts_index].high_32 + cast<f32x3>((*ts).group0_index[ts_index].group0_bit[ts_bit].high_16)))) < (*_best0)._field0) {
-      if ((*ts).group0_index[ts_index].group0_bit[ts_bit].nPrims == 0u) {
-        _recloop_func0(reinterpret_cast<_tree_layout3>((*ts).group0_index[ts_index].group0_bit[ts_bit].split0on_nPrims).offset, 0u, ts, ray, _best0)
-        _recloop_func0(reinterpret_cast<_tree_layout3>((*ts).group0_index[ts_index].group0_bit[ts_bit].split0on_nPrims).offset, 1u, ts, ray, _best0)
+func _recloop_func0(bit : u1, index : u32, ts : (ts*), ray : (Ray*), _best0 : mut (__tuple_0*)) -> void {
+  if (bit == 1u) {
+    return
+  }
+  if (index == 4294967295u) {
+    return
+  }
+  let _t4 = (*ts).nodes in
+  let _t5 = _t4[index] in
+  let _t677 = _t4[index / 2u].group_0[index & 1u] in
+  _t0 : mut bool := false
+  let _t687 = intersectsp_ray_aabb(ray, (&build<AABB>(_t5.low_32 + cast<f32x3>(_t677.low_16), _t5.high_32 + cast<f32x3>(_t677.high_16)))) in
+  if (_t687.set) {
+    let __inline1 = _t687.value in
+    _t0 = (__inline1.low < (*ray).tmax) & (0f < __inline1.high)
+  }
+  if (_t0) {
+    _t422 : mut f32 := (f32)inf
+    let __inline5 = _t687.value in
+    _t422 = __inline5.low
+    _t1 : mut bool := _t422 < (*_best0)._field0
+    if (_t1) {
+      let _t139 = _t677.nPrims in
+      if (_t139 == 0u) {
+        let _t690 = reinterpret_cast<arm_Interior>(_t677.split0on_nPrims).offset in
+        let _t64 = build<__tuple_1>(_t690, 0u) in
+        _recloop_func0(_t64._field0, _t64._field1, ts, ray, _best0)
+        let _t86 = build<__tuple_1>(_t690, 1u) in
+        _recloop_func0(_t86._field0, _t86._field1, ts, ray, _best0)
       } else {
-        forall _idx0 in [0u:cast<u32>((*ts).group0_index[ts_index].group0_bit[ts_bit].nPrims):1u] {
-          if (intersectsp_ray_tri(ray, (&(*ts).prims[reinterpret_cast<_tree_layout4>((*ts).group0_index[ts_index].group0_bit[ts_bit].split0on_nPrims).pOffset + _idx0])).set) {
-            if (distmin_Ray_Triangle(ray, (&(*ts).prims[reinterpret_cast<_tree_layout4>((*ts).group0_index[ts_index].group0_bit[ts_bit].split0on_nPrims).pOffset + _idx0])) < (*_best0)._field0) {
-              _best0 argmin= build<__tuple_0>(distmin_Ray_Triangle(ray, (&(*ts).prims[reinterpret_cast<_tree_layout4>((*ts).group0_index[ts_index].group0_bit[ts_bit].split0on_nPrims).pOffset + _idx0])), (*ts).prims[reinterpret_cast<_tree_layout4>((*ts).group0_index[ts_index].group0_bit[ts_bit].split0on_nPrims).pOffset + _idx0])
+        let _t116 = reinterpret_cast<arm_Leaf>(_t677.split0on_nPrims).pOffset in
+        forall _idx0 in [_t116:_t116 + cast<u32>(_t139):1u] {
+          let _t693 = (*ts).prims[_idx0] in
+          let _t672 = intersectsp_ray_tri(ray, (&_t693)) in
+          _t423 : mut _option2 := _t672
+          _t2 : mut bool := _t423.set
+          if (_t2) {
+            _t102 : mut f32 := (f32)inf
+            if (_t672.set) {
+              let __inline3 = _t672.value in
+              _t102 = __inline3.t
+            } else {
+              _t102 = (f32)inf
+            }
+            _t3 : mut bool := _t102 < (*_best0)._field0
+            if (_t3) {
+              _best0 argmin= build<__tuple_0>(_t102, _t693)
             }
           }
         }
@@ -44,13 +103,13 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : (_tree_layout0*), ray : (R
   return
 }
 
-func _traverse_tree0(ray : (Ray*), ts : (_tree_layout0*)) -> _option0 {
+func _traverse_tree0(ray : (Ray*), ts : (ts*)) -> _option0 {
   _best0 : mut __tuple_0 := build<__tuple_0>((f32)inf, build<Triangle>())
-  _recloop_func0(0u, 0u, ts, ray, _best0)
-  return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
+  _recloop_func0(0u, 0u, ts, ray, (&_best0))
+  return select(_best0._field0 != (f32)inf, build<_option0>(_best0._field1, true), build<_option0>())
 }
 
-func _unexported_trace(ray : (Ray*), ts : (_tree_layout0*)) -> _option0 {
+func _unexported_trace(ray : (Ray*), ts : (ts*)) -> _option0 {
   return _traverse_tree0(ray, ts)
 }
 
@@ -64,7 +123,8 @@ func distmax_AABB_Point(a : (AABB*), pt : (Point*)) -> f32 {
 }
 
 func distmax_Point_AABB(pt : (Point*), a : (AABB*)) -> f32 {
-  let span = max(abs((*pt).vec - (*a).low), abs((*pt).vec - (*a).high)) in
+  let _t175 = (*pt).vec in
+  let span = max(abs(_t175 - (*a).low), abs(_t175 - (*a).high)) in
   return norm(span)
 }
 
@@ -77,34 +137,35 @@ func distmax_Point_Sphere(pt : (Point*), s : (Sphere*)) -> f32 {
 }
 
 func distmax_Point_Triangle(pt : (Point*), tri : (Triangle*)) -> f32 {
-  let d0 = norm((*pt).vec - (*tri).p0) in
-  let d1 = norm((*pt).vec - (*tri).p1) in
-  let d2 = norm((*pt).vec - (*tri).p2) in
+  let _t177 = (*pt).vec in
+  let d0 = norm(_t177 - (*tri).p0) in
+  let d1 = norm(_t177 - (*tri).p1) in
+  let d2 = norm(_t177 - (*tri).p2) in
   return max(max(d0, d1), d2)
 }
 
 func distmax_Ray_AABB(r : (Ray*), b : (AABB*)) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t712 = intersectsp_ray_aabb(r, b) in
+  if (_t712.set) {
+    let extract = _t712.value in
     return extract.high
   }
   return (f32)inf
 }
 
 func distmax_Ray_Sphere(r : (Ray*), s : (Sphere*)) -> f32 {
-  let interval = intersectsp_ray_sphere(r, s) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t713 = intersectsp_ray_sphere(r, s) in
+  if (_t713.set) {
+    let extract = _t713.value in
     return extract.high
   }
   return (f32)inf
 }
 
 func distmax_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> f32 {
-  let isect = intersectsp_ray_tri(ray, tri) in
-  if (isect.set) {
-    let isect_ = isect.value in
+  let _t714 = intersectsp_ray_tri(ray, tri) in
+  if (_t714.set) {
+    let isect_ = _t714.value in
     return isect_.t
   } else {
     return -(f32)inf
@@ -138,27 +199,27 @@ func distmin_Point_Triangle(p : (Point*), tri : (Triangle*)) -> f32 {
 }
 
 func distmin_Ray_AABB(r : (Ray*), b : (AABB*)) -> f32 {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t715 = intersectsp_ray_aabb(r, b) in
+  if (_t715.set) {
+    let extract = _t715.value in
     return extract.low
   }
-  return -(f32)inf
+  return (f32)inf
 }
 
 func distmin_Ray_Sphere(r : (Ray*), s : (Sphere*)) -> f32 {
-  let interval = intersectsp_ray_sphere(r, s) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t716 = intersectsp_ray_sphere(r, s) in
+  if (_t716.set) {
+    let extract = _t716.value in
     return extract.low
   }
   return -(f32)inf
 }
 
 func distmin_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> f32 {
-  let isect = intersectsp_ray_tri(ray, tri) in
-  if (isect.set) {
-    let isect_ = isect.value in
+  let _t717 = intersectsp_ray_tri(ray, tri) in
+  if (_t717.set) {
+    let isect_ = _t717.value in
     return isect_.t
   } else {
     return (f32)inf
@@ -166,18 +227,18 @@ func distmin_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> f32 {
 }
 
 func intersects_Ray_AABB(r : (Ray*), b : (AABB*)) -> bool {
-  let interval = intersectsp_ray_aabb(r, b) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t750 = intersectsp_ray_aabb(r, b) in
+  if (_t750.set) {
+    let extract = _t750.value in
     return (extract.low < (*r).tmax) & (0f < extract.high)
   }
   return false
 }
 
 func intersects_Ray_Sphere(ray : (Ray*), s : (Sphere*)) -> bool {
-  let interval = intersectsp_ray_sphere(ray, s) in
-  if (interval.set) {
-    let extract = interval.value in
+  let _t751 = intersectsp_ray_sphere(ray, s) in
+  if (_t751.set) {
+    let extract = _t751.value in
     return (extract.low < (*ray).tmax) & (0f < extract.high)
   }
   return false
@@ -187,12 +248,106 @@ func intersects_Ray_Triangle(ray : (Ray*), tri : (Triangle*)) -> bool {
   return intersectsp_ray_tri(ray, tri).set
 }
 
-func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), ts : (_tree_layout0*)) -> void {
+func intersects_Triangle_Triangle(a : (Triangle*), b : (Triangle*)) -> bool {
+  let _t297 = (*a).p1 in
+  let _t298 = (*a).p0 in
+  let _t299 = _t297 - _t298 in
+  let _t300 = (*a).p2 in
+  let _t302 = _t300 - _t297 in
+  let _t305 = _t298 - _t300 in
+  let _t306 = (*b).p1 in
+  let _t307 = (*b).p0 in
+  let _t308 = _t306 - _t307 in
+  let _t309 = (*b).p2 in
+  let _t311 = _t309 - _t306 in
+  let _t314 = _t307 - _t309 in
+  let N0 = cross(_t299, _t302) in
+  let N1 = cross(_t308, _t311) in
+  if (!tri_tri_axis(N0, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(N1, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  let E00 = cross(_t299, _t308) in
+  let E01 = cross(_t299, _t311) in
+  let E02 = cross(_t299, _t314) in
+  let E10 = cross(_t302, _t308) in
+  let E11 = cross(_t302, _t311) in
+  let E12 = cross(_t302, _t314) in
+  let E20 = cross(_t305, _t308) in
+  let E21 = cross(_t305, _t311) in
+  let E22 = cross(_t305, _t314) in
+  if (!tri_tri_axis(E00, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E01, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E02, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E10, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E11, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E12, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E20, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E21, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  if (!tri_tri_axis(E22, _t298, _t297, _t300, _t307, _t306, _t309)) {
+    return false
+  }
+  return true
+}
+
+func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), ts : (ts*)) -> void {
   _ret0 = _traverse_tree0(ray, ts)
   return
 }
 
 
 schedule host {
+    ts : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriangleBVH
+  | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with AABB(low, high)
+    ts : layout ts(index : u32, bit : u1) {
+  pCount : u32;
+  prims : Triangle[pCount];
+  count : u32;
+  group nodes[count] by index {
+    low_32 : f32x3;
+    high_32 : f32x3;
+    group[2] by bit {
+      low_16 : f16x3;
+      low = low_32 + cast<f32x3>(low_16);
+      high_16 : f16x3;
+      high = high_32 + cast<f32x3>(high_16);
+      nPrims : u16;
+      axis : u8;
+      8;
+      split nPrims {
+        0 -> Interior {
+          offset : u32;
+          left = (offset, cast<u1>(0));
+          right = (offset, cast<u1>(1));
+        };
+        _ -> Leaf {
+          pOffset : u32;
+          data = prims[pOffset:pOffset + cast<u32>(nPrims)];
+        };
+      };
+    };
+  };
+};
+
+
 
 }

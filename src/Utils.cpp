@@ -198,8 +198,12 @@ Expr make_tuple(std::vector<Expr> exprs) {
 std::vector<Expr> break_tuple(Expr expr) {
     // TODO(ajr): this may someday need to handle expr being a `Sort`
     const Build *build = expr.as<Build>();
-    internal_assert(build && build->type.is<Tuple_t>())
-        << "Expected Tuple build: " << expr;
+    if (build == nullptr) {
+        internal_assert(!expr.type().is_iterable());
+        return {expr};
+    }
+    internal_assert(build->type.is<Tuple_t>())
+        << "expected tuple build: " << expr << " : " << expr.type();
     return build->values;
 }
 
@@ -434,7 +438,8 @@ size_t find_struct_index(const std::string &field,
             return i;
         }
     }
-    internal_error << "find_struct_index did not find field " << field;
+    internal_error << "find_struct_index did not find field " << field
+                   << " in fields: " << fields;
 }
 
 uint32_t vector_field_lane(const std::string &field) {
@@ -578,6 +583,94 @@ bool is_dynamic_array_struct_type(const Type &type) {
         }
     }
     return false;
+}
+
+void try_match_types(Expr &a, Expr &b) {
+    if (a.type().defined() && b.type().defined()) {
+        if (equals(a.type(), b.type())) {
+            return;
+        }
+        // TODO(cgyurgyik): hot fix
+        if (a.type().is<Ref_t, BVH_t, Ptr_t>() ||
+            b.type().is<Ref_t, BVH_t, Ptr_t>()) {
+            return; // ... for the build language.
+        }
+        if (a.type().is<Option_t>() && b.type().is_bool()) {
+            a = Cast::make(Bool_t::make(), a);
+        } else if (b.type().is<Option_t>() && a.type().is_bool()) {
+            b = Cast::make(Bool_t::make(), b);
+            return;
+        }
+        internal_assert(!a.type().is<Option_t>())
+            << "Trying to match option type: " << a << " with: " << b;
+        internal_assert(!b.type().is<Option_t>())
+            << "Trying to match: " << a << " with option type: " << b;
+
+        // Try broadcasting
+        if (a.type().is_vector() && b.type().is_scalar()) {
+            b = Broadcast::make(a.type().lanes(), b);
+            // recurse in case wrong constant types still.
+            try_match_types(a, b);
+            return;
+        } else if (b.type().is_vector() && a.type().is_scalar()) {
+            a = Broadcast::make(b.type().lanes(), a);
+            // recurse in case wrong constant types still.
+            try_match_types(a, b);
+            return;
+        }
+
+        if (is_const(a)) {
+            a = constant_cast(b.type(), a);
+            return;
+        } else if (is_const(b)) {
+            b = constant_cast(a.type(), b);
+            return;
+        }
+        // Cast to the larger bitwidth
+        if (a.type().bits() > b.type().bits()) {
+            b = cast_to(a.type(), b);
+            return;
+        }
+        if (b.type().bits() > a.type().bits()) {
+            a = cast_to(b.type(), a);
+            return;
+        }
+        if (a.type().is<ir::Ptr_t>()) {
+            return;
+        }
+        internal_error << "Implicit casting of types: " << a
+                       << " is not the same type as " << b << ": " << a.type()
+                       << " versus " << b.type();
+    } else if (a.type().defined() && !b.type().defined() && is_const(b)) {
+        internal_assert(!a.type().is<Option_t>());
+        b = constant_cast(a.type(), b);
+    } else if (b.type().defined() && !a.type().defined() && is_const(a)) {
+        internal_assert(!b.type().is<Option_t>());
+        a = constant_cast(b.type(), a);
+    }
+    // otherwise can't (currently) do better.
+}
+
+std::string get_field_name(ir::Expr e) {
+    if (const auto *v = e.as<ir::Var>()) {
+        return v->name;
+    }
+    if (const auto *s = e.as<ir::Slice>()) {
+        return get_field_name(s->value);
+    }
+    if (const auto *ex = e.as<ir::Extract>()) {
+        return get_field_name(ex->vec);
+    }
+    if (const auto *bo = e.as<ir::BinOp>()) {
+        internal_assert(is_const(bo->a) ^ is_const(bo->b));
+        if (is_const(bo->a)) {
+            return get_field_name(bo->b);
+        }
+        if (is_const(bo->b)) {
+            return get_field_name(bo->a);
+        }
+    }
+    internal_error << "failed to get field name from: " << e;
 }
 
 } // namespace bonsai
