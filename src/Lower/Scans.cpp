@@ -65,11 +65,11 @@ Expr apply_unary_lambda(const Expr &lambda_expr, const Expr &value) {
 // LowerDynamicSets gives every set-returning function a backing allocation
 // and turns its yields into appends, so this one needs no special handling
 // there, and -- unlike an accumulator -- a yield needs nothing to exist yet.
-std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &trees,
-                                          const std::optional<TypedVar> &acc,
-                                          const std::string &func_name,
-                                          const std::optional<AggOp::OpType> &op,
-                                          const Expr &map_func) {
+std::shared_ptr<Function>
+build_scan_func(const std::vector<TypedVar> &trees,
+                const std::optional<TypedVar> &acc,
+                const std::string &func_name,
+                const std::optional<AggOp::OpType> &op, const Expr &map_func) {
     internal_assert(op.has_value() == acc.has_value())
         << "A reducing scan accumulates and a set-union scan yields: "
         << func_name;
@@ -173,8 +173,8 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &trees,
             }
             if (reduces) {
                 // Hand the same accumulator down to the subtree.
-                call_args.back() = Var::make(func->args.back().type,
-                                             func->args.back().name);
+                call_args.back() =
+                    Var::make(func->args.back().type, func->args.back().name);
             }
             return call_args;
         }
@@ -205,7 +205,6 @@ std::shared_ptr<Function> build_scan_func(const std::vector<TypedVar> &trees,
         }
 
         RESTRICT_MUTATOR(Stmt, YieldFrom);
-
     };
 
     Stmt match_body = build_base_scan(trees.front().name, bvh_t);
@@ -337,8 +336,7 @@ struct LowerScansImpl : public Mutator {
             }
             if (acc.has_value()) {
                 call_args.push_back(Var::make(acc->type, acc->name));
-                stmts.push_back(
-                    CallStmt::make(callable, std::move(call_args)));
+                stmts.push_back(CallStmt::make(callable, std::move(call_args)));
                 continue;
             }
             // The scan returns a set, and the traversal yields all of it.

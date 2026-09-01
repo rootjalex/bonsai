@@ -238,8 +238,7 @@ Member Chain::make(std::vector<Member> members) {
 }
 
 Member Group::make(std::string name, std::string declared_name, Expr size,
-                   Expr alignment, Expr index, Member inner,
-                   Group::Type type) {
+                   Expr alignment, Expr index, Member inner, Group::Type type) {
     switch (type) {
     case Group::Type::Direct:
         if (!index.defined()) {

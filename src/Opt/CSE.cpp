@@ -430,7 +430,6 @@ struct Rename : public ir::Mutator {
         return ir::Sequence::make(std::move(generated));
     }
 
-
     ir::Stmt visit(const ir::LetStmt *node) override {
         if (node->loc.base() == "tid") {
             // TODO(cgyurgyik): do *not* rename TID for now; the CUDA backend

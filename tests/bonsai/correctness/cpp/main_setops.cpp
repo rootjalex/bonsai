@@ -28,8 +28,7 @@ Input build_tree(std::vector<float> values) {
     std::copy(values.begin(), values.end(), tree.prims);
 
     tree.count = 2 * tree.pCount - 1;
-    tree.nodes = static_cast<Nodes *>(
-        std::malloc(sizeof(Nodes) * tree.count));
+    tree.nodes = static_cast<Nodes *>(std::malloc(sizeof(Nodes) * tree.count));
 
     uint64_t next_node = 0;
     std::function<uint64_t(uint64_t, uint64_t)> handle_range =

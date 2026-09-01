@@ -284,7 +284,6 @@ struct vector {
     }
 };
 
-
 template <typename T, size_t N>
 vector<T, N> max(const vector<T, N> &a, const vector<T, N> &b) {
     vector<T, N> r;
@@ -497,4 +496,3 @@ bool reduce_or(const vector<bool, N> &v) {
     }
     return t;
 }
-

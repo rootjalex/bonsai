@@ -89,9 +89,9 @@ VariantData analyze_node(const ir::BVH_t::Variant &variant,
              ir::equals(primitive_type, parameter_type.element_of()));
         if (is_primitive) {
             // With annotations present, only the annotated fields count.
-            const bool is_payload =
-                annotated.empty() ? !metadata.contains(parameter.name)
-                                  : annotated.contains(parameter.name);
+            const bool is_payload = annotated.empty()
+                                        ? !metadata.contains(parameter.name)
+                                        : annotated.contains(parameter.name);
             if (is_payload) {
                 payload.push_back(parameter);
             }
@@ -714,9 +714,8 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             // by an epsilon: the comparisons that gate the traversal are
             // strict, and a witness sitting exactly on the bound has to
             // survive them.
-            ir::Expr value =
-                bounds.max +
-                ir::Extrema::make(bounds.max.type(), ir::Extrema::eps);
+            ir::Expr value = bounds.max + ir::Extrema::make(bounds.max.type(),
+                                                            ir::Extrema::eps);
 
             ir::Expr empty_expr =
                 ir::Build::make(tuple_t.as<ir::Tuple_t>()->etypes[1]);

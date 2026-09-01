@@ -20,8 +20,8 @@ std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
 
 float surface_area(const float3 &min, const float3 &max) {
     float3 extent = max - min;
-    return 2.0f *
-           (extent[0] * extent[1] + extent[0] * extent[2] + extent[1] * extent[2]);
+    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
+                   extent[1] * extent[2]);
 }
 
 float3 triangle_centroid(const Triangle &tri) {
@@ -219,9 +219,10 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
         if (best_axis == -1) {
             uint32_t mid = low + count / 2;
             float3 extent = aabb_max - aabb_min;
-            int fallback_axis = (extent[0] > extent[1] && extent[0] > extent[2]) ? 0
-                                : (extent[1] > extent[2])                      ? 1
-                                                        : 2;
+            int fallback_axis = (extent[0] > extent[1] && extent[0] > extent[2])
+                                    ? 0
+                                : (extent[1] > extent[2]) ? 1
+                                                          : 2;
 
             std::nth_element(triangles.begin() + low, triangles.begin() + mid,
                              triangles.begin() + high,

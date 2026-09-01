@@ -749,8 +749,8 @@ class BonsaiToCpp : ir::Printer {
             ss << ", ";
             print_no_parens(node->begin);
             ss << ", ";
-            print_no_parens(ir::BinOp::make(ir::BinOp::Sub, node->end,
-                                            node->begin));
+            print_no_parens(
+                ir::BinOp::make(ir::BinOp::Sub, node->end, node->begin));
             ss << ")";
             return;
         }
@@ -1565,7 +1565,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         llvm::outs() << "// Bonsai Header" << '\n';
         llvm::outs() << BonsaiToCpp(program, options)
                             .create_header(
-                            /*allow_mangling=*/false)
+                                /*allow_mangling=*/false)
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -1602,19 +1602,17 @@ void to_cppx(const ir::Program &program, const CompilerOptions &options) {
         // Mostly for dry-run / testing purposes.
         std::cout << "// Bonsai Header" << std::endl;
         std::cout << BonsaiToCpp(program, options)
-                            .create_header(/*allow_mangling=*/true)
+                         .create_header(/*allow_mangling=*/true)
                   << std::endl;
-        std::cout << BonsaiToCpp(program, options)
-                            .create_source()
-                     << std::endl;
+        std::cout << BonsaiToCpp(program, options).create_source() << std::endl;
         return;
     }
 
     // Write C++ header file with struct and function declarations (`.h`).
     std::ofstream h_file;
     h_file.open(options.output_file + ".h");
-    h_file << BonsaiToCpp(program, options)
-                  .create_header(/*allow_mangling=*/true);
+    h_file
+        << BonsaiToCpp(program, options).create_header(/*allow_mangling=*/true);
     h_file.close();
 
     // Write C++ source file with struct and function declarations (`.cpp`).

@@ -1486,7 +1486,8 @@ GroupMaps get_group_maps(const ir::Layout &layout) {
     struct GetGroupMaps : ir::Visitor {
         void visit(const ir::Group *node) override {
             {
-                const auto [_, inserted] = maps.by_field.insert({node->name, node});
+                const auto [_, inserted] =
+                    maps.by_field.insert({node->name, node});
                 internal_assert(inserted)
                     << "unexpected duplicate group field: " << node->name;
             }

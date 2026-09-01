@@ -448,17 +448,17 @@ struct ValidateSplits : public Visitor {
         if (expr.type().is<Bool_t>()) {
             validate_arms<uint64_t>(*node, 0, 1);
         } else if (expr.type().is<Int_t>()) {
-            const int64_t tmin =
-                bits == 64 ? std::numeric_limits<int64_t>::min()
-                           : -(int64_t(1) << (bits - 1));
-            const int64_t tmax =
-                bits == 64 ? std::numeric_limits<int64_t>::max()
-                           : (int64_t(1) << (bits - 1)) - 1;
+            const int64_t tmin = bits == 64
+                                     ? std::numeric_limits<int64_t>::min()
+                                     : -(int64_t(1) << (bits - 1));
+            const int64_t tmax = bits == 64
+                                     ? std::numeric_limits<int64_t>::max()
+                                     : (int64_t(1) << (bits - 1)) - 1;
             validate_arms<int64_t>(*node, tmin, tmax);
         } else if (expr.type().is<UInt_t>()) {
-            const uint64_t tmax =
-                bits == 64 ? std::numeric_limits<uint64_t>::max()
-                           : (uint64_t(1) << bits) - 1;
+            const uint64_t tmax = bits == 64
+                                      ? std::numeric_limits<uint64_t>::max()
+                                      : (uint64_t(1) << bits) - 1;
             validate_arms<uint64_t>(*node, 0, tmax);
         } else {
             internal_error << "[unimplemented] split field type: "

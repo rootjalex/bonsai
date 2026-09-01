@@ -2560,8 +2560,7 @@ struct Parser {
             }
 
             return ir::Annotation{ir::Annotation::Volume{
-                std::move(boundee), std::move(type),
-                std::move(initializers)}};
+                std::move(boundee), std::move(type), std::move(initializers)}};
         } else if (consume(Token::Type::IN)) {
             expect(Token::Type::LBRACKET);
             auto low = get_id();

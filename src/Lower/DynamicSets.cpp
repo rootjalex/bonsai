@@ -145,10 +145,9 @@ Program LowerDynamicSets::run(Program program,
         // runtime provides set<T>; CUDA has no such type and takes a
         // thrust::universal_vector, which is what a DynArray_t emits as.
         // TODO(cgyurgyik): Add schedule support for dynamic array size.
-        Type dynamic_array_t =
-            options.target == BackendTarget::CUDA
-                ? DynArray_t::make(set_t->etype)
-                : Set_t::make(set_t->etype);
+        Type dynamic_array_t = options.target == BackendTarget::CUDA
+                                   ? DynArray_t::make(set_t->etype)
+                                   : Set_t::make(set_t->etype);
         func->ret_type = dynamic_array_t;
         converted.emplace(name, dynamic_array_t);
         if (yields(func->body)) {

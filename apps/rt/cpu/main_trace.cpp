@@ -1,5 +1,5 @@
-#include "runtime/CPP/bonsai_cpp.h"
 #include "rt.h"
+#include "runtime/CPP/bonsai_cpp.h"
 #include "util.h"
 
 #include <omp.h>

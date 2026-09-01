@@ -1,5 +1,5 @@
-#include "runtime/CUDA/helpers.h"
 #include "rtiow.h"
+#include "runtime/CUDA/helpers.h"
 
 #include <cassert>
 #include <chrono>

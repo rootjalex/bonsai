@@ -176,7 +176,7 @@ BVH *build_canonical_tree_2_sah(std::vector<Triangle> &triangles, int leaf_size,
                         centroid_extent[0] > centroid_extent[2])
                            ? 0
                        : (centroid_extent[1] > centroid_extent[2]) ? 1
-                                                                 : 2;
+                                                                   : 2;
             splitCoord = (bc.pMin[splitDim] + bc.pMax[splitDim]) * 0.5f;
         }
 

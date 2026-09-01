@@ -16,8 +16,8 @@ compute_aabb(uint32_t low, uint32_t high,
 
 inline float surface_area(const float3 &min, const float3 &max) {
     float3 extent = max - min;
-    return 2.0f *
-           (extent[0] * extent[1] + extent[0] * extent[2] + extent[1] * extent[2]);
+    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
+                   extent[1] * extent[2]);
 }
 
 inline float3 triangle_centroid(const Triangle &tri) {
@@ -133,9 +133,10 @@ inline BVH *build_canonical_tree_8_sah(std::vector<Triangle> &triangles,
 
             for (int axis = 0; axis < 3; ++axis) {
                 float extent =
-                    (axis == 0)   ? local_centroid_max[0] - local_centroid_min[0]
-                    : (axis == 1) ? local_centroid_max[1] - local_centroid_min[1]
-                                  : local_centroid_max[2] - local_centroid_min[2];
+                    (axis == 0) ? local_centroid_max[0] - local_centroid_min[0]
+                    : (axis == 1)
+                        ? local_centroid_max[1] - local_centroid_min[1]
+                        : local_centroid_max[2] - local_centroid_min[2];
 
                 if (extent < 1e-6f)
                     continue;

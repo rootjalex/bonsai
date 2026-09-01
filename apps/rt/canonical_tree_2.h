@@ -15,8 +15,8 @@ std::pair<float3, float3> compute_aabb(uint32_t low, uint32_t high,
 
 float surface_area(const float3 &min, const float3 &max) {
     float3 extent = max - min;
-    return 2.0f *
-           (extent[0] * extent[1] + extent[0] * extent[2] + extent[1] * extent[2]);
+    return 2.0f * (extent[0] * extent[1] + extent[0] * extent[2] +
+                   extent[1] * extent[2]);
 }
 
 float3 triangle_centroid(const Triangle &tri) {
