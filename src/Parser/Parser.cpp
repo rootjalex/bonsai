@@ -57,8 +57,11 @@ class ParseErrorReport {
         ss << "-> " << detail::source_relative_path(call_site.file_name())
            << ":" << call_site.line() << " \n";
 
-        ss << back_trace << ":" << begin_line << ":" << begin_column
-           << ": [parse error] " << os.str() << "\n"
+        // The caret below marks the column, so the location does not print
+        // one. Column numbers in diagnostics are noise here and, when they come
+        // from a host compiler, make the output machine-specific.
+        ss << back_trace << ":" << begin_line << ": [parse error] " << os.str()
+           << "\n"
            << "\n";
         ss << line << "\n";
         const std::string pointer = std::string(

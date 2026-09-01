@@ -1,9 +1,9 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:70
--> src/Parser/Parser.cpp:381 
-tests/bonsai/error/identifier.bonsai:3:5: [parse error] identifier: _x cannot begin with `_`. This is reserved for compiler-generated variables.
+[internal] Error: src/Parser/Parser.cpp:73
+-> src/Parser/Parser.cpp:384 
+tests/bonsai/error/identifier.bonsai:3: [parse error] identifier: _x cannot begin with `_`. This is reserved for compiler-generated variables.
 
     _x: i32 = 42;
     ^^
