@@ -225,6 +225,7 @@ struct Parser {
     // generics, we need this to be a stack!
     ir::TypeMap current_generics;
     const ir::Type u32 = ir::UInt_t::make(32), i32 = ir::Int_t::make(32),
+                   u64 = ir::UInt_t::make(64), i64 = ir::Int_t::make(64),
                    f32 = ir::Float_t::make_f32();
 
     const std::string &file_name() const { return tokens().file_name(); }
@@ -1459,14 +1460,21 @@ struct Parser {
         } else if (peek().type == Token::Type::INT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
             const int64_t value = parse_int_literal();
-            // default (pre-type casting) is i32
-            return ir::IntImm::make(i32, value);
+            // Default to i32, but only where the value fits in one. IntImm
+            // normalises by dropping the high bits, so a literal too big for
+            // 32 bits used to lose them here -- before the annotation that
+            // would have widened it was ever consulted. `x : u64 = <big>` came
+            // out holding the low half of what was written, with nothing said.
+            const bool fits_i32 = value >= INT32_MIN && value <= INT32_MAX;
+            return ir::IntImm::make(fits_i32 ? i32 : i64, value);
         } else if (peek().type == Token::Type::UINT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
             const Token token = expect(Token::Type::UINT_LITERAL);
             const uint64_t value = std::get<uint64_t>(token.value);
-            // default (pre-type casting) is u32
-            return ir::UIntImm::make(u32, value);
+            // default (pre-type casting) is u32, widened as above when the
+            // value needs it.
+            const bool fits_u32 = value <= UINT32_MAX;
+            return ir::UIntImm::make(fits_u32 ? u32 : u64, value);
         } else if (peek().type == Token::Type::FLOAT_LITERAL) {
             // can't know concrete type yet, let type inference figure it out.
             const Token token = expect(Token::Type::FLOAT_LITERAL);

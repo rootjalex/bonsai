@@ -1,0 +1,62 @@
+//! flags: -b llvm -e
+
+// 64-bit integers, and the literals that reach them.
+//
+// Every integer literal was made i32 and then normalised by dropping the high
+// bits, which happened at parse time -- before the annotation that would have
+// widened it was ever consulted. So `x : u64 = 6364136223846793005` silently
+// became the low half of what was written, and nothing said so: the arithmetic
+// that followed was correct 64-bit arithmetic on the wrong number. What made
+// it visible was PCG32, whose constants are all larger than 32 bits.
+//
+// A literal above 2^63 has to be written unsigned, since that is the only way
+// to say it: the lexer reads a signed literal with stoll, which throws rather
+// than diagnosing. Hex would be the natural spelling for these and the lexer
+// has no hex literals either.
+element RNG {
+    state, inc : u64;
+}
+
+// pbrt: RNG::Uniform<uint32_t>, from util/rng.h. Here because it is what found
+// the bug, and because the sampler M2 needs is built on it -- matching pbrt's
+// noise means matching this stream exactly, not merely having one.
+func next_uint(r : mut RNG) -> u32 {
+    old = r.state;
+    r.state = old * 6364136223846793005u + r.inc;
+    xorshifted = cast[[u32]](((old >> 18u) ^ old) >> 27u);
+    rot = cast[[u32]](old >> 59u);
+    // pbrt writes the rotate as `(~rot + 1u) & 31`, which is the same five
+    // bits as 32 - rot; bonsai has no bitwise not.
+    return (xorshifted >> rot) | (xorshifted << ((32u - rot) & 31u));
+}
+
+func main() -> i32 {
+    // The literal that used to lose its top half, taken apart either side.
+    a : u64 = 6364136223846793005;
+    print(cast[[u32]](a));       // 1284865837
+    print(cast[[u32]](a >> 32)); // 1481765933
+
+    // Shifts that a 32-bit value could not answer: 59 bits is past the width
+    // it used to be truncated to, and gave zero.
+    print(cast[[u32]](a >> 59));            // 11
+    print(cast[[u32]](((a >> 18) ^ a) >> 27)); // 171722534
+
+    // Wrapping multiply, both halves.
+    b : u64 = 1442695040888963407;
+    c = a * b + 12345;
+    print(cast[[u32]](c >> 32)); // 100889234
+    print(cast[[u32]](c));       // 2371034140
+
+    // Above 2^63, where a signed literal cannot reach.
+    big : u64 = 9600629759793949339u;
+    print(cast[[u32]](big >> 32)); // 2235320806
+    print(cast[[u32]](big));       // 1955588763
+
+    // pbrt's default-seeded stream, whose first four values are pbrt's.
+    r : mut RNG = {9600629759793949339u, 15726070495360670683u};
+    print(next_uint(r));
+    print(next_uint(r));
+    print(next_uint(r));
+    print(next_uint(r));
+    return 0;
+}

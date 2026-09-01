@@ -15,6 +15,7 @@ add_bonsai_tests(
     function-type.bonsai
     gamma.bonsai
     if-else-returns.bonsai
+    int64.bonsai
     loop-transforms.bonsai
     loopify.bonsai
     loopify-queue.bonsai
