@@ -13,6 +13,7 @@ add_bonsai_tests(
     exp-log.bonsai
     exported-recursive-function.bonsai
     extrema.bonsai
+    field-store-ssa.bonsai
     function-type.bonsai
     gamma.bonsai
     hex-and-complement.bonsai

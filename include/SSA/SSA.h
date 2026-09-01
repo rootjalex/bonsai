@@ -99,6 +99,12 @@ struct Instruction {
         Eps,
         Eq,
         ExtractIdx,
+        // The address of a struct's field, by index into that struct. The
+        // mirror of LoadField, which reads one: a write needs the place rather
+        // than the value, and a GEP cannot stand in for it because the two are
+        // rebuilt differently -- an index access indexes an array, a field
+        // access names a member, and a WriteLoc keeps them apart.
+        FieldPtr,
         GEP,
         Inf,
         // Any of the intrinsics this IR has that are not spelled out above,

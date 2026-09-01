@@ -384,25 +384,54 @@ struct FunctionBuilder : Visitor {
         auto var =
             block->get_value(node->loc.base, base_lookup_type(node->loc));
 
-        for (const auto &value : node->loc.accesses) {
-            if (std::holds_alternative<std::string>(value)) {
-                internal_error << "TODO: handle stores to field vars in SSA: "
-                               << Stmt(node);
-            } else {
-                Expr idx = std::get<Expr>(value);
-                auto i = get_value(idx);
-
-                // TODO: FIGURE OUT TYPE!!
-                // TODO: aligned load first?? not sure how this works.
-                // LLVM is weird here.
-                var = block->make_instruction(Type(), Instruction::Op::GEP,
-                                              {std::move(var), std::move(i)});
-            }
-        }
+        var = walk_accesses(std::move(var), node->loc);
 
         std::vector<std::shared_ptr<Value>> args = {std::move(var),
                                                     std::move(v)};
         block->make_side_effect(Instruction::Op::Store, std::move(args));
+    }
+
+    // Walk a write location's accesses, turning each into the address it
+    // names: an index into an array is a GEP, and a field of a struct is a
+    // FieldPtr carrying that field's position.
+    //
+    // Shared by Store and Accumulate because they ask the same question. They
+    // used to have a copy each, and both copies gave up on a field -- so
+    // `s.field = v` for any struct held in memory had no lowering at all,
+    // which is the ordinary way to write to a mutable struct.
+    std::shared_ptr<Value> walk_accesses(std::shared_ptr<Value> ptr,
+                                         const WriteLoc &loc) {
+        static const Type u32 = UInt_t::make(32);
+        // The type as each access narrows it, which is what says where a
+        // field sits. WriteLoc keeps this in step for its own `type`, but only
+        // for the whole chain, so it is tracked again here step by step.
+        Type current = loc.base_type;
+        for (const auto &value : loc.accesses) {
+            if (std::holds_alternative<std::string>(value)) {
+                const std::string &field = std::get<std::string>(value);
+                const Struct_t *struct_t = current.as<Struct_t>();
+                internal_assert(struct_t)
+                    << "field access `" << field << "` on non-struct type "
+                    << current << " in " << loc.base;
+                const auto idx = find_struct_index(field, struct_t->fields);
+                current = get_field_type(current, field);
+                ptr = block->make_instruction(
+                    Ptr_t::make(current), Instruction::Op::FieldPtr,
+                    {std::move(ptr), make_constant(u32, (uint64_t)idx)});
+            } else {
+                Expr idx = std::get<Expr>(value);
+                auto i = get_value(idx);
+                if (current.defined()) {
+                    current = current.element_of();
+                }
+                // TODO: FIGURE OUT TYPE!!
+                // TODO: aligned load first?? not sure how this works.
+                // LLVM is weird here.
+                ptr = block->make_instruction(Type(), Instruction::Op::GEP,
+                                              {std::move(ptr), std::move(i)});
+            }
+        }
+        return ptr;
     }
 
     Instruction::Op get_acc_op(const Accumulate::OpType op) {
@@ -451,21 +480,7 @@ struct FunctionBuilder : Visitor {
             // Calculate address (TODO: dedup with Store)
             ptr = block->get_value(node->loc.base, base_lookup_type(node->loc));
 
-            for (const auto &value : node->loc.accesses) {
-                if (std::holds_alternative<std::string>(value)) {
-                    internal_error
-                        << "TODO: handle accumulates to field vars in SSA: "
-                        << Stmt(node);
-                } else {
-                    Expr idx = std::get<Expr>(value);
-                    auto i = get_value(idx);
-
-                    // Update ptr with GEP result
-                    ptr =
-                        block->make_instruction(Type(), Instruction::Op::GEP,
-                                                {std::move(ptr), std::move(i)});
-                }
-            }
+            ptr = walk_accesses(std::move(ptr), node->loc);
         }
 
         std::vector<std::shared_ptr<Value>> args = {std::move(ptr),

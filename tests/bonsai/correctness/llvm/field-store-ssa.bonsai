@@ -1,0 +1,76 @@
+//! flags: -p ssa -b llvm -e
+
+// Writing to a field of a struct held in memory, through the SSA pipeline.
+//
+// The SSA conversion had no lowering for it -- `s.field = v` raised "TODO:
+// handle stores to field vars in SSA", and so did the accumulate beside it.
+// Reading a field worked, because that is a LoadField; writing one needed the
+// field's address and there was nothing that named it. So a mutable struct,
+// which is the ordinary way to carry state through a function, could not be
+// updated at all under `-p ssa`, and every schedule needs that pipeline.
+//
+// FieldPtr is that address, the mirror of LoadField. A GEP could not stand in
+// for it: an index access indexes an array and a field access names a member,
+// and a write location keeps the two apart -- so the position has to come back
+// as a name when the statements are rebuilt.
+element Float = f32;
+
+element RNG {
+    state, inc : u64;
+}
+
+// The case that found it: pbrt's PCG32 advances a struct's field in place.
+func step(r : mut RNG) -> u32 {
+    old = r.state;
+    r.state = old * 0x5851f42d4c957f2d + r.inc;
+    return cast[[u32]](old >> 59u);
+}
+
+element Counters {
+    hits : u32;
+    total : Float;
+}
+
+// Accumulating into a field, which took the same path and failed the same way.
+func tally(c : mut Counters, v : Float) -> void {
+    c.hits += 1u;
+    c.total += v;
+    return;
+}
+
+element Nested {
+    inner : Counters;
+    label : u32;
+}
+
+// A field of a field, so the walk has to narrow the type more than once
+// rather than only handling one level.
+func tally_nested(n : mut Nested, v : Float) -> void {
+    n.inner.hits += 2u;
+    n.inner.total = v * 3.0;
+    return;
+}
+
+func main() -> i32 {
+    r : mut RNG = {0x853c49e6748fea9b, 0xda3e39cb94b95bdb};
+    print(step(r));
+    print(step(r));
+    // The state the two steps left behind, so a store that went to the wrong
+    // field would show here rather than only in the returns.
+    print(cast[[u32]](r.state >> 32u));
+    print(cast[[u32]](r.inc >> 32u));
+
+    c : mut Counters = {0u, 0.0};
+    tally(c, 1.5);
+    tally(c, 2.5);
+    print(c.hits);
+    print(c.total);
+
+    n : mut Nested = {c, 7u};
+    tally_nested(n, 2.0);
+    print(n.inner.hits);
+    print(n.inner.total);
+    // Untouched, so a write that overran its field would show up here.
+    print(n.label);
+    return 0;
+}

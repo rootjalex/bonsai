@@ -119,6 +119,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Intrinsic:
     case Instruction::Op::Eq:
     case Instruction::Op::ExtractIdx:
+    case Instruction::Op::FieldPtr:
     case Instruction::Op::GEP:
     case Instruction::Op::LAnd:
     case Instruction::Op::LOr:
@@ -159,6 +160,26 @@ WriteLoc codegen_gep(const std::shared_ptr<Value> &v) {
             Expr idx = codegen_value(i->operands[1]);
             loc.add_index_access(idx);
 
+            return loc;
+        }
+
+        if (i->op == Instruction::Op::FieldPtr) {
+            internal_assert(i->operands.size() == 2)
+                << "Malformed FieldPtr: expected 2 operands";
+            WriteLoc loc = codegen_gep(i->operands[0]);
+
+            // Back to the field's name, because that is what a WriteLoc
+            // records -- the position was only how the SSA carried it.
+            const Struct_t *struct_t = loc.type.as<Struct_t>();
+            internal_assert(struct_t)
+                << "FieldPtr into non-struct type " << loc.type;
+            const Expr index = codegen_value(i->operands[1]);
+            const auto *imm = index.as<UIntImm>();
+            internal_assert(imm) << "FieldPtr with a non-constant field index";
+            internal_assert(imm->value < struct_t->fields.size())
+                << "FieldPtr index " << imm->value << " past the end of "
+                << loc.type;
+            loc.add_struct_access(struct_t->fields[imm->value].name);
             return loc;
         }
 
@@ -1047,6 +1068,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                 continue;
             }
             if (instr->op == Instruction::Op::GEP ||
+                instr->op == Instruction::Op::FieldPtr ||
                 instr->op == Instruction::Op::Ramp) {
                 // Pure address-computation helpers, consumed inline by
                 // codegen_gep()/codegen_value() when codegening the owning

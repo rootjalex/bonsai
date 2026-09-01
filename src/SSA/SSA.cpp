@@ -108,6 +108,8 @@ const char *op_name(Instruction::Op op) {
         return "eq";
     case Instruction::Op::ExtractIdx:
         return "extract_idx";
+    case Instruction::Op::FieldPtr:
+        return "field.ptr";
     case Instruction::Op::GEP:
         return "gep";
     case Instruction::Op::LAnd:
@@ -192,6 +194,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Intrinsic:
     case Instruction::Op::Eq:
     case Instruction::Op::ExtractIdx:
+    case Instruction::Op::FieldPtr:
     case Instruction::Op::GEP:
     case Instruction::Op::LAnd:
     case Instruction::Op::LOr:
