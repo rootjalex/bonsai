@@ -385,7 +385,15 @@ struct Intrinsic : ExprNode<Intrinsic> {
     // https://llvm.org/docs/LangRef.html#standard-c-c-library-intrinsics
     enum OpType {
         abs,
+        // The inverse hyperbolic tangent, which LLVM has no intrinsic for and
+        // so becomes a call to libm's atanhf. Here rather than left to be
+        // written as 0.5*log((1+x)/(1-x)) because the two differ in the last
+        // bit for about half of all inputs, and a caller that rounds the result
+        // -- as a spectrum sampled per nanometre does -- turns that last bit
+        // into a visible difference.
+        atanh,
         cos,
+        cosh,
         cross,
         dot,
         exp,

@@ -233,6 +233,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::FunctionCallee get_pthread_unlock();
     llvm::FunctionCallee get_pthread_init();
 
+    // A call to the libm function `name`, for the maths LLVM has no intrinsic
+    // for. Single-precision goes to the `f`-suffixed entry point, as C's
+    // overloads do. A vector argument is taken a lane at a time, because libm
+    // is scalar; the intrinsics LLVM does have would have been legalised into
+    // the same calls.
+    llvm::Value *codegen_libm_call(const std::string &name,
+                                   const ir::Intrinsic *node);
+
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;

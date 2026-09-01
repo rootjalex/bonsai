@@ -1,0 +1,24 @@
+//! flags: -b llvm
+
+// How the maths LLVM has no intrinsic for reaches the target.
+//
+// LLVM has intrinsics for the hyperbolic functions but not for their inverses,
+// so `cosh` becomes llvm.cosh and `atanh` becomes a call to libm's atanhf --
+// which is the same function a C compiler calls for std::atanh, and so the same
+// answer bit for bit. That is the whole point: apps/pbrt rounds a wavelength to
+// the nearest nanometre before indexing a table, and a last-bit difference in
+// atanh occasionally picks the neighbouring entry.
+//
+// The vector case is the one worth pinning. libm is scalar, so a vector `atanh`
+// has to be taken a lane at a time -- four extractelements, four calls and four
+// insertelements below -- where `cosh` stays a single vector intrinsic and is
+// legalised into the same shape further down. Getting this wrong is not a
+// miscompile that shows up as a wrong number; it is one that fails to build.
+func scalar_atanh(x : f32) -> f32 = atanh(x);
+func scalar_cosh(x : f32) -> f32 = cosh(x);
+
+func vector_atanh(v : vector[f32, 4]) -> vector[f32, 4] = atanh(v);
+func vector_cosh(v : vector[f32, 4]) -> vector[f32, 4] = cosh(v);
+
+// Double precision goes to the unsuffixed entry point, as C's overloads do.
+func double_atanh(x : f64) -> f64 = atanh(x);

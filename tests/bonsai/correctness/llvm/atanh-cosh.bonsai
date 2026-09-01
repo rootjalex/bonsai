@@ -1,0 +1,66 @@
+//! flags: -b llvm -e
+
+// `atanh` and `cosh`, the two halves of pbrt's SampleVisibleWavelengths.
+//
+// They can both be written with the logarithm and the exponential that
+// exp-log.bonsai already tests -- and were, until it turned out to matter that
+// the algebraically equal forms are not equal in floating point.
+// 0.5*log((1+x)/(1-x)) differs from atanh(x) in the last bit for roughly half
+// of all inputs, which is invisible until something rounds the result: a
+// spectrum is sampled per nanometre, so a wavelength gets rounded before it
+// indexes anything, and once in a while the two forms round to different
+// entries. In apps/pbrt that was a scattering of pixels whose albedo was a
+// percent out of agreement with pbrt.
+//
+// So what is checked here is not just the values but the routes: `cosh` is an
+// LLVM intrinsic and `atanh` is a call to libm, because LLVM has intrinsics for
+// the hyperbolic functions and not for their inverses. The IR shape is pinned
+// by backends/llvm/libm-call.bonsai; this checks the answers.
+element Float = f32;
+
+func close(a : Float, b : Float) -> bool = abs(a - b) < 1.0e-5;
+
+func main() -> i32 {
+    // The fixed points, which fail for anything that is not these functions.
+    print(close(atanh(0.0), 0.0));
+    print(close(cosh(0.0), 1.0));
+
+    // Known values.
+    print(close(atanh(0.5), 0.549306144));
+    print(close(atanh(0.0 - 0.5), 0.0 - 0.549306144));
+    print(close(cosh(1.0), 1.543080635));
+    print(close(cosh(0.0 - 1.0), 1.543080635));
+    print(close(cosh(2.0), 3.762195691));
+
+    // Round trip: tanh has no intrinsic here, but cosh and atanh compose
+    // through the identity tanh(x) = sqrt(1 - 1/cosh(x)^2) for positive x.
+    c = cosh(0.75);
+    print(close(atanh(sqrt(1.0 - 1.0 / (c * c))), 0.75));
+
+    // Element-wise over a vector, which is how the spectral code uses them --
+    // and, for atanh, the case that has to be taken a lane at a time because
+    // libm is scalar.
+    v : vector[Float, 4] = {0.0, 0.25, 0.5, 0.75};
+    a = atanh(v);
+    print(close(a.x, 0.0));
+    print(close(a.y, 0.255412812));
+    print(close(a.z, 0.549306144));
+    print(close(a.w, 0.972955075));
+
+    w : vector[Float, 4] = {0.0, 1.0, 2.0, 3.0};
+    h = cosh(w);
+    print(close(h.x, 1.0));
+    print(close(h.y, 1.543080635));
+    print(close(h.z, 3.762195691));
+    print(close(h.w, 10.06766200));
+
+    // pbrt's SampleVisibleWavelengths and VisibleWavelengthsPDF, which is what
+    // both of these are here for. At u = 0.5 the four wavelengths are the ones
+    // a render with --disable-wavelength-jitter uses, so these are numbers that
+    // can be read straight out of a running pbrt.
+    lambda = fma(-138.888889, atanh(0.85691062 - 1.82750197 * 0.5), 538.0);
+    print(close(lambda, 545.903015));
+    ch = cosh(0.0072 * (lambda - 538.0));
+    print(close(0.0039398042 / (ch * ch), 0.0039270753));
+    return 0;
+}

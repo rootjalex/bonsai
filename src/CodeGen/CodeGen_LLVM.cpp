@@ -1599,8 +1599,19 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         add_false_arg = node->args[0].type().is_int();
         break;
     }
+    case Intrinsic::atanh: {
+        // LLVM has intrinsics for the hyperbolic functions but not for their
+        // inverses, so this is a call to libm -- which is what a C compiler
+        // emits for std::atanh too, and so is the same function bit for bit.
+        value = codegen_libm_call("atanh", node);
+        return;
+    }
     case Intrinsic::cos: {
         intrin = llvm::Intrinsic::cos;
+        break;
+    }
+    case Intrinsic::cosh: {
+        intrin = llvm::Intrinsic::cosh;
         break;
     }
     case Intrinsic::round: {
@@ -2617,6 +2628,41 @@ void CodeGen_LLVM::visit(const Store *node) {
     llvm::StoreInst *store =
         builder->CreateStore(rhs, dest, /*isVolatile=*/false);
     add_tbaa(store, node->value.type());
+}
+
+llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
+                                             const Intrinsic *node) {
+    internal_assert(node->args.size() == 1)
+        << "libm call " << name << " takes one argument: " << Expr(node);
+    const Type arg_type = node->args[0].type();
+    const bool is_vector = arg_type.is<Vector_t>();
+    const Type scalar_type = is_vector ? arg_type.element_of() : arg_type;
+    internal_assert(scalar_type.is_float())
+        << "libm call " << name << " expects a float: " << Expr(node);
+
+    // libm names the float overload with an `f`; the unsuffixed one is double.
+    const bool single = scalar_type.bits() == 32;
+    internal_assert(single || scalar_type.bits() == 64)
+        << "No libm entry point for " << scalar_type << " in " << Expr(node);
+    llvm::Type *llvm_scalar = single ? f32_t : f64_t;
+    llvm::FunctionCallee callee = module->getOrInsertFunction(
+        single ? name + "f" : name,
+        llvm::FunctionType::get(llvm_scalar, {llvm_scalar},
+                                /*isVarArg=*/false));
+
+    llvm::Value *arg = codegen_expr(node->args[0]);
+    if (!is_vector) {
+        return builder->CreateCall(callee, {arg}, name);
+    }
+
+    llvm::Value *result = llvm::UndefValue::get(codegen_type(node->type));
+    for (uint32_t lane = 0; lane < arg_type.lanes(); lane++) {
+        llvm::Value *index = llvm::ConstantInt::get(i32_t, lane);
+        llvm::Value *element = builder->CreateExtractElement(arg, index);
+        llvm::Value *applied = builder->CreateCall(callee, {element}, name);
+        result = builder->CreateInsertElement(result, applied, index);
+    }
+    return result;
 }
 
 llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {

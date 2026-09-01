@@ -1,0 +1,64 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write)
+define double @double_atanh(double noundef %x) local_unnamed_addr #0 {
+double_atanh_entry:
+  %atanh = tail call double @atanh(double %x)
+  ret double %atanh
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write)
+define float @scalar_atanh(float noundef %x) local_unnamed_addr #0 {
+scalar_atanh_entry:
+  %atanh = tail call float @atanhf(float %x)
+  ret float %atanh
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @scalar_cosh(float noundef %x) local_unnamed_addr #1 {
+scalar_cosh_entry:
+  %0 = tail call float @llvm.cosh.f32(float %x)
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write)
+define <4 x float> @vector_atanh(<4 x float> noundef %v) local_unnamed_addr #0 {
+vector_atanh_entry:
+  %0 = extractelement <4 x float> %v, i64 0
+  %atanh = tail call float @atanhf(float %0)
+  %1 = insertelement <4 x float> poison, float %atanh, i64 0
+  %2 = extractelement <4 x float> %v, i64 1
+  %atanh1 = tail call float @atanhf(float %2)
+  %3 = insertelement <4 x float> %1, float %atanh1, i64 1
+  %4 = extractelement <4 x float> %v, i64 2
+  %atanh2 = tail call float @atanhf(float %4)
+  %5 = insertelement <4 x float> %3, float %atanh2, i64 2
+  %6 = extractelement <4 x float> %v, i64 3
+  %atanh3 = tail call float @atanhf(float %6)
+  %7 = insertelement <4 x float> %5, float %atanh3, i64 3
+  ret <4 x float> %7
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @vector_cosh(<4 x float> noundef %v) local_unnamed_addr #1 {
+vector_cosh_entry:
+  %0 = tail call <4 x float> @llvm.cosh.v4f32(<4 x float> %v)
+  ret <4 x float> %0
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write)
+declare double @atanh(double) local_unnamed_addr #0
+
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write)
+declare float @atanhf(float) local_unnamed_addr #0
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.cosh.f32(float) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x float> @llvm.cosh.v4f32(<4 x float>) #2
+
+attributes #0 = { mustprogress nofree nounwind willreturn memory(write) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }

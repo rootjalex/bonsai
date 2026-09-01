@@ -16,6 +16,7 @@ add_bonsai_tests(
     ivector.bonsai
     known-limitation-ssa-mut-array-local.bonsai
     lambda.bonsai
+    libm-call.bonsai
     map-func.bonsai
     mut-basic.bonsai
     nested-exported-function.bonsai

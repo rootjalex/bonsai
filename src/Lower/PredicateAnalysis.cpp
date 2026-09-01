@@ -683,10 +683,14 @@ struct PredicateAnalysis : public ir::Visitor {
             return;
         }
         case ir::Intrinsic::round:
-        // exp and log are increasing wherever they are defined, so the same
-        // reasoning holds: the bounds of the result are the function of the
-        // bounds. log of a non-positive lower bound gives -inf or a NaN, which
-        // is an unusable bound rather than a wrong one.
+        // exp, log and atanh are increasing wherever they are defined, so the
+        // same reasoning holds: the bounds of the result are the function of
+        // the bounds. log of a non-positive lower bound gives -inf or a NaN,
+        // which is an unusable bound rather than a wrong one, and so does atanh
+        // of a bound outside (-1, 1). cosh is deliberately not here: it is even
+        // rather than monotone, so an interval straddling zero has its minimum
+        // in the middle rather than at an endpoint.
+        case ir::Intrinsic::atanh:
         case ir::Intrinsic::exp:
         case ir::Intrinsic::log:
         case ir::Intrinsic::sqrt: {
