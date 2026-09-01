@@ -1,4 +1,4 @@
-//! flags: -b llvm
+//! flags: -b llvm --target x86_64-unknown-linux-gnu
 
 element i32x2 = array[i32, 2];
 

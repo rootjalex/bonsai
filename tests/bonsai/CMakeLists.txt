@@ -1,14 +1,11 @@
 ##
 # CTest implementation
 
-# A handful of the backends goldens record what LLVM's optimizer produced, and
-# that legitimately differs between target architectures: LLVM 19 SLP
-# vectorizes a pair of i32 operations on AArch64 but not on x86-64, and
-# SimplifyCFG names the same select %spec.select on one and %common.ret.op on
-# the other. Where that happens, an optional <name>.<arch>.expect overrides the
-# base golden on that architecture, and the base file stays whatever the
-# machine CI runs on blesses.
-string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" BONSAI_TEST_ARCH)
+# The backends goldens record what LLVM's optimizer produced, which differs
+# between target architectures: LLVM 19 SLP vectorizes a pair of i32 operations
+# on AArch64 but not on x86-64. Those tests therefore name a triple with
+# `--target` in their flags rather than inheriting the host's, so one golden is
+# correct on every machine.
 
 function(add_bonsai_tests)
     cmake_parse_arguments(PARSE_ARGV 0 ARG "" "" "FILES;LABELS")
@@ -16,12 +13,8 @@ function(add_bonsai_tests)
         cmake_path(SET input "${file}")
         cmake_path(REPLACE_EXTENSION input "expect" OUTPUT_VARIABLE expect)
         cmake_path(REPLACE_EXTENSION input "actual" OUTPUT_VARIABLE actual)
-        cmake_path(REPLACE_EXTENSION input "${BONSAI_TEST_ARCH}.expect"
-                   OUTPUT_VARIABLE expect_arch)
-
         cmake_path(ABSOLUTE_PATH input)
         cmake_path(ABSOLUTE_PATH expect)
-        cmake_path(ABSOLUTE_PATH expect_arch)
         cmake_path(ABSOLUTE_PATH actual BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
         cmake_path(REMOVE_FILENAME actual OUTPUT_VARIABLE actual_dir)
@@ -49,7 +42,6 @@ function(add_bonsai_tests)
             NAME "${check_test}"
             COMMAND
             "${CMAKE_COMMAND}" "-DACTUAL=${actual}" "-DEXPECT=${expect}"
-            "-DEXPECT_ARCH=${expect_arch}"
             -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/check_output.cmake"
         )
         set_tests_properties(

@@ -1,4 +1,4 @@
-//! flags: -b llvm -O0
+//! flags: -b llvm -O0 --target x86_64-unknown-linux-gnu
 
 func main() -> i32 {
     alloc x : dyn_array[i32, 1];

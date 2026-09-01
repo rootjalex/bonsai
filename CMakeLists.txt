@@ -73,6 +73,11 @@ find_package(
     ipo
     # irbuilder
     orcjit
+    # Every target LLVM was built with, so that --target can name a triple
+    # other than the host's. Without this the backend can only ever generate
+    # code for the machine it happens to be running on, which is what made the
+    # codegen goldens host-specific.
+    all-targets
     executionengine # Required for LLJIT
     runtimeDyld # Required for JIT execution
 )

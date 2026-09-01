@@ -88,8 +88,12 @@ using namespace ir;
 std::unique_ptr<llvm::TargetMachine>
 CodeGen_LLVM::make_target_machine(llvm::Module &module,
                                   const CompilerOptions &options) {
-    // TODO(cgyurgyik): This effectively makes our tests host-machine specific.
-    std::string target_triple = llvm::sys::getDefaultTargetTriple(),
+    // A named triple keeps generated code identical on every machine, so the
+    // codegen goldens do not depend on whoever ran the test. Falling back to
+    // the host's triple is what the backends that execute code need.
+    std::string target_triple = options.target_triple.empty()
+                                    ? llvm::sys::getDefaultTargetTriple()
+                                    : options.target_triple,
                 error_string;
     const llvm::Target *llvm_target =
         llvm::TargetRegistry::lookupTarget(target_triple, error_string);
@@ -172,25 +176,14 @@ CodeGen_LLVM::CodeGen_LLVM() {
 void CodeGen_LLVM::init_llvm() {
     static std::once_flag init_llvm_once;
     std::call_once(init_llvm_once, []() {
-        llvm::InitializeNativeTarget();
-        llvm::InitializeNativeTargetAsmPrinter();
-        llvm::InitializeNativeTargetAsmParser();
-
-        // TODO: allow these.
-        // #define LLVM_TARGET(target) \
-//     Initialize##target##Target();
-        // #include <llvm/Config/Targets.def>
-        // #undef LLVM_TARGET
-
-        // #define LLVM_ASM_PARSER(target) \
-//     Initialize##target##AsmParser();
-        // #include <llvm/Config/AsmParsers.def>
-        // #undef LLVM_ASM_PARSER
-
-        // #define LLVM_ASM_PRINTER(target) \
-//     Initialize##target##AsmPrinter();
-        // #include <llvm/Config/AsmPrinters.def>
-        // #undef LLVM_ASM_PRINTER
+        // Every target LLVM was built with, not just the host's, so that
+        // --target can name another triple. Initializing only the native
+        // target is what forced the codegen tests to be host-specific.
+        llvm::InitializeAllTargetInfos();
+        llvm::InitializeAllTargets();
+        llvm::InitializeAllTargetMCs();
+        llvm::InitializeAllAsmPrinters();
+        llvm::InitializeAllAsmParsers();
     });
 }
 

@@ -53,6 +53,12 @@ struct CompilerOptions {
     // (inclusive).
     std::string up_to;
 
+    // The LLVM target triple to generate code for. When empty, the host's
+    // triple is used. Naming one makes the LLVM and CPP backends produce the
+    // same output on every machine, which is what lets their tests keep a
+    // single golden rather than one per host architecture.
+    std::string target_triple;
+
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
 

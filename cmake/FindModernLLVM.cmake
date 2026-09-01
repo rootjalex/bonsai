@@ -36,7 +36,24 @@ option(ModernLLVM_SHARED_LIBS "Enable to link to shared libLLVM" "${ModernLLVM_S
 set(ModernLLVM_LIBS "")
 if (LLVM_FOUND)
     foreach (comp IN LISTS ModernLLVM_FIND_COMPONENTS)
-        llvm_map_components_to_libnames(libs ${comp})
+        if (comp STREQUAL "all-targets")
+            # llvm_map_components_to_libnames does not expand LLVM's pseudo
+            # components -- it would ask for a library literally called
+            # LLVMall-targets -- so name the per-target libraries here. This is
+            # what lets the backend generate code for a triple other than the
+            # host's. With the monolithic shared libLLVM every target is
+            # already present, and this list is then unused.
+            set(libs "")
+            foreach (tgt IN LISTS LLVM_TARGETS_TO_BUILD)
+                foreach (kind CodeGen Desc Info AsmParser AsmPrinter)
+                    if (TARGET LLVM${tgt}${kind})
+                        list(APPEND libs LLVM${tgt}${kind})
+                    endif ()
+                endforeach ()
+            endforeach ()
+        else ()
+            llvm_map_components_to_libnames(libs ${comp})
+        endif ()
         list(APPEND ModernLLVM_LIBS ${libs})
 
         set(ModernLLVM_${comp}_FOUND 1)
