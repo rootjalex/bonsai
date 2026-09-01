@@ -1,8 +1,8 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:2184:13 
+[internal] Error: src/Parser/Parser.cpp:70
+-> src/Parser/Parser.cpp:2188 
 tests/bonsai/error/invalid_name.bonsai:1:14: [parse error] unknown type: f1_1_1
 
 func main(x: f1_1_1) -> i32 {

@@ -1,8 +1,8 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:1401:9 
+[internal] Error: src/Parser/Parser.cpp:70
+-> src/Parser/Parser.cpp:1405 
 tests/bonsai/error/lambda-empty-body.bonsai:3:21: [parse error] unexpected token: (semicol, 3:22-3:23)
 
     L1 = |x: i32| { };

@@ -1,8 +1,8 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Parser/Parser.cpp:66
--> src/Parser/Parser.cpp:887:17 
+[internal] Error: src/Parser/Parser.cpp:70
+-> src/Parser/Parser.cpp:891 
 tests/bonsai/error/mutability.bonsai:9:14: [parse error] Argument a at position 0 of call to function mutate0 must be mutable.
 
     mutate0(a); // `a` is not mutable

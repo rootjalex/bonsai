@@ -50,8 +50,12 @@ class ParseErrorReport {
         }
 
         std::stringstream ss;
+        // No column: std::source_location::column() is compiler-defined, so
+        // Apple Clang and GCC report different columns for the same call, which
+        // would make this diagnostic -- and every golden recording it --
+        // host-specific. The file and line locate the throw site well enough.
         ss << "-> " << detail::source_relative_path(call_site.file_name())
-           << ":" << call_site.line() << ":" << call_site.column() << " \n";
+           << ":" << call_site.line() << " \n";
 
         ss << back_trace << ":" << begin_line << ":" << begin_column
            << ": [parse error] " << os.str() << "\n"
