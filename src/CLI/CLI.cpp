@@ -48,7 +48,9 @@ std::string command_help() {
     s << "Bonsai Command Line:\n"
       << "-b   | --backend <backend>         | e.g., `-b llvm`\n"
       << "-p   | --pass <pass>               | e.g., `-p dce`\n"
-      << "     | --up-to <pass>              | e.g., `--up-to lower-trees"
+      << "     | --up-to <pass>              | e.g., `--up-to lower-trees`\n"
+      << "     | --target <triple>           | e.g., `--target "
+         "x86_64-linux-gnu`"
       << "-e   | --execute,                  | e.g., `-e`\n"
       << "-i   | --input <input file name>   | e.g., `-i in.bonsai`\n"
       << "-l   | --layout <layout file name> | e.g., `-l pbrt.bonsai`\n"
@@ -137,12 +139,10 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "-O0") {
             options.level = BackendOptimizationLevel::O0;
-            ++i;
             continue;
         }
         if (arg == "-O3") {
             options.level = BackendOptimizationLevel::O3;
-            ++i;
             continue;
         }
         if (arg == "-b" || arg == "--backend") {
@@ -154,6 +154,12 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "--up-to") {
             options.up_to = args[i + 1];
+            ++i;
+            continue;
+        }
+        if (arg == "--target") {
+            internal_assert(i + 1 < args.size());
+            options.target_triple = args[i + 1];
             ++i;
             continue;
         }
