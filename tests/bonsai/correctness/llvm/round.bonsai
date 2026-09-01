@@ -1,0 +1,36 @@
+//! flags: -b llvm -e
+
+// `round` reaching the LLVM backend.
+//
+// It parsed, type-checked and compiled through the C++ backend, and stopped at
+// LLVM with "TODO: codegen intrinsic" -- so a program using it was fine until
+// the day it was asked for as LLVM. What it lowers to matters as much as that
+// it lowers at all: halfway cases have to go away from zero, the way C's round
+// does, and llvm.rint would follow the current rounding mode and land on even
+// instead. Every halfway case below is one the two disagree about.
+element Float = f32;
+
+func main() -> i32 {
+    // Halves, where round-away-from-zero and round-half-to-even differ.
+    print(round(0.5));
+    print(round(1.5));
+    print(round(2.5));
+    print(round(0.0 - 0.5));
+    print(round(0.0 - 1.5));
+    print(round(0.0 - 2.5));
+
+    // Ordinary cases, either side of a half.
+    print(round(0.4999));
+    print(round(0.5001));
+    print(round(7.0));
+    print(round(0.0 - 7.4));
+
+    // Element-wise over a vector, which is how the spectral code uses it.
+    v : vector[Float, 4] = {0.5, 1.5, 0.0 - 2.5, 3.7};
+    r = round(v);
+    print(r.x);
+    print(r.y);
+    print(r.z);
+    print(r.w);
+    return 0;
+}

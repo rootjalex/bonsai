@@ -87,6 +87,16 @@ ir::Program LowerExterns::run(ir::Program program,
         }
 
         std::vector<ir::Function::Argument> new_args(free_vars.size());
+        // The same externs in the same order, to hand to the callers.
+        //
+        // These have to be one order, and it cannot be the order
+        // gather_free_vars returns: the parameters below are appended in the
+        // order the externs were declared, so a caller passing them in
+        // discovery order lines the arguments up wrongly. With a single extern
+        // the two orders agree and nothing shows; with several they do not,
+        // and what surfaces is a type mismatch at a call whose arguments were
+        // never written down by hand.
+        VarList ordered(free_vars.size());
         size_t counter = 0;
         // Insert externs in extern parsed order.
         for (const auto &ext : program.externs) {
@@ -105,6 +115,7 @@ ir::Program LowerExterns::run(ir::Program program,
             new_args[counter].name = ext.name;
             new_args[counter].type = ext.type;
             new_args[counter].mutating = false;
+            ordered[counter] = *it;
             counter++;
         }
         internal_assert(counter == free_vars.size())
@@ -116,7 +127,7 @@ ir::Program LowerExterns::run(ir::Program program,
                           std::make_move_iterator(new_args.begin()),
                           std::make_move_iterator(new_args.end()));
 
-        funcs_with_externs[f] = free_vars;
+        funcs_with_externs[f] = std::move(ordered);
 
         // Handle recursive case.
         std::map<std::string, VarList> singleton;

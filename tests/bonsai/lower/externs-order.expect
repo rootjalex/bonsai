@@ -1,0 +1,19 @@
+type Float = f32
+
+extern first : f32[4]
+extern second : f32[4]
+extern third : f32[4]
+
+func backwards(i : u32, first : f32[4], second : f32[4], third : f32[4]) -> f32 {
+  return ((third[i] * 100f) + (second[i] * 10f)) + first[i]
+}
+
+func [[export]] both(i : u32, first : f32[4], second : f32[4], third : f32[4]) -> f32 {
+  return (((third[i] * 100f) + (second[i] * 10f)) + first[i]) + ((third[i] * 10f) + first[i])
+}
+
+func skipping(i : u32, first : f32[4], third : f32[4]) -> f32 {
+  return (third[i] * 10f) + first[i]
+}
+
+

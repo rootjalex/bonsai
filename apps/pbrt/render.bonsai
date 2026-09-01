@@ -593,18 +593,149 @@ func normal_at(sh : Shape, p : vec3f) -> vec3f {
     }
 }
 
-extern shapes : set[Shape];
+// pbrt: SampledSpectrum and SampledWavelengths, from util/spectrum.h.
+//
+// A spectrum is not a curve here but four samples of one, at four wavelengths
+// chosen per ray. That is v4's central representation and it maps onto a
+// bonsai vector exactly, which is why the plan puts spectra this early: every
+// function that carries radiance has to carry these, and retrofitting them
+// later would be the expensive edit.
+element SampledWavelengths {
+    lambda : vec4f;
+    pdf : vec4f;
+}
+
+// pbrt: SampledWavelengths::SampleUniform. One wavelength is chosen, and the
+// other three are spaced evenly across the visible range from it, wrapping
+// round -- stratified rather than independent, so four samples cover the range
+// instead of clustering.
+//
+// NOT what a gbuffer film samples with. FilmBase::SampleWavelengths calls
+// SampleVisible, which draws wavelengths towards where the eye responds and
+// carries the matching density, and the two disagree by far more than the
+// comparison would tolerate -- measured, not assumed, on scenes/coloured.pbrt.
+// SampleVisible needs atanh and cosh, so it needs exp and log, and bonsai has
+// neither intrinsic yet. Until it does, the albedo channel below is computed
+// and written but deliberately not compared: see compare.sh.
+//
+// SampleUniform is still what a SpectralFilm uses, so this is not wasted, only
+// early.
+func sample_wavelengths_uniform(u : Float) -> SampledWavelengths {
+    lambda_min = 360.0;
+    lambda_max = 830.0;
+    delta = (lambda_max - lambda_min) / 4.0;
+    first = lambda_min + u * (lambda_max - lambda_min);
+    raw = vec4f{first, first + delta, first + 2.0 * delta,
+                first + 3.0 * delta};
+    // Past the top of the range it wraps to the bottom.
+    wrapped = select(raw > lambda_max, raw - (lambda_max - lambda_min), raw);
+    density = 1.0 / (lambda_max - lambda_min);
+    w : SampledWavelengths = {wrapped,
+                              vec4f{density, density, density, density}};
+    return w;
+}
+
+// pbrt: RGBSigmoidPolynomial, the three coefficients an RGB albedo is fitted
+// to. The driver runs the fit -- see rgb2spec.h -- exactly as pbrt looks it up
+// in a table it generated offline, because a Gauss-Newton solve is not
+// something to do per ray.
+element SigmoidPolynomial {
+    c0, c1, c2 : Float;
+}
+
+// pbrt: RGBSigmoidPolynomial::s, the sigmoid that keeps a reflectance inside
+// zero and one however the polynomial swings.
+func sigmoid(x : vec4f) -> vec4f {
+    return 0.5 + x / (2.0 * sqrt(1.0 + x * x));
+}
+
+func spectrum_at(p : SigmoidPolynomial, w : SampledWavelengths) -> vec4f {
+    // pbrt evaluates the quadratic by Horner, so this does too: the grouping
+    // is part of the answer in floating point.
+    x = fma(fma(p.c0, w.lambda, p.c1), w.lambda, p.c2);
+    return sigmoid(x);
+}
+
+// The CIE curves and the film's illuminant, tabulated once per nanometre from
+// 360 to 830. Generated from pbrt's own source and checked against a running
+// pbrt; see make_spectrum_tables.py and `scene_dump --check-tables`.
+extern cie_x : array[Float, 471];
+extern cie_y : array[Float, 471];
+extern cie_z : array[Float, 471];
+extern illuminant_d65 : array[Float, 471];
+
+// pbrt: DenselySampledSpectrum::operator(), which rounds to the nearest
+// nanometre rather than interpolating -- the table is dense enough that it
+// does not, and matching means rounding the same way.
+func spectrum_at_dense(table : array[Float, 471],
+                       w : SampledWavelengths) -> vec4f {
+    // Every wavelength SampleUniform produces is already inside the table's
+    // range, so this indexes without clamping; a sampler that could stray
+    // outside it would need pbrt's zero-outside-the-range answer here.
+    o = cast[[vector[i32, 4]]](round(w.lambda) - 360.0);
+    return vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
+}
+
+// pbrt: SampledSpectrum::ToXYZ followed by RGBColorSpace::ToRGB.
+//
+// Each of X, Y and Z is the spectrum against that matching curve, averaged
+// over the four samples and divided by the probability each was drawn with --
+// a Monte Carlo estimate of an integral, which is what four samples of a
+// spectrum can give. The division by the CIE Y integral is what makes a
+// perfectly reflecting surface come out at one rather than at 106.
+func average_over_pdf(v : vec4f, w : SampledWavelengths) -> Float {
+    // pbrt: SafeDiv, because a wavelength can be drawn with zero density.
+    return sum(select(w.pdf == 0.0, 0.0, v / w.pdf)) / 4.0;
+}
+
+func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
+    x = average_over_pdf(spectrum_at_dense(cie_x, w) * s, w);
+    y = average_over_pdf(spectrum_at_dense(cie_y, w) * s, w);
+    z = average_over_pdf(spectrum_at_dense(cie_z, w) * s, w);
+    xyz = vec3f{x, y, z} / 106.856895;
+
+    // pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because
+    // the driver would otherwise have to pass a matrix that never changes.
+    return vec3f{
+        3.2406 * xyz.x - 1.5372 * xyz.y - 0.4986 * xyz.z,
+        -0.9689 * xyz.x + 1.8758 * xyz.y + 0.0415 * xyz.z,
+        0.0557 * xyz.x - 0.2040 * xyz.y + 1.0570 * xyz.z};
+}
+
+// pbrt: GeometricPrimitive, which is what a BVH is actually built over -- a
+// shape paired with the material it is made of. The geometry answers where a
+// ray hits; the material answers what is there.
+//
+// M1 needs one number from a material, the reflectance of pbrt's `diffuse`,
+// so that is what this carries. A material of its own, behind a tag the way
+// Shape is, is M5.
+element Primitive {
+    shape : Shape;
+    // pbrt: the RGBAlbedoSpectrum a diffuse material holds, which is its RGB
+    // reflectance already fitted. The fit is a Gauss-Newton solve and belongs
+    // nowhere near a ray, so the driver does it once per material, exactly as
+    // pbrt looks it up in a table generated offline.
+    albedo : SigmoidPolynomial;
+}
+
+// The ray queries pass straight through to the geometry: which primitive a ray
+// hits is a question about its shape alone.
+func distmin(r : Ray, p : Primitive) -> Float = distmin(r, p.shape);
+func distmax(r : Ray, p : Primitive) -> Float = distmax(r, p.shape);
+func intersects(r : Ray, p : Primitive) -> bool = intersects(r, p.shape);
+
+extern primitives : set[Primitive];
 
 // pbrt: Primitive::Intersect over the whole scene. Written as the question it
-// is -- of the shapes this ray hits, which is nearest -- rather than as a
+// is -- of the primitives this ray hits, which is nearest -- rather than as a
 // traversal. The schedule turns it into one.
 //
 // The epsilon is pbrt's shadow-epsilon in spirit: a hit at zero distance is
 // the surface the ray started on.
 func trace(r : Ray) =
-    argmin(|sh : Shape| distmin(r, sh),
-           filter(|sh : Shape| intersects(r, sh) && distmin(r, sh) > 0.001,
-                  shapes));
+    argmin(|p : Primitive| distmin(r, p),
+           filter(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001,
+                  primitives));
 
 // The geometric normal at the nearest hit, or zero where the ray escapes.
 //
@@ -622,12 +753,43 @@ func trace(r : Ray) =
 // from its back, and a scene wound the other way from this one is the ordinary
 // case rather than a strange one.
 func li(r : Ray) -> vec3f {
-    isect : option[Shape] = trace(r);
+    isect : option[Primitive] = trace(r);
     if isect {
-        sh = *isect;
-        n = normal_at(sh, r.o + distmin(r, sh) * r.d);
+        prim = *isect;
+        n = normal_at(prim.shape, r.o + distmin(r, prim) * r.d);
         wo = -r.d;
         return select(dot(n, wo) < 0.0, -n, n);
+    }
+    return vec3f{0.0, 0.0, 0.0};
+}
+
+// pbrt: the Albedo channels of the same gbuffer, which is the other half of
+// what a camera ray leaves behind.
+//
+// pbrt records `bsdf.rho(wo, ...)` -- the hemispherical reflectance of the
+// surface's BSDF, estimated with sixteen samples. For the diffuse material
+// that is every material here, every one of those samples returns the same
+// number, because a Lambertian BRDF's hemispherical reflectance is exactly its
+// reflectance. So this is the reflectance, and it will stop being so trivial
+// the moment there is a second kind of material.
+//
+// What makes it worth computing rather than copying is what the film does with
+// it afterwards: the reflectance is an RGB, and pbrt turns it into a spectrum,
+// multiplies by the illuminant, and integrates back down to RGB. Nothing about
+// that round trip is the identity, which is the whole reason spectra are here.
+func albedo(r : Ray, lambda : SampledWavelengths) -> vec3f {
+    isect : option[Primitive] = trace(r);
+    if isect {
+        prim = *isect;
+        // `reflectance` is Schlick's approximation in stdlib/numerics, so the
+        // name is taken.
+        rho = spectrum_at(prim.albedo, lambda);
+        // pbrt: GBufferFilm::AddSample, which lights the albedo by the film's
+        // illuminant before converting it. Without this an albedo would be a
+        // reflectance under an equal-energy light, which is not what a colour
+        // space means by white.
+        lit = rho * spectrum_at_dense(illuminant_d65, lambda);
+        return spectrum_to_rgb(lit, lambda);
     }
     return vec3f{0.0, 0.0, 0.0};
 }
@@ -640,8 +802,12 @@ func li(r : Ray) -> vec3f {
 // pixels there are is the resolution, which is already here. Naming a length
 // as well would be naming the same fact twice and inviting the two to
 // disagree.
+// Two outputs because pbrt's gbuffer film records several channels from one
+// render, and comparing only one of them was how a normal pointing the wrong
+// way went unnoticed for as long as it did.
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
-                       out : mut array[vec3f]) -> void {
+                       normal_out : mut array[vec3f],
+                       albedo_out : mut array[vec3f]) -> void {
     parfor p in 0u:(width * height) {
         i = p % width;
         j = p / width;
@@ -649,7 +815,13 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
         sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
                                     cast[[Float]](j) + 0.5},
                               vec2f{0.0, 0.0}, 0.0, 1.0};
-        out[p] = li(generate_ray(camera, sample));
+        ray = generate_ray(camera, sample);
+        // pbrt draws the wavelengths from the sampler and, with
+        // --disable-wavelength-jitter, uses 0.5 for every pixel. That is what
+        // the comparison runs, so it is what this does.
+        lambda = sample_wavelengths_uniform(0.5);
+        normal_out[p] = li(ray);
+        albedo_out[p] = albedo(ray, lambda);
     }
     return;
 }
@@ -659,19 +831,19 @@ schedule {
     // here -- that it is a BVH at all, that its nodes are bounded by boxes,
     // how a node is packed, and that traversal is a loop over a stack of 64
     // rather than recursion. None of it appears in `trace` above.
-    tree[[Shape]] ShapeBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : ShapeBVH, right : ShapeBVH, axis : u8)
-    | Leaf(data : array[Shape]) with data = data;
+    tree[[Primitive]] PrimitiveBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : PrimitiveBVH, right : PrimitiveBVH, axis : u8)
+    | Leaf(data : array[Primitive]) with data = data;
 
-    shapes : ShapeBVH;
+    primitives : PrimitiveBVH;
 
     // pbrt: LinearBVHNode, field for field and 32 bytes like it. The offset
     // discriminated on nPrims is pbrt's union of primitivesOffset and
     // secondChildOffset; the left child is the next node, so only the right
     // one needs saying.
-    layout shapes {
+    layout primitives {
         pCount : u32;
-        prims : array[Shape, pCount];
+        prims : array[Primitive, pCount];
         nCount : u32;
         group[nCount] index : u32 {
             low : vec3f;

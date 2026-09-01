@@ -8,6 +8,7 @@ add_bonsai_tests(
     defer-dbl-buffer.bonsai
     defer.bonsai
     exported-function.bonsai
+    externs-order.bonsai
     float.bonsai
     import_float.bonsai
     import_twice.bonsai

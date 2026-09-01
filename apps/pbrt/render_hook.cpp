@@ -13,6 +13,9 @@
 // hot path does not build transforms either.
 
 #include "render.h"
+
+#include "cie_tables.h"
+#include "rgb2spec.h"
 #include "scene_io.h"
 
 #include <algorithm>
@@ -20,11 +23,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <array>
 #include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace {
@@ -108,7 +114,8 @@ Bounds3f merge(const Bounds3f &a, const float3 &p) {
 // pbrt: Sphere::Bounds and Triangle::Bounds. A sphere placed by a translation
 // bounds to its centre plus and minus the radius on each axis; a triangle to
 // the box around its three vertices.
-Bounds3f bounds_of(const Shape &shape) {
+Bounds3f bounds_of(const Primitive &prim) {
+    const Shape &shape = prim.shape;
     if (shape.tag == 0) {
         const Sphere &s = shape.payload.Sph.s;
         return Bounds3f{s.center - s.radius, s.center + s.radius};
@@ -149,7 +156,7 @@ constexpr int MaxPrimsInNode = 4;
 // pbrt splits the build across threads above 128K primitives, which reorders
 // the primitive array and so builds a different (equally valid) tree. This is
 // the serial path, which is what pbrt itself takes at these sizes.
-_tree_layout0 build_bvh(std::vector<Shape> &shapes) {
+_tree_layout0 build_bvh(std::vector<Primitive> &shapes) {
     std::vector<BVHPrimitive> prims;
     prims.reserve(shapes.size());
     for (uint32_t i = 0; i < shapes.size(); i++) {
@@ -159,7 +166,7 @@ _tree_layout0 build_bvh(std::vector<Shape> &shapes) {
     // pbrt: orderedPrims. A leaf names a run of primitives, so the primitives
     // it names have to be contiguous, which means the scene is rewritten into
     // the order the build discovered.
-    std::vector<Shape> ordered;
+    std::vector<Primitive> ordered;
     ordered.reserve(shapes.size());
     std::vector<_tree_layout1> nodes;
 
@@ -308,7 +315,7 @@ _tree_layout0 build_bvh(std::vector<Shape> &shapes) {
 // with the shapes in the order its leaves expect, so this is only a change of
 // representation. That the two layouts line up field for field is not luck --
 // the `layout` block in render.bonsai was written to be LinearBVHNode.
-_tree_layout0 adopt_bvh(std::vector<Shape> &shapes,
+_tree_layout0 adopt_bvh(std::vector<Primitive> &shapes,
                         const std::vector<bonsai_scene::Node> &nodes) {
     _tree_layout0 tree;
     tree.pCount = uint32_t(shapes.size());
@@ -367,7 +374,24 @@ int main(int argc, char **argv) {
     camera.camera_from_raster = to_bonsai(&loaded.matrices[0]);
     camera.render_from_camera = to_bonsai(&loaded.matrices[16]);
 
-    std::vector<Shape> shapes;
+    // pbrt fits every RGB albedo to three sigmoid coefficients once, offline,
+    // into a table it looks up while building the scene. This runs the same
+    // fit here for the same reason: a Gauss-Newton solve has no business
+    // anywhere near a ray. Cached by colour, since a scene reuses materials.
+    const rgb2spec::Tables fit_tables = rgb2spec::init_tables();
+    std::map<std::array<float, 3>, SigmoidPolynomial> fitted;
+    const auto albedo_of = [&](const float *rgb) {
+        const std::array<float, 3> key = {rgb[0], rgb[1], rgb[2]};
+        auto it = fitted.find(key);
+        if (it == fitted.end()) {
+            const rgb2spec::Coefficients c =
+                rgb2spec::fit(fit_tables, rgb[0], rgb[1], rgb[2]);
+            it = fitted.emplace(key, SigmoidPolynomial{c.c0, c.c1, c.c2}).first;
+        }
+        return it->second;
+    };
+
+    std::vector<Primitive> shapes;
     shapes.reserve(loaded.shapes.size());
     for (const bonsai_scene::Shape &s : loaded.shapes) {
         // Through the generated constructors rather than by setting the tag:
@@ -381,7 +405,7 @@ int main(int argc, char **argv) {
                                       float3{s.p1[0], s.p1[1], s.p1[2]},
                                       float3{s.p2[0], s.p2[1], s.p2[2]}});
         }
-        shapes.push_back(shape);
+        shapes.push_back(Primitive{shape, albedo_of(s.reflectance)});
     }
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
@@ -396,6 +420,15 @@ int main(int argc, char **argv) {
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
+    float3 *albedo = (float3 *)malloc(sizeof(float3) * npixels);
+
+    // The tables the spectral conversion reads, as the generated header wants
+    // them. Checked against a running pbrt by `scene_dump --check-tables`.
+    std::array<float, CIE_SAMPLES> x, y, z, d65;
+    std::copy(CIE_X, CIE_X + CIE_SAMPLES, x.begin());
+    std::copy(CIE_Y, CIE_Y + CIE_SAMPLES, y.begin());
+    std::copy(CIE_Z, CIE_Z + CIE_SAMPLES, z.begin());
+    std::copy(CIE_D65_FILM, CIE_D65_FILM + CIE_SAMPLES, d65.begin());
 
     // Only the render is timed. Building the scene and the BVH is the work
     // pbrt does before its own timer starts (its renderTimeSeconds comes from
@@ -416,7 +449,8 @@ int main(int argc, char **argv) {
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
-        render(camera, uint32_t(width), uint32_t(height), out, tree);
+        render(camera, uint32_t(width), uint32_t(height), out, albedo, x, y, z,
+               d65, tree);
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());
@@ -427,29 +461,43 @@ int main(int argc, char **argv) {
     // function when it does; that is post-processing, and it happens in
     // to_png.py rather than here. PFM is one of the formats pbrt itself
     // writes, so this file and one from pbrt are directly comparable.
-    std::ofstream pfm(output, std::ios::binary);
-    if (!pfm) {
-        std::cerr << "cannot open " << output << " for writing\n";
-        free(out);
-        free(tree.group0_index);
+    // Both channels the gbuffer holds, as two images. pbrt keeps them in one
+    // EXR; PFM has no way to say more than three channels, so they are written
+    // side by side and compared in pairs.
+    const auto write_pfm = [&](const std::string &path, const float3 *pixels) {
+        std::ofstream pfm(path, std::ios::binary);
+        if (!pfm) {
+            std::cerr << "cannot open " << path << " for writing\n";
+            return false;
+        }
+        // PFM rows run bottom to top, and a negative scale says little-endian.
+        pfm << "PF\n" << width << ' ' << height << "\n-1.000000\n";
+        for (int j = height - 1; j >= 0; j--) {
+            for (int i = 0; i < width; i++) {
+                const float3 &v = pixels[uint32_t(j) * uint32_t(width) + i];
+                const float rgb[3] = {v[0], v[1], v[2]};
+                pfm.write(reinterpret_cast<const char *>(rgb), sizeof(rgb));
+            }
+        }
+        return bool(pfm);
+    };
+
+    const std::string albedo_output =
+        std::string(output).substr(0, std::string(output).rfind('.')) +
+        "-albedo.pfm";
+    const bool wrote = write_pfm(output, out) && write_pfm(albedo_output, albedo);
+    free(out);
+    free(albedo);
+    free(tree.group0_index);
+    if (!wrote) {
         return 1;
     }
-    // PFM rows run bottom to top, and a negative scale says little-endian.
-    pfm << "PF\n" << width << ' ' << height << "\n-1.000000\n";
-    for (int j = height - 1; j >= 0; j--) {
-        for (int i = 0; i < width; i++) {
-            const float3 &v = out[uint32_t(j) * uint32_t(width) + i];
-            const float rgb[3] = {v[0], v[1], v[2]};
-            pfm.write(reinterpret_cast<const char *>(rgb), sizeof(rgb));
-        }
-    }
 
-    std::cout << "wrote " << output << " (" << width << 'x' << height << ", "
-              << shapes.size() << " shapes)\n";
+    std::cout << "wrote " << output << " and " << albedo_output << " ("
+              << width << 'x' << height << ", " << shapes.size()
+              << " shapes)\n";
     // Parsed by compare.sh. Kept to a line of its own so that it stays easy
     // to find without the script having to understand anything else here.
     std::cout << "render seconds: " << seconds << '\n';
-    free(out);
-    free(tree.group0_index);
     return 0;
 }

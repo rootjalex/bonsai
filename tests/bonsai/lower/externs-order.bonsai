@@ -1,0 +1,38 @@
+// Several externs reaching a function through a call.
+//
+// An extern used inside a function becomes an extra parameter, and every
+// caller has to pass it. The parameters were appended in the order the externs
+// were declared while the callers passed them in the order a free-variable
+// walk happened to find them -- the same order whenever there was one extern,
+// and a different one as soon as there were several. What surfaced was a type
+// mismatch on arguments nobody had written down, at a call the source never
+// spelled out.
+//
+// So the shapes below are the ones where the two orders come apart: a callee
+// that uses the externs in the reverse of their declaration, one that uses a
+// subset, and a caller that reaches all three only through calls. What to look
+// for in the golden is that every function takes `first`, `second`, `third` in
+// that order -- declaration order, not use order -- and that every call passes
+// them the same way round.
+element Float = f32;
+
+extern first : array[Float, 4];
+extern second : array[Float, 4];
+extern third : array[Float, 4];
+
+// Uses them backwards, which is where declaration order and discovery order
+// first disagree.
+func backwards(i : u32) -> Float {
+    return third[i] * 100.0 + second[i] * 10.0 + first[i];
+}
+
+// Only the outer two, so the middle one must not be handed over.
+func skipping(i : u32) -> Float {
+    return third[i] * 10.0 + first[i];
+}
+
+// Reaches all three, but only through calls -- so its own parameters come from
+// what its callees needed rather than from anything in its own body.
+func [[export]] both(i : u32) -> Float {
+    return backwards(i) + skipping(i);
+}

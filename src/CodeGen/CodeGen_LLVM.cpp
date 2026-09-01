@@ -1598,6 +1598,13 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         intrin = llvm::Intrinsic::cos;
         break;
     }
+    case Intrinsic::round: {
+        // Halfway cases go away from zero, which is what C's round does and
+        // so what the C++ backend already emits. llvm.rint would follow the
+        // rounding mode instead and disagree on exactly the halves.
+        intrin = llvm::Intrinsic::round;
+        break;
+    }
     case Intrinsic::cross: {
         Expr expr = lower::cross_product(node->args[0], node->args[1]);
         value = codegen_expr(expr);
