@@ -40,6 +40,10 @@ if [[ ! -f "$SCENE" ]]; then
   echo "no scene at $SCENE" >&2
   exit 1
 fi
+# pbrt is run from the working directory, so that the .exr it is told to write
+# lands there rather than beside the repository. That means it needs the scene
+# by a path that survives the change of directory, and a relative one does not.
+SCENE="$(cd "$(dirname "$SCENE")" && pwd)/$(basename "$SCENE")"
 if ! command -v "$CXX" >/dev/null; then
   echo "no clang at $CXX -- set CXX to one (the generated header needs it)" >&2
   exit 1
@@ -87,7 +91,7 @@ for _ in $(seq 1 "$REPEATS"); do
   # the same four wavelengths for the same pixel and sample. Turning the jitter
   # off would fix them both at u = 0.5 and so hide any disagreement about the
   # sampler, which is the thing worth checking.
-  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$OLDPWD/$SCENE")
+  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$SCENE")
   # pbrt's own render time, which its progress reporter measures from after the
   # scene and the BVH are built.
   RUN=$("$IMGTOOL" info "$WORK/ref.exr" |
