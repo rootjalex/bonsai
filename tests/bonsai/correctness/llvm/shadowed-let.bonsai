@@ -59,6 +59,35 @@ func measure(s : Shape) -> f32 {
     }
 }
 
+// A renamed declaration passed to a mutating parameter.
+//
+// The call has to be checked for mutability, and what it holds by then is the
+// IR the parser has already built -- whose variable is called `c$1`, not `c`.
+// Looking that up under the name it was written with finds the wrong
+// declaration where one is in scope and none at all where it is not, and the
+// second arm below is the second kind: it failed with "cannot check mutability
+// of unknown var: c$1", which is a name nobody wrote.
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter) -> void {
+    c.n = c.n + 1;
+    return;
+}
+
+func counted(which : bool) -> i32 {
+    if which {
+        c : mut Counter = {1};
+        bump(c);
+        return c.n;
+    }
+    c : mut Counter = {10};
+    bump(c);
+    bump(c);
+    return c.n;
+}
+
 // Sibling loops reusing an index, which is a third kind of declaration.
 func total(n : u32) -> u32 {
     acc : mut u32 = 0u;
@@ -84,6 +113,9 @@ func main() -> i32 {
     print(measure(flat));
     deep : Shape = Deep(2.0);
     print(measure(deep));
+
+    print(counted(true));
+    print(counted(false));
 
     print(total(4u));
     return 0;

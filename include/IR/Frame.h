@@ -39,6 +39,20 @@ struct MapStack {
 
     bool contains(const K &k) const { return from_frames(k).has_value(); }
 
+    // The first entry satisfying `pred`, searching from the innermost scope
+    // outwards, and {} if there is none. For looking something up by a
+    // property of the value rather than by its key.
+    template <typename P> std::optional<V> find_if(P pred) const {
+        for (auto it = frames.rbegin(); it != frames.rend(); it++) {
+            for (const auto &[key, value] : *it) {
+                if (pred(key, value)) {
+                    return value;
+                }
+            }
+        }
+        return {};
+    }
+
     // There is always at least one frame (the global scope).
     bool empty() const { return frames.size() == 1; }
 

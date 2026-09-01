@@ -278,9 +278,26 @@ struct Parser {
         report_error() << "Cannot check mutability of unknown var: " << name;
     }
 
+    // Mutability of something the parser has already built. Its variables carry
+    // IR names, which are what `declare` renamed them to and so are not the
+    // keys `frames` is indexed by -- a second `r` in a sibling scope is filed
+    // under `r` and goes by `r$1`. Looking it up by the written name would find
+    // the wrong declaration where one is in scope and none at all where it is
+    // not, so this searches for the declaration that owns the IR name.
+    bool is_mutable_ir_name(const std::string &ir_name) const {
+        std::optional<FunctionVariable> variable = frames.find_if(
+            [&](const std::string &, const FunctionVariable &v) {
+                return v.ir_name == ir_name;
+            });
+        if (variable.has_value()) {
+            return variable->mutating;
+        }
+        report_error() << "Cannot check mutability of unknown var: " << ir_name;
+    }
+
     bool is_mutable(const ir::Expr &expr) {
         if (const ir::Var *var = expr.as<ir::Var>()) {
-            return is_mutable(var->name);
+            return is_mutable_ir_name(var->name);
         } else if (const ir::Access *access = expr.as<ir::Access>()) {
             return is_mutable(access->value);
         } else if (const ir::Extract *extract = expr.as<ir::Extract>()) {
