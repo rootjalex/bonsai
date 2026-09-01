@@ -134,6 +134,8 @@ const char *op_name(Instruction::Op op) {
         return "mul";
     case Instruction::Op::Ne:
         return "ne";
+    case Instruction::Op::Not:
+        return "not";
     case Instruction::Op::Print:
         return "print";
     case Instruction::Op::Ramp:
@@ -203,6 +205,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
     case Instruction::Op::Ne:
+    case Instruction::Op::Not:
     // Print has a side effect, but is not a store: it has no address
     // operand, and takes as many operands as it prints.
     case Instruction::Op::Print:

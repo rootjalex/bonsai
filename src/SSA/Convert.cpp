@@ -927,11 +927,8 @@ struct FunctionBuilder : Visitor {
             return;
         }
         case UnOp::Not: {
-            auto true_ = splat(Constant{elem, true});
-            auto false_ = splat(Constant{elem, false});
-            value = block->make_instruction(
-                node->type, Instruction::Op::Select,
-                {std::move(a), std::move(false_), std::move(true_)});
+            value = block->make_instruction(node->type, Instruction::Op::Not,
+                                            {std::move(a)});
             return;
         }
         }

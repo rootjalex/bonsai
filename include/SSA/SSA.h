@@ -123,6 +123,13 @@ struct Instruction {
         Mod,
         Mul,
         Ne,
+        // Complement. Which one it is follows the operand, as it does in
+        // ir::UnOp: negating a truth value for a bool, and flipping the bits
+        // for an integer. Both are one instruction on every backend, so this
+        // is a real operation rather than something to synthesise -- lowering
+        // it to a select works only for bools, and to an exclusive-or with
+        // all ones only for integers.
+        Not,
         Print, // side-effect-y
         // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
         // This is what a vectorized loop index becomes, and an index of

@@ -132,6 +132,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
     case Instruction::Op::Ne:
+    case Instruction::Op::Not:
     case Instruction::Op::Ramp:
     case Instruction::Op::Reduce:
     case Instruction::Op::Reinterpret:
@@ -513,6 +514,11 @@ Stmt codegen_instruction(const Instruction &instr) {
                             std::move(args[1]));
         break;
     }
+    case Instruction::Op::Not: {
+        internal_assert(args.size() == 1) << args.size();
+        value = UnOp::make(UnOp::Not, std::move(args[0]));
+        break;
+    }
     case Instruction::Op::Ramp: {
         internal_assert(args.size() == 2) << args.size();
         value = Ramp::make(std::move(args[0]), std::move(args[1]),
@@ -615,6 +621,8 @@ Expr inline_expr(const std::shared_ptr<Value> &v,
         return args[0];
     case Instruction::Op::Ne:
         return BinOp::make(BinOp::OpType::Neq, args[0], args[1]);
+    case Instruction::Op::Not:
+        return UnOp::make(UnOp::Not, args[0]);
     case Instruction::Op::Select:
         return Select::make(args[0], args[1], args[2]);
     case Instruction::Op::Load:
