@@ -351,10 +351,13 @@ respectively. Permuting the pools into leaf order as well (`compact_pools`)
 measured 10638.4 ms, which is the same number again.
 
 **Neither scene can measure this, and that is the finding.** killeroo-simple is
-not traversal-bound: 490,000 primary rays in 10.6 seconds is 21.6 microseconds
-each, which is not a BVH descent but `material_rho` -- a layered BSDF walked at
-sixteen sample points for every hit. How big a primitive is barely matters to a
-render that spends its time shading one. And many-shapes is traversal-bound but
+not traversal-bound. It is 256 samples per pixel, so 10.6 seconds buys 125.4
+million camera rays at about 85 nanoseconds each -- and a descent through a BVH
+over 66,533 triangles is a fraction of that. The rest is `material_rho`, a
+layered BSDF walked at sixteen sample points for every hit, evaluated once per
+sample. How big a primitive is barely matters to a render that spends its time
+shading. (That the estimate is identical for all 256 samples of a pixel, because
+the jitter is off, is item 3 below.) And many-shapes is traversal-bound but
 far too small: 56 primitives is 3.6 KB at 64 bytes each and 900 bytes at 16, and
 both fit in L1. The seven per cent the earlier 208-to-64 change won here was a
 cache boundary being crossed -- 11.6 KB did not fit alongside the nodes -- and
