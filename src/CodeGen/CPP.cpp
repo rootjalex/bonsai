@@ -307,6 +307,15 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
             emit_type(ss, child);
             ss << " " << name << ";\n";
         }
+        // A union whose members all have trivial default constructors gets one
+        // itself, and one whose members do not gets a deleted one -- which is
+        // what an element with a default field value produces, since that makes
+        // its struct non-trivially constructible. The variant holding it is
+        // then a type the driver cannot declare a variable of at all. Writing
+        // the constructor out leaves the storage uninitialized, which is the
+        // same thing the trivial case does and what every use of a union here
+        // expects: the tag beside it says which member is live.
+        ss << indent << union_t->name << "() {}\n";
         ss << "};\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
