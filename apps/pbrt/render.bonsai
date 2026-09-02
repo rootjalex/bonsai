@@ -210,76 +210,80 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
 // everything it does depend on nothing but the BSDF and the sampler -- both of
 // which are already checked against pbrt on their own.
 //
-// pbrt recurses and bounds the recursion by `maxdepth`; this is the same walk
-// as a loop carrying the throughput, which is what a bounded recursion is. The
-// draws from the sampler happen in the same order either way, and that is what
-// has to be preserved: one `get_2d` per bounce, taken before the ray for the
-// next bounce is built.
+// Recursive, as pbrt's is, and that is a scheduling decision rather than a
+// stylistic one. A `while` loop carrying the state would already have said that
+// a path is walked to its end before the next one starts; a tail call says only
+// what the next step is and leaves `loopify()` to decide, which is what lets
+// the same source become a wavefront -- a queue of suspended paths advanced
+// together -- instead of a per-pixel loop. It is the rule `trace` follows
+// above, where the traversal is a recursion and `trace.loopify(64)` in the
+// schedule turns it into a stack.
 //
-// `beta` is pbrt's throughput and `l` the radiance found so far. The estimator
-// divides by a density that does not depend on direction -- the walk scatters
-// uniformly over the whole sphere, including into the surface -- which is why
-// this is unbiased despite knowing nothing about the BSDF it is sampling.
+// `beta` is pbrt's throughput and `l` the radiance found so far, both carried
+// as arguments because that is what a tail call has instead of mutable state.
+// The estimator divides by a density that does not depend on direction -- the
+// walk scatters uniformly over the whole sphere, including into the surface --
+// which is why it is unbiased despite knowing nothing about the BSDF it is
+// sampling.
+//
+// The draws from the sampler are what must not move: one `get_2d` per bounce,
+// taken before the ray for the next bounce is built.
+func walk_step(ray : Ray, beta : vec4f, l : vec4f,
+               lambda : SampledWavelengths, sampler : Sampler,
+               state : mut SamplerState, seed : i32, depth : i32,
+               max_depth : i32) -> vec4f {
+    isect : option[Primitive] = trace(ray);
+    if !isect {
+        // pbrt sums `light.Le(ray)` over the infinite lights here. This app has
+        // none -- killeroo-simple is lit by an emissive sphere -- so a ray that
+        // escapes carries nothing, and adding an infinite light later is adding
+        // it here.
+        return l;
+    }
+    prim = *isect;
+    surf = surface_geometry(prim.shape, ray);
+    wo = unit_vector_(-ray.d);
+
+    // pbrt: SurfaceInteraction::Le. The emission of the surface the ray landed
+    // on, which for a random walk is the only way light is ever found.
+    emitted = select(prim.light >= 0,
+                     beta * area_light_l(lights[max(prim.light, 0)], surf.n, wo,
+                                         lambda),
+                     vec4f{0.0, 0.0, 0.0, 0.0});
+    found = l + emitted;
+
+    if depth == max_depth {
+        return found;
+    }
+
+    // pbrt: GetBSDF, then a direction sampled uniformly over the sphere, then
+    // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
+    shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
+    u = get_2d(sampler, state);
+    wp = sample_uniform_sphere(u);
+    fcos = material_f(materials[prim.material], frame_to_local(shading, wo),
+                      frame_to_local(shading, wp), lambda, seed) *
+           abs(dot(wp, surf.ns));
+    if !nonzero(fcos) {
+        return found;
+    }
+
+    // pbrt: SurfaceInteraction::SpawnRay, which offsets the origin off the
+    // surface by the hit point's own error bound. Without it the next ray finds
+    // the surface it just left, at a distance of nearly zero.
+    return walk_step(spawn_ray(surf, wp), beta * fcos / uniform_sphere_pdf(),
+                     found, lambda, sampler, state, seed, depth + 1,
+                     max_depth);
+}
+
+// The entry point, which is where the walk's initial state is named rather than
+// passed in by a caller that should not have to know it: a full throughput and
+// no radiance yet.
 func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, seed : i32,
-                    max_depth : i32) -> vec4f {
-    l : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
-    beta : mut vec4f = vec4f{1.0, 1.0, 1.0, 1.0};
-    ray : mut Ray = r0;
-    // pbrt leaves by `return`; this carries the reason instead. Nothing below
-    // draws from the sampler once it is set, so the stream is unaffected.
-    done : mut bool = false;
-
-    depth : mut i32 = 0;
-    while (depth <= max_depth) && !done {
-        isect : option[Primitive] = trace(ray);
-        if !isect {
-            // pbrt sums `light.Le(ray)` over the infinite lights here. This app
-            // has none -- killeroo-simple is lit by an emissive sphere -- so a
-            // ray that escapes carries nothing, and adding an infinite light
-            // later is adding it here.
-            done = true;
-        } else {
-            prim = *isect;
-            surf = surface_geometry(prim.shape, ray);
-            wo = unit_vector_(-ray.d);
-
-            // pbrt: SurfaceInteraction::Le. The emission of the surface the ray
-            // landed on, which for a random walk is the only way light is ever
-            // found.
-            if prim.light >= 0 {
-                l = l + beta * area_light_l(lights[prim.light], surf.n, wo,
-                                            lambda);
-            }
-
-            if depth == max_depth {
-                done = true;
-            } else {
-                // pbrt: GetBSDF, then a direction sampled uniformly over the
-                // sphere, then `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
-                shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
-                u = get_2d(sampler, state);
-                wp = sample_uniform_sphere(u);
-                fcos = material_f(materials[prim.material],
-                                  frame_to_local(shading, wo),
-                                  frame_to_local(shading, wp), lambda, seed) *
-                       abs(dot(wp, surf.ns));
-                if !nonzero(fcos) {
-                    done = true;
-                } else {
-                    beta = beta * fcos / uniform_sphere_pdf();
-                    // pbrt: SurfaceInteraction::SpawnRay, which offsets the
-                    // origin off the surface by the hit point's own error
-                    // bound. Without it the next ray finds the surface it just
-                    // left, at a distance of nearly zero.
-                    ray = spawn_ray(surf, wp);
-                }
-            }
-        }
-        depth = depth + 1;
-    }
-    return l;
-}
+                    max_depth : i32) -> vec4f =
+    walk_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, lambda,
+              sampler, state, seed, 0, max_depth);
 
 // pbrt: the render loop, which in v4 is ParallelFor2D over the film tiles.
 // One flat loop over pixels rather than two nested ones, because the schedule
@@ -424,6 +428,13 @@ schedule {
     };
 
     trace.loopify(64);
+
+    // The random walk is a tail recursion, so this turns it into a loop. Said
+    // here rather than written as one: what the source says is that a path's
+    // next step depends on its last, and how that is run -- a loop per pixel
+    // now, a queue of suspended paths advanced together later -- is this
+    // block's to decide.
+    walk_step.loopify();
 
     render.bind(p, CPUThread);
 }
