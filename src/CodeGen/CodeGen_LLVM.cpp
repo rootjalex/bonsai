@@ -468,6 +468,7 @@ CodeGen_LLVM::compile_program(const Program &program,
     target_triple = options.target_triple.empty()
                         ? llvm::sys::getDefaultTargetTriple()
                         : options.target_triple;
+    no_heap = options.no_heap;
     // Made up front rather than after the code is generated: generating it
     // needs to know how the target lays a struct out, and what a parallel
     // loop is called there. For the backends that want them, this also puts
@@ -3218,6 +3219,20 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
 llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
                                          bool zero_initialize,
                                          const std::string &name) {
+    // Every heap allocation the backend makes comes through here, which is
+    // what makes this the place to refuse one. See CompilerOptions::no_heap:
+    // nothing frees these, so an allocation reached repeatedly is a leak, and
+    // a program that wants the guarantee should be told at compile time rather
+    // than discovering it as a growing resident set.
+    if (no_heap) {
+        internal_error
+            << "--no-heap: this program allocates on the heap"
+            << (name.empty() ? std::string() : " for `" + name + "`")
+            << ". Nothing frees it, so an allocation reached more than once is"
+               " a leak. An array whose size is known should be a local or an"
+               " extern the caller owns; a result that is returned should be"
+               " written into storage the caller passes in.";
+    }
 
     int align = native_vector_bits() / 8;
 

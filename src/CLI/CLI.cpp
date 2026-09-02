@@ -25,6 +25,7 @@ std::string command_help() {
       << "     | --triple <target triple>    | e.g., "
          "`--triple x86_64-unknown-linux-gnu`\n"
       << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
+      << "     | --no-heap                   | reject heap allocation\n"
       << "-h   | --help";
     return s.str();
 }
@@ -140,6 +141,10 @@ Flags parse(const std::vector<std::string> &args) {
             internal_assert(i + 1 < args.size());
             options.target_triple = args[i + 1];
             ++i;
+            continue;
+        }
+        if (arg == "--no-heap") {
+            options.no_heap = true;
             continue;
         }
         if (arg == "--mcpu") {

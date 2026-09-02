@@ -53,6 +53,19 @@ struct CompilerOptions {
     // choices per host.
     std::string target_triple;
     std::string target_cpu;
+    // Reject a program that would allocate on the heap.
+    //
+    // Nothing frees a heap allocation -- see the "support deallocation" TODO
+    // in CodeGen_LLVM.h -- so one made per iteration of a loop is an unbounded
+    // leak, and one made per camera ray is four gigabytes. A renderer's inner
+    // loop should not be allocating at all, and this is how that stops being
+    // something to hope for: the property is checked, and a program that
+    // breaks it fails to compile rather than running slowly and growing.
+    //
+    // What it costs is the things that genuinely need a heap: a `dyn_array`,
+    // and a `map` or a reduction whose result is returned by value rather than
+    // written into storage the caller owns.
+    bool no_heap = false;
 
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
