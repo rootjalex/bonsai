@@ -146,12 +146,34 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Material(name, std::move(params), loc);
     }
 
+    // The same trick for area lights, and for the same reason: a shape names
+    // one by index into BasicScene::areaLights, which is private. The base
+    // appends one per directive, so recording them here in the same order
+    // gives a list that index reaches.
+    void AreaLightSource(const std::string &name,
+                         pbrt::ParsedParameterVector params,
+                         pbrt::FileLoc loc) override {
+        MaterialInfo info;
+        info.name = name;
+        for (const pbrt::ParsedParameter *p : params) {
+            MaterialInfo::Value v;
+            v.type = p->type;
+            v.floats.assign(p->floats.begin(), p->floats.end());
+            v.ints.assign(p->ints.begin(), p->ints.end());
+            v.bools.assign(p->bools.begin(), p->bools.end());
+            info.params.emplace(p->name, std::move(v));
+        }
+        area_lights.push_back(std::move(info));
+        pbrt::BasicSceneBuilder::AreaLightSource(name, std::move(params), loc);
+    }
+
     std::string camera_name;
     pbrt::ParameterDictionary camera_params;
     pbrt::ParameterDictionary film_params;
     std::string sampler_name = "zsobol";
     pbrt::ParameterDictionary sampler_params;
     std::vector<MaterialInfo> materials;
+    std::vector<MaterialInfo> area_lights;
 };
 
 [[noreturn]] void fail(const std::string &message) {
@@ -1534,10 +1556,75 @@ void load(const char *filename, bonsai_scene::Scene &out,
         return at;
     };
 
+    // The area lights, converted on first use as the materials are, so that
+    // the scene file carries only the ones a shape actually emits with.
+    //
+    // PBRT's own `scale` is folded with the division that makes a radiance of
+    // one mean one nit -- `scale /= SpectrumToPhotometric(L)` in
+    // DiffuseAreaLight::Create. Doing that here rather than in the renderer is
+    // the same division of labour the rest of this file follows: it is a
+    // property of the scene, decided once when it is read, and it needs PBRT's
+    // photometric integral, which is a table lookup over the whole visible
+    // range rather than anything a ray does.
+    std::map<int, int32_t> light_index;
+    const auto light_for = [&](int declared) -> int32_t {
+        if (declared < 0) {
+            return -1;
+        }
+        const auto it = light_index.find(declared);
+        if (it != light_index.end()) {
+            return it->second;
+        }
+        if (size_t(declared) >= builder.area_lights.size()) {
+            fail("a shape names an area light the parser did not record");
+        }
+        const CapturingBuilder::MaterialInfo &info =
+            builder.area_lights[size_t(declared)];
+        if (info.name != "diffuse") {
+            fail("only `diffuse` area lights are supported, not: " + info.name);
+        }
+        if (info.find("filename") != nullptr) {
+            fail("an area light with an image is not supported");
+        }
+        if (info.find("power") != nullptr) {
+            fail("an area light given a `power` is not supported");
+        }
+
+        bonsai_scene::Light light;
+        // The default when a scene names no L is the colour space's own
+        // illuminant, which for sRGB is D65 -- and an RGB of one puts the fit
+        // through the same path, since that is what the fit of a flat
+        // illuminant is.
+        if (!material_rgb(info, "L", light.l)) {
+            light.l[0] = light.l[1] = light.l[2] = 1.f;
+        }
+        // PBRT's own scale, divided by the photometric integral of L so that a
+        // radiance of one means one nit. The spectrum that division is over is
+        // the illuminant PBRT would have built from this RGB, so it is built
+        // here the same way.
+        pbrt::Allocator alloc;
+        const pbrt::RGBIlluminantSpectrum emitted(
+            *pbrt::RGBColorSpace::sRGB,
+            pbrt::RGB(light.l[0], light.l[1], light.l[2]));
+        light.scale =
+            float(material_float(info, "scale", 1.f) /
+                  pbrt::SpectrumToPhotometric(&emitted));
+        const CapturingBuilder::MaterialInfo::Value *two =
+            info.find("twosided");
+        light.two_sided =
+            (two != nullptr && !two->bools.empty() && two->bools[0]) ? 1u : 0u;
+
+        const int32_t at = int32_t(out.lights.size());
+        out.lights.push_back(light);
+        light_index.emplace(declared, at);
+        return at;
+    };
+
     for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
         const std::string name(entity.name);
         const pbrt::Transform &render_from_object = *entity.renderFromObject;
         const uint32_t material = material_for(entity.materialIndex);
+        const int32_t light = light_for(entity.lightIndex);
 
         if (name == "sphere") {
             pbrt::Vector3f centre;
@@ -1564,6 +1651,7 @@ void load(const char *filename, bonsai_scene::Scene &out,
             // ReverseOrientation alone.
             shape.flip = entity.reverseOrientation ? 1u : 0u;
             shape.material = material;
+            shape.light = light;
             shapes.push_back(shape);
 
         } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
@@ -1635,6 +1723,7 @@ void load(const char *filename, bonsai_scene::Scene &out,
                 shape.mesh = mesh_index;
                 shape.tri = uint32_t(i);
                 shape.material = material;
+                shape.light = light;
                 shapes.push_back(shape);
             }
 

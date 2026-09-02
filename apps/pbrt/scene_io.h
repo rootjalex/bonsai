@@ -92,6 +92,29 @@ struct Mesh {
 // from the mesh on a hit rather than copied per triangle. The renderer's own
 // Shape is a variant type and stays its business: these tags are this file's,
 // and the driver maps across by calling the generated constructors.
+// A DiffuseAreaLight: a shape that emits, and emits the same radiance in every
+// direction it faces.
+//
+// The only kind of light there is here so far, and the one killeroo-simple
+// uses. It is also the kind that costs an integrator the least: a random walk
+// never samples a light at all, it finds one by hitting it, so this needs no
+// sampling routine, no PDF and no shadow ray -- only the radiance to return
+// when a ray lands on it.
+//
+// `l` is the RGB the scene wrote, per the note on Material above: PBRT turns an
+// RGB into a spectrum with a fit and the renderer runs the same fit, so handing
+// over its output would be handing over the answer. `scale` is not that fit --
+// it is PBRT's own `scale` parameter after the division by
+// SpectrumToPhotometric that makes a radiance of one mean one nit, which is a
+// property of the scene rather than of the conversion.
+struct Light {
+    float l[3] = {1.f, 1.f, 1.f};
+    float scale = 1.f;
+    // PBRT's `twosided`. A one-sided light emits only where its normal points,
+    // which for a sphere is outwards.
+    uint32_t two_sided = 0;
+};
+
 struct Shape {
     uint32_t tag;
     // Sphere.
@@ -103,6 +126,11 @@ struct Shape {
     uint32_t tri = 0;
     // Which of the scene's materials this shape was declared under.
     uint32_t material = 0;
+    // Which of the scene's lights this shape emits as, or -1 for a shape that
+    // does not emit. PBRT's ShapeSceneEntity::lightIndex, which is per shape
+    // rather than per material because `AreaLightSource` is a graphics-state
+    // directive like `Material` and the two are set independently.
+    int32_t light = -1;
 };
 
 // One BVH node, in PBRT's LinearBVHNode shape.
@@ -175,6 +203,11 @@ struct Scene {
     // that a layered BSDF hashes together with the direction it was asked
     // about, to seed the random walk that estimates its reflectance.
     int32_t seed = 0;
+    // The integrator's `maxdepth`, which is how many times a path may scatter.
+    // Not the same number as a layered material's `maxdepth`, which bounds the
+    // walk *inside* a BSDF; PBRT's default for both happens to differ, so they
+    // are carried separately rather than shared.
+    int32_t max_depth = 5;
     // camera_from_raster then render_from_camera, each 4x4 in row order.
     float matrices[32] = {};
     std::vector<Material> materials;
@@ -185,6 +218,7 @@ struct Scene {
     std::vector<float> positions;
     std::vector<float> normals;
     std::vector<float> uvs;
+    std::vector<Light> lights;
     std::vector<Shape> shapes;
     std::vector<Node> nodes;
 
@@ -236,6 +270,7 @@ inline bool write(const char *path, const Scene &scene) {
             << scene.sampler.seed << '\n';
     }
     out << "seed " << scene.seed << '\n';
+    out << "maxdepth " << scene.max_depth << '\n';
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
@@ -292,6 +327,14 @@ inline bool write(const char *path, const Scene &scene) {
     pool("normals", scene.normals, 3);
     pool("uvs", scene.uvs, 2);
 
+    out << "lights " << scene.lights.size() << '\n';
+    for (const Light &l : scene.lights) {
+        out << "  diffuse";
+        detail::put(out, l.l, 3);
+        detail::put(out, &l.scale, 1);
+        out << " twosided " << l.two_sided << '\n';
+    }
+
     out << "shapes " << scene.shapes.size() << '\n';
     for (const Shape &s : scene.shapes) {
         if (s.tag == ShapeTag::Sphere) {
@@ -302,7 +345,7 @@ inline bool write(const char *path, const Scene &scene) {
         } else {
             out << "  tri " << s.mesh << ' ' << s.tri;
         }
-        out << " material " << s.material << '\n';
+        out << " material " << s.material << " light " << s.light << '\n';
     }
 
     out << "nodes " << scene.nodes.size() << '\n';
@@ -368,6 +411,11 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     in >> scene.seed;
+
+    if (!(in >> word) || word != "maxdepth") {
+        return false;
+    }
+    in >> scene.max_depth;
 
     if (!(in >> word) || word != "camera_from_raster") {
         return false;
@@ -501,6 +549,25 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
 
+    if (!(in >> word) || word != "lights") {
+        return false;
+    }
+    in >> count;
+    scene.lights.clear();
+    for (size_t i = 0; i < count; i++) {
+        if (!(in >> word) || word != "diffuse") {
+            return false;
+        }
+        Light l;
+        floats(l.l, 3);
+        floats(&l.scale, 1);
+        if (!tagged("twosided")) {
+            return false;
+        }
+        in >> l.two_sided;
+        scene.lights.push_back(l);
+    }
+
     if (!(in >> word) || word != "shapes") {
         return false;
     }
@@ -533,6 +600,13 @@ inline bool read(const char *path, Scene &scene) {
         }
         in >> s.material;
         if (s.material >= scene.materials.size()) {
+            return false;
+        }
+        if (!tagged("light")) {
+            return false;
+        }
+        in >> s.light;
+        if (s.light >= int32_t(scene.lights.size())) {
             return false;
         }
         scene.shapes.push_back(s);
