@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     adt.bonsai
     adt-bvh.bonsai
+    adt-tagged-index.bonsai
     bind_cpu_thread.bonsai
     mut-dynamic-array.bonsai
     setops.bonsai

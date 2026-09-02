@@ -1,0 +1,32 @@
+//! flags: -p ssa -b llvm
+
+// A `tagged_index` variant type, all the way to LLVM.
+//
+// The C++ backend has the layout to itself in the correctness tests, and this
+// is the other one. What to look for: `size` takes an `i64` and two pointers,
+// the match is a `lshr` by 56 and an `icmp`, a field is a `getelementptr` into
+// the pool by the masked handle, and the constructor's claim on a slot is an
+// `atomicrmw add`.
+//
+// Worth having as a golden rather than only as an execution test because the
+// handle is an integer whose halves mean different things. A shift by the wrong
+// amount, or a mask that kept the tag, still runs and still returns a float.
+
+import stdlib/numerics;
+
+element Shape =
+    | Sph(centre : vec3f, radius : Float)
+    | Tri(a : vec3f, b : vec3f);
+
+func [[export]] size(s : Shape) -> Float {
+    match s {
+        Sph(centre, radius) => return radius;
+        Tri(a, b) => return a.x;
+    }
+}
+
+func [[export]] unit_sphere() -> Shape = Sph(vec3f{0.0, 0.0, 0.0}, 1.0);
+
+schedule {
+    layout Shape = tagged_index;
+}

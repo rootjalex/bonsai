@@ -23,12 +23,27 @@ namespace {
 using namespace ir;
 
 using LayoutMap = std::map<std::string, ADTLayout>;
+using FuncMap = std::map<std::string, std::shared_ptr<ir::Function>>;
+
+// The function that puts a `TaggedIndex` variant in its pool and returns the
+// handle naming it. Qualified twice over: `Shape_Sph` is already the exported
+// constructor and `Sph` is already the struct of the fields.
+std::string appender_name(const Type &adt, const std::string &variant) {
+    const ADT_t *node = adt.as<ADT_t>();
+    internal_assert(node) << "Not a variant type: " << adt;
+    return node->name + "_" + variant + "_new";
+}
 
 // Rewrites variant types into what their layout says they are stored as.
 struct RewriteADTs : public Mutator {
     const LayoutMap &layouts;
+    // Prepared for every `TaggedIndex` variant, added to the program only for
+    // the ones a Construct below actually reaches.
+    const FuncMap &appenders;
+    std::set<std::string> needed;
 
-    RewriteADTs(const LayoutMap &layouts) : layouts(layouts) {}
+    RewriteADTs(const LayoutMap &layouts, const FuncMap &appenders)
+        : layouts(layouts), appenders(appenders) {}
 
     const ADTLayout &layout_of(const Type &type) const {
         const ADT_t *adt = type.as<ADT_t>();
@@ -78,11 +93,45 @@ struct RewriteADTs : public Mutator {
         return {std::move(new_loc), not_changed};
     }
 
-    // The payload of `value`, read as `variant`. The union's members are named
-    // for their variants, so this is just naming one.
+    // The tag of `value`, as the layout's tag type.
+    Expr tag_of(const ADTLayout &layout, const Expr &value) const {
+        if (layout.kind == ir::AdtLayout::Inline) {
+            return Access::make(layout.tag_field, value);
+        }
+        // The top bits of the handle. A shift and nothing else: the tag is the
+        // highest field, so there is nothing above it to mask off.
+        return BinOp::make(
+            BinOp::OpType::Shr, value,
+            UIntImm::make(layout.tag_type, ADTLayout::tag_shift));
+    }
+
+    // The index part of a `TaggedIndex` handle: everything below the tag.
+    Expr index_of(const ADTLayout &layout, const Expr &value) const {
+        const uint64_t mask = (1ull << ADTLayout::tag_shift) - 1ull;
+        return BinOp::make(BinOp::OpType::BwAnd, value,
+                           UIntImm::make(layout.tag_type, mask));
+    }
+
+    // The fields of `value`, read as `variant`.
+    //
+    // Reading a field of the variant a value is not reads whatever those bytes
+    // happen to be, under either layout, which is why every caller of this is
+    // already inside an arm that has tested the tag.
     Expr as_variant(const ADTLayout &layout, const Expr &value,
                     const std::string &variant) const {
-        return Access::make(variant, Access::make(layout.payload_field, value));
+        if (layout.kind == ir::AdtLayout::Inline) {
+            // The union's members are named for their variants, so this is
+            // just naming one.
+            return Access::make(variant,
+                                Access::make(layout.payload_field, value));
+        }
+        // The pool the tag names, at the index the rest of the handle is. The
+        // pool is an extern, so this Var is free here and the LowerExterns that
+        // runs after this pass turns it into a parameter of whichever functions
+        // reach it.
+        const Type pool_type = Array_t::make(layout.variant(variant), Expr());
+        return Extract::make(Var::make(pool_type, layout.pool(variant)),
+                             index_of(layout, value));
     }
 
     // A Build of something that holds a variant type -- an array of shapes,
@@ -155,6 +204,23 @@ struct RewriteADTs : public Mutator {
         }
         const ADTLayout &layout = layout_of(node->type);
 
+        if (layout.kind == ir::AdtLayout::TaggedIndex) {
+            // Building a handle means putting the fields somewhere and saying
+            // where, which is a store and a counter rather than an expression,
+            // so it becomes a call to a function that does both. Recorded so
+            // that only the variants a program actually builds get one -- an
+            // unused appender would still name its pool, and choosing this
+            // layout would then oblige the caller to supply storage for
+            // variants it never constructs.
+            const std::string &fname = appender_name(node->type, node->variant);
+            needed.insert(fname);
+            const auto found = appenders.find(fname);
+            internal_assert(found != appenders.end())
+                << "No appender prepared for " << fname;
+            return Call::make(
+                Var::make(found->second->call_type(), fname), std::move(args));
+        }
+
         std::vector<Expr> whole;
         whole.push_back(
             UIntImm::make(layout.tag_type, layout.tag(node->variant)));
@@ -203,7 +269,7 @@ struct RewriteADTs : public Mutator {
                 continue;
             }
             const Expr is_variant = BinOp::make(
-                BinOp::OpType::Eq, Access::make(layout.tag_field, value),
+                BinOp::OpType::Eq, tag_of(layout, value),
                 UIntImm::make(layout.tag_type, layout.tag(arm.variant)));
             result = IfElse::make(is_variant, std::move(arm_body),
                                   std::move(result));
@@ -295,6 +361,113 @@ void add_variant_constructors(ir::Program &program) {
     program.funcs.insert(made.begin(), made.end());
 }
 
+// One appender per variant of every `TaggedIndex` type, by name.
+//
+// The body is the whole of what building a handle means:
+//
+//     func Shape_Sph_new(centre : vec3f, radius : Float) -> u64 {
+//         i = atomic_add(&Shape_Sph_fill[0], 1);
+//         Shape_Sph_pool[i] = Sph{centre, radius};
+//         return (tag << 56) | i;
+//     }
+//
+// Atomic because a schedule may run the code that builds these in parallel, and
+// a schedule is not allowed to change the answer. It does not make the *order*
+// deterministic -- which index a given value lands at depends on who got there
+// first -- but nothing may observe two values at one index, and a plain
+// read-modify-write would allow exactly that.
+//
+// `pool` and `fill` are free here on purpose. They are declared as externs
+// beside these, and the LowerExterns that runs after this pass threads them
+// into these functions and into everything that calls them, so the caller
+// passes in the storage and the counter the same way it passes in any other
+// extern. That is what makes a variant buildable without an allocator: the
+// memory and the capacity are the caller's.
+FuncMap make_appenders(const LayoutMap &layouts) {
+    FuncMap appenders;
+    for (const auto &[adt_name, layout] : layouts) {
+        if (layout.kind != ir::AdtLayout::TaggedIndex) {
+            continue;
+        }
+        const Type handle = layout.storage;
+        for (const Type &variant : layout.variants) {
+            const Struct_t *fields_of = variant.as<Struct_t>();
+            internal_assert(fields_of) << "A variant is a struct: " << variant;
+            const std::string &vname = fields_of->name;
+
+            std::vector<ir::Function::Argument> args;
+            std::vector<Expr> values;
+            for (const TypedVar &field : fields_of->fields) {
+                args.push_back(ir::Function::Argument{field.name, field.type,
+                                                      Expr(), false, false});
+                values.push_back(Var::make(field.type, field.name));
+            }
+
+            const Type pool_type = Array_t::make(variant, Expr());
+            const Type fill_type = Array_t::make(handle, Expr());
+            const std::string &pool = layout.pool(vname);
+            const std::string &fill = layout.fill(vname);
+            const std::string index = "_index";
+
+            // Where in the pool this one goes. AtomicAdd returns the value
+            // before the add, so this is the first free slot and the counter
+            // now names the next one.
+            WriteLoc fill_slot(fill, fill_type);
+            fill_slot.add_index_access(UIntImm::make(handle, 0));
+            const Expr claim =
+                AtomicAdd::make(PtrTo::make(fill_slot.to_expr()),
+                                UIntImm::make(handle, 1));
+
+            WriteLoc slot(pool, pool_type);
+            slot.add_index_access(Var::make(handle, index));
+
+            const Expr tag = UIntImm::make(layout.tag_type, layout.tag(vname));
+            const Expr handle_value = BinOp::make(
+                BinOp::OpType::BwOr,
+                BinOp::make(BinOp::OpType::Shl, tag,
+                            UIntImm::make(layout.tag_type,
+                                          ADTLayout::tag_shift)),
+                Var::make(handle, index));
+
+            std::vector<Stmt> body;
+            body.push_back(LetStmt::make(WriteLoc(index, handle), claim));
+            body.push_back(Store::make(
+                std::move(slot), Build::make(variant, std::move(values))));
+            body.push_back(Return::make(handle_value));
+
+            const std::string fname = adt_name + "_" + vname + "_new";
+            appenders[fname] = std::make_shared<ir::Function>(
+                fname, std::move(args), handle,
+                Sequence::make(std::move(body)), ir::Function::InterfaceList{},
+                std::vector<ir::Function::Attribute>{});
+        }
+    }
+    return appenders;
+}
+
+// The storage a `TaggedIndex` layout names, declared so the program has it.
+//
+// Declared for every variant rather than only the built ones: reading a handle
+// names the pool too, and a program that only ever matches on shapes it was
+// handed still needs somewhere to read them from. The fill counters are the
+// exception -- only an appender touches one -- but they are declared together
+// so that a caller sees one pair per variant rather than having to work out
+// which halves it owes.
+void declare_pools(ir::Program &program, const LayoutMap &layouts) {
+    for (const auto &[adt_name, layout] : layouts) {
+        if (layout.kind != ir::AdtLayout::TaggedIndex) {
+            continue;
+        }
+        for (const Type &variant : layout.variants) {
+            const std::string &vname = variant.as<Struct_t>()->name;
+            program.externs.push_back(
+                TypedVar{layout.pool(vname), Array_t::make(variant, Expr())});
+            program.externs.push_back(TypedVar{
+                layout.fill(vname), Array_t::make(layout.storage, Expr())});
+        }
+    }
+}
+
 } // namespace
 
 ir::Program LowerADTs::run(ir::Program program,
@@ -338,8 +511,10 @@ ir::Program LowerADTs::run(ir::Program program,
     }
 
     add_variant_constructors(program);
+    declare_pools(program, layouts);
 
-    RewriteADTs rewriter(layouts);
+    const FuncMap appenders = make_appenders(layouts);
+    RewriteADTs rewriter(layouts, appenders);
 
     for (auto &[name, type] : program.types) {
         type = rewriter.mutate(std::move(type));
@@ -369,6 +544,15 @@ ir::Program LowerADTs::run(ir::Program program,
 
     for (auto &extern_var : program.externs) {
         extern_var.type = rewriter.mutate(std::move(extern_var.type));
+    }
+
+    // The appenders the rewrite above reached, added last so that rewriting
+    // does not walk over bodies that are already written in terms of storage.
+    for (const std::string &fname : rewriter.needed) {
+        internal_assert(!program.funcs.contains(fname))
+            << "Cannot name the appender " << fname
+            << ": something is already called that.";
+        program.funcs[fname] = appenders.at(fname);
     }
 
     return program;

@@ -40,6 +40,18 @@ ir::Type ADTLayout::variant(const std::string &name) const {
     return found->second;
 }
 
+const std::string &ADTLayout::pool(const std::string &variant) const {
+    const auto found = pool_of.find(variant);
+    internal_assert(found != pool_of.end()) << "No pool for variant " << variant;
+    return found->second;
+}
+
+const std::string &ADTLayout::fill(const std::string &variant) const {
+    const auto found = fill_of.find(variant);
+    internal_assert(found != fill_of.end()) << "No fill for variant " << variant;
+    return found->second;
+}
+
 ADTLayout default_adt_layout(const ir::ADT_t &adt) {
     ADTLayout layout;
     layout.tag_field = "tag";
@@ -68,16 +80,46 @@ ADTLayout default_adt_layout(const ir::ADT_t &adt) {
     return layout;
 }
 
+ADTLayout tagged_index_adt_layout(const ir::ADT_t &adt) {
+    // One byte of tag, so the pool a handle names is the top byte of it. A sum
+    // of more than 256 things is refused rather than quietly widened: widening
+    // takes bits from the index, and which shift a handle uses is the one thing
+    // about this layout a caller building handles itself has to know.
+    internal_assert(!adt.variants.empty())
+        << "A type with no variants has no tag";
+    if (adt.variants.size() > 256) {
+        internal_error << "`layout " << adt.name
+                       << " = tagged_index` puts the tag in one byte, and "
+                       << adt.name << " has " << adt.variants.size()
+                       << " variants.";
+    }
+
+    ADTLayout layout;
+    layout.kind = ir::AdtLayout::TaggedIndex;
+    // The handle. Not a struct: a value of the ADT *is* this integer, so it is
+    // passed in a register and compared with one instruction.
+    layout.storage = UInt_t::make(64);
+    // The tag is read by shifting the handle, so it arrives as the handle's own
+    // type rather than the byte it occupies.
+    layout.tag_type = UInt_t::make(64);
+    layout.variants = adt.variants;
+
+    for (size_t i = 0; i < adt.variants.size(); i++) {
+        const std::string &name = adt.variant_name(i);
+        layout.tag_of[name] = i;
+        layout.variant_type[name] = adt.variants[i];
+        layout.pool_of[name] = adt.name + "_" + name + "_pool";
+        layout.fill_of[name] = adt.name + "_" + name + "_fill";
+    }
+    return layout;
+}
+
 ADTLayout adt_layout(const ir::ADT_t &adt, ir::AdtLayout kind) {
     switch (kind) {
     case ir::AdtLayout::Inline:
         return default_adt_layout(adt);
     case ir::AdtLayout::TaggedIndex:
-        internal_error
-            << "[unimplemented] `layout " << adt.name
-            << " = tagged_index`. The storage is chosen here and applied in "
-               "Lower/ADTs.cpp; what is missing is the one array per variant "
-               "the tag names, and a Construct that appends to it.";
+        return tagged_index_adt_layout(adt);
     case ir::AdtLayout::TaggedPtr:
         internal_error
             << "[unimplemented] `layout " << adt.name

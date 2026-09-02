@@ -1,0 +1,53 @@
+type Float = f32
+type Half = f16
+type Shape = u64
+type Sph = struct Sph{ centre : f32x3; radius : f32 }
+type Tri = struct Tri{ a : f32x3; b : f32x3 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern Shape_Sph_pool : struct Sph{ centre : f32x3; radius : f32 }[]
+extern Shape_Sph_fill : u64[]
+extern Shape_Tri_pool : struct Tri{ a : f32x3; b : f32x3 }[]
+extern Shape_Tri_fill : u64[]
+
+func [[export]] Shape_Sph(centre : f32x3, radius : f32, Shape_Sph_pool : mut Sph[], Shape_Sph_fill : mut u64[]) -> u64 {
+  return Shape_Sph_new(centre, radius, Shape_Sph_pool, Shape_Sph_fill)
+}
+
+func Shape_Sph_new(centre : f32x3, radius : f32, Shape_Sph_pool : mut Sph[], Shape_Sph_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Shape_Sph_fill[0u]), 1u) in
+  Shape_Sph_pool[_index] = build<Sph>(centre, radius)
+  return (0u << 56u) | _index
+}
+
+func [[export]] Shape_Tri(a : f32x3, b : f32x3, Shape_Tri_pool : mut Tri[], Shape_Tri_fill : mut u64[]) -> u64 {
+  return Shape_Tri_new(a, b, Shape_Tri_pool, Shape_Tri_fill)
+}
+
+func Shape_Tri_new(a : f32x3, b : f32x3, Shape_Tri_pool : mut Tri[], Shape_Tri_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Shape_Tri_fill[0u]), 1u) in
+  Shape_Tri_pool[_index] = build<Tri>(a, b)
+  return (1u << 56u) | _index
+}
+
+func [[export]] size(s : u64, Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
+  if ((s >> 56u) == 0u) {
+    let radius = Shape_Sph_pool[s & 72057594037927935u].radius in
+    return radius
+  } else {
+    let a = Shape_Tri_pool[s & 72057594037927935u].a in
+    return a[0u]
+  }
+}
+
+func [[export]] unit_sphere(Shape_Sph_pool : mut Sph[], Shape_Sph_fill : mut u64[]) -> u64 {
+  return Shape_Sph_new((f32x3)[0f,0f,0f], 1f, Shape_Sph_pool, Shape_Sph_fill)
+}
+
+
+schedule host {
+
+}

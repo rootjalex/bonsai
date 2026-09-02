@@ -1,0 +1,45 @@
+// A variant type stored as a tag and an index rather than a tag and a union.
+//
+// The companion to adt-layout-inline.bonsai: the same shape of program, the
+// other layout, and the golden is what to read to see what the layout is.
+// Four things should be visible in it.
+//
+// `Shape` is `u64`. Not a struct -- a value of the type *is* the handle, so it
+// is passed in a register and compared with one instruction, and it is eight
+// bytes whichever variant it holds rather than as large as the largest.
+//
+// The match is a shift and a compare, `(s >> 56) == 0`, and a field comes from
+// `Shape_Sph_pool[s & 0x00ffffffffffffff]`. That is the whole of the encoding:
+// the tag is the top byte and the index is the rest.
+//
+// The pools are externs nobody declared. They are the caller's memory and the
+// caller's capacity, which is what lets a variant be built without an
+// allocator, and they arrive as parameters of exactly the functions that reach
+// them -- `pick` reads both pools and neither counter, because reading a handle
+// never bumps one.
+//
+// And `Shape_Sph_new` is what a `Sph(..)` became: an atomic claim on the next
+// free slot, a store of the fields into it, and the handle naming it. Atomic
+// because a schedule may run the code that builds these in parallel, and a
+// schedule may not change the answer.
+
+import stdlib/numerics;
+
+element Shape =
+    | Sph(centre : vec3f, radius : Float)
+    | Tri(a : vec3f, b : vec3f);
+
+func [[export]] size(s : Shape) -> Float {
+    match s {
+        Sph(centre, radius) => return radius;
+        Tri(a, b) => return a.x;
+    }
+}
+
+// So that a Construct written in bonsai, rather than only the constructors the
+// pass exports for a C++ caller, reaches the appender.
+func [[export]] unit_sphere() -> Shape = Sph(vec3f{0.0, 0.0, 0.0}, 1.0);
+
+schedule {
+    layout Shape = tagged_index;
+}

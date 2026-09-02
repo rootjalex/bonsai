@@ -1,0 +1,44 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/adt-tagged-index
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_adt_tagged_index.cpp -I. -o $<>/main_adt_tagged_index.o, clang++ $<>/main_adt_tagged_index.o $<>/adt-tagged-index.o -o $<>/adt-tagged-index, ./$<>/adt-tagged-index, rm $<>/adt-tagged-index, rm $<>/main_adt_tagged_index.o, rm $<>/adt-tagged-index.h, rm $<>/adt-tagged-index.o
+
+// adt.bonsai, stored the other way.
+//
+// Deliberately the same program: the same two variants, the same `area`, the
+// same numbers out. Only the schedule differs, which is the claim a layout
+// makes -- it changes how a value is stored and nothing about what the program
+// answers. Reading the two `.expect` files side by side is the test of that.
+//
+// Through the SSA pipeline, which is the one apps/pbrt builds with and the one
+// that has to carry the atomic that claims a slot. Nothing else in the tree
+// reaches SSA/Convert.cpp's AtomicAdd, so this is what says the fetch-and-add
+// survives the round trip and returns the value it held before the add.
+//
+// What changes is everything the driver sees. A `Shape` is a `uint64_t` rather
+// than a tag beside a union, the fields live in a pool per variant that
+// main_adt_tagged_index.cpp owns, and building one appends to that pool -- so
+// the constructors take the pool and its counter, and `area`, which only reads,
+// takes the pools alone. None of that is written here; it is what
+// `layout Shape = tagged_index` means.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: Shape::Area().
+func [[export]] area(s : Shape) -> Float {
+    match s {
+        Sph(center, radius) => return 4.0 * 3.14159265 * radius * radius;
+        Tri(p0, p1, p2) => return 0.5 * norm(cross(p1 - p0, p2 - p0));
+    }
+}
+
+// The other direction: built in bonsai, read in C++.
+func [[export]] unit_sphere() -> Shape = Sph(vec3f{0.0, 0.0, 0.0}, 1.0);
+
+func [[export]] right_triangle() -> Shape =
+    Tri(vec3f{0.0, 0.0, 0.0}, vec3f{3.0, 0.0, 0.0}, vec3f{0.0, 4.0, 0.0});
+
+schedule {
+    layout Shape = tagged_index;
+}

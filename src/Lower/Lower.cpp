@@ -150,6 +150,13 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerRecLoops>());
     core.push_back(std::make_unique<LowerLambdas>());
     core.push_back(std::make_unique<LowerADTs>());
+    // Externs again, because LowerADTs can introduce references to new ones. A
+    // `tagged_index` layout stores a variant's fields in a pool the caller
+    // owns, so reading one names that pool and building one names its counter,
+    // and neither name existed when LowerExterns ran above. A second run costs
+    // nothing when the first found everything: what it does is find the free
+    // variables a pass added, and a program with no such layout adds none.
+    core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerOptions>());
     core.push_back(std::make_unique<LowerTuples>());
     core.push_back(std::make_unique<LowerDynamicArrays>());
@@ -199,6 +206,9 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerRandom>());
     ssa.push_back(std::make_unique<LowerLambdas>());
     ssa.push_back(std::make_unique<LowerADTs>());
+    // See the core pipeline: a `tagged_index` layout names externs that did
+    // not exist when LowerExterns ran.
+    ssa.push_back(std::make_unique<LowerExterns>());
     ssa.push_back(std::make_unique<LowerOptions>());
     ssa.push_back(std::make_unique<LowerTuples>());
     ssa.push_back(std::make_unique<LowerDynamicArrays>());
@@ -252,6 +262,8 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerRandom>());
     ssa_analysis.push_back(std::make_unique<LowerLambdas>());
     ssa_analysis.push_back(std::make_unique<LowerADTs>());
+    // See the core pipeline.
+    ssa_analysis.push_back(std::make_unique<LowerExterns>());
     ssa_analysis.push_back(std::make_unique<LowerOptions>());
     ssa_analysis.push_back(std::make_unique<LowerTuples>());
     ssa_analysis.push_back(std::make_unique<LowerDynamicArrays>());
@@ -293,6 +305,8 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerRecLoops>());
     d.push_back(std::make_unique<LowerLambdas>());
     d.push_back(std::make_unique<LowerADTs>());
+    // See the core pipeline.
+    d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerOptions>());
     d.push_back(std::make_unique<LowerTuples>());
     d.push_back(std::make_unique<LowerDynamicArrays>());
