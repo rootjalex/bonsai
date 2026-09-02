@@ -453,25 +453,58 @@ One thing to fix when doing it: pbrt *normalizes* the summed normal
 Identical while every sample of a pixel traces the same ray; different as soon
 as they do not.
 
-### 4. Light transport
+### 4. Light transport — killeroo-simple renders
 
-The point of the whole thing, and what turns a gbuffer into an image:
+`RandomWalkIntegrator` is implemented and killeroo-simple renders through it.
+Against pbrt's own randomwalk on the same scene at the same `maxdepth`:
 
-- lights in `scene_io.h` and `scene_dump.cpp` — `UniformInfiniteLight` first,
-  since it needs no light sampling and so isolates the transport;
-- the `f` and `PDF` halves of every BxDF in `bxdf.bonsai`, which are deliberately
-  absent: `rho` only needs `Sample_f`, and writing the others now would mean
-  shipping code no comparison against pbrt could check. `LayeredBxDF::f` is the
-  large one, and it needs `TransportMode` threaded through — `rho` is only ever
-  asked in radiance mode, so the dielectric's non-symmetry factor is currently
-  spelled out rather than switched on;
-- `SpawnRay` / `OffsetRayOrigin`. This is what `interval.bonsai` was written
-  for and has never been used: the error bounds on a hit point decide how far
-  to push the next ray off the surface, and getting it wrong looks like shadow
-  acne rather than like a bug in the integrator;
-- the random walk itself. pbrt's `LiRandomWalk` recurses but is bounded by
-  `maxdepth`, so it is a `for depth in 0:maxdepth` carrying throughput and
-  radiance — a sequential loop, which is what `for` is for.
+    pbrt    5038 lit pixels of 490,000   mean 2.26936   max 2032
+    bonsai  5038 lit pixels of 490,000   mean 2.26933   max 2032.23
+
+The same pixels are lit, every unlit pixel is bit-identical, and the means agree
+to a thousandth of a per cent. Of the 5,038 lit pixels 3,750 agree to better
+than 1e-3 relative; the rest diverge sharply, which is what a last-bit
+difference does to a stochastic walk -- it flips a branch and the path goes
+somewhere else entirely. Same class as the albedo divergence in item 1, and not
+something contraction reached there either.
+
+What was built, and what each piece cost:
+
+- **Area lights.** `DiffuseAreaLight` rather than the `UniformInfiniteLight`
+  this list used to name first, because killeroo-simple has no infinite light --
+  it is lit by an emissive sphere. For a random walk that is no harder: the
+  integrator never samples a light, it finds one by hitting it, so this needed
+  no `SampleLi`, no PDF and no shadow ray. `scene_dump` folds pbrt's
+  `scale /= SpectrumToPhotometric(L)` in, since it is a property of the scene.
+- **`f` and `PDF` for every BxDF**, with `TransportMode` threaded through as one
+  `radiance : bool`. `LayeredBxDF::f` needed all of it: it samples a virtual
+  light back through the exit interface in the *reversed* mode, and combines two
+  estimators of the same quantity with the power heuristic, which is what the
+  PDFs are for.
+- **`SpawnRay` / `OffsetRayOrigin`**, which is what `interval.bonsai` was written
+  for and had never been used. `SurfaceGeometry` now carries the hit point and
+  its error bound -- `gamma(5)` for a sphere, `gamma(7)` for a barycentric
+  interpolation -- and the next ray starts exactly that far off the surface.
+- **The walk**, as a loop carrying throughput and radiance rather than pbrt's
+  recursion, which is the same thing for a bounded depth.
+
+Two bugs worth remembering, because neither looked like what it was.
+
+**The film normalized a radiance like a reflectance.** Every lit pixel came out
+106.86 times too dim -- a picture that looks like a weak light rather than like
+an error. `SampledSpectrum::ToXYZ` divides by the CIE Y integral and
+`PixelSensor::ToSensorRGB` does not: a reflectance is a ratio and has to be one
+for a perfect reflector, a radiance is a quantity. `colour.bonsai` now has
+`spectrum_to_rgb` for the first and `radiance_to_rgb` for the second.
+
+**The camera sample was not drawing.** pbrt's `GetCameraSample` calls
+`GetPixel2D`, `Get1D` and `Get2D` and *then* overwrites all three when
+`--disable-pixel-jitter` is set; this app skipped the draws instead. That is
+invisible in a gbuffer, where nothing else touches the sampler, and it is the
+whole difference in a render: every scattering direction of the walk comes from
+the stream, so the two renderers were integrating the same thing with different
+numbers. Before the fix, 5,136 pixels were lit here against pbrt's 5,038 and
+their values were unrelated; after it, the same 5,038.
 
 ## Known-open, smaller
 
