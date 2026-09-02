@@ -179,6 +179,7 @@ target_sources(
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
     src/SSA/Contention.cpp
+    src/SSA/Contract.cpp
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp

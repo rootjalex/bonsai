@@ -1,6 +1,7 @@
 #include "SSA/Convert.h"
 
 #include "SSA/CodeGen_Stmt.h"
+#include "SSA/Contract.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
@@ -1393,6 +1394,16 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // and before the graph is turned back into statements.
     for (const auto &[name, f] : fmap) {
         DemoteAtomics::run(*f);
+    }
+
+    // Contraction after the schedule as well, and for a related reason: what a
+    // transform produces is arithmetic too. A vectorized gang's widened
+    // multiply and add are as fusible as the scalar pair they came from, and a
+    // pass that ran before the schedule would have missed them.
+    if (options.ffp_contract) {
+        for (const auto &[name, f] : fmap) {
+            contract_fp(*f);
+        }
     }
 
     // A transform may have added functions -- vectorize() specializes the

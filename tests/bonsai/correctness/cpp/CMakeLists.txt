@@ -5,6 +5,7 @@ add_bonsai_tests(
     adt-bvh.bonsai
     adt-tagged-index.bonsai
     bind_cpu_thread.bonsai
+    ffp-contract.bonsai
     mut-dynamic-array.bonsai
     setops.bonsai
     shading-frame.bonsai

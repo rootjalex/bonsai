@@ -1,0 +1,28 @@
+//! flags: -p ssa -b cpp --ffp-contract -o tests/bonsai/correctness/cpp/ffp-contract
+//! commands: clang++ -std=c++20 -O3 -ffp-contract=off -c $<>/main_ffp_contract.cpp -I. -o $<>/main_ffp_contract.o, clang++ $<>/main_ffp_contract.o $<>/ffp-contract.o -o $<>/ffp-contract, ./$<>/ffp-contract, rm $<>/ffp-contract, rm $<>/main_ffp_contract.o, rm $<>/ffp-contract.h, rm $<>/ffp-contract.o
+
+// `--ffp-contract`, in the only terms that can settle whether it did anything:
+// a number that comes out different.
+//
+// `a * b + c` rounds twice without it and once with it, and for almost every
+// input the two agree, which is exactly why this needs arranging rather than
+// observing. With a = b = 1 + 2^-12 the exact product is 1 + 2^-11 + 2^-24, and
+// 2^-24 is half an ulp at 1.0 -- so rounding the product on its own drops it,
+// ties-to-even, and the sum is 2^-11. Keeping the product exact until after the
+// add saves it, and the sum is 2^-11 + 2^-24, which is representable at that
+// exponent because the ulp there is 2^-34.
+//
+// The difference is the last bit of a small number, so `%f` and its six
+// decimals cannot show it. Scaling by 2^24 moves it to the ones place: 8192
+// unfused, 8193 fused, both exact in a float. That is the whole test -- an odd
+// number means one rounding.
+//
+// The driver supplies a, b and c so that nothing can fold this at compile time;
+// constants here would be evaluated once by the compiler, correctly, and would
+// say nothing about what it emits. It is built with `-ffp-contract=off` for the
+// mirror-image reason: clang contracting the generated C++ would produce the
+// fused answer whatever this flag did.
+element Float = f32;
+
+func [[export]] scaled(a : Float, b : Float, c : Float) -> Float =
+    (a * b + c) * 16777216.0;

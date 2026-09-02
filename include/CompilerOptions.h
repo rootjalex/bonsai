@@ -67,6 +67,20 @@ struct CompilerOptions {
     // written into storage the caller owns.
     bool no_heap = false;
 
+    // Fuse a float multiply into the add that consumes it: `a * b + c` rounds
+    // once rather than twice. gcc's `-ffp-contract=fast`, which is gcc's
+    // default and so what pbrt is built with.
+    //
+    // Off by default because it changes the arithmetic of every program that
+    // asks for it, and a golden that was blessed under two roundings will not
+    // match under one. It is not a fast-maths switch: nothing is reassociated,
+    // no sign is dropped, and NaN behaviour is untouched. Removing a rounding
+    // makes the answer *more* accurate, which is why pbrt's answers are the
+    // fused ones and why matching them means doing the same.
+    //
+    // Applied as an SSA rewrite; see include/SSA/Contract.h for why there.
+    bool ffp_contract = false;
+
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
 

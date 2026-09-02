@@ -1,0 +1,28 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @dot3(float noundef %ax, float noundef %ay, float noundef %az, float noundef %bx, float noundef %by, float noundef %bz) local_unnamed_addr #0 {
+dot3_entry:
+  %0 = fmul float %ay, %by
+  %1 = tail call float @llvm.fma.f32(float %ax, float %bx, float %0)
+  %2 = tail call float @llvm.fma.f32(float %az, float %bz, float %1)
+  ret float %2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @no_pair(float noundef %a, float noundef %b) local_unnamed_addr #0 {
+no_pair_entry:
+  %0 = fmul float %a, %b
+  %1 = tail call float @llvm.sqrt.f32(float %0)
+  ret float %1
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.fma.f32(float, float, float) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.sqrt.f32(float) #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }

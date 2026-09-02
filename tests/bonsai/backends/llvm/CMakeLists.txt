@@ -10,6 +10,7 @@ add_bonsai_tests(
     demote-atomics.bonsai
     dynamic-array.bonsai
     exported-function.bonsai
+    ffp-contract.bonsai
     float.bonsai
     forall.bonsai
     index.bonsai

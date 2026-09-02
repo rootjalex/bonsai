@@ -1,0 +1,26 @@
+//! flags: -p ssa -b llvm --ffp-contract
+
+// What `--ffp-contract` emits.
+//
+// `dot3` is `ax*bx + ay*by + az*bz` and should come out as two `llvm.fma.f32`
+// calls and one bare `fmul` -- the product that has no add left to pair with.
+// Which one that is is the arbitrary part: this fuses the add's first operand
+// when both are products, so the inner add absorbs `ax*bx` and `ay*by` is what
+// survives.
+//
+// That is worth pinning because it is also what stdlib/numerics.bonsai's `dot_`
+// says by hand: `fma(a.z, b.z, fma(a.x, b.x, a.y * b.y))`. That spelling was
+// found by printing pbrt's intermediates and testing candidates against them,
+// and this pass reaches it on its own -- which is the evidence that the rule
+// matches what gcc did here, rather than merely being a rule.
+//
+// `no_pair` is the control. Its multiply feeds a call and not an add, so
+// nothing fuses, and a pass that turned every multiply into an fma would show
+// up here rather than in the arithmetic.
+element Float = f32;
+
+func [[export]] dot3(ax : Float, ay : Float, az : Float,
+                     bx : Float, by : Float, bz : Float) -> Float =
+    ax * bx + ay * by + az * bz;
+
+func [[export]] no_pair(a : Float, b : Float) -> Float = sqrt(a * b);

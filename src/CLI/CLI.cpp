@@ -26,6 +26,7 @@ std::string command_help() {
          "`--triple x86_64-unknown-linux-gnu`\n"
       << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
       << "     | --no-heap                   | reject heap allocation\n"
+      << "     | --ffp-contract              | fuse `a * b + c` into one fma\n"
       << "-h   | --help";
     return s.str();
 }
@@ -145,6 +146,10 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "--no-heap") {
             options.no_heap = true;
+            continue;
+        }
+        if (arg == "--ffp-contract") {
+            options.ffp_contract = true;
             continue;
         }
         if (arg == "--mcpu") {

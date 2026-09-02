@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -ffp-contract=off -c tests/bonsai/correctness/cpp/main_ffp_contract.cpp -I. -o tests/bonsai/correctness/cpp/main_ffp_contract.o
+[test] clang++ tests/bonsai/correctness/cpp/main_ffp_contract.o tests/bonsai/correctness/cpp/ffp-contract.o -o tests/bonsai/correctness/cpp/ffp-contract
+[test] ./tests/bonsai/correctness/cpp/ffp-contract
+8193.0
+8388608.0
