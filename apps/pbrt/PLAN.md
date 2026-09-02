@@ -310,22 +310,37 @@ program can observe -- and being per-target matters here: an index travels to a
 device and a pointer does not, so the same program can want different answers on
 a CPU and a GPU.
 
-Only `inline` is built. The other two are parsed, reach `adt_layout()`, and stop
-there with an unimplemented error naming what is missing, rather than quietly
-falling back to the default and leaving a schedule that changed nothing and said
-so nowhere.
+`tagged_index` is built. A value of the type is one `u64` with the variant's tag
+in the top byte and, in the rest, an index into a pool per variant:
 
-`tagged_index` is the one to build first: the tag names one array per variant
-and the rest of the word indexes into it. It gets the eight bytes without the
-allocator, since the arrays are the caller's and a `Construct` appends to one.
-What it costs is that a variant can only be built where its array is in scope.
+    Shape = u64
+    match  ->  (s >> 56) == 0, then Shape_Sph_pool[s & 0x00ffffffffffffff]
+    Sph(..) ->  i = atomic_add(&Shape_Sph_fill[0], 1)
+                Shape_Sph_pool[i] = Sph{..}; return (0 << 56) | i
 
-Changing a layout touches `Lower/ADTs.cpp`, both backends, and wherever an ADT
-value is materialised. Two things are worth knowing before starting. It costs an
-indirection per access, and pbrt pays that too: its eight bytes cost three
-dependent loads to reach a triangle's vertices. The measured value of the
-208-to-64 change was about seven per cent, on the one scene of the eight where
-the traversal dominates.
+The pools are externs nobody declares -- `Lower/ADTs.cpp` declares them -- and
+they arrive as parameters of exactly the functions that reach them, which is
+what the extern machinery already does for everything else. That is the part
+that makes this work without an allocator: the memory and the capacity are the
+caller's, so building a variant is a store into a buffer the driver sized. A
+function that only reads handles takes the pools and not the counters.
+
+The eight bytes are pbrt's eight bytes, with a byte of tag where pbrt has seven
+bits at bit 57 -- pbrt needs the low 57 to stay a usable pointer and an index is
+under no such obligation. What it costs is the indirection, which pbrt pays too:
+its eight bytes cost three dependent loads to reach a triangle's vertices. The
+measured value of the earlier 208-to-64 change was about seven per cent, on the
+one scene of the eight where the traversal dominates, so this is worth measuring
+on `killeroo-simple` before assuming it is a win.
+
+`tagged_ptr` is parsed, reaches `adt_layout()`, and stops there with an
+unimplemented error naming what is missing, rather than quietly falling back to
+the default and leaving a schedule that changed nothing and said so nowhere.
+
+**Not yet applied to this renderer.** `Shape`, `Material` and `Primitive` still
+get the default. Doing it means the driver owning a pool per variant, which
+`render_hook.cpp` nearly does already -- it builds the spheres and the meshes
+into flat arrays -- and passing them in where it now passes the shape list.
 
 And a boxed variant has to be allocated. pbrt carries a per-thread
 `ScratchBuffer` through its integrator and resets it every sample, and the
