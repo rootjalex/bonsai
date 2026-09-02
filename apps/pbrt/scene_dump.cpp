@@ -21,7 +21,9 @@
 
 #include <pbrt/pbrt.h>
 
+#include <pbrt/base/bxdf.h>
 #include <pbrt/base/material.h>
+#include <pbrt/bxdfs.h>
 #include <pbrt/cameras.h>
 #include <pbrt/cpu/aggregates.h>
 #include <pbrt/cpu/primitive.h>
@@ -98,17 +100,30 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Sampler(name, std::move(params), loc);
     }
 
-    // What M1 needs of a material: its kind, and the reflectance if it names
-    // one as RGB. The parameters are read here in their parsed form rather than
-    // through a ParameterDictionary, because an `rgb reflectance` reaches a
+    // What a material directive said, kept in the form the scene wrote it.
+    //
+    // Deliberately not a ParameterDictionary. An `rgb reflectance` reaches a
     // dictionary already turned into an RGBAlbedoSpectrum -- PBRT's own sigmoid
     // fit -- and that fit is the thing the renderer is supposed to be doing.
-    // Taking the three numbers as written leaves it that way.
+    // Taking the numbers as written leaves it that way, at the cost of doing
+    // PBRT's defaulting by hand below.
+    //
+    // The values are copied rather than pointed at: the vector holds pointers
+    // the base is about to take ownership of, and these outlive parsing.
     struct MaterialInfo {
+        struct Value {
+            std::string type;
+            std::vector<float> floats;
+            std::vector<int> ints;
+            std::vector<uint8_t> bools;
+        };
         std::string name;
-        bool has_reflectance = false;
-        bool reflectance_is_rgb = false;
-        float reflectance[3] = {0.f, 0.f, 0.f};
+        std::map<std::string, Value> params;
+
+        const Value *find(const std::string &key) const {
+            const auto it = params.find(key);
+            return it == params.end() ? nullptr : &it->second;
+        }
     };
 
     // A shape names its material by an index, and the materials themselves are
@@ -120,16 +135,12 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         MaterialInfo info;
         info.name = name;
         for (const pbrt::ParsedParameter *p : params) {
-            if (p->name != "reflectance") {
-                continue;
-            }
-            info.has_reflectance = true;
-            if (p->type == "rgb" && p->floats.size() == 3) {
-                info.reflectance_is_rgb = true;
-                for (int i = 0; i < 3; i++) {
-                    info.reflectance[i] = float(p->floats[i]);
-                }
-            }
+            MaterialInfo::Value v;
+            v.type = p->type;
+            v.floats.assign(p->floats.begin(), p->floats.end());
+            v.ints.assign(p->ints.begin(), p->ints.end());
+            v.bools.assign(p->bools.begin(), p->bools.end());
+            info.params.emplace(p->name, std::move(v));
         }
         materials.push_back(std::move(info));
         pbrt::BasicSceneBuilder::Material(name, std::move(params), loc);
@@ -148,43 +159,127 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     exit(1);
 }
 
-// The reflectance a shape's material carries, as RGB.
+// A parameter the renderer can carry, or a refusal.
 //
-// This is all M1 needs. The albedo PBRT's gbuffer records for a diffuse
-// surface is exactly the material's reflectance, because a Lambertian BRDF's
-// hemispherical reflectance is its reflectance -- PBRT estimates it with
-// sixteen cosine-weighted samples and every one of them returns the same
-// number. Anything else -- textures, conductors, dielectrics -- is a later
-// milestone, and saying so is better than substituting a grey and calling the
-// result a match.
-void material_reflectance(const std::vector<CapturingBuilder::MaterialInfo> &materials,
-                          int index, float *rgb) {
-    // PBRT's default reflectance for `diffuse`, and what a shape declared
-    // outside any Material directive gets.
-    rgb[0] = rgb[1] = rgb[2] = 0.5f;
+// Every one of these is a constant here where PBRT's is a texture. A texture
+// evaluated at the wrong place is a picture that looks plausible and is not the
+// scene's, so a material naming one is refused rather than flattened.
+float material_float(const CapturingBuilder::MaterialInfo &m,
+                     const std::string &key, float fallback) {
+    const CapturingBuilder::MaterialInfo::Value *v = m.find(key);
+    if (v == nullptr) {
+        return fallback;
+    }
+    if (v->type != "float" || v->floats.size() != 1) {
+        fail("the material parameter \"" + key +
+             "\" has to be a single float here, not a texture or a curve");
+    }
+    return v->floats[0];
+}
+
+// An RGB spectrum parameter. Taken as the three numbers the scene wrote,
+// because turning them into a spectrum is what the renderer does.
+bool material_rgb(const CapturingBuilder::MaterialInfo &m,
+                  const std::string &key, float *rgb) {
+    const CapturingBuilder::MaterialInfo::Value *v = m.find(key);
+    if (v == nullptr) {
+        return false;
+    }
+    if (v->type != "rgb" || v->floats.size() != 3) {
+        fail("the material parameter \"" + key +
+             "\" has to be an `rgb` here, not a texture or a named spectrum");
+    }
+    for (int i = 0; i < 3; i++) {
+        rgb[i] = v->floats[i];
+    }
+    return true;
+}
+
+// The material a shape was declared under, in the form the renderer reads.
+//
+// The defaults are PBRT's own, from DiffuseMaterial::Create and
+// CoatedDiffuseMaterial::Create, because a material that names nothing has to
+// arrive as the one PBRT would have built rather than as a guess.
+bonsai_scene::Material
+convert_material(const std::vector<CapturingBuilder::MaterialInfo> &materials,
+                 int index) {
+    bonsai_scene::Material out;
+    // What a shape declared outside any Material directive gets.
     if (index < 0) {
-        return;
+        return out;
     }
     if (index >= int(materials.size())) {
         fail("a shape names a material that was never declared");
     }
     const CapturingBuilder::MaterialInfo &m = materials[index];
     if (m.name.empty() || m.name == "none") {
-        return;
+        return out;
     }
-    if (m.name != "diffuse") {
-        fail("only the diffuse material is supported, scene asks for \"" +
-             m.name + "\"");
+
+    if (m.name == "diffuse") {
+        out.tag = bonsai_scene::MaterialTag::Diffuse;
+        material_rgb(m, "reflectance", out.reflectance);
+        return out;
     }
-    if (m.has_reflectance) {
-        if (!m.reflectance_is_rgb) {
-            fail("only an `rgb reflectance` is supported, not a texture or a "
-                 "named spectrum");
+
+    if (m.name == "coateddiffuse") {
+        out.tag = bonsai_scene::MaterialTag::CoatedDiffuse;
+        material_rgb(m, "reflectance", out.reflectance);
+        // PBRT takes `uroughness` and `vroughness` where they are given and
+        // falls back to `roughness` for each independently, which is not the
+        // same as falling back to `roughness` only when neither is given.
+        const float roughness = material_float(m, "roughness", 0.f);
+        out.u_roughness = material_float(m, "uroughness", roughness);
+        out.v_roughness = material_float(m, "vroughness", roughness);
+        out.thickness = material_float(m, "thickness", 0.01f);
+        out.g = material_float(m, "g", 0.f);
+        // `eta` is a spectrum in PBRT unless the scene writes it as a bare
+        // float, and a spectral one terminates the secondary wavelengths --
+        // which changes what every later stage of the render integrates over.
+        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
+        if (eta != nullptr) {
+            if (eta->type != "float" || eta->floats.size() != 1) {
+                fail("only a scalar `float eta` is supported on coateddiffuse, "
+                     "not a named spectrum -- a spectral index terminates the "
+                     "secondary wavelengths, which nothing here does");
+            }
+            out.eta = eta->floats[0];
         }
-        for (int i = 0; i < 3; i++) {
-            rgb[i] = m.reflectance[i];
+        out.has_medium = material_rgb(m, "albedo", out.medium_albedo) ? 1u : 0u;
+
+        const CapturingBuilder::MaterialInfo::Value *remap =
+            m.find("remaproughness");
+        if (remap != nullptr) {
+            if (remap->type != "bool" || remap->bools.size() != 1) {
+                fail("`remaproughness` has to be a single bool");
+            }
+            out.remap = remap->bools[0] ? 1u : 0u;
         }
+        const CapturingBuilder::MaterialInfo::Value *depth = m.find("maxdepth");
+        if (depth != nullptr) {
+            if (depth->type != "integer" || depth->ints.size() != 1) {
+                fail("`maxdepth` has to be a single integer");
+            }
+            out.max_depth = depth->ints[0];
+        }
+        const CapturingBuilder::MaterialInfo::Value *n = m.find("nsamples");
+        if (n != nullptr) {
+            if (n->type != "integer" || n->ints.size() != 1) {
+                fail("`nsamples` has to be a single integer");
+            }
+            out.n_samples = n->ints[0];
+        }
+        if (m.find("displacement") != nullptr ||
+            m.find("normalmap") != nullptr) {
+            fail("a displacement or normal map changes the shading frame, "
+                 "which this renderer takes from the geometry alone");
+        }
+        return out;
     }
+
+    fail("only the diffuse and coateddiffuse materials are supported, scene "
+         "asks for \"" +
+         m.name + "\"");
 }
 
 // Check the generated spectral tables against the ones a running PBRT holds.
@@ -422,6 +517,426 @@ void print_sampler() {
         printf(" %d", pbrt::Primes[i]);
     }
     printf(" ... %d\n", pbrt::Primes[pbrt::PrimeTableSize - 1]);
+}
+
+// PBRT's fixed sample points for a reflectance estimate, from the path
+// integrator. Fixed rather than drawn, so that the albedo of a pixel does not
+// depend on where in the sampler's stream the estimate happens to fall.
+constexpr int kRhoSamples = 16;
+const pbrt::Float kRhoUC[kRhoSamples] = {
+    0.75741637, 0.37870818, 0.7083487,  0.18935409, 0.9149363,  0.35417435,
+    0.5990858,  0.09467703, 0.8578725,  0.45746812, 0.686759,   0.17708716,
+    0.9674518,  0.2995429,  0.5083201,  0.047338516};
+const pbrt::Point2f kRhoU[kRhoSamples] = {
+    {0.855985f, 0.570367f}, {0.381823f, 0.851844f}, {0.285328f, 0.764262f},
+    {0.733380f, 0.114073f}, {0.542663f, 0.344465f}, {0.127274f, 0.414848f},
+    {0.964700f, 0.947162f}, {0.594089f, 0.643463f}, {0.095109f, 0.170369f},
+    {0.825444f, 0.263359f}, {0.429467f, 0.454469f}, {0.244460f, 0.816459f},
+    {0.756135f, 0.731258f}, {0.516165f, 0.152852f}, {0.180888f, 0.214174f},
+    {0.898579f, 0.503897f}};
+
+// Print what PBRT's own BSDFs answer, so that the ones written in bonsai can be
+// checked against them rather than against a reading of the source.
+//
+// `coateddiffuse` is where matching PBRT stops being about arithmetic for the
+// second time. A layered BSDF has no closed form: a sample of it is a random
+// walk between the coating and the base, driven by an RNG seeded from a hash of
+// the very directions it was asked about. Reproducing the walk means
+// reproducing that stream, and a walk with different noise agrees with PBRT in
+// the limit and nowhere before it -- so an image comparison at sixteen samples
+// could not tell a correct implementation from a plausible one. These numbers
+// are what tests/bonsai/correctness/llvm's coated-diffuse golden holds.
+//
+// The BxDF is constructed here rather than obtained from a material, so the
+// spectrum the diffuse base carries is a number written down on both sides
+// instead of the output of the sigmoid fit. That keeps this a test of the
+// scattering and not of the colour conversion, which has a check of its own.
+void print_bsdf() {
+    struct Case {
+        const char *name;
+        pbrt::Float roughness; // As a scene writes it, before the remap.
+        pbrt::Float eta;
+        pbrt::Float thickness;
+        pbrt::Float r[4]; // The base's reflectance at the four wavelengths.
+    };
+    // The two roughnesses killeroo-simple asks for, a smooth coating -- which
+    // takes the dielectric's delta path instead of the microfacet one -- and a
+    // case whose four wavelengths differ, so a spectrum collapsed to one number
+    // would show up here.
+    const Case cases[] = {
+        {"rough", 0.025f, 1.5f, 0.01f, {0.4f, 0.4f, 0.4f, 0.4f}},
+        {"rougher", 0.15f, 1.5f, 0.01f, {0.4f, 0.5f, 0.4f, 0.4f}},
+        {"smooth", 0.f, 1.5f, 0.01f, {0.5f, 0.5f, 0.5f, 0.5f}},
+        {"spectral", 0.05f, 1.33f, 0.5f, {0.1f, 0.35f, 0.62f, 0.9f}},
+    };
+    // Directions chosen to be unalike: straight on, oblique, grazing, and one
+    // from below -- which is the side a two-sided layered BSDF has to mirror.
+    const pbrt::Vector3f directions[] = {
+        pbrt::Normalize(pbrt::Vector3f(0.f, 0.f, 1.f)),
+        pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f)),
+        pbrt::Normalize(pbrt::Vector3f(0.7f, -0.5f, 0.2f)),
+        pbrt::Normalize(pbrt::Vector3f(0.6f, 0.1f, 0.05f)),
+        pbrt::Normalize(pbrt::Vector3f(-0.2f, 0.4f, -0.85f)),
+    };
+
+    for (const Case &c : cases) {
+        // pbrt: CoatedDiffuseMaterial::GetBxDF, with `remaproughness` at its
+        // default of true and no medium between the interfaces.
+        const pbrt::Float alpha =
+            pbrt::TrowbridgeReitzDistribution::RoughnessToAlpha(c.roughness);
+        const pbrt::TrowbridgeReitzDistribution distrib(alpha, alpha);
+        pbrt::SampledSpectrum r;
+        for (int i = 0; i < 4; i++) {
+            r[i] = c.r[i];
+        }
+        pbrt::CoatedDiffuseBxDF coated(pbrt::DielectricBxDF(c.eta, distrib),
+                                       pbrt::DiffuseBxDF(r), c.thickness,
+                                       pbrt::SampledSpectrum(0.f), /*g=*/0.f,
+                                       /*maxDepth=*/10, /*nSamples=*/1);
+        pbrt::BxDF bxdf(&coated);
+        for (const pbrt::Vector3f &wo : directions) {
+            const pbrt::SampledSpectrum rho = bxdf.rho(wo, kRhoUC, kRhoU);
+            printf("rho %s %.9g %.9g %.9g:", c.name, double(wo.x), double(wo.y),
+                   double(wo.z));
+            for (int i = 0; i < 4; i++) {
+                printf(" %.9g", double(rho[i]));
+            }
+            printf("\n");
+        }
+    }
+
+    // The pieces the walk is built from, each on its own. A layered BSDF is a
+    // composition of four or five separate reproductions, and a rho that is
+    // merely close says nothing about which of them is wrong.
+    {
+        const pbrt::Vector3f wo =
+            pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f));
+        const pbrt::Float alpha =
+            pbrt::TrowbridgeReitzDistribution::RoughnessToAlpha(0.05f);
+        const pbrt::TrowbridgeReitzDistribution distrib(alpha, alpha);
+        for (int i = 0; i < 4; i++) {
+            const pbrt::Vector3f wm = distrib.Sample_wm(wo, kRhoU[i]);
+            printf("samplewm %d: %.9g %.9g %.9g | %.9g %.9g\n", i, double(wm.x),
+                   double(wm.y), double(wm.z), double(distrib.D(wm)),
+                   double(distrib.G(wo, wm)));
+        }
+        const pbrt::DielectricBxDF dielectric(1.5f, distrib);
+        for (int i = 0; i < 4; i++) {
+            const pstd::optional<pbrt::BSDFSample> bs = dielectric.Sample_f(
+                wo, kRhoUC[i], kRhoU[i], pbrt::TransportMode::Radiance);
+            printf("dielectric %d:", i);
+            if (!bs) {
+                printf(" none\n");
+                continue;
+            }
+            printf(" %.9g | %.9g %.9g %.9g | %.9g | %d\n", double(bs->f[0]),
+                   double(bs->wi.x), double(bs->wi.y), double(bs->wi.z),
+                   double(bs->pdf), int(bs->flags));
+        }
+        // Reflection only and transmission only. Asked for by name because
+        // that is how the walk asks -- and because a Fresnel term of four per
+        // cent means sixteen samples of the unrestricted call are sixteen
+        // transmissions, so the reflection branch would otherwise go
+        // unexercised until it appeared inside a walk.
+        const struct {
+            const char *label;
+            pbrt::BxDFReflTransFlags flags;
+        } restrictions[] = {
+            {"dielectric-r", pbrt::BxDFReflTransFlags::Reflection},
+            {"dielectric-t", pbrt::BxDFReflTransFlags::Transmission},
+        };
+        for (const auto &restriction : restrictions) {
+            for (int i = 0; i < 4; i++) {
+                const pstd::optional<pbrt::BSDFSample> bs = dielectric.Sample_f(
+                    wo, kRhoUC[i], kRhoU[i], pbrt::TransportMode::Radiance,
+                    restriction.flags);
+                printf("%s %d:", restriction.label, i);
+                if (!bs) {
+                    printf(" none\n");
+                    continue;
+                }
+                printf(" %.9g | %.9g %.9g %.9g | %.9g | %d\n", double(bs->f[0]),
+                       double(bs->wi.x), double(bs->wi.y), double(bs->wi.z),
+                       double(bs->pdf), int(bs->flags));
+                // The masking term about the sampled direction rather than
+                // about the microfacet normal, which is the only factor of the
+                // reflection branch not printed on its own above.
+                if (bs->wi.z != 0) {
+                    printf("%s-g %d: %.9g\n", restriction.label, i,
+                           double(distrib.G(wo, bs->wi)));
+                }
+            }
+        }
+
+        // And from the other side. The walk spends most of its steps down
+        // between the two interfaces, so every direction it asks about after
+        // the first has a negative z -- a hemisphere none of the calls above
+        // reach.
+        const pbrt::Vector3f below = -wo;
+        for (int i = 0; i < 4; i++) {
+            const pbrt::Vector3f wm = distrib.Sample_wm(below, kRhoU[i]);
+            printf("samplewm-b %d: %.9g %.9g %.9g | %.9g %.9g\n", i,
+                   double(wm.x), double(wm.y), double(wm.z),
+                   double(distrib.D(wm)), double(distrib.G(below, wm)));
+            const pstd::optional<pbrt::BSDFSample> bs = dielectric.Sample_f(
+                below, kRhoUC[i], kRhoU[i], pbrt::TransportMode::Radiance);
+            printf("dielectric-b %d:", i);
+            if (!bs) {
+                printf(" none\n");
+                continue;
+            }
+            printf(" %.9g | %.9g %.9g %.9g | %.9g | %d\n", double(bs->f[0]),
+                   double(bs->wi.x), double(bs->wi.y), double(bs->wi.z),
+                   double(bs->pdf), int(bs->flags));
+        }
+        // The intermediates of the rough transmission branch, which is the
+        // longest chain of arithmetic in the file and the one where a fused
+        // multiply-add on pbrt's side would first show up.
+        for (int i = 0; i < 4; i++) {
+            const pbrt::Vector3f wm = distrib.Sample_wm(wo, kRhoU[i]);
+            pbrt::Float etap = 0;
+            pbrt::Vector3f wi;
+            const bool ok =
+                pbrt::Refract(wo, pbrt::Normal3f(wm), 1.5f, &etap, &wi);
+            if (!ok) {
+                printf("refract %d: none\n", i);
+                continue;
+            }
+            const pbrt::Float denom =
+                pbrt::Sqr(pbrt::Dot(wi, wm) + pbrt::Dot(wo, wm) / etap);
+            printf("refract %d: %.9g %.9g %.9g | %.9g | %.9g | %.9g | %.9g\n", i,
+                   double(wi.x), double(wi.y), double(wi.z), double(etap),
+                   double(denom), double(distrib.G(wo, wi)),
+                   double(pbrt::FrDielectric(pbrt::Dot(wo, wm), 1.5f)));
+        }
+
+        const pbrt::DiffuseBxDF diffuse(pbrt::SampledSpectrum(0.4f));
+        for (int i = 0; i < 4; i++) {
+            const pstd::optional<pbrt::BSDFSample> bs = diffuse.Sample_f(
+                wo, kRhoUC[i], kRhoU[i], pbrt::TransportMode::Radiance);
+            printf("diffuse %d: %.9g | %.9g %.9g %.9g | %.9g | %d\n", i,
+                   double(bs->f[0]), double(bs->wi.x), double(bs->wi.y),
+                   double(bs->wi.z), double(bs->pdf), int(bs->flags));
+        }
+        printf("fresnel:");
+        for (pbrt::Float c : {1.f, 0.9f, 0.3f, 0.05f, -0.4f}) {
+            printf(" %.9g", double(pbrt::FrDielectric(c, 1.5f)));
+        }
+        printf("\n");
+        // FastExp is not std::exp: pbrt scales a cubic in the fractional part
+        // of x/ln 2 by writing the integer part into the exponent field, and
+        // the walk multiplies by one of these at every layer crossing.
+        printf("fastexp:");
+        for (pbrt::Float x : {0.f, -0.01f, -0.5f, -3.25f, -40.f}) {
+            printf(" %.9g", double(pbrt::FastExp(x)));
+        }
+        printf("\n");
+
+        // Which end of `Point2f(r(), r())` is drawn first.
+        //
+        // This is not a detail. The layered walk draws its two-dimensional
+        // sample as two calls in a constructor's argument list, and the order
+        // C++ evaluates those in is unspecified -- gcc goes right to left,
+        // clang left to right. So which of the two components gets the earlier
+        // number out of the RNG is a property of the compiler pbrt was built
+        // with, and getting it backwards swaps every second and third draw of
+        // every step of every walk. Printed rather than assumed, because it
+        // cannot be read off the source.
+        {
+            pbrt::RNG rng(1, 2);
+            const auto r = [&rng]() {
+                return std::min<pbrt::Float>(rng.Uniform<pbrt::Float>(),
+                                             pbrt::OneMinusEpsilon);
+            };
+            const pbrt::Point2f u(r(), r());
+            pbrt::RNG plain(1, 2);
+            const pbrt::Float first = plain.Uniform<pbrt::Float>();
+            const pbrt::Float second = plain.Uniform<pbrt::Float>();
+            printf("argorder: %s (%.9g %.9g of %.9g %.9g)\n",
+                   u.x == first ? "x-first" : "y-first", double(u.x),
+                   double(u.y), double(first), double(second));
+        }
+    }
+
+    // A single sample of the walk as well as the average of sixteen, because a
+    // mean can hide a step that is wrong for a few inputs, and because the
+    // direction and pdf a sample reports are not visible in rho at all.
+    {
+        const pbrt::Float alpha =
+            pbrt::TrowbridgeReitzDistribution::RoughnessToAlpha(0.05f);
+        pbrt::CoatedDiffuseBxDF coated(
+            pbrt::DielectricBxDF(
+                1.5f, pbrt::TrowbridgeReitzDistribution(alpha, alpha)),
+            pbrt::DiffuseBxDF(pbrt::SampledSpectrum(0.4f)), 0.01f,
+            pbrt::SampledSpectrum(0.f), 0.f, 10, 1);
+        const pbrt::Vector3f wo = pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f));
+        for (int i = 0; i < kRhoSamples; i++) {
+            const pstd::optional<pbrt::BSDFSample> bs =
+                coated.Sample_f(wo, kRhoUC[i], kRhoU[i],
+                                pbrt::TransportMode::Radiance);
+            printf("sample %d:", i);
+            if (!bs) {
+                printf(" none\n");
+                continue;
+            }
+            printf(" %.9g %.9g %.9g %.9g | %.9g %.9g %.9g | %.9g | %d\n",
+                   double(bs->f[0]), double(bs->f[1]), double(bs->f[2]),
+                   double(bs->f[3]), double(bs->wi.x), double(bs->wi.y),
+                   double(bs->wi.z), double(bs->pdf), int(bs->flags));
+        }
+    }
+
+    // The two hashes the walk is seeded with, on their own. They are the part
+    // most likely to be transcribed wrongly -- a Murmur over the bytes of a
+    // float is not something a reader can check by eye -- and the hardest to
+    // see through an RNG and a random walk.
+    for (const pbrt::Vector3f &wo : directions) {
+        printf("seedhash %.9g %.9g %.9g: %llu\n", double(wo.x), double(wo.y),
+               double(wo.z),
+               static_cast<unsigned long long>(
+                   pbrt::Hash(pbrt::GetOptions().seed, wo)));
+    }
+    for (int i = 0; i < 4; i++) {
+        printf("uhash %d: %llu\n", i,
+               static_cast<unsigned long long>(
+                   pbrt::Hash(kRhoUC[i], kRhoU[i])));
+    }
+}
+
+// Print the shading geometry PBRT computes at a hit, and the frame a BSDF is
+// evaluated in.
+//
+// This is the other half of what a layered material needs and the half that is
+// invisible in the gbuffer. The normal a film records is turned to face the
+// camera, so its sign and the whole tangent direction drop out of the
+// comparison; a BSDF sees all of it, and a layered one hashes the outgoing
+// direction expressed in that frame to seed its random walk. A tangent one bit
+// out gives a walk with different noise, which converges to the same
+// reflectance and agrees with PBRT at no finite sample count.
+//
+// The mesh is built here rather than taken from a scene so that the inputs are
+// numbers written down on both sides -- the same reason print_bsdf constructs
+// its BxDFs. What tests/bonsai/correctness/llvm's shading-frame golden holds is
+// this output.
+void print_shading() {
+    pbrt::Allocator alloc;
+    // Two triangles sharing an edge, at a scale and an angle nothing about is
+    // round: a vertex on an axis or a normal already perpendicular to the
+    // tangent would take a branch that the general case does not.
+    const std::vector<int> indices = {0, 1, 2, 2, 1, 3};
+    const std::vector<pbrt::Point3f> p = {
+        {-36.876f, 26.033f, -137.748f},
+        {-37.039f, 21.507f, -137.128f},
+        {-35.466f, -2.075f, -129.337f},
+        {-30.348f, -8.431f, -132.687f}};
+    // Not unit vectors, and not agreeing with the face they sit on: a
+    // subdivision surface's limit normals are neither.
+    const std::vector<pbrt::Normal3f> n = {{0.31f, 0.42f, 0.85f},
+                                           {0.09f, 0.55f, 0.83f},
+                                           {-0.22f, 0.61f, 0.76f},
+                                           {0.40f, -0.13f, 0.91f}};
+    const std::vector<pbrt::Point2f> uv = {
+        {0.f, 0.f}, {0.7f, 0.1f}, {0.2f, 0.9f}, {1.f, 1.f}};
+
+    struct Case {
+        const char *label;
+        bool with_normals;
+        bool with_uv;
+        bool reverse;
+    };
+    const Case cases[] = {
+        // What a `loopsubdiv` shape produces: normals and no texture
+        // coordinates, so the tangent comes from PBRT's default (0,0), (1,0),
+        // (1,1) parameterization and is then made perpendicular to the
+        // interpolated normal.
+        {"subdiv", true, false, false},
+        // What a plain `trianglemesh` with `uv` produces.
+        {"uv", false, true, false},
+        // Both, and the orientation reversed -- which flips the geometric
+        // normal and so the frame's second axis.
+        {"both", true, true, true},
+    };
+
+    const pbrt::Point3f origin(-20.f, 60.f, -60.f);
+    const pbrt::Point3f targets[] = {{-36.f, 20.f, -135.f},
+                                     {-34.f, 8.f, -132.f},
+                                     {-33.f, 0.f, -131.f}};
+
+    for (const Case &c : cases) {
+        const pbrt::TriangleMesh *mesh = alloc.new_object<pbrt::TriangleMesh>(
+            pbrt::Transform(), c.reverse, indices, p,
+            std::vector<pbrt::Vector3f>(),
+            c.with_normals ? n : std::vector<pbrt::Normal3f>(),
+            c.with_uv ? uv : std::vector<pbrt::Point2f>(), std::vector<int>(),
+            alloc);
+        for (const pbrt::Point3f &target : targets) {
+            const pbrt::Ray ray(origin, pbrt::Normalize(target - origin));
+            for (int tri = 0; tri < 2; tri++) {
+                const pstd::optional<pbrt::TriangleIntersection> ti =
+                    pbrt::IntersectTriangle(ray, pbrt::Infinity,
+                                            p[indices[3 * tri + 0]],
+                                            p[indices[3 * tri + 1]],
+                                            p[indices[3 * tri + 2]]);
+                if (!ti) {
+                    continue;
+                }
+                const pbrt::SurfaceInteraction isect =
+                    pbrt::Triangle::InteractionFromIntersection(
+                        mesh, tri, *ti, 0.f, -ray.d);
+                const pbrt::Frame frame = pbrt::Frame::FromXZ(
+                    pbrt::Normalize(isect.shading.dpdu),
+                    pbrt::Vector3f(isect.shading.n));
+                const pbrt::Vector3f local = frame.ToLocal(isect.wo);
+                printf("bary %s %d %.9g: %.9g %.9g %.9g %.9g\n", c.label, tri,
+                       double(target.y), double(ti->b0), double(ti->b1),
+                       double(ti->b2), double(ti->t));
+                printf("shading %s %d %.9g: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                       "%.9g %.9g %.9g | %.9g %.9g %.9g\n",
+                       c.label, tri, double(target.y), double(isect.n.x),
+                       double(isect.n.y), double(isect.n.z),
+                       double(isect.shading.n.x), double(isect.shading.n.y),
+                       double(isect.shading.n.z), double(isect.shading.dpdu.x),
+                       double(isect.shading.dpdu.y), double(isect.shading.dpdu.z),
+                       double(local.x), double(local.y), double(local.z));
+                // The interpolated shading normal before it is normalized,
+                // written as PBRT writes it and so compiled the way PBRT's is.
+                // Three multiplies and two adds, which the compiler fuses, and
+                // which of them it fuses is not something the source says.
+                if (mesh->n != nullptr) {
+                    const int *iv = &indices[3 * tri];
+                    const pbrt::Normal3f raw = ti->b0 * mesh->n[iv[0]] +
+                                               ti->b1 * mesh->n[iv[1]] +
+                                               ti->b2 * mesh->n[iv[2]];
+                    printf("rawns %s %d %.9g: %.9g %.9g %.9g\n", c.label, tri,
+                           double(target.y), double(raw.x), double(raw.y),
+                           double(raw.z));
+                }
+                // The length of the tangent before it is normalized. A dot
+                // product is a chain of multiply-adds and so a chain of
+                // roundings, and which of them the compiler fuses decides the
+                // last bit of every axis built from it.
+                printf("length %s %d %.9g: %.9g %.9g\n", c.label, tri,
+                       double(target.y),
+                       double(pbrt::LengthSquared(isect.shading.dpdu)),
+                       double(pbrt::Length(isect.shading.dpdu)));
+                // The frame itself and the direction expressed in it, so that a
+                // disagreement about the answer can be traced to which axis.
+                printf("frame %s %d %.9g: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                       "%.9g %.9g %.9g\n",
+                       c.label, tri, double(target.y), double(frame.x.x),
+                       double(frame.x.y), double(frame.x.z), double(frame.y.x),
+                       double(frame.y.y), double(frame.y.z), double(isect.wo.x),
+                       double(isect.wo.y), double(isect.wo.z));
+            }
+        }
+    }
+    // The rays themselves, so that the other side is answering about the same
+    // ones rather than about its own idea of them.
+    for (const pbrt::Point3f &target : targets) {
+        const pbrt::Vector3f d = pbrt::Normalize(target - origin);
+        printf("ray %.9g: %.9g %.9g %.9g\n", double(target.y), double(d.x),
+               double(d.y), double(d.z));
+    }
 }
 
 // PBRT's LinearBVHNode, which is declared in aggregates.h but defined inside
@@ -729,22 +1244,6 @@ void render_reference(pbrt::BasicScene &scene,
     const int width = extent.x, height = extent.y;
     const int spp = sampler.SamplesPerPixel();
 
-    // PBRT's fixed sample arrays for the reflectance estimate, from the path
-    // integrator. Fixed rather than drawn, so the albedo of a pixel does not
-    // depend on where in the sampler's stream the estimate happens to fall.
-    static constexpr int kRhoSamples = 16;
-    const pbrt::Float uc_rho[kRhoSamples] = {
-        0.75741637, 0.37870818, 0.7083487,  0.18935409, 0.9149363,  0.35417435,
-        0.5990858,  0.09467703, 0.8578725,  0.45746812, 0.686759,   0.17708716,
-        0.9674518,  0.2995429,  0.5083201,  0.047338516};
-    const pbrt::Point2f u_rho[kRhoSamples] = {
-        {0.855985f, 0.570367f}, {0.381823f, 0.851844f}, {0.285328f, 0.764262f},
-        {0.733380f, 0.114073f}, {0.542663f, 0.344465f}, {0.127274f, 0.414848f},
-        {0.964700f, 0.947162f}, {0.594089f, 0.643463f}, {0.095109f, 0.170369f},
-        {0.825444f, 0.263359f}, {0.429467f, 0.454469f}, {0.244460f, 0.816459f},
-        {0.756135f, 0.731258f}, {0.516165f, 0.152852f}, {0.180888f, 0.214174f},
-        {0.898579f, 0.503897f}};
-
     std::vector<float> normals(size_t(width) * height * 3, 0.f);
     std::vector<float> albedos(size_t(width) * height * 3, 0.f);
 
@@ -811,7 +1310,7 @@ void render_reference(pbrt::BasicScene &scene,
                 // the answer is a colour under a white point rather than a
                 // reflectance under an equal-energy light.
                 const pbrt::SampledSpectrum rho =
-                    bsdf.rho(isect.wo, uc_rho, u_rho);
+                    bsdf.rho(isect.wo, kRhoUC, kRhoU);
                 const pbrt::SampledSpectrum lit =
                     rho * colour_space->illuminant.Sample(lambda);
                 const pbrt::RGB rgb = lit.ToRGB(lambda, *colour_space);
@@ -941,6 +1440,11 @@ void load(const char *filename, bonsai_scene::Scene &out,
              builder.sampler_name + "\"");
     }
     out.sampler.seed = builder.sampler_params.GetOneInt("seed", 0);
+    // Not the sampler's seed: PBRT's global `--seed`, which a layered BSDF
+    // hashes with the direction it was asked about. Read from PBRT rather than
+    // written down, so that running scene_dump with one has the effect it has
+    // on PBRT.
+    out.seed = pbrt::GetOptions().seed;
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,
@@ -953,12 +1457,26 @@ void load(const char *filename, bonsai_scene::Scene &out,
                  pbrt::Inverse(
                      scene.GetCamera().GetCameraTransform().CameraFromRender(0.f)));
 
+    // A shape names its material by index, and several shapes usually name the
+    // same one, so the materials are written once and indexed rather than
+    // copied per shape. The index a shape carries is this file's, not PBRT's:
+    // only the materials some shape actually uses are written.
+    std::map<int, uint32_t> material_index;
+    const auto material_for = [&](int declared) {
+        const auto it = material_index.find(declared);
+        if (it != material_index.end()) {
+            return it->second;
+        }
+        const uint32_t at = uint32_t(out.materials.size());
+        out.materials.push_back(convert_material(builder.materials, declared));
+        material_index.emplace(declared, at);
+        return at;
+    };
+
     for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
         const std::string name(entity.name);
         const pbrt::Transform &render_from_object = *entity.renderFromObject;
-        float reflectance[3];
-        material_reflectance(builder.materials, entity.materialIndex,
-                             reflectance);
+        const uint32_t material = material_for(entity.materialIndex);
 
         if (name == "sphere") {
             pbrt::Vector3f centre;
@@ -975,36 +1493,87 @@ void load(const char *filename, bonsai_scene::Scene &out,
                 entity.parameters.GetOneFloat("phimax", 360.f) != 360.f) {
                 fail("partial spheres (zmin/zmax/phimax) are not supported");
             }
-            bonsai_scene::Shape shape = {};
+            bonsai_scene::Shape shape;
             shape.tag = bonsai_scene::ShapeTag::Sphere;
-            shape.p0[0] = float(centre.x);
-            shape.p0[1] = float(centre.y);
-            shape.p0[2] = float(centre.z);
+            shape.center[0] = float(centre.x);
+            shape.center[1] = float(centre.y);
+            shape.center[2] = float(centre.z);
             shape.radius = float(radius);
-            memcpy(shape.reflectance, reflectance, sizeof(reflectance));
+            // A translation never swaps handedness, so this is the scene's
+            // ReverseOrientation alone.
+            shape.flip = entity.reverseOrientation ? 1u : 0u;
+            shape.material = material;
             shapes.push_back(shape);
 
         } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
             // Everything that is ultimately a mesh arrives here already
             // triangulated by PBRT, in render space, so there is one loop for
             // all of them rather than one per shape type. See `triangulate`.
-            const int *v = mesh->vertexIndices;
+            //
+            // The mesh is appended to the shared pools and the triangles name
+            // it, which is PBRT's own arrangement: a Triangle there is a mesh
+            // index and a triangle index, and the vertices are read from the
+            // mesh on a hit. Copying them per triangle instead made a primitive
+            // four times larger than it needed to be, and made every sphere in
+            // the scene pay for it too.
+            //
+            // PBRT's Triangle also reads a per-vertex tangent, which no shape
+            // here produces: LoopSubdivide does not compute one and PLY meshes
+            // are read without one. A mesh that had them would take a different
+            // shading tangent, so refuse rather than ignore.
+            if (mesh->s != nullptr) {
+                fail("a mesh with per-vertex tangents (\"S\") is not "
+                     "supported; its shading tangent is not the one the "
+                     "texture coordinates give");
+            }
+
+            bonsai_scene::Mesh out_mesh;
+            out_mesh.first_index = uint32_t(out.indices.size());
+            out_mesh.first_vertex = uint32_t(out.positions.size() / 3);
+            out_mesh.first_normal = uint32_t(out.normals.size() / 3);
+            out_mesh.first_uv = uint32_t(out.uvs.size() / 2);
+            // PBRT's TriangleMesh has already folded reverseOrientation and
+            // transformSwapsHandedness together, and its Triangle reads the
+            // pair back out of the mesh.
+            out_mesh.flip =
+                (mesh->reverseOrientation ^ mesh->transformSwapsHandedness) ? 1u
+                                                                            : 0u;
+            // The vertex normals a subdivision surface or a PLY brings with it.
+            // Without them the shading normal is the geometric one, which is a
+            // different path in PBRT and not the same answer, so the flag
+            // travels rather than a pool of copies of the face normal.
+            out_mesh.has_normals = mesh->n != nullptr ? 1u : 0u;
+            // PBRT substitutes (0,0), (1,0), (1,1) for a mesh with no texture
+            // coordinates. Those are per triangle rather than per vertex, so
+            // they cannot go in the pool and the renderer substitutes them too.
+            out_mesh.has_uv = mesh->uv != nullptr ? 1u : 0u;
+
+            for (int i = 0; i < 3 * mesh->nTriangles; i++) {
+                out.indices.push_back(uint32_t(mesh->vertexIndices[i]));
+            }
+            for (int i = 0; i < mesh->nVertices; i++) {
+                out.positions.push_back(float(mesh->p[i].x));
+                out.positions.push_back(float(mesh->p[i].y));
+                out.positions.push_back(float(mesh->p[i].z));
+                if (mesh->n != nullptr) {
+                    out.normals.push_back(float(mesh->n[i].x));
+                    out.normals.push_back(float(mesh->n[i].y));
+                    out.normals.push_back(float(mesh->n[i].z));
+                }
+                if (mesh->uv != nullptr) {
+                    out.uvs.push_back(float(mesh->uv[i].x));
+                    out.uvs.push_back(float(mesh->uv[i].y));
+                }
+            }
+
+            const uint32_t mesh_index = uint32_t(out.meshes.size());
+            out.meshes.push_back(out_mesh);
             for (int i = 0; i < mesh->nTriangles; i++) {
-                const pbrt::Point3f p0 = mesh->p[v[3 * i + 0]];
-                const pbrt::Point3f p1 = mesh->p[v[3 * i + 1]];
-                const pbrt::Point3f p2 = mesh->p[v[3 * i + 2]];
-                bonsai_scene::Shape shape = {};
+                bonsai_scene::Shape shape;
                 shape.tag = bonsai_scene::ShapeTag::Triangle;
-                shape.p0[0] = float(p0.x);
-                shape.p0[1] = float(p0.y);
-                shape.p0[2] = float(p0.z);
-                shape.p1[0] = float(p1.x);
-                shape.p1[1] = float(p1.y);
-                shape.p1[2] = float(p1.z);
-                shape.p2[0] = float(p2.x);
-                shape.p2[1] = float(p2.y);
-                shape.p2[2] = float(p2.z);
-                memcpy(shape.reflectance, reflectance, sizeof(reflectance));
+                shape.mesh = mesh_index;
+                shape.tri = uint32_t(i);
+                shape.material = material;
                 shapes.push_back(shape);
             }
 
@@ -1038,20 +1607,26 @@ void load(const char *filename, bonsai_scene::Scene &out,
 // the permutation the build settled on can be recovered by identity rather
 // than by matching geometry. `shapes` comes back reordered to match, which is
 // what lets a leaf name a contiguous run.
-void build_pbrt_tree(std::vector<bonsai_scene::Shape> &shapes,
-                     std::vector<bonsai_scene::Node> &nodes) {
+void build_pbrt_tree(bonsai_scene::Scene &scene) {
+    std::vector<bonsai_scene::Shape> &shapes = scene.shapes;
+    std::vector<bonsai_scene::Node> &nodes = scene.nodes;
     pbrt::Allocator alloc;
 
     // Every triangle in the scene as one mesh, because that is what PBRT's
     // Triangle refers into. The vertices are already in render space, so the
-    // mesh's transform is the identity.
+    // mesh's transform is the identity, and they are read back out of the
+    // scene's own pools rather than carried on the triangle.
     std::vector<int> indices;
     std::vector<pbrt::Point3f> points;
     for (const bonsai_scene::Shape &s : shapes) {
         if (s.tag == bonsai_scene::ShapeTag::Triangle) {
-            for (const float *p : {s.p0, s.p1, s.p2}) {
+            uint32_t corner[3];
+            scene.corners(s, corner);
+            for (const uint32_t c : corner) {
                 indices.push_back(int(points.size()));
-                points.push_back(pbrt::Point3f(p[0], p[1], p[2]));
+                points.push_back(pbrt::Point3f(scene.positions[3 * c + 0],
+                                               scene.positions[3 * c + 1],
+                                               scene.positions[3 * c + 2]));
             }
         }
     }
@@ -1073,7 +1648,7 @@ void build_pbrt_tree(std::vector<bonsai_scene::Shape> &shapes,
         if (s.tag == bonsai_scene::ShapeTag::Sphere) {
             const pbrt::Transform *render_from_object =
                 alloc.new_object<pbrt::Transform>(pbrt::Translate(
-                    pbrt::Vector3f(s.p0[0], s.p0[1], s.p0[2])));
+                    pbrt::Vector3f(s.center[0], s.center[1], s.center[2])));
             const pbrt::Transform *object_from_render =
                 alloc.new_object<pbrt::Transform>(
                     pbrt::Inverse(*render_from_object));
@@ -1178,6 +1753,8 @@ int main(int argc, char **argv) {
     bool pbrt_tree = false;
     bool tables_only = false;
     bool sampler_only = false;
+    bool bsdf_only = false;
+    bool shading_only = false;
     // --reference writes the gbuffer PBRT would have written, rendered with
     // PBRT's own camera, aggregate and BSDFs. It is how the comparison runs on
     // a scene someone else wrote: those say `Film "rgb"`, PBRT has no
@@ -1193,6 +1770,10 @@ int main(int argc, char **argv) {
             tables_only = true;
         } else if (arg == "--print-sampler") {
             sampler_only = true;
+        } else if (arg == "--print-bsdf") {
+            bsdf_only = true;
+        } else if (arg == "--print-shading") {
+            shading_only = true;
         } else if (arg == "--reference") {
             if (i + 1 >= argc) {
                 fail("--reference needs a path prefix to write to");
@@ -1202,11 +1783,14 @@ int main(int argc, char **argv) {
             positional.push_back(argv[i]);
         }
     }
-    if (!tables_only && !sampler_only && positional.size() != 2) {
+    if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
+        positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] [--reference <prefix>]"
              " <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
-             "       scene_dump --print-sampler");
+             "       scene_dump --print-sampler\n"
+             "       scene_dump --print-bsdf\n"
+             "       scene_dump --print-shading");
     }
 
     pbrt::PBRTOptions options;
@@ -1226,11 +1810,21 @@ int main(int argc, char **argv) {
         pbrt::CleanupPBRT();
         return 0;
     }
+    if (bsdf_only) {
+        print_bsdf();
+        pbrt::CleanupPBRT();
+        return 0;
+    }
+    if (shading_only) {
+        print_shading();
+        pbrt::CleanupPBRT();
+        return 0;
+    }
 
     bonsai_scene::Scene scene;
     load(positional[0], scene, reference_prefix);
     if (pbrt_tree) {
-        build_pbrt_tree(scene.shapes, scene.nodes);
+        build_pbrt_tree(scene);
     }
 
     pbrt::CleanupPBRT();

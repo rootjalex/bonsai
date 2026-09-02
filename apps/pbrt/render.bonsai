@@ -7,12 +7,16 @@
 //
 //   interval.bonsai   pbrt's outward-rounded arithmetic, which is what makes a
 //                     decision about a grazing ray trustworthy.
-//   shapes.bonsai     Sphere, Triangle, their intersections, and the AABB a
-//                     BVH node is bounded by.
+//   shapes.bonsai     Sphere, Triangle, their intersections, the shading
+//                     geometry at a hit, and the AABB a BVH node is bounded by.
 //   camera.bonsai     Transform and PerspectiveCamera.
-//   spectrum.bonsai   SampledWavelengths, the sigmoid fit, and the conversion
-//                     back to RGB that a film ends with.
-//   sampler.bonsai    pbrt's RNG and the samplers built on it.
+//   spectrum.bonsai   SampledWavelengths and the sigmoid fit.
+//   colour.bonsai     the matching curves and the conversion back to RGB that a
+//                     film ends with.
+//   frame.bonsai      the orthonormal basis a BSDF is evaluated in.
+//   bxdf.bonsai       the materials, and the reflectance a gbuffer records.
+//   rng.bonsai        pbrt's generator and the hashes that seed it.
+//   sampler.bonsai    the samplers built on them.
 //
 // The rule for this app is that the source stays a straight transcription of
 // PBRT and every performance decision lives in the `schedule` block at the
@@ -26,7 +30,10 @@
 // that the answer comes from a BVH, what its nodes look like, and that the
 // traversal is a loop over an explicit stack rather than recursion.
 import stdlib/numerics;
+import apps/pbrt/bxdf;
 import apps/pbrt/camera;
+import apps/pbrt/colour;
+import apps/pbrt/frame;
 import apps/pbrt/sampler;
 import apps/pbrt/shapes;
 import apps/pbrt/spectrum;
@@ -36,12 +43,35 @@ import apps/pbrt/spectrum;
 // ray hits; the material answers what is there.
 element Primitive {
     shape : Shape;
-    // pbrt: the RGBAlbedoSpectrum a diffuse material holds, which is its RGB
-    // reflectance already fitted. The fit is a Gauss-Newton solve and belongs
-    // nowhere near a ray, so the driver does it once per material, exactly as
-    // pbrt looks it up in a table generated offline.
-    albedo : SigmoidPolynomial;
+    // pbrt: the Material a shape was declared under, which is a pointer there
+    // because a scene has a handful of materials and thousands of shapes. Here
+    // it is an index into `materials` for the same reason: killeroo-simple has
+    // four materials and 66,533 triangles, and a material carried by value
+    // would be four megabytes of the same sixty-four bytes.
+    material : u32;
 }
+
+// pbrt: the scene's materials. Every spectrum in one is an RGB already fitted
+// to three sigmoid coefficients -- the fit is a Gauss-Newton solve and belongs
+// nowhere near a ray, so the driver does it once per material, exactly as pbrt
+// looks it up in a table generated offline.
+extern materials : array[Material];
+
+// pbrt: the path integrator's fixed sample points for a reflectance estimate,
+// which are file-scope constants there. Fixed rather than drawn from the
+// sampler, so that the albedo a pixel records does not depend on where in the
+// stream the estimate happened to fall -- and so that two pixels of the same
+// material agree.
+//
+// Externs rather than locals of the function that uses them, which is where
+// they read most naturally. A local array is allocated where it is declared,
+// and these were being allocated per camera ray: three mallocs of sixty-four
+// bytes on every hit, never freed, which cost a fifth of the render and four
+// gigabytes of resident memory on a scene with no layered material in it at
+// all. Constants belong somewhere they are built once.
+extern rho_uc : array[Float];
+extern rho_ux : array[Float];
+extern rho_uy : array[Float];
 
 // The ray queries pass straight through to the geometry: which primitive a ray
 // hits is a question about its shape alone.
@@ -80,27 +110,43 @@ element VisibleSurface {
 // The normal here is `FaceForward(si.n, wo)` -- pbrt records the normal
 // pointing back towards where the ray came from, not the one the winding
 // says. That is the film's convention rather than the geometry's, which is why
-// it is here and not in normal_at.
+// it is here and not in surface_geometry.
 //
 // The albedo is pbrt's `bsdf.rho(wo, ...)`, the hemispherical reflectance of
-// the surface's BSDF. For the diffuse material that is every material here,
-// pbrt's sixteen cosine-weighted samples all return the same number, because a
-// Lambertian BRDF's hemispherical reflectance is exactly its reflectance. What
-// makes it worth computing rather than copying is the round trip afterwards:
-// the reflectance is an RGB, and it becomes a spectrum, is lit by the
-// illuminant, and is integrated back to RGB, none of which is the identity.
-func visible_surface(r : Ray,
-                     lambda : SampledWavelengths) -> option[VisibleSurface] {
+// the surface's BSDF, estimated with the sixteen fixed sample points pbrt's
+// path integrator carries. What makes it worth computing rather than copying
+// is the round trip afterwards: the reflectance is an RGB, and it becomes a
+// spectrum, is lit by the illuminant, and is integrated back to RGB, none of
+// which is the identity.
+//
+// `seed` is pbrt's `--seed` option, which reaches here because a layered BSDF
+// hashes it together with the direction to seed the walk that estimates its
+// reflectance.
+func visible_surface(r : Ray, lambda : SampledWavelengths,
+                     seed : i32) -> option[VisibleSurface] {
     isect : option[Primitive] = trace(r);
     if isect {
         prim = *isect;
-        geometric = normal_at(prim.shape, r.o + distmin(r, prim) * r.d);
-        wo = -r.d;
-        facing = select(dot(geometric, wo) < 0.0, -geometric, geometric);
+        surf = surface_geometry(prim.shape, r);
+        // pbrt: Interaction's constructor, which normalizes the outgoing
+        // direction. The camera's is already very nearly a unit vector, so this
+        // changes it in the last bit or two -- which is invisible in the normal
+        // it face-forwards and is not invisible at all in a layered BSDF, whose
+        // walk is seeded by hashing the bytes of this vector.
+        wo = unit_vector_(-r.d);
+        facing = select(dot(surf.n, wo) < 0.0, -surf.n, surf.n);
+
+        // pbrt: BSDF's constructor, which is where the shading frame is built,
+        // and BSDF::rho, which asks the question in it. The tangent is
+        // normalized here and the normal is not, exactly as Frame::FromXZ
+        // takes them.
+        shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
 
         // `reflectance` is Schlick's approximation in stdlib/numerics, so the
         // name is taken.
-        rho = spectrum_at(prim.albedo, lambda);
+        rho = material_rho(materials[prim.material],
+                           frame_to_local(shading, wo), lambda, seed, rho_uc,
+                           rho_ux, rho_uy);
         // pbrt: GBufferFilm::AddSample, which lights the albedo by the film's
         // illuminant before converting it. Without this an albedo would be a
         // reflectance under an equal-energy light, which is not what a colour
@@ -124,7 +170,7 @@ func visible_surface(r : Ray,
 // The film has no size on it: the caller owns the allocation, and how many
 // pixels there are is the resolution, which is already here.
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
-                       sampler : Sampler,
+                       sampler : Sampler, seed : i32,
                        normal_out : mut array[vec3f],
                        albedo_out : mut array[vec3f]) -> void {
     spp = samples_per_pixel(sampler);
@@ -164,7 +210,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                                   vec2f{0.5, 0.5}, 0.5, 1.0};
             ray = generate_ray(camera, sample);
 
-            found = visible_surface(ray, lambda);
+            found = visible_surface(ray, lambda, seed);
             if found {
                 surface = *found;
                 atomic normal_out[p] += surface.n;

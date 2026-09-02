@@ -1,0 +1,83 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/shading-frame
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_shading_frame.cpp -I. -I$<> -o $<>/main_shading_frame.o, clang++ $<>/main_shading_frame.o $<>/shading-frame.o -o $<>/shading-frame, ./$<>/shading-frame, rm $<>/shading-frame, rm $<>/main_shading_frame.o, rm $<>/shading-frame.h, rm $<>/shading-frame.o
+
+// The shading geometry at a triangle hit, and the frame a BSDF is evaluated in.
+//
+// This is the half of an intersection the gbuffer cannot see. The normal a film
+// records is turned to face the camera, so its sign and the whole tangent
+// direction drop out of an image comparison; a BSDF sees all of it. A layered
+// one hashes the outgoing direction expressed in this frame to seed the random
+// walk that estimates its reflectance, so a tangent one bit out gives a walk
+// with different noise -- which converges to the same reflectance and agrees
+// with pbrt at no finite sample count. An image comparison would call that a
+// pass at low sample counts and a fail at high ones, and would be right in
+// neither case.
+//
+// So the numbers this prints are pbrt's own, printed by
+// `apps/pbrt/scene_dump --print-shading`, and this reproduces them exactly.
+//
+// A cpp test rather than an llvm one because the mesh a triangle reads its
+// vertices from is an extern, and the JIT has no way to supply one. Which is
+// the right home anyway: the driver beside this file builds the meshes the way
+// apps/pbrt's does, so the layout the two agree on is under test as well.
+//
+// What made this hard to get right is not the algorithm, which is a
+// transcription, but the arithmetic. pbrt is built with fused multiply-adds
+// contracted, and `a*b + c*d` rounds once there where it rounds twice here.
+// Five separate places had to be written as an explicit `fma` before this
+// matched: the shear in the watertight triangle test, the interpolation of the
+// vertex normals, the dot product a frame changes coordinates with, the length
+// a vector is normalized by, and the rows of the camera's matrix-vector
+// product. Each was found by comparing against `--print-shading` and none of
+// them could have been read off pbrt's source.
+import apps/pbrt/frame;
+import apps/pbrt/shapes;
+
+// Everything the hit leaves behind, in the order main_shading_frame.cpp prints
+// it: the barycentrics and the distance, the geometric normal, the shading
+// normal, the shading tangent, the frame's first two axes, and the outgoing
+// direction expressed in that frame.
+func [[export]] probe(mesh : u32, tri : u32, d : vec3f,
+                      out : mut array[Float]) -> bool {
+    // The camera position `--print-shading` fires from.
+    o = vec3f{-20.0, 60.0, -60.0};
+    r : Ray = {o, d};
+    t : Triangle = {mesh, tri};
+
+    hit = triangle_hit(r, t);
+    if !hit {
+        return false;
+    }
+    h = *hit;
+    g = triangle_geometry(t, h.b);
+
+    // pbrt: the BSDF's constructor and ToLocal, which is where the shading
+    // geometry stops being geometry and becomes the frame a scattering
+    // function is asked its questions in.
+    f = frame_from_xz(unit_vector_(g.dpdus), g.ns);
+    w = frame_to_local(f, unit_vector_(-d));
+
+    out[0] = h.b.x;
+    out[1] = h.b.y;
+    out[2] = h.b.z;
+    out[3] = h.t;
+    out[4] = g.n.x;
+    out[5] = g.n.y;
+    out[6] = g.n.z;
+    out[7] = g.ns.x;
+    out[8] = g.ns.y;
+    out[9] = g.ns.z;
+    out[10] = g.dpdus.x;
+    out[11] = g.dpdus.y;
+    out[12] = g.dpdus.z;
+    out[13] = f.x.x;
+    out[14] = f.x.y;
+    out[15] = f.x.z;
+    out[16] = f.y.x;
+    out[17] = f.y.y;
+    out[18] = f.y.z;
+    out[19] = w.x;
+    out[20] = w.y;
+    out[21] = w.z;
+    return true;
+}

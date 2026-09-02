@@ -6,6 +6,7 @@ add_bonsai_tests(
     bind_cpu_thread.bonsai
     mut-dynamic-array.bonsai
     setops.bonsai
+    shading-frame.bonsai
     simple.bonsai
     struct.bonsai
     swap.bonsai

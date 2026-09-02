@@ -111,17 +111,35 @@ Bounds3f merge(const Bounds3f &a, const float3 &p) {
     return merge(a, Bounds3f{p, p});
 }
 
+// Where a triangle's three vertices are, which is now a question for the mesh
+// rather than for the triangle. pbrt's `&mesh->vertexIndices[3 * triIndex]`,
+// with the mesh's own offset into the shared pools added.
+struct Meshes {
+    const TriangleMesh *meshes = nullptr;
+    const uint32_t *indices = nullptr;
+    const float3 *positions = nullptr;
+
+    void corners(const Triangle &t, uint32_t out[3]) const {
+        const TriangleMesh &m = meshes[t.mesh];
+        for (uint32_t k = 0; k < 3; k++) {
+            out[k] = m.first_vertex + indices[m.first_index + 3 * t.tri + k];
+        }
+    }
+};
+
 // pbrt: Sphere::Bounds and Triangle::Bounds. A sphere placed by a translation
 // bounds to its centre plus and minus the radius on each axis; a triangle to
 // the box around its three vertices.
-Bounds3f bounds_of(const Primitive &prim) {
+Bounds3f bounds_of(const Primitive &prim, const Meshes &pool) {
     const Shape &shape = prim.shape;
     if (shape.tag == 0) {
         const Sphere &s = shape.payload.Sph.s;
         return Bounds3f{s.center - s.radius, s.center + s.radius};
     }
-    const Triangle &t = shape.payload.Tri.t;
-    return merge(Bounds3f{t.p0, t.p1}, t.p2);
+    uint32_t c[3];
+    pool.corners(shape.payload.Tri.t, c);
+    return merge(Bounds3f{pool.positions[c[0]], pool.positions[c[1]]},
+                 pool.positions[c[2]]);
 }
 
 // pbrt: BVHPrimitive, a primitive reduced to what the build sorts on.
@@ -156,11 +174,11 @@ constexpr int MaxPrimsInNode = 4;
 // pbrt splits the build across threads above 128K primitives, which reorders
 // the primitive array and so builds a different (equally valid) tree. This is
 // the serial path, which is what pbrt itself takes at these sizes.
-_tree_layout0 build_bvh(std::vector<Primitive> &shapes) {
+_tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool) {
     std::vector<BVHPrimitive> prims;
     prims.reserve(shapes.size());
     for (uint32_t i = 0; i < shapes.size(); i++) {
-        prims.push_back(BVHPrimitive{i, bounds_of(shapes[i])});
+        prims.push_back(BVHPrimitive{i, bounds_of(shapes[i], pool)});
     }
 
     // pbrt: orderedPrims. A leaf names a run of primitives, so the primitives
@@ -415,6 +433,25 @@ int main(int argc, char **argv) {
         }
     }
 
+    // pbrt: the path integrator's fixed sample points for a reflectance
+    // estimate, which are file-scope constants there and reach the renderer as
+    // externs here. Built once, because they are constants; they used to be
+    // declared where they are used, which allocated them per camera ray.
+    static constexpr int kRhoSamples = 16;
+    static const float rho_uc[kRhoSamples] = {
+        0.75741637f, 0.37870818f, 0.7083487f,  0.18935409f,
+        0.9149363f,  0.35417435f, 0.5990858f,  0.09467703f,
+        0.8578725f,  0.45746812f, 0.686759f,   0.17708716f,
+        0.9674518f,  0.2995429f,  0.5083201f,  0.047338516f};
+    static const float rho_ux[kRhoSamples] = {
+        0.855985f, 0.381823f, 0.285328f, 0.733380f, 0.542663f, 0.127274f,
+        0.964700f, 0.594089f, 0.095109f, 0.825444f, 0.429467f, 0.244460f,
+        0.756135f, 0.516165f, 0.180888f, 0.898579f};
+    static const float rho_uy[kRhoSamples] = {
+        0.570367f, 0.851844f, 0.764262f, 0.114073f, 0.344465f, 0.414848f,
+        0.947162f, 0.643463f, 0.170369f, 0.263359f, 0.454469f, 0.816459f,
+        0.731258f, 0.152852f, 0.214174f, 0.503897f};
+
     // pbrt fits every RGB albedo to three sigmoid coefficients once, offline,
     // into a table it looks up while building the scene. This runs the same
     // fit here for the same reason: a Gauss-Newton solve has no business
@@ -432,21 +469,79 @@ int main(int argc, char **argv) {
         return it->second;
     };
 
+    // The scene's materials, with every RGB fitted. Through the generated
+    // constructors rather than by setting the tag: which number a variant is
+    // belongs to the compiler.
+    std::vector<Material> materials;
+    materials.reserve(loaded.materials.size());
+    for (const bonsai_scene::Material &m : loaded.materials) {
+        Material material;
+        if (m.tag == bonsai_scene::MaterialTag::CoatedDiffuse) {
+            CoatedDiffuseMaterial coated;
+            coated.reflectance = albedo_of(m.reflectance);
+            coated.u_roughness = m.u_roughness;
+            coated.v_roughness = m.v_roughness;
+            coated.remap = m.remap != 0;
+            coated.thickness = m.thickness;
+            coated.eta = m.eta;
+            coated.medium_albedo = albedo_of(m.medium_albedo);
+            coated.has_medium = m.has_medium != 0;
+            coated.g = m.g;
+            coated.max_depth = m.max_depth;
+            coated.n_samples = m.n_samples;
+            Material_CoatedDiffuse(material, coated);
+        } else {
+            Material_Diffuse(material, albedo_of(m.reflectance));
+        }
+        materials.push_back(material);
+    }
+
+    // The meshes and the pools they index into, exactly as the scene wrote
+    // them. Nothing is rearranged here: a triangle names a mesh and a triangle
+    // in it, and the vertices are read out on a hit, which is what keeps a
+    // primitive down to the size of a sphere.
+    std::vector<TriangleMesh> meshes;
+    meshes.reserve(loaded.meshes.size());
+    for (const bonsai_scene::Mesh &m : loaded.meshes) {
+        TriangleMesh out_mesh;
+        out_mesh.first_index = m.first_index;
+        out_mesh.first_vertex = m.first_vertex;
+        out_mesh.first_normal = m.first_normal;
+        out_mesh.first_uv = m.first_uv;
+        out_mesh.has_normals = m.has_normals != 0;
+        out_mesh.has_uv = m.has_uv != 0;
+        out_mesh.flip = m.flip != 0;
+        meshes.push_back(out_mesh);
+    }
+    const auto to_float3 = [](const std::vector<float> &v) {
+        std::vector<float3> out(v.size() / 3);
+        for (size_t i = 0; i < out.size(); i++) {
+            out[i] = float3{v[3 * i + 0], v[3 * i + 1], v[3 * i + 2]};
+        }
+        return out;
+    };
+    const std::vector<float3> positions = to_float3(loaded.positions);
+    const std::vector<float3> normals = to_float3(loaded.normals);
+    std::vector<float2> uvs(loaded.uvs.size() / 2);
+    for (size_t i = 0; i < uvs.size(); i++) {
+        uvs[i] = float2{loaded.uvs[2 * i + 0], loaded.uvs[2 * i + 1]};
+    }
+    const Meshes pool{meshes.data(), loaded.indices.data(), positions.data()};
+
     std::vector<Primitive> shapes;
     shapes.reserve(loaded.shapes.size());
     for (const bonsai_scene::Shape &s : loaded.shapes) {
-        // Through the generated constructors rather than by setting the tag:
-        // which number a variant is belongs to the compiler.
         Shape shape;
         if (s.tag == bonsai_scene::ShapeTag::Sphere) {
-            Shape_Sph(shape, Sphere{float3{s.p0[0], s.p0[1], s.p0[2]},
-                                    s.radius});
+            Sphere sphere;
+            sphere.center = float3{s.center[0], s.center[1], s.center[2]};
+            sphere.radius = s.radius;
+            sphere.flip = s.flip != 0;
+            Shape_Sph(shape, sphere);
         } else {
-            Shape_Tri(shape, Triangle{float3{s.p0[0], s.p0[1], s.p0[2]},
-                                      float3{s.p1[0], s.p1[1], s.p1[2]},
-                                      float3{s.p2[0], s.p2[1], s.p2[2]}});
+            Shape_Tri(shape, Triangle{s.mesh, s.tri});
         }
-        shapes.push_back(Primitive{shape, albedo_of(s.reflectance)});
+        shapes.push_back(Primitive{shape, s.material});
     }
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
@@ -456,7 +551,7 @@ int main(int argc, char **argv) {
     // shape PBRT builds, so any schedule asking for something else (a wider
     // arity, a different bounding volume) has to build it here.
     _tree_layout0 tree = loaded.nodes.empty()
-                             ? build_bvh(shapes)
+                             ? build_bvh(shapes, pool)
                              : adopt_bvh(shapes, loaded.nodes);
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
@@ -490,8 +585,10 @@ int main(int argc, char **argv) {
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
-        render(camera, uint32_t(width), uint32_t(height), sampler, out, albedo,
-               x, y, z, d65, primes, tree);
+        render(camera, uint32_t(width), uint32_t(height), sampler, loaded.seed,
+               out, albedo, meshes.data(), loaded.indices.data(),
+               positions.data(), normals.data(), uvs.data(), x, y, z, d65,
+               primes, materials.data(), rho_uc, rho_ux, rho_uy, tree);
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());

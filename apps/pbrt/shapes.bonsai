@@ -7,6 +7,7 @@
 // not numerically what pbrt does, which showed up as pixels disagreeing along
 // silhouettes.
 import stdlib/numerics;
+import apps/pbrt/frame;
 import apps/pbrt/interval;
 
 // pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
@@ -23,14 +24,64 @@ element Ray {
 element Sphere {
     center : vec3f;
     radius : Float;
+    // pbrt: reverseOrientation ^ transformSwapsHandedness, which decides which
+    // way the surface normal points. Invisible in the gbuffer, whose normal is
+    // turned to face the camera whichever way this falls, and not invisible in
+    // a shading frame -- flipping the normal flips the frame's y axis with it,
+    // and a layered BSDF is seeded by hashing the direction it is asked about.
+    flip : bool = false;
 }
 
-// pbrt: Triangle, as three positions rather than an index into a mesh.
-element Triangle {
-    p0 : vec3f;
-    p1 : vec3f;
-    p2 : vec3f;
+// pbrt: TriangleMesh, and the arrays every mesh in the scene shares.
+//
+// pbrt keeps one of these per mesh in a global list and a Triangle names the
+// list entry; the arrays here are that list's contents laid end to end, so a
+// mesh is where its own run of each begins. `vertexIndices` are mesh-local in
+// pbrt, which is what `first_vertex` adds back.
+//
+// The normals and the texture coordinates are separately offset because a mesh
+// that has neither contributes nothing to either pool -- and because absence is
+// not the same as a default. A mesh with no normals takes a different path
+// entirely, where the shading normal is the geometric one; a mesh with no
+// texture coordinates gets pbrt's (0,0), (1,0), (1,1), which are per triangle
+// rather than per vertex and so cannot be stored in a pool at all.
+element TriangleMesh {
+    first_index : u32;
+    first_vertex : u32;
+    first_normal : u32;
+    first_uv : u32;
+    has_normals : bool;
+    has_uv : bool;
+    // pbrt: reverseOrientation ^ transformSwapsHandedness. See Sphere above.
+    flip : bool;
 }
+
+extern meshes : array[TriangleMesh];
+extern mesh_indices : array[u32];
+extern mesh_positions : array[vec3f];
+extern mesh_normals : array[vec3f];
+extern mesh_uvs : array[vec2f];
+
+// pbrt: Triangle, which is a mesh index and a triangle index and nothing else.
+// The vertex data is fetched from the shared mesh on a hit.
+//
+// That is the whole of why a primitive here is the size of a sphere rather than
+// the size of a triangle's worth of vertices: a triangle used to carry its own
+// copy of three positions, three normals and three texture coordinates, and
+// every sphere in the scene paid for it too, because a variant is as large as
+// its largest arm.
+element Triangle {
+    mesh : u32;
+    tri : u32;
+}
+
+// The three vertices of a triangle, which is what pbrt's
+// `const int *v = &mesh->vertexIndices[3 * triIndex]` names.
+func mesh_corner(m : TriangleMesh, t : Triangle, corner : u32) -> u32 =
+    m.first_vertex + mesh_indices[m.first_index + 3u * t.tri + corner];
+
+func triangle_p(t : Triangle, corner : u32) -> vec3f =
+    mesh_positions[mesh_corner(meshes[t.mesh], t, corner)];
 
 // The two solutions of the quadratic, each still an interval, so that the
 // caller can ask about a bound rather than about a value.
@@ -218,20 +269,33 @@ func intersects(r : Ray, b : AABB) -> bool {
     return false;
 }
 
+// pbrt: TriangleIntersection, which is where a ray met a triangle: how far
+// along, and where in the triangle. The barycentrics are what the shading
+// geometry interpolates the vertex normals with, so the intersection has to
+// hand them back rather than only the distance.
+element TriangleHit {
+    t : Float;
+    b : vec3f;
+}
+
 // pbrt: IntersectTriangle from shapes.cpp, which is watertight: the ray is
 // moved to its own coordinate space, the largest component of its direction
 // is permuted into z, and the vertices are sheared so that the edge tests are
 // exact in sign. The error bounds at the end are pbrt's, and they are what
 // keeps a ray from slipping between two triangles that share an edge.
-func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
+func triangle_hit(ray : Ray, tri : Triangle) -> option[TriangleHit] {
+    p0 = triangle_p(tri, 0u);
+    p1 = triangle_p(tri, 1u);
+    p2 = triangle_p(tri, 2u);
+
     // Degenerate triangles have no interior to hit.
-    if (sqlen[[Float]](cross_(tri.p2 - tri.p0, tri.p1 - tri.p0)) == 0)
+    if (sqlen[[Float]](cross_(p2 - p0, p1 - p0)) == 0)
         return {};
 
     // Translate the vertices so the ray starts at the origin.
-    p0t : mut = tri.p0 - ray.o;
-    p1t : mut = tri.p1 - ray.o;
-    p2t : mut = tri.p2 - ray.o;
+    p0t : mut = p0 - ray.o;
+    p1t : mut = p1 - ray.o;
+    p2t : mut = p2 - ray.o;
 
     // Permute so that the ray's dominant direction is z.
     kz : u32 = idxmax(abs(ray.d));
@@ -243,15 +307,20 @@ func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
     p2t = permute(p2t, {kx, ky, kz});
 
     // Shear, so that the ray becomes +z and the edge tests are 2D.
+    //
+    // pbrt writes each of these as `p0t.x += Sx * p0t.z`, one statement, which
+    // its compiler contracts into a single fused multiply-add. Written as the
+    // fma here because the sheared coordinates are what the edge functions are
+    // computed from, and an edge function one bit out is a barycentric one bit
+    // out -- which is invisible in the distance to the hit and is not invisible
+    // in the shading normal interpolated with it, nor in the frame a layered
+    // BSDF hashes to seed its walk.
     Sx = -d.x / d.z;
     Sy = -d.y / d.z;
     Sz = 1 / d.z;
-    p0t.x += Sx * p0t.z;
-    p0t.y += Sy * p0t.z;
-    p1t.x += Sx * p1t.z;
-    p1t.y += Sy * p1t.z;
-    p2t.x += Sx * p2t.z;
-    p2t.y += Sy * p2t.z;
+    p0t = vec3f{fma(Sx, p0t.z, p0t.x), fma(Sy, p0t.z, p0t.y), p0t.z};
+    p1t = vec3f{fma(Sx, p1t.z, p1t.x), fma(Sy, p1t.z, p1t.y), p1t.z};
+    p2t = vec3f{fma(Sx, p2t.z, p2t.x), fma(Sy, p2t.z, p2t.y), p2t.z};
 
     // Edge functions, by a difference of products that does not cancel.
     e0 = prod_diff[[Float]](p1t.x, p2t.y, p1t.y, p2t.x);
@@ -294,7 +363,17 @@ func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
     if (t <= deltaT)
         return {};
 
-    return t;
+    hit : TriangleHit = {t, vec3f{e0 * invDet, e1 * invDet, e2 * invDet}};
+    return hit;
+}
+
+// The distance alone, which is all the tree query needs.
+func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
+    hit = triangle_hit(ray, tri);
+    if hit {
+        return (*hit).t;
+    }
+    return {};
 }
 
 // A triangle is flat, so the near and far distance to it are the same one.
@@ -370,11 +449,191 @@ func intersects(r : Ray, sh : Shape) -> bool {
     }
 }
 
-// pbrt: the geometric normal at a hit. A sphere's points away from the centre;
-// a triangle's is the same everywhere on it.
-func normal_at(sh : Shape, p : vec3f) -> vec3f {
+// pbrt: what a SurfaceInteraction records about where a ray landed, minus
+// everything the gbuffer does not read.
+//
+// Two normals, because pbrt has two and they answer different questions. `n` is
+// the geometric one, which the winding of the surface decides and which the
+// film records; `ns` is the shading one, which a mesh's interpolated vertex
+// normals decide and which the BSDF is evaluated about. They are the same
+// vector for a sphere and for a mesh with no normals of its own.
+//
+// `dpdus` is the surface's tangent at the hit, and it is here for one reason:
+// it is the x axis of the frame a BSDF works in. For a diffuse surface that
+// axis cancels out -- the reflectance is the same whichever way round the
+// tangent points -- which is why nothing needed it until a layered BSDF turned
+// up, whose random walk is seeded by hashing the direction it was asked about
+// and so depends on the whole frame and not just its normal.
+element SurfaceGeometry {
+    n : vec3f;
+    ns : vec3f;
+    dpdus : vec3f;
+}
+
+// pbrt: Sphere::InteractionFromIntersection, for the full spheres scene_dump
+// lets through -- a partial one has a different phi range and a different
+// theta range, and is refused rather than silently closed up.
+//
+// Object space, where the sphere is at the origin, is reached by subtracting
+// the centre from the ray's origin rather than from the hit point: pbrt
+// transforms the ray and then evaluates it, and the two round differently.
+func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
+    // pbrt: refining the hit onto the sphere, since t is only as accurate as
+    // the quadratic that produced it.
+    raw = (r.o - s.center) + t * r.d;
+    scaled = raw * (s.radius / norm(raw));
+    // pbrt nudges a hit exactly on the axis off it, where phi is undefined.
+    p = select((scaled.x == 0.0) && (scaled.y == 0.0),
+               vec3f{0.00001 * s.radius, scaled.y, scaled.z}, scaled);
+
+    // pbrt: phiMax, which is 2pi for a full sphere, and the theta range, which
+    // runs from acos(-1) at the bottom to acos(1) at the top -- so the span the
+    // v coordinate is measured over is negative.
+    phi_max = 6.28318530717958647692;
+    theta_span = 0.0 - 3.14159265358979323846;
+
+    z_radius = sqrt(sqr(p.x) + sqr(p.y));
+    // Not bxdf.bonsai's cos_phi, which is the same angle taken about the
+    // shading normal rather than about the sphere's axis.
+    phi_cos = p.x / z_radius;
+    phi_sin = p.y / z_radius;
+    dpdu = vec3f{-phi_max * p.y, phi_max * p.x, 0.0};
+    // pbrt: SafeACos, the arc cosine of a cosine that rounding may have pushed
+    // a little outside the range it has to be in.
+    theta = acos(min(max(p.z / s.radius, -1.0), 1.0));
+    dpdv = theta_span * vec3f{p.z * phi_cos, p.z * phi_sin,
+                              -s.radius * sin(theta)};
+
+    // pbrt: the SurfaceInteraction constructor, which takes the normal from
+    // the partial derivatives rather than from the position.
+    raw_n = unit_vector(cross_(dpdu, dpdv));
+    n = select(s.flip, -raw_n, raw_n);
+    // A sphere carries no per-vertex normals, so its shading geometry is its
+    // geometry.
+    g : SurfaceGeometry = {n, n, dpdu};
+    return g;
+}
+
+// pbrt: Triangle::InteractionFromIntersection.
+func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
+    m = meshes[tri.mesh];
+    i0 = mesh_corner(m, tri, 0u);
+    i1 = mesh_corner(m, tri, 1u);
+    i2 = mesh_corner(m, tri, 2u);
+    p0 = mesh_positions[i0];
+    p1 = mesh_positions[i1];
+    p2 = mesh_positions[i2];
+
+    // pbrt substitutes these for a mesh with no texture coordinates of its own.
+    // Per triangle rather than per vertex, which is why they cannot live in the
+    // pool beside the ones a mesh does bring.
+    uv0 = select(m.has_uv, mesh_uvs[m.first_uv + i0 - m.first_vertex],
+                 vec2f{0.0, 0.0});
+    uv1 = select(m.has_uv, mesh_uvs[m.first_uv + i1 - m.first_vertex],
+                 vec2f{1.0, 0.0});
+    uv2 = select(m.has_uv, mesh_uvs[m.first_uv + i2 - m.first_vertex],
+                 vec2f{1.0, 1.0});
+
+    // pbrt: the partial derivatives, from inverting the map that the texture
+    // coordinates give from the triangle to the plane.
+    duv02 = uv0 - uv2;
+    duv12 = uv1 - uv2;
+    dp02 = p0 - p2;
+    dp12 = p1 - p2;
+    determinant = prod_diff[[Float]](duv02.x, duv12.y, duv02.y, duv12.x);
+    degenerate_uv = abs(determinant) < 1e-9;
+
+    invdet = 1.0 / determinant;
+    dpdu : mut vec3f = prod_diff3(duv12.y, dp02, duv02.y, dp12) * invdet;
+    dpdv : mut vec3f = prod_diff3(duv02.x, dp12, duv12.x, dp02) * invdet;
+    // A parameterization that says nothing about direction, either because the
+    // texture coordinates are degenerate or because the two derivatives came
+    // out parallel. pbrt falls back to an arbitrary basis in the tangent plane.
+    // Its own further fallback to double precision is for a triangle with no
+    // area, which triangle_hit has already rejected.
+    if degenerate_uv || (sqlen[[Float]](cross_(dpdu, dpdv)) == 0.0) {
+        fallback = coordinate_system(unit_vector(cross_(p2 - p0, p1 - p0)));
+        dpdu = fallback.x;
+        dpdv = fallback.y;
+    }
+
+    raw_n = unit_vector(cross_(dp02, dp12));
+    n = select(m.flip, -raw_n, raw_n);
+    if !m.has_normals {
+        // pbrt never enters its shading-geometry block for such a mesh, so the
+        // shading normal is the geometric one and the tangent is unadjusted.
+        plain : SurfaceGeometry = {n, n, dpdu};
+        return plain;
+    }
+
+    // pbrt: the shading normal, interpolated across the triangle and falling
+    // back to the geometric one where the three vertex normals cancel.
+    //
+    // As two fused multiply-adds per component, which is what pbrt's compiler
+    // makes of `b0 * n0 + b1 * n1 + b2 * n2`. See dot_ in stdlib/numerics for
+    // which multiply pairs with which add and why it is not a detail.
+    n0 = mesh_normals[m.first_normal + i0 - m.first_vertex];
+    n1 = mesh_normals[m.first_normal + i1 - m.first_vertex];
+    n2 = mesh_normals[m.first_normal + i2 - m.first_vertex];
+    raw_ns = fma3(b.z, n2, fma3(b.y, n1, b.x * n0));
+    ns = select(sqlen_(raw_ns) > 0.0, unit_vector_(raw_ns), n);
+
+    // pbrt: the shading tangent, made perpendicular to the shading normal.
+    // Where the two are parallel there is nothing to project, and an arbitrary
+    // basis is taken instead.
+    ts_raw = cross_(ns, dpdu);
+    parallel = sqlen[[Float]](ts_raw) == 0.0;
+    fallback = coordinate_system(ns);
+    ss = select(parallel, fallback.x, cross_(ts_raw, ns));
+    ts = select(parallel, fallback.y, ts_raw);
+
+    // pbrt: SetShadingGeometry, whose loop scales the two derivatives down
+    // until they are of a size the differentials can be taken in. It never runs
+    // for anything at a sane scale, and it is here because when it does run it
+    // changes the frame this all exists to build.
+    su : mut vec3f = ss;
+    sv : mut vec3f = ts;
+    while (sqlen[[Float]](su) > 1e16) || (sqlen[[Float]](sv) > 1e16) {
+        su = su / 1e8;
+        sv = sv / 1e8;
+    }
+
+    // The geometric normal turns to face the shading one, which the film's own
+    // FaceForward against the ray then makes invisible -- but not to a BSDF.
+    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su};
+    return g;
+}
+
+// pbrt: Shape::Intersect's tail, which turns a hit into the surface it landed
+// on.
+//
+// The intersection is run again here rather than carried out of the tree
+// query, because what the query answers is which primitive is nearest and not
+// where on it the ray landed. That is one more intersection per camera ray
+// against however many the traversal already did, so it is not where the time
+// goes -- but it is a question the tree lowering could answer for free, and
+// worth revisiting when it can.
+//
+// Asked of the shape the ray was already found to hit, so a miss here is not a
+// case the caller has an answer for; it reports the surface facing the ray,
+// which is what a sliver of no area would have given anyway.
+func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
+    away = -r.d;
+    missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0}};
     match sh {
-        Sph(s) => return (p - s.center) / s.radius;
-        Tri(t) => return unit_vector(cross(t.p1 - t.p0, t.p2 - t.p0));
+        Sph(s) => {
+            t = sphere_t(r, s);
+            if t {
+                return sphere_geometry(s, r, *t);
+            }
+            return missed;
+        }
+        Tri(tri) => {
+            hit = triangle_hit(r, tri);
+            if hit {
+                return triangle_geometry(tri, (*hit).b);
+            }
+            return missed;
+        }
     }
 }

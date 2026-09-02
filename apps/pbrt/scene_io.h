@@ -31,20 +31,78 @@ enum ShapeTag : uint32_t {
     Triangle = 1,
 };
 
-// One shape, in render space. A sphere uses p0 as its centre and radius; a
-// triangle uses the three points and ignores radius. The renderer's own Shape
-// is a variant type and stays its business: these tags are this file's, and the
-// driver maps across by calling the generated constructors.
+enum MaterialTag : uint32_t {
+    Diffuse = 0,
+    CoatedDiffuse = 1,
+};
+
+// One material, with every texture already evaluated to a constant.
+//
+// The spectra travel as the RGB the scene wrote rather than as PBRT's fitted
+// coefficients: PBRT turns an RGB into a spectrum with a sigmoid fit, and the
+// renderer runs the same fit, so handing over the fit's output would be handing
+// over the answer to a question the renderer is supposed to be answering.
+//
+// The defaults are PBRT's own, from CoatedDiffuseMaterial::Create, so a
+// material that names nothing arrives as the one PBRT would have built.
+struct Material {
+    uint32_t tag = MaterialTag::Diffuse;
+    float reflectance[3] = {0.5f, 0.5f, 0.5f};
+    // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
+    // remaps per intersection and `remaproughness` says whether it does at all.
+    float u_roughness = 0.f;
+    float v_roughness = 0.f;
+    uint32_t remap = 1;
+    float thickness = 0.01f;
+    float eta = 1.5f;
+    // The medium between the two interfaces. `has_medium` is not the same
+    // question as whether the albedo is zero: PBRT's default is a spectrum that
+    // is exactly zero, where an RGB of (0, 0, 0) put through the fit is small
+    // and is not, and the layered walk branches on which it has.
+    float medium_albedo[3] = {0.f, 0.f, 0.f};
+    uint32_t has_medium = 0;
+    float g = 0.f;
+    int32_t max_depth = 10;
+    int32_t n_samples = 1;
+};
+
+// One triangle mesh, as a run of each of the shared pools below.
+//
+// PBRT keeps a TriangleMesh per shape and a global list of them, and a Triangle
+// is a pair of indices into that list and into its own triangles. This is the
+// same arrangement with the meshes' arrays laid end to end, so a mesh is where
+// its own run of each begins. `indices` are mesh-local, as PBRT's are, which is
+// what `first_vertex` adds back.
+struct Mesh {
+    uint32_t first_index = 0;
+    uint32_t first_vertex = 0;
+    uint32_t first_normal = 0;
+    uint32_t first_uv = 0;
+    uint32_t has_normals = 0;
+    uint32_t has_uv = 0;
+    // PBRT: reverseOrientation ^ transformSwapsHandedness, which decides which
+    // way the surface normal points. A mesh's, because PBRT keeps it there.
+    uint32_t flip = 0;
+};
+
+// One shape, in render space.
+//
+// A sphere is its centre and radius. A triangle is a mesh and a triangle in it,
+// which is exactly what PBRT's `Triangle` holds -- the vertex data is fetched
+// from the mesh on a hit rather than copied per triangle. The renderer's own
+// Shape is a variant type and stays its business: these tags are this file's,
+// and the driver maps across by calling the generated constructors.
 struct Shape {
     uint32_t tag;
-    float radius;
-    float p0[3];
-    float p1[3];
-    float p2[3];
-    // The material's reflectance, as the scene wrote it. PBRT turns this into
-    // a spectrum with its sigmoid fit; the renderer runs the same fit, so what
-    // travels between them is the RGB rather than the fit's output.
-    float reflectance[3];
+    // Sphere.
+    float radius = 0.f;
+    float center[3] = {0.f, 0.f, 0.f};
+    uint32_t flip = 0;
+    // Triangle.
+    uint32_t mesh = 0;
+    uint32_t tri = 0;
+    // Which of the scene's materials this shape was declared under.
+    uint32_t material = 0;
 };
 
 // One BVH node, in PBRT's LinearBVHNode shape.
@@ -113,10 +171,33 @@ struct Scene {
     uint32_t width = 0;
     uint32_t height = 0;
     Sampler sampler;
+    // PBRT's `--seed` option, which is not the sampler's seed: it is a global
+    // that a layered BSDF hashes together with the direction it was asked
+    // about, to seed the random walk that estimates its reflectance.
+    int32_t seed = 0;
     // camera_from_raster then render_from_camera, each 4x4 in row order.
     float matrices[32] = {};
+    std::vector<Material> materials;
+    // The meshes, and the pools their runs live in. Three floats per position
+    // and normal, two per texture coordinate.
+    std::vector<Mesh> meshes;
+    std::vector<uint32_t> indices;
+    std::vector<float> positions;
+    std::vector<float> normals;
+    std::vector<float> uvs;
     std::vector<Shape> shapes;
     std::vector<Node> nodes;
+
+    // The three vertices of a triangle, as PBRT's
+    // `&mesh->vertexIndices[3 * triIndex]` reads them, with the mesh's own
+    // offset added. Here rather than in each of the three places that wants
+    // them -- the tree build, the bounds, the PBRT-tree path.
+    void corners(const Shape &s, uint32_t out[3]) const {
+        const Mesh &m = meshes[s.mesh];
+        for (uint32_t k = 0; k < 3; k++) {
+            out[k] = m.first_vertex + indices[m.first_index + 3 * s.tri + k];
+        }
+    }
 };
 
 namespace detail {
@@ -154,27 +235,74 @@ inline bool write(const char *path, const Scene &scene) {
         out << "sampler independent " << scene.sampler.samples_per_pixel << ' '
             << scene.sampler.seed << '\n';
     }
+    out << "seed " << scene.seed << '\n';
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
     detail::put(out, scene.matrices + 16, 16);
     out << '\n';
 
+    out << "materials " << scene.materials.size() << '\n';
+    for (const Material &m : scene.materials) {
+        out << (m.tag == MaterialTag::CoatedDiffuse ? "  coateddiffuse"
+                                                    : "  diffuse");
+        out << " reflectance";
+        detail::put(out, m.reflectance, 3);
+        if (m.tag == MaterialTag::CoatedDiffuse) {
+            out << " roughness";
+            detail::put(out, &m.u_roughness, 1);
+            detail::put(out, &m.v_roughness, 1);
+            out << " remap " << m.remap;
+            out << " thickness";
+            detail::put(out, &m.thickness, 1);
+            out << " eta";
+            detail::put(out, &m.eta, 1);
+            out << " albedo";
+            detail::put(out, m.medium_albedo, 3);
+            out << " hasalbedo " << m.has_medium;
+            out << " g";
+            detail::put(out, &m.g, 1);
+            out << " maxdepth " << m.max_depth;
+            out << " nsamples " << m.n_samples;
+        }
+        out << '\n';
+    }
+
+    out << "meshes " << scene.meshes.size() << '\n';
+    for (const Mesh &m : scene.meshes) {
+        out << "  mesh " << m.first_index << ' ' << m.first_vertex << ' '
+            << m.first_normal << ' ' << m.first_uv << " normals "
+            << m.has_normals << " uv " << m.has_uv << " flip " << m.flip
+            << '\n';
+    }
+    out << "indices " << scene.indices.size() << '\n';
+    for (const uint32_t i : scene.indices) {
+        out << ' ' << i;
+    }
+    out << '\n';
+    const auto pool = [&](const char *name, const std::vector<float> &values,
+                          int per) {
+        out << name << ' ' << values.size() / per << '\n';
+        for (size_t i = 0; i < values.size(); i += per) {
+            detail::put(out, values.data() + i, per);
+            out << '\n';
+        }
+    };
+    pool("positions", scene.positions, 3);
+    pool("normals", scene.normals, 3);
+    pool("uvs", scene.uvs, 2);
+
     out << "shapes " << scene.shapes.size() << '\n';
     for (const Shape &s : scene.shapes) {
         if (s.tag == ShapeTag::Sphere) {
             out << "  sphere";
-            detail::put(out, s.p0, 3);
+            detail::put(out, s.center, 3);
             detail::put(out, &s.radius, 1);
+            out << " flip " << s.flip;
         } else {
-            out << "  tri";
-            detail::put(out, s.p0, 3);
-            detail::put(out, s.p1, 3);
-            detail::put(out, s.p2, 3);
+            out << "  tri " << s.mesh << ' ' << s.tri;
         }
-        out << " reflectance";
-        detail::put(out, s.reflectance, 3);
-        out << '\n';
+        out << " material " << s.material << '\n';
     }
 
     out << "nodes " << scene.nodes.size() << '\n';
@@ -236,6 +364,11 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
 
+    if (!(in >> word) || word != "seed") {
+        return false;
+    }
+    in >> scene.seed;
+
     if (!(in >> word) || word != "camera_from_raster") {
         return false;
     }
@@ -245,7 +378,129 @@ inline bool read(const char *path, Scene &scene) {
     }
     floats(scene.matrices + 16, 16);
 
+    // A labelled field, checked as it is read. The labels are what makes a
+    // stale file fail here rather than three fields later with plausible
+    // numbers in the wrong places.
+    const auto tagged = [&](const char *name) {
+        return bool(in >> word) && word == name;
+    };
+
     size_t count = 0;
+    if (!(in >> word) || word != "materials") {
+        return false;
+    }
+    in >> count;
+    scene.materials.clear();
+    for (size_t i = 0; i < count; i++) {
+        if (!(in >> word)) {
+            return false;
+        }
+        Material m;
+        if (word == "diffuse") {
+            m.tag = MaterialTag::Diffuse;
+        } else if (word == "coateddiffuse") {
+            m.tag = MaterialTag::CoatedDiffuse;
+        } else {
+            return false;
+        }
+        if (!tagged("reflectance")) {
+            return false;
+        }
+        floats(m.reflectance, 3);
+        if (m.tag == MaterialTag::CoatedDiffuse) {
+            if (!tagged("roughness")) {
+                return false;
+            }
+            floats(&m.u_roughness, 1);
+            floats(&m.v_roughness, 1);
+            if (!tagged("remap")) {
+                return false;
+            }
+            in >> m.remap;
+            if (!tagged("thickness")) {
+                return false;
+            }
+            floats(&m.thickness, 1);
+            if (!tagged("eta")) {
+                return false;
+            }
+            floats(&m.eta, 1);
+            if (!tagged("albedo")) {
+                return false;
+            }
+            floats(m.medium_albedo, 3);
+            if (!tagged("hasalbedo")) {
+                return false;
+            }
+            in >> m.has_medium;
+            if (!tagged("g")) {
+                return false;
+            }
+            floats(&m.g, 1);
+            if (!tagged("maxdepth")) {
+                return false;
+            }
+            in >> m.max_depth;
+            if (!tagged("nsamples")) {
+                return false;
+            }
+            in >> m.n_samples;
+        }
+        scene.materials.push_back(m);
+    }
+
+    if (!(in >> word) || word != "meshes") {
+        return false;
+    }
+    in >> count;
+    scene.meshes.clear();
+    for (size_t i = 0; i < count; i++) {
+        if (!tagged("mesh")) {
+            return false;
+        }
+        Mesh m;
+        in >> m.first_index >> m.first_vertex >> m.first_normal >> m.first_uv;
+        if (!tagged("normals")) {
+            return false;
+        }
+        in >> m.has_normals;
+        if (!tagged("uv")) {
+            return false;
+        }
+        in >> m.has_uv;
+        if (!tagged("flip")) {
+            return false;
+        }
+        in >> m.flip;
+        scene.meshes.push_back(m);
+    }
+
+    if (!(in >> word) || word != "indices") {
+        return false;
+    }
+    in >> count;
+    scene.indices.assign(count, 0);
+    for (size_t i = 0; i < count; i++) {
+        in >> scene.indices[i];
+    }
+    const auto pool = [&](const char *name, std::vector<float> &values,
+                          int per) {
+        if (!(in >> word) || word != name) {
+            return false;
+        }
+        size_t n = 0;
+        in >> n;
+        values.assign(n * per, 0.f);
+        for (size_t i = 0; i < n * size_t(per); i++) {
+            in >> values[i];
+        }
+        return true;
+    };
+    if (!pool("positions", scene.positions, 3) ||
+        !pool("normals", scene.normals, 3) || !pool("uvs", scene.uvs, 2)) {
+        return false;
+    }
+
     if (!(in >> word) || word != "shapes") {
         return false;
     }
@@ -255,23 +510,31 @@ inline bool read(const char *path, Scene &scene) {
         if (!(in >> word)) {
             return false;
         }
-        Shape s = {};
+        Shape s;
         if (word == "sphere") {
             s.tag = ShapeTag::Sphere;
-            floats(s.p0, 3);
+            floats(s.center, 3);
             floats(&s.radius, 1);
+            if (!tagged("flip")) {
+                return false;
+            }
+            in >> s.flip;
         } else if (word == "tri") {
             s.tag = ShapeTag::Triangle;
-            floats(s.p0, 3);
-            floats(s.p1, 3);
-            floats(s.p2, 3);
+            in >> s.mesh >> s.tri;
+            if (s.mesh >= scene.meshes.size()) {
+                return false;
+            }
         } else {
             return false;
         }
-        if (!(in >> word) || word != "reflectance") {
+        if (!tagged("material")) {
             return false;
         }
-        floats(s.reflectance, 3);
+        in >> s.material;
+        if (s.material >= scene.materials.size()) {
+            return false;
+        }
         scene.shapes.push_back(s);
     }
 
