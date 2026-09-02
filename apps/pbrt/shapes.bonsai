@@ -468,6 +468,16 @@ element SurfaceGeometry {
     n : vec3f;
     ns : vec3f;
     dpdus : vec3f;
+    // pbrt: Point3fi, the hit point as an interval -- the position and a bound
+    // on how far the arithmetic that produced it could have strayed.
+    //
+    // Carried because the next ray has to start off the surface it is leaving,
+    // and how far off is exactly this. pbrt's `gamma(n)` is the relative error
+    // a chain of n floating-point operations can accumulate, so the bound is a
+    // property of how the hit was computed and differs per shape: five
+    // operations for a sphere, seven for a barycentric interpolation.
+    p : vec3f;
+    p_error : vec3f;
 }
 
 // pbrt: Sphere::InteractionFromIntersection, for the full spheres scene_dump
@@ -510,7 +520,12 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     n = select(s.flip, -raw_n, raw_n);
     // A sphere carries no per-vertex normals, so its shading geometry is its
     // geometry.
-    g : SurfaceGeometry = {n, n, dpdu};
+    //
+    // pbrt: `pError = gamma(5) * Abs(pHit)`. Object space, where the sphere is
+    // at the origin, so the bound is about the refined point above -- and the
+    // point itself is in render space, which for a translation is the same
+    // error.
+    g : SurfaceGeometry = {n, n, dpdu, p + s.center, gamma(5) * abs(p)};
     return g;
 }
 
@@ -559,10 +574,19 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
 
     raw_n = unit_vector(cross_(dp02, dp12));
     n = select(m.flip, -raw_n, raw_n);
+
+    // pbrt: the hit point and its error, both from the barycentric
+    // interpolation rather than from the ray -- `pHit = b0*p0 + b1*p1 + b2*p2`
+    // and `pError = gamma(7) * (|b0 p0| + |b1 p1| + |b2 p2|)`. Seven operations
+    // because the sum of three scaled points is what the bound is over.
+    p_hit = b.x * p0 + b.y * p1 + b.z * p2;
+    p_abs_sum = abs(b.x * p0) + abs(b.y * p1) + abs(b.z * p2);
+    p_err = gamma(7) * p_abs_sum;
+
     if !m.has_normals {
         // pbrt never enters its shading-geometry block for such a mesh, so the
         // shading normal is the geometric one and the tangent is unadjusted.
-        plain : SurfaceGeometry = {n, n, dpdu};
+        plain : SurfaceGeometry = {n, n, dpdu, p_hit, p_err};
         return plain;
     }
 
@@ -600,7 +624,8 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
 
     // The geometric normal turns to face the shading one, which the film's own
     // FaceForward against the ray then makes invisible -- but not to a BSDF.
-    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su};
+    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su, p_hit,
+                           p_err};
     return g;
 }
 
@@ -617,9 +642,45 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
 // Asked of the shape the ray was already found to hit, so a miss here is not a
 // case the caller has an answer for; it reports the surface facing the ray,
 // which is what a sliver of no area would have given anyway.
+// pbrt: OffsetRayOrigin, which is what `interval.bonsai` was written for.
+//
+// A ray leaving a surface must not hit the surface it left. The usual fix is an
+// epsilon, which is wrong in both directions -- too small and the surface
+// shadows itself, too large and contact is lost -- and pbrt's is not an epsilon
+// at all: the hit point is known to within `p_error`, so the origin is pushed
+// out by exactly that bound along the normal, on the side the new ray leaves
+// towards.
+//
+// The rounding afterwards is not decoration. The offset can be smaller than an
+// ulp of the coordinate it is added to, in which case the addition returns the
+// point unchanged and the push did nothing; nudging each coordinate one float
+// further out guarantees it moved.
+func offset_ray_origin(p : vec3f, p_error : vec3f, n : vec3f,
+                       w : vec3f) -> vec3f {
+    d = dot(abs(n), p_error);
+    signed = select(dot(w, n) < 0.0, -d, d);
+    offset = signed * n;
+    po = p + offset;
+    return vec3f{
+        select(offset.x > 0.0, next_float_up(po.x),
+               select(offset.x < 0.0, next_float_down(po.x), po.x)),
+        select(offset.y > 0.0, next_float_up(po.y),
+               select(offset.y < 0.0, next_float_down(po.y), po.y)),
+        select(offset.z > 0.0, next_float_up(po.z),
+               select(offset.z < 0.0, next_float_down(po.z), po.z))};
+}
+
+// pbrt: Interaction::SpawnRay. The geometric normal rather than the shading
+// one, because what the offset has to clear is where the surface actually is.
+func spawn_ray(g : SurfaceGeometry, d : vec3f) -> Ray {
+    r : Ray = {offset_ray_origin(g.p, g.p_error, g.n, d), d, inf};
+    return r;
+}
+
 func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
     away = -r.d;
-    missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0}};
+    missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0}, r.o,
+                                vec3f{0.0, 0.0, 0.0}};
     match sh {
         Sph(s) => {
             t = sphere_t(r, s);
