@@ -152,8 +152,16 @@ BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
 
+# The rendered image, both sides, as something to actually look at. The
+# comparison below reports numbers; these are what to open when the numbers say
+# something is wrong and it is not obvious what.
+python3 $PREFIX/to_png.py "$WORK/pbrt-radiance.pfm" "$WORK/pbrt-radiance.png"
+python3 $PREFIX/to_png.py "$WORK/bonsai-radiance.pfm" \
+    "$WORK/bonsai-radiance.png"
+
 python3 $PREFIX/compare_gbuffer.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
     --albedo "$WORK/pbrt-albedo.pfm" "$WORK/bonsai-albedo.pfm" \
+    --radiance "$WORK/pbrt-radiance.pfm" "$WORK/bonsai-radiance.pfm" \
     --pbrt-seconds "${PBRT_SECONDS:-0}" --bonsai-seconds "${BONSAI_SECONDS:-0}" \
     --repeats "$REPEATS"
 

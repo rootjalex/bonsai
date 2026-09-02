@@ -64,6 +64,18 @@ ALBEDO_MEAN_TOLERANCE = 5e-4
 # written to catch -- moves every pixel, not one in seventy thousand.
 ALBEDO_OUTLIER_FRACTION = 1e-4
 
+# See compare_radiance. What counts as two lit pixels agreeing, which most of
+# them do: the paths that took the same branches accumulate only last-bit
+# differences, and the ones that took a different branch are not close at all.
+RADIANCE_TOLERANCE = 1e-3
+
+# How far the image's mean may be from pbrt's. This is the Monte Carlo estimate
+# of the whole integral, so it converges where a pixel does not, and a
+# systematic error -- a light of the wrong brightness, a missing cosine, a
+# radiance normalized like a reflectance -- moves it and nothing else does.
+# The 106.86x the film was once out by would show here as 0.009.
+RADIANCE_MEAN_TOLERANCE = 0.02
+
 
 def diff_png(path, width, height, ref, got):
     """Where the two disagree, brightened so that anything at all shows up.
@@ -202,9 +214,70 @@ def compare_albedo(pbrt_path, bonsai_path, width, height):
     return mean, fraction
 
 
+def compare_radiance(pbrt_path, bonsai_path, width, height):
+    """The render itself, held to what a stochastic estimate can promise.
+
+    Not a per-pixel comparison, and it cannot be one. A random walk finds a
+    light by scattering into it, so a pixel's value is a sixteen- or
+    two-hundred-sample estimate whose variance is enormous: two implementations
+    that agree exactly on the integral disagree wildly on any single pixel as
+    soon as one path takes a different branch. That is what the albedo taught
+    already -- a last-bit difference reseeds a walk and the answers are
+    unrelated rather than close.
+
+    What can be held is what the estimate converges to. Three things are
+    checked, in increasing order of how much they say:
+
+    - The set of pixels that received any light at all. Two walks consuming the
+      same random numbers scatter the same way, so this should match exactly;
+      when it does not, the sampler streams have come apart, which is a real
+      bug and not noise. That is how the missing camera-sample draws were found.
+    - The mean over the image, which is the Monte Carlo estimate of the whole
+      integral and converges far faster than any pixel.
+    - The fraction of lit pixels that agree closely anyway, which is most of
+      them and which drops if the transport is wrong rather than merely noisy.
+    """
+    pw, ph, pbrt = read_pfm(pbrt_path)
+    bw, bh, bonsai = read_pfm(bonsai_path)
+    if (pw, ph) != (width, height) or (bw, bh) != (width, height):
+        raise SystemExit("radiance images are not the size of the normals")
+
+    lit_pbrt = lit_bonsai = lit_both = 0
+    close = 0
+    pbrt_total = bonsai_total = 0.0
+    for i in range(0, len(pbrt), 3):
+        a = pbrt[i:i + 3]
+        b = bonsai[i:i + 3]
+        pbrt_total += sum(a)
+        bonsai_total += sum(b)
+        a_lit = any(v > 0 for v in a)
+        b_lit = any(v > 0 for v in b)
+        lit_pbrt += a_lit
+        lit_bonsai += b_lit
+        if not a_lit and not b_lit:
+            continue
+        lit_both += 1
+        scale = max(max(a), max(b))
+        if scale > 0 and max(abs(a[c] - b[c]) for c in range(3)) <= \
+                RADIANCE_TOLERANCE * scale:
+            close += 1
+
+    n = width * height * 3
+    pbrt_mean = pbrt_total / n
+    bonsai_mean = bonsai_total / n
+    ratio = bonsai_mean / pbrt_mean if pbrt_mean else float("inf")
+    agree = close / lit_both if lit_both else 0.0
+    print(f"radiance: {lit_pbrt} lit pixels in pbrt, {lit_bonsai} here; "
+          f"mean {pbrt_mean:.6g} vs {bonsai_mean:.6g} ({ratio:.5f}x)")
+    print(f"  {close} of {lit_both} touched pixels agree to "
+          f"{RADIANCE_TOLERANCE:.0e} relative ({100 * agree:.1f}%)")
+    return lit_pbrt, lit_bonsai, ratio
+
+
 def main(argv):
     args = argv[1:]
     albedo_pair = take_pair(args, "--albedo")
+    radiance_pair = take_pair(args, "--radiance")
     pbrt_seconds = take_option(args, "--pbrt-seconds")
     bonsai_seconds = take_option(args, "--bonsai-seconds")
     repeats = take_option(args, "--repeats")
@@ -313,13 +386,32 @@ def main(argv):
                   f"{100 * ALBEDO_OUTLIER_FRACTION:.4f}% that rounding a "
                   f"wavelength to the nearest nanometre accounts for")
 
+    radiance_failed = False
+    if radiance_pair is not None:
+        lit_pbrt, lit_bonsai, ratio = compare_radiance(
+            radiance_pair[0], radiance_pair[1], ref_w, ref_h)
+        if lit_pbrt != lit_bonsai:
+            radiance_failed = True
+            print(f"FAILED: {lit_bonsai} pixels received light here against "
+                  f"pbrt's {lit_pbrt}. Two walks drawing the same numbers "
+                  f"scatter the same way, so this is a sampler stream that has "
+                  f"come apart rather than noise")
+        if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
+            radiance_failed = True
+            print(f"FAILED: the image is {ratio:.5f}x pbrt's on average, over "
+                  f"the {RADIANCE_MEAN_TOLERANCE:.0%} two estimates of one "
+                  f"integral should agree to")
+
     if interior:
         print(f"FAILED: {len(interior)} pixels disagree away from any edge")
     else:
         print(f"ok: matches pbrt except on {len(on_edge)} silhouette pixels")
     print(f"images: {out_dir}/pbrt.png, {out_dir}/bonsai.png, "
           f"{out_dir}/diff.png (difference brightened {DIFF_GAIN:.0f}x)")
-    return 1 if (interior or albedo_failed) else 0
+    if radiance_pair is not None:
+        print(f"  the render itself: {out_dir}/pbrt-radiance.png, "
+              f"{out_dir}/bonsai-radiance.png")
+    return 1 if (interior or albedo_failed or radiance_failed) else 0
 
 
 if __name__ == "__main__":

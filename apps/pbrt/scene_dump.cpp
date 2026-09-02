@@ -26,6 +26,7 @@
 #include <pbrt/bxdfs.h>
 #include <pbrt/cameras.h>
 #include <pbrt/cpu/aggregates.h>
+#include <pbrt/cpu/integrators.h>
 #include <pbrt/cpu/primitive.h>
 #include <pbrt/options.h>
 #include <pbrt/parser.h>
@@ -146,6 +147,22 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Material(name, std::move(params), loc);
     }
 
+    // The integrator, for its `maxdepth` alone.
+    //
+    // Which integrator the scene names is deliberately ignored: this renderer
+    // implements pbrt's RandomWalkIntegrator and the comparison runs pbrt's
+    // too, so that both sides answer the same question. What the scene can
+    // still say is how deep to go.
+    void Integrator(const std::string &name, pbrt::ParsedParameterVector params,
+                    pbrt::FileLoc loc) override {
+        for (const pbrt::ParsedParameter *p : params) {
+            if (p->name == "maxdepth" && !p->ints.empty()) {
+                integrator_max_depth = int(p->ints[0]);
+            }
+        }
+        pbrt::BasicSceneBuilder::Integrator(name, std::move(params), loc);
+    }
+
     // The same trick for area lights, and for the same reason: a shape names
     // one by index into BasicScene::areaLights, which is private. The base
     // appends one per directive, so recording them here in the same order
@@ -174,6 +191,8 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     pbrt::ParameterDictionary sampler_params;
     std::vector<MaterialInfo> materials;
     std::vector<MaterialInfo> area_lights;
+    // PBRT's RandomWalkIntegrator default.
+    int integrator_max_depth = 5;
 };
 
 [[noreturn]] void fail(const std::string &message) {
@@ -1344,7 +1363,7 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
 // work in removes the question rather than answering it.
 void render_reference(pbrt::BasicScene &scene,
                       const pbrt::RGBColorSpace *colour_space,
-                      const std::string &prefix) {
+                      int integrator_max_depth, const std::string &prefix) {
     // Sampled at the pixel centre, which main() asked for before parsing began.
     // GetCameraSample below is PBRT's own and reads PBRT's own option, so there
     // is no second implementation of what that flag means.
@@ -1370,6 +1389,19 @@ void render_reference(pbrt::BasicScene &scene,
 
     std::vector<float> normals(size_t(width) * height * 3, 0.f);
     std::vector<float> albedos(size_t(width) * height * 3, 0.f);
+    std::vector<float> radiances(size_t(width) * height * 3, 0.f);
+
+    // PBRT's own RandomWalkIntegrator, which is what render.bonsai's
+    // `li_random_walk` is a transcription of. Constructed here rather than
+    // taken from the scene: the scene names whatever integrator it was written
+    // for -- killeroo-simple names none, so PBRT would default to volpath --
+    // and what this file is for is asking PBRT the same question the renderer
+    // answers, not a harder one. The depth is the scene's if it named one and
+    // PBRT's default of five otherwise, which is the same number `load` writes
+    // into the scene file for the renderer to use.
+    pbrt::RandomWalkIntegrator reference_integrator(integrator_max_depth,
+                                                    camera, sampler, accel,
+                                                    lights);
 
     pbrt::ThreadLocal<pbrt::ScratchBuffer> buffers(
         []() { return pbrt::ScratchBuffer(); });
@@ -1387,6 +1419,7 @@ void render_reference(pbrt::BasicScene &scene,
             // could explain from the source.
             pbrt::Normal3f n_sum(0, 0, 0);
             double albedo_sum[3] = {0., 0., 0.};
+            double radiance_sum[3] = {0., 0., 0.};
             double weight_sum = 0.;
 
             for (int i = 0; i < spp; i++) {
@@ -1408,6 +1441,29 @@ void render_reference(pbrt::BasicScene &scene,
                 weight_sum += cs.filterWeight;
                 if (!cr) {
                     continue;
+                }
+
+                // The radiance, from PBRT's own integrator and drawing from
+                // this sample's stream exactly where the renderer's walk draws
+                // from it. Before the gbuffer work below, because that is where
+                // an integrator runs: PBRT fills a VisibleSurface from inside
+                // `Li`, and every draw after the camera sample belongs to the
+                // walk.
+                //
+                // Converted the way PixelSensor does and not the way a
+                // reflectance is: XYZ without the division by the CIE Y
+                // integral that `ToRGB` applies, which is why the multiply
+                // undoing it is here. See colour.bonsai.
+                {
+                    pbrt::RayDifferential ray = cr->ray;
+                    const pbrt::SampledSpectrum L = reference_integrator.Li(
+                        ray, lambda, tile_sampler, scratch, nullptr);
+                    const pbrt::XYZ xyz =
+                        L.ToXYZ(lambda) * pbrt::CIE_Y_integral;
+                    const pbrt::RGB rgb = colour_space->ToRGB(xyz);
+                    for (int c = 0; c < 3; c++) {
+                        radiance_sum[c] += cs.filterWeight * rgb[c];
+                    }
                 }
 
                 pstd::optional<pbrt::ShapeIntersection> si =
@@ -1458,6 +1514,7 @@ void render_reference(pbrt::BasicScene &scene,
             if (weight_sum != 0) {
                 for (int c = 0; c < 3; c++) {
                     albedos[at + c] = float(albedo_sum[c] / weight_sum);
+                    radiances[at + c] = float(radiance_sum[c] / weight_sum);
                 }
             }
         }
@@ -1482,8 +1539,11 @@ void render_reference(pbrt::BasicScene &scene,
     };
     write(prefix + ".pfm", normals);
     write(prefix + "-albedo.pfm", albedos);
-    printf("scene_dump: reference %s.pfm and %s-albedo.pfm (%dx%d, %d spp)\n",
-           prefix.c_str(), prefix.c_str(), width, height, spp);
+    write(prefix + "-radiance.pfm", radiances);
+    printf("scene_dump: reference %s.pfm, %s-albedo.pfm and %s-radiance.pfm "
+           "(%dx%d, %d spp, randomwalk maxdepth %d)\n",
+           prefix.c_str(), prefix.c_str(), prefix.c_str(), width, height, spp,
+           integrator_max_depth);
     // What PBRT's own binary would write this scene to, so that a comparison
     // script can find the image it timed. A scene names it and no two need
     // agree.
@@ -1569,6 +1629,9 @@ void load(const char *filename, bonsai_scene::Scene &out,
     // written down, so that running scene_dump with one has the effect it has
     // on PBRT.
     out.seed = pbrt::GetOptions().seed;
+    // The same depth the reference render uses, so that the two integrators are
+    // asked to go equally far.
+    out.max_depth = builder.integrator_max_depth;
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,
@@ -1787,7 +1850,7 @@ void load(const char *filename, bonsai_scene::Scene &out,
         // The film's colour space rather than sRGB by assumption: it is what
         // GBufferFilm converts the albedo with, and a scene can name another.
         render_reference(scene, builder.film_params.ColorSpace(),
-                         reference_prefix);
+                         builder.integrator_max_depth, reference_prefix);
     }
 }
 
