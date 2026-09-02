@@ -84,6 +84,18 @@ struct Instruction {
         AddressOf,
         Alloc,  // on heap
         Alloca, // on stack
+        // Fetch-and-add: add to what a pointer points at and produce the value
+        // it held *before* the add. Mirrors ir::AtomicAdd.
+        //
+        // Not one of the Accs above, and the difference is the result. An
+        // AccAdd is a side effect and nothing reads it, so a schedule that
+        // proves two lanes never touch the same address may drop its atomicity
+        // (SSA/DemoteAtomics.h) and leave the arithmetic alone. This one's
+        // whole purpose is the value it returns -- which slot a thread claimed
+        // -- so it stays atomic wherever it might be reached in parallel, and
+        // it has to be an instruction with a name rather than a side effect
+        // with none.
+        AtomicAdd,
         // Is any lane of a mask set? A cross-lane reduction: its operand is
         // one value per lane but its result is a single uniform bool, which
         // is what lets a gang branch on it. This is what makes the latch of a

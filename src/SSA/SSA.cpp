@@ -62,6 +62,8 @@ const char *op_name(Instruction::Op op) {
         return "abs";
     case Instruction::Op::AccAdd:
         return "acc.add";
+    case Instruction::Op::AtomicAdd:
+        return "atomic.add";
     case Instruction::Op::AccMul:
         return "acc.mul";
     case Instruction::Op::AccSub:
@@ -180,6 +182,9 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
     case Instruction::Op::AddressOf:
+    // Writes to memory but has a result, so it is dumped with its name like
+    // any other instruction rather than in the nameless store form below.
+    case Instruction::Op::AtomicAdd:
     case Instruction::Op::Alloc:
     case Instruction::Op::Alloca:
     case Instruction::Op::Any:

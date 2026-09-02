@@ -127,6 +127,11 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Add:
     case Instruction::Op::AddressOf:
     case Instruction::Op::Any:
+    // As `rand` below: it writes to memory, so it is not pure, but it produces
+    // a value and is bound to a name rather than emitted as a bare statement.
+    // Being bound in the order the block put it in is what makes the fetch and
+    // the add happen exactly once.
+    case Instruction::Op::AtomicAdd:
     case Instruction::Op::Bc:
     case Instruction::Op::BwAnd:
     case Instruction::Op::BwOr:
@@ -397,6 +402,11 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         // pointer something was already loaded through, or -- only when the
         // value really is not anywhere -- a stack slot to copy it into.
         value = PtrTo::make(std::move(args[0]));
+        break;
+    }
+    case Instruction::Op::AtomicAdd: {
+        internal_assert(args.size() == 2) << args.size();
+        value = ir::AtomicAdd::make(std::move(args[0]), std::move(args[1]));
         break;
     }
     case Instruction::Op::Any: {

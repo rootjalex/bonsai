@@ -1068,6 +1068,17 @@ struct FunctionBuilder : Visitor {
                                     Instruction::Op::AddressOf, {std::move(v)});
     }
 
+    void visit(const AtomicAdd *node) override {
+        // Fetch-and-add. The pointer is already a pointer -- Lower/ADTs.cpp
+        // and Lower/Defers.cpp both build one with a PtrTo, which the visitor
+        // above turns into a GEP or an AddressOf -- so there is nothing to
+        // address here, only the two operands to hand over.
+        auto ptr = get_value(node->ptr);
+        auto amount = get_value(node->value);
+        value = block->make_instruction(node->type, Instruction::Op::AtomicAdd,
+                                        {std::move(ptr), std::move(amount)});
+    }
+
     void visit(const Deref *node) override {
         // `node->expr` is a pointer (e.g. a `mut` argument/local, wrapped by
         // Lower/Mutability.cpp); Load reads through it to produce a value of
@@ -1127,7 +1138,7 @@ struct FunctionBuilder : Visitor {
     RESTRICT_VISITOR(Instantiate);
     // RESTRICT_VISITOR(PtrTo);
     // RESTRICT_VISITOR(Deref);
-    RESTRICT_VISITOR(AtomicAdd);
+    // RESTRICT_VISITOR(AtomicAdd);
 
     // RESTRICT_VISITOR(CallStmt);
     // RESTRICT_VISITOR(Print);
