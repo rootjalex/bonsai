@@ -1,0 +1,28 @@
+// The layout an ADT already had, asked for by name.
+//
+// `inline` is the default -- a tag beside a union of the variants, which is
+// Rust's repr(C) enum -- so what this checks is that saying it changes nothing.
+// That is worth a test rather than being obvious: the schedule and the default
+// reach the layout by different paths, and a spelling that quietly produced
+// something else would look like a schedule that worked.
+//
+// The two variants are deliberately different sizes, so the union is visible in
+// the lowered types: Sph is four floats and Tri is six, and a value of Shape is
+// as large as Tri whichever it holds.
+
+import stdlib/numerics;
+
+element Shape =
+    | Sph(centre : vec3f, radius : Float)
+    | Tri(a : vec3f, b : vec3f);
+
+func [[export]] size(s : Shape) -> Float {
+    match s {
+        Sph(centre, radius) => return radius;
+        Tri(a, b) => return a.x;
+    }
+}
+
+schedule {
+    layout Shape = inline;
+}

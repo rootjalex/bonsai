@@ -1,0 +1,23 @@
+// A layout an ADT could be given, spelled wrong.
+//
+// `layout Shape = ...` takes a name rather than a path or a nesting, unlike the
+// `layout` a tree extern takes, so the whole of what the schedule can say here
+// is one of three words. Saying a fourth is refused with the three listed,
+// since there is nowhere else to read them off.
+
+import stdlib/numerics;
+
+element Shape =
+    | Sph(centre : vec3f, radius : Float)
+    | Tri(a : vec3f, b : vec3f);
+
+func [[export]] size(s : Shape) -> Float {
+    match s {
+        Sph(centre, radius) => return radius;
+        Tri(a, b) => return a.x;
+    }
+}
+
+schedule {
+    layout Shape = octree;
+}

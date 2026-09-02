@@ -44,10 +44,17 @@ struct ADTLayout {
 };
 
 // The layout an ADT gets when nothing says otherwise.
-//
-// Where a schedule directive would eventually hook in: it would produce one of
-// these instead, and the pass would not change.
 ADTLayout default_adt_layout(const ir::ADT_t &adt);
+
+// The layout a schedule asked for.
+//
+// This is the hook the header above describes: a `layout Shape = tagged_index;`
+// in a schedule block reaches here, and the pass that applies a layout does not
+// change. `Inline` is the only one built so far; the other two report what is
+// missing rather than silently giving the default, since a layout that was
+// asked for and not given would be a schedule that changed nothing and said so
+// nowhere.
+ADTLayout adt_layout(const ir::ADT_t &adt, ir::AdtLayout kind);
 
 } // namespace lower
 } // namespace bonsai

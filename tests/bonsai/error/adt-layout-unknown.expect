@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/adt-layout-unknown.bonsai:22:26: [parse error] Unknown layout for Shape: octree. Expected `inline`, `tagged_index` or `tagged_ptr`.
+
+    layout Shape = octree;
+                         ^

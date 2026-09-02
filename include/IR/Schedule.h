@@ -118,6 +118,40 @@ struct Vectorize {
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, MakeQueue, Split,
                                Sort, Vectorize>;
 
+// How a value of an ADT is stored.
+//
+//     layout Shape = tagged_index;
+//
+// A scheduling decision rather than a property of the type, for the same
+// reason a tree's node layout is one: which representation a variant gets
+// changes how much memory a traversal streams and how many loads it takes to
+// reach a field, and changes nothing a program can observe. It lives in the
+// Schedule so that it is chosen per target -- an index that travels to a
+// device is not the same trade as a pointer that does not.
+enum class AdtLayout {
+    // A tag beside a union of the variants: Rust's repr(C) enum. Every value
+    // is as large as the largest variant, and reaching a field is one load.
+    Inline,
+    // A tag naming one array per variant and an index into it. The value is
+    // small and the variants are stored contiguously by kind, at the cost of
+    // an indirection and of the arrays having to exist -- so a variant can
+    // only be built where its array can be appended to.
+    TaggedIndex,
+    // A tag packed into the spare bits of a pointer to the variant, which is
+    // what pbrt's TaggedPointer is. Eight bytes whatever the variant, and the
+    // variant lives wherever it was allocated.
+    //
+    // Which is the catch: constructing one has to allocate, so this cannot be
+    // combined with `--no-heap`. pbrt pays that cost knowingly -- it threads a
+    // per-thread ScratchBuffer through its integrator and resets it every
+    // sample, because `BSDF` holds a TaggedPointer to a BxDF and so every
+    // intersection has to allocate one.
+    TaggedPtr,
+};
+
+// Keyed by the ADT's type name.
+using AdtLayoutMap = std::map<std::string, AdtLayout>;
+
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;
 
@@ -132,6 +166,7 @@ Overloaded(Ts...) -> Overloaded<Ts...>;
 struct Schedule {
     TypeMap tree_types;
     LayoutMap tree_layouts;
+    AdtLayoutMap adt_layouts;
     TransformMap func_transforms;
 };
 

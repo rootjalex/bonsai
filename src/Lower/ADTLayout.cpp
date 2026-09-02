@@ -68,5 +68,24 @@ ADTLayout default_adt_layout(const ir::ADT_t &adt) {
     return layout;
 }
 
+ADTLayout adt_layout(const ir::ADT_t &adt, ir::AdtLayout kind) {
+    switch (kind) {
+    case ir::AdtLayout::Inline:
+        return default_adt_layout(adt);
+    case ir::AdtLayout::TaggedIndex:
+        internal_error
+            << "[unimplemented] `layout " << adt.name
+            << " = tagged_index`. The storage is chosen here and applied in "
+               "Lower/ADTs.cpp; what is missing is the one array per variant "
+               "the tag names, and a Construct that appends to it.";
+    case ir::AdtLayout::TaggedPtr:
+        internal_error
+            << "[unimplemented] `layout " << adt.name
+            << " = tagged_ptr`. Constructing one has to allocate the variant "
+               "it points at, which is the part that is not written.";
+    }
+    internal_error << "unknown layout for " << adt.name;
+}
+
 } // namespace lower
 } // namespace bonsai

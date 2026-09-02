@@ -1,0 +1,29 @@
+//! flags: --no-heap
+
+// Two instructions that contradict each other, refused where both are in view.
+//
+// `tagged_ptr` is pbrt's TaggedPointer: a value of the ADT is one word, and the
+// variant it names lives wherever it was allocated. Constructing one therefore
+// allocates, so asking for it under `--no-heap` is asking for a representation
+// and forbidding the only way to build it.
+//
+// The alternative to saying so here is a mallocs-are-forbidden error out of
+// code generation, pointing at an allocation the program never wrote and
+// naming neither the schedule that asked for it nor the flag that refused it.
+
+import stdlib/numerics;
+
+element Shape =
+    | Sph(centre : vec3f, radius : Float)
+    | Tri(a : vec3f, b : vec3f);
+
+func [[export]] size(s : Shape) -> Float {
+    match s {
+        Sph(centre, radius) => return radius;
+        Tri(a, b) => return a.x;
+    }
+}
+
+schedule {
+    layout Shape = tagged_ptr;
+}

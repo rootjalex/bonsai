@@ -299,11 +299,39 @@ void add_variant_constructors(ir::Program &program) {
 
 ir::Program LowerADTs::run(ir::Program program,
                            const CompilerOptions &options) const {
+    // What the schedule asked for, if anything. Keyed per target, so the same
+    // program can store a variant one way on a CPU and another on a device --
+    // an index travels to one and a pointer does not.
+    ir::AdtLayoutMap chosen;
+    if (const auto it = program.schedules.find(ir::Target::Host);
+        it != program.schedules.end()) {
+        chosen = it->second.adt_layouts;
+    }
+
     LayoutMap layouts;
     for (const auto &[name, type] : program.types) {
-        if (const ADT_t *adt = type.as<ADT_t>()) {
-            layouts[adt->name] = default_adt_layout(*adt);
+        const ADT_t *adt = type.as<ADT_t>();
+        if (adt == nullptr) {
+            continue;
         }
+        const auto ask = chosen.find(adt->name);
+        if (ask == chosen.end()) {
+            layouts[adt->name] = default_adt_layout(*adt);
+            continue;
+        }
+        // A boxed variant is allocated when it is constructed, so asking for
+        // one and forbidding the heap are contradictory instructions. Said
+        // here, where both are in view, rather than as a mallocs-are-forbidden
+        // error from inside code generation with nothing to point at.
+        if (options.no_heap && ask->second == ir::AdtLayout::TaggedPtr) {
+            internal_error
+                << "`layout " << adt->name
+                << " = tagged_ptr` stores each variant behind a pointer, so "
+                   "constructing one allocates it -- which --no-heap forbids. "
+                   "Pick `tagged_index`, which indexes arrays the caller owns, "
+                   "or drop --no-heap.";
+        }
+        layouts[adt->name] = adt_layout(*adt, ask->second);
     }
     if (layouts.empty()) {
         return program;

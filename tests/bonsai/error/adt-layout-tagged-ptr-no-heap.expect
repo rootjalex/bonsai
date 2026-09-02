@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/ADTs.cpp:327
+`layout Shape = tagged_ptr` stores each variant behind a pointer, so constructing one allocates it -- which --no-heap forbids. Pick `tagged_index`, which indexes arrays the caller owns, or drop --no-heap.

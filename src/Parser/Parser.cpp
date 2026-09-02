@@ -2510,13 +2510,25 @@ struct Parser {
             case Token::Type::LAYOUT: {
                 expect(Token::Type::LAYOUT);
                 std::string name = get_id();
+                // `layout` says how something is stored, and there are two
+                // kinds of something it can say that about: an extern the
+                // program traverses, and an ADT the program builds values of.
+                // Which one is meant is decided by what the name is, since a
+                // name is one or the other and never both.
+                if (const auto type_iter = program.types.find(name);
+                    type_iter != program.types.cend() &&
+                    type_iter->second.is<ir::ADT_t>()) {
+                    parse_adt_layout(schedule, name);
+                    break;
+                }
                 const auto extern_iter = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
                     [&name](const auto &p) { return p.name == name; });
 
                 if (extern_iter == program.externs.cend()) {
-                    report_error()
-                        << "Layout name: " << name << " is not an extern.";
+                    report_error() << "Layout name: " << name
+                                   << " is neither an extern nor a variant "
+                                      "type.";
                 }
 
                 ir::Layout layout = parse_top_level_layout();
@@ -2539,6 +2551,30 @@ struct Parser {
         internal_assert(program.schedules.empty());
 
         program.schedules[ir::Target::Host] = schedule;
+    }
+
+    // `layout <Adt> = <kind>;`
+    void parse_adt_layout(ir::Schedule &schedule, const std::string &name) {
+        expect(Token::Type::ASSIGN);
+        const std::string kind = get_id();
+        expect(Token::Type::SEMICOL);
+
+        ir::AdtLayout layout = ir::AdtLayout::Inline;
+        if (kind == "inline") {
+            layout = ir::AdtLayout::Inline;
+        } else if (kind == "tagged_index") {
+            layout = ir::AdtLayout::TaggedIndex;
+        } else if (kind == "tagged_ptr") {
+            layout = ir::AdtLayout::TaggedPtr;
+        } else {
+            report_error() << "Unknown layout for " << name << ": " << kind
+                           << ". Expected `inline`, `tagged_index` or "
+                              "`tagged_ptr`.";
+        }
+        const auto [_, inserted] = schedule.adt_layouts.emplace(name, layout);
+        if (!inserted) {
+            report_error() << "Layout for " << name << " already exists.";
+        }
     }
 
     ir::Location parse_location() {
