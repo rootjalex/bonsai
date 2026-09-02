@@ -917,6 +917,293 @@ func coated_sample_f(b : CoatedDiffuseBxDF, wo_in : vec3f, uc : Float,
     return {};
 }
 
+// pbrt: LayeredBxDF::f, the value of a layered BSDF in a direction it was not
+// asked to choose.
+//
+// Sample_f above builds a path and reports where it went; this is the question
+// an integrator asks when it has already picked the direction -- what does the
+// BSDF carry from `wo` to `wi`? There is still no closed form, so this is a
+// walk too, but a different one: it starts a path at each end, refracting into
+// the coating from `wo` and, separately, sampling a virtual light back through
+// the exit interface from `wi`, and connects them at every bounce.
+//
+// That connection is why the PDFs are here. Each bounce has two ways to reach
+// the light -- along the presampled `wis` direction, or through the direction
+// the BSDF sampled -- and both are unbiased estimates of the same thing, so
+// they are combined with the power heuristic rather than one being chosen.
+// Where an interface is specular there is no density to weight with and the
+// sampled estimate stands alone, which is what every `is_specular` test below
+// is deciding.
+//
+// The virtual light is sampled in the *opposite* transport mode. That is the
+// one thing `TransportMode` exists for: a path from a light and a path from a
+// camera disagree by the square of an index ratio when they cross into a
+// different medium.
+func coated_f(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
+              seed : i32) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    // Two-sided: a question asked from below is the same question asked from
+    // above with both directions mirrored.
+    flip = wo_in.z < 0.0;
+    wo = select(flip, -wo_in, wo_in);
+    wi = select(flip, -wi_in, wi_in);
+
+    // Entered through the top, so the path leaves by the bottom exactly when
+    // the two directions are on opposite sides. pbrt writes this as
+    // `SameHemisphere(wo, wi) ^ enteredTop` with enteredTop true.
+    exit_at_top = same_hemisphere(wo, wi);
+    exit_z = select(exit_at_top, b.thickness, 0.0);
+
+    // Reflection off the entrance interface, which needs no walk at all: it is
+    // the light that never entered the coating. Counted `n_samples` times
+    // because the whole estimate is divided by that at the end.
+    f : mut vec4f = zero;
+    if same_hemisphere(wo, wi) {
+        f = cast[[Float]](b.n_samples) * dielectric_f(b.top, wo, wi,
+                                                      radiance_mode());
+    }
+
+    // Seeded from the two directions rather than from `wo` and the sample, as
+    // Sample_f is: this has no sample to hash, and asking the same question
+    // twice has to give the same answer.
+    rng : mut RNG =
+        set_sequence(hash4(seed, reinterpret[[i32]](wo.x),
+                           reinterpret[[i32]](wo.y), reinterpret[[i32]](wo.z)),
+                     hash3(reinterpret[[i32]](wi.x), reinterpret[[i32]](wi.y),
+                           reinterpret[[i32]](wi.z)));
+
+    s : mut i32 = 0;
+    while s < b.n_samples {
+        s = s + 1;
+
+        // Into the coating. Transmission only -- a reflection here is the term
+        // already added above.
+        enter_uc = next_float(rng);
+        // y before x, as everywhere in this walk: pbrt writes `Point2f(r(),
+        // r())` and the gcc it is built with evaluates the arguments right to
+        // left, so the second draw lands in y.
+        enter_uy = next_float(rng);
+        enter_ux = next_float(rng);
+        wos = dielectric_sample_f(b.top, wo, enter_uc,
+                                  vec2f{enter_ux, enter_uy}, radiance_mode(),
+                                  sample_transmission());
+        // `valid` rather than pbrt's `continue`: the language has none, and
+        // what matters is that nothing below draws from the RNG if this sample
+        // is abandoned -- which it does not, because the abandoning happens
+        // before the next draw.
+        valid : mut bool = false;
+        wos_f : mut vec4f = zero;
+        wos_wi : mut vec3f = vec3f{0.0, 0.0, 1.0};
+        wos_pdf : mut Float = 0.0;
+        if wos {
+            v = *wos;
+            if nonzero(v.f) && (v.pdf != 0.0) && (v.wi.z != 0.0) {
+                valid = true;
+                wos_f = v.f;
+                wos_wi = v.wi;
+                wos_pdf = v.pdf;
+            }
+        }
+
+        // The virtual light, sampled back through the interface the path will
+        // leave by, in the reversed transport mode.
+        wis_f : mut vec4f = zero;
+        wis_wi : mut vec3f = vec3f{0.0, 0.0, 1.0};
+        wis_pdf : mut Float = 0.0;
+        if valid {
+            exit_uc = next_float(rng);
+            exit_uy = next_float(rng);
+            exit_ux = next_float(rng);
+            wis = interface_sample_f(b, exit_at_top, wi, exit_uc,
+                                     vec2f{exit_ux, exit_uy},
+                                     importance_mode(), sample_transmission());
+            valid = false;
+            if wis {
+                v = *wis;
+                if nonzero(v.f) && (v.pdf != 0.0) && (v.wi.z != 0.0) {
+                    valid = true;
+                    wis_f = v.f;
+                    wis_wi = v.wi;
+                    wis_pdf = v.pdf;
+                }
+            }
+        }
+
+        if valid {
+            beta : mut vec4f = wos_f * abs_cos_theta(wos_wi) / wos_pdf;
+            z : mut Float = b.thickness;
+            w : mut vec3f = wos_wi;
+
+            dead : mut bool = false;
+            depth : mut i32 = 0;
+            while (depth < b.max_depth) && !dead {
+                rr_beta = max(beta);
+                if (depth > 3) && (rr_beta < 0.25) {
+                    q = max(0.0, 1.0 - rr_beta);
+                    if next_float(rng) < q {
+                        dead = true;
+                    } else {
+                        beta = beta / (1.0 - q);
+                    }
+                }
+
+                scattered : mut bool = false;
+                if !dead {
+                    if nonzero(b.albedo) {
+                        dz = sample_exponential(next_float(rng),
+                                                1.0 / abs_cos_theta(w));
+                        zp = select(w.z > 0.0, z + dz, z - dz);
+                        if zp == z {
+                            dead = true;
+                        } else if (0.0 < zp) && (zp < b.thickness) {
+                            // The connection to the virtual light from inside
+                            // the medium, weighted against the phase function's
+                            // own sampling of the same direction.
+                            wt : mut Float = 1.0;
+                            if !interface_is_specular(b, exit_at_top) {
+                                wt = power_heuristic(
+                                    1.0, wis_pdf, 1.0,
+                                    henyey_greenstein(dot(-w, -wis_wi), b.g));
+                            }
+                            f = f + beta * b.albedo *
+                                    henyey_greenstein(dot(-w, -wis_wi), b.g) *
+                                    wt * layer_tr(zp - exit_z, wis_wi) *
+                                    wis_f / wis_pdf;
+
+                            phase_y = next_float(rng);
+                            phase_x = next_float(rng);
+                            ps = sample_hg(-w, b.g, vec2f{phase_x, phase_y});
+                            if (ps.pdf == 0.0) || (ps.wi.z == 0.0) {
+                                dead = true;
+                            } else {
+                                beta = beta * b.albedo * ps.p / ps.pdf;
+                                w = ps.wi;
+                                z = zp;
+                                // And again from the direction the phase
+                                // function chose, where that direction is
+                                // heading out through the exit interface.
+                                if (((z < exit_z) && (w.z > 0.0)) ||
+                                    ((z > exit_z) && (w.z < 0.0))) &&
+                                   !interface_is_specular(b, exit_at_top) {
+                                    f_exit = interface_f(b, exit_at_top, -w, wi,
+                                                         radiance_mode());
+                                    if nonzero(f_exit) {
+                                        exit_pdf = interface_pdf(
+                                            b, exit_at_top, -w, wi,
+                                            sample_transmission());
+                                        wt2 = power_heuristic(1.0, ps.pdf, 1.0,
+                                                              exit_pdf);
+                                        f = f + beta *
+                                                layer_tr(zp - exit_z, ps.wi) *
+                                                f_exit * wt2;
+                                    }
+                                }
+                                scattered = true;
+                            }
+                        } else {
+                            z = clampf(zp, 0.0, b.thickness);
+                        }
+                    } else {
+                        z = select(z == b.thickness, 0.0, b.thickness);
+                        beta = beta * layer_tr(b.thickness, w);
+                    }
+                }
+
+                if !dead && !scattered {
+                    if z == exit_z {
+                        // At the interface the path leaves by: reflect off it
+                        // and keep going. Nothing is added here -- what leaves
+                        // through this interface is what the connections at the
+                        // other one have already accounted for.
+                        step_uc = next_float(rng);
+                        step_uy = next_float(rng);
+                        step_ux = next_float(rng);
+                        hit = interface_sample_f(b, exit_at_top, -w, step_uc,
+                                                 vec2f{step_ux, step_uy},
+                                                 radiance_mode(),
+                                                 sample_reflection());
+                        if !hit {
+                            dead = true;
+                        } else {
+                            bs = *hit;
+                            if !nonzero(bs.f) || (bs.pdf == 0.0) ||
+                               (bs.wi.z == 0.0) {
+                                dead = true;
+                            } else {
+                                beta = beta * bs.f * abs_cos_theta(bs.wi) /
+                                       bs.pdf;
+                                w = bs.wi;
+                            }
+                        }
+                    } else {
+                        at_top = !exit_at_top;
+                        // The connection to the virtual light across the layer.
+                        if !interface_is_specular(b, at_top) {
+                            wt : mut Float = 1.0;
+                            if !interface_is_specular(b, exit_at_top) {
+                                wt = power_heuristic(
+                                    1.0, wis_pdf, 1.0,
+                                    interface_pdf(b, at_top, -w, -wis_wi,
+                                                  sample_all()));
+                            }
+                            f = f + beta *
+                                    interface_f(b, at_top, -w, -wis_wi,
+                                                radiance_mode()) *
+                                    abs_cos_theta(wis_wi) * wt *
+                                    layer_tr(b.thickness, wis_wi) * wis_f /
+                                    wis_pdf;
+                        }
+                        step_uc = next_float(rng);
+                        step_uy = next_float(rng);
+                        step_ux = next_float(rng);
+                        hit = interface_sample_f(b, at_top, -w, step_uc,
+                                                 vec2f{step_ux, step_uy},
+                                                 radiance_mode(),
+                                                 sample_reflection());
+                        if !hit {
+                            dead = true;
+                        } else {
+                            bs = *hit;
+                            if !nonzero(bs.f) || (bs.pdf == 0.0) ||
+                               (bs.wi.z == 0.0) {
+                                dead = true;
+                            } else {
+                                beta = beta * bs.f * abs_cos_theta(bs.wi) /
+                                       bs.pdf;
+                                w = bs.wi;
+                                // And from the sampled direction, weighted
+                                // against the virtual light's own density.
+                                if !interface_is_specular(b, exit_at_top) {
+                                    f_exit = interface_f(b, exit_at_top, -w, wi,
+                                                         radiance_mode());
+                                    if nonzero(f_exit) {
+                                        wt2 : mut Float = 1.0;
+                                        if !interface_is_specular(b, at_top) {
+                                            exit_pdf = interface_pdf(
+                                                b, exit_at_top, -w, wi,
+                                                sample_transmission());
+                                            wt2 = power_heuristic(1.0, bs.pdf,
+                                                                  1.0,
+                                                                  exit_pdf);
+                                        }
+                                        f = f + beta *
+                                                layer_tr(b.thickness, bs.wi) *
+                                                f_exit * wt2;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                depth = depth + 1;
+            }
+        }
+    }
+
+    return f / cast[[Float]](b.n_samples);
+}
+
 // pbrt: BxDF::rho(wo, uc, u), the hemispherical-directional reflectance -- how
 // much of the light arriving from `wo` leaves in any direction at all.
 //
@@ -1021,6 +1308,45 @@ func material_rho(mat : Material, wo : vec3f, lambda : SampledWavelengths,
                                     min(max(m.g, -1.0), 1.0), m.max_depth,
                                     m.n_samples);
             return coated_rho(b, wo, seed, uc, ux, uy);
+        }
+    }
+}
+
+// pbrt: Material::GetBSDF followed by BSDF::f -- what the surface carries from
+// `wo` to `wi`, which is the question an integrator that chose `wi` itself has
+// to ask.
+//
+// Both directions are in the shading frame already, as in `material_rho`:
+// converting into it is the caller's business, because the frame comes from the
+// shape and not from the material.
+//
+// The BxDF is built here rather than once per material for the reason pbrt
+// builds it here: a reflectance is a spectrum at these wavelengths and a
+// roughness is a texture lookup, and both are per intersection.
+func material_f(mat : Material, wo : vec3f, wi : vec3f,
+                lambda : SampledWavelengths, seed : i32) -> vec4f {
+    match mat {
+        Diffuse(albedo) => {
+            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
+            return diffuse_f(d, wo, wi);
+        }
+        CoatedDiffuse(m) => {
+            alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness),
+                             m.u_roughness);
+            alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness),
+                             m.v_roughness);
+            top : DielectricBxDF = {m.eta,
+                                    make_trowbridge_reitz(alpha_u, alpha_v)};
+            bottom : DiffuseBxDF =
+                {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
+            medium = select(m.has_medium,
+                            min(max(spectrum_at(m.medium_albedo, lambda), 0.0),
+                                1.0),
+                            vec4f{0.0, 0.0, 0.0, 0.0});
+            b = make_coated_diffuse(top, bottom, m.thickness, medium,
+                                    min(max(m.g, -1.0), 1.0), m.max_depth,
+                                    m.n_samples);
+            return coated_f(b, wo, wi, seed);
         }
     }
 }
