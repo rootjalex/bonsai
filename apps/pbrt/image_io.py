@@ -98,11 +98,32 @@ def write_png(path, width, height, pixels):
         f.write(chunk(b"IEND", b""))
 
 
-def encode_radiance(width, height, values):
-    """Linear radiance to 8-bit sRGB, which is what pbrt writes to a PNG."""
+def encode_radiance(width, height, values, stops=None):
+    """Linear radiance to 8-bit sRGB, which is what pbrt writes to a PNG.
+
+    With `stops` unset this is exactly pbrt's quantisation, so a PNG written
+    here and one pbrt writes from the same floats hold the same bytes. That
+    property is worth keeping and is why exposure is off by default.
+
+    With `stops` it is a viewing aid and nothing else. A random walk's image is
+    mostly zero with a few enormously bright pixels -- on killeroo-simple the
+    median lit pixel is sixteen times the display white point and the brightest
+    is two thousand -- so the honest encoding clips 96% of the lit pixels to
+    white and throws the colour away. Scaling by 2**stops and rolling off with
+    Reinhard puts them back on screen. Never compare two images encoded this
+    way: the roll-off is not invertible and hides exactly the differences a
+    comparison is looking for.
+    """
     out = bytearray(width * height * 3)
+    if stops is None:
+        for i in range(width * height * 3):
+            out[i] = linear_to_srgb8(values[i])
+        return bytes(out)
+
+    gain = 2.0 ** stops
     for i in range(width * height * 3):
-        out[i] = linear_to_srgb8(values[i])
+        x = max(0.0, values[i]) * gain
+        out[i] = linear_to_srgb8(x / (1.0 + x))
     return bytes(out)
 
 

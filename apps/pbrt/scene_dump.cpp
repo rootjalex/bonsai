@@ -155,6 +155,7 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // still say is how deep to go.
     void Integrator(const std::string &name, pbrt::ParsedParameterVector params,
                     pbrt::FileLoc loc) override {
+        integrator_name = name;
         for (const pbrt::ParsedParameter *p : params) {
             if (p->name == "maxdepth" && !p->ints.empty()) {
                 integrator_max_depth = int(p->ints[0]);
@@ -191,7 +192,11 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     pbrt::ParameterDictionary sampler_params;
     std::vector<MaterialInfo> materials;
     std::vector<MaterialInfo> area_lights;
-    // PBRT's RandomWalkIntegrator default.
+    // PBRT's RandomWalkIntegrator default. The name is empty when the scene
+    // named no integrator, which is not the same as naming the default: PBRT
+    // would fall back to volpath, and this renderer has only the random walk,
+    // so the two cases are told apart where the scene is converted.
+    std::string integrator_name;
     int integrator_max_depth = 5;
 };
 
@@ -551,6 +556,45 @@ void print_sampler() {
             }
         }
     }
+    // The other two samplers, in the order the renderer draws from them: the
+    // wavelength, then GetCameraSample's pixel, time and lens. Only Halton's
+    // GetPixel2D was checked here before, which is why the independent
+    // sampler's went wrong unnoticed -- every scene compared so far used
+    // halton, and the camera-sample draws are recent.
+    {
+        const pbrt::Point2i pixels[] = {{0, 0}, {1, 0}, {37, 11}};
+        for (const pbrt::Point2i &p : pixels) {
+            for (int sample = 0; sample < 2; sample++) {
+                pbrt::IndependentSampler sampler(16, 0);
+                sampler.StartPixelSample(p, sample, 0);
+                const pbrt::Float lu = sampler.Get1D();
+                const pbrt::Point2f pix = sampler.GetPixel2D();
+                const pbrt::Float t = sampler.Get1D();
+                const pbrt::Point2f lens = sampler.Get2D();
+                printf("independent %d %d sample %d: %.9g | %.9g %.9g | %.9g "
+                       "| %.9g %.9g\n",
+                       p.x, p.y, sample, double(lu), double(pix.x),
+                       double(pix.y), double(t), double(lens.x),
+                       double(lens.y));
+            }
+        }
+        for (const pbrt::Point2i &p : pixels) {
+            for (int sample = 0; sample < 2; sample++) {
+                pbrt::StratifiedSampler sampler(4, 4, true, 0);
+                sampler.StartPixelSample(p, sample, 0);
+                const pbrt::Float lu = sampler.Get1D();
+                const pbrt::Point2f pix = sampler.GetPixel2D();
+                const pbrt::Float t = sampler.Get1D();
+                const pbrt::Point2f lens = sampler.Get2D();
+                printf("stratified %d %d sample %d: %.9g | %.9g %.9g | %.9g "
+                       "| %.9g %.9g\n",
+                       p.x, p.y, sample, double(lu), double(pix.x),
+                       double(pix.y), double(t), double(lens.x),
+                       double(lens.y));
+            }
+        }
+    }
+
     // The first ten primes, so a mistranscribed table is caught here rather
     // than as a wrong answer three functions later.
     printf("primes:");
@@ -1655,6 +1699,18 @@ void load(const char *filename, bonsai_scene::Scene &out,
     // The same depth the reference render uses, so that the two integrators are
     // asked to go equally far.
     out.max_depth = builder.integrator_max_depth;
+    // Which integrator, refused rather than substituted. A scene that names
+    // `volpath` and gets a random walk is an image that answers a question
+    // nobody asked, and it would look plausible -- which is worse than an
+    // error. A scene naming none is the one exception: PBRT's default is
+    // volpath, but the comparison renders both sides with the integrator this
+    // renderer has, so there is nothing to disagree about.
+    if (!builder.integrator_name.empty() &&
+        builder.integrator_name != "randomwalk") {
+        fail("this renderer implements `randomwalk`, and the scene asks for `" +
+             builder.integrator_name + "`");
+    }
+    out.integrator = bonsai_scene::IntegratorTag::RandomWalk;
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,

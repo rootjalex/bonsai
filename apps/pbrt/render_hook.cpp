@@ -693,6 +693,21 @@ int main(int argc, char **argv) {
         lights.push_back(out_light);
     }
 
+    // The integrator the scene named, built through the constructor the
+    // Integrator variant generated. This is the whole of what a vtable does
+    // here: the driver picks a variant, hands it across once, and the bonsai
+    // side matches on it -- so adding SimplePath means adding an arm and a case
+    // here, not another exported entry point.
+    Integrator integrator;
+    switch (loaded.integrator) {
+    case bonsai_scene::IntegratorTag::RandomWalk:
+        Integrator_RandomWalk(integrator, loaded.max_depth);
+        break;
+    default:
+        fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
+        return 1;
+    }
+
     // The tables the spectral conversion reads, as the generated header wants
     // them. Checked against a running pbrt by `scene_dump --check-tables`.
     std::array<float, CIE_SAMPLES> x, y, z, d65;
@@ -720,8 +735,8 @@ int main(int argc, char **argv) {
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
-        render(camera, uint32_t(width), uint32_t(height), sampler, loaded.seed,
-               loaded.max_depth, out, albedo, radiance, meshes.data(),
+        render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
+               loaded.seed, out, albedo, radiance, meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
                uvs.data(), x, y, z, d65, primes, lights.data(),
                materials.data(), rho_uc, rho_ux, rho_uy, tree,

@@ -202,6 +202,25 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
     return {};
 }
 
+// pbrt: Integrator, which is a TaggedPointer over the eight ways pbrt knows to
+// turn a camera ray into radiance.
+//
+// A variant type, because that is what a bonsai interface is: `match` is the
+// vtable, and dispatching on one is how this app transcribes anything pbrt
+// dispatches virtually. It also means the driver hands over whichever
+// integrator the scene named and the same binary runs it, rather than there
+// being an exported entry point per configuration.
+//
+// One variant so far. The others are named in the order they are worth adding:
+// `SimplePath`, which samples lights and is what turns this scene from a
+// thousand lit pixels into a picture, then `Path` with its MIS and its
+// regularisation. Their parameters go in their own variants -- pbrt's
+// SimplePathIntegrator carries `sampleLights` and `sampleBSDF` as well as a
+// depth, and a variant is where those belong rather than in a shared struct
+// whose fields half the arms ignore.
+element Integrator =
+    | RandomWalk(max_depth : i32);
+
 // pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
 //
 // The simplest integrator pbrt has, and the right one to arrive first: it never
@@ -285,6 +304,17 @@ func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
     walk_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, lambda,
               sampler, state, seed, 0, max_depth);
 
+// pbrt: Integrator::Li, the dispatch itself -- one arm per integrator, which is
+// what pbrt's TaggedPointer does at a call site.
+func integrator_li(integrator : Integrator, r : Ray,
+                   lambda : SampledWavelengths, sampler : Sampler,
+                   state : mut SamplerState, seed : i32) -> vec4f {
+    match integrator {
+        RandomWalk(max_depth) =>
+            return li_random_walk(r, lambda, sampler, state, seed, max_depth);
+    }
+}
+
 // pbrt: the render loop, which in v4 is ParallelFor2D over the film tiles.
 // One flat loop over pixels rather than two nested ones, because the schedule
 // wants a single index to bind.
@@ -296,7 +326,7 @@ func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
 // The film has no size on it: the caller owns the allocation, and how many
 // pixels there are is the resolution, which is already here.
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
-                       sampler : Sampler, seed : i32, max_depth : i32,
+                       sampler : Sampler, integrator : Integrator, seed : i32,
                        normal_out : mut array[vec3f],
                        albedo_out : mut array[vec3f],
                        radiance_out : mut array[vec3f]) -> void {
@@ -365,8 +395,8 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // the gbuffer channels above and drawing from the same sampler
             // afterwards, exactly as pbrt does: its `Li` runs after the camera
             // sample and the visible surface is filled in along the way.
-            radiance = li_random_walk(ray, lambda, sampler, state, seed,
-                                      max_depth);
+            radiance = integrator_li(integrator, ray, lambda, sampler, state,
+                                     seed);
             atomic radiance_out[p] += radiance_to_rgb(radiance, lambda);
         }
 

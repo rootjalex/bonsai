@@ -36,6 +36,17 @@ enum MaterialTag : uint32_t {
     CoatedDiffuse = 1,
 };
 
+// Which of PBRT's integrators the scene asked for, of the ones this renderer
+// has. PBRT dispatches these through a TaggedPointer and so does the renderer,
+// through an `Integrator` variant; this is the tag that says which arm.
+//
+// A scene naming one this renderer does not have is refused rather than
+// silently rendered with another, which would be an image that looks like an
+// answer to a question nobody asked.
+enum IntegratorTag : uint32_t {
+    RandomWalk = 0,
+};
+
 // One material, with every texture already evaluated to a constant.
 //
 // The spectra travel as the RGB the scene wrote rather than as PBRT's fitted
@@ -208,6 +219,7 @@ struct Scene {
     // walk *inside* a BSDF; PBRT's default for both happens to differ, so they
     // are carried separately rather than shared.
     int32_t max_depth = 5;
+    uint32_t integrator = IntegratorTag::RandomWalk;
     // camera_from_raster then render_from_camera, each 4x4 in row order.
     float matrices[32] = {};
     std::vector<Material> materials;
@@ -270,7 +282,7 @@ inline bool write(const char *path, const Scene &scene) {
             << scene.sampler.seed << '\n';
     }
     out << "seed " << scene.seed << '\n';
-    out << "maxdepth " << scene.max_depth << '\n';
+    out << "integrator randomwalk maxdepth " << scene.max_depth << '\n';
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
@@ -412,6 +424,17 @@ inline bool read(const char *path, Scene &scene) {
     }
     in >> scene.seed;
 
+    if (!(in >> word) || word != "integrator") {
+        return false;
+    }
+    if (!(in >> word)) {
+        return false;
+    }
+    if (word == "randomwalk") {
+        scene.integrator = IntegratorTag::RandomWalk;
+    } else {
+        return false;
+    }
     if (!(in >> word) || word != "maxdepth") {
         return false;
     }
