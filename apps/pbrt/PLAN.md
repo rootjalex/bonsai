@@ -158,8 +158,48 @@ Three ways forward, in increasing order of how much they change:
   over the pixel's samples and shrink the difference, but not to zero: at 256
   samples the two means would still differ by around a per cent.
 
-The first is what the last round did and it got from 11.6% to 2.7%. The second
-is the one that would finish it.
+The first is what the last round did and it got from 11.6% to 2.7%.
+
+**The second is now built, and it did not finish it.** `--ffp-contract` is an
+SSA rewrite (`include/SSA/Contract.h`) that fuses a float multiply into the add
+that consumes it, and `compare.sh` passes it. It is doing real work: the
+renderer goes from 199 `llvm.fma` calls to 344, and the worst normal difference
+against pbrt improves from 1.10e-05 to 9.92e-06. It even rederives one of the
+five placements found by hand -- given `ax*bx + ay*by + az*bz` it emits
+`fma(az,bz, fma(ax,bx, ay*by))`, which is `dot_` in `stdlib/numerics.bonsai`
+character for character.
+
+And the albedo comparison does not move at all: 2.7122%, 13290 pixels, the same
+worst pixel with the same values. Not because nothing changed --- 49.2% of
+albedo pixels changed --- but because every change is tiny:
+
+    normals   2,776 of 490,000 pixels changed, largest 7.21e-06
+    albedo  241,121 of 490,000 pixels changed, largest 1.72e-05
+            0 pixels crossed the comparison's 5e-3 threshold, either way
+
+That last line is the finding, and it argues against the theory above. If the
+divergence were a walk reseeded by a direction differing in its last bit, then
+perturbing the arithmetic at half the pixels would reseed some of those walks
+and their albedos would move by *tenths*, not by 1e-05. None did. The walk is
+not being reseeded by these changes, so whatever makes those 13,290 pixels
+disagree with pbrt is not something contraction reaches.
+
+So the next step on this is a measurement rather than a change: take one of the
+13,290 and ask `scene_dump --print-bsdf` for pbrt's `wo`, shading frame and
+per-sample values at that pixel, and find the first one that differs. The
+harness for that already exists and is how the previous five were found. Until
+that says otherwise, the third option below -- that a sixteen-sample estimate is
+not a thing two implementations can be expected to agree on pixel by pixel -- is
+the more likely explanation of what is left.
+
+Contraction stays on regardless, because it is what pbrt is built with and
+because it made the normals closer. Two things it does not do: it does not match
+gcc's *choice* when both operands of an add are products (gcc has no consistent
+rule there), and it does not contract into a subtraction, because the SSA has no
+float negate -- `UnOp::Neg` becomes `0 - x`, which is not exact for a signed
+zero, so `fma(a, b, -c)` built on it would be wrong. A real `Neg` instruction is
+the prerequisite, and it is the same shape of work as the `AtomicAdd` that went
+in for `tagged_index`.
 
 ### 2. Where the time went
 

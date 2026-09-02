@@ -140,7 +140,11 @@ done
 # tables written where they were used once cost a fifth of the render and four
 # gigabytes of resident memory before anybody noticed; this is what noticing
 # looks like now.
-./build/compiler -p ssa --no-heap -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
+# --ffp-contract: pbrt is built with gcc and no -ffp-contract flag, so it gets
+# gcc's default of `fast` and its `a*b + c` rounds once. This app cannot agree
+# with pbrt bit for bit while rounding twice. See include/SSA/Contract.h.
+./build/compiler -p ssa --no-heap --ffp-contract \
+    -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
     $PREFIX/render.o -o "$WORK/render.out"
 BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
