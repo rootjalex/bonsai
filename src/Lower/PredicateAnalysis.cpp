@@ -682,6 +682,23 @@ struct PredicateAnalysis : public ir::Visitor {
             }
             return;
         }
+        case ir::Intrinsic::acos: {
+            // acos is decreasing where it is defined, so the bounds cross
+            // over: the smallest angle comes from the largest cosine. Outside
+            // [-1, 1] it is a NaN, which is an unusable bound rather than a
+            // wrong one -- the same answer log gives for a negative bound.
+            internal_assert(node->args.size() == 1);
+            Interval a = get(node->args[0]);
+            if (a.has_upper_bound()) {
+                interval.min =
+                    ir::Intrinsic::make(node->op, {std::move(a.max)});
+            }
+            if (a.has_lower_bound()) {
+                interval.max =
+                    ir::Intrinsic::make(node->op, {std::move(a.min)});
+            }
+            return;
+        }
         case ir::Intrinsic::round:
         // exp, log and atanh are increasing wherever they are defined, so the
         // same reasoning holds: the bounds of the result are the function of

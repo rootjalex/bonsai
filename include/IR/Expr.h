@@ -385,6 +385,11 @@ struct Intrinsic : ExprNode<Intrinsic> {
     // https://llvm.org/docs/LangRef.html#standard-c-c-library-intrinsics
     enum OpType {
         abs,
+        // The inverse cosine, which like atanh below has no LLVM intrinsic and
+        // so becomes a call to libm's acosf. Needed wherever an angle has to be
+        // recovered from a direction -- a sphere's parameterization, where the
+        // polar angle is the arc cosine of a coordinate.
+        acos,
         // The inverse hyperbolic tangent, which LLVM has no intrinsic for and
         // so becomes a call to libm's atanhf. Here rather than left to be
         // written as 0.5*log((1+x)/(1-x)) because the two differ in the last

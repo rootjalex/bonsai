@@ -1599,6 +1599,13 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         add_false_arg = node->args[0].type().is_int();
         break;
     }
+    case Intrinsic::acos: {
+        // As atanh below: LLVM has sin and cos as intrinsics but not their
+        // inverses, so this is the same call to libm that a C compiler emits
+        // for std::acos.
+        value = codegen_libm_call("acos", node);
+        return;
+    }
     case Intrinsic::atanh: {
         // LLVM has intrinsics for the hyperbolic functions but not for their
         // inverses, so this is a call to libm -- which is what a C compiler
@@ -1829,6 +1836,16 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     case Intrinsic::sin: {
         intrin = llvm::Intrinsic::sin;
         break;
+    }
+    case Intrinsic::sqr: {
+        // Squaring is a multiplication, and naming the operand first keeps it
+        // to one evaluation. The SSA path lowers this the same way in
+        // SSA/Convert.cpp; this is the direct-to-LLVM path saying it too.
+        internal_assert(node->args.size() == 1);
+        llvm::Value *a = codegen_expr(node->args[0]);
+        value = node->type.is_float() ? builder->CreateFMul(a, a)
+                                      : builder->CreateMul(a, a);
+        return;
     }
     case Intrinsic::sqrt: {
         intrin = llvm::Intrinsic::sqrt;
