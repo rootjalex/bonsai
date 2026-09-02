@@ -18,15 +18,23 @@ element Transform {
     r0, r1, r2, r3 : vec4f;
 }
 
+// One row of the matrix against a direction: `m0*x + m1*y + m2*z`, as fused
+// multiply-adds because pbrt's compiler fuses them. Not a four-element dot
+// product against a homogeneous vector, which is the same number in exact
+// arithmetic and a different one in floating point -- and a camera ray a bit
+// out lands a bit out, which a layered BSDF turns into different noise. See
+// dot_ in stdlib/numerics for which multiply pairs with which add.
+func apply_row(row : vec4f, v : vec3f) -> Float =
+    fma(row.z, v.z, fma(row.y, v.y, row.x * v.x));
+
 // pbrt: Transform::operator()(Point3f), which divides through by w. The
 // perspective transform is the whole reason that divide is here: for an
 // affine transform w comes out 1 and PBRT skips it.
 func apply_point(t : Transform, p : vec3f) -> vec3f {
-    h = vec4f{p.x, p.y, p.z, 1.0};
-    xp = dot(t.r0, h);
-    yp = dot(t.r1, h);
-    zp = dot(t.r2, h);
-    wp = dot(t.r3, h);
+    xp = apply_row(t.r0, p) + t.r0.w;
+    yp = apply_row(t.r1, p) + t.r1.w;
+    zp = apply_row(t.r2, p) + t.r2.w;
+    wp = apply_row(t.r3, p) + t.r3.w;
     v = vec3f{xp, yp, zp};
     return select(wp == 1.0, v, v / wp);
 }
@@ -34,8 +42,7 @@ func apply_point(t : Transform, p : vec3f) -> vec3f {
 // pbrt: Transform::operator()(Vector3f). A direction ignores the translation
 // column, so this is the upper-left 3x3 and no divide.
 func apply_vector(t : Transform, v : vec3f) -> vec3f {
-    h = vec4f{v.x, v.y, v.z, 0.0};
-    return vec3f{dot(t.r0, h), dot(t.r1, h), dot(t.r2, h)};
+    return vec3f{apply_row(t.r0, v), apply_row(t.r1, v), apply_row(t.r2, v)};
 }
 
 // pbrt: CameraSample. With --disable-pixel-jitter every sample sits at the
@@ -64,6 +71,6 @@ func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
     p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
     p_camera = apply_point(camera.camera_from_raster, p_film);
     o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
-    d = apply_vector(camera.render_from_camera, unit_vector(p_camera));
+    d = apply_vector(camera.render_from_camera, unit_vector_(p_camera));
     return Ray{o, d};
 }

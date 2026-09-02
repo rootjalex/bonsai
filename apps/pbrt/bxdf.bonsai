@@ -1,0 +1,829 @@
+// pbrt: the BSDFs a surface can carry, from bxdfs.h, util/scattering.h and the
+// parts of util/sampling.h they draw from.
+//
+// What is here is exactly what the gbuffer needs and no more: `rho`, the
+// hemispherical-directional reflectance, which pbrt estimates with sixteen
+// fixed samples of `Sample_f`. So every BxDF below has its `Sample_f` and none
+// of them has `f` or `PDF` -- those are what light transport calls, and writing
+// them now would mean shipping code no comparison against pbrt could check.
+// The same goes for TransportMode: `rho` is only ever asked in radiance mode,
+// so the non-symmetry factor a dielectric applies is the radiance one, spelled
+// out rather than switched on.
+//
+// The interesting one is CoatedDiffuseBxDF, which is pbrt's
+// LayeredBxDF<DielectricBxDF, DiffuseBxDF, twoSided>. It has no closed form: a
+// sample of it is a random walk between a dielectric coating and a diffuse
+// base, and the walk draws from an RNG of its own, seeded by hashing the very
+// directions it was asked about. That is why this file reaches into
+// sampler.bonsai for pbrt's RNG and its Murmur hashes -- reproducing the walk
+// means reproducing that stream, and a walk with different noise converges to
+// the same answer while agreeing with pbrt nowhere.
+import stdlib/numerics;
+import apps/pbrt/frame;
+import apps/pbrt/rng;
+import apps/pbrt/spectrum;
+
+// pbrt's constants, as f32. Written out rather than derived: the rounding of
+// each is part of the answer, and `2.0 * pi()` is not `two_pi()`.
+func pi() -> Float = 3.14159265358979323846;
+func inv_pi() -> Float = 0.31830988618379067154;
+func pi_over_2() -> Float = 1.57079632679489661923;
+func pi_over_4() -> Float = 0.78539816339744830961;
+
+// The smallest positive normal float, which is what pbrt's
+// `std::numeric_limits<Float>::min()` means in the two places it appears here.
+func float_min() -> Float = 1.17549435e-38;
+
+// pbrt: Clamp, for a scalar. stdlib/numerics has one for vec3f only.
+func clampf(x : Float, low : Float, high : Float) -> Float =
+    min(max(x, low), high);
+
+// pbrt: SafeSqrt, which is the square root of a quantity that is mathematically
+// non-negative and can be a few ulp below zero once rounded.
+func safe_sqrt(x : Float) -> Float = sqrt(max(0.0, x));
+
+// pbrt: Lerp. The weight is on the second argument, which is the opposite of
+// the usual reading and is what pbrt means.
+func lerp(t : Float, a : Float, b : Float) -> Float = (1.0 - t) * a + t * b;
+
+// pbrt: the spherical-coordinate accessors from util/vecmath.h. Every one of
+// them is about a direction in the shading frame, where z is the surface
+// normal, so `cos_theta` is a field read and not a trigonometric function.
+func cos_theta(w : vec3f) -> Float = w.z;
+func cos2_theta(w : vec3f) -> Float = sqr(w.z);
+func abs_cos_theta(w : vec3f) -> Float = abs(w.z);
+func sin2_theta(w : vec3f) -> Float = max(0.0, 1.0 - cos2_theta(w));
+func sin_theta(w : vec3f) -> Float = sqrt(sin2_theta(w));
+func tan2_theta(w : vec3f) -> Float = sin2_theta(w) / cos2_theta(w);
+
+func cos_phi(w : vec3f) -> Float {
+    s = sin_theta(w);
+    return select(s == 0.0, 1.0, clampf(w.x / s, -1.0, 1.0));
+}
+
+func sin_phi(w : vec3f) -> Float {
+    s = sin_theta(w);
+    return select(s == 0.0, 0.0, clampf(w.y / s, -1.0, 1.0));
+}
+
+func same_hemisphere(w : vec3f, wp : vec3f) -> bool = w.z * wp.z > 0.0;
+
+// pbrt: Reflect and Refract, from util/scattering.h.
+//
+// Both names are already taken in stdlib/numerics by the Ray Tracing in One
+// Weekend versions, which are differently signed and differently guarded. The
+// trailing underscore is what shapes.bonsai does with `cross_` for the same
+// reason.
+func reflect_(wo : vec3f, n : vec3f) -> vec3f = -wo + 2.0 * dot(wo, n) * n;
+
+// What Refract answers: the transmitted direction, the relative index of
+// refraction along it, and whether there was one at all. pbrt returns the flag
+// and writes the other two through pointers; a struct says the same thing and
+// keeps the caller from reading a direction that was never computed.
+element Refraction {
+    wt : vec3f;
+    etap : Float;
+    valid : bool;
+}
+
+func refract_(wi : vec3f, n_in : vec3f, eta_in : Float) -> Refraction {
+    cos_i_in = dot(n_in, wi);
+    // Approaching from below flips the interface: the index ratio inverts and
+    // the normal turns to meet the ray.
+    flipped = cos_i_in < 0.0;
+    eta = select(flipped, 1.0 / eta_in, eta_in);
+    cos_i = select(flipped, -cos_i_in, cos_i_in);
+    n = select(flipped, -n_in, n_in);
+
+    sin2_i = max(0.0, fma(-cos_i, cos_i, 1.0));
+    sin2_t = sin2_i / sqr(eta);
+    // Total internal reflection: Snell's law has no solution.
+    if sin2_t >= 1.0 {
+        none : Refraction = {vec3f{0.0, 0.0, 0.0}, eta, false};
+        return none;
+    }
+    cos_t = sqrt(1.0 - sin2_t);
+    // pbrt writes `-wi / eta + (cosTheta_i / eta - cosTheta_t) * n`, and its
+    // compiler fuses that multiply and add componentwise. A refracted
+    // direction that differs in the last bit is a different microfacet
+    // transmission, so this is the fma too.
+    k = cos_i / eta - cos_t;
+    base = -wi / eta;
+    r : Refraction = {fma(vec3f{k, k, k}, n, base), eta, true};
+    return r;
+}
+
+// pbrt: FrDielectric, the unpolarized Fresnel reflectance of a smooth boundary
+// between two dielectrics. The average of the two polarizations, because a
+// renderer that does not track polarization sees light as unpolarized.
+func fr_dielectric(cos_i_in : Float, eta_in : Float) -> Float {
+    ci_in = clampf(cos_i_in, -1.0, 1.0);
+    flipped = ci_in < 0.0;
+    eta = select(flipped, 1.0 / eta_in, eta_in);
+    ci = select(flipped, -ci_in, ci_in);
+
+    sin2_i = 1.0 - sqr(ci);
+    sin2_t = sin2_i / sqr(eta);
+    if sin2_t >= 1.0 {
+        return 1.0;
+    }
+    ct = safe_sqrt(1.0 - sin2_t);
+
+    // Written as fused multiply-adds because pbrt's are: it is built with
+    // contraction on, so `eta * ci - ct` rounds once there and would round
+    // twice here. That is a last-bit difference in a Fresnel term, which the
+    // layered walk multiplies by at every interface -- checked, not assumed,
+    // against `scene_dump --print-bsdf`.
+    r_parl = fma(eta, ci, -ct) / fma(eta, ci, ct);
+    r_perp = fma(-eta, ct, ci) / fma(eta, ct, ci);
+    return (sqr(r_parl) + sqr(r_perp)) / 2.0;
+}
+
+// pbrt: SampleUniformDiskPolar, SampleUniformDiskConcentric and
+// SampleCosineHemisphere, from util/sampling.h.
+func sample_uniform_disk_polar(u : vec2f) -> vec2f {
+    r = sqrt(u.x);
+    theta = 2.0 * pi() * u.y;
+    return vec2f{r * cos(theta), r * sin(theta)};
+}
+
+// The concentric map, which sends the square to the disk without the shearing
+// a polar map introduces -- the reason pbrt uses this one for a hemisphere and
+// the polar one for a microfacet normal.
+func sample_uniform_disk_concentric(u : vec2f) -> vec2f {
+    offset = 2.0 * u - vec2f{1.0, 1.0};
+    if (offset.x == 0.0) && (offset.y == 0.0) {
+        return vec2f{0.0, 0.0};
+    }
+    // Whichever coordinate is larger names the wedge the point falls in.
+    r : mut Float = offset.y;
+    theta : mut Float = pi_over_2() - pi_over_4() * (offset.x / offset.y);
+    if abs(offset.x) > abs(offset.y) {
+        r = offset.x;
+        theta = pi_over_4() * (offset.y / offset.x);
+    }
+    return r * vec2f{cos(theta), sin(theta)};
+}
+
+func sample_cosine_hemisphere(u : vec2f) -> vec3f {
+    d = sample_uniform_disk_concentric(u);
+    return vec3f{d.x, d.y, safe_sqrt(1.0 - sqr(d.x) - sqr(d.y))};
+}
+
+func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();
+
+// pbrt: SampleExponential, which is the inverse of the exponential CDF.
+func sample_exponential(u : Float, a : Float) -> Float = -log(1.0 - u) / a;
+
+// pbrt: FastExp, from util/math.h.
+//
+// Not a call to `exp`. pbrt's is a polynomial in the fractional part of
+// x/ln 2, scaled by a power of two written straight into the exponent field,
+// and it disagrees with a correctly rounded exponential in the last few bits.
+// The layered walk multiplies its throughput by one of these at every layer
+// crossing, so the difference compounds; matching pbrt means matching the
+// approximation and not the function it approximates.
+func floor_f(x : Float) -> Float {
+    t = cast[[Float]](cast[[i32]](x));
+    // Truncation rounds towards zero, so a negative non-integer lands one
+    // above where the floor is.
+    return select(t > x, t - 1.0, t);
+}
+
+func fast_exp(x : Float) -> Float {
+    // e^x = 2^(x log2 e).
+    xp = x * 1.442695041;
+    fxp = floor_f(xp);
+    f = xp - fxp;
+    i = cast[[i32]](fxp);
+
+    // pbrt: EvaluatePolynomial, which is Horner built out of fused
+    // multiply-adds -- so this is fma and not multiply-then-add.
+    two_to_f = fma(f, fma(f, fma(f, 0.0781455737, 0.226173572), 0.695556856),
+                   1.0);
+
+    bits = reinterpret[[u32]](two_to_f);
+    // pbrt: Exponent, the biased exponent field read back as a power of two.
+    exponent = cast[[i32]](bits >> 23u) - 127 + i;
+    if exponent < -126 {
+        return 0.0;
+    }
+    if exponent > 127 {
+        return inf;
+    }
+    // The sign and significand of 2^f with the new exponent dropped in.
+    scaled = (bits & 0x807fffffu) | (cast[[u32]](exponent + 127) << 23u);
+    return reinterpret[[Float]](scaled);
+}
+
+// pbrt: BxDFFlags, which is what a BSDFSample says it was. The values are
+// pbrt's own bits, because the layered walk asks the same questions of them.
+func flag_reflection() -> i32 = 1;
+func flag_transmission() -> i32 = 2;
+func flag_diffuse() -> i32 = 4;
+func flag_glossy() -> i32 = 8;
+func flag_specular() -> i32 = 16;
+
+// pbrt: BxDFReflTransFlags, the subset of directions a caller will accept.
+// Separate from the flags above in pbrt and equal to them bit for bit, which
+// is what lets the layered walk ask for reflection only by name.
+func sample_all() -> i32 = 3;
+func sample_reflection() -> i32 = 1;
+func sample_transmission() -> i32 = 2;
+
+func is_reflective(flags : i32) -> bool = (flags & flag_reflection()) != 0;
+func is_transmissive(flags : i32) -> bool = (flags & flag_transmission()) != 0;
+func is_specular(flags : i32) -> bool = (flags & flag_specular()) != 0;
+
+// pbrt: SampledSpectrum::operator bool, which is false only when every sample
+// is zero. The walk uses it to give up on a path that can carry nothing.
+func nonzero(s : vec4f) -> bool = any(s != 0.0);
+
+// pbrt: BSDFSample. `pdf_is_proportional` is set when the pdf returned is only
+// proportional to the density actually sampled from, which is what a layered
+// BSDF has to admit about its own reflection lobe.
+element BSDFSample {
+    f : vec4f;
+    wi : vec3f;
+    pdf : Float;
+    flags : i32;
+    eta : Float = 1.0;
+    pdf_is_proportional : bool = false;
+}
+
+// pbrt: TrowbridgeReitzDistribution, the microfacet distribution v4 uses
+// everywhere -- GGX by another name. Anisotropic, so two roughnesses.
+element TrowbridgeReitz {
+    alpha_x, alpha_y : Float;
+}
+
+// pbrt: EffectivelySmooth. Below this the distribution is a delta and the
+// dielectric takes its specular path instead.
+func effectively_smooth(d : TrowbridgeReitz) -> bool =
+    max(d.alpha_x, d.alpha_y) < 0.001;
+
+// pbrt: the constructor, which floors both roughnesses once either of them is
+// large enough to matter. A distribution rough on one axis and exactly smooth
+// on the other makes the `e` in D() overflow.
+func make_trowbridge_reitz(ax : Float, ay : Float) -> TrowbridgeReitz {
+    raw : TrowbridgeReitz = {ax, ay};
+    if effectively_smooth(raw) {
+        return raw;
+    }
+    clamped : TrowbridgeReitz = {max(ax, 0.0001), max(ay, 0.0001)};
+    return clamped;
+}
+
+// pbrt: RoughnessToAlpha. Documented in pbrt as probably wanting to be the
+// square rather than the square root, and left alone so that existing scenes
+// keep rendering the way they did.
+func roughness_to_alpha(roughness : Float) -> Float = sqrt(roughness);
+
+// pbrt: D(wm), the fraction of microfacets facing wm.
+func distrib_d(d : TrowbridgeReitz, wm : vec3f) -> Float {
+    tan2 = tan2_theta(wm);
+    if tan2 == inf {
+        return 0.0;
+    }
+    cos4 = sqr(cos2_theta(wm));
+    if cos4 < 1e-16 {
+        return 0.0;
+    }
+    // pbrt names `e = tan2Theta * (...)` and then squares `1 + e`. The
+    // compiler it is built with fuses that multiply and add into a single
+    // rounding, so this is written as the fma rather than as the two steps.
+    slope = sqr(cos_phi(wm) / d.alpha_x) + sqr(sin_phi(wm) / d.alpha_y);
+    return 1.0 /
+           (pi() * d.alpha_x * d.alpha_y * cos4 * sqr(fma(tan2, slope, 1.0)));
+}
+
+// pbrt: Lambda, the ratio of masked to visible microfacet area, and the
+// masking-shadowing terms built from it.
+func distrib_lambda(d : TrowbridgeReitz, w : vec3f) -> Float {
+    tan2 = tan2_theta(w);
+    if tan2 == inf {
+        return 0.0;
+    }
+    alpha2 = sqr(cos_phi(w) * d.alpha_x) + sqr(sin_phi(w) * d.alpha_y);
+    return (sqrt(1.0 + alpha2 * tan2) - 1.0) / 2.0;
+}
+
+func distrib_g1(d : TrowbridgeReitz, w : vec3f) -> Float =
+    1.0 / (1.0 + distrib_lambda(d, w));
+
+func distrib_g(d : TrowbridgeReitz, wo : vec3f, wi : vec3f) -> Float =
+    1.0 / (1.0 + distrib_lambda(d, wo) + distrib_lambda(d, wi));
+
+// pbrt: D(w, wm), the distribution of normals visible from w, which is also
+// the density Sample_wm draws from -- so pbrt's PDF is this same function.
+func distrib_visible_d(d : TrowbridgeReitz, w : vec3f, wm : vec3f) -> Float =
+    distrib_g1(d, w) / abs_cos_theta(w) * distrib_d(d, wm) * abs(dot(w, wm));
+
+func distrib_pdf(d : TrowbridgeReitz, w : vec3f, wm : vec3f) -> Float =
+    distrib_visible_d(d, w, wm);
+
+// pbrt: Sample_wm, sampling the visible normal distribution.
+//
+// The ellipsoid is squashed to a hemisphere, a point is taken on the disk the
+// hemisphere projects to, warped so that the half the direction cannot see is
+// compressed rather than dropped, lifted back to the hemisphere and unsquashed.
+// Sampling only the visible normals is what keeps the estimator from spending
+// samples on microfacets that face away.
+func sample_wm(d : TrowbridgeReitz, w : vec3f, u : vec2f) -> vec3f {
+    stretched = unit_vector(vec3f{d.alpha_x * w.x, d.alpha_y * w.y, w.z});
+    wh = select(stretched.z < 0.0, -stretched, stretched);
+
+    // An orthonormal basis around wh; the pole needs the special case because
+    // the cross product there has no direction.
+    t1 = select(wh.z < 0.99999,
+                unit_vector(cross_(vec3f{0.0, 0.0, 1.0}, wh)),
+                vec3f{1.0, 0.0, 0.0});
+    t2 = cross_(wh, t1);
+
+    p = sample_uniform_disk_polar(u);
+    h = sqrt(1.0 - sqr(p.x));
+    py = lerp((1.0 + wh.z) / 2.0, h, p.y);
+
+    pz = sqrt(max(0.0, 1.0 - (sqr(p.x) + sqr(py))));
+    nh = p.x * t1 + py * t2 + pz * wh;
+    return unit_vector(vec3f{d.alpha_x * nh.x, d.alpha_y * nh.y,
+                             max(0.000001, nh.z)});
+}
+
+// pbrt: DiffuseBxDF. A Lambertian reflector, whose whole content is that it
+// scatters light equally in every direction it can.
+element DiffuseBxDF {
+    r : vec4f;
+}
+
+func diffuse_sample_f(b : DiffuseBxDF, wo : vec3f, uc : Float, u : vec2f,
+                      sample_flags : i32) -> option[BSDFSample] {
+    if (sample_flags & sample_reflection()) == 0 {
+        return {};
+    }
+    // Cosine weighted, because that is the shape of the integrand a diffuse
+    // surface contributes to.
+    wi0 = sample_cosine_hemisphere(u);
+    wi = select(wo.z < 0.0, vec3f{wi0.x, wi0.y, -wi0.z}, wi0);
+    s : BSDFSample = {b.r * inv_pi(), wi, cosine_hemisphere_pdf(abs_cos_theta(wi)),
+                      flag_diffuse() | flag_reflection(), 1.0, false};
+    return s;
+}
+
+// pbrt: DielectricBxDF. Reflection and transmission at a boundary between two
+// dielectrics, either as a delta or spread over a microfacet distribution.
+element DielectricBxDF {
+    eta : Float;
+    distrib : TrowbridgeReitz;
+}
+
+// pbrt: DielectricBxDF::Sample_f, in radiance mode.
+//
+// Which of reflection and transmission is taken is decided by the Fresnel
+// reflectance itself, so the two are sampled in proportion to how much light
+// each actually carries. `sample_flags` is what lets the layered walk ask for
+// only one of them, and it is why the two probabilities are normalized rather
+// than used directly.
+func dielectric_sample_f(b : DielectricBxDF, wo : vec3f, uc : Float, u : vec2f,
+                         sample_flags : i32) -> option[BSDFSample] {
+    if (b.eta == 1.0) || effectively_smooth(b.distrib) {
+        // A perfectly smooth boundary: two directions, each a delta.
+        refl = fr_dielectric(cos_theta(wo), b.eta);
+        trans = 1.0 - refl;
+        pr = select((sample_flags & sample_reflection()) == 0, 0.0, refl);
+        pt = select((sample_flags & sample_transmission()) == 0, 0.0, trans);
+        if (pr == 0.0) && (pt == 0.0) {
+            return {};
+        }
+
+        if uc < pr / (pr + pt) {
+            wi = vec3f{-wo.x, -wo.y, wo.z};
+            fr = refl / abs_cos_theta(wi);
+            s : BSDFSample = {vec4f{fr, fr, fr, fr}, wi, pr / (pr + pt),
+                              flag_specular() | flag_reflection(), 1.0, false};
+            return s;
+        }
+
+        r = refract_(wo, vec3f{0.0, 0.0, 1.0}, b.eta);
+        if !r.valid {
+            return {};
+        }
+        // Radiance is not symmetric across a change of medium: it is
+        // compressed by the square of the index ratio, which is the factor a
+        // path from the camera has to undo.
+        ft = (trans / abs_cos_theta(r.wt)) / sqr(r.etap);
+        s : BSDFSample = {vec4f{ft, ft, ft, ft}, r.wt, pt / (pr + pt),
+                          flag_specular() | flag_transmission(), r.etap, false};
+        return s;
+    }
+
+    // A rough boundary: the same two outcomes, about a microfacet normal
+    // drawn from the visible distribution rather than about the surface.
+    wm = sample_wm(b.distrib, wo, u);
+    refl = fr_dielectric(dot(wo, wm), b.eta);
+    trans = 1.0 - refl;
+    pr = select((sample_flags & sample_reflection()) == 0, 0.0, refl);
+    pt = select((sample_flags & sample_transmission()) == 0, 0.0, trans);
+    if (pr == 0.0) && (pt == 0.0) {
+        return {};
+    }
+
+    if uc < pr / (pr + pt) {
+        wi = reflect_(wo, wm);
+        if !same_hemisphere(wo, wi) {
+            return {};
+        }
+        // The change of variables from the microfacet normal to the reflected
+        // direction is the factor of four.
+        pdf = distrib_pdf(b.distrib, wo, wm) / (4.0 * abs(dot(wo, wm))) * pr /
+              (pr + pt);
+        fv = distrib_d(b.distrib, wm) * distrib_g(b.distrib, wo, wi) * refl /
+             (4.0 * cos_theta(wi) * cos_theta(wo));
+        s : BSDFSample = {vec4f{fv, fv, fv, fv}, wi, pdf,
+                          flag_glossy() | flag_reflection(), 1.0, false};
+        return s;
+    }
+
+    r = refract_(wo, wm, b.eta);
+    tir = !r.valid;
+    wi = r.wt;
+    if same_hemisphere(wo, wi) || (wi.z == 0.0) || tir {
+        return {};
+    }
+    denom = sqr(dot(wi, wm) + dot(wo, wm) / r.etap);
+    dwm_dwi = abs(dot(wi, wm)) / denom;
+    pdf = distrib_pdf(b.distrib, wo, wm) * dwm_dwi * pt / (pr + pt);
+    ft0 = trans * distrib_d(b.distrib, wm) * distrib_g(b.distrib, wo, wi) *
+          abs(dot(wi, wm) * dot(wo, wm) /
+              (cos_theta(wi) * cos_theta(wo) * denom));
+    ft = ft0 / sqr(r.etap);
+    s : BSDFSample = {vec4f{ft, ft, ft, ft}, wi, pdf,
+                      flag_glossy() | flag_transmission(), r.etap, false};
+    return s;
+}
+
+// pbrt: HGPhaseFunction and SampleHenyeyGreenstein, which the layered walk
+// needs when the medium between the two interfaces scatters.
+element PhaseSample {
+    p : Float;
+    wi : vec3f;
+    pdf : Float;
+}
+
+// pbrt: HenyeyGreenstein. Clamped away from the ends, where the distribution
+// turns too sharply to be sampled stably.
+func henyey_greenstein(cos_theta_ : Float, g_in : Float) -> Float {
+    g = clampf(g_in, -0.99, 0.99);
+    denom = 1.0 + sqr(g) + 2.0 * g * cos_theta_;
+    return 0.07957747154594766788 * (1.0 - sqr(g)) / (denom * safe_sqrt(denom));
+}
+
+func sample_hg(wo : vec3f, g_in : Float, u : vec2f) -> PhaseSample {
+    g = clampf(g_in, -0.99, 0.99);
+    ct : mut Float = 1.0 - 2.0 * u.x;
+    if abs(g) >= 0.001 {
+        ct = -1.0 / (2.0 * g) *
+             (1.0 + sqr(g) - sqr((1.0 - sqr(g)) / (1.0 + g - 2.0 * g * u.x)));
+    }
+    st = safe_sqrt(1.0 - sqr(ct));
+    phi = 2.0 * pi() * u.y;
+    // pbrt: SphericalDirection, whose clamps are what keep a direction on the
+    // sphere when the cosine has drifted a few ulp outside it.
+    local = vec3f{clampf(st, -1.0, 1.0) * cos(phi),
+                  clampf(st, -1.0, 1.0) * sin(phi),
+                  clampf(ct, -1.0, 1.0)};
+    pdf = henyey_greenstein(ct, g);
+    s : PhaseSample = {pdf, frame_from_local(frame_from_z(wo), local), pdf};
+    return s;
+}
+
+// pbrt: CoatedDiffuseBxDF, which is LayeredBxDF<DielectricBxDF, DiffuseBxDF,
+// twoSided = true>. A dielectric coating of some thickness over a diffuse
+// base, with an optionally scattering medium between them.
+//
+// Two-sided means the layers are entered from whichever side the ray arrives
+// on, so the walk always runs with the coating on top and the answer is
+// mirrored back at the end. That is why nothing below ever consults the bottom
+// interface as an entrance.
+element CoatedDiffuseBxDF {
+    top : DielectricBxDF;
+    bottom : DiffuseBxDF;
+    thickness : Float;
+    g : Float;
+    // The single-scattering albedo of the medium between the interfaces. All
+    // zero -- pbrt's default -- means there is no medium and the walk crosses
+    // from one interface to the other in one step.
+    albedo : vec4f;
+    max_depth : i32;
+    n_samples : i32;
+}
+
+// pbrt: the LayeredBxDF constructor, which is where the thickness is floored.
+// A thickness of exactly zero would make Tr divide by zero.
+func make_coated_diffuse(top : DielectricBxDF, bottom : DiffuseBxDF,
+                         thickness : Float, albedo : vec4f, g : Float,
+                         max_depth : i32, n_samples : i32) -> CoatedDiffuseBxDF {
+    b : CoatedDiffuseBxDF = {top, bottom, max(thickness, float_min()), g, albedo,
+                             max_depth, n_samples};
+    return b;
+}
+
+// pbrt: LayeredBxDF::Tr, the transmittance of the medium over a depth.
+func layer_tr(dz : Float, w : vec3f) -> Float {
+    if abs(dz) <= float_min() {
+        return 1.0;
+    }
+    return fast_exp(-abs(dz / w.z));
+}
+
+// pbrt: TopOrBottomBxDF::Sample_f. Which of the two interfaces a step of the
+// walk is at is data, so the dispatch is a branch rather than a pointer.
+func interface_sample_f(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f,
+                        uc : Float, u : vec2f,
+                        sample_flags : i32) -> option[BSDFSample] {
+    if at_top {
+        return dielectric_sample_f(b.top, wo, uc, u, sample_flags);
+    }
+    return diffuse_sample_f(b.bottom, wo, uc, u, sample_flags);
+}
+
+// pbrt: LayeredBxDF::Sample_f.
+//
+// There is no closed form for a layered BSDF, so a sample of it is a physical
+// simulation: refract into the coating, bounce between the two interfaces
+// until the path leaves through one of them, and report where it went and what
+// it carried. The estimate is unbiased, which is what lets it stand in for a
+// BSDF at all.
+//
+// The random numbers past the first come from an RNG seeded by hashing `wo`
+// with the renderer's seed and `(uc, u)` with each other. That is what makes
+// the walk a deterministic function of its arguments -- ask the same question
+// twice and get the same answer, which a BSDF has to do -- and it is the part
+// that has to be reproduced bit for bit, because two walks with different noise
+// agree in the limit and nowhere before it.
+//
+// pbrt's loop leaves through `return` and `break`; this one carries `escaped`
+// and `dead` instead, because the language has neither. The order of the draws
+// from the RNG is what matters and it is unchanged: nothing below draws after
+// the step that would have returned.
+func coated_sample_f(b : CoatedDiffuseBxDF, wo_in : vec3f, uc : Float,
+                     u : vec2f, seed : i32) -> option[BSDFSample] {
+    flip_wi = wo_in.z < 0.0;
+    wo = select(flip_wi, -wo_in, wo_in);
+
+    // Two-sided, so the entrance is always the top interface.
+    entry = dielectric_sample_f(b.top, wo, uc, u, sample_all());
+    if !entry {
+        return {};
+    }
+    bs = *entry;
+    if !nonzero(bs.f) || (bs.pdf == 0.0) || (bs.wi.z == 0.0) {
+        return {};
+    }
+    if is_reflective(bs.flags) {
+        // Reflected straight off the coating: no walk, and the pdf is only
+        // proportional to the density this whole BSDF samples from, because
+        // the other lobes were not offered a chance.
+        reflected : mut BSDFSample = bs;
+        reflected.wi = select(flip_wi, -bs.wi, bs.wi);
+        reflected.pdf_is_proportional = true;
+        return reflected;
+    }
+
+    rng : mut RNG =
+        set_sequence(hash4(seed, reinterpret[[i32]](wo.x),
+                           reinterpret[[i32]](wo.y), reinterpret[[i32]](wo.z)),
+                     hash3(reinterpret[[i32]](uc), reinterpret[[i32]](u.x),
+                           reinterpret[[i32]](u.y)));
+
+    w : mut vec3f = bs.wi;
+    specular_path : mut bool = is_specular(bs.flags);
+    f : mut vec4f = bs.f * abs_cos_theta(bs.wi);
+    pdf : mut Float = bs.pdf;
+    // Depth is measured from the base, so entering through the top starts at
+    // the coating's thickness.
+    z : mut Float = b.thickness;
+
+    escaped : mut bool = false;
+    dead : mut bool = false;
+    out : mut BSDFSample = bs;
+
+    depth : mut i32 = 0;
+    while (depth < b.max_depth) && !escaped && !dead {
+        // Russian roulette, once the path has been going long enough that a
+        // faint one is not worth following. The survivors are scaled up by
+        // their survival probability, which is what keeps this unbiased.
+        rr_beta = max(f) / pdf;
+        if (depth > 3) && (rr_beta < 0.25) {
+            q = max(0.0, 1.0 - rr_beta);
+            if next_float(rng) < q {
+                dead = true;
+            } else {
+                pdf = pdf * (1.0 - q);
+            }
+        }
+        if !dead && (w.z == 0.0) {
+            dead = true;
+        }
+
+        // Whether this step ended inside the medium rather than at an
+        // interface, which is pbrt's `continue`.
+        scattered : mut bool = false;
+        if !dead {
+            if nonzero(b.albedo) {
+                // A scattering medium between the interfaces: sample how far
+                // the path gets before it scatters, and see whether that is
+                // still inside the layer.
+                dz = sample_exponential(next_float(rng),
+                                        1.0 / abs_cos_theta(w));
+                zp = select(w.z > 0.0, z + dz, z - dz);
+                if zp == z {
+                    dead = true;
+                } else if (0.0 < zp) && (zp < b.thickness) {
+                    // y before x; see the note on the interface step below.
+                    phase_y = next_float(rng);
+                    phase_x = next_float(rng);
+                    ps = sample_hg(-w, b.g, vec2f{phase_x, phase_y});
+                    if (ps.pdf == 0.0) || (ps.wi.z == 0.0) {
+                        dead = true;
+                    } else {
+                        f = f * b.albedo * ps.p;
+                        pdf = pdf * ps.pdf;
+                        specular_path = false;
+                        w = ps.wi;
+                        z = zp;
+                        scattered = true;
+                    }
+                } else {
+                    z = clampf(zp, 0.0, b.thickness);
+                }
+            } else {
+                // No medium: the path crosses to the other interface,
+                // attenuated by the coating it passed through.
+                z = select(z == b.thickness, 0.0, b.thickness);
+                f = f * layer_tr(b.thickness, w);
+            }
+        }
+
+        if !dead && !scattered {
+            at_top = z != 0.0;
+            step_uc = next_float(rng);
+            // y before x. pbrt writes this as `Point2f u(r(), r())`, and the
+            // order C++ evaluates a constructor's arguments in is unspecified:
+            // the gcc pbrt is built with here goes right to left, so the second
+            // call happens first and its number lands in y. Drawing them the
+            // other way round swaps the second and third number of every step
+            // of every walk, which is noise that looks perfectly good and is
+            // not pbrt's. `scene_dump --print-bsdf` prints which way round it
+            // is rather than leaving it to be read off the source.
+            step_uy = next_float(rng);
+            step_ux = next_float(rng);
+            hit = interface_sample_f(b, at_top, -w, step_uc,
+                                     vec2f{step_ux, step_uy}, sample_all());
+            if !hit {
+                dead = true;
+            } else {
+                bs2 = *hit;
+                if !nonzero(bs2.f) || (bs2.pdf == 0.0) || (bs2.wi.z == 0.0) {
+                    dead = true;
+                } else {
+                    f = f * bs2.f;
+                    pdf = pdf * bs2.pdf;
+                    specular_path = specular_path && is_specular(bs2.flags);
+                    w = bs2.wi;
+
+                    if is_transmissive(bs2.flags) {
+                        // Through an interface and out of the layers: this is
+                        // the sample.
+                        direction = select(same_hemisphere(wo, w),
+                                           flag_reflection(),
+                                           flag_transmission());
+                        sharpness = select(specular_path, flag_specular(),
+                                           flag_glossy());
+                        left : BSDFSample = {f, select(flip_wi, -w, w), pdf,
+                                             direction | sharpness, 1.0, true};
+                        out = left;
+                        escaped = true;
+                    } else {
+                        f = f * abs_cos_theta(bs2.wi);
+                    }
+                }
+            }
+        }
+
+        depth = depth + 1;
+    }
+
+    if escaped {
+        return out;
+    }
+    return {};
+}
+
+// pbrt: BxDF::rho(wo, uc, u), the hemispherical-directional reflectance -- how
+// much of the light arriving from `wo` leaves in any direction at all.
+//
+// A Monte Carlo estimate, because for a layered BSDF there is nothing else it
+// could be. The sample points are the caller's rather than drawn here: pbrt's
+// integrator passes fixed arrays so that the albedo a pixel records does not
+// depend on where in the sampler's stream the estimate happened to fall.
+// The sample points are unsized arrays -- pointers -- rather than arrays of
+// sixteen. A sized array is passed by value, so writing the type out cost three
+// copies of sixty-four bytes at every call, which is to say at every camera ray.
+// pbrt hands `rho` a span for the same reason.
+func coated_rho(b : CoatedDiffuseBxDF, wo : vec3f, seed : i32,
+                uc : array[Float], ux : array[Float],
+                uy : array[Float]) -> vec4f {
+    if wo.z == 0.0 {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+    for i in 0:16 {
+        found = coated_sample_f(b, wo, uc[i], vec2f{ux[i], uy[i]}, seed);
+        if found {
+            bs = *found;
+            if bs.pdf > 0.0 {
+                r = r + bs.f * abs_cos_theta(bs.wi) / bs.pdf;
+            }
+        }
+    }
+    return r / 16.0;
+}
+
+// pbrt: Material, the closed set of things a surface can be made of.
+//
+// A scene names one of these per shape and the parameters it names are
+// constants here, where pbrt's are textures. That is a real restriction and
+// scene_dump refuses a scene that needs more, rather than substituting a
+// colour: a texture evaluated at the wrong place is a picture that looks right
+// and is not the scene's.
+// pbrt: CoatedDiffuseMaterial's members, with every texture already evaluated.
+// Roughness is the number the scene wrote rather than the microfacet
+// distribution's alpha, because pbrt remaps it per intersection and whether it
+// remaps at all is what `remaproughness` says.
+element CoatedDiffuseMaterial {
+    reflectance : SigmoidPolynomial;
+    u_roughness, v_roughness : Float;
+    remap : bool;
+    thickness : Float;
+    eta : Float;
+    // The medium between the interfaces. pbrt's default is a spectrum that is
+    // exactly zero, which is a different thing from an RGB of (0, 0, 0) fitted
+    // to a sigmoid -- the fit is small and not zero, and the walk branches on
+    // which it is. So the flag says whether the scene named one at all.
+    medium_albedo : SigmoidPolynomial;
+    has_medium : bool;
+    g : Float;
+    max_depth, n_samples : i32;
+}
+
+// `albedo` rather than pbrt's `reflectance`, because `reflectance` is Schlick's
+// approximation in stdlib/numerics and binding the name in a match arm hides
+// it.
+element Material =
+    | Diffuse(albedo : SigmoidPolynomial)
+    | CoatedDiffuse(m : CoatedDiffuseMaterial);
+
+// pbrt: Material::GetBSDF followed by BxDF::rho -- the hemispherical
+// reflectance of whatever BSDF this material makes at these wavelengths, which
+// is the albedo the gbuffer records.
+//
+// `wo` is in the shading frame already; converting into it is the caller's
+// business, because the frame comes from the shape and not from the material.
+func material_rho(mat : Material, wo : vec3f, lambda : SampledWavelengths,
+                  seed : i32, uc : array[Float], ux : array[Float],
+                  uy : array[Float]) -> vec4f {
+    match mat {
+        Diffuse(albedo) => {
+            // pbrt estimates this with the same sixteen samples as anything
+            // else, and every one of them returns the reflectance: a
+            // Lambertian BRDF's hemispherical reflectance is exactly its
+            // reflectance, and the cosine and the density it is divided by
+            // cancel. So this is the answer rather than an average of sixteen
+            // copies of it.
+            return spectrum_at(albedo, lambda);
+        }
+        CoatedDiffuse(m) => {
+            // pbrt: CoatedDiffuseMaterial::GetBxDF, run here rather than once
+            // per material because pbrt runs it here -- the reflectance is a
+            // spectrum at these wavelengths and the roughness is a texture
+            // lookup, and both happen per intersection.
+            alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness),
+                             m.u_roughness);
+            alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness),
+                             m.v_roughness);
+            top : DielectricBxDF = {m.eta,
+                                    make_trowbridge_reitz(alpha_u, alpha_v)};
+            bottom : DiffuseBxDF =
+                {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
+            medium = select(m.has_medium,
+                            min(max(spectrum_at(m.medium_albedo, lambda), 0.0),
+                                1.0),
+                            vec4f{0.0, 0.0, 0.0, 0.0});
+            b = make_coated_diffuse(top, bottom, m.thickness, medium,
+                                    min(max(m.g, -1.0), 1.0), m.max_depth,
+                                    m.n_samples);
+            return coated_rho(b, wo, seed, uc, ux, uy);
+        }
+    }
+}

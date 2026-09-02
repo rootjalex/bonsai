@@ -1,0 +1,55 @@
+// pbrt: Frame and CoordinateSystem, from util/vecmath.h.
+//
+// An orthonormal basis and the two changes of coordinates it names. The shading
+// frame a BSDF is evaluated in is one of these, and so is the frame a phase
+// function samples about an incoming direction, which is why this is its own
+// file rather than part of either.
+import stdlib/numerics;
+
+element Frame {
+    x, y, z : vec3f;
+}
+
+// pbrt: CoordinateSystem, which completes a unit vector to a basis without a
+// branch -- Duff et al's construction, which is stable everywhere including at
+// the pole a naive cross product fails at.
+//
+// The sign is taken from the sign bit rather than from a comparison, because
+// `copysign(1, -0)` is -1 where `-0 < 0` is false, and pbrt's answer at the two
+// zeroes is not the same answer.
+func coordinate_system(v : vec3f) -> Frame {
+    sign = select((reinterpret[[u32]](v.z) & 0x80000000u) != 0u, -1.0, 1.0);
+    a = -1.0 / (sign + v.z);
+    b = v.x * v.y * a;
+    f : Frame = {vec3f{1.0 + sign * sqr(v.x) * a, sign * b, -sign * v.x},
+                 vec3f{b, sign + sqr(v.y) * a, -v.y},
+                 v};
+    return f;
+}
+
+// pbrt: Frame::FromZ.
+func frame_from_z(z : vec3f) -> Frame = coordinate_system(z);
+
+// pbrt: Frame::FromXZ, which is what a BSDF's shading frame is built with: the
+// surface's tangent and its normal, with the third axis implied. The two are
+// taken as given rather than orthogonalized here -- pbrt orthogonalizes the
+// tangent against the shading normal where it computes it, in the shape.
+// `cross_` rather than `cross`: pbrt's Cross is built out of
+// DifferenceOfProducts, which rounds a cancelling subtraction once where the
+// plain form rounds it twice. The two agree to a bit or so, and a bit is the
+// whole difference between reproducing a layered BSDF's random walk and
+// producing different noise -- the walk is seeded by hashing a direction
+// expressed in this frame.
+func frame_from_xz(x : vec3f, z : vec3f) -> Frame {
+    f : Frame = {x, cross_(z, x), z};
+    return f;
+}
+
+// `dot_` rather than `dot`: pbrt's Dot is `x*a + y*b + z*c`, which the compiler
+// it is built with fuses into two multiply-adds. Which is the last bit of the
+// direction a layered BSDF hashes, so it is not a rounding detail here.
+func frame_to_local(f : Frame, v : vec3f) -> vec3f =
+    vec3f{dot_(v, f.x), dot_(v, f.y), dot_(v, f.z)};
+
+func frame_from_local(f : Frame, v : vec3f) -> vec3f =
+    v.x * f.x + v.y * f.y + v.z * f.z;

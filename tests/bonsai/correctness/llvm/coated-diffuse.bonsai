@@ -1,0 +1,252 @@
+//! flags: -b llvm -e
+
+// pbrt's CoatedDiffuseBxDF, reproduced exactly.
+//
+// This is the second place in apps/pbrt where matching pbrt stops being about
+// arithmetic. A layered BSDF has no closed form: a sample of it is a random
+// walk between a dielectric coating and a diffuse base, driven by an RNG seeded
+// from a Murmur hash of the very directions it was asked about. Two walks with
+// different noise converge to the same reflectance, so no comparison of two
+// rendered images at sixteen samples could say which of them was pbrt's --
+// matching the stream is what makes the comparison mean anything.
+//
+// So the numbers below are pbrt's own, printed by
+// `apps/pbrt/scene_dump --print-bsdf`, and this reproduces them. Unlike the
+// sampler golden beside it, this imports the app rather than restating it: the
+// walk is six hundred lines and a second copy of it would be a second thing to
+// keep right.
+//
+// Each piece is checked before the walk that composes them, because a layered
+// reflectance is a product of five separate reproductions and a rho that is
+// merely close says nothing about which of them is wrong.
+//
+// Where this does not match pbrt, and why. Of the values printed below, fifteen
+// differ from pbrt's in the seventh significant digit and the rest are equal.
+// The cause is fused multiply-adds: pbrt is built with gcc and contraction on,
+// so several of its expressions round once where the same expression rounds
+// twice here. The ones that could be identified are written as `fma` in
+// bxdf.bonsai -- the Fresnel reflectances, the microfacet distribution's
+// `1 + e`, and the refracted direction -- and each of those was found by
+// comparing against `--print-bsdf` rather than by reading pbrt's source. What
+// is left is inside code gcc inlines into pbrt's `Sample_f`, where the same
+// expression contracts differently than it does when called from anywhere else,
+// so pbrt's answer there is a property of its optimizer and not of the
+// algorithm. The residual is about one part in ten million, against an albedo
+// comparison that agrees with pbrt to six parts in a hundred thousand, so it is
+// two orders of magnitude below the difference the render already has.
+import apps/pbrt/bxdf;
+
+// The four wavelengths a diffuse base reflects, as a number written down on
+// both sides rather than as the output of the sigmoid fit. That keeps this a
+// test of the scattering and not of the colour conversion, which has a check of
+// its own in `scene_dump --check-tables`.
+func base(r0 : Float, r1 : Float, r2 : Float, r3 : Float) -> DiffuseBxDF {
+    b : DiffuseBxDF = {vec4f{r0, r1, r2, r3}};
+    return b;
+}
+
+// pbrt: CoatedDiffuseMaterial::GetBxDF, with `remaproughness` at its default of
+// true and no scattering medium between the interfaces.
+func coating(roughness : Float, eta : Float, thickness : Float,
+             bottom : DiffuseBxDF) -> CoatedDiffuseBxDF {
+    a = roughness_to_alpha(roughness);
+    top : DielectricBxDF = {eta, make_trowbridge_reitz(a, a)};
+    return make_coated_diffuse(top, bottom, thickness,
+                               vec4f{0.0, 0.0, 0.0, 0.0}, 0.0, 10, 1);
+}
+
+func print4(v : vec4f) -> void {
+    print(v.x);
+    print(v.y);
+    print(v.z);
+    print(v.w);
+    return;
+}
+
+func print_sample(s : option[BSDFSample]) -> void {
+    if s {
+        v = *s;
+        print(v.f.x);
+        print(v.wi.x);
+        print(v.wi.y);
+        print(v.wi.z);
+        print(v.pdf);
+        print(v.flags);
+        return;
+    }
+    // A walk that never left the layers, which is a real answer and not an
+    // error: pbrt returns no sample and rho counts it as zero.
+    print(-1);
+    return;
+}
+
+func main() -> i32 {
+    // pbrt's fixed sample points for a reflectance estimate, from the path
+    // integrator. Fixed rather than drawn, so that the albedo of a pixel does
+    // not depend on where in the sampler's stream the estimate happens to fall.
+    uc : array[Float, 16] = {0.75741637, 0.37870818, 0.7083487, 0.18935409,
+                             0.9149363, 0.35417435, 0.5990858, 0.09467703,
+                             0.8578725, 0.45746812, 0.686759, 0.17708716,
+                             0.9674518, 0.2995429, 0.5083201, 0.047338516};
+    ux : array[Float, 16] = {0.855985, 0.381823, 0.285328, 0.733380,
+                             0.542663, 0.127274, 0.964700, 0.594089,
+                             0.095109, 0.825444, 0.429467, 0.244460,
+                             0.756135, 0.516165, 0.180888, 0.898579};
+    uy : array[Float, 16] = {0.570367, 0.851844, 0.764262, 0.114073,
+                             0.344465, 0.414848, 0.947162, 0.643463,
+                             0.170369, 0.263359, 0.454469, 0.816459,
+                             0.731258, 0.152852, 0.214174, 0.503897};
+
+    // Directions chosen to be unalike: straight on, oblique, grazing, and one
+    // from below -- which is the side a two-sided layered BSDF has to mirror
+    // before it can enter through the coating.
+    straight = unit_vector(vec3f{0.0, 0.0, 1.0});
+    oblique = unit_vector(vec3f{0.3, 0.2, 0.9});
+    slanted = unit_vector(vec3f{0.7, -0.5, 0.2});
+    grazing = unit_vector(vec3f{0.6, 0.1, 0.05});
+    below = unit_vector(vec3f{-0.2, 0.4, -0.85});
+
+    // The two hashes the walk is seeded with, before anything that uses them.
+    // A Murmur over the bytes a float occupies is not something a reader can
+    // check by eye, and it is invisible through an RNG and a random walk.
+    print(hash4(0, reinterpret[[i32]](straight.x),
+                reinterpret[[i32]](straight.y),
+                reinterpret[[i32]](straight.z)));
+    print(hash4(0, reinterpret[[i32]](oblique.x), reinterpret[[i32]](oblique.y),
+                reinterpret[[i32]](oblique.z)));
+    print(hash4(0, reinterpret[[i32]](slanted.x), reinterpret[[i32]](slanted.y),
+                reinterpret[[i32]](slanted.z)));
+    for i in 0:4 {
+        print(hash3(reinterpret[[i32]](uc[i]), reinterpret[[i32]](ux[i]),
+                    reinterpret[[i32]](uy[i])));
+    }
+
+    // pbrt: FrDielectric, at normal incidence, obliquely, past the critical
+    // angle from the dense side, and from behind -- which is where the routine
+    // inverts the index ratio.
+    print(fr_dielectric(1.0, 1.5));
+    print(fr_dielectric(0.9, 1.5));
+    print(fr_dielectric(0.3, 1.5));
+    print(fr_dielectric(0.05, 1.5));
+    print(fr_dielectric(-0.4, 1.5));
+
+    // pbrt: FastExp, which is not std::exp -- a cubic in the fractional part of
+    // x/ln 2 scaled by writing the integer part into the exponent field. The
+    // walk multiplies its throughput by one of these at every layer crossing,
+    // so the approximation is part of the answer.
+    print(fast_exp(0.0));
+    print(fast_exp(-0.01));
+    print(fast_exp(-0.5));
+    print(fast_exp(-3.25));
+    print(fast_exp(-40.0) * 1e18);
+
+    // pbrt: TrowbridgeReitzDistribution::Sample_wm and the two terms evaluated
+    // about what it returns.
+    a = roughness_to_alpha(0.05);
+    d = make_trowbridge_reitz(a, a);
+    for i in 0:4 {
+        wm = sample_wm(d, oblique, vec2f{ux[i], uy[i]});
+        print(wm.x);
+        print(wm.y);
+        print(wm.z);
+        print(distrib_d(d, wm));
+        print(distrib_g(d, oblique, wm));
+    }
+
+    // The two interfaces on their own. The dielectric is the one with branches
+    // in it -- reflection against transmission, and the microfacet path against
+    // the delta one.
+    top : DielectricBxDF = {1.5, d};
+    bottom = base(0.4, 0.4, 0.4, 0.4);
+    for i in 0:4 {
+        print_sample(dielectric_sample_f(top, oblique, uc[i],
+                                         vec2f{ux[i], uy[i]}, sample_all()));
+    }
+    // Reflection only, then transmission only. Asked for by name because that
+    // is how the walk asks -- and because a Fresnel term of four per cent means
+    // every sample of the unrestricted call above is a transmission, so the
+    // reflection branch would otherwise go unexercised until it turned up
+    // inside a walk with everything else.
+    for i in 0:4 {
+        found = dielectric_sample_f(top, oblique, uc[i], vec2f{ux[i], uy[i]},
+                                    sample_reflection());
+        print_sample(found);
+        // The masking term about the sampled direction rather than about the
+        // microfacet normal, which is the one factor of the reflection branch
+        // that nothing else here prints.
+        if found {
+            print(distrib_g(d, oblique, (*found).wi));
+        }
+    }
+    for i in 0:4 {
+        found = dielectric_sample_f(top, oblique, uc[i], vec2f{ux[i], uy[i]},
+                                    sample_transmission());
+        print_sample(found);
+        if found {
+            print(distrib_g(d, oblique, (*found).wi));
+        }
+    }
+    for i in 0:4 {
+        print_sample(diffuse_sample_f(bottom, oblique, uc[i],
+                                      vec2f{ux[i], uy[i]}, sample_all()));
+    }
+
+    // And the same from the other side. The walk spends every step after the
+    // first down between the interfaces, so every direction it asks about has a
+    // negative z -- a hemisphere none of the calls above reach, and the one
+    // where the dielectric inverts its index ratio and turns its normal round.
+    under = -oblique;
+    for i in 0:4 {
+        wm = sample_wm(d, under, vec2f{ux[i], uy[i]});
+        print(wm.x);
+        print(wm.y);
+        print(wm.z);
+        print(distrib_d(d, wm));
+        print(distrib_g(d, under, wm));
+        print_sample(dielectric_sample_f(top, under, uc[i],
+                                         vec2f{ux[i], uy[i]}, sample_all()));
+    }
+
+    // A single sample of the whole walk, sixteen times. A mean can hide a step
+    // that is wrong for a few inputs, and the direction and pdf a sample
+    // reports are not visible in rho at all.
+    walked = coating(0.05, 1.5, 0.01, bottom);
+    for i in 0:16 {
+        print_sample(coated_sample_f(walked, oblique, uc[i],
+                                     vec2f{ux[i], uy[i]}, 0));
+    }
+
+    // And the reflectance itself, over four materials and five directions.
+    // `smooth` is the case whose coating is a delta rather than a microfacet
+    // distribution, and `spectral` is the one whose four wavelengths differ --
+    // a spectrum collapsed to one number would show up nowhere else.
+    rough = coating(0.025, 1.5, 0.01, base(0.4, 0.4, 0.4, 0.4));
+    rougher = coating(0.15, 1.5, 0.01, base(0.4, 0.5, 0.4, 0.4));
+    smooth = coating(0.0, 1.5, 0.01, base(0.5, 0.5, 0.5, 0.5));
+    spectral = coating(0.05, 1.33, 0.5, base(0.1, 0.35, 0.62, 0.9));
+
+    print4(coated_rho(rough, straight, 0, uc, ux, uy));
+    print4(coated_rho(rough, oblique, 0, uc, ux, uy));
+    print4(coated_rho(rough, slanted, 0, uc, ux, uy));
+    print4(coated_rho(rough, grazing, 0, uc, ux, uy));
+    print4(coated_rho(rough, below, 0, uc, ux, uy));
+
+    print4(coated_rho(rougher, straight, 0, uc, ux, uy));
+    print4(coated_rho(rougher, oblique, 0, uc, ux, uy));
+    print4(coated_rho(rougher, slanted, 0, uc, ux, uy));
+    print4(coated_rho(rougher, grazing, 0, uc, ux, uy));
+    print4(coated_rho(rougher, below, 0, uc, ux, uy));
+
+    print4(coated_rho(smooth, straight, 0, uc, ux, uy));
+    print4(coated_rho(smooth, oblique, 0, uc, ux, uy));
+    print4(coated_rho(smooth, slanted, 0, uc, ux, uy));
+    print4(coated_rho(smooth, grazing, 0, uc, ux, uy));
+    print4(coated_rho(smooth, below, 0, uc, ux, uy));
+
+    print4(coated_rho(spectral, straight, 0, uc, ux, uy));
+    print4(coated_rho(spectral, oblique, 0, uc, ux, uy));
+    print4(coated_rho(spectral, slanted, 0, uc, ux, uy));
+    print4(coated_rho(spectral, grazing, 0, uc, ux, uy));
+    print4(coated_rho(spectral, below, 0, uc, ux, uy));
+    return 0;
+}

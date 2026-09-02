@@ -1,0 +1,173 @@
+// pbrt: RNG and the hashes that seed it, from util/rng.h and util/hash.h.
+//
+// Reproduced exactly rather than merely in spirit. Two renderers with different
+// noise converge to the same image, so at low sample counts no comparison of
+// two renders could say which one was pbrt's -- matching the stream is what
+// makes the comparison mean anything at all. Every constant and step here is
+// checked against pbrt's own numbers in
+// tests/bonsai/correctness/llvm/sampler.bonsai.
+//
+// Separate from sampler.bonsai because pbrt's samplers are not the only thing
+// that draws random numbers: a layered BSDF runs a random walk between its
+// interfaces with an RNG seeded from the directions it was asked about, and
+// bxdf.bonsai needs this and nothing else from the sampler. Keeping them apart
+// also keeps the thousand-prime table out of anything that only wants a hash.
+import stdlib/numerics;
+
+element RNG {
+    state, inc : u64;
+}
+
+// pbrt: RNG::Uniform<uint32_t>. The state advances and the value comes out of
+// what the state was, which is why the two lines below are in that order.
+func next_uint(r : mut RNG) -> u32 {
+    old = r.state;
+    r.state = old * 0x5851f42d4c957f2d + r.inc;
+    xorshifted = cast[[u32]](((old >> 18u) ^ old) >> 27u);
+    rot = cast[[u32]](old >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31u));
+}
+
+// pbrt: RNG::Uniform<Float>, held below one so a sample never lands on the far
+// edge of whatever it indexes.
+func next_float(r : mut RNG) -> Float {
+    return min(cast[[Float]](next_uint(r)) * 0.00000000023283064365386963,
+               0.99999994);
+}
+
+func mix_bits(v : u64) -> u64 {
+    a : mut u64 = v ^ (v >> 31u);
+    a = a * 0x7fb5d329728ea185;
+    a = a ^ (a >> 27u);
+    a = a * 0x81dadef4bc2dd44d;
+    a = a ^ (a >> 33u);
+    return a;
+}
+
+// pbrt: MurmurHash64A, which is what Hash(...) runs over the bytes its
+// arguments occupy. The constant and the shift are Murmur's own.
+func murmur_m() -> u64 = 0xc6a4a7935bd1e995;
+
+// One eight-byte block folded into the running hash.
+func murmur_block(h : u64, block : u64) -> u64 {
+    k : mut u64 = block * murmur_m();
+    k = k ^ (k >> 47u);
+    k = k * murmur_m();
+    return (h ^ k) * murmur_m();
+}
+
+// The avalanche at the end, which is what stops the last block from being
+// visible in the answer.
+func murmur_finish(h : u64) -> u64 {
+    a : mut u64 = h ^ (h >> 47u);
+    a = a * murmur_m();
+    return a ^ (a >> 47u);
+}
+
+// A pair of 32-bit values in the eight bytes they occupy side by side, which is
+// how two ints reach the hash on a little-endian machine.
+func packed(low : i32, high : i32) -> u64 =
+    cast[[u64]](cast[[u32]](low)) | (cast[[u64]](cast[[u32]](high)) << 32u);
+
+// pbrt: Hash over twelve bytes -- so the block loop runs exactly once over the
+// first two words and the tail is the third's four. The tail is those four
+// bytes exclusive-ored in and one more multiply, which is what the fallthrough
+// in Murmur's switch comes to for a length of four.
+//
+// Named for its shape rather than for its arguments: the samplers hash a pixel
+// and a seed through it, the digit permutations hash a base and a digit index,
+// and the layered BSDF hashes the three floats of a sample point. They are all
+// the same function.
+func hash3(a : i32, b : i32, c : i32) -> u64 {
+    h = murmur_block(12u * murmur_m(), packed(a, b));
+    return murmur_finish((h ^ cast[[u64]](cast[[u32]](c))) * murmur_m());
+}
+
+// pbrt: Hash over sixteen bytes, so two blocks and no tail at all.
+//
+// The stratified sampler asks for this one over a pixel, a dimension and a
+// seed -- which stratum a sample takes has to differ per dimension as well as
+// per pixel -- and the layered BSDF asks for it over a seed and the three
+// floats of a direction, which is the same sixteen bytes differently arranged.
+func hash4(a : i32, b : i32, c : i32, d : i32) -> u64 {
+    h = murmur_block(16u * murmur_m(), packed(a, b));
+    return murmur_finish(murmur_block(h, packed(c, d)));
+}
+
+// pbrt: PermutationElement, from util/math.h.
+//
+// The i'th element of a random permutation of 0..l-1 chosen by p, computed
+// without materialising the permutation. It is a small block cipher on the
+// numbers up to the next power of two above l, run again whenever it lands
+// outside the range -- which is what makes it a permutation rather than a hash,
+// and why the loop has no bound: each pass rejects with probability under a
+// half, so it stops quickly and not after any fixed number of tries.
+func permutation_element(index : u32, l : u32, p : u32) -> u32 {
+    // The mask of every bit below the next power of two, which is the block
+    // width the cipher works in.
+    w : mut u32 = l - 1u;
+    w = w | (w >> 1u);
+    w = w | (w >> 2u);
+    w = w | (w >> 4u);
+    w = w | (w >> 8u);
+    w = w | (w >> 16u);
+
+    i : mut u32 = index;
+    do {
+        i = i ^ p;
+        i = i * 0xe170893du;
+        i = i ^ (p >> 16u);
+        i = i ^ ((i & w) >> 4u);
+        i = i ^ (p >> 8u);
+        i = i * 0x0929eb3fu;
+        i = i ^ (p >> 23u);
+        i = i ^ ((i & w) >> 1u);
+        i = i * (1u | (p >> 27u));
+        i = i * 0x6935fa69u;
+        i = i ^ ((i & w) >> 11u);
+        i = i * 0x74dcb303u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0x9e501cc3u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0xc860a3dfu;
+        i = i & w;
+        i = i ^ (i >> 5u);
+    } while i >= l;
+    return (i + p) % l;
+}
+
+// pbrt: RNG::SetSequence. The two draws are discarded on purpose; they are what
+// mixes the sequence and the offset into the state.
+func set_sequence(seq : u64, offset : u64) -> RNG {
+    zero : u64 = 0u;
+    r : mut RNG = {zero, (seq << 1u) | 1u};
+    warm0 = next_uint(r);
+    r.state = r.state + offset;
+    warm1 = next_uint(r);
+    return r;
+}
+
+// pbrt: RNG::Advance, the log-time jump ahead. Each step squares the multiplier
+// and folds the increment forward, so one iteration consumes what the last
+// produced -- a dependence, and why this is a `for` and not a parfor.
+func advance(r : mut RNG, delta : u64) -> void {
+    cur_mult : mut u64 = 0x5851f42d4c957f2d;
+    cur_plus : mut u64 = r.inc;
+    acc_mult : mut u64 = 1u;
+    acc_plus : mut u64 = 0u;
+    d : mut u64 = delta;
+    // pbrt stops as soon as what is left is zero; a `for` runs its whole range,
+    // so the guard makes the remaining steps do nothing. Sixty-four is the
+    // width of the delta.
+    for step in 0u:64u {
+        if (d & 1u) != 0u {
+            acc_mult = acc_mult * cur_mult;
+            acc_plus = acc_plus * cur_mult + cur_plus;
+        }
+        cur_plus = (cur_mult + 1u) * cur_plus;
+        cur_mult = cur_mult * cur_mult;
+        d = d >> 1u;
+    }
+    r.state = acc_mult * r.state + acc_plus;
+    return;
+}

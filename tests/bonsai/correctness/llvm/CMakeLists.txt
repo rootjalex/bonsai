@@ -6,6 +6,7 @@ add_bonsai_tests(
     atanh-cosh.bonsai
     atomic-accumulate.bonsai
     bitwise.bonsai
+    coated-diffuse.bonsai
     collapse.bonsai
     dce.bonsai
     defer-sum.bonsai

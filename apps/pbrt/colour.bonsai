@@ -1,0 +1,56 @@
+// pbrt: the colour conversion a film ends with, from util/spectrum.h and
+// util/colorspace.h.
+//
+// Separate from spectrum.bonsai, which holds the representation itself: this
+// file is the one that needs the tabulated matching curves, and a table is an
+// extern the driver has to supply. Anything that only wants to evaluate a
+// spectrum -- a material working out its own reflectance, say -- should not
+// have to be handed four hundred and seventy-one numbers to do it.
+import stdlib/numerics;
+import apps/pbrt/spectrum;
+
+// The CIE curves and the film's illuminant, tabulated once per nanometre from
+// 360 to 830. Generated from pbrt's own source and checked against a running
+// pbrt; see make_spectrum_tables.py and `scene_dump --check-tables`.
+extern cie_x : array[Float, 471];
+extern cie_y : array[Float, 471];
+extern cie_z : array[Float, 471];
+extern illuminant_d65 : array[Float, 471];
+
+// pbrt: DenselySampledSpectrum::operator(), which rounds to the nearest
+// nanometre rather than interpolating -- the table is dense enough that it
+// does not, and matching means rounding the same way.
+func spectrum_at_dense(table : array[Float, 471],
+                       w : SampledWavelengths) -> vec4f {
+    // Every wavelength SampleVisible produces is already inside the table's
+    // range, so this indexes without clamping; a sampler that could stray
+    // outside it would need pbrt's zero-outside-the-range answer here.
+    o = cast[[vector[i32, 4]]](round(w.lambda) - 360.0);
+    return vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
+}
+
+// pbrt: SampledSpectrum::ToXYZ followed by RGBColorSpace::ToRGB.
+//
+// Each of X, Y and Z is the spectrum against that matching curve, averaged
+// over the four samples and divided by the probability each was drawn with --
+// a Monte Carlo estimate of an integral, which is what four samples of a
+// spectrum can give. The division by the CIE Y integral is what makes a
+// perfectly reflecting surface come out at one rather than at 106.
+func average_over_pdf(v : vec4f, w : SampledWavelengths) -> Float {
+    // pbrt: SafeDiv, because a wavelength can be drawn with zero density.
+    return sum(select(w.pdf == 0.0, 0.0, v / w.pdf)) / 4.0;
+}
+
+func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
+    x = average_over_pdf(spectrum_at_dense(cie_x, w) * s, w);
+    y = average_over_pdf(spectrum_at_dense(cie_y, w) * s, w);
+    z = average_over_pdf(spectrum_at_dense(cie_z, w) * s, w);
+    xyz = vec3f{x, y, z} / 106.856895;
+
+    // pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because
+    // the driver would otherwise have to pass a matrix that never changes.
+    return vec3f{
+        3.2406 * xyz.x - 1.5372 * xyz.y - 0.4986 * xyz.z,
+        -0.9689 * xyz.x + 1.8758 * xyz.y + 0.0415 * xyz.z,
+        0.0557 * xyz.x - 0.2040 * xyz.y + 1.0570 * xyz.z};
+}
