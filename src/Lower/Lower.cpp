@@ -128,8 +128,15 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must always run after LowerTrees and before LowerLayouts
     core.push_back(std::make_unique<LowerSorts>());
     core.push_back(std::make_unique<LowerDefers>());
-    core.push_back(std::make_unique<LowerExterns>());
+    // Geometrics before Externs. A geometric op is not yet a call, so the
+    // free-variable walk that decides which functions an extern reaches cannot
+    // see through one -- and LowerGeometrics builds its call from the
+    // implementation's declared parameters, so it has to run while those are
+    // still the two the source wrote. Reversed, an implementation that reads an
+    // extern (a triangle fetching its vertices from a shared mesh, say) gets
+    // extra parameters first and is then called with too few.
     core.push_back(std::make_unique<LowerGeometrics>());
+    core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.
@@ -173,8 +180,9 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must always run after LowerTrees and before LowerLayouts
     ssa.push_back(std::make_unique<LowerSorts>());
     ssa.push_back(std::make_unique<LowerDefers>());
-    ssa.push_back(std::make_unique<LowerExterns>());
+    // Geometrics before Externs; see the note in `core`.
     ssa.push_back(std::make_unique<LowerGeometrics>());
+    ssa.push_back(std::make_unique<LowerExterns>());
     ssa.push_back(std::make_unique<LowerLayouts>());
     ssa.push_back(std::make_unique<LowerForEachs>());
     ssa.push_back(std::make_unique<LowerDynamicSets>());
@@ -231,8 +239,9 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerTrees>());
     ssa_analysis.push_back(std::make_unique<LowerSorts>());
     ssa_analysis.push_back(std::make_unique<LowerDefers>());
-    ssa_analysis.push_back(std::make_unique<LowerExterns>());
+    // Geometrics before Externs; see the note in `core`.
     ssa_analysis.push_back(std::make_unique<LowerGeometrics>());
+    ssa_analysis.push_back(std::make_unique<LowerExterns>());
     ssa_analysis.push_back(std::make_unique<LowerLayouts>());
     ssa_analysis.push_back(std::make_unique<LowerForEachs>());
     ssa_analysis.push_back(std::make_unique<LowerDynamicSets>());
@@ -268,8 +277,9 @@ PassManager register_passes(const CompilerOptions &options) {
     // This must always run after LowerTrees and before LowerLayouts
     d.push_back(std::make_unique<LowerSorts>());
     d.push_back(std::make_unique<LowerDefers>());
-    d.push_back(std::make_unique<LowerExterns>());
+    // Geometrics before Externs; see the note in `core`.
     d.push_back(std::make_unique<LowerGeometrics>());
+    d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
     // TODO(ajr): figure out the right placement of transforms.

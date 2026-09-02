@@ -21,16 +21,25 @@ struct GatherFreeVars : public Visitor {
     void visit(const Var *node) override {
         // Function calls are not free vars.
         if (seen_vars.count(node->name) == 0 && !node->type.is_func()) {
-            // Visit sizes, might be a free var
+            // Visit sizes, might be a free var. An array may have no size at
+            // all -- `array[T]` is how a function takes one whose length the
+            // caller knows and the callee does not -- and then there is no
+            // expression to look in. That only shows up for a variable that is
+            // free, so it took an extern to reach: a parameter of the same type
+            // is in `seen_vars` before this runs and never gets here.
             ir::Type type = node->type;
             while (type.is<Array_t>()) {
                 const auto *array_t = type.as<Array_t>();
-                array_t->size.accept(this);
+                if (array_t->size.defined()) {
+                    array_t->size.accept(this);
+                }
                 type = array_t->etype;
             }
             while (type.is<DynArray_t>()) {
                 const auto *array_t = type.as<DynArray_t>();
-                array_t->capacity.accept(this);
+                if (array_t->capacity.defined()) {
+                    array_t->capacity.accept(this);
+                }
                 type = array_t->etype;
             }
             free_vars.push_back({node->name, node->type});

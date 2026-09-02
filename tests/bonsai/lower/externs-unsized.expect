@@ -1,0 +1,17 @@
+type Float = f32
+type Mesh = struct Mesh{ first_index : u32; first_vertex : u32 }
+
+extern positions : f32[]
+extern indices : u32[]
+extern meshes : struct Mesh{ first_index : u32; first_vertex : u32 }[]
+
+func [[export]] edge(mesh : u32, tri : u32, positions : f32[], indices : u32[], meshes : Mesh[]) -> f32 {
+  return vertex(mesh, tri, 1u, positions, indices, meshes) - vertex(mesh, tri, 0u, positions, indices, meshes)
+}
+
+func vertex(mesh : u32, tri : u32, corner : u32, positions : f32[], indices : u32[], meshes : Mesh[]) -> f32 {
+  let m = meshes[mesh] in
+  return positions[m.first_vertex + indices[(m.first_index + (3u * tri)) + corner]]
+}
+
+

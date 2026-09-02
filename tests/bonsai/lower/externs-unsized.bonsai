@@ -1,0 +1,42 @@
+// An extern array whose length the program does not name.
+//
+// `array[T, n]` is an array of a known length and `array[T]` is one whose
+// length only the caller knows -- which is how a function already takes a
+// buffer to write pixels into. As an extern it aborted the compiler instead.
+//
+// The reason is worth writing down, because the failure looked like the
+// unsized type was unsupported and it was not. An extern becomes a parameter of
+// every function that reads it, and finding which functions those are is a
+// free-variable walk. That walk looks inside an array's *size* as well, since
+// `array[Float, n]` names `n` and `n` may itself be free -- and it did so
+// without checking that there was a size to look inside. A parameter of the
+// same type never reached that code, because a function's own parameters are
+// marked as bound before its body is walked; only an extern could get there.
+//
+// What to look for in the golden: `positions`, `indices` and `meshes` arrive as
+// parameters of exactly the functions that read them, in declaration order, and
+// each keeps its unsized array type.
+element Float = f32;
+
+// The shape apps/pbrt needs: a list of meshes indexing into shared pools of
+// vertices and indices, which is what pbrt's `Triangle::allMeshes` is.
+element Mesh {
+    first_index : u32;
+    first_vertex : u32;
+}
+
+extern positions : array[Float];
+extern indices : array[u32];
+extern meshes : array[Mesh];
+
+// Reads two of the three, so the third must not be handed over.
+func vertex(mesh : u32, tri : u32, corner : u32) -> Float {
+    m = meshes[mesh];
+    return positions[m.first_vertex + indices[m.first_index + 3u * tri + corner]];
+}
+
+// Reads none of them itself, so its parameters come from what its callee
+// needed rather than from anything in its own body.
+func [[export]] edge(mesh : u32, tri : u32) -> Float {
+    return vertex(mesh, tri, 1u) - vertex(mesh, tri, 0u);
+}
