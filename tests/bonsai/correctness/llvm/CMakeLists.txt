@@ -31,6 +31,7 @@ add_bonsai_tests(
     option.bonsai
     parfor-sequential.bonsai
     print-str.bonsai
+    loopify-early-returns.bonsai
     print-float.bonsai
     shadowed-mutable.bonsai
     print.bonsai

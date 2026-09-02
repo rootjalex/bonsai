@@ -887,6 +887,12 @@ struct BlockInfo {
     };
 
     Role role = Role::Normal;
+    // for DoWhileHeader: whether the loop it heads is `while (true)`, which is
+    // what a loopified tail recursion leaves behind. Such a loop is closed at
+    // its header rather than at its latch, because the latch can sit anywhere
+    // inside -- a walk that returns early from three places has three ways out
+    // and reaches the back edge from the innermost of them.
+    bool infinite = false;
     std::string loop_header; // for DoWhileLatch: which block is the header
     // for WhileHeader and DoWhileHeader: where control goes after the loop
     std::string loop_exit;
@@ -986,8 +992,19 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
     // at the header. Otherwise whatever came before the loop, the values it
     // is entered with above all, ends up inside it and is redone on every
     // iteration.
+    // An InfLoopLatch as well as a DoWhileLatch, and for the same reason: what
+    // came before the loop must not end up inside it. A loopified tail
+    // recursion leaves one -- the tail call becomes an unconditional back edge
+    // to the header, so the loop is `while (true)` and the ways out of it are
+    // the returns in its body.
+    //
+    // Those two are closed in different places. A do-while ends at its latch,
+    // which is the block holding its test; an infinite loop has no test, and
+    // its back edge can be reached from arbitrarily deep inside -- so it is the
+    // header that wraps the body, and the latch below only says `continue`.
     for (auto &[name, bi] : info) {
-        if (bi.role != BlockInfo::Role::DoWhileLatch) {
+        const bool inf = bi.role == BlockInfo::Role::InfLoopLatch;
+        if (bi.role != BlockInfo::Role::DoWhileLatch && !inf) {
             continue;
         }
         BlockInfo &head = info.at(bi.loop_header);
@@ -995,6 +1012,7 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
             continue;
         }
         head.role = BlockInfo::Role::DoWhileHeader;
+        head.infinite = inf;
         head.loop_exit = bi.loop_exit;
     }
 
@@ -1005,11 +1023,15 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
 // any. A jump to it from anywhere other than the end of the region is the
 // loop going round again from the middle -- a `continue` -- which is how a
 // traversal that has finished with one node gets on to the next.
+// `is_loop_body` says this region *is* the body of the infinite loop headed by
+// `start`, so that arriving at that header does not wrap it again -- the outer
+// call has already done that, and re-wrapping would not terminate.
 Stmt structurize(const std::string &start, const std::string &exit,
                  const BlockMap &block_map, const DominatorMap &dom,
                  const BlockInfoMap &info, const ArgMutabilityMap &mut_map,
                  const TypeMap &func_type_map,
-                 const std::string &loop_header = "") {
+                 const std::string &loop_header = "",
+                 bool is_loop_body = false) {
 
     std::vector<Stmt> stmts;
     std::string name = start;
@@ -1091,6 +1113,23 @@ Stmt structurize(const std::string &start, const std::string &exit,
             append(structurize(name, bi.loop_exit, block_map, dom, info,
                                mut_map, func_type_map, loop_header));
             name = bi.loop_exit;
+            continue;
+        }
+
+        // The header of a `while (true)`, emitted here rather than at its
+        // latch. Everything from the header to the back edge is the body, and
+        // the back edge -- wherever inside it turns out to be -- becomes a
+        // `continue`, which is what passing `name` as the enclosing header
+        // below arranges. There is nothing after the loop: an infinite loop is
+        // left only by the returns in its body, so the region ends here.
+        if (bi.role == BlockInfo::Role::DoWhileHeader && bi.infinite &&
+            !is_loop_body) {
+            Stmt body =
+                structurize(name, /*exit=*/"", block_map, dom, info, mut_map,
+                            func_type_map, /*loop_header=*/name,
+                            /*is_loop_body=*/true);
+            append(DoWhile::make(std::move(body), BoolImm::make(true)));
+            name = exit;
             continue;
         }
 

@@ -1,0 +1,98 @@
+//! flags: -p ssa -b llvm -e
+
+// A tail recursion with several ways out, turned into a loop by the schedule.
+//
+// `loopify()` on a tail call replaces it with an unconditional back edge to the
+// function's header, so what is left is `while (true)` and the ways out of it
+// are the returns in its body. Nothing else in the suite has that shape with
+// more than one way out: the traversals `loopify` elsewhere are branching
+// recursions, which take the queue path instead.
+//
+// **This is coverage, not a regression test.** It passes with and without the
+// change to CodeGen_Stmt.cpp it was written for, and saying otherwise would be
+// worse than not having it. What that change fixed is an infinite loop being
+// closed at its *latch* -- by wrapping everything accumulated so far as the
+// body -- which is right only when the back edge is reached at the top of the
+// region. In apps/pbrt's `walk_step` it is reached from inside nested
+// branches, where what has accumulated is one arm of an `if`, and the compiler
+// stopped with `InfLoopLatch target walk_step!loop != exit`. Adding early
+// returns, a call, an option and a `mut` parameter here reproduces none of it;
+// the case that does is the renderer, which is not in this suite.
+//
+// So what this pins is that a loopified multi-exit tail recursion computes the
+// right numbers at all, which is worth having on its own.
+element Float = f32;
+
+// Three exits and one tail call. `total` is the accumulator a wavefront would
+// carry with a suspended path; `i` counts down so the recursion terminates
+// whichever exit is taken.
+// A call, and it matters. A call terminates its block, so what follows it is a
+// separate one and the branches after it merge; that is what puts the back edge
+// below inside nested control flow rather than at the top of the region, which
+// is the case that was mishandled. The renderer's walk calls `trace` in exactly
+// this position. Without a call here the whole function is one region, the back
+// edge is reached at its end, and the old code happened to be right.
+// Recursive, so it survives as a call rather than being inlined, and returning
+// an option so the caller branches on it -- which is the shape of `trace`.
+func probe(x : Float, n : i32) -> option[Float] {
+    if n <= 0 {
+        if x < 0.0 {
+            return {};
+        }
+        return x;
+    }
+    return probe(x * 0.5, n - 1);
+}
+
+func step(i : i32, total : Float, a : Float, b : Float,
+          calls : mut array[i32]) -> Float {
+    if i == 0 {
+        // Ran out of depth.
+        return total;
+    }
+    // After the first exit, so that the loop's header is a test and not a
+    // store: a header's instructions are folded into the loop condition and so
+    // may not have side effects.
+    calls[0] = calls[0] + 1;
+    found = probe(a, 1);
+    if !found {
+        // Escaped.
+        return total + 1.0;
+    }
+    seen = (*found) * 2.0;
+    if seen > 100.0 {
+        return total + 1.0;
+    }
+    next = total + seen;
+    if next > 50.0 {
+        // Carried nothing further.
+        return next;
+    }
+    return step(i - 1, next, a * b, b, calls);
+}
+
+func [[export]] walk(n : i32, a : Float, b : Float,
+                     calls : mut array[i32]) -> Float =
+    step(n, 0.0, a, b, calls);
+
+func main() -> i32 {
+    // A mutable buffer threaded through the walk, which is how the renderer
+    // carries its sampler state: a `mut` parameter is a pointer, so the loop
+    // carries one round its back edge.
+    calls : mut array[i32, 1] = {0};
+    // Runs to the depth limit: 1 + 1.5 + 2.25 + 3.375 = 8.125, then i hits 0.
+    print(walk(4, 1.0, 1.5, calls));
+    // Escapes on the second step, where a is 200: 1 is accumulated, then the
+    // early return adds one.
+    print(walk(4, 1.0, 200.0, calls));
+    // Exceeds 50 on the third step: 10 + 30 + 90 = 130.
+    print(walk(9, 10.0, 3.0, calls));
+    // Never enters the loop at all, which is the case that catches a header
+    // whose region was not started fresh.
+    print(walk(0, 7.0, 2.0, calls));
+    return 0;
+}
+
+schedule {
+    step.loopify();
+}
