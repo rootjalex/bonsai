@@ -135,7 +135,12 @@ done
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
 # inside one process, so there is no per-run startup to pay.
-./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
+# --no-heap: a renderer's inner loop must not allocate, and nothing frees a
+# heap allocation, so this is checked rather than hoped for. Three constant
+# tables written where they were used once cost a fifth of the render and four
+# gigabytes of resident memory before anybody noticed; this is what noticing
+# looks like now.
+./build/compiler -p ssa --no-heap -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
     $PREFIX/render.o -o "$WORK/render.out"
 BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \

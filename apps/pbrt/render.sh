@@ -59,8 +59,8 @@ rm $PREFIX/rgb2spec_check
 # be looked at when something renders wrong: the .bir is what the schedule
 # left behind, the .ll is what it became.
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -o $PREFIX/render.bir
-./build/compiler -p ssa -i $PREFIX/render.bonsai -b llvm -o $PREFIX/render.ll
-./build/compiler -p ssa -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
+./build/compiler -p ssa --no-heap -i $PREFIX/render.bonsai -b llvm -o $PREFIX/render.ll
+./build/compiler -p ssa --no-heap -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
