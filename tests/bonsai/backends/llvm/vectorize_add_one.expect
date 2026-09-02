@@ -4,9 +4,9 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @add_one(ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
 add_one:
-  %extract = load <8 x float>, ptr %a, align 32
+  %extract = load <8 x float>, ptr %a, align 4
   %0 = fadd <8 x float> %extract, <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>
-  store <8 x float> %0, ptr %out, align 32
+  store <8 x float> %0, ptr %out, align 4
   ret void
 }
 

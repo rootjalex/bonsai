@@ -3098,14 +3098,25 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
     if (const Ramp *ramp = as_dense_ramp(index)) {
         llvm::Value *first = builder->CreateInBoundsGEP(
             etype, base, codegen_expr(ramp->base), name + "_base");
+        // The *element's* alignment, not the vector's. A run of eight floats
+        // inside an array of floats is aligned to a float; nothing about it
+        // says it starts on a 32-byte boundary, and `a[i:i+8]` for odd `i`
+        // says it does not. Claiming the vector's alignment was harmless
+        // while a generic target split every access into 16-byte pieces, and
+        // became a segfault the moment the host's AVX let LLVM emit one
+        // aligned 32-byte move. The gather below has always used the element's
+        // for the same reason.
+        const llvm::Align align = dl.getABITypeAlign(etype);
         if (mask == nullptr) {
-            return create_aligned_load(vtype, first, name);
+            llvm::LoadInst *load = builder->CreateLoad(vtype, first, name);
+            load->setAlignment(align);
+            return load;
         }
         // A disabled lane must not touch memory at all, so the disabled
         // lanes come from the passthrough value rather than from the load.
-        return builder->CreateMaskedLoad(
-            vtype, first, dl.getABITypeAlign(vtype), mask,
-            llvm::Constant::getNullValue(vtype), name);
+        return builder->CreateMaskedLoad(vtype, first, align, mask,
+                                         llvm::Constant::getNullValue(vtype),
+                                         name);
     }
 
     llvm::Value *ptrs = builder->CreateInBoundsGEP(
@@ -3139,13 +3150,14 @@ void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
     if (const Ramp *ramp = as_dense_ramp(index)) {
         llvm::Value *first = builder->CreateInBoundsGEP(
             etype, base, codegen_expr(ramp->base), "store_base");
+        // The element's alignment, as in create_vector_load above.
         if (mask == nullptr) {
             llvm::StoreInst *store = builder->CreateStore(value, first);
-            store->setAlignment(dl.getABITypeAlign(value->getType()));
+            store->setAlignment(dl.getABITypeAlign(etype));
             return;
         }
-        builder->CreateMaskedStore(value, first,
-                                   dl.getABITypeAlign(value->getType()), mask);
+        builder->CreateMaskedStore(value, first, dl.getABITypeAlign(etype),
+                                   mask);
         return;
     }
 

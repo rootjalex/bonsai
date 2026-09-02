@@ -64,7 +64,7 @@ while.end:                                        ; preds = %while.body
 ; Function Attrs: nofree norecurse nosync nounwind memory(write, argmem: readwrite)
 define void @triangles(ptr nocapture noundef readonly %n, ptr noundef %out) local_unnamed_addr #2 {
 triangles:
-  %extract = load <8 x i32>, ptr %n, align 32
+  %extract = load <8 x i32>, ptr %n, align 4
   br label %while.body.i
 
 while.body.i:                                     ; preds = %while.body.i, %triangles
