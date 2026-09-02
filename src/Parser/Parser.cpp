@@ -287,6 +287,21 @@ struct Parser {
     // under `r` and goes by `r$1`. Looking it up by the written name would find
     // the wrong declaration where one is in scope and none at all where it is
     // not, so this searches for the declaration that owns the IR name.
+    // Whether some in-scope variable goes by this IR name.
+    //
+    // The counterpart of `name_in_scope`, which asks about the name the source
+    // wrote. The two differ exactly when a declaration was renamed to keep IR
+    // names unique -- a second `wt` in a sibling scope becomes `wt$1` -- so
+    // asking one question with the other's name is a lookup that silently fails
+    // on shadowed variables and succeeds on every other.
+    bool ir_name_in_scope(const std::string &ir_name) const {
+        return frames
+            .find_if([&](const std::string &, const FunctionVariable &v) {
+                return v.ir_name == ir_name;
+            })
+            .has_value();
+    }
+
     bool is_mutable_ir_name(const std::string &ir_name) const {
         std::optional<FunctionVariable> variable = frames.find_if(
             [&](const std::string &, const FunctionVariable &v) {
@@ -1328,9 +1343,15 @@ struct Parser {
         ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
 
-        const bool mutating = name_in_scope(loc.base);
+        // By IR name, because the caller has already resolved `loc.base` to
+        // one. Asking `name_in_scope` here instead looks the IR name up among
+        // the source names, which agree for every variable that was not
+        // renamed and disagree for every one that was -- so a shadowed `mut`
+        // local came out as a fresh declaration rather than a store, and the
+        // read after it referred to a name only the branch that wrote it had.
+        const bool mutating = ir_name_in_scope(loc.base);
 
-        if (mutating && !is_mutable(loc.base)) {
+        if (mutating && !is_mutable_ir_name(loc.base)) {
             report_error() << "Cannot assign to non-mutable variable: "
                            << loc.base;
         }

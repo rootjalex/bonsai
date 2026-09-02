@@ -1,0 +1,75 @@
+//! flags: -b llvm -e
+
+// Assigning to a mutable local whose name shadows one in a sibling scope.
+//
+// Two `wt`s in different branches are two variables, and the second is renamed
+// to `wt$1` so that IR names stay unique within a function. Assigning to it
+// then took a lookup by the name the source wrote against a table keyed by the
+// name the IR uses -- which agree for every variable that was never renamed,
+// and disagree for exactly the ones that were.
+//
+// What that produced was not an error. The store became a fresh declaration, so
+// `wt$1 = a - b` inside a branch *declared* `wt$1` there, the initial value was
+// dropped, and the read afterwards named something only the branch that wrote
+// it had. Downstream that surfaced as SSA finding a variable it could not
+// resolve; with the branch taken every time, it would instead have been a
+// silently wrong number.
+//
+// Both branches below compute something that depends on the initial value
+// surviving, and both are exercised: `pick(1, 1)` takes the first, `pick(-1, 1)`
+// the second, and each is asked once with the inner condition true and once
+// with it false. The false cases are the ones that read the initial value.
+element Float = f32;
+
+func [[export]] pick(a : Float, b : Float) -> Float {
+    if a > 0.0 {
+        wt : mut Float = 100.0;
+        if b > 0.0 {
+            wt = a * b;
+        }
+        return wt;
+    }
+    // The same shape, and the declaration that used to disappear.
+    wt : mut Float = 200.0;
+    if b > 0.0 {
+        wt = a - b;
+    }
+    return wt;
+}
+
+// The same again inside a loop, which is where this was first hit: the walk in
+// apps/pbrt/bxdf.bonsai has a `wt` in each of two sibling branches of a step.
+func [[export]] accumulate(a : Float, b : Float, n : i32) -> Float {
+    acc : mut Float = 0.0;
+    i : mut i32 = 0;
+    while i < n {
+        if a > 0.0 {
+            wt : mut Float = 1.0;
+            if b > 0.0 { wt = a * b; }
+            acc = acc + wt;
+        } else {
+            wt : mut Float = 2.0;
+            if b > 0.0 { wt = a - b; }
+            acc = acc + wt;
+        }
+        i = i + 1;
+    }
+    return acc;
+}
+
+func main() -> i32 {
+    // First branch, inner condition true then false: 2*3 = 6, then the
+    // untouched 100.
+    print(pick(2.0, 3.0));
+    print(pick(2.0, -1.0));
+    // Second branch, the one that was broken: -2 - 3 = -5, then the untouched
+    // 200.
+    print(pick(-2.0, 3.0));
+    print(pick(-2.0, -1.0));
+
+    // Three times round, second branch, inner condition false: 3 * 2 = 6.
+    print(accumulate(-2.0, -1.0, 3));
+    // And with it true: 3 * (-2 - 3) = -15.
+    print(accumulate(-2.0, 3.0, 3));
+    return 0;
+}

@@ -32,6 +32,7 @@ add_bonsai_tests(
     parfor-sequential.bonsai
     print-str.bonsai
     print-float.bonsai
+    shadowed-mutable.bonsai
     print.bonsai
     reinterpret.bonsai
     round.bonsai
