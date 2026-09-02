@@ -28,6 +28,7 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/SubtargetFeature.h>
 #include <llvm/TargetParser/Triple.h>
 
 #include <llvm/Support/CodeGen.h>
@@ -96,6 +97,29 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     std::string target_triple = options.target_triple.empty()
                                     ? llvm::sys::getDefaultTargetTriple()
                                     : options.target_triple;
+
+    // ...and following the host means its CPU and its instruction set, not
+    // just its pointer size. Left empty, LLVM targets a generic x86-64 -- SSE2
+    // and nothing after it -- so a machine with AVX and FMA got neither, an
+    // `fma` became a call to libm's `fmaf`, and nothing was vectorized more
+    // than four floats wide. Naming the host CPU is what `-march=native` does
+    // for a C compiler, and it is what the code this is compared against is
+    // built with.
+    //
+    // Only when nothing was named: `--triple` or `--mcpu` means the caller
+    // wants a particular machine and is probably diffing the output, and a
+    // triple that is not this machine's cannot take this machine's features.
+    std::string target_cpu = options.target_cpu;
+    std::string target_features;
+    if (target_cpu.empty() && options.target_triple.empty()) {
+        target_cpu = llvm::sys::getHostCPUName().str();
+        llvm::SubtargetFeatures features;
+        for (const auto &feature : llvm::sys::getHostCPUFeatures()) {
+            features.AddFeature(feature.first(), feature.second);
+        }
+        target_features = features.getString();
+    }
+
     std::string error_string;
     const llvm::Target *llvm_target =
         llvm::TargetRegistry::lookupTarget(target_triple, error_string);
@@ -129,8 +153,8 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         // and a TTI reporting zero vector registers, which silently disables
         // vectorization everywhere.
         target_triple,
-        // The CPU `--mcpu` named, empty for a generic one.
-        options.target_cpu, /*Features=*/"", target_options,
+        // The CPU `--mcpu` named, or the host's when nothing was named.
+        target_cpu, target_features, target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
         llvm::CodeGenOptLevel::Aggressive);
