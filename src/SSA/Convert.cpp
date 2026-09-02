@@ -1050,6 +1050,32 @@ struct FunctionBuilder : Visitor {
             return;
         }
 
+        // A field of a struct that is already in memory: the address is an
+        // offset into it, which is what FieldPtr computes. The mirror of the
+        // Extract case above, which does the same for an array's element.
+        //
+        // Without this the field was loaded and the address taken *of the
+        // loaded value*, so a callee taking it by `mut` wrote into a copy. That
+        // is `next_float(st.rng)` -- a mutable field of a mutable parameter --
+        // and what it produced was pbrt's independent sampler returning its
+        // first number forever. See tests/bonsai/correctness/llvm/
+        // mut-field-argument.bonsai.
+        if (const Access *access = node->expr.as<Access>()) {
+            if (const Deref *deref = access->value.as<Deref>()) {
+                const Struct_t *struct_t = access->value.type().as<Struct_t>();
+                internal_assert(struct_t)
+                    << "field access `" << access->field
+                    << "` on non-struct type " << access->value.type();
+                static const Type u32 = UInt_t::make(32);
+                const auto idx =
+                    find_struct_index(access->field, struct_t->fields);
+                value = block->make_instruction(
+                    node->type, Instruction::Op::FieldPtr,
+                    {get_value(deref->expr), make_constant(u32, (uint64_t)idx)});
+                return;
+            }
+        }
+
         // Anything else is carried as what it is -- the address of a value --
         // and where that address comes from is settled when the code is
         // generated, not here.

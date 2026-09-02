@@ -1,0 +1,86 @@
+//! flags: -p ssa -b llvm -e
+
+// Passing a field of a mutable struct to something that mutates it.
+//
+//     func bump(c : mut Counter) -> u32 { ... c.n = c.n + 1u ... }
+//     func twice(h : mut Holder) -> u32 { bump(h.c); bump(h.c); }
+//
+// The callee was handed a *copy* of the field, so its writes went nowhere and
+// both calls saw the same value. Nothing failed and nothing was diagnosed: the
+// numbers were of the right type and the right shape, just not advancing.
+//
+// What that cost was pbrt's independent and stratified samplers. Their state is
+// a `mut SamplerState` and every draw is `next_float(st.rng)` -- a mutable field
+// of a mutable parameter -- so the generator returned its first number forever.
+// A sampler that returns a constant still returns values in [0,1), still fills
+// an image, and still converges to something; only comparing its stream against
+// pbrt's showed it, and only after a scene appeared that used a sampler with an
+// RNG in it at all. Halton has none, and halton was what every compared scene
+// had used.
+//
+// The fix is in SSA/Convert.cpp: the address of a field of a dereferenced
+// pointer is an offset into the struct, which is what FieldPtr computes, and
+// not the address of the value loaded out of it.
+element Counter {
+    n : u32;
+}
+
+element Holder {
+    c : Counter;
+    // A second field, so that the first is not at offset zero by luck: taking
+    // the address of a struct and the address of its first field give the same
+    // pointer, and a fix that ignored the index would pass this test with `c`
+    // alone.
+    tag : u32;
+    d : Counter;
+}
+
+func bump(c : mut Counter) -> u32 {
+    was = c.n;
+    c.n = c.n + 1u;
+    return was;
+}
+
+// Two calls, so a lost write shows as the second seeing what the first did.
+func twice(h : mut Holder) -> u32 {
+    a = bump(h.c);
+    b = bump(h.c);
+    return a * 10u + b;
+}
+
+// The field that is not first, which is the case an index-blind fix misses.
+func later(h : mut Holder) -> u32 {
+    a = bump(h.d);
+    b = bump(h.d);
+    return a * 10u + b;
+}
+
+func [[export]] first_field() -> u32 {
+    h : mut Holder = {Counter{0u}, 7u, Counter{0u}};
+    return twice(h);
+}
+
+func [[export]] third_field() -> u32 {
+    h : mut Holder = {Counter{0u}, 7u, Counter{5u}};
+    return later(h);
+}
+
+// And that the writes actually landed in the struct, not just that the callee
+// saw its own earlier write: read the field back afterwards.
+func [[export]] lands_in_place() -> u32 {
+    h : mut Holder = {Counter{0u}, 7u, Counter{0u}};
+    bump(h.c);
+    bump(h.c);
+    bump(h.d);
+    return h.c.n * 100u + h.tag * 10u + h.d.n;
+}
+
+func main() -> i32 {
+    // 0 then 1, so 01.
+    print(first_field());
+    // 5 then 6, so 56.
+    print(third_field());
+    // c bumped twice, tag untouched, d once: 2, 7, 1.
+    print(lands_in_place());
+    return 0;
+}

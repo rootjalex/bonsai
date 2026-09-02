@@ -54,6 +54,40 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                     return PtrTo::make(
                         Extract::make(base, codegen_value(i->operands[1])));
                 }
+                if (i->op == Instruction::Op::FieldPtr) {
+                    // The same again for a struct's field. `has_no_binding`
+                    // lists this alongside GEP, so nothing binds it to a name;
+                    // without a case here a use of one produced a Var naming
+                    // something that does not exist. Nothing had reached it,
+                    // because until the PtrTo visitor in SSA/Convert.cpp
+                    // started making these, every FieldPtr was consumed by
+                    // codegen_gep as the destination of a store rather than
+                    // read as a value.
+                    internal_assert(i->operands.size() == 2)
+                        << "Malformed FieldPtr: expected 2 operands";
+                    Expr base = codegen_value(i->operands[0]);
+                    const Type pointee = base.type().is<Ptr_t>()
+                                             ? base.type().as<Ptr_t>()->etype
+                                             : base.type();
+                    const Struct_t *struct_t = pointee.as<Struct_t>();
+                    internal_assert(struct_t)
+                        << "[unimplemented] the address of a field of " << base
+                        << ", which is not a struct";
+                    // Read off the Value rather than through codegen_value:
+                    // the index is a constant by construction, and this runs
+                    // before the helper that unwraps one is declared.
+                    const Constant *c =
+                        std::get_if<Constant>(&i->operands[1]->data);
+                    internal_assert(c && std::holds_alternative<uint64_t>(
+                                             c->data))
+                        << "FieldPtr index is not a constant";
+                    const uint64_t idx = std::get<uint64_t>(c->data);
+                    internal_assert(idx < struct_t->fields.size())
+                        << "FieldPtr index " << idx << " past the end of "
+                        << pointee;
+                    return PtrTo::make(Access::make(struct_t->fields[idx].name,
+                                                    Deref::make(base)));
+                }
                 return Var::make(i->type, i->name);
             },
             [](const Constant &c) {

@@ -1968,14 +1968,50 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
             return;
         }
     }
-    llvm::Value *pointee = codegen_expr(node->expr);
+    // An access chain rooted at a dereference names a place, so its address is
+    // an offset and not a copy. Tested before anything is generated, because
+    // generating the value would load the very thing being addressed.
+    //
+    // This used to come *after* the struct case below, which meant a field that
+    // was itself a struct was copied rather than pointed at -- and a callee
+    // taking it by `mut` then wrote into the copy. `next_float(st.rng)` is
+    // exactly that: `rng` is a struct field of a mutable parameter, so pbrt's
+    // independent sampler never advanced and returned its first number for
+    // every draw. A field of scalar type took the correct path below, which is
+    // why this survived so long. See
+    // tests/bonsai/correctness/llvm/mut-field-argument.bonsai.
+    const bool addressable_chain = [&] {
+        if (!node->expr.is<Extract, Access>()) {
+            return false;
+        }
+        Expr root = node->expr;
+        while (root.is<Extract, Access>()) {
+            root = root.is<Extract>() ? root.as<Extract>()->vec
+                                      : root.as<Access>()->value;
+        }
+        return root.is<Deref>();
+    }();
 
-    if (auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
+    if (addressable_chain) {
+        // Fall through to the access-chain walk below.
+    } else if (llvm::Value *pointee = codegen_expr(node->expr);
+               auto *load = dyn_cast<llvm::LoadInst>(pointee)) {
         value = load->getPointerOperand();
+        return;
     } else if (node->expr.type().is<Struct_t>()) {
         value = materialize_for_address(pointee,
                                         node->expr.type().as<Struct_t>()->name);
-    } else if (node->expr.is<Extract, Access>()) {
+        return;
+    } else {
+        // A value that is not in memory and has no piece of anything in
+        // memory to point into -- the result of an arithmetic expression
+        // handed to a parameter taken by pointer, say. There is nothing to
+        // name, so the only thing its address can mean is a copy.
+        value = materialize_for_address(pointee, "value");
+        return;
+    }
+
+    {
         // Build a pointer via accesses, similar to codegen_writeloc.
         std::vector<std::variant<std::string, Expr>> accesses; // backwards
         Expr expr = node->expr;
@@ -2038,12 +2074,6 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
         }
 
         value = ptr;
-    } else {
-        // A value that is not in memory and has no piece of anything in
-        // memory to point into -- the result of an arithmetic expression
-        // handed to a parameter taken by pointer, say. There is nothing to
-        // name, so the only thing its address can mean is a copy.
-        value = materialize_for_address(pointee, "value");
     }
 }
 
