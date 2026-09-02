@@ -58,9 +58,15 @@ rm $PREFIX/rgb2spec_check
 # `-p ssa` because bind is an SSA rewrite. The other two outputs are here to
 # be looked at when something renders wrong: the .bir is what the schedule
 # left behind, the .ll is what it became.
+#
+# The flags match compare.sh, because a render that is not the one being
+# compared against pbrt is a render nothing checks. `--no-heap` refuses any
+# allocation, which a renderer's inner loop must not make; `--ffp-contract`
+# fuses `a * b + c`, which is what pbrt's gcc build does.
+FLAGS=(-p ssa --no-heap --ffp-contract)
 ./build/compiler -p ssa -i $PREFIX/render.bonsai -o $PREFIX/render.bir
-./build/compiler -p ssa --no-heap -i $PREFIX/render.bonsai -b llvm -o $PREFIX/render.ll
-./build/compiler -p ssa --no-heap -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
+./build/compiler "${FLAGS[@]}" -i $PREFIX/render.bonsai -b llvm -o $PREFIX/render.ll
+./build/compiler "${FLAGS[@]}" -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
@@ -78,6 +84,16 @@ python3 $PREFIX/to_png.py "$OUT" "$PNG" --normals
 # note on `albedo` in render.bonsai.
 ALBEDO="${OUT%.pfm}-albedo.pfm"
 python3 $PREFIX/to_png.py "$ALBEDO" "${ALBEDO%.pfm}.png"
+
+# The radiance, which is the render -- the other two are what the gbuffer
+# records on the way. Also an sRGB curve, being a colour.
+#
+# It is very noisy, and that is the integrator rather than a fault: a random
+# walk never samples a light, it scatters uniformly over the sphere and finds
+# one by chance, so on a scene lit by one small sphere most paths find nothing.
+# pbrt's own randomwalk on the same scene is exactly as noisy.
+RADIANCE="${OUT%.pfm}-radiance.pfm"
+python3 $PREFIX/to_png.py "$RADIANCE" "${RADIANCE%.pfm}.png"
 
 # render.h is left where it was written, because render_hook.cpp includes it
 # and the next build wants it there. It is generated rather than committed, so
