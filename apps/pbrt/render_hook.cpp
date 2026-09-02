@@ -127,17 +127,55 @@ struct Meshes {
     }
 };
 
+// Where a `Shape` keeps what it is, which under `layout Shape = tagged_index`
+// is not in the Shape at all.
+//
+// A Shape is a `uint64_t`: the variant in the top byte and, in the rest, an
+// index into the pool for that variant. These pools are this file's memory --
+// that is the whole point of the layout, and why nothing in the renderer has to
+// allocate to build a shape -- so taking one apart is this file's job too. It
+// is the only place the encoding is written down outside the compiler; see
+// `ADTLayout::tag_shift` in include/Lower/ADTLayout.h.
+//
+// pbrt does the same thing with the same handful of bits and calls it
+// TaggedPointer. The difference is that its low bits are an address and these
+// are an index, which is why nothing here has to be allocated or freed.
+struct Shapes {
+    static constexpr uint64_t kTagShift = 56;
+    static constexpr uint64_t kSphere = 0;
+
+    const Sph *spheres = nullptr;
+    const Tri *triangles = nullptr;
+
+    static uint64_t tag_of(uint64_t shape) { return shape >> kTagShift; }
+    static uint64_t index_of(uint64_t shape) {
+        return shape & ((uint64_t{1} << kTagShift) - 1);
+    }
+
+    static uint64_t handle(uint64_t tag, uint64_t index) {
+        return (tag << kTagShift) | index;
+    }
+
+    bool is_sphere(uint64_t shape) const { return tag_of(shape) == kSphere; }
+    const Sphere &sphere(uint64_t shape) const {
+        return spheres[index_of(shape)].s;
+    }
+    const Triangle &triangle(uint64_t shape) const {
+        return triangles[index_of(shape)].t;
+    }
+};
+
 // pbrt: Sphere::Bounds and Triangle::Bounds. A sphere placed by a translation
 // bounds to its centre plus and minus the radius on each axis; a triangle to
 // the box around its three vertices.
-Bounds3f bounds_of(const Primitive &prim, const Meshes &pool) {
-    const Shape &shape = prim.shape;
-    if (shape.tag == 0) {
-        const Sphere &s = shape.payload.Sph.s;
+Bounds3f bounds_of(const Primitive &prim, const Meshes &pool,
+                   const Shapes &shapes) {
+    if (shapes.is_sphere(prim.shape)) {
+        const Sphere &s = shapes.sphere(prim.shape);
         return Bounds3f{s.center - s.radius, s.center + s.radius};
     }
     uint32_t c[3];
-    pool.corners(shape.payload.Tri.t, c);
+    pool.corners(shapes.triangle(prim.shape), c);
     return merge(Bounds3f{pool.positions[c[0]], pool.positions[c[1]]},
                  pool.positions[c[2]]);
 }
@@ -174,11 +212,12 @@ constexpr int MaxPrimsInNode = 4;
 // pbrt splits the build across threads above 128K primitives, which reorders
 // the primitive array and so builds a different (equally valid) tree. This is
 // the serial path, which is what pbrt itself takes at these sizes.
-_tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool) {
+_tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool,
+                        const Shapes &shape_pools) {
     std::vector<BVHPrimitive> prims;
     prims.reserve(shapes.size());
     for (uint32_t i = 0; i < shapes.size(); i++) {
-        prims.push_back(BVHPrimitive{i, bounds_of(shapes[i], pool)});
+        prims.push_back(BVHPrimitive{i, bounds_of(shapes[i], pool, shape_pools)});
     }
 
     // pbrt: orderedPrims. A leaf names a run of primitives, so the primitives
@@ -325,6 +364,47 @@ _tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool) {
     std::memcpy(tree.group0_index, nodes.data(),
                 sizeof(_tree_layout1) * tree.nCount);
     return tree;
+}
+
+// Put the pools in the order the leaves read them, and rewrite the handles.
+//
+// This is the price of the indirection, and it has to be paid back here. The
+// BVH build reorders the primitives so that a leaf names a contiguous run of
+// them; under a tagged union that moves the shapes themselves, and a leaf's
+// four triangles arrive on one or two cache lines. Under `tagged_index` the
+// reorder moves only the eight-byte handles, and the fields they name stay
+// wherever the scene file happened to put them -- so the same leaf reaches
+// four scattered pool entries, and the smaller primitive buys nothing.
+//
+// Permuting the pools to match restores what the reorder was for. It is the
+// driver's job rather than the compiler's for the same reason building the
+// tree is: the layout says where a shape's fields live, and which order is a
+// good one to put them in is a question about the tree above them.
+//
+// pbrt does not do this. Its TaggedPointers point at objects allocated while
+// the scene was parsed, and its `orderedPrims` moves the pointers and not the
+// objects, so a pbrt leaf chases the same scattered addresses.
+void compact_pools(std::vector<Primitive> &shapes, std::vector<Sph> &spheres,
+                   std::vector<Tri> &triangles) {
+    std::vector<Sph> ordered_spheres;
+    std::vector<Tri> ordered_triangles;
+    ordered_spheres.reserve(spheres.size());
+    ordered_triangles.reserve(triangles.size());
+
+    for (Primitive &prim : shapes) {
+        const uint64_t tag = Shapes::tag_of(prim.shape);
+        const uint64_t index = Shapes::index_of(prim.shape);
+        if (tag == Shapes::kSphere) {
+            prim.shape = Shapes::handle(tag, ordered_spheres.size());
+            ordered_spheres.push_back(spheres[index]);
+        } else {
+            prim.shape = Shapes::handle(tag, ordered_triangles.size());
+            ordered_triangles.push_back(triangles[index]);
+        }
+    }
+
+    spheres = std::move(ordered_spheres);
+    triangles = std::move(ordered_triangles);
 }
 
 // The tree PBRT built, packed into the layout the schedule declared.
@@ -528,21 +608,50 @@ int main(int argc, char **argv) {
     }
     const Meshes pool{meshes.data(), loaded.indices.data(), positions.data()};
 
+    // The pools a `tagged_index` Shape indexes into, sized to what the scene
+    // holds before anything is built. Sized exactly rather than generously:
+    // there is no growing them, because the renderer's constructors write into
+    // the memory handed to them and nothing tells this file when they have.
+    size_t nspheres = 0;
+    for (const bonsai_scene::Shape &s : loaded.shapes) {
+        nspheres += s.tag == bonsai_scene::ShapeTag::Sphere;
+    }
+    std::vector<Sph> sphere_pool(nspheres);
+    std::vector<Tri> triangle_pool(loaded.shapes.size() - nspheres);
+    // What the constructors bump. Each ends up equal to its pool's size, which
+    // is the check that the two passes counted the same thing.
+    uint64_t sphere_fill = 0;
+    uint64_t triangle_fill = 0;
+
     std::vector<Primitive> shapes;
     shapes.reserve(loaded.shapes.size());
     for (const bonsai_scene::Shape &s : loaded.shapes) {
-        Shape shape;
+        // The generated constructors rather than a handle assembled here: they
+        // put the fields in the pool and return the tag and index naming them,
+        // and they are generated from the same layout the renderer reads with,
+        // so the numbering cannot drift.
+        uint64_t shape;
         if (s.tag == bonsai_scene::ShapeTag::Sphere) {
             Sphere sphere;
             sphere.center = float3{s.center[0], s.center[1], s.center[2]};
             sphere.radius = s.radius;
             sphere.flip = s.flip != 0;
-            Shape_Sph(shape, sphere);
+            shape = Shape_Sph(sphere, sphere_pool.data(), &sphere_fill);
         } else {
-            Shape_Tri(shape, Triangle{s.mesh, s.tri});
+            shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
+                              &triangle_fill);
         }
         shapes.push_back(Primitive{shape, s.material});
     }
+    if (sphere_fill != sphere_pool.size() ||
+        triangle_fill != triangle_pool.size()) {
+        fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
+                        "%zu/%zu triangles\n",
+                size_t(sphere_fill), sphere_pool.size(),
+                size_t(triangle_fill), triangle_pool.size());
+        return 1;
+    }
+    const Shapes shape_pools{sphere_pool.data(), triangle_pool.data()};
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
     // timing comparison about the traversal rather than about whose builder
@@ -551,8 +660,13 @@ int main(int argc, char **argv) {
     // shape PBRT builds, so any schedule asking for something else (a wider
     // arity, a different bounding volume) has to build it here.
     _tree_layout0 tree = loaded.nodes.empty()
-                             ? build_bvh(shapes, pool)
+                             ? build_bvh(shapes, pool, shape_pools)
                              : adopt_bvh(shapes, loaded.nodes);
+
+    // After the tree, because it is the tree that decides the order. `shapes`
+    // is rewritten in place, so the `prims` the layout above points at is
+    // still the same array.
+    compact_pools(shapes, sphere_pool, triangle_pool);
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
@@ -588,7 +702,8 @@ int main(int argc, char **argv) {
         render(camera, uint32_t(width), uint32_t(height), sampler, loaded.seed,
                out, albedo, meshes.data(), loaded.indices.data(),
                positions.data(), normals.data(), uvs.data(), x, y, z, d65,
-               primes, materials.data(), rho_uc, rho_ux, rho_uy, tree);
+               primes, materials.data(), rho_uc, rho_ux, rho_uy, tree,
+               sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());

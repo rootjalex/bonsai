@@ -226,6 +226,23 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
 }
 
 schedule {
+    // pbrt: TaggedPointer, which is what a Shape is there. A value of the type
+    // is one word -- the variant in the top byte, an index into a pool per
+    // variant in the rest -- rather than a tag beside a union as large as the
+    // largest arm.
+    //
+    // That is what a `Primitive` is mostly made of, and a `Primitive` is what
+    // the BVH's leaves hold, so this is a question about how much memory the
+    // traversal streams. A Sphere is a centre, a radius and a flag, and a
+    // Triangle is two indices; a tagged union has to be big enough for the
+    // first, so the 66,533 triangles of killeroo-simple each carried a
+    // sphere's worth of space. Under this the pools are separate and each
+    // holds what it actually is.
+    //
+    // The pools are the driver's, which is what lets a variant be built with
+    // no allocator. See render_hook.cpp.
+    layout Shape = tagged_index;
+
     // pbrt: BVHAggregate. Everything about how the scene is searched lives
     // here -- that it is a BVH at all, that its nodes are bounded by boxes,
     // how a node is packed, and that traversal is a loop over a stack of 64

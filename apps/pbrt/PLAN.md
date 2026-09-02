@@ -329,18 +329,53 @@ The eight bytes are pbrt's eight bytes, with a byte of tag where pbrt has seven
 bits at bit 57 -- pbrt needs the low 57 to stay a usable pointer and an index is
 under no such obligation. What it costs is the indirection, which pbrt pays too:
 its eight bytes cost three dependent loads to reach a triangle's vertices. The
-measured value of the earlier 208-to-64 change was about seven per cent, on the
-one scene of the eight where the traversal dominates, so this is worth measuring
-on `killeroo-simple` before assuming it is a win.
-
 `tagged_ptr` is parsed, reaches `adt_layout()`, and stops there with an
 unimplemented error naming what is missing, rather than quietly falling back to
 the default and leaving a schedule that changed nothing and said so nowhere.
 
-**Not yet applied to this renderer.** `Shape`, `Material` and `Primitive` still
-get the default. Doing it means the driver owning a pool per variant, which
-`render_hook.cpp` nearly does already -- it builds the spheres and the meshes
-into flat arrays -- and passing them in where it now passes the shape list.
+### `Shape` uses it, and it bought nothing measurable
+
+`render.bonsai` asks for `layout Shape = tagged_index` and `render_hook.cpp`
+owns the pools. `Primitive` is not a variant type and so has no layout of its
+own, but it is a `Shape` and a `u32`, so it shrank with the Shape: **64 bytes to
+16**. Every rendered pixel is identical -- 0 disagreeing normals on all eight
+scenes, worst normal difference unchanged at 1.10e-05 on the same pixel.
+
+The render time did not move:
+
+    killeroo-simple  700x700, 66,533 tris   10629.7 ms -> 10612.1 ms
+    many-shapes      3200x2400, 56 shapes     218.5 ms ->   218.3 ms
+
+Both differences are under a quarter of a per cent, on best-of-5 and best-of-7
+respectively. Permuting the pools into leaf order as well (`compact_pools`)
+measured 10638.4 ms, which is the same number again.
+
+**Neither scene can measure this, and that is the finding.** killeroo-simple is
+not traversal-bound: 490,000 primary rays in 10.6 seconds is 21.6 microseconds
+each, which is not a BVH descent but `material_rho` -- a layered BSDF walked at
+sixteen sample points for every hit. How big a primitive is barely matters to a
+render that spends its time shading one. And many-shapes is traversal-bound but
+far too small: 56 primitives is 3.6 KB at 64 bytes each and 900 bytes at 16, and
+both fit in L1. The seven per cent the earlier 208-to-64 change won here was a
+cache boundary being crossed -- 11.6 KB did not fit alongside the nodes -- and
+there is no second boundary below it to cross.
+
+What would measure it is a scene that is both traversal-bound and large enough
+that the primitives miss cache: a few hundred thousand triangles with cheap
+shading. Until one is in the comparison, the case for this layout is that it is
+what pbrt stores and that it is four times smaller, not that it is faster.
+
+`compact_pools` is kept on the same terms. The BVH build reorders primitives so
+that a leaf names a contiguous run; under the default layout that moves the
+shapes themselves, and under this one it moves only the handles, leaving a
+leaf's four triangles scattered across the pool wherever the scene file put
+them. Permuting the pools to match restores what the reorder was for. It is
+unmeasured -- nothing here misses cache either way -- but without it the layout
+carries a scattered-access problem that the scene which finally measures this
+would run straight into.
+
+`Material` still gets the default. It is held by index already
+(`materials[prim.material]`), so there is much less to win.
 
 And a boxed variant has to be allocated. pbrt carries a per-thread
 `ScratchBuffer` through its integrator and resets it every sample, and the
