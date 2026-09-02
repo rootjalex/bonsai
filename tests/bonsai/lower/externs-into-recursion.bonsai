@@ -1,0 +1,55 @@
+// A recursive function that reads externs, and the self-call that has to be
+// given them too.
+//
+// An extern becomes a parameter of every function that reads it, and every call
+// to such a function has to grow the matching arguments. A self-call is one of
+// those calls, and it is the awkward one: the function's parameters are still
+// being decided when its own body is walked, so it is fixed up separately,
+// after the parameters are known.
+//
+// Two things went wrong there, and both need more than one extern to see, which
+// is why there are two here and why they are read in the opposite order to the
+// order they are declared in.
+//
+// The parameters are appended in declaration order, so a self-call passing them
+// in the order the free-variable walk discovered them lines the arguments up
+// wrongly -- `scale` would arrive where `bias` is expected. With a single
+// extern the two orders agree and nothing shows.
+//
+// And the fix-up only rewrote calls that are expressions. A recursion the
+// schedule turns into a loop has its self-call built as a statement instead
+// (Lower/RecLoops.cpp), so it was left with the arguments it had before the
+// parameters were added -- which surfaced much later, as a recursive call
+// passing seven arguments to a function taking nine.
+//
+// What to look for in the golden: `walk` takes `bias` and `scale` after its own
+// arguments, in that order, and both the call in `total` and the recursive call
+// inside `walk` pass both.
+
+element Float = f32;
+
+extern bias : array[Float];
+extern scale : array[Float];
+
+// Branching rather than tail recursion, because the two are lowered by
+// different halves of Lower/RecLoops.cpp and only one of them makes a call. A
+// tail recursion becomes a do-while over mutable copies of the arguments, with
+// no self-call left to get wrong; a branching one becomes a work queue and a
+// call per item, and that call is the statement this is about.
+func walk(lo : u32, hi : u32, out : mut array[Float]) -> void {
+    if hi - lo <= 1u {
+        out[lo] = out[lo] * scale[lo] + bias[lo];
+        return;
+    }
+    mid : u32 = lo + (hi - lo) / 2u;
+    walk(lo, mid, out);
+    walk(mid, hi, out);
+}
+
+func [[export]] total(n : u32, out : mut array[Float]) -> void {
+    walk(0u, n, out);
+}
+
+schedule {
+    walk.loopify(64);
+}

@@ -11,6 +11,7 @@ add_bonsai_tests(
     defer.bonsai
     exported-function.bonsai
     externs-order.bonsai
+    externs-into-recursion.bonsai
     externs-unsized.bonsai
     float.bonsai
     for-sequential.bonsai

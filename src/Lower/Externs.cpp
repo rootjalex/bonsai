@@ -31,31 +31,56 @@ struct InsertExternsIntoCalls : public ir::Mutator {
         const ir::FuncMap &funcs)
         : funcs_with_externs(funcs_with_externs), funcs(funcs) {}
 
+    // The callee and the arguments a call needs, or nothing if it needs none.
+    //
+    // Shared by the two ways this IR spells a call, which differ only in
+    // whether the result is used: a Call is an expression and a CallStmt is a
+    // statement. Only the first used to be rewritten here, and what that cost
+    // was a whole class of call being left with too few arguments -- see
+    // Lower/RecLoops.cpp, which builds the self-call of a loopified recursion
+    // as a CallStmt.
+    std::optional<std::pair<ir::Expr, std::vector<ir::Expr>>>
+    with_externs(const ir::Expr &func, const std::vector<ir::Expr> &args) const {
+        const ir::Var *name = func.as<ir::Var>();
+        if (name == nullptr) {
+            return std::nullopt;
+        }
+        const auto iter = funcs_with_externs.find(name->name);
+        if (iter == funcs_with_externs.cend()) {
+            return std::nullopt;
+        }
+        const auto fiter = funcs.find(name->name);
+        internal_assert(fiter != funcs.cend());
+        std::vector<ir::Expr> whole = args;
+        whole.insert(whole.end(), iter->second.begin(), iter->second.end());
+        // The callee's type has to be remade too: it now takes more.
+        return std::make_pair(
+            ir::Var::make(fiter->second->call_type(), name->name),
+            std::move(whole));
+    }
+
     ir::Expr visit(const ir::Call *node) override {
         // Recurse into arguments to the call.
         ir::Expr rec = ir::Mutator::visit(node);
         node = rec.as<ir::Call>();
         internal_assert(node);
-        // Check if this call is to a declared function
-        const ir::Var *func = node->func.as<ir::Var>();
-        if (func == nullptr) {
+        auto whole = with_externs(node->func, node->args);
+        if (!whole.has_value()) {
             return node;
         }
-        // If the function is not labelled with externs, early out
-        const auto &iter = funcs_with_externs.find(func->name);
-        if (iter == funcs_with_externs.cend()) {
+        return ir::Call::make(std::move(whole->first), std::move(whole->second));
+    }
+
+    ir::Stmt visit(const ir::CallStmt *node) override {
+        ir::Stmt rec = ir::Mutator::visit(node);
+        node = rec.as<ir::CallStmt>();
+        internal_assert(node);
+        auto whole = with_externs(node->func, node->args);
+        if (!whole.has_value()) {
             return node;
         }
-        // Now need to explicitly add externs to the function call.
-        // First, make the new call type of the Var.
-        const auto &fiter = funcs.find(func->name);
-        internal_assert(fiter != funcs.cend());
-        ir::Type call_type = fiter->second->call_type();
-        ir::Expr callee = ir::Var::make(std::move(call_type), func->name);
-        // Now build the new arguments list.
-        std::vector<ir::Expr> args = node->args;
-        args.insert(args.end(), iter->second.begin(), iter->second.end());
-        return ir::Call::make(std::move(callee), std::move(args));
+        return ir::CallStmt::make(std::move(whole->first),
+                                  std::move(whole->second));
     }
 };
 
@@ -149,11 +174,17 @@ ir::Program LowerExterns::run(ir::Program program,
                           std::make_move_iterator(new_args.begin()),
                           std::make_move_iterator(new_args.end()));
 
-        funcs_with_externs[f] = std::move(ordered);
+        funcs_with_externs[f] = ordered;
 
         // Handle recursive case.
+        //
+        // `ordered`, not `free_vars`: the parameters were appended in the order
+        // the externs were declared, so a self-call passing them in the order
+        // they were discovered lines the arguments up wrongly. The same reason
+        // the comment above gives, and the same thing it warns is invisible
+        // with a single extern.
         std::map<std::string, VarList> singleton;
-        singleton[f] = std::move(free_vars);
+        singleton[f] = std::move(ordered);
 
         func->body =
             InsertExternsIntoCalls(singleton, program.funcs).mutate(func->body);

@@ -1,0 +1,23 @@
+type Float = f32
+
+extern bias : f32[]
+extern scale : f32[]
+
+func [[export]] total(n : u32, out : mut f32[], bias : f32[], scale : f32[]) -> void {
+  walk(0u, n, out, bias, scale)
+}
+
+func walk(lo : u32, hi : u32, out : mut f32[], bias : f32[], scale : f32[]) -> void {
+  if ((hi - lo) <= 1u) {
+    out[lo] = (out[lo] * scale[lo]) + bias[lo]
+    return
+  }
+  let mid = lo + ((hi - lo) / 2u) in
+  walk(lo, mid, out, bias, scale)
+  walk(mid, hi, out, bias, scale)
+}
+
+
+schedule host {
+
+}
