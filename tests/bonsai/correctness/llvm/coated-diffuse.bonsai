@@ -160,7 +160,8 @@ func main() -> i32 {
     bottom = base(0.4, 0.4, 0.4, 0.4);
     for i in 0:4 {
         print_sample(dielectric_sample_f(top, oblique, uc[i],
-                                         vec2f{ux[i], uy[i]}, sample_all()));
+                                         vec2f{ux[i], uy[i]}, radiance_mode(),
+                                         sample_all()));
     }
     // Reflection only, then transmission only. Asked for by name because that
     // is how the walk asks -- and because a Fresnel term of four per cent means
@@ -169,7 +170,7 @@ func main() -> i32 {
     // inside a walk with everything else.
     for i in 0:4 {
         found = dielectric_sample_f(top, oblique, uc[i], vec2f{ux[i], uy[i]},
-                                    sample_reflection());
+                                    radiance_mode(), sample_reflection());
         print_sample(found);
         // The masking term about the sampled direction rather than about the
         // microfacet normal, which is the one factor of the reflection branch
@@ -180,7 +181,7 @@ func main() -> i32 {
     }
     for i in 0:4 {
         found = dielectric_sample_f(top, oblique, uc[i], vec2f{ux[i], uy[i]},
-                                    sample_transmission());
+                                    radiance_mode(), sample_transmission());
         print_sample(found);
         if found {
             print(distrib_g(d, oblique, (*found).wi));
@@ -204,7 +205,8 @@ func main() -> i32 {
         print(distrib_d(d, wm));
         print(distrib_g(d, under, wm));
         print_sample(dielectric_sample_f(top, under, uc[i],
-                                         vec2f{ux[i], uy[i]}, sample_all()));
+                                         vec2f{ux[i], uy[i]}, radiance_mode(),
+                                         sample_all()));
     }
 
     // A single sample of the whole walk, sixteen times. A mean can hide a step

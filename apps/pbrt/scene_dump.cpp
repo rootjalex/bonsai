@@ -605,6 +605,67 @@ void print_bsdf() {
         }
     }
 
+    // `f` and `PDF`, which is what light transport needs and `rho` never asked
+    // for: `rho` is built from Sample_f alone.
+    //
+    // Both transport modes, because they differ -- transmission into a
+    // different medium is not symmetric, and `LayeredBxDF::f` samples its
+    // virtual light with the mode reversed, so a renderer that only ever
+    // implemented radiance mode would be wrong in exactly one term of one
+    // estimator and nowhere else.
+    {
+        const pbrt::Vector3f pairs[][2] = {
+            // Reflection, both above: the ordinary case.
+            {pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f)),
+             pbrt::Normalize(pbrt::Vector3f(-0.1f, 0.35f, 0.8f))},
+            // Grazing on both sides, where D and G are small and the
+            // denominators are not.
+            {pbrt::Normalize(pbrt::Vector3f(0.7f, -0.5f, 0.15f)),
+             pbrt::Normalize(pbrt::Vector3f(-0.6f, 0.4f, 0.2f))},
+            // Transmission: opposite hemispheres, so etap is not 1 and the
+            // generalized half vector is not wi + wo.
+            {pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f)),
+             pbrt::Normalize(pbrt::Vector3f(0.1f, -0.2f, -0.95f))},
+            // The same, entered from below, which swaps eta for 1/eta.
+            {pbrt::Normalize(pbrt::Vector3f(0.2f, 0.1f, -0.9f)),
+             pbrt::Normalize(pbrt::Vector3f(-0.3f, 0.25f, 0.88f))},
+        };
+        for (const pbrt::Float roughness : {0.05f, 0.3f}) {
+            const pbrt::Float alpha =
+                pbrt::TrowbridgeReitzDistribution::RoughnessToAlpha(roughness);
+            const pbrt::TrowbridgeReitzDistribution distrib(alpha, alpha);
+            const pbrt::DielectricBxDF dielectric(1.5f, distrib);
+            for (const auto &p : pairs) {
+                const pbrt::SampledSpectrum fr =
+                    dielectric.f(p[0], p[1], pbrt::TransportMode::Radiance);
+                const pbrt::SampledSpectrum fi =
+                    dielectric.f(p[0], p[1], pbrt::TransportMode::Importance);
+                const pbrt::Float pdf = dielectric.PDF(
+                    p[0], p[1], pbrt::TransportMode::Radiance);
+                printf("dielectricf %.9g %.9g %.9g %.9g | %.9g %.9g %.9g\n",
+                       double(roughness), double(p[0].z), double(p[1].z),
+                       double(p[1].x), double(fr[0]), double(fi[0]),
+                       double(pdf));
+            }
+        }
+        // The bottom interface, whose f and PDF have no cases at all -- which
+        // is worth pinning precisely because there is nothing to get wrong
+        // except the hemisphere test.
+        pbrt::SampledSpectrum r;
+        for (int i = 0; i < 4; i++) {
+            r[i] = 0.2f + 0.2f * i;
+        }
+        const pbrt::DiffuseBxDF diffuse(r);
+        for (const auto &p : pairs) {
+            const pbrt::SampledSpectrum f =
+                diffuse.f(p[0], p[1], pbrt::TransportMode::Radiance);
+            const pbrt::Float pdf =
+                diffuse.PDF(p[0], p[1], pbrt::TransportMode::Radiance);
+            printf("diffusef %.9g %.9g | %.9g %.9g %.9g\n", double(p[0].z),
+                   double(p[1].z), double(f[0]), double(f[3]), double(pdf));
+        }
+    }
+
     // The pieces the walk is built from, each on its own. A layered BSDF is a
     // composition of four or five separate reproductions, and a rho that is
     // merely close says nothing about which of them is wrong.

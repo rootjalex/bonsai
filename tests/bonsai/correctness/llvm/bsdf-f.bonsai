@@ -1,0 +1,119 @@
+//! flags: -b llvm -e
+
+// `BxDF::f` and `BxDF::PDF`, against pbrt's own answers.
+//
+// The companion to coated-diffuse.bonsai, which covers `Sample_f` and the
+// reflectance built on it. Light transport needs the other two: an integrator
+// that picks a direction for itself -- as RandomWalkIntegrator does, uniformly
+// over the sphere -- has to ask the BSDF what it carries in that direction,
+// and Sample_f cannot answer that.
+//
+// The numbers are pbrt's, printed by `apps/pbrt/scene_dump --print-bsdf` and
+// pasted into the golden beside this. Reproducing them is what says the
+// transcription is right; the rendered image cannot, because it is an average
+// over directions and two different BSDFs can average alike.
+//
+// Both transport modes are checked, and that is the point of the third and
+// fourth direction pairs. Transmission into a medium of a different index is
+// not symmetric: radiance is compressed by the square of the index ratio and
+// importance is not. pbrt threads a `TransportMode` through every method for
+// this one factor, and `LayeredBxDF::f` is what needs it -- it samples a
+// virtual light from `wi` with the mode reversed. A renderer that implemented
+// only radiance mode would be wrong in exactly one term of one estimator, which
+// is not something a picture would show.
+//
+// Every value below agrees with pbrt's to the six decimals `print` gives, save
+// one: the rough transmission at 0.3 roughness prints 0.476195 where pbrt says
+// 0.476194412. That is the same last-bit difference coated-diffuse.bonsai
+// documents -- pbrt is built with contraction on and rounds once where an
+// expression here rounds twice -- and the golden records this side's value, so
+// a change that moved it would still be caught.
+import stdlib/numerics;
+import apps/pbrt/bxdf;
+
+// pbrt: DielectricBxDF(eta, TrowbridgeReitzDistribution(alpha, alpha)) with the
+// roughness remapped, which is what a material does before it hands one over.
+func coating(roughness : Float, eta : Float) -> DielectricBxDF {
+    a = roughness_to_alpha(roughness);
+    d : DielectricBxDF = {eta, make_trowbridge_reitz(a, a)};
+    return d;
+}
+
+// The radiance value, the importance value, and the density. One line of
+// pbrt's output per call, in the same order.
+func print_dielectric(b : DielectricBxDF, wo : vec3f, wi : vec3f) -> void {
+    fr = dielectric_f(b, wo, wi, radiance_mode());
+    fi = dielectric_f(b, wo, wi, importance_mode());
+    print(fr.x);
+    print(fi.x);
+    print(dielectric_pdf(b, wo, wi, sample_all()));
+    return;
+}
+
+func print3(v : vec3f) -> void {
+    print(v.x);
+    print(v.y);
+    print(v.z);
+    return;
+}
+
+func main() -> i32 {
+    // Reflection above the surface; grazing on both sides, where D and G are
+    // small and the denominators are not; transmission through, so that etap is
+    // not one; and the same entered from below, which swaps eta for 1/eta.
+    wo0 = unit_vector(vec3f{0.3, 0.2, 0.9});
+    wi0 = unit_vector(vec3f{-0.1, 0.35, 0.8});
+    wo1 = unit_vector(vec3f{0.7, -0.5, 0.15});
+    wi1 = unit_vector(vec3f{-0.6, 0.4, 0.2});
+    wo2 = unit_vector(vec3f{0.3, 0.2, 0.9});
+    wi2 = unit_vector(vec3f{0.1, -0.2, -0.95});
+    wo3 = unit_vector(vec3f{0.2, 0.1, -0.9});
+    wi3 = unit_vector(vec3f{-0.3, 0.25, 0.88});
+
+    // Two roughnesses, because the microfacet terms scale differently and a
+    // single one could agree by accident.
+    rough = coating(0.05, 1.5);
+    rougher = coating(0.3, 1.5);
+
+    print_dielectric(rough, wo0, wi0);
+    print_dielectric(rough, wo1, wi1);
+    print_dielectric(rough, wo2, wi2);
+    print_dielectric(rough, wo3, wi3);
+    print_dielectric(rougher, wo0, wi0);
+    print_dielectric(rougher, wo1, wi1);
+    print_dielectric(rougher, wo2, wi2);
+    print_dielectric(rougher, wo3, wi3);
+
+    // A smooth coating, whose f and PDF are both zero -- a delta carries no
+    // density, and every path through one is built by Sample_f instead. Worth
+    // pinning because "returns zero" is also what a wrong hemisphere test does.
+    smooth = coating(0.0, 1.5);
+    print_dielectric(smooth, wo0, wi0);
+
+    // The base. Its f is the reflectance over pi in the same hemisphere and
+    // zero through the surface, and its PDF is the cosine density it samples
+    // from -- so the last two pairs, which cross the surface, are zero.
+    d : DiffuseBxDF = {vec4f{0.2, 0.4, 0.6, 0.8}};
+    print(diffuse_f(d, wo0, wi0).x);
+    print(diffuse_f(d, wo0, wi0).w);
+    print(diffuse_pdf(wo0, wi0, sample_all()));
+    print(diffuse_f(d, wo1, wi1).x);
+    print(diffuse_f(d, wo1, wi1).w);
+    print(diffuse_pdf(wo1, wi1, sample_all()));
+    print(diffuse_f(d, wo2, wi2).x);
+    print(diffuse_pdf(wo2, wi2, sample_all()));
+    print(diffuse_f(d, wo3, wi3).x);
+    print(diffuse_pdf(wo3, wi3, sample_all()));
+
+    // SampleUniformSphere, which is how RandomWalkIntegrator picks its next
+    // direction, and the constant density that goes with it.
+    print3(sample_uniform_sphere(vec2f{0.0, 0.0}));
+    print3(sample_uniform_sphere(vec2f{0.5, 0.25}));
+    print3(sample_uniform_sphere(vec2f{0.87, 0.63}));
+    print(uniform_sphere_pdf());
+
+    // The weight the layered walk combines its two estimators with.
+    print(power_heuristic(1.0, 2.0, 1.0, 3.0));
+    print(power_heuristic(1.0, 0.0, 1.0, 1.0));
+    return 0;
+}

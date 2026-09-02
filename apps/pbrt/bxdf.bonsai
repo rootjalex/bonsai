@@ -172,6 +172,21 @@ func sample_cosine_hemisphere(u : vec2f) -> vec3f {
 
 func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();
 
+// pbrt: SampleUniformSphere, and the constant density that goes with it.
+//
+// The whole sphere rather than a hemisphere, because this is what
+// RandomWalkIntegrator scatters with: it knows nothing about the surface and
+// picks a direction that may well go into it, which is why its estimator
+// divides by a density that does not depend on the direction at all.
+func sample_uniform_sphere(u : vec2f) -> vec3f {
+    z = fma(-2.0, u.x, 1.0);
+    r = safe_sqrt(1.0 - sqr(z));
+    phi = 2.0 * pi() * u.y;
+    return vec3f{r * cos(phi), r * sin(phi), z};
+}
+
+func uniform_sphere_pdf() -> Float = 1.0 / (4.0 * pi());
+
 // pbrt: SampleExponential, which is the inverse of the exponential CDF.
 func sample_exponential(u : Float, a : Float) -> Float = -log(1.0 - u) / a;
 
@@ -356,6 +371,15 @@ element DiffuseBxDF {
     r : vec4f;
 }
 
+// pbrt: DiffuseBxDF::f. A Lambertian BRDF is its reflectance over pi, and it
+// is zero through the surface -- there is no transmission to have.
+func diffuse_f(b : DiffuseBxDF, wo : vec3f, wi : vec3f) -> vec4f {
+    if !same_hemisphere(wo, wi) {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    return b.r * inv_pi();
+}
+
 func diffuse_sample_f(b : DiffuseBxDF, wo : vec3f, uc : Float, u : vec2f,
                       sample_flags : i32) -> option[BSDFSample] {
     if (sample_flags & sample_reflection()) == 0 {
@@ -377,6 +401,72 @@ element DielectricBxDF {
     distrib : TrowbridgeReitz;
 }
 
+// pbrt: TransportMode, as the one bit of it that anything here reads.
+//
+// pbrt threads an enum through every BSDF method and only one thing ever
+// branches on it: transmission into a different medium is not symmetric, and a
+// path traced from the camera has to undo a compression that a path traced from
+// a light does not. `radiance` is `mode == TransportMode::Radiance`.
+//
+// It is a parameter and not a constant because `LayeredBxDF::f` needs both. It
+// samples a virtual light from `wi` through the exit interface with `!mode`,
+// which is the whole reason this could not stay hardcoded.
+func radiance_mode() -> bool = true;
+func importance_mode() -> bool = false;
+
+// pbrt: DielectricBxDF::f.
+//
+// Zero for a smooth boundary, and not because there is no light there: a delta
+// distribution has no density to return, and every path that carries one is
+// built by Sample_f instead. The same reason `f` is zero for a mirror.
+//
+// The rest is the Torrance-Sparrow BSDF over the visible microfacets, with a
+// half vector generalized to work for transmission as well -- `wi * etap + wo`,
+// which for a reflection (etap = 1) is the ordinary `wi + wo`.
+func dielectric_f(b : DielectricBxDF, wo : vec3f, wi : vec3f,
+                  radiance : bool) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    if (b.eta == 1.0) || effectively_smooth(b.distrib) {
+        return zero;
+    }
+    cos_o = cos_theta(wo);
+    cos_i = cos_theta(wi);
+    // `reflecting` rather than pbrt's `reflect`: `reflect_` is already the
+    // function that mirrors a direction, in stdlib/numerics.
+    reflecting = cos_i * cos_o > 0.0;
+    // The relative index of refraction the path crosses, which is 1 when it
+    // does not cross at all.
+    etap = select(reflecting, 1.0, select(cos_o > 0.0, b.eta, 1.0 / b.eta));
+
+    wm_raw = wi * vec3f{etap, etap, etap} + wo;
+    if (cos_i == 0.0) || (cos_o == 0.0) || (len_squared(wm_raw) == 0.0) {
+        return zero;
+    }
+    // pbrt: FaceForward(Normalize(wm), Normal3f(0, 0, 1)) -- the half vector is
+    // taken into the upper hemisphere, so that D and G are asked about a
+    // microfacet that faces out.
+    wm_unit = unit_vector_(wm_raw);
+    wm = select(wm_unit.z < 0.0, -wm_unit, wm_unit);
+
+    // A microfacet turned away from either direction carries nothing.
+    if ((dot_(wm, wi) * cos_i) < 0.0) || ((dot_(wm, wo) * cos_o) < 0.0) {
+        return zero;
+    }
+
+    fr = fr_dielectric(dot_(wo, wm), b.eta);
+    if reflecting {
+        v = distrib_d(b.distrib, wm) * distrib_g(b.distrib, wo, wi) * fr /
+            abs(4.0 * cos_i * cos_o);
+        return vec4f{v, v, v, v};
+    }
+    denom = sqr(dot_(wi, wm) + dot_(wo, wm) / etap) * cos_i * cos_o;
+    ft = distrib_d(b.distrib, wm) * (1.0 - fr) * distrib_g(b.distrib, wo, wi) *
+         abs(dot_(wi, wm) * dot_(wo, wm) / denom);
+    // The non-symmetry factor, in radiance mode only.
+    v = select(radiance, ft / sqr(etap), ft);
+    return vec4f{v, v, v, v};
+}
+
 // pbrt: DielectricBxDF::Sample_f, in radiance mode.
 //
 // Which of reflection and transmission is taken is decided by the Fresnel
@@ -385,6 +475,7 @@ element DielectricBxDF {
 // only one of them, and it is why the two probabilities are normalized rather
 // than used directly.
 func dielectric_sample_f(b : DielectricBxDF, wo : vec3f, uc : Float, u : vec2f,
+                         radiance : bool,
                          sample_flags : i32) -> option[BSDFSample] {
     if (b.eta == 1.0) || effectively_smooth(b.distrib) {
         // A perfectly smooth boundary: two directions, each a delta.
@@ -410,8 +501,9 @@ func dielectric_sample_f(b : DielectricBxDF, wo : vec3f, uc : Float, u : vec2f,
         }
         // Radiance is not symmetric across a change of medium: it is
         // compressed by the square of the index ratio, which is the factor a
-        // path from the camera has to undo.
-        ft = (trans / abs_cos_theta(r.wt)) / sqr(r.etap);
+        // path from the camera has to undo and a path from a light does not.
+        ft0 = trans / abs_cos_theta(r.wt);
+        ft = select(radiance, ft0 / sqr(r.etap), ft0);
         s : BSDFSample = {vec4f{ft, ft, ft, ft}, r.wt, pt / (pr + pt),
                           flag_specular() | flag_transmission(), r.etap, false};
         return s;
@@ -456,10 +548,83 @@ func dielectric_sample_f(b : DielectricBxDF, wo : vec3f, uc : Float, u : vec2f,
     ft0 = trans * distrib_d(b.distrib, wm) * distrib_g(b.distrib, wo, wi) *
           abs(dot(wi, wm) * dot(wo, wm) /
               (cos_theta(wi) * cos_theta(wo) * denom));
-    ft = ft0 / sqr(r.etap);
+    ft = select(radiance, ft0 / sqr(r.etap), ft0);
     s : BSDFSample = {vec4f{ft, ft, ft, ft}, wi, pdf,
                       flag_glossy() | flag_transmission(), r.etap, false};
     return s;
+}
+
+// pbrt: DielectricBxDF::PDF. The density Sample_f above draws from, which the
+// layered walk needs in order to weight two estimators against each other.
+//
+// The same generalized half vector and the same normalized probabilities, so
+// the two read alike on purpose: every early return here is an early return
+// there, and a disagreement between them is a weight that does not sum to one.
+func dielectric_pdf(b : DielectricBxDF, wo : vec3f, wi : vec3f,
+                    sample_flags : i32) -> Float {
+    if (b.eta == 1.0) || effectively_smooth(b.distrib) {
+        return 0.0;
+    }
+    cos_o = cos_theta(wo);
+    cos_i = cos_theta(wi);
+    // `reflecting` rather than pbrt's `reflect`: `reflect_` is already the
+    // function that mirrors a direction, in stdlib/numerics.
+    reflecting = cos_i * cos_o > 0.0;
+    etap = select(reflecting, 1.0, select(cos_o > 0.0, b.eta, 1.0 / b.eta));
+
+    wm_raw = wi * vec3f{etap, etap, etap} + wo;
+    if (cos_i == 0.0) || (cos_o == 0.0) || (len_squared(wm_raw) == 0.0) {
+        return 0.0;
+    }
+    wm_unit = unit_vector_(wm_raw);
+    wm = select(wm_unit.z < 0.0, -wm_unit, wm_unit);
+
+    if ((dot_(wm, wi) * cos_i) < 0.0) || ((dot_(wm, wo) * cos_o) < 0.0) {
+        return 0.0;
+    }
+
+    refl = fr_dielectric(dot_(wo, wm), b.eta);
+    trans = 1.0 - refl;
+    pr = select((sample_flags & sample_reflection()) == 0, 0.0, refl);
+    pt = select((sample_flags & sample_transmission()) == 0, 0.0, trans);
+    if (pr == 0.0) && (pt == 0.0) {
+        return 0.0;
+    }
+
+    if reflecting {
+        return distrib_pdf(b.distrib, wo, wm) / (4.0 * abs(dot_(wo, wm))) * pr /
+               (pr + pt);
+    }
+    denom = sqr(dot_(wi, wm) + dot_(wo, wm) / etap);
+    dwm_dwi = abs(dot_(wi, wm)) / denom;
+    return distrib_pdf(b.distrib, wo, wm) * dwm_dwi * pt / (pr + pt);
+}
+
+// pbrt: DiffuseBxDF::PDF, the cosine-weighted density its Sample_f draws from.
+func diffuse_pdf(wo : vec3f, wi : vec3f, sample_flags : i32) -> Float {
+    if ((sample_flags & sample_reflection()) == 0) || !same_hemisphere(wo, wi) {
+        return 0.0;
+    }
+    return cosine_hemisphere_pdf(abs_cos_theta(wi));
+}
+
+// pbrt: PowerHeuristic with a power of two, which is how the layered walk
+// weights its two estimators of the same quantity.
+//
+// The infinity case is pbrt's: when one density is large enough that its square
+// overflows, that estimator is the only one worth anything and the weight is
+// one. Written as a test on the square rather than on the input because that is
+// where the overflow happens.
+func power_heuristic(nf : Float, f_pdf : Float, ng : Float,
+                     g_pdf : Float) -> Float {
+    f = nf * f_pdf;
+    g = ng * g_pdf;
+    // Both densities are non-negative, so the only infinity reachable here is
+    // the positive one and comparing against it is the whole of pbrt's IsInf.
+    if sqr(f) == inf {
+        return 1.0;
+    }
+    return sqr(f) / (sqr(f) + sqr(g));
 }
 
 // pbrt: HGPhaseFunction and SampleHenyeyGreenstein, which the layered walk
@@ -539,12 +704,43 @@ func layer_tr(dz : Float, w : vec3f) -> Float {
 // pbrt: TopOrBottomBxDF::Sample_f. Which of the two interfaces a step of the
 // walk is at is data, so the dispatch is a branch rather than a pointer.
 func interface_sample_f(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f,
-                        uc : Float, u : vec2f,
+                        uc : Float, u : vec2f, radiance : bool,
                         sample_flags : i32) -> option[BSDFSample] {
     if at_top {
-        return dielectric_sample_f(b.top, wo, uc, u, sample_flags);
+        return dielectric_sample_f(b.top, wo, uc, u, radiance, sample_flags);
     }
     return diffuse_sample_f(b.bottom, wo, uc, u, sample_flags);
+}
+
+// pbrt: TopOrBottomBxDF::f and ::PDF, the same dispatch for the other two.
+func interface_f(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f, wi : vec3f,
+                 radiance : bool) -> vec4f {
+    if at_top {
+        return dielectric_f(b.top, wo, wi, radiance);
+    }
+    return diffuse_f(b.bottom, wo, wi);
+}
+
+func interface_pdf(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f,
+                   wi : vec3f, sample_flags : i32) -> Float {
+    if at_top {
+        return dielectric_pdf(b.top, wo, wi, sample_flags);
+    }
+    return diffuse_pdf(wo, wi, sample_flags);
+}
+
+// pbrt: TopOrBottomBxDF::Flags(), asked only through IsSpecular.
+//
+// The bottom interface is a DiffuseBxDF and is never specular. The top is a
+// DielectricBxDF, which is specular exactly when it is smooth -- and that is
+// what decides whether the walk can weight two estimators against each other
+// at that interface or has to take the sampled one alone, because a delta has
+// no density to weight with.
+func interface_is_specular(b : CoatedDiffuseBxDF, at_top : bool) -> bool {
+    if at_top {
+        return (b.top.eta == 1.0) || effectively_smooth(b.top.distrib);
+    }
+    return false;
 }
 
 // pbrt: LayeredBxDF::Sample_f.
@@ -572,7 +768,7 @@ func coated_sample_f(b : CoatedDiffuseBxDF, wo_in : vec3f, uc : Float,
     wo = select(flip_wi, -wo_in, wo_in);
 
     // Two-sided, so the entrance is always the top interface.
-    entry = dielectric_sample_f(b.top, wo, uc, u, sample_all());
+    entry = dielectric_sample_f(b.top, wo, uc, u, radiance_mode(), sample_all());
     if !entry {
         return {};
     }
@@ -679,7 +875,8 @@ func coated_sample_f(b : CoatedDiffuseBxDF, wo_in : vec3f, uc : Float,
             step_uy = next_float(rng);
             step_ux = next_float(rng);
             hit = interface_sample_f(b, at_top, -w, step_uc,
-                                     vec2f{step_ux, step_uy}, sample_all());
+                                     vec2f{step_ux, step_uy}, radiance_mode(),
+                                     sample_all());
             if !hit {
                 dead = true;
             } else {
