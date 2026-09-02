@@ -80,6 +80,34 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
         v->data);
 }
 
+// An address that has no name to refer to it by.
+//
+// GEP and FieldPtr are computed where they are used rather than bound to a name
+// -- the loop over a block's instructions below skips them, and codegen_value
+// writes them out at each use. Everything else in a block is a let-binding.
+//
+// That matters where one is threaded into a block argument. The SSA builder
+// passes a live value into a successor under its own name, and both places that
+// emit a jump take that as licence to bind nothing: the name is already there.
+// For an address it is not, and the successor ends up naming something nothing
+// defines. What made that reachable was a call whose argument is the address of
+// an array element -- `f(materials[i], g(x))` -- where the inner call splits the
+// block and the address has to survive across it.
+//
+// Ramp is skipped by the same loop and is deliberately not here. Binding one
+// would defeat the reason it is written at its use: whether a memory access is
+// dense or a gather is read off the shape of its index, so a Ramp behind a name
+// is a gather. If a Ramp ever reaches a successor this way it needs the other
+// fix -- rebuilding it there -- rather than a binding.
+bool has_no_binding(const std::shared_ptr<Value> &v) {
+    const auto *in = std::get_if<std::shared_ptr<Instruction>>(&v->data);
+    if (in == nullptr) {
+        return false;
+    }
+    const Instruction::Op op = (*in)->op;
+    return op == Instruction::Op::GEP || op == Instruction::Op::FieldPtr;
+}
+
 bool is_side_effecty(Instruction::Op op) {
     switch (op) {
     case Instruction::Op::AccAdd:
@@ -1010,7 +1038,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
         };
 
         for (size_t i = 0; i < vals.size(); i++) {
-            if (passes_itself(i)) {
+            if (passes_itself(i) && !has_no_binding(vals[i])) {
                 continue;
             }
             if (muts[i]) {
@@ -1290,6 +1318,32 @@ Stmt structurize(const std::string &start, const std::string &exit,
                             << ") is mutable, but continuations with one "
                                "predecessor "
                                "should never have mutable args";
+                    }
+
+                    // The values live across the call, which the continuation
+                    // takes as block arguments after the return value.
+                    //
+                    // They are not bound here, and do not need to be: the SSA
+                    // builder threads each one in under the name it already
+                    // has, so the continuation naming it finds the binding the
+                    // caller's block made. The exception is a value that never
+                    // got a binding -- an address computed where it is used --
+                    // which has to be given one now, before the call, because
+                    // after it there is no longer anything in scope to rebuild
+                    // it from.
+                    const size_t threaded =
+                        cont_block->args.size() - c.cont.args.size();
+                    internal_assert(threaded == (c.drop ? 0u : 1u))
+                        << "Call continuation " << c.cont.name << " takes "
+                        << cont_block->args.size() << " arguments and is passed "
+                        << c.cont.args.size();
+                    for (size_t i = 0; i < c.cont.args.size(); i++) {
+                        if (!has_no_binding(c.cont.args[i])) {
+                            continue;
+                        }
+                        const Argument &param = cont_block->args[i + threaded];
+                        append(LetStmt::make(WriteLoc(param.name, param.type),
+                                             codegen_value(c.cont.args[i])));
                     }
 
                     std::vector<Expr> call_args;

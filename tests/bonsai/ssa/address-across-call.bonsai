@@ -1,0 +1,53 @@
+//! flags: -p ssa
+
+// The address of an array element, live across a call.
+//
+// `pick(blobs[h.which], twice(h.scale))` is two calls, and the inner one splits
+// the block. So the address of the element -- which is what the outer call is
+// passed, since `pick` takes its argument by pointer -- is computed before the
+// split and used after it, and has to survive.
+//
+// It did not. An address is not bound to a name: the loop that emits a block's
+// instructions skips GEP and FieldPtr, and codegen_value writes them out at
+// each use instead. Threading one into a successor as a block argument then
+// left the successor naming something nothing defined -- the SSA builder passes
+// a live value in under the name it already has, and both places that emit a
+// jump take that as licence to bind nothing. What came out was
+// `pick(@7, ...)` with no `let @7`, and code generation failed on the
+// undefined variable rather than on anything a reader could see.
+//
+// What to look for in the golden: a `let` for the address, before the call that
+// the address has to live across.
+element Float = f32;
+
+element Blob = | A(x : Float) | B(y : Float, z : Float);
+
+element Holder {
+    which : u32;
+    scale : Float;
+}
+
+extern blobs : array[Blob];
+
+// Takes the blob by value, so Lower/Mutability.cpp passes it by pointer and the
+// call site has to take its address.
+func pick(b : Blob, k : Float) -> Float {
+    match b {
+        A(x) => return x * k;
+        B(y, z) => return (y + z) * k;
+    }
+}
+
+// A call the inliner leaves alone, so that the block really does split between
+// the address and its use. Recursive for that reason and no other.
+func doubled(v : Float, n : i32) -> Float {
+    if n <= 0 {
+        return v;
+    }
+    return doubled(v + v, n - 1);
+}
+
+func [[export]] weigh(hs : array[Holder], i : u32) -> Float {
+    h = hs[i];
+    return pick(blobs[h.which], doubled(h.scale, 3));
+}

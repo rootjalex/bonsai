@@ -1,0 +1,98 @@
+type A = struct A{ x : f32 }
+type B = struct B{ y : f32; z : f32 }
+type Blob = struct Blob{ tag : u8; payload : union Blob_payload{ A : struct A{ x : f32 }; B : struct B{ y : f32; z : f32 } } }
+type Float = f32
+type Holder = struct Holder{ which : u32; scale : f32 }
+
+extern blobs : struct Blob{ tag : u8; payload : union Blob_payload{ A : struct A{ x : f32 }; B : struct B{ y : f32; z : f32 } } }[]
+
+func [[export]] Blob_A(_ret0 : mut (Blob*), x : f32) -> void {
+  let @0 = build<A>(x) in
+  @1 : mut Blob_payload
+  @1 = @0
+  let @2 = (*@1) in
+  let @3 = build<Blob>(0u, @2) in
+  _ret0 = @3
+  return
+}
+
+func [[export]] Blob_B(_ret1 : mut (Blob*), y : f32, z : f32) -> void {
+  let @0 = build<B>(y, z) in
+  @1 : mut Blob_payload
+  @1 = @0
+  let @2 = (*@1) in
+  let @3 = build<Blob>(1u, @2) in
+  _ret1 = @3
+  return
+}
+
+func _unexported_Blob_A(x : f32) -> Blob {
+  let @0 = build<A>(x) in
+  @1 : mut Blob_payload
+  @1 = @0
+  let @2 = (*@1) in
+  let @3 = build<Blob>(0u, @2) in
+  return @3
+}
+
+func _unexported_Blob_B(y : f32, z : f32) -> Blob {
+  let @0 = build<B>(y, z) in
+  @1 : mut Blob_payload
+  @1 = @0
+  let @2 = (*@1) in
+  let @3 = build<Blob>(1u, @2) in
+  return @3
+}
+
+func doubled(v : f32, n : i32) -> f32 {
+  let @0 = n <= 0 in
+  if (@0) {
+    return v
+  } else {
+    let @1 = v + v in
+    let @2 = n - 1 in
+    let @3 = doubled(@1, @2) in
+    return @3
+  }
+}
+
+func pick(b : (Blob*), k : f32) -> f32 {
+  let @0 = (*b) in
+  let @1 = @0.tag in
+  let @2 = @1 == 0u in
+  if (@2) {
+    let @3 = (*b) in
+    let @4 = @3.payload in
+    let @5 = (&@4) in
+    let @6 = (*@5) in
+    let x = @6.x in
+    let @8 = x * k in
+    return @8
+  } else {
+    let @9 = (*b) in
+    let @10 = @9.payload in
+    let @11 = (&@10) in
+    let @12 = (*@11) in
+    let y = @12.y in
+    let @14 = (*b) in
+    let @15 = @14.payload in
+    let @16 = (&@15) in
+    let @17 = (*@16) in
+    let z = @17.z in
+    let @19 = y + z in
+    let @20 = @19 * k in
+    return @20
+  }
+}
+
+func [[export]] weigh(hs : Holder[], i : u32, blobs : Blob[]) -> f32 {
+  let h = hs[i] in
+  let @1 = h.which in
+  let @3 = h.scale in
+  let @2 = (&blobs[@1]) in
+  let @4 = doubled(@3, 3) in
+  let @5 = pick(@2, @4) in
+  return @5
+}
+
+
