@@ -41,8 +41,51 @@ import apps/pbrt/spectrum;
 // pbrt: GeometricPrimitive, which is what a BVH is actually built over -- a
 // shape paired with the material it is made of. The geometry answers where a
 // ray hits; the material answers what is there.
+// pbrt: DiffuseAreaLight, with no image and no alpha mask -- a shape that
+// emits the same radiance in every direction it faces.
+//
+// The only kind of light here so far, and the one a random walk can use without
+// any machinery at all: `RandomWalkIntegrator` never samples a light, it finds
+// one by hitting it, so this needs no `SampleLi`, no PDF and no shadow ray.
+//
+// `l` is the RGB the scene wrote, fitted by the driver as every other spectrum
+// is; `scale` is pbrt's own scale after the division that makes a radiance of
+// one mean one nit. What makes this an illuminant rather than a reflectance is
+// the multiply by the colour space's D65 in `area_light_l` below -- pbrt's
+// RGBIlluminantSpectrum is a fit *times* an illuminant, where an albedo is the
+// fit alone.
+element AreaLight {
+    l : SigmoidPolynomial;
+    scale : Float;
+    two_sided : bool;
+}
+
+extern lights : array[AreaLight];
+
+// pbrt: DiffuseAreaLight::L, which is what SurfaceInteraction::Le calls.
+//
+// `n` is the geometric normal as the shape gives it and `w` points back the way
+// the ray came. A one-sided light emits only where its normal points, so a ray
+// that reaches the back of one sees nothing -- which is not a detail: the
+// sphere in killeroo-simple is one-sided, and a two-sided reading of it would
+// light the scene from inside the sphere as well.
+func area_light_l(light : AreaLight, n : vec3f, w : vec3f,
+                  lambda : SampledWavelengths) -> vec4f {
+    if !light.two_sided && (dot(n, w) < 0.0) {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    return light.scale * spectrum_at(light.l, lambda) *
+           spectrum_at_dense(illuminant_d65, lambda);
+}
+
 element Primitive {
     shape : Shape;
+    // Which of the scene's lights this primitive emits as, or -1 for one that
+    // does not. Per primitive rather than per material because pbrt's
+    // `AreaLightSource` is a graphics-state directive like `Material` and the
+    // two are set independently -- killeroo-simple's emissive sphere has a
+    // `diffuse` material of its own.
+    light : i32;
     // pbrt: the Material a shape was declared under, which is a pointer there
     // because a scene has a handful of materials and thousands of shapes. Here
     // it is an index into `materials` for the same reason: killeroo-simple has
@@ -159,6 +202,85 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
     return {};
 }
 
+// pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
+//
+// The simplest integrator pbrt has, and the right one to arrive first: it never
+// samples a light, so it needs no `SampleLi`, no light PDF and no shadow ray.
+// It finds a light by scattering into one, which makes it very noisy and makes
+// everything it does depend on nothing but the BSDF and the sampler -- both of
+// which are already checked against pbrt on their own.
+//
+// pbrt recurses and bounds the recursion by `maxdepth`; this is the same walk
+// as a loop carrying the throughput, which is what a bounded recursion is. The
+// draws from the sampler happen in the same order either way, and that is what
+// has to be preserved: one `get_2d` per bounce, taken before the ray for the
+// next bounce is built.
+//
+// `beta` is pbrt's throughput and `l` the radiance found so far. The estimator
+// divides by a density that does not depend on direction -- the walk scatters
+// uniformly over the whole sphere, including into the surface -- which is why
+// this is unbiased despite knowing nothing about the BSDF it is sampling.
+func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
+                    state : mut SamplerState, seed : i32,
+                    max_depth : i32) -> vec4f {
+    l : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+    beta : mut vec4f = vec4f{1.0, 1.0, 1.0, 1.0};
+    ray : mut Ray = r0;
+    // pbrt leaves by `return`; this carries the reason instead. Nothing below
+    // draws from the sampler once it is set, so the stream is unaffected.
+    done : mut bool = false;
+
+    depth : mut i32 = 0;
+    while (depth <= max_depth) && !done {
+        isect : option[Primitive] = trace(ray);
+        if !isect {
+            // pbrt sums `light.Le(ray)` over the infinite lights here. This app
+            // has none -- killeroo-simple is lit by an emissive sphere -- so a
+            // ray that escapes carries nothing, and adding an infinite light
+            // later is adding it here.
+            done = true;
+        } else {
+            prim = *isect;
+            surf = surface_geometry(prim.shape, ray);
+            wo = unit_vector_(-ray.d);
+
+            // pbrt: SurfaceInteraction::Le. The emission of the surface the ray
+            // landed on, which for a random walk is the only way light is ever
+            // found.
+            if prim.light >= 0 {
+                l = l + beta * area_light_l(lights[prim.light], surf.n, wo,
+                                            lambda);
+            }
+
+            if depth == max_depth {
+                done = true;
+            } else {
+                // pbrt: GetBSDF, then a direction sampled uniformly over the
+                // sphere, then `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
+                shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
+                u = get_2d(sampler, state);
+                wp = sample_uniform_sphere(u);
+                fcos = material_f(materials[prim.material],
+                                  frame_to_local(shading, wo),
+                                  frame_to_local(shading, wp), lambda, seed) *
+                       abs(dot(wp, surf.ns));
+                if !nonzero(fcos) {
+                    done = true;
+                } else {
+                    beta = beta * fcos / uniform_sphere_pdf();
+                    // pbrt: SurfaceInteraction::SpawnRay, which offsets the
+                    // origin off the surface by the hit point's own error
+                    // bound. Without it the next ray finds the surface it just
+                    // left, at a distance of nearly zero.
+                    ray = spawn_ray(surf, wp);
+                }
+            }
+        }
+        depth = depth + 1;
+    }
+    return l;
+}
+
 // pbrt: the render loop, which in v4 is ParallelFor2D over the film tiles.
 // One flat loop over pixels rather than two nested ones, because the schedule
 // wants a single index to bind.
@@ -170,9 +292,10 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
 // The film has no size on it: the caller owns the allocation, and how many
 // pixels there are is the resolution, which is already here.
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
-                       sampler : Sampler, seed : i32,
+                       sampler : Sampler, seed : i32, max_depth : i32,
                        normal_out : mut array[vec3f],
-                       albedo_out : mut array[vec3f]) -> void {
+                       albedo_out : mut array[vec3f],
+                       radiance_out : mut array[vec3f]) -> void {
     spp = samples_per_pixel(sampler);
     parfor p in 0u:(width * height) {
         i = p % width;
@@ -180,6 +303,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
 
         normal_out[p] = vec3f{0.0, 0.0, 0.0};
         albedo_out[p] = vec3f{0.0, 0.0, 0.0};
+        radiance_out[p] = vec3f{0.0, 0.0, 0.0};
 
         // The samples of a pixel are a parfor and an atomic accumulate, not a
         // sequential loop, because a sequential loop cannot be scheduled: the
@@ -216,11 +340,20 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                 atomic normal_out[p] += surface.n;
                 atomic albedo_out[p] += surface.albedo;
             }
+
+            // The radiance, which is the render. Traced from the same ray as
+            // the gbuffer channels above and drawing from the same sampler
+            // afterwards, exactly as pbrt does: its `Li` runs after the camera
+            // sample and the visible surface is filled in along the way.
+            radiance = li_random_walk(ray, lambda, sampler, state, seed,
+                                      max_depth);
+            atomic radiance_out[p] += spectrum_to_rgb(radiance, lambda);
         }
 
         inv = 1.0 / cast[[Float]](spp);
         normal_out[p] = normal_out[p] * inv;
         albedo_out[p] = albedo_out[p] * inv;
+        radiance_out[p] = radiance_out[p] * inv;
     }
     return;
 }

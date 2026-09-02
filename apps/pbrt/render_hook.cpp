@@ -641,7 +641,7 @@ int main(int argc, char **argv) {
             shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
                               &triangle_fill);
         }
-        shapes.push_back(Primitive{shape, s.material});
+        shapes.push_back(Primitive{shape, s.light, s.material});
     }
     if (sphere_fill != sphere_pool.size() ||
         triangle_fill != triangle_pool.size()) {
@@ -671,6 +671,27 @@ int main(int argc, char **argv) {
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
     float3 *albedo = (float3 *)malloc(sizeof(float3) * npixels);
+    float3 *radiance = (float3 *)malloc(sizeof(float3) * npixels);
+
+    // The lights, with L fitted the same way every other spectrum is. An
+    // illuminant rather than an albedo, which is why the fit is of L divided by
+    // twice its largest component and the scale carries that factor back:
+    // pbrt's RGBIlluminantSpectrum is a fit scaled to fit inside the sigmoid,
+    // multiplied by the colour space's own illuminant.
+    std::vector<AreaLight> lights;
+    lights.reserve(loaded.lights.size());
+    for (const bonsai_scene::Light &l : loaded.lights) {
+        const float m = std::max({l.l[0], l.l[1], l.l[2]});
+        const float rsp_scale = 2.f * m;
+        const float inv = rsp_scale == 0.f ? 0.f : 1.f / rsp_scale;
+        const rgb2spec::Coefficients c = rgb2spec::fit(
+            fit_tables, l.l[0] * inv, l.l[1] * inv, l.l[2] * inv);
+        AreaLight out_light;
+        out_light.l = SigmoidPolynomial{c.c0, c.c1, c.c2};
+        out_light.scale = l.scale * rsp_scale;
+        out_light.two_sided = l.two_sided != 0;
+        lights.push_back(out_light);
+    }
 
     // The tables the spectral conversion reads, as the generated header wants
     // them. Checked against a running pbrt by `scene_dump --check-tables`.
@@ -700,9 +721,10 @@ int main(int argc, char **argv) {
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, loaded.seed,
-               out, albedo, meshes.data(), loaded.indices.data(),
-               positions.data(), normals.data(), uvs.data(), x, y, z, d65,
-               primes, materials.data(), rho_uc, rho_ux, rho_uy, tree,
+               loaded.max_depth, out, albedo, radiance, meshes.data(),
+               loaded.indices.data(), positions.data(), normals.data(),
+               uvs.data(), x, y, z, d65, primes, lights.data(),
+               materials.data(), rho_uc, rho_ux, rho_uy, tree,
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
@@ -735,20 +757,24 @@ int main(int argc, char **argv) {
         return bool(pfm);
     };
 
-    const std::string albedo_output =
-        std::string(output).substr(0, std::string(output).rfind('.')) +
-        "-albedo.pfm";
-    const bool wrote = write_pfm(output, out) && write_pfm(albedo_output, albedo);
+    const std::string stem =
+        std::string(output).substr(0, std::string(output).rfind('.'));
+    const std::string albedo_output = stem + "-albedo.pfm";
+    const std::string radiance_output = stem + "-radiance.pfm";
+    const bool wrote = write_pfm(output, out) &&
+                       write_pfm(albedo_output, albedo) &&
+                       write_pfm(radiance_output, radiance);
     free(out);
     free(albedo);
+    free(radiance);
     free(tree.group0_index);
     if (!wrote) {
         return 1;
     }
 
-    std::cout << "wrote " << output << " and " << albedo_output << " ("
-              << width << 'x' << height << ", " << shapes.size()
-              << " shapes)\n";
+    std::cout << "wrote " << output << ", " << albedo_output << " and "
+              << radiance_output << " (" << width << 'x' << height << ", "
+              << shapes.size() << " shapes)\n";
     // Parsed by compare.sh. Kept to a line of its own so that it stays easy
     // to find without the script having to understand anything else here.
     std::cout << "render seconds: " << seconds << '\n';
