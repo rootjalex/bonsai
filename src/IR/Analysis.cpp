@@ -544,11 +544,59 @@ std::set<std::string> mutated_variables(Stmt stmt) {
         void visit(const Append *node) override {
             mutated.insert(node->loc.base);
         }
+
+        // An atomic add writes through its pointer, so whatever that pointer
+        // was taken of is written to. Not every PtrTo is a write -- this is
+        // the one node that says the pointer is about to be stored through.
+        void visit(const AtomicAdd *node) override {
+            Expr root = node->ptr;
+            while (true) {
+                if (const PtrTo *ptr = root.as<PtrTo>()) {
+                    root = ptr->expr;
+                } else if (const Extract *at = root.as<Extract>()) {
+                    root = at->vec;
+                } else if (const Access *field = root.as<Access>()) {
+                    root = field->value;
+                } else {
+                    break;
+                }
+            }
+            if (const Var *var = root.as<Var>()) {
+                mutated.insert(var->name);
+            }
+            Visitor::visit(node);
+        }
     };
 
     Gather g;
     stmt.accept(&g);
     return std::move(g.mutated);
+}
+
+std::set<std::string> called_functions(Stmt stmt) {
+    struct Gather : Visitor {
+        std::set<std::string> called;
+
+        void note(const Expr &func) {
+            if (const Var *var = func.as<Var>()) {
+                called.insert(var->name);
+            }
+        }
+
+        void visit(const Call *node) override {
+            note(node->func);
+            Visitor::visit(node);
+        }
+
+        void visit(const CallStmt *node) override {
+            note(node->func);
+            Visitor::visit(node);
+        }
+    };
+
+    Gather g;
+    stmt.accept(&g);
+    return std::move(g.called);
 }
 
 bool reads(Expr expr, const std::set<std::string> &vars) {

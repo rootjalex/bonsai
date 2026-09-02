@@ -110,6 +110,12 @@ uint64_t count(const Expr &expr) {
 
 std::set<std::string> mutated_variables(Stmt stmt);
 
+// The names of the functions `stmt` calls, directly.
+//
+// Only the ones named by a Var, which is every call to a function the program
+// declares. A call through anything else names nothing to return.
+std::set<std::string> called_functions(Stmt stmt);
+
 bool reads(Expr expr, const std::set<std::string> &vars);
 bool reads(Stmt stmt, const std::set<std::string> &vars);
 

@@ -74,6 +74,10 @@ ir::Program LowerExterns::run(ir::Program program,
         lower::func_topological_order(program.funcs, /*undef_calls=*/false);
 
     std::map<std::string, VarList> funcs_with_externs;
+    // Which of a function's extern parameters it writes to, directly or
+    // through something it calls. Filled in topological order, so a callee's
+    // answer is known by the time a caller needs it.
+    std::map<std::string, std::set<std::string>> writes_externs;
 
     for (const std::string &f : topo_order) {
         auto &func = program.funcs[f];
@@ -85,6 +89,24 @@ ir::Program LowerExterns::run(ir::Program program,
         if (free_vars.empty()) {
             continue;
         }
+        // An extern this function writes to arrives as a mutating parameter.
+        // Storing through one that says it does not mutate leaves the write
+        // with nowhere to land: what a non-mutating parameter names is a copy,
+        // and the passes downstream that turn a write into a store through a
+        // pointer go looking for a definition of the name and find none. In
+        // C++ it is the difference between `Sph*` and `const Sph*`.
+        //
+        // Writing to one includes handing it to something that writes to it.
+        // A function that only forwards an extern still has to take it
+        // mutably, or the call it forwards to will not type-check.
+        std::set<std::string> written = ir::mutated_variables(func->body);
+        for (const std::string &callee : ir::called_functions(func->body)) {
+            const auto found = writes_externs.find(callee);
+            if (found != writes_externs.end()) {
+                written.insert(found->second.begin(), found->second.end());
+            }
+        }
+        writes_externs[f] = written;
 
         std::vector<ir::Function::Argument> new_args(free_vars.size());
         // The same externs in the same order, to hand to the callers.
@@ -114,7 +136,7 @@ ir::Program LowerExterns::run(ir::Program program,
 
             new_args[counter].name = ext.name;
             new_args[counter].type = ext.type;
-            new_args[counter].mutating = false;
+            new_args[counter].mutating = written.contains(ext.name);
             ordered[counter] = *it;
             counter++;
         }
