@@ -2,8 +2,10 @@ type Float = f32
 type Half = f16
 type Shape = | Sph(center : f32x3, radius : f32) | Tri(p0 : f32x3, p1 : f32x3, p2 : f32x3)
 type Spectrum = | Constant(c : f32) | Scaled(inner : f32, scale : f32)
+type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
+type vec4f = f32x4
 
 func [[export]] area(s : Shape) -> f32 {
   match s {

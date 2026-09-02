@@ -8,8 +8,10 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
+type vec4f = f32x4
 
 extern points : tree[[struct Point{ vec : f32x3 }]] PointBVH
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)

@@ -17,8 +17,10 @@ type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : stru
 type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
 type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
+type vec4f = f32x4
 
 extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[nCount] }
 

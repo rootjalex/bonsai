@@ -1025,6 +1025,29 @@ distmin_Ray_Triangle_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @dot_(<3 x float> noundef %a, <3 x float> noundef %b) local_unnamed_addr #1 {
+dot__entry:
+  %0 = extractelement <3 x float> %a, i64 2
+  %1 = extractelement <3 x float> %b, i64 2
+  %2 = extractelement <3 x float> %a, i64 0
+  %3 = extractelement <3 x float> %b, i64 0
+  %4 = fmul <3 x float> %a, %b
+  %5 = extractelement <3 x float> %4, i64 1
+  %6 = tail call float @llvm.fma.f32(float %2, float %3, float %5)
+  %7 = tail call float @llvm.fma.f32(float %0, float %1, float %6)
+  ret float %7
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <3 x float> @fma3(float noundef %a, <3 x float> noundef %b, <3 x float> noundef %c) local_unnamed_addr #1 {
+fma3_entry:
+  %0 = insertelement <3 x float> poison, float %a, i64 0
+  %1 = shufflevector <3 x float> %0, <3 x float> poison, <3 x i32> zeroinitializer
+  %2 = tail call <3 x float> @llvm.fma.v3f32(<3 x float> %1, <3 x float> %b, <3 x float> %c)
+  ret <3 x float> %2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @gamma(i32 noundef %n) local_unnamed_addr #1 {
 gamma_entry:
   %0 = sitofp i32 %n to float
@@ -1589,6 +1612,24 @@ near_zero_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <3 x float> @prod_diff3(float noundef %a, <3 x float> noundef %b, float noundef %c, <3 x float> noundef %d) local_unnamed_addr #1 {
+prod_diff3_entry:
+  %.splatinsert = insertelement <3 x float> poison, float %c, i64 0
+  %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
+  %0 = fmul <3 x float> %.splat, %d
+  %1 = insertelement <3 x float> poison, float %a, i64 0
+  %2 = shufflevector <3 x float> %1, <3 x float> poison, <3 x i32> zeroinitializer
+  %3 = fsub <3 x float> zeroinitializer, %0
+  %4 = tail call <3 x float> @llvm.fma.v3f32(<3 x float> %2, <3 x float> %b, <3 x float> %3)
+  %5 = fsub float 0.000000e+00, %c
+  %6 = insertelement <3 x float> poison, float %5, i64 0
+  %7 = shufflevector <3 x float> %6, <3 x float> poison, <3 x i32> zeroinitializer
+  %8 = tail call <3 x float> @llvm.fma.v3f32(<3 x float> %7, <3 x float> %d, <3 x float> %0)
+  %9 = fadd <3 x float> %8, %4
+  ret <3 x float> %9
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <3 x float> @reflect(<3 x float> noundef %v, <3 x float> noundef %n) local_unnamed_addr #1 {
 reflect_entry:
   %0 = fmul <3 x float> %v, %n
@@ -1653,6 +1694,18 @@ refract_entry:
   ret <3 x float> %19
 }
 
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @sqlen_(<3 x float> noundef %v) local_unnamed_addr #1 {
+sqlen__entry:
+  %0 = extractelement <3 x float> %v, i64 2
+  %1 = extractelement <3 x float> %v, i64 0
+  %2 = fmul <3 x float> %v, %v
+  %3 = extractelement <3 x float> %2, i64 1
+  %4 = tail call float @llvm.fma.f32(float %1, float %1, float %3)
+  %5 = tail call float @llvm.fma.f32(float %0, float %0, float %4)
+  ret float %5
+}
+
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @trace(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %ray, ptr nocapture noundef nonnull readonly %triangles) local_unnamed_addr #2 {
 trace_entry:
@@ -1705,6 +1758,22 @@ unit_vector_entry:
   ret <3 x float> %8
 }
 
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <3 x float> @unit_vector_(<3 x float> noundef %v) local_unnamed_addr #1 {
+unit_vector__entry:
+  %0 = extractelement <3 x float> %v, i64 2
+  %1 = extractelement <3 x float> %v, i64 0
+  %2 = fmul <3 x float> %v, %v
+  %3 = extractelement <3 x float> %2, i64 1
+  %4 = tail call float @llvm.fma.f32(float %1, float %1, float %3)
+  %5 = tail call noundef float @llvm.fma.f32(float %0, float %0, float %4)
+  %6 = tail call float @llvm.sqrt.f32(float %5)
+  %.splatinsert = insertelement <3 x float> poison, float %6, i64 0
+  %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
+  %7 = fdiv <3 x float> %v, %.splat
+  ret <3 x float> %7
+}
+
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare <3 x float> @llvm.maxnum.v3f32(<3 x float>, <3 x float>) #3
 
@@ -1725,6 +1794,9 @@ declare float @llvm.sqrt.f32(float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.maxnum.f32(float, float) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <3 x float> @llvm.fma.v3f32(<3 x float>, <3 x float>, <3 x float>) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.minnum.f32(float, float) #3

@@ -1,6 +1,8 @@
 element Float = f32;
 element Half = f16;
+element vec2f = vector[Float, 2];
 element vec3f = vector[Float, 3];
+element vec4f = vector[Float, 4];
 element vec3h = vector[Half, 3];
 
 func sqlen<F : IFloat>(v : vector[F, 3]) -> F = sum(v * v);
@@ -11,6 +13,46 @@ func prod_diff<F : IFloat>(a : F, b : F, c : F, d : F) -> F {
     err = fma(-c, d, cd);
     return diff + err;
 }
+
+// A scalar times a vector, added to a vector, fused per component. This is what
+// a C++ compiler with contraction on makes of `a * b + c` where b and c are
+// vectors, and pbrt writes several of those.
+func fma3(a : Float, b : vec3f, c : vec3f) -> vec3f =
+    fma(vec3f{a, a, a}, b, c);
+
+// The same difference of products with vectors in the second and fourth
+// places, which is how a triangle's partial derivatives are written: two scalar
+// weights against two edge vectors, and the cancellation the fma protects
+// against is per component.
+func prod_diff3(a : Float, b : vec3f, c : Float, d : vec3f) -> vec3f {
+    cd = c * d;
+    diff = fma(vec3f{a, a, a}, b, -cd);
+    err = fma(vec3f{-c, -c, -c}, d, cd);
+    return diff + err;
+}
+
+// The dot product, its square and the normalization built on them, as a C++
+// compiler with contraction on computes them.
+//
+// `x*a + y*b + z*c` is three multiplies and two adds as written, and a compiler
+// with contraction on turns each add together with a multiply feeding it into
+// one fused multiply-add, which rounds once where the pair rounds twice. Which
+// multiply gets fused into which add is what has to be reproduced, and the rule
+// is: in `p*q + r*s` the first product is fused and the second is the addend.
+// So `(x*a + y*b) + z*c` becomes `fma(z, c, fma(x, a, y*b))` -- checked against
+// pbrt's own answers by `apps/pbrt/scene_dump --print-shading` rather than
+// reasoned about, because the alternative groupings differ in the last bit and
+// a last bit is the whole difference between reproducing something and merely
+// resembling it.
+//
+// The `dot` intrinsic fuses nothing. Use these where the answer has to be a
+// particular compiler's answer, and `dot` where it only has to be right.
+func dot_(a : vec3f, b : vec3f) -> Float =
+    fma(a.z, b.z, fma(a.x, b.x, a.y * b.y));
+
+func sqlen_(v : vec3f) -> Float = dot_(v, v);
+
+func unit_vector_(v : vec3f) -> vec3f = v / sqrt(sqlen_(v));
 
 // TODO(ajr): need nested generics for generic here.
 func cross_(v0 : vec3f, v1 : vec3f) -> vec3f {
