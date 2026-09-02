@@ -41,16 +41,38 @@ func average_over_pdf(v : vec4f, w : SampledWavelengths) -> Float {
     return sum(select(w.pdf == 0.0, 0.0, v / w.pdf)) / 4.0;
 }
 
-func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
-    x = average_over_pdf(spectrum_at_dense(cie_x, w) * s, w);
-    y = average_over_pdf(spectrum_at_dense(cie_y, w) * s, w);
-    z = average_over_pdf(spectrum_at_dense(cie_z, w) * s, w);
-    xyz = vec3f{x, y, z} / 106.856895;
+// pbrt: SampledSpectrum::ToXYZ, which divides by the CIE Y integral, and
+// PixelSensor::ToSensorRGB, which does not.
+//
+// The two paths differ by exactly that constant and the difference is not a
+// detail: a reflectance is a ratio and has to come out at one for a perfect
+// reflector, which is what dividing by 106.857 arranges; a radiance is a
+// quantity and pbrt's sensor carries it through unnormalized, scaled instead by
+// the imaging ratio -- `exposureTime * ISO / 100`, which is one at pbrt's
+// defaults. Normalizing a radiance too makes an image uniformly a hundred times
+// too dim, which looks like a light that is too weak rather than like a bug.
+func xyz_of(s : vec4f, w : SampledWavelengths) -> vec3f {
+    return vec3f{average_over_pdf(spectrum_at_dense(cie_x, w) * s, w),
+                 average_over_pdf(spectrum_at_dense(cie_y, w) * s, w),
+                 average_over_pdf(spectrum_at_dense(cie_z, w) * s, w)};
+}
 
-    // pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because
-    // the driver would otherwise have to pass a matrix that never changes.
+// pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because the
+// driver would otherwise have to pass a matrix that never changes.
+func rgb_of_xyz(xyz : vec3f) -> vec3f {
     return vec3f{
         3.2406 * xyz.x - 1.5372 * xyz.y - 0.4986 * xyz.z,
         -0.9689 * xyz.x + 1.8758 * xyz.y + 0.0415 * xyz.z,
         0.0557 * xyz.x - 0.2040 * xyz.y + 1.0570 * xyz.z};
+}
+
+// A reflectance, normalized so that a perfect reflector is one.
+func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
+    return rgb_of_xyz(xyz_of(s, w) / 106.856895);
+}
+
+// A radiance, as pbrt's sensor records it. The imaging ratio is one at pbrt's
+// default exposure and ISO, so nothing scales this.
+func radiance_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
+    return rgb_of_xyz(xyz_of(s, w));
 }

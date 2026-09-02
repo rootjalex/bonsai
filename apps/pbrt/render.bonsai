@@ -326,9 +326,25 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // uniform.
             lambda = sample_wavelengths_visible(get_1d(sampler, state));
 
-            // pbrt: GetCameraSample. With --disable-pixel-jitter every sample
-            // sits at the pixel's centre and weighs one, so the film's
-            // weighted sum is a plain average.
+            // pbrt: GetCameraSample, draws and all.
+            //
+            // The three draws happen and their results are thrown away, which
+            // is what pbrt does: it samples the filter, the time and the lens
+            // and *then* overwrites all three when --disable-pixel-jitter is
+            // set. Skipping them instead leaves the sampler three draws behind
+            // pbrt's for everything that comes after -- which is invisible in a
+            // gbuffer, where nothing else draws, and is the whole difference in
+            // a render, where the walk's every scattering direction comes from
+            // the stream. Two estimators of the same integral that consume
+            // different numbers agree on their average and on nothing else.
+            //
+            // The filter is not sampled from `pixel_u` yet: with the jitter off
+            // its result is discarded, so what matters here is that the draw
+            // happened. Turning the jitter on is what makes it matter, and
+            // needs pbrt's gaussian filter.
+            pixel_u = get_pixel_2d(sampler, state);
+            time_u = get_1d(sampler, state);
+            lens_u = get_2d(sampler, state);
             sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
                                         cast[[Float]](j) + 0.5},
                                   vec2f{0.5, 0.5}, 0.5, 1.0};
@@ -347,7 +363,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // sample and the visible surface is filled in along the way.
             radiance = li_random_walk(ray, lambda, sampler, state, seed,
                                       max_depth);
-            atomic radiance_out[p] += spectrum_to_rgb(radiance, lambda);
+            atomic radiance_out[p] += radiance_to_rgb(radiance, lambda);
         }
 
         inv = 1.0 / cast[[Float]](spp);

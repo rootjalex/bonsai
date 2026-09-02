@@ -901,6 +901,47 @@ void print_bsdf() {
 // numbers written down on both sides -- the same reason print_bsdf constructs
 // its BxDFs. What tests/bonsai/correctness/llvm's shading-frame golden holds is
 // this output.
+// What a DiffuseAreaLight actually emits, asked of pbrt.
+//
+// The scale a light carries is the one piece of a scene that cannot be checked
+// by looking at the picture: it multiplies every lit pixel equally, so getting
+// it wrong is a render that is uniformly too bright or too dim and otherwise
+// perfectly correct. This prints pbrt's own answer for the light
+// killeroo-simple declares, built through the same `Create` path pbrt uses.
+void print_light() {
+    // `AreaLightSource "diffuse" "rgb L" [2000 2000 2000]`, which is
+    // killeroo-simple's, and a unit one for contrast.
+    const pbrt::Float rgbs[][3] = {{2000.f, 2000.f, 2000.f},
+                                   {1.f, 1.f, 1.f},
+                                   {0.4f, 0.8f, 0.2f}};
+    pbrt::SampledWavelengths lambda =
+        pbrt::SampledWavelengths::SampleVisible(0.5f);
+    printf("lambda");
+    for (int i = 0; i < 4; i++) {
+        printf(" %.9g", double(lambda[i]));
+    }
+    printf("\n");
+
+    for (const auto &rgb : rgbs) {
+        const pbrt::RGB c(rgb[0], rgb[1], rgb[2]);
+        // What GetOneSpectrum(..., SpectrumType::Illuminant) builds.
+        pbrt::RGBIlluminantSpectrum emitted(*pbrt::RGBColorSpace::sRGB, c);
+        const pbrt::Float photometric =
+            pbrt::SpectrumToPhotometric(&emitted);
+        // DiffuseAreaLight::Create: `scale /= SpectrumToPhotometric(L)`, with
+        // the scene's own scale of one.
+        const pbrt::Float scale = 1.f / photometric;
+        const pbrt::SampledSpectrum sampled = emitted.Sample(lambda);
+        printf("light %g %g %g | photometric %.9g scale %.9g |", double(rgb[0]),
+               double(rgb[1]), double(rgb[2]), double(photometric),
+               double(scale));
+        for (int i = 0; i < 4; i++) {
+            printf(" %.9g", double(scale * sampled[i]));
+        }
+        printf("\n");
+    }
+}
+
 void print_shading() {
     pbrt::Allocator alloc;
     // Two triangles sharing an edge, at a scale and an angle nothing about is
@@ -1905,6 +1946,7 @@ int main(int argc, char **argv) {
     bool sampler_only = false;
     bool bsdf_only = false;
     bool shading_only = false;
+    bool light_only = false;
     // --reference writes the gbuffer PBRT would have written, rendered with
     // PBRT's own camera, aggregate and BSDFs. It is how the comparison runs on
     // a scene someone else wrote: those say `Film "rgb"`, PBRT has no
@@ -1924,6 +1966,8 @@ int main(int argc, char **argv) {
             bsdf_only = true;
         } else if (arg == "--print-shading") {
             shading_only = true;
+        } else if (arg == "--print-light") {
+            light_only = true;
         } else if (arg == "--reference") {
             if (i + 1 >= argc) {
                 fail("--reference needs a path prefix to write to");
@@ -1934,7 +1978,7 @@ int main(int argc, char **argv) {
         }
     }
     if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
-        positional.size() != 2) {
+        !light_only && positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] [--reference <prefix>]"
              " <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
@@ -1967,6 +2011,11 @@ int main(int argc, char **argv) {
     }
     if (shading_only) {
         print_shading();
+        pbrt::CleanupPBRT();
+        return 0;
+    }
+    if (light_only) {
+        print_light();
         pbrt::CleanupPBRT();
         return 0;
     }
