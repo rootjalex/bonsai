@@ -92,45 +92,34 @@ fi
 # none for the film. Verified against the binary on a scene that does ask for a
 # gbuffer: the normals are identical once ours are rounded to the half floats
 # the binary stores.
-DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" --reference "$WORK/pbrt" \
-    "$SCENE" "$WORK/scene.txt")
-echo "$DUMP_OUT"
-# What the pbrt binary will write this scene to, which is the scene's business
-# and differs from one to the next.
-FILM_FILE=$(echo "$DUMP_OUT" | sed -n 's/^scene_dump: film filename //p')
-
 # Both sides are timed as the best of several runs. Every source of noise on a
 # shared machine adds time and none removes it, so the minimum is the closest
 # estimate of how long the work actually takes; a mean would be an estimate of
 # how busy the machine was. REPEATS=1 to skip it.
 REPEATS="${REPEATS:-5}"
 
-# The pbrt binary, run only for its render time now that the images come from
-# scene_dump. --disable-pixel-jitter puts the sample at the pixel centre, which
-# is where this renderer puts its samples.
+# pbrt's side is timed inside scene_dump, rendering the same three channels
+# with pbrt's own code, rather than by running the pbrt binary.
 #
-# pbrt renders once per invocation, so repeating means running it again -- and
-# paying for parsing and the BVH build each time, which is why its own reported
-# time is what gets compared rather than the wall clock out here.
+# The binary was the wrong thing to time and had been for a while. It renders
+# whatever integrator the scene names -- none, in killeroo-simple, so pbrt's
+# default of volpath -- into an `rgb` film, which computes no VisibleSurface and
+# no reflectance. This renderer computes normals, a sixteen-sample reflectance
+# and a random walk. Comparing those two says nothing about the schedule: it
+# says volpath and randomwalk are different algorithms, and that one side was
+# also filling in a gbuffer.
 #
-# Wavelength jitter is left on. Both sides draw the wavelength from the scene's
-# sampler as its sample's first 1D value, and this renderer reproduces pbrt's
-# stream exactly -- see sampler.bonsai -- so the two draw the same four
-# wavelengths for the same pixel and sample. Turning the jitter off would fix
-# them both at u = 0.5 and hide any disagreement about the sampler.
-PBRT_SECONDS=""
-for _ in $(seq 1 "$REPEATS"); do
-  (cd "$WORK" && "$PBRT" --disable-pixel-jitter --quiet "$SCENE")
-  # pbrt's own render time, which its progress reporter measures from after the
-  # scene and the BVH are built.
-  RUN=$("$IMGTOOL" info "$WORK/$FILM_FILE" |
-      sed -n 's/.*render time:.*(total \([0-9.]*\)s).*/\1/p')
-  PBRT_SECONDS=$(awk -v best="$PBRT_SECONDS" -v now="$RUN" \
-      'BEGIN { if (best == "" || now + 0 < best + 0) print now; else print best }')
-done
-
-# pbrt.pfm and pbrt-albedo.pfm were written by `scene_dump --reference` above,
-# at full float rather than the half floats the binary's EXR holds.
+# What is timed now is pbrt's intersection, pbrt's rho and pbrt's
+# RandomWalkIntegrator over the same samples of the same pixels -- the same
+# work, so the difference is the thing being measured.
+#
+# Wavelength jitter is left on, and pixel jitter off, both by the options
+# main() sets before parsing; the reference render reads pbrt's own options, so
+# there is no second implementation of what those flags mean.
+DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" --reference "$WORK/pbrt" \
+    --repeats "$REPEATS" "$SCENE" "$WORK/scene.txt")
+echo "$DUMP_OUT"
+PBRT_SECONDS=$(echo "$DUMP_OUT" | sed -n 's/^scene_dump: reference seconds: //p')
 
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats

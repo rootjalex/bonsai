@@ -353,19 +353,16 @@ def main(argv):
             else:
                 print(f" ({1.0 / speedup:.2f}x slower than pbrt)", end="")
         print()
-        # Said out loud because the ratio above invites being quoted, and on
-        # its own it would be dishonest twice over: pbrt runs a path integrator
-        # where this renders the nearest hit and stops, so it is doing strictly
-        # more work; and pbrt reports its time to the nearest 10ms, which at
-        # this scene size is most of the measurement.
         if repeats is not None and repeats > 1:
             print(f"  (best of {int(repeats)} runs on each side)")
-        print("  (not the same work: pbrt integrates a path, this returns the "
-              "nearest hit)")
-        if pbrt_seconds <= 0.05:
-            print("  (pbrt's time is reported to 10ms, so this is near the "
-                  "limit of what it can tell us -- render at a larger "
-                  "resolution before quoting it)")
+        # Both sides render the same three channels over the same samples of
+        # the same pixels, pbrt's through pbrt's own code inside scene_dump.
+        # That was not always true, and the note that used to sit here said so:
+        # the pbrt binary ran a path integrator into an rgb film while this
+        # filled in a gbuffer as well, and the ratio compared two different
+        # workloads plus a difference of algorithm.
+        print("  (the same work on both sides: normals, a sixteen-sample "
+              "reflectance, and a random walk)")
 
     # Only disagreements away from an edge are failures. A silhouette pixel is
     # a grazing ray, and which surface it lands on is decided by how carefully

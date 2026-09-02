@@ -1363,7 +1363,8 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
 // work in removes the question rather than answering it.
 void render_reference(pbrt::BasicScene &scene,
                       const pbrt::RGBColorSpace *colour_space,
-                      int integrator_max_depth, const std::string &prefix) {
+                      int integrator_max_depth, int repeats,
+                      const std::string &prefix) {
     // Sampled at the pixel centre, which main() asked for before parsing began.
     // GetCameraSample below is PBRT's own and reads PBRT's own option, so there
     // is no second implementation of what that flag means.
@@ -1408,6 +1409,22 @@ void render_reference(pbrt::BasicScene &scene,
     pbrt::ThreadLocal<pbrt::Sampler> samplers(
         [&sampler]() { return sampler.Clone({}); });
 
+    // Timed, and this is the number worth comparing against. The pbrt binary
+    // renders this scene with whatever integrator the scene names -- none, for
+    // killeroo-simple, so PBRT's default of volpath -- into an rgb film, which
+    // computes no VisibleSurface and no reflectance. That is three differences
+    // at once from what the renderer does, and none of them is the schedule.
+    //
+    // What is below is the same work: PBRT's own intersection, PBRT's own rho,
+    // PBRT's own RandomWalkIntegrator, over the same samples of the same
+    // pixels. Best of `repeats`, as the other side is, and for the same reason:
+    // every source of noise adds time and none removes it.
+    double seconds = std::numeric_limits<double>::infinity();
+    for (int run = 0; run < repeats; run++) {
+        const auto started = std::chrono::steady_clock::now();
+        std::fill(normals.begin(), normals.end(), 0.f);
+        std::fill(albedos.begin(), albedos.end(), 0.f);
+        std::fill(radiances.begin(), radiances.end(), 0.f);
     pbrt::ParallelFor2D(bounds, [&](pbrt::Bounds2i tile) {
         pbrt::ScratchBuffer &scratch = buffers.Get();
         pbrt::Sampler tile_sampler = samplers.Get();
@@ -1519,6 +1536,10 @@ void render_reference(pbrt::BasicScene &scene,
             }
         }
     });
+        const auto finished = std::chrono::steady_clock::now();
+        seconds = std::min(
+            seconds, std::chrono::duration<double>(finished - started).count());
+    }
 
     const auto write = [&](const std::string &path,
                            const std::vector<float> &pixels) {
@@ -1544,6 +1565,8 @@ void render_reference(pbrt::BasicScene &scene,
            "(%dx%d, %d spp, randomwalk maxdepth %d)\n",
            prefix.c_str(), prefix.c_str(), prefix.c_str(), width, height, spp,
            integrator_max_depth);
+    // Parsed by compare.sh. On a line of its own, as the renderer's is.
+    printf("scene_dump: reference seconds: %g\n", seconds);
     // What PBRT's own binary would write this scene to, so that a comparison
     // script can find the image it timed. A scene names it and no two need
     // agree.
@@ -1556,7 +1579,7 @@ void render_reference(pbrt::BasicScene &scene,
 // allocated from out from under it. Doing this inline in main instead crashes
 // on the way out, because the locals outlive the cleanup call.
 void load(const char *filename, bonsai_scene::Scene &out,
-          const std::string &reference_prefix) {
+          const std::string &reference_prefix, int repeats) {
     std::vector<float> matrices;
     std::vector<bonsai_scene::Shape> &shapes = out.shapes;
 
@@ -1850,7 +1873,8 @@ void load(const char *filename, bonsai_scene::Scene &out,
         // The film's colour space rather than sRGB by assumption: it is what
         // GBufferFilm converts the albedo with, and a scene can name another.
         render_reference(scene, builder.film_params.ColorSpace(),
-                         builder.integrator_max_depth, reference_prefix);
+                         builder.integrator_max_depth, repeats,
+                         reference_prefix);
     }
 }
 
@@ -2010,6 +2034,7 @@ int main(int argc, char **argv) {
     bool bsdf_only = false;
     bool shading_only = false;
     bool light_only = false;
+    int repeats = 1;
     // --reference writes the gbuffer PBRT would have written, rendered with
     // PBRT's own camera, aggregate and BSDFs. It is how the comparison runs on
     // a scene someone else wrote: those say `Film "rgb"`, PBRT has no
@@ -2036,6 +2061,11 @@ int main(int argc, char **argv) {
                 fail("--reference needs a path prefix to write to");
             }
             reference_prefix = argv[++i];
+        } else if (arg == "--repeats") {
+            if (i + 1 >= argc) {
+                fail("--repeats needs a count");
+            }
+            repeats = std::max(1, atoi(argv[++i]));
         } else {
             positional.push_back(argv[i]);
         }
@@ -2084,7 +2114,7 @@ int main(int argc, char **argv) {
     }
 
     bonsai_scene::Scene scene;
-    load(positional[0], scene, reference_prefix);
+    load(positional[0], scene, reference_prefix, repeats);
     if (pbrt_tree) {
         build_pbrt_tree(scene);
     }
