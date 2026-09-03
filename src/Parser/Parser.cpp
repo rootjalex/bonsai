@@ -843,7 +843,7 @@ struct Parser {
             } else if (attribute == "kernel") {
                 attributes.push_back(ir::Function::Attribute::kernel);
             } else if (attribute == "inline") {
-                attributes.push_back(ir::Function::Attribute::inlined);
+                attributes.push_back(ir::Function::Attribute::always_inlined);
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }

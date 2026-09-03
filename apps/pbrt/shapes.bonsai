@@ -115,14 +115,14 @@ func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
     diz = vector_to_object(r.d.z);
 
     a = iadd(iadd(isqr(dix), isqr(diy)), isqr(diz));
-    b = imul(exact(2.0), iadd(iadd(imul(dix, oix), imul(diy, oiy)),
-                              imul(diz, oiz)));
+    b = imulf(2.0, iadd(iadd(imul(dix, oix), imul(diy, oiy)),
+                        imul(diz, oiz)));
     c = isub(iadd(iadd(isqr(oix), isqr(oiy)), isqr(oiz)),
              isqr(exact(s.radius)));
 
     // v = oi - (b / 2a) * di, the vector from the centre to the ray's closest
     // approach, and |v| its distance.
-    half = idiv(b, imul(exact(2.0), a));
+    half = idiv(b, imulf(2.0, a));
     vx = isub(oix, imul(half, dix));
     vy = isub(oiy, imul(half, diy));
     vz = isub(oiz, imul(half, diz));
@@ -131,7 +131,7 @@ func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
     // Grouped as pbrt groups it: ((4a)(r + |v|))(r - |v|). Interval
     // multiplication is not associative, so the grouping is part of the answer.
     radius = exact(s.radius);
-    discrim = imul(imul(imul(exact(4.0), a), iadd(radius, length)),
+    discrim = imul(imul(imulf(4.0, a), iadd(radius, length)),
                    isub(radius, length));
     // Certainly negative, rather than negative once rounded.
     if discrim.low < 0.0 {
@@ -140,9 +140,9 @@ func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
 
     root_discrim = isqrt(discrim);
     // The pairing that avoids cancelling in whichever root is small.
-    q : mut = imul(exact(-0.5), iadd(b, root_discrim));
+    q : mut = imulf(-0.5, iadd(b, root_discrim));
     if mid(b) < 0.0 {
-        q = imul(exact(-0.5), isub(b, root_discrim));
+        q = imulf(-0.5, isub(b, root_discrim));
     }
 
     t0 : mut = idiv(q, a);

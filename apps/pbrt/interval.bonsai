@@ -13,14 +13,14 @@ import stdlib/numerics;
 // representable value is the next bit pattern. This is what makes the interval
 // arithmetic below sound -- every operation is nudged outwards by one ulp, so
 // the interval is guaranteed to contain the exact answer.
-func next_float_up(v : Float) -> Float {
+func [[inline]] next_float_up(v : Float) -> Float {
     if v == inf { return v; }
     w = select(v == 0.0, 0.0, v);
     ui = reinterpret[[u32]](w);
     return reinterpret[[Float]](select(w >= 0.0, ui + 1u, ui - 1u));
 }
 
-func next_float_down(v : Float) -> Float {
+func [[inline]] next_float_down(v : Float) -> Float {
     if v == -inf { return v; }
     w = select(v == 0.0, -0.0, v);
     ui = reinterpret[[u32]](w);
@@ -30,16 +30,16 @@ func next_float_down(v : Float) -> Float {
 // pbrt: the outward-rounded operations of util/float.h. Without hardware
 // rounding modes these are the plain operation stepped one ulp the right way,
 // which is what pbrt itself does off the GPU.
-func add_round_up(a : Float, b : Float) -> Float = next_float_up(a + b);
-func add_round_down(a : Float, b : Float) -> Float = next_float_down(a + b);
-func sub_round_up(a : Float, b : Float) -> Float = add_round_up(a, -b);
-func sub_round_down(a : Float, b : Float) -> Float = add_round_down(a, -b);
-func mul_round_up(a : Float, b : Float) -> Float = next_float_up(a * b);
-func mul_round_down(a : Float, b : Float) -> Float = next_float_down(a * b);
-func div_round_up(a : Float, b : Float) -> Float = next_float_up(a / b);
-func div_round_down(a : Float, b : Float) -> Float = next_float_down(a / b);
-func sqrt_round_up(a : Float) -> Float = next_float_up(sqrt(a));
-func sqrt_round_down(a : Float) -> Float = max(0.0, next_float_down(sqrt(a)));
+func [[inline]] add_round_up(a : Float, b : Float) -> Float = next_float_up(a + b);
+func [[inline]] add_round_down(a : Float, b : Float) -> Float = next_float_down(a + b);
+func [[inline]] sub_round_up(a : Float, b : Float) -> Float = add_round_up(a, -b);
+func [[inline]] sub_round_down(a : Float, b : Float) -> Float = add_round_down(a, -b);
+func [[inline]] mul_round_up(a : Float, b : Float) -> Float = next_float_up(a * b);
+func [[inline]] mul_round_down(a : Float, b : Float) -> Float = next_float_down(a * b);
+func [[inline]] div_round_up(a : Float, b : Float) -> Float = next_float_up(a / b);
+func [[inline]] div_round_down(a : Float, b : Float) -> Float = next_float_down(a / b);
+func [[inline]] sqrt_round_up(a : Float) -> Float = next_float_up(sqrt(a));
+func [[inline]] sqrt_round_down(a : Float) -> Float = max(0.0, next_float_down(sqrt(a)));
 
 // pbrt: Interval, from util/math.h.
 element Interval {
@@ -47,27 +47,27 @@ element Interval {
 }
 
 // A value known exactly has zero width.
-func exact(v : Float) -> Interval {
+func [[inline]] exact(v : Float) -> Interval {
     i : Interval = {v, v};
     return i;
 }
 
 // pbrt: operator Float(), the value to use once the reasoning is done.
-func mid(i : Interval) -> Float = 0.5 * (i.low + i.high);
+func [[inline]] mid(i : Interval) -> Float = 0.5 * (i.low + i.high);
 
-func iadd(a : Interval, b : Interval) -> Interval {
+func [[inline]] iadd(a : Interval, b : Interval) -> Interval {
     r : Interval = {add_round_down(a.low, b.low), add_round_up(a.high, b.high)};
     return r;
 }
 
-func isub(a : Interval, b : Interval) -> Interval {
+func [[inline]] isub(a : Interval, b : Interval) -> Interval {
     r : Interval = {sub_round_down(a.low, b.high), sub_round_up(a.high, b.low)};
     return r;
 }
 
 // Every pairing of the endpoints, because the sign of either operand decides
 // which pairing is extreme.
-func imul(a : Interval, b : Interval) -> Interval {
+func [[inline]] imul(a : Interval, b : Interval) -> Interval {
     lo = min(min(mul_round_down(a.low, b.low), mul_round_down(a.high, b.low)),
              min(mul_round_down(a.low, b.high), mul_round_down(a.high, b.high)));
     hi = max(max(mul_round_up(a.low, b.low), mul_round_up(a.high, b.low)),
@@ -76,9 +76,31 @@ func imul(a : Interval, b : Interval) -> Interval {
     return r;
 }
 
-func in_range(v : Float, i : Interval) -> bool = (v >= i.low) & (v <= i.high);
+// pbrt: `operator*(Float f, Interval i)`, an interval scaled by an exact
+// number.
+//
+// Two multiplies rather than the eight `imul` does. A general interval product
+// has to consider all four pairings of the endpoints because either operand may
+// straddle zero; when one side is a single exact value its sign is known, so
+// the answer is its two products in the right order.
+//
+// pbrt writes this as an overload and reaches it whenever it multiplies by a
+// literal -- `2 * (...)`, `4 * a`, `-.5f * (...)`, which in a sphere
+// intersection is five times. Spelling those as `imul(exact(2.0), x)` here was
+// the same arithmetic and four times the work, and nothing in an image would
+// ever have shown it.
+func [[inline]] imulf(f : Float, i : Interval) -> Interval {
+    if f > 0.0 {
+        pos : Interval = {mul_round_down(f, i.low), mul_round_up(f, i.high)};
+        return pos;
+    }
+    neg : Interval = {mul_round_down(f, i.high), mul_round_up(f, i.low)};
+    return neg;
+}
 
-func idiv(a : Interval, b : Interval) -> Interval {
+func [[inline]] in_range(v : Float, i : Interval) -> bool = (v >= i.low) & (v <= i.high);
+
+func [[inline]] idiv(a : Interval, b : Interval) -> Interval {
     // A divisor straddling zero says nothing about the quotient.
     if in_range(0.0, b) {
         unbounded : Interval = {-inf, inf};
@@ -94,7 +116,7 @@ func idiv(a : Interval, b : Interval) -> Interval {
 
 // pbrt: Sqr(Interval). A square is never negative, so an interval containing
 // zero has zero for its lower bound rather than the smaller endpoint squared.
-func isqr(i : Interval) -> Interval {
+func [[inline]] isqr(i : Interval) -> Interval {
     alow = min(abs(i.low), abs(i.high));
     ahigh = max(abs(i.low), abs(i.high));
     lo = select(in_range(0.0, i), 0.0, mul_round_down(alow, alow));
@@ -102,7 +124,7 @@ func isqr(i : Interval) -> Interval {
     return r;
 }
 
-func isqrt(i : Interval) -> Interval {
+func [[inline]] isqrt(i : Interval) -> Interval {
     r : Interval = {sqrt_round_down(i.low), sqrt_round_up(i.high)};
     return r;
 }
