@@ -71,13 +71,14 @@ samples of the same pixels:
     area-light-path  simplepath  82,108 lit / 82,105 here          1.00012x
     area-light-mis   path        81,993 lit both sides             1.00012x
 
-It is also faster than pbrt on that same work: **1.37x on killeroo-simple**,
+It is also faster than pbrt on that same work: **1.43x on killeroo-simple**,
 1.67x on area-light-mis, 1.50x on area-light-path, 1.68x on area-light, and
 between 1.47x and 1.82x on the six gbuffer scenes. Killeroo's figure fell from
 1.56x when it stopped being a random walk: `path` spends its time in shadow
 rays, in `LayeredBxDF::PDF` and in MIS, and those are a different mix of work
-from the one the schedule was tuned against. Both sides do the same work, so
-the ratio is still the ratio — but where the time goes is worth re-measuring.
+from the one the schedule was tuned against. Both sides do the same work, so the
+ratio is still the ratio. Item 5 below won 6.6% of it back by asking `any` for a
+shadow ray instead of the nearest hit; item 4 is what is left to look at.
 
 Verified against pbrt directly, not by inspection:
 
@@ -463,28 +464,73 @@ and the refusal names what is missing.
 
 The schedule was tuned against a render whose cost was a traced ray and a
 sixteen-sample reflectance. It is not that any more, and the number moved:
-killeroo-simple was 1.56x faster than pbrt as a random walk and is 1.37x faster
+killeroo-simple was 1.56x faster than pbrt as a random walk and is 1.43x faster
 as a path. Both sides do the same work, so the ratio is still honest — but the
-mix of work is new and nothing has been profiled since it changed.
+mix of work is new.
 
-What is new in it, roughly in the order it is likely to matter:
+Shadow rays are done and are written up below. What is left, from a `perf` of
+the path render as it now stands (fractions of its own cycles):
 
-- **`LayeredBxDF::PDF`.** A third random walk, run once per light sample at
-  every `coateddiffuse` vertex, and killeroo-simple is two `coateddiffuse`
-  killeroos filling the frame. Nothing else added this round is a walk.
-- **Shadow rays.** `unoccluded` calls `trace`, which answers with the *nearest*
-  hit where an occlusion test only needs *any* hit. pbrt has `IntersectP` for
-  exactly this and it is the cheaper query: it can stop at the first
-  intersection rather than ordering the whole traversal. A `trace_any` here
-  would change no pixel, only the time, and the scheduling question it raises is
-  interesting — the same `filter`/`argmin` source with the `argmin` dropped.
-- **A path is longer than a walk of the same depth**, because Russian roulette
-  only starts killing at the second vertex and the throughput on a diffuse
-  bounce is not small.
+    _traverse_tree0     15.0   the camera and path rays
+    dielectric_sample_f 14.7   the layered walk's coating
+    sphere_roots        13.1   ray-sphere, in interval arithmetic
+    halton_dimension     8.3
+    triangle_hit         7.3
+    _traverse_tree1      7.1   the shadow rays
+    coated_sample_f      4.9
 
-The last `perf` on record is under "Once the render was a whole path" below and
-describes a different program. Redoing it is the cheapest thing on this list and
-would say which of the three above to look at.
+Two things in that list are worth a second look:
+
+- **`sphere_roots` at 13%, in a scene with one sphere in it.** It is the light,
+  and every shadow ray is aimed at it — so every shadow ray reaches the light's
+  own leaf and solves the quadratic there, in the outward-rounded interval
+  arithmetic `interval.bonsai` exists for. pbrt pays this too (its `IntersectP`
+  also has the light's primitive in the aggregate) so it is not a divergence,
+  but a scene where the emitter is not also the thing every ray points at would
+  measure very differently. Worth knowing before reading this profile as
+  typical.
+- **A layered BSDF is now over 20%** across `dielectric_sample_f` and
+  `coated_sample_f`, and that is before counting `LayeredBxDF::PDF`, which MIS
+  calls once per light sample at every `coateddiffuse` vertex.
+
+### 5. Shadow rays ask `any` now — and the lowering had a gap
+
+**Done.** `unoccluded` called `trace`, which answers with the *nearest* hit
+where an occlusion test only needs *any* hit. It is `trace_any` now, written as
+`any(pred, primitives)` — the same source as `trace` with the `argmin` taken
+off, which is the whole point: the algorithm says which question is being asked
+and the schedule decides what that costs. `contains(Ray, AABB)` had to be
+written to lower it, and it is `false`: a one-dimensional ray never contains a
+three-dimensional box, so the sufficient condition an `any` could settle on is
+never satisfiable and the saving has to come from stopping early instead.
+
+On killeroo-simple, best of three, every pixel bit-identical throughout:
+
+    trace, nearest hit                      14173.6 ms
+    any, as it was lowered                  13745.5 ms   1.031x
+    any, with the leaf prune fixed          13299.1 ms   1.066x
+
+The middle line is the finding. A 3% win was less than it should have been, and
+a `perf` said why: `_traverse_tree1` was cheaper than the traversal it replaced,
+but `triangle_hit` went *up* by 20% — 156 to 187 gigacycles. The lowered IR
+explained it. `build_filter` guards each element of a leaf with the predicate's
+bound over that leaf's volume, so `argmin(f, filter(p, tree))` tests a leaf's
+bounding box before any of its primitives; `RewriteQuantifier` did not, so a
+bare `any(p, tree)` ran the full primitive test on every element of every leaf
+it reached — no box test, and no check that the answer was already settled. A
+BVH leaf holds about four primitives, so that is one box test traded against
+four triangle intersections, every time.
+
+`Lower/Trees.cpp` puts the same two guards on a quantifier's yields that it
+already puts on its scans. `triangle_hit` fell to 139 gigacycles, below where it
+started, and the win went from 3.1% to 6.6%. `correctness/cpp/setops` checks
+`any` and `all` against a linear scan over the same data and passed throughout,
+which is what says this was a pruning change and not a semantic one; the two
+`lower/setops` goldens moved and were re-blessed.
+
+The general lesson is worth keeping: a query written the more specific way is
+not automatically lowered the better way, and the place to look when it is not
+is what the *other* lowerings of the same shape already do.
 
 ## What has been built, and what it cost
 
