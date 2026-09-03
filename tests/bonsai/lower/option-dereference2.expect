@@ -1,15 +1,15 @@
 type _option0 = struct _option0{ value : i32; set : bool = false }
 
-func use_option(i : (_option0*)) -> i32 {
-  let k = (*i) in
+func use_option(i : _option0) -> i32 {
+  let k = i in
   if (k.set) {
     return k.value
   }
   return 0
 }
 
-func use_option1(i : (_option0*)) -> i32 {
-  let k = (*i) in
+func use_option1(i : _option0) -> i32 {
+  let k = i in
   if (k.set) {
     return k.value
   }

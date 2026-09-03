@@ -31,9 +31,28 @@ struct RewriteMutables : public ir::Mutator {
     std::set<std::string> immut_args;
     std::set<std::string> mut_locals;
 
+    // Whether this function's immutable struct parameters are pointers, which
+    // they are only at the exported boundary. See the note in `run` below.
+    bool boundary = false;
+
+    // The names of every function in the module that is at that boundary. A
+    // call site needs this because whether a struct argument is passed by
+    // pointer is a property of the callee, and the callee's own signature may
+    // not have been rewritten yet -- the pass walks the module in map order,
+    // so a call can be visited before the function it calls.
+    const std::set<std::string> *boundary_funcs = nullptr;
+
     RewriteMutables(std::set<std::string> mut_args,
-                    std::set<std::string> immut_args)
-        : mut_args(std::move(mut_args)), immut_args(std::move(immut_args)) {}
+                    std::set<std::string> immut_args, bool boundary,
+                    const std::set<std::string> *boundary_funcs)
+        : mut_args(std::move(mut_args)), immut_args(std::move(immut_args)),
+          boundary(boundary), boundary_funcs(boundary_funcs) {}
+
+    // Whether a struct passed to `func` is passed by pointer.
+    bool callee_takes_structs_by_ptr(const ir::Expr &func) const {
+        const ir::Var *var = func.as<ir::Var>();
+        return var && boundary_funcs->contains(var->name);
+    }
 
     ir::Expr visit(const ir::Var *node) override {
         if ((mut_args.contains(node->name) ||
@@ -44,7 +63,8 @@ struct RewriteMutables : public ir::Mutator {
             return ir::Deref::make(std::move(var));
         }
 
-        if (immut_args.contains(node->name) && node->type.is<ir::Struct_t>()) {
+        if (boundary && immut_args.contains(node->name) &&
+            node->type.is<ir::Struct_t>()) {
             ir::Expr var =
                 ir::Var::make(ir::Ptr_t::make(node->type), node->name);
             return ir::Deref::make(std::move(var));
@@ -87,10 +107,13 @@ struct RewriteMutables : public ir::Mutator {
         ret.rewrote_mut = false;
         ret.args.reserve(n);
 
+        const bool by_ptr = callee_takes_structs_by_ptr(func);
+
         for (size_t i = 0; i < n; i++) {
             ir::Expr arg = mutate(args[i]);
             if ((func_t->arg_types[i].is_mutable ||
-                 func_t->arg_types[i].type.is<ir::Struct_t>()) &&
+                 func_t->arg_types[i].type.is<ir::Ptr_t>() ||
+                 (by_ptr && func_t->arg_types[i].type.is<ir::Struct_t>())) &&
                 !arg.type().is<ir::Ptr_t>() && !arg.type().is_reference()) {
                 arg = ir::PtrTo::make(std::move(arg));
                 ret.rewrote_mut = true;
@@ -101,17 +124,18 @@ struct RewriteMutables : public ir::Mutator {
         return ret;
     }
 
-    ir::Type mutate_type(const ir::Function_t *func_t) {
+    ir::Type mutate_type(const ir::Function_t *func_t, bool by_ptr) {
         const size_t n = func_t->arg_types.size();
         std::vector<ir::Function_t::ArgSig> arg_types(n);
 
         for (size_t i = 0; i < n; i++) {
             const ir::Type &arg_type = func_t->arg_types[i].type;
-            arg_types[i].type = ((func_t->arg_types[i].is_mutable ||
-                                  arg_type.is<ir::Struct_t>()) &&
-                                 !arg_type.is_reference())
-                                    ? ir::Ptr_t::make(arg_type)
-                                    : arg_type;
+            arg_types[i].type =
+                ((func_t->arg_types[i].is_mutable ||
+                  (by_ptr && arg_type.is<ir::Struct_t>())) &&
+                 !arg_type.is_reference())
+                    ? ir::Ptr_t::make(arg_type)
+                    : arg_type;
             arg_types[i].is_mutable = func_t->arg_types[i].is_mutable;
         }
         return ir::Function_t::make(func_t->ret_type, std::move(arg_types));
@@ -134,7 +158,8 @@ struct RewriteMutables : public ir::Mutator {
         const ir::Var *var = node->func.template as<ir::Var>();
         internal_assert(var);
 
-        ir::Type new_type = mutate_type(func_t);
+        ir::Type new_type =
+            mutate_type(func_t, callee_takes_structs_by_ptr(node->func));
         ir::Expr func = ir::Var::make(std::move(new_type), var->name);
         return T::make(std::move(func), std::move(check.args));
     }
@@ -205,15 +230,36 @@ struct RewriteMutables : public ir::Mutator {
 
 ir::FuncMap Mutability::run(ir::FuncMap funcs,
                             const CompilerOptions &options) const {
+    // An exported function is called across the platform's C ABI, which raw
+    // LLVM IR cannot express: clang coerces a small struct to `i64` or
+    // `{i32, i32}` before any IR exists, and a `%struct.X` parameter written
+    // directly is lowered by LLVM's own rules instead. So a struct stays a
+    // pointer at the boundary, where the generated header is the contract a
+    // driver compiles against, and is a value inside, where both ends of every
+    // call are this compiler's.
+    //
+    // Collect the boundary up front: a call site has to agree with the callee
+    // it names, and the loop below would otherwise be asking about a signature
+    // it has not rewritten yet.
+    std::set<std::string> boundary_funcs;
+    for (const auto &[name, func] : funcs) {
+        if (func->is_exported() || func->is_kernel()) {
+            boundary_funcs.insert(name);
+        }
+    }
+
     for (auto &[name, func] : funcs) {
         // First rewrite calls and derefs.
-        RewriteMutables rewriter(func->mutable_args(), func->immutable_args());
+        const bool boundary = boundary_funcs.contains(name);
+        RewriteMutables rewriter(func->mutable_args(), func->immutable_args(),
+                                 boundary, &boundary_funcs);
 
         func->body = rewriter.mutate(func->body);
         // Then rewrite function signature.
         for (auto &arg_sig : func->args) {
             ir::Type t = arg_sig.type;
-            if ((arg_sig.mutating || arg_sig.type.is<ir::Struct_t>()) &&
+            if ((arg_sig.mutating ||
+                 (boundary && arg_sig.type.is<ir::Struct_t>())) &&
                 !arg_sig.type.is_reference()) {
                 t = ir::Ptr_t::make(arg_sig.type);
             }

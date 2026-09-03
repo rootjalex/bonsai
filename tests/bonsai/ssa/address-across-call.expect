@@ -56,40 +56,36 @@ func doubled(v : f32, n : i32) -> f32 {
   }
 }
 
-func pick(b : (Blob*), k : f32) -> f32 {
-  let @0 = (*b) in
-  let @1 = @0.tag in
-  let @2 = @1 == 0u in
-  if (@2) {
-    let @3 = (*b) in
-    let @4 = @3.payload in
-    let @5 = (&@4) in
-    let @6 = (*@5) in
-    let x = @6.x in
-    let @8 = x * k in
-    return @8
+func pick(b : Blob, k : f32) -> f32 {
+  let @0 = b.tag in
+  let @1 = @0 == 0u in
+  if (@1) {
+    let @2 = b.payload in
+    let @3 = (&@2) in
+    let @4 = (*@3) in
+    let x = @4.x in
+    let @6 = x * k in
+    return @6
   } else {
-    let @9 = (*b) in
-    let @10 = @9.payload in
-    let @11 = (&@10) in
-    let @12 = (*@11) in
-    let y = @12.y in
-    let @14 = (*b) in
-    let @15 = @14.payload in
-    let @16 = (&@15) in
-    let @17 = (*@16) in
-    let z = @17.z in
-    let @19 = y + z in
-    let @20 = @19 * k in
-    return @20
+    let @7 = b.payload in
+    let @8 = (&@7) in
+    let @9 = (*@8) in
+    let y = @9.y in
+    let @11 = b.payload in
+    let @12 = (&@11) in
+    let @13 = (*@12) in
+    let z = @13.z in
+    let @15 = y + z in
+    let @16 = @15 * k in
+    return @16
   }
 }
 
 func [[export]] weigh(hs : Holder[], i : u32, blobs : Blob[]) -> f32 {
   let h = hs[i] in
   let @1 = h.which in
+  let @2 = blobs[@1] in
   let @3 = h.scale in
-  let @2 = (&blobs[@1]) in
   let @4 = doubled(@3, 3) in
   let @5 = pick(@2, @4) in
   return @5

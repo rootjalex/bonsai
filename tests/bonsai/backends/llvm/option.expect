@@ -21,26 +21,23 @@ make_option1_entry:
   ret %struct._option0 %common.ret.op
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i32 @use_option(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @use_option(%struct._option0 noundef %i) local_unnamed_addr #0 {
 use_option_entry:
-  %deref_temp = load %struct._option0, ptr %i, align 4
-  %set = extractvalue %struct._option0 %deref_temp, 1
-  %value = extractvalue %struct._option0 %deref_temp, 0
-  %spec.select = select i1 %set, i32 %value, i32 0
-  ret i32 %spec.select
+  %i.set = extractvalue %struct._option0 %i, 1
+  %i.value = extractvalue %struct._option0 %i, 0
+  %common.ret.op = select i1 %i.set, i32 %i.value, i32 0
+  ret i32 %common.ret.op
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i32 @use_option1(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @use_option1(%struct._option0 noundef %i) local_unnamed_addr #0 {
 use_option1_entry:
-  %deref_temp = load %struct._option0, ptr %i, align 4
-  %set = extractvalue %struct._option0 %deref_temp, 1
-  %value = extractvalue %struct._option0 %deref_temp, 0
-  %0 = add i32 %value, 10
-  %common.ret.op = select i1 %set, i32 %0, i32 0
+  %i.set = extractvalue %struct._option0 %i, 1
+  %i.value = extractvalue %struct._option0 %i, 0
+  %0 = add i32 %i.value, 10
+  %common.ret.op = select i1 %i.set, i32 %0, i32 0
   ret i32 %common.ret.op
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }

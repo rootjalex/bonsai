@@ -35,37 +35,29 @@ D_entry:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.X @_unexported_A(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef %struct.X @_unexported_A(%struct.X noundef returned %x) local_unnamed_addr #1 {
 _unexported_A_entry:
-  %deref_temp.unpack = load i32, ptr %x, align 4
-  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
-  ret %struct.X %deref_temp1
+  ret %struct.X %x
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.X @_unexported_B(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef %struct.X @_unexported_B(%struct.X noundef returned %x) local_unnamed_addr #1 {
 _unexported_B_entry:
-  %deref_temp.unpack = load i32, ptr %x, align 4
-  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
-  ret %struct.X %deref_temp1
+  ret %struct.X %x
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.X @_unexported_C(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef %struct.X @_unexported_C(%struct.X noundef returned %x) local_unnamed_addr #1 {
 _unexported_C_entry:
-  %deref_temp.unpack = load i32, ptr %x, align 4
-  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
-  ret %struct.X %deref_temp1
+  ret %struct.X %x
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.X @_unexported_D(ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef %struct.X @_unexported_D(%struct.X noundef returned %x) local_unnamed_addr #1 {
 _unexported_D_entry:
-  %deref_temp.unpack = load i32, ptr %x, align 4
-  %deref_temp1 = insertvalue %struct.X poison, i32 %deref_temp.unpack, 0
-  ret %struct.X %deref_temp1
+  ret %struct.X %x
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

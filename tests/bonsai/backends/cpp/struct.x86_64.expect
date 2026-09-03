@@ -22,17 +22,15 @@ source_filename = "bonsai_module"
 
 %struct.Position = type { i32, i32 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.Position @_unexported_add(ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %struct.Position @_unexported_add(%struct.Position noundef %i, %struct.Position noundef %j) local_unnamed_addr #0 {
 _unexported_add_entry:
-  %deref_temp.unpack = load i32, ptr %i, align 4
-  %deref_temp.elt6 = getelementptr inbounds i8, ptr %i, i64 4
-  %deref_temp.unpack7 = load i32, ptr %deref_temp.elt6, align 4
-  %deref_temp1.unpack = load i32, ptr %j, align 4
-  %deref_temp1.elt9 = getelementptr inbounds i8, ptr %j, i64 4
-  %deref_temp1.unpack10 = load i32, ptr %deref_temp1.elt9, align 4
-  %0 = add i32 %deref_temp1.unpack, %deref_temp.unpack
-  %1 = add i32 %deref_temp1.unpack10, %deref_temp.unpack7
+  %i.x = extractvalue %struct.Position %i, 0
+  %j.x = extractvalue %struct.Position %j, 0
+  %0 = add i32 %j.x, %i.x
+  %i.y = extractvalue %struct.Position %i, 1
+  %j.y = extractvalue %struct.Position %j, 1
+  %1 = add i32 %j.y, %i.y
   %2 = insertvalue %struct.Position undef, i32 %0, 0
   %3 = insertvalue %struct.Position %2, i32 %1, 1
   ret %struct.Position %3
@@ -48,5 +46,5 @@ add_entry:
   ret void
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

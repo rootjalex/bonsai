@@ -280,11 +280,11 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     std::vector<llvm::Type *> arg_types(func.args.size());
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];
-        llvm::Type *arg_t = codegen_type(arg_info.type);
-        if (!arg_info.mutating && arg_info.type.is<Struct_t>()) {
-            arg_t = arg_t->getPointerTo();
-        }
-        arg_types[i] = arg_t;
+        // A struct parameter is declared as the struct. Lower/Mutability.cpp
+        // has already made it a pointer where the C ABI applies -- at an
+        // exported boundary -- so anything still a struct here is internal and
+        // is passed as the value it is.
+        arg_types[i] = codegen_type(arg_info.type);
     }
 
     llvm::FunctionType *ftype =
@@ -383,9 +383,13 @@ void CodeGen_LLVM::compile_function(const Function &func,
         arg.setName(name);
         llvm::Value *arg_value = &arg;
 
-        internal_assert(!arg_info.type.is<Struct_t>());
-
-        // TODO(ajr): lift loads from immutable ptr args.
+        // A struct argument arrives as a value and stays one; reading a field
+        // of it is an extractvalue (see the Access visitor). This used to
+        // assert that a struct never got here, because every struct parameter
+        // was pointerised -- not for any reason to do with mutability, but
+        // because this backend could not take one. What that cost was a stack
+        // copy at every call site, and with it the ability to recognise two
+        // calls to the same pure function on the same value as one.
 
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
@@ -1935,10 +1939,9 @@ void CodeGen_LLVM::visit(const Call *node) {
     internal_assert(function_t);
 
     for (size_t i = 0; i < n_args; i++) {
+        // A struct argument is passed as the value it is; only an exported
+        // boundary still takes one by pointer.
         llvm::Value *argument = codegen_expr(node->args[i]);
-
-        // Struct args should have been lowered to pointers already.
-        internal_assert(!function_t->arg_types[i].type.is<Struct_t>());
         if (function_t->arg_types[i].is_mutable) {
             internal_assert(argument->getType()->isPointerTy());
             args[i] = argument;

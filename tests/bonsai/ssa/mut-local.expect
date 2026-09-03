@@ -20,16 +20,14 @@ running_total_entry:
   ret float %1
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define %struct.Pair @swap_fields(ptr nocapture noundef nonnull readonly %p) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define %struct.Pair @swap_fields(%struct.Pair noundef %p) local_unnamed_addr #0 {
 swap_fields_entry:
-  %deref_temp.unpack = load float, ptr %p, align 4
-  %deref_temp.elt3 = getelementptr inbounds i8, ptr %p, i64 4
-  %deref_temp.unpack4 = load float, ptr %deref_temp.elt3, align 4
-  %deref_temp2.fca.0.insert = insertvalue %struct.Pair poison, float %deref_temp.unpack4, 0
-  %deref_temp2.fca.1.insert = insertvalue %struct.Pair %deref_temp2.fca.0.insert, float %deref_temp.unpack, 1
-  ret %struct.Pair %deref_temp2.fca.1.insert
+  %p.b = extractvalue %struct.Pair %p, 1
+  %p.a = extractvalue %struct.Pair %p, 0
+  %deref_temp.fca.0.insert = insertvalue %struct.Pair poison, float %p.b, 0
+  %deref_temp.fca.1.insert = insertvalue %struct.Pair %deref_temp.fca.0.insert, float %p.a, 1
+  ret %struct.Pair %deref_temp.fca.1.insert
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }

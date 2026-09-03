@@ -13,26 +13,26 @@ type vec3f = f32x3
 extern triangles1 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[nCount] }
 extern triangles2 : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; nPrims : u16; axis : u8; pad0 : u8; high : f32x3; split0on_nPrims : u8x4 }[nCount] }
 
-func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*), _dyn_alloc : mut (set<__tuple_0>*)) -> void {
-  if (intersects_AABB_AABB((&build<AABB>((*triangles1).group0_index[triangles1_index].low, (*triangles1).group0_index[triangles1_index].high)), (&build<AABB>((*triangles2).group0_index[triangles2_index].low, (*triangles2).group0_index[triangles2_index].high)))) {
-    if ((*triangles1).group0_index[triangles1_index].nPrims == 0u) {
-      if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 : _tree_layout0, triangles2 : _tree_layout0, _dyn_alloc : mut (set<__tuple_0>*)) -> void {
+  if (intersects_AABB_AABB(build<AABB>(triangles1.group0_index[triangles1_index].low, triangles1.group0_index[triangles1_index].high), build<AABB>(triangles2.group0_index[triangles2_index].low, triangles2.group0_index[triangles2_index].high))) {
+    if (triangles1.group0_index[triangles1_index].nPrims == 0u) {
+      if (triangles2.group0_index[triangles2_index].nPrims == 0u) {
         _recloop_func0(triangles1_index + 1u, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + 1u, triangles2_index + reinterpret_cast<_tree_layout2>(triangles2.group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>(triangles1.group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>(triangles1.group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index + reinterpret_cast<_tree_layout2>(triangles2.group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
       } else {
         _recloop_func0(triangles1_index + 1u, triangles2_index, triangles1, triangles2, _dyn_alloc)
-        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>((*triangles1).group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index, triangles1, triangles2, _dyn_alloc)
+        _recloop_func0(triangles1_index + reinterpret_cast<_tree_layout2>(triangles1.group0_index[triangles1_index].split0on_nPrims).offset, triangles2_index, triangles1, triangles2, _dyn_alloc)
       }
-    } else if ((*triangles2).group0_index[triangles2_index].nPrims == 0u) {
+    } else if (triangles2.group0_index[triangles2_index].nPrims == 0u) {
       _recloop_func0(triangles1_index, triangles2_index + 1u, triangles1, triangles2, _dyn_alloc)
-      _recloop_func0(triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>((*triangles2).group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
+      _recloop_func0(triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>(triangles2.group0_index[triangles2_index].split0on_nPrims).offset, triangles1, triangles2, _dyn_alloc)
     } else {
-      forall _idx0 in [0u:cast<u32>((*triangles1).group0_index[triangles1_index].nPrims):1u] {
-        forall _idx1 in [0u:cast<u32>((*triangles2).group0_index[triangles2_index].nPrims):1u] {
-          if (intersects_Triangle_Triangle((&(*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0]), (&(*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))) {
-            append<_dyn_alloc>(build<__tuple_0>((*triangles1).prims[reinterpret_cast<_tree_layout3>((*triangles1).group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], (*triangles2).prims[reinterpret_cast<_tree_layout3>((*triangles2).group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
+      forall _idx0 in [0u:cast<u32>(triangles1.group0_index[triangles1_index].nPrims):1u] {
+        forall _idx1 in [0u:cast<u32>(triangles2.group0_index[triangles2_index].nPrims):1u] {
+          if (intersects_Triangle_Triangle(triangles1.prims[reinterpret_cast<_tree_layout3>(triangles1.group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], triangles2.prims[reinterpret_cast<_tree_layout3>(triangles2.group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1])) {
+            append<_dyn_alloc>(build<__tuple_0>(triangles1.prims[reinterpret_cast<_tree_layout3>(triangles1.group0_index[triangles1_index].split0on_nPrims).pOffset + _idx0], triangles2.prims[reinterpret_cast<_tree_layout3>(triangles2.group0_index[triangles2_index].split0on_nPrims).pOffset + _idx1]))
           }
         }
       }
@@ -41,7 +41,7 @@ func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 :
   return
 }
 
-func _traverse_tree0(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> set<__tuple_0> {
+func _traverse_tree0(triangles1 : _tree_layout0, triangles2 : _tree_layout0) -> set<__tuple_0> {
   alloc _dyn_alloc : mut set<__tuple_0>
   _recloop_func0(0u, 0u, triangles1, triangles2, _dyn_alloc)
   return (*_dyn_alloc)
@@ -54,21 +54,21 @@ func axis(A : f32x3, extents : f32x3, v0 : f32x3, v1 : f32x3, v2 : f32x3) -> boo
 }
 
 func [[export]] collisions(triangles1 : (_tree_layout0*), triangles2 : (_tree_layout0*)) -> set<__tuple_0> {
-  return _traverse_tree0(triangles1, triangles2)
+  return _traverse_tree0((*triangles1), (*triangles2))
 }
 
-func intersects_AABB_AABB(a : (AABB*), b : (AABB*)) -> bool {
-  let low = max((*a).low, (*b).low) in
-  let high = min((*a).high, (*b).high) in
+func intersects_AABB_AABB(a : AABB, b : AABB) -> bool {
+  let low = max(a.low, b.low) in
+  let high = min(a.high, b.high) in
   return reduce<all>(low <= high)
 }
 
-func intersects_AABB_Triangle(a : (AABB*), b : (Triangle*)) -> bool {
-  let center = ((*a).low + (*a).high) * f32x3(0.5f) in
-  let extents = ((*a).high - (*a).low) * f32x3(0.5f) in
-  let v0 = (*b).p0 - center in
-  let v1 = (*b).p1 - center in
-  let v2 = (*b).p2 - center in
+func intersects_AABB_Triangle(a : AABB, b : Triangle) -> bool {
+  let center = (a.low + a.high) * f32x3(0.5f) in
+  let extents = (a.high - a.low) * f32x3(0.5f) in
+  let v0 = b.p0 - center in
+  let v1 = b.p1 - center in
+  let v2 = b.p2 - center in
   let f0 = v1 - v0 in
   let f1 = v2 - v1 in
   let f2 = v0 - v2 in
@@ -122,21 +122,21 @@ func intersects_AABB_Triangle(a : (AABB*), b : (Triangle*)) -> bool {
   return true
 }
 
-func intersects_Triangle_Triangle(a : (Triangle*), b : (Triangle*)) -> bool {
-  let eA0 = (*a).p1 - (*a).p0 in
-  let eA1 = (*a).p2 - (*a).p1 in
-  let eA2 = (*a).p0 - (*a).p2 in
-  let eB0 = (*b).p1 - (*b).p0 in
-  let eB1 = (*b).p2 - (*b).p1 in
-  let eB2 = (*b).p0 - (*b).p2 in
+func intersects_Triangle_Triangle(a : Triangle, b : Triangle) -> bool {
+  let eA0 = a.p1 - a.p0 in
+  let eA1 = a.p2 - a.p1 in
+  let eA2 = a.p0 - a.p2 in
+  let eB0 = b.p1 - b.p0 in
+  let eB1 = b.p2 - b.p1 in
+  let eB2 = b.p0 - b.p2 in
   let N0 = cross(eA0, eA1) in
   let N1 = cross(eB0, eB1) in
-  let a0 = (*a).p0 in
-  let a1 = (*a).p1 in
-  let a2 = (*a).p2 in
-  let b0 = (*b).p0 in
-  let b1 = (*b).p1 in
-  let b2 = (*b).p2 in
+  let a0 = a.p0 in
+  let a1 = a.p1 in
+  let a2 = a.p2 in
+  let b0 = b.p0 in
+  let b1 = b.p1 in
+  let b2 = b.p2 in
   if (!tri_tri_axis(N0, a0, a1, a2, b0, b1, b2)) {
     return false
   }

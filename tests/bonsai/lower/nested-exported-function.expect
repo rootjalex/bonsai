@@ -6,7 +6,7 @@ func [[export]] A(_ret0 : mut (X*), x : (X*)) -> void {
 }
 
 func [[export]] B(_ret1 : mut (X*), x : (X*)) -> void {
-  _ret1 = _unexported_A(x)
+  _ret1 = _unexported_A((*x))
   return
 }
 
@@ -16,24 +16,24 @@ func [[export]] C(_ret2 : mut (X*), x : (X*)) -> void {
 }
 
 func [[export]] D(_ret3 : mut (X*), x : (X*)) -> void {
-  let y = _unexported_C(x) in
+  let y = _unexported_C((*x)) in
   _ret3 = y
   return
 }
 
-func _unexported_A(x : (X*)) -> X {
-  return (*x)
+func _unexported_A(x : X) -> X {
+  return x
 }
 
-func _unexported_B(x : (X*)) -> X {
+func _unexported_B(x : X) -> X {
   return _unexported_A(x)
 }
 
-func _unexported_C(x : (X*)) -> X {
-  return (*x)
+func _unexported_C(x : X) -> X {
+  return x
 }
 
-func _unexported_D(x : (X*)) -> X {
+func _unexported_D(x : X) -> X {
   let y = _unexported_C(x) in
   return y
 }

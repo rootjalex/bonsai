@@ -3,25 +3,25 @@ type S = struct S{ i : struct _option0{ value : i32; set : bool = false } }
 type _option0 = struct _option0{ value : i32; set : bool = false }
 type _option1 = struct _option1{ value : f32; set : bool = false }
 
-func get_flpat(n : (NumberOption*)) -> f32 {
-  if ((*n).f.set) {
-    return (*n).f.value
+func get_flpat(n : NumberOption) -> f32 {
+  if (n.f.set) {
+    return n.f.value
   } else {
     return 0f
   }
 }
 
-func get_int(n : (NumberOption*)) -> i32 {
-  if ((*n).i.set) {
-    return (*n).i.value
+func get_int(n : NumberOption) -> i32 {
+  if (n.i.set) {
+    return n.i.value
   } else {
     return 0
   }
 }
 
-func use_option(s : (S*)) -> i32 {
-  if ((*s).i.set) {
-    return (*s).i.value
+func use_option(s : S) -> i32 {
+  if (s.i.set) {
+    return s.i.value
   }
   return 42
 }
