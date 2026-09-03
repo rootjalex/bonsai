@@ -154,6 +154,37 @@ Two more asymmetries, both checked and both fine:
 
 ### What the last round added
 
+**Named materials, and `dielectric`.** A shape under `NamedMaterial` names its
+material by string, and pbrt leaves `materialIndex` at -1 -- which is also what
+a shape with no `Material` directive gets. The two are told apart now;
+`MakeNamedMaterial` is captured with its `"string type"` lifted into the same
+field a `Material` directive fills, and converted on first use as the indexed
+ones are.
+
+`dielectric` is glass, and it is cheap because `DielectricBxDF` has been in
+`bxdf.bonsai` and checked against pbrt since `coateddiffuse` went in -- it is
+the coating of a layered material, on its own. What is new is the *path* it
+takes through an integrator, and `scenes/dielectric.pbrt` is there to exercise
+it: it is the first **specular** surface here, so `IsNonSpecular` is false and
+`path` spends no shadow ray and no draws on it and finds its light by
+scattering; and the first **transmissive** one, so `etaScale` stops being one
+and `SampleLd` takes the other arm of its nudge. Two spheres, one smooth and one
+rough, take opposite branches of every `EffectivelySmooth` test.
+
+It is the best-agreeing lit scene in the collection: **0 albedo pixels** outside
+the comparison's tolerance -- the first lit scene where that check passes at all
+-- and 94.3% of pixels within 1e-3 on the radiance, against 45-78% for the
+others. That is what a material with no stochastic BSDF walk in it looks like.
+
+**And a third silent substitution, in the same place as the first two.** The
+scene file's material writer was `tag == CoatedDiffuse ? "coateddiffuse" :
+"diffuse"`, so the first material added after it serialized as a diffuse and
+rendered as pbrt's default grey -- with the converter, the renderer and the BxDF
+all correct and only the file between them lying. It is a `switch` with no
+default now, so a tag with no case is an error rather than a guess. Three of
+these have now been found in three consecutive rounds, all of the same shape:
+somewhere in the chain, an unknown case falls through to a plausible one.
+
 **Sampling an environment map, which is what turns it from a background into a
 light.** `SampleLi` draws a direction from a `PiecewiseConstant2D` built across
 the map's texels -- so a bright patch of sky is found often and an even one
@@ -468,9 +499,53 @@ declares **ACES**, and `RGBIlluminantSpectrum` over ACES uses that space's
 illuminant and its own fit table, so reading one as sRGB would be a sky of the
 wrong colour. Checked with `imgtool info` rather than assumed.
 
-The scenes closest to working are `pavilion-day` and `lte-orb-simple-ball`,
-which now want only named materials, and `villa-daylight`, `sanmiguel-*` and
-`clouds`, which want only the ACES colour space.
+The scenes closest to working are `villa-daylight`, `sanmiguel-*` and `clouds`,
+which want only the ACES colour space.
+
+### What `barcelona-pavilion/pavilion-day.pbrt` needs, exactly
+
+Worth writing down because it is the scene that looks closest and is not.
+Named materials went in and it moved to the next wall; the wall behind that one
+is five features deep. Its 28 `NamedMaterial` uses resolve to:
+
+    metal                 21 uses   conductor, `spectrum eta`/`spectrum k`
+    pavet                 19        coateddiffuse + reflectance and *displacement* textures
+    concrete_Mies...png   15        coateddiffuse + a reflectance texture
+    wood                  12        coateddiffuse + a reflectance texture
+    leather_white         12        measured, from a .bsdf file
+    wax                    6        coateddiffuse            -- works
+    glass_architectural    6        dielectric               -- works now
+    concrete               3        coateddiffuse + a texture
+    white_mat, None,
+    black_glossy, Material 7        diffuse / coateddiffuse  -- work
+    marmol_verde, marble,
+    pebbles.ground, grass  5        coateddiffuse + textures
+    water                  1        coateddiffuse + a displacement texture
+    xref_*                14        leaf materials, declared in the geometry
+
+So, in the order they block it:
+
+1. **Image textures.** Eight of its materials, and 27 scenes in the survey. Not
+   a small feature: `SpectrumImageTexture` filters through a MIPMap with EWA by
+   default, which needs ray differentials from the camera, `ScaleDifferentials`,
+   and `SurfaceInteraction::ComputeDifferentials` -- none of which exist here,
+   and a texture read at the wrong filter width is a different image. It also
+   needs `uv` on the hit, which `SurfaceGeometry` does not carry, and `scale`
+   textures composed over image ones.
+2. **`conductor`**, 21 uses -- and it wants `metal-Al-eta` and `metal-Al-k`,
+   which are pbrt's *named spectra*. A spectral index terminates the secondary
+   wavelengths, which nothing here does, so this drags in `TerminateSecondary`
+   as well.
+3. **`measured`**, 12 uses. A reader for pbrt's tabulated BSDF format and the
+   interpolation over it. Its own project.
+4. **Displacement textures**, on `pavet` and `water`. Already a documented
+   refusal: a displacement replaces the shading frame, which here comes from
+   the geometry alone.
+5. The `xref_*` leaf materials, which are declared in `geometry.pbrt` rather
+   than `materials.pbrt` and have not been looked at.
+
+None of that is a reason not to do it, but it is four rounds and not one, and
+the first of them is the one that unblocks everything else.
 
 The survey found one outright bug and it is fixed: **a `LightSource` that was
 not an area light was silently dropped.** Thirteen of the fifteen scenes that
