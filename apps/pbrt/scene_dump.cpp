@@ -182,6 +182,23 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Integrator(name, std::move(params), loc);
     }
 
+    // Every light that is not attached to a shape: `infinite`, `distant`,
+    // `point`, `spot`, `projection`, `goniometric`. None of them is
+    // implemented, and until this was here none of them was refused either --
+    // the directive was simply not overridden, so a scene lit by an
+    // environment map converted without complaint and rendered black.
+    //
+    // That is the failure this whole app is built to refuse, and it was the
+    // most common thing wrong with a real scene: of the fifteen scenes in
+    // pbrt-v4-scenes that got as far as converting, thirteen were lit by one
+    // of these. Recorded rather than refused on the spot so that the message
+    // can name the kind, which is what decides which one to implement next.
+    void LightSource(const std::string &name, pbrt::ParsedParameterVector params,
+                     pbrt::FileLoc loc) override {
+        lights.push_back(name);
+        pbrt::BasicSceneBuilder::LightSource(name, std::move(params), loc);
+    }
+
     // The same trick for area lights, and for the same reason: a shape names
     // one by index into BasicScene::areaLights, which is private. The base
     // appends one per directive, so recording them here in the same order
@@ -213,6 +230,8 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     pbrt::ParameterDictionary filter_params;
     std::vector<MaterialInfo> materials;
     std::vector<MaterialInfo> area_lights;
+    // The names of every non-area LightSource the scene declared. See above.
+    std::vector<std::string> lights;
     // PBRT's RandomWalkIntegrator default. The name is empty when the scene
     // named no integrator, which is not the same as naming the default: PBRT
     // would fall back to volpath, and this renderer has only the random walk,
@@ -1827,6 +1846,18 @@ void load(const char *filename, bonsai_scene::Scene &out,
 
     out.width = uint32_t(x_resolution);
     out.height = uint32_t(y_resolution);
+
+    // A light that is not a shape's emission. `DiffuseAreaLight` is the only
+    // kind implemented, so any of these would be dropped, and a scene lit only
+    // by one would render black -- which looks like a scene, not like an error.
+    if (!builder.lights.empty()) {
+        std::string names;
+        for (const std::string &light : builder.lights) {
+            names += (names.empty() ? "" : ", ") + light;
+        }
+        fail("this renderer has only area lights, and the scene declares: " +
+             names);
+    }
 
     // The reconstruction filter. Only the Gaussian, which is PBRT's default and
     // what every scene here gets; the others differ in one function and a
