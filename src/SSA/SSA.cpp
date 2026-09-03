@@ -388,6 +388,16 @@ void Terminator::dump(std::ostream &os) const {
                            os << (i ? ", " : " ") << c.varying_at[i];
                        }
                        os << " } ";
+                       if (!c.keys.empty()) {
+                           os << "sorted by (";
+                           for (size_t i = 0; i < c.keys.size(); i++) {
+                               if (i) {
+                                   os << ", ";
+                               }
+                               c.keys[i]->dump(os);
+                           }
+                           os << ") ";
+                       }
                        dump_target(os, c.cont);
                    },
                },

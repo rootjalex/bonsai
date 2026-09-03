@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/LoopTransforms.cpp:202
+
+--> node->keys.empty()
+sort() is in the schedule, but this pipeline turns the recursion into a queue here, at the Stmt level, and the reordering is an SSA rewrite (see SSA/SortRecursion.h). Silently writing the branches to the queue in their original order would compile a different program than the schedule asks for, so it is an error instead. Compile with `-p ssa`.

@@ -21,20 +21,6 @@ namespace lower {
 
 using namespace ir;
 
-// https://graphics.stanford.edu/%7Eseander/bithacks.html#RoundUpPowerOf2
-uint32_t next_pow2(uint32_t n) {
-    if (n == 0) {
-        return 1;
-    }
-    n--;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    return n + 1;
-}
-
 std::map<std::string, Type> get_names_in_scope(const Function &func) {
     std::map<std::string, Type> args;
     for (const auto &arg : func.args) {
@@ -114,81 +100,30 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             internal_assert(!found_from)
                 << "Found duplicate YieldFrom when lowering sort(): "
                 << Stmt(node);
-            // TODO(ajr): maybe we want a sort() IRNode that can be
-            // device-specific?
             std::vector<Expr> exprs = break_tuple(node->value);
             if (exprs.size() < 2) {
-                return node;
+                return node; // one branch is already in order
             }
-            // Otherwise, apply sort.
             found_from = true;
-            std::vector<Expr> costs(exprs.size());
+
+            // All this pass does is work out what each branch is worth. The
+            // reordering is not here, and deliberately: doing it at this level
+            // means selecting between whole subtree *values*, because the
+            // layout has not run yet and a branch is still a tree reference
+            // rather than an index into one. That is what the previous version
+            // did -- a bitonic network of selects over those references, built
+            // right here -- and it cost more than the better traversal order
+            // saved.
+            //
+            // The keys ride along on the `from` instead. They are lowered like
+            // any other expression, so a key naming the node's split axis
+            // becomes the same field load anything else would, and the
+            // permutation happens on SSA once a branch is a number.
+            std::vector<Expr> keys(exprs.size());
             for (size_t i = 0; i < exprs.size(); i++) {
-                costs[i] = sort_cost(i);
+                keys[i] = sort_cost(i);
             }
-            const size_t n = next_pow2(exprs.size());
-
-            std::vector<Stmt> temps;
-
-            size_t bool_counter = 0;
-            auto make_temp_bool = [&temps, &bool_counter](Expr expr) {
-                std::string name = "_sort_cmp" + std::to_string(bool_counter++);
-                temps.push_back(LetStmt::make(WriteLoc(name, Bool_t::make()),
-                                              std::move(expr)));
-                return Var::make(Bool_t::make(), std::move(name));
-            };
-
-            size_t cost_counter = 0;
-            auto make_temp_cost = [&temps, &cost_counter](Expr expr) {
-                std::string name =
-                    "_sort_cost" + std::to_string(cost_counter++);
-                Type t = expr.type();
-                temps.push_back(
-                    LetStmt::make(WriteLoc(name, t), std::move(expr)));
-                return Var::make(std::move(t), std::move(name));
-            };
-
-            size_t val_counter = 0;
-            auto make_temp_val = [&temps, &val_counter](Expr expr) {
-                std::string name = "_sort_tmp" + std::to_string(val_counter++);
-                Type t = expr.type();
-                temps.push_back(
-                    LetStmt::make(WriteLoc(name, t), std::move(expr)));
-                return Var::make(std::move(t), std::move(name));
-            };
-
-            // Use bitonic sorting network.
-            // https://en.wikipedia.org/wiki/Bitonic_sorter
-            for (size_t k = 2; k <= n; k *= 2) {
-                for (size_t j = k / 2; j > 0; j /= 2) {
-                    for (size_t i = 0; i < n; i++) {
-                        const size_t l = i ^ j;
-                        if (l > i && std::max(i, l) < exprs.size()) {
-                            Expr compare_cost = ((i & k) == 0)
-                                                    ? (costs[i] < costs[l])
-                                                    : (costs[i] > costs[l]);
-
-                            compare_cost =
-                                make_temp_bool(std::move(compare_cost));
-                            Expr cost0 = costs[i], cost1 = costs[l];
-                            Expr expr0 = exprs[i], expr1 = exprs[l];
-                            costs[i] = select(compare_cost, cost0, cost1);
-                            costs[i] = make_temp_cost(std::move(costs[i]));
-                            exprs[i] = select(compare_cost, expr0, expr1);
-                            exprs[i] = make_temp_val(std::move(exprs[i]));
-                            costs[l] = select(compare_cost, cost1, cost0);
-                            costs[l] = make_temp_cost(std::move(costs[l]));
-                            exprs[l] = select(compare_cost, expr1, expr0);
-                            exprs[l] = make_temp_val(std::move(exprs[l]));
-                        }
-                    }
-                }
-            }
-            Expr value = make_tuple(exprs);
-            Stmt yield = YieldFrom::make(std::move(value));
-            internal_assert(!temps.empty());
-            temps.emplace_back(std::move(yield));
-            return Sequence::make(std::move(temps));
+            return YieldFrom::make(node->value, std::move(keys));
         }
 
         Stmt visit(const Match *node) override {

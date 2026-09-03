@@ -155,7 +155,8 @@ shared_ptr<Function> clone_function(const Function &func) {
                     }
                     return Terminator::MultiCall{
                         clone_jump(c.call, instrs), clone_jump(c.cont, instrs),
-                        c.varying_at, std::move(varying), c.drop};
+                        c.varying_at, std::move(varying),
+                        clone_values(c.keys, instrs), c.drop};
                 },
             },
             block->terminator.data);

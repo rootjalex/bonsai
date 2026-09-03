@@ -199,7 +199,14 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
               queue_etype(std::move(queue_etype)) {}
 
         Stmt visit(const YieldFrom *node) override {
-            // TODO(ajr): handle sorting here?
+            internal_assert(node->keys.empty())
+                << "sort() is in the schedule, but this pipeline turns the "
+                   "recursion into a queue here, at the Stmt level, and the "
+                   "reordering is an SSA rewrite (see SSA/SortRecursion.h). "
+                   "Silently writing the branches to the queue in their "
+                   "original order would compile a different program than the "
+                   "schedule asks for, so it is an error instead. Compile "
+                   "with `-p ssa`.";
             auto ids = break_tuple(node->value);
             // TODO(ajr): handle if the tuple must be compressed.
 

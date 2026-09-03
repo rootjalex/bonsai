@@ -971,6 +971,10 @@ class BonsaiToCpp : ir::Printer {
     // the schedule left them in. Overridden rather than inherited because the
     // base printer prints the run in the IR's own notation, which is not C++.
     void visit(const MultiRecurse *node) override {
+        internal_assert(node->keys.empty())
+            << "A sorted recursion reached C++ code generation still carrying "
+               "its keys, so nothing ever put its calls in order. The "
+               "reordering is an SSA rewrite; see SSA/SortRecursion.h.";
         for (size_t i = 0; i < node->varying.size(); i++) {
             CallStmt::make(node->func, node->call_args(i)).accept(this);
         }

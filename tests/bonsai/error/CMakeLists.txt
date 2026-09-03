@@ -10,6 +10,7 @@ add_bonsai_tests(
     collapse-dependent-range.bonsai
     collapse-not-nested.bonsai
     loopify-queue-not-tail.bonsai
+    sort-needs-ssa.bonsai
     split-not-divisible.bonsai
     ssa-unimplemented-transform.bonsai
     bad_layout_split.bonsai

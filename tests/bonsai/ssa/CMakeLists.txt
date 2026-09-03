@@ -16,6 +16,7 @@ add_bonsai_tests(
     print.bonsai
     shadowed-let.bonsai
     simple.bonsai
+    sort-recursion.bonsai
     split.bonsai
     split-unsigned.bonsai
     traverse.bonsai

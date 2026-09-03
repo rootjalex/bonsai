@@ -713,7 +713,18 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
                 flat_ids.push_back(std::move(value));
             }
             ir::Expr value = make_tuple(std::move(flat_ids));
-            return ir::YieldFrom::make(std::move(value));
+            // The keys come through unchanged. This flattens what a branch
+            // *is* -- a subtree reference becoming the indices that stand for
+            // it -- and a key is not a branch, it is a number computed about
+            // one. It still has to be carried, though: a sort() key names the
+            // node's split axis, and this pass is what turns that name into a
+            // load from the layout.
+            std::vector<ir::Expr> keys;
+            keys.reserve(node->keys.size());
+            for (const auto &key : node->keys) {
+                keys.push_back(mutate(key));
+            }
+            return ir::YieldFrom::make(std::move(value), std::move(keys));
         }
     };
 

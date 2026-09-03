@@ -481,6 +481,15 @@ SplitResult split_aggregates(Function &func, const string &entry,
                            }
                            t.varying_at = std::move(varying_at);
 
+                           for (auto &k : t.keys) {
+                               fix(k);
+                               internal_assert(splitter.components_of(*k) ==
+                                               nullptr)
+                                   << "TODO: a sort key that splits into "
+                                   << "components -- a key is compared, so it "
+                                   << "has to stay one value";
+                           }
+
                            for (auto &a : t.cont.args) {
                                fix(a);
                            }

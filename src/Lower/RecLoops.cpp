@@ -136,10 +136,15 @@ struct LowerRecLoopsImpl : public Mutator {
             varying.push_back(std::move(vs));
         }
 
+        internal_assert(node->keys.empty() || node->keys.size() == ids.size())
+            << "A sort() gave " << node->keys.size() << " keys to a `from` "
+            << "with " << ids.size() << " branches";
+
         // One node rather than N calls, so that a schedule still has something
         // to reorder. See IR/Stmt.h; the backends are what split it up.
         return MultiRecurse::make(current_func, current_args,
-                                  std::move(varying_at), std::move(varying));
+                                  std::move(varying_at), std::move(varying),
+                                  node->keys);
     }
 };
 

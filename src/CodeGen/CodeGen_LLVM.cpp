@@ -1289,6 +1289,10 @@ void CodeGen_LLVM::visit(const CallStmt *node) {
 }
 
 void CodeGen_LLVM::visit(const MultiRecurse *node) {
+    internal_assert(node->keys.empty())
+        << "A sorted recursion reached LLVM code generation still carrying its "
+           "keys, so nothing ever put its calls in order. The reordering is an "
+           "SSA rewrite; see SSA/SortRecursion.h.";
     // The run becomes its calls here, in whatever order the schedule left it.
     for (size_t i = 0; i < node->varying.size(); i++) {
         Call::make(node->func, node->call_args(i)).accept(this);

@@ -225,6 +225,9 @@ void substitute(Block &block, const string &name,
                                replace(a);
                            }
                        }
+                       for (auto &k : c.keys) {
+                           replace(k);
+                       }
                        for (auto &a : c.cont.args) {
                            replace(a);
                        }
@@ -308,6 +311,9 @@ void widen_argument(const BlockMap &blocks, const set<string> &region,
                                for (auto &a : vs) {
                                    retype(a);
                                }
+                           }
+                           for (auto &k : t.keys) {
+                               retype(k);
                            }
                            for (auto &a : t.cont.args) {
                                retype(a);

@@ -1,0 +1,85 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/adt-bvh-sorted
+//! commands: clang++ -std=c++20 -O3 -DSORTED -c $<>/main_adt_bvh.cpp -I. -o $<>/main_adt_bvh_sorted.o, clang++ $<>/main_adt_bvh_sorted.o $<>/adt-bvh-sorted.o -o $<>/adt-bvh-sorted, ./$<>/adt-bvh-sorted, rm $<>/adt-bvh-sorted, rm $<>/main_adt_bvh_sorted.o, rm $<>/adt-bvh-sorted.h, rm $<>/adt-bvh-sorted.o
+
+// adt-bvh.bonsai with a front-to-back `sort()` on the traversal, run against
+// the same driver and the same answers.
+//
+// That last part is the test. A `sort()` decides which child of a BVH node the
+// traversal descends into first, and nothing else: an `argmin` over a set does
+// not depend on the order the set is visited in, so every line this prints has
+// to match adt-bvh.expect exactly. If a sorted traversal ever answered
+// differently, the schedule would be changing the program rather than the plan,
+// which is the one thing a schedule may not do.
+//
+// It is also the only place the sort is *executed* rather than inspected.
+// ssa/sort-recursion.bonsai pins the IR it produces and
+// error/sort-needs-ssa.bonsai pins what happens on a pipeline that cannot
+// apply it; this one pins that the traversal still finds the right shape.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+import stdlib/triangle;
+
+element Shape =
+    | Sph(s : Sphere)
+    | Tri(t : Triangle);
+
+func distmin(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmin(r, s);
+        Tri(t) => return distmin(r, t);
+    }
+}
+
+func distmax(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmax(r, s);
+        Tri(t) => return distmax(r, t);
+    }
+}
+
+func intersects(r : Ray, sh : Shape) -> bool {
+    match sh {
+        Sph(s) => return intersects(r, s);
+        Tri(t) => return intersects(r, t);
+    }
+}
+
+extern shapes : set[Shape];
+
+func [[export]] trace(r : Ray) =
+    argmin(|sh : Shape| distmin(r, sh),
+           filter(|sh : Shape| intersects(r, sh) && distmin(r, sh) > 0.001,
+                  shapes));
+
+schedule {
+    tree[[Shape]] ShapeBVH(center : vec3f, radius : Float)
+        with Sphere(center, radius) =
+    | Interior(left : ShapeBVH, right : ShapeBVH, axis : u8)
+    | Leaf(data : array[Shape]) with data = data;
+
+    shapes : ShapeBVH;
+
+    layout shapes {
+        pCount : u32;
+        prims : array[Shape, pCount];
+        nCount : u32;
+        group[nCount] index : u16 {
+            center : vec3f;
+            radius : Float;
+            nPrims : u8;
+            axis : u8;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
+            };
+        };
+    };
+
+    // pbrt's rule: if the ray points down the axis this node was split on,
+    // its second child is the nearer one, so give branch 1 the smaller key.
+    trace.sort(shapes.Interior, |i : u8, r : Ray, axis : u8| select((1 / r.d)[axis] < 0, 1 - i, i))
+         .loopify(64);
+}

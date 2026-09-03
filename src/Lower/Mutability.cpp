@@ -212,6 +212,16 @@ struct RewriteMutables : public ir::Mutator {
             varying.push_back(std::move(mutated));
         }
 
+        // The keys are ordinary values, not arguments to anything, so they get
+        // the plain rewrite rather than the by-pointer rule.
+        std::vector<ir::Expr> keys;
+        keys.reserve(node->keys.size());
+        for (const auto &key : node->keys) {
+            ir::Expr mutated = mutate(key);
+            changed = changed || !mutated.same_as(key);
+            keys.push_back(std::move(mutated));
+        }
+
         if (!changed) {
             return node;
         }
@@ -223,7 +233,8 @@ struct RewriteMutables : public ir::Mutator {
             func = ir::Var::make(mutate_type(func_t, by_ptr), var->name);
         }
         return ir::MultiRecurse::make(std::move(func), std::move(check.args),
-                                      node->varying_at, std::move(varying));
+                                      node->varying_at, std::move(varying),
+                                      std::move(keys));
     }
 
     ir::Stmt visit(const ir::Launch *node) override {

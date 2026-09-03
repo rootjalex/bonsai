@@ -14,7 +14,41 @@ what the schedule language exists to decide.
 
 Ordered by what a measurement suggests they are worth, with the evidence.
 
-## 1. The BVH does not order its children front to back
+## 1. The BVH does not order its children front to back -- BUILT, AND IT LOSES
+
+**Implemented and measured, and it is off.** The schedule for it is written out
+in render.bonsai next to `trace.loopify(64)`; enabling it is one edit.
+
+    killeroo-simple, best of three, same pbrt run each time
+      no sort            15.35 s
+      front to back      16.50 s
+      back to front      18.20 s
+
+Every pixel is identical in all three, which is the entry condition for this
+file and is why a sort is a schedule at all: an `argmin` over a set does not
+depend on the order the set is visited in.
+
+The middle row against the last says the ordering works -- front to back really
+does find the near child, and getting it backwards costs 1.7 s. It just does not
+pay for itself, and what it is up against is the layout. `left = index + 1`, so
+descending left first walks the node array forwards and streams; sorting jumps
+to `index + offset` about half the time and gives that up, and the primitive
+tests it saves do not cover the loss. 66k triangles is small enough that the
+whole BVH is close to cache-resident, which is exactly the case where locality
+beats pruning. A scene whose BVH does not fit should come out the other way --
+the ones here that would show it, ganesha and crown, need mesh area lights and
+`volpath` first.
+
+Worth keeping the machinery for that reason, and for two things it turned up on
+the way. `sort()` used to be lowered at the Stmt level, before the layout ran,
+so it selected between whole subtree *values* rather than node indices; it is an
+SSA rewrite now (`SSA/SortRecursion.h`) and costs a compare and two selects on
+`u32`s. And the simplifier folded `select(c, 1, 0)` to `cast(!c)` -- inverted --
+which is what the third row above was measuring before it was fixed.
+
+### The original note
+
+
 
 **pbrt does and we do not**, which means our traversal tests more primitives
 than pbrt's for the same ray. From the lowered IR:

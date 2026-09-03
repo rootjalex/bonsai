@@ -94,9 +94,9 @@ struct InsertExternsIntoCalls : public ir::Mutator {
         if (!whole.has_value()) {
             return node;
         }
-        return ir::MultiRecurse::make(std::move(whole->first),
-                                      std::move(whole->second),
-                                      node->varying_at, node->varying);
+        return ir::MultiRecurse::make(
+            std::move(whole->first), std::move(whole->second), node->varying_at,
+            node->varying, node->keys);
     }
 };
 

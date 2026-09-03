@@ -1,3 +1,13 @@
+// A sort() asked for on the pipeline that cannot apply it.
+//
+// The Stmt-level lowering turns a branching recursion into writes to a queue
+// before the layout has run, so there is no run of calls left for the SSA
+// rewrite that does the reordering (SSA/SortRecursion.h) to permute. What
+// matters is that this is refused: writing the branches out in their original
+// order would compile a program the schedule did not ask for, and it would
+// look exactly like a working sort -- an argmin over a set does not depend on
+// visit order, so every pixel of every image would still be right and only the
+// speed would be missing.
 import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;
@@ -6,12 +16,7 @@ extern triangles : set[Triangle];
 
 func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
 
-func [[export]] trace_all(n : u32, rays : array[Ray, n]) = map(|r : Ray| trace(r), rays);
-
-// func alltrace(ray : Ray) = filter(|tri| intersects(ray, tri), triangles);
-
 schedule {
-    // TODO: generic over primitive types!
     tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
     | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
     | Leaf(data : array[Triangle]) with data = data;
@@ -35,10 +40,6 @@ schedule {
         };
     };
 
-    // No sort() here, deliberately. This pipeline turns the recursion into a
-    // queue at the Stmt level, and putting the branches in order is an SSA
-    // rewrite -- so the two do not meet. The sorted version of this schedule
-    // is ssa/sort-recursion.bonsai, and error/sort-needs-ssa.bonsai pins that
-    // asking for one here is refused rather than ignored.
-    trace.loopify(64);
+    trace.sort(triangles.Interior, |i : u8, ray : Ray, axis : u8| select((1 / ray.d)[axis] < 0, 1 - i, i))
+         .loopify(64);
 }

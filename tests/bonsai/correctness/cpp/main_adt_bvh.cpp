@@ -1,4 +1,12 @@
+// One driver, two schedules. adt-bvh-sorted.bonsai is adt-bvh.bonsai with a
+// sort() added, and it has to produce exactly the same answers -- an argmin
+// over a set does not depend on the order the set is visited in, so a schedule
+// that only changes that order may not change a single line of output.
+#ifdef SORTED
+#include "adt-bvh-sorted.h"
+#else
 #include "adt-bvh.h"
+#endif
 
 #include <algorithm>
 #include <cassert>

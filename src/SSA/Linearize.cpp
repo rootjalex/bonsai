@@ -644,6 +644,9 @@ BlockMasks linearize(Function &func, const string &entry,
                                        replace(a);
                                    }
                                }
+                               for (auto &k : t.keys) {
+                                   replace(k);
+                               }
                                for (auto &a : t.cont.args) {
                                    replace(a);
                                }

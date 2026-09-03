@@ -554,11 +554,13 @@ Stmt Mutator::visit(const MultiRecurse *node) {
         varying_same = varying_same && same;
         varying.push_back(std::move(mutated));
     }
-    if (func.same_as(node->func) && args_same && varying_same) {
+    auto [keys, keys_same] = visit_list(this, node->keys);
+    if (func.same_as(node->func) && args_same && varying_same && keys_same) {
         return node;
     }
     return MultiRecurse::make(std::move(func), std::move(args),
-                              node->varying_at, std::move(varying));
+                              node->varying_at, std::move(varying),
+                              std::move(keys));
 }
 
 Stmt Mutator::visit(const Print *node) {
@@ -750,10 +752,11 @@ Stmt Mutator::visit(const Scan *node) {
 
 Stmt Mutator::visit(const YieldFrom *node) {
     Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
+    auto [keys, keys_same] = visit_list(this, node->keys);
+    if (value.same_as(node->value) && keys_same) {
         return node;
     }
-    return YieldFrom::make(std::move(value));
+    return YieldFrom::make(std::move(value), std::move(keys));
 }
 
 Stmt Mutator::visit(const ForEach *node) {

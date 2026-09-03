@@ -43,11 +43,8 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
     if (intersects_Ray_AABB(ray, build<AABB>(triangles.group0_index[triangles_index].low, triangles.group0_index[triangles_index].high))) {
       if (distmin_Ray_AABB(ray, build<AABB>(triangles.group0_index[triangles_index].low, triangles.group0_index[triangles_index].high)) < (*_best0)._field0) {
         if (triangles.group0_index[triangles_index].nPrims == 0u) {
-          let _sort_cmp0 = cast<u8>(!((f32x3(1f) / ray.d)[triangles.group0_index[triangles_index].axis] < 0f)) < cast<u8>((f32x3(1f) / ray.d)[triangles.group0_index[triangles_index].axis] < 0f) in
-          let _sort_tmp0 = select(_sort_cmp0, triangles_index + 1u, triangles_index + reinterpret_cast<_tree_layout2>(triangles.group0_index[triangles_index].split0on_nPrims).offset) in
-          let _sort_tmp1 = select(_sort_cmp0, triangles_index + reinterpret_cast<_tree_layout2>(triangles.group0_index[triangles_index].split0on_nPrims).offset, triangles_index + 1u) in
-          _queue0[(*_queue_count0)] = _sort_tmp0
-          _queue0[(*_queue_count0) + 1] = _sort_tmp1
+          _queue0[(*_queue_count0)] = triangles_index + 1u
+          _queue0[(*_queue_count0) + 1] = triangles_index + reinterpret_cast<_tree_layout2>(triangles.group0_index[triangles_index].split0on_nPrims).offset
           _queue_count0 += 2
         } else {
           forall _idx0 in [0u:cast<u32>(triangles.group0_index[triangles_index].nPrims):1u] {

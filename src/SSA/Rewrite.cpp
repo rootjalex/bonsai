@@ -314,6 +314,7 @@ tuple<Type, Continuation> FindPath(const FuncMap &funcs,
                             for (const auto &vs : call.varying) {
                                 save_type_state(vs);
                             }
+                            save_type_state(call.keys);
                             rec = {flatten_state_stack(), cont_stack};
                         } else {
                             internal_assert(call.cont.args.empty())

@@ -1,0 +1,17 @@
+[test] clang++ -std=c++20 -O3 -DSORTED -c tests/bonsai/correctness/cpp/main_adt_bvh.cpp -I. -o tests/bonsai/correctness/cpp/main_adt_bvh_sorted.o
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/LoopTransforms.cpp:202
+
+--> node->keys.empty()
+sort() is in the schedule, but this pipeline turns the recursion into a queue here, at the Stmt level, and the reordering is an SSA rewrite (see SSA/SortRecursion.h). Silently writing the branches to the queue in their original order would compile a different program than the schedule asks for, so it is an error instead. Compile with `-p ssa`.
+tests/bonsai/correctness/cpp/main_adt_bvh.cpp:6:10: fatal error: 'adt-bvh-sorted.h' file not found
+    6 | #include "adt-bvh-sorted.h"
+      |          ^~~~~~~~~~~~~~~~~~
+1 error generated.
+command failed (exit 256)
+rm: cannot remove 'tests/bonsai/correctness/cpp/adt-bvh-sorted': No such file or directory
+rm: cannot remove 'tests/bonsai/correctness/cpp/main_adt_bvh_sorted.o': No such file or directory
+rm: cannot remove 'tests/bonsai/correctness/cpp/adt-bvh-sorted.h': No such file or directory
+rm: cannot remove 'tests/bonsai/correctness/cpp/adt-bvh-sorted.o': No such file or directory

@@ -232,14 +232,18 @@ Stmt insert_rand_state(const Stmt &stmt,
                 not_changed = not_changed && same;
                 varying.push_back(std::move(mutated));
             }
+            auto [keys, keys_same] = visit_list(node->keys);
+            not_changed = not_changed && keys_same;
             if (func.defined()) {
                 return MultiRecurse::make(std::move(func), std::move(args),
-                                          node->varying_at, std::move(varying));
+                                          node->varying_at, std::move(varying),
+                                          std::move(keys));
             } else if (not_changed) {
                 return node;
             }
             return MultiRecurse::make(node->func, std::move(args),
-                                      node->varying_at, std::move(varying));
+                                      node->varying_at, std::move(varying),
+                                      std::move(keys));
         }
     };
     CallsRandFinder finder(funcs_call_rand);

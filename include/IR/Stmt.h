@@ -117,9 +117,15 @@ struct MultiRecurse : StmtNode<MultiRecurse> {
     std::vector<size_t> varying_at;
     std::vector<std::vector<Expr>> varying;
 
+    // What a sort() orders the calls by, one key per call, carried over from
+    // the YieldFrom this came from. Empty when no schedule asked for an order,
+    // which is the normal case. Acted on in SSA -- see SSA/SortRecursion.h.
+    std::vector<Expr> keys;
+
     static Stmt make(Expr func, std::vector<Expr> args,
                      std::vector<size_t> varying_at,
-                     std::vector<std::vector<Expr>> varying);
+                     std::vector<std::vector<Expr>> varying,
+                     std::vector<Expr> keys = {});
 
     // The full argument list of call `c`, i.e. `args` with `varying[c]`
     // substituted in at `varying_at`. This is what expanding the node emits.
@@ -383,7 +389,20 @@ struct Scan : StmtNode<Scan> {
 struct YieldFrom : StmtNode<YieldFrom> {
     Expr value;
 
+    // What a sort() orders the branches by: one key per branch, or empty when
+    // no schedule asked for an order.
+    //
+    // The keys are carried here, rather than being turned into a reordering on
+    // the spot, because they are ordinary expressions and have to be lowered
+    // like ordinary expressions. A key over a BVH names the node's split axis,
+    // which is a field of the layout, so it has to pass through LowerLayouts to
+    // become a load; and it has to be built here, before that, because this is
+    // where the match arm binding it refers to is still in scope. The ordering
+    // itself happens much later, as an SSA rewrite -- see SSA/SortRecursion.h.
+    std::vector<Expr> keys;
+
     static Stmt make(Expr value);
+    static Stmt make(Expr value, std::vector<Expr> keys);
 
     static const IRStmtEnum node_type = IRStmtEnum::YieldFrom;
 };

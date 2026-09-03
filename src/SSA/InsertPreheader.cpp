@@ -83,6 +83,9 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
                                    rename(a);
                                }
                            }
+                           for (const auto &k : c.keys) {
+                               rename(k);
+                           }
                        },
                    },
                    block->terminator.data);

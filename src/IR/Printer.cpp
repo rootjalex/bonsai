@@ -1306,6 +1306,11 @@ void Printer::visit(const MultiRecurse *node) {
         os << ')';
     }
     os << " }";
+    if (!node->keys.empty()) {
+        os << " sorted by (";
+        print_expr_list(node->keys);
+        os << ")";
+    }
     end_stmt();
 }
 
@@ -1584,6 +1589,11 @@ void Printer::visit(const YieldFrom *node) {
     os << get_indent();
     os << "from ";
     print_no_parens(node->value);
+    if (!node->keys.empty()) {
+        os << " sorted by (";
+        print_expr_list(node->keys);
+        os << ")";
+    }
     end_stmt();
 }
 

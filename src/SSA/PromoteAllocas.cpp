@@ -106,6 +106,9 @@ vector<shared_ptr<Value>> terminator_uses(const Block &block) {
                         uses.push_back(a);
                     }
                 }
+                for (const auto &k : c.keys) {
+                    uses.push_back(k);
+                }
             },
         },
         block.terminator.data);

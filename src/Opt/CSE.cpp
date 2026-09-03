@@ -440,6 +440,30 @@ struct Rename : public ir::Mutator {
         }
         return make(ir::CallStmt::make(node->func, std::move(args)));
     }
+    ir::Stmt visit(const ir::MultiRecurse *node) override {
+        std::vector<ir::Expr> args;
+        for (const ir::Expr &arg : node->args) {
+            args.push_back(mutate(arg));
+        }
+        std::vector<std::vector<ir::Expr>> varying;
+        varying.reserve(node->varying.size());
+        for (const auto &vs : node->varying) {
+            std::vector<ir::Expr> mutated;
+            mutated.reserve(vs.size());
+            for (const ir::Expr &v : vs) {
+                mutated.push_back(mutate(v));
+            }
+            varying.push_back(std::move(mutated));
+        }
+        std::vector<ir::Expr> keys;
+        keys.reserve(node->keys.size());
+        for (const ir::Expr &key : node->keys) {
+            keys.push_back(mutate(key));
+        }
+        return make(ir::MultiRecurse::make(node->func, std::move(args),
+                                           node->varying_at, std::move(varying),
+                                           std::move(keys)));
+    }
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
@@ -483,7 +507,13 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::YieldFrom *node) override {
-        return make(ir::YieldFrom::make(mutate(node->value)));
+        std::vector<ir::Expr> keys;
+        keys.reserve(node->keys.size());
+        for (const auto &key : node->keys) {
+            keys.push_back(mutate(key));
+        }
+        return make(
+            ir::YieldFrom::make(mutate(node->value), std::move(keys)));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
@@ -754,7 +784,12 @@ class LVN : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::YieldFrom *node) override {
-        return ir::YieldFrom::make(mutate(node->value));
+        std::vector<ir::Expr> keys;
+        keys.reserve(node->keys.size());
+        for (const auto &key : node->keys) {
+            keys.push_back(mutate(key));
+        }
+        return ir::YieldFrom::make(mutate(node->value), std::move(keys));
     }
 
     ir::Expr visit(const ir::Call *node) override {
@@ -771,6 +806,31 @@ class LVN : public ir::Mutator {
             args.push_back(cse(arg));
         }
         return ir::CallStmt::make(node->func, std::move(args));
+    }
+
+    ir::Stmt visit(const ir::MultiRecurse *node) override {
+        std::vector<ir::Expr> args;
+        for (const ir::Expr &arg : node->args) {
+            args.push_back(cse(arg));
+        }
+        std::vector<std::vector<ir::Expr>> varying;
+        varying.reserve(node->varying.size());
+        for (const auto &vs : node->varying) {
+            std::vector<ir::Expr> replaced;
+            replaced.reserve(vs.size());
+            for (const ir::Expr &v : vs) {
+                replaced.push_back(cse(v));
+            }
+            varying.push_back(std::move(replaced));
+        }
+        std::vector<ir::Expr> keys;
+        keys.reserve(node->keys.size());
+        for (const ir::Expr &key : node->keys) {
+            keys.push_back(cse(key));
+        }
+        return ir::MultiRecurse::make(node->func, std::move(args),
+                                      node->varying_at, std::move(varying),
+                                      std::move(keys));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {

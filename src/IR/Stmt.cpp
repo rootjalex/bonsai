@@ -25,7 +25,8 @@ Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
 
 Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
                         std::vector<size_t> varying_at,
-                        std::vector<std::vector<Expr>> varying) {
+                        std::vector<std::vector<Expr>> varying,
+                        std::vector<Expr> keys) {
     internal_assert(func.defined())
         << "MultiRecurse::make received undefined func";
     const Function_t *f = func.type().as<Function_t>();
@@ -51,11 +52,19 @@ Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
             << "MultiRecurse::make received an undefined varying value";
     }
 
+    internal_assert(keys.empty() || keys.size() == varying.size())
+        << "MultiRecurse::make received " << keys.size() << " sort keys for "
+        << varying.size() << " calls";
+    internal_assert(std::all_of(keys.cbegin(), keys.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "MultiRecurse::make received an undefined sort key";
+
     MultiRecurse *node = new MultiRecurse;
     node->func = std::move(func);
     node->args = std::move(args);
     node->varying_at = std::move(varying_at);
     node->varying = std::move(varying);
+    node->keys = std::move(keys);
     return node;
 }
 
@@ -361,9 +370,17 @@ Stmt Scan::make(std::optional<AggOp::OpType> op, WriteLoc loc, Expr func,
 }
 
 Stmt YieldFrom::make(Expr value) {
+    return YieldFrom::make(std::move(value), {});
+}
+
+Stmt YieldFrom::make(Expr value, std::vector<Expr> keys) {
     internal_assert(value.defined()) << "Undefined value in YieldFrom::make";
+    internal_assert(std::all_of(keys.cbegin(), keys.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "Undefined sort key in YieldFrom::make";
     YieldFrom *node = new YieldFrom;
     node->value = std::move(value);
+    node->keys = std::move(keys);
     return node;
 }
 

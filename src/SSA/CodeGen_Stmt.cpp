@@ -1500,6 +1500,11 @@ Stmt structurize(const std::string &start, const std::string &exit,
                                "predecessor should never have mutable args";
                     }
 
+                    internal_assert(c.keys.empty())
+                        << "The run in " << block->name << " still carries "
+                        << c.keys.size()
+                        << " sort keys, so sort_recursion() never saw it and "
+                           "its calls are in no particular order.";
                     internal_assert(c.drop)
                         << "A run of " << c.varying.size()
                         << " calls in " << block->name

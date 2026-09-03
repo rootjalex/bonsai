@@ -266,6 +266,11 @@ struct Terminator {
         std::vector<size_t> varying_at; // indices into call.args
         // One entry per call, each holding `varying_at.size()` values.
         std::vector<std::vector<std::shared_ptr<Value>>> varying;
+        // What a sort() orders the calls by, one key per call, or empty when
+        // no schedule asked for an order. Consumed by sort_recursion(), which
+        // permutes `varying` to match and then clears this -- so a MultiCall
+        // reaching code generation should not have any.
+        std::vector<std::shared_ptr<Value>> keys;
         bool drop = true;
 
         // `call.args` with entry `c` substituted in at `varying_at`.

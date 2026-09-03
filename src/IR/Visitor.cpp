@@ -238,6 +238,7 @@ void Visitor::visit(const MultiRecurse *node) {
     for (const auto &vs : node->varying) {
         visit_list(this, vs);
     }
+    visit_list(this, node->keys);
 }
 
 void Visitor::visit(const Print *node) { visit_list(this, node->args); }
@@ -324,7 +325,10 @@ void Visitor::visit(const Iterate *node) { node->value.accept(this); }
 
 void Visitor::visit(const Scan *node) { node->value.accept(this); }
 
-void Visitor::visit(const YieldFrom *node) { node->value.accept(this); }
+void Visitor::visit(const YieldFrom *node) {
+    node->value.accept(this);
+    visit_list(this, node->keys);
+}
 
 void Visitor::visit(const ForEach *node) {
     node->iter.accept(this);

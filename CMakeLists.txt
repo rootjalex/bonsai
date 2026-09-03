@@ -187,6 +187,7 @@ target_sources(
     src/SSA/Linearize.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
+    src/SSA/SortRecursion.cpp
     src/SSA/SplitAggregates.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp

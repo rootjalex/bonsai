@@ -4,6 +4,7 @@
 #include "SSA/Contract.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/Rewrite.h"
+#include "SSA/SortRecursion.h"
 #include "SSA/SSA.h"
 
 #include "IR/Analysis.h"
@@ -373,6 +374,12 @@ struct FunctionBuilder : Visitor {
             varying.push_back(std::move(values));
         }
 
+        std::vector<std::shared_ptr<Value>> keys;
+        keys.reserve(node->keys.size());
+        for (const auto &key : node->keys) {
+            keys.emplace_back(get_value(key));
+        }
+
         // Every value the run uses has to reach this block, including the ones
         // that only one of the calls passes: the run is a single terminator,
         // so there is nowhere later for them to be threaded in.
@@ -380,6 +387,7 @@ struct FunctionBuilder : Visitor {
         for (auto &vs : varying) {
             rethread(vs);
         }
+        rethread(keys);
 
         auto call_name = get_call_name(func);
 
@@ -395,6 +403,7 @@ struct FunctionBuilder : Visitor {
             .cont = Terminator::Jump{.name = cont_block->name, .args = {}},
             .varying_at = node->varying_at,
             .varying = std::move(varying),
+            .keys = std::move(keys),
             .drop = true};
 
         block = cont_block;
@@ -1344,7 +1353,20 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         fmap[name] = std::move(f);
     }
 
-    // Loopify first, whichever order the schedule names the functions in: it
+    // Sort before anything else, and before loopify in particular: loopify
+    // replaces a run of recursive calls with pushes onto a stack, and a sort
+    // applied after that has nothing left to permute.
+    //
+    // Every function, rather than the ones the schedule names, because the
+    // recursion a `trace.sort(...)` is about lives in a traversal function that
+    // lowering invented and the schedule cannot name. The keys are on the IR by
+    // now, so a function no schedule sorted has none and this does nothing to
+    // it.
+    for (const auto &[name, f] : fmap) {
+        sort_recursion(*f);
+    }
+
+    // Loopify next, whichever order the schedule names the functions in: it
     // turns a function's self tail-calls into a loop, and vectorizing a caller
     // has to see the callee in its final shape -- as a loop it can make
     // uniform, rather than as a recursion it would specialize forever.
