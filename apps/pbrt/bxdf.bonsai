@@ -21,6 +21,7 @@
 import stdlib/numerics;
 import apps/pbrt/frame;
 import apps/pbrt/rng;
+import apps/pbrt/sampling;
 import apps/pbrt/spectrum;
 
 // pbrt's constants, as f32. Written out rather than derived: the rounding of
@@ -37,10 +38,6 @@ func float_min() -> Float = 1.17549435e-38;
 // pbrt: Clamp, for a scalar. stdlib/numerics has one for vec3f only.
 func clampf(x : Float, low : Float, high : Float) -> Float =
     min(max(x, low), high);
-
-// pbrt: SafeSqrt, which is the square root of a quantity that is mathematically
-// non-negative and can be a few ulp below zero once rounded.
-func safe_sqrt(x : Float) -> Float = sqrt(max(0.0, x));
 
 // pbrt: Lerp. The weight is on the second argument, which is the opposite of
 // the usual reading and is what pbrt means.
@@ -171,21 +168,6 @@ func sample_cosine_hemisphere(u : vec2f) -> vec3f {
 }
 
 func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();
-
-// pbrt: SampleUniformSphere, and the constant density that goes with it.
-//
-// The whole sphere rather than a hemisphere, because this is what
-// RandomWalkIntegrator scatters with: it knows nothing about the surface and
-// picks a direction that may well go into it, which is why its estimator
-// divides by a density that does not depend on the direction at all.
-func sample_uniform_sphere(u : vec2f) -> vec3f {
-    z = fma(-2.0, u.x, 1.0);
-    r = safe_sqrt(1.0 - sqr(z));
-    phi = 2.0 * pi() * u.y;
-    return vec3f{r * cos(phi), r * sin(phi), z};
-}
-
-func uniform_sphere_pdf() -> Float = 1.0 / (4.0 * pi());
 
 // pbrt: SampleExponential, which is the inverse of the exponential CDF.
 func sample_exponential(u : Float, a : Float) -> Float = -log(1.0 - u) / a;

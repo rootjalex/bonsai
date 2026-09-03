@@ -964,6 +964,62 @@ void print_bsdf() {
 // numbers written down on both sides -- the same reason print_bsdf constructs
 // its BxDFs. What tests/bonsai/correctness/llvm's shading-frame golden holds is
 // this output.
+// Sphere::Sample(ctx, u) and Sphere::PDF(ctx, wi), asked of pbrt.
+//
+// This is what a light-sampling integrator stands on: a direction chosen inside
+// the cone the sphere subtends, and the density it was chosen with. Getting it
+// wrong gives a picture that is merely differently noisy, so it is pinned here
+// rather than inferred from an image.
+void print_shape_sample() {
+    const pbrt::Transform identity;
+    const pbrt::Transform *to_render = &identity;
+    // Radius and centre are separated so that the object-to-render transform is
+    // a translation, which is all this renderer represents.
+    const struct {
+        pbrt::Point3f centre;
+        pbrt::Float radius;
+    } spheres[] = {{{0.f, 7.f, 2.f}, 2.5f}, {{-246.7f, 65.2f, -10.f}, 3.f}};
+    // Points to look at each sphere from: near, far, and off to one side.
+    const pbrt::Point3f from[] = {
+        {0.f, 0.f, 0.f}, {3.f, 1.f, 4.f}, {-100.f, 20.f, 60.f}};
+    const pbrt::Point2f us[] = {
+        {0.f, 0.f}, {0.5f, 0.25f}, {0.87f, 0.63f}, {0.999f, 0.001f}};
+
+    for (const auto &sph : spheres) {
+        const pbrt::Transform translate = pbrt::Translate(
+            pbrt::Vector3f(sph.centre.x, sph.centre.y, sph.centre.z));
+        const pbrt::Transform inverse = pbrt::Inverse(translate);
+        pbrt::Sphere sphere(&translate, &inverse, /*reverseOrientation=*/false,
+                            sph.radius, -sph.radius, sph.radius, 360.f);
+        for (const pbrt::Point3f &p : from) {
+            const pbrt::ShapeSampleContext ctx(pbrt::Point3fi(p),
+                                               pbrt::Normal3f(0, 1, 0),
+                                               pbrt::Normal3f(0, 1, 0), 0.f);
+            for (const pbrt::Point2f &u : us) {
+                const pstd::optional<pbrt::ShapeSample> ss =
+                    sphere.Sample(ctx, u);
+                if (!ss) {
+                    printf("spheresample %g %g: none\n", double(u.x),
+                           double(u.y));
+                    continue;
+                }
+                const pbrt::Vector3f wi =
+                    pbrt::Normalize(ss->intr.p() - ctx.p());
+                printf("spheresample %g %g %g r %g from %g %g %g u %g %g:"
+                       " p %.9g %.9g %.9g n %.9g %.9g %.9g pdf %.9g"
+                       " pdfback %.9g\n",
+                       double(sph.centre.x), double(sph.centre.y),
+                       double(sph.centre.z), double(sph.radius), double(p.x),
+                       double(p.y), double(p.z), double(u.x), double(u.y),
+                       double(ss->intr.p().x), double(ss->intr.p().y),
+                       double(ss->intr.p().z), double(ss->intr.n.x),
+                       double(ss->intr.n.y), double(ss->intr.n.z),
+                       double(ss->pdf), double(sphere.PDF(ctx, wi)));
+            }
+        }
+    }
+}
+
 // What a DiffuseAreaLight actually emits, asked of pbrt.
 //
 // The scale a light carries is the one piece of a scene that cannot be checked
@@ -2090,6 +2146,7 @@ int main(int argc, char **argv) {
     bool bsdf_only = false;
     bool shading_only = false;
     bool light_only = false;
+    bool shape_sample_only = false;
     int repeats = 1;
     // --reference writes the gbuffer PBRT would have written, rendered with
     // PBRT's own camera, aggregate and BSDFs. It is how the comparison runs on
@@ -2112,6 +2169,8 @@ int main(int argc, char **argv) {
             shading_only = true;
         } else if (arg == "--print-light") {
             light_only = true;
+        } else if (arg == "--print-shape-sample") {
+            shape_sample_only = true;
         } else if (arg == "--reference") {
             if (i + 1 >= argc) {
                 fail("--reference needs a path prefix to write to");
@@ -2127,7 +2186,7 @@ int main(int argc, char **argv) {
         }
     }
     if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
-        !light_only && positional.size() != 2) {
+        !light_only && !shape_sample_only && positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] [--reference <prefix>]"
              " <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
@@ -2165,6 +2224,11 @@ int main(int argc, char **argv) {
     }
     if (light_only) {
         print_light();
+        pbrt::CleanupPBRT();
+        return 0;
+    }
+    if (shape_sample_only) {
+        print_shape_sample();
         pbrt::CleanupPBRT();
         return 0;
     }

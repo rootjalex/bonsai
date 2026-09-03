@@ -1,0 +1,38 @@
+// pbrt: util/sampling.h -- the distributions, as distinct from the samplers.
+//
+// pbrt keeps these apart and so does this app: `sampler.bonsai` is
+// `samplers.h`, the objects that hand out uniform numbers, and this is what
+// those numbers are warped into. The distinction is not filing: a sampler is
+// something a scene names and a schedule cares about, and a warp is arithmetic
+// that anything may use.
+//
+// This file exists because both `shapes.bonsai` and `bxdf.bonsai` need the same
+// warps -- a shape samples a direction towards a light, a BSDF samples one
+// leaving a surface -- and neither imports the other. Before it, the uniform
+// sphere lived in bxdf.bonsai and shapes.bonsai reached it only because
+// render.bonsai happened to import both, which is a dependency nothing
+// declares and that breaks the moment a file is compiled on its own.
+import stdlib/numerics;
+
+func sampling_pi() -> Float = 3.14159265358979323846;
+
+// pbrt: SampleUniformSphere, and the constant density that goes with it.
+//
+// The whole sphere rather than a hemisphere. RandomWalkIntegrator scatters with
+// this: it knows nothing about the surface and picks a direction that may well
+// go into it, which is why its estimator divides by a density that does not
+// depend on the direction at all.
+func sample_uniform_sphere(u : vec2f) -> vec3f {
+    z = fma(-2.0, u.x, 1.0);
+    r = sqrt(max(0.0, 1.0 - sqr(z)));
+    phi = 2.0 * sampling_pi() * u.y;
+    return vec3f{r * cos(phi), r * sin(phi), z};
+}
+
+func uniform_sphere_pdf() -> Float = 1.0 / (4.0 * sampling_pi());
+
+// pbrt: SafeSqrt, the square root of a quantity that is mathematically
+// non-negative and can be a few ulp below zero once rounded. Here rather than
+// in bxdf.bonsai because a shape's cone sampling needs it too, and neither file
+// imports the other.
+func safe_sqrt(x : Float) -> Float = sqrt(max(0.0, x));

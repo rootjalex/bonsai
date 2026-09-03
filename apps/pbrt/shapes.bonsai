@@ -9,6 +9,7 @@
 import stdlib/numerics;
 import apps/pbrt/frame;
 import apps/pbrt/interval;
+import apps/pbrt/sampling;
 
 // pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
 // alongside; the tree lowering needs a bound to prune against.
@@ -675,6 +676,198 @@ func offset_ray_origin(p : vec3f, p_error : vec3f, n : vec3f,
 func spawn_ray(g : SurfaceGeometry, d : vec3f) -> Ray {
     r : Ray = {offset_ray_origin(g.p, g.p_error, g.n, d), d, inf};
     return r;
+}
+
+// pbrt: ShapeSampleContext, the point a shape is being sampled *from*.
+//
+// A surface asking "where on the light should I look?" -- so the shading normal
+// is here as well as the geometric one, and the error bound is here because the
+// answer depends on where the shadow ray may start from.
+element ShapeSampleContext {
+    p : vec3f;
+    p_error : vec3f;
+    n : vec3f;
+    ns : vec3f;
+}
+
+// pbrt: ShapeSample -- a point on the shape and the density it was chosen with,
+// in solid angle measure about the context's point.
+element ShapeSample {
+    p : vec3f;
+    p_error : vec3f;
+    n : vec3f;
+    uv : vec2f;
+    pdf : Float;
+}
+
+// pbrt: ShapeSampleContext::OffsetRayOrigin(Point3f), which offsets towards a
+// point rather than along a direction.
+func ctx_offset_toward(ctx : ShapeSampleContext, target : vec3f) -> vec3f =
+    offset_ray_origin(ctx.p, ctx.p_error, ctx.n, target - ctx.p);
+
+// pbrt: SafeACos, clamped so that a cosine a hair outside [-1,1] -- which
+// arithmetic produces -- is an angle rather than a NaN.
+// min/max rather than bxdf.bonsai's `clampf`: that file imports this one, not
+// the other way about, and a symbol that resolves only because some third file
+// imported both is a dependency nothing declares.
+func safe_acos(x : Float) -> Float = acos(min(max(x, -1.0), 1.0));
+
+// pbrt: SphericalDirection, from a sine, a cosine and an azimuth.
+// `st`/`ct` rather than pbrt's names: `sin_theta` and `cos_theta` are already
+// the spherical accessors in bxdf.bonsai, which take a direction.
+func spherical_direction(st : Float, ct : Float, phi : Float) -> vec3f {
+    s = min(max(st, -1.0), 1.0);
+    return vec3f{s * cos(phi), s * sin(phi), min(max(ct, -1.0), 1.0)};
+}
+
+// pbrt: Sphere::Area, for a full sphere.
+func sphere_area(s : Sphere) -> Float =
+    6.28318530717958647692 * s.radius * (s.radius - (0.0 - s.radius));
+
+// pbrt: Sphere::Sample(u), a point chosen uniformly over the sphere's area.
+//
+// Only reached when the point being sampled from is *inside* the sphere, where
+// the cone below is not defined. Both scenes here look at their light from
+// outside, so this is the branch that is written for completeness and the other
+// is the one that runs.
+func sphere_sample_area(s : Sphere, u : vec2f) -> ShapeSample {
+    dir = sample_uniform_sphere(u);
+    p_obj0 = s.radius * dir;
+    // pbrt reprojects onto the sphere, since the direction is only as accurate
+    // as the trigonometry that made it.
+    p_obj = p_obj0 * (s.radius / norm(p_obj0));
+    p_obj_error = gamma(5) * abs(p_obj);
+
+    raw_n = unit_vector_(p_obj);
+    n = select(s.flip, -raw_n, raw_n);
+
+    theta = safe_acos(p_obj.z / s.radius);
+    phi0 = atan2(p_obj.y, p_obj.x);
+    phi = select(phi0 < 0.0, phi0 + 6.28318530717958647692, phi0);
+    // A full sphere: phiMax is 2pi and theta runs from acos(-1) to acos(1).
+    uv = vec2f{phi / 6.28318530717958647692,
+               (theta - 3.14159265358979323846) / (0.0 - 3.14159265358979323846)};
+
+    ss : ShapeSample = {p_obj + s.center, p_obj_error, n, uv,
+                        1.0 / sphere_area(s)};
+    return ss;
+}
+
+// pbrt: Sphere::Sample(ctx, u) -- a direction chosen uniformly inside the cone
+// the sphere subtends, which is what makes a shadow ray worth tracing: every
+// direction it picks is one that can reach the light.
+func sphere_sample(s : Sphere, ctx : ShapeSampleContext,
+                   u : vec2f) -> option[ShapeSample] {
+    p_origin = ctx_offset_toward(ctx, s.center);
+    if sqlen[[Float]](p_origin - s.center) <= sqr(s.radius) {
+        // Inside the sphere: the cone is not defined, so sample the area and
+        // convert the density to solid angle.
+        area = sphere_sample_area(s, u);
+        wi0 = area.p - ctx.p;
+        if sqlen[[Float]](wi0) == 0.0 {
+            return {};
+        }
+        wi = unit_vector_(wi0);
+        denom = abs(dot(area.n, -wi)) / sqlen[[Float]](ctx.p - area.p);
+        if denom == 0.0 {
+            return {};
+        }
+        converted : mut ShapeSample = area;
+        converted.pdf = area.pdf / denom;
+        if converted.pdf == inf {
+            return {};
+        }
+        return converted;
+    }
+
+    // The cone the sphere subtends, sampled uniformly in solid angle.
+    sin_theta_max = s.radius / norm(ctx.p - s.center);
+    sin2_theta_max = sqr(sin_theta_max);
+    cos_theta_max = safe_sqrt(1.0 - sin2_theta_max);
+    one_minus_cos : mut Float = 1.0 - cos_theta_max;
+
+    // `ct2`/`s2t`: `cos_theta` is bxdf.bonsai's spherical accessor.
+    ct2 : mut Float = fma(cos_theta_max - 1.0, u.x, 1.0);
+    s2t : mut Float = 1.0 - sqr(ct2);
+    // pbrt: sin^2(1.5 degrees). Below that the subtraction above loses most of
+    // its significance, and the series is the accurate form.
+    if sin2_theta_max < 0.00068523 {
+        s2t = sin2_theta_max * u.x;
+        ct2 = sqrt(1.0 - s2t);
+        one_minus_cos = sin2_theta_max / 2.0;
+    }
+
+    // The angle from the sphere's centre to the sampled point on its surface,
+    // which is not the same as the angle from the viewer.
+    cos_alpha = s2t / sin_theta_max +
+                ct2 * safe_sqrt(1.0 - s2t / sqr(sin_theta_max));
+    sin_alpha = safe_sqrt(1.0 - sqr(cos_alpha));
+
+    phi = u.y * 6.28318530717958647692;
+    w = spherical_direction(sin_alpha, cos_alpha, phi);
+    // `unit_vector_` rather than `unit_vector`: pbrt's Normalize divides by a
+    // length its compiler computes with fused multiply-adds, and the two differ
+    // in the last bit -- which lands in the sampled point.
+    sampling_frame = frame_from_z(unit_vector_(s.center - ctx.p));
+    raw_n = frame_from_local(sampling_frame, -w);
+    n = select(s.flip, -raw_n, raw_n);
+    p = s.center + s.radius * n;
+
+    p_error = gamma(5) * abs(p);
+
+    // The texture coordinates of the sampled point, in the sphere's own frame.
+    p_obj = p - s.center;
+    theta = safe_acos(p_obj.z / s.radius);
+    sphere_phi0 = atan2(p_obj.y, p_obj.x);
+    sphere_phi = select(sphere_phi0 < 0.0,
+                        sphere_phi0 + 6.28318530717958647692, sphere_phi0);
+    uv = vec2f{sphere_phi / 6.28318530717958647692,
+               (theta - 3.14159265358979323846) / (0.0 - 3.14159265358979323846)};
+
+    ss : ShapeSample = {p, p_error, n, uv,
+                        1.0 / (6.28318530717958647692 * one_minus_cos)};
+    return ss;
+}
+
+// pbrt: Sphere::PDF(ctx, wi), the density `sphere_sample` draws with. Needed
+// for MIS, which weighs this estimator against the BSDF's.
+//
+// The inside-the-sphere branch of pbrt's needs an intersection against the
+// shape and is not written: nothing reaches it while every light in these
+// scenes is looked at from outside, and writing it blind would be a number no
+// comparison could check.
+func sphere_pdf(s : Sphere, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    sin2_theta_max = sqr(s.radius) / sqlen[[Float]](ctx.p - s.center);
+    cos_theta_max = safe_sqrt(1.0 - sin2_theta_max);
+    one_minus_cos : mut Float = 1.0 - cos_theta_max;
+    if sin2_theta_max < 0.00068523 {
+        one_minus_cos = sin2_theta_max / 2.0;
+    }
+    return 1.0 / (6.28318530717958647692 * one_minus_cos);
+}
+
+// pbrt: Shape::Sample and Shape::PDF, dispatched over the variants -- which is
+// what pbrt's TaggedPointer does.
+//
+// The triangle arm samples nothing yet. pbrt's is spherical-triangle sampling
+// and its area-sampled fallback is a *different* estimator, so standing one in
+// for the other would produce an image that is unbiased, plausible, and not
+// pbrt's -- which no comparison could tell from a bug. A scene that puts an
+// area light on a mesh is refused by scene_dump instead, where there is
+// something to point at.
+func shape_sample(sh : Shape, ctx : ShapeSampleContext,
+                  u : vec2f) -> option[ShapeSample] {
+    match sh {
+        Sph(s) => return sphere_sample(s, ctx, u);
+        Tri(t) => return {};
+    }
+}
+
+func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    match sh {
+        Sph(s) => return sphere_pdf(s, ctx, wi);
+        Tri(t) => return 0.0;
+    }
 }
 
 func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {

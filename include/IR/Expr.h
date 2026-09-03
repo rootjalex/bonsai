@@ -397,6 +397,11 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // -- as a spectrum sampled per nanometre does -- turns that last bit
         // into a visible difference.
         atanh,
+        // Two-argument arc tangent: the angle of the vector (x, y), which is
+        // what recovers an azimuth from a direction. Not `atan(y/x)`, which
+        // loses the quadrant and divides by zero on the axis. Like the two
+        // above it has no LLVM intrinsic and becomes a call to libm's atan2f.
+        atan2,
         cos,
         cosh,
         cross,

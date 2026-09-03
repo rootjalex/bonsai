@@ -1638,6 +1638,13 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_libm_call("atanh", node);
         return;
     }
+    case Intrinsic::atan2: {
+        // Two arguments, and otherwise the same story: no LLVM intrinsic, so
+        // libm's atan2f, which is what a C compiler emits for std::atan2.
+        internal_assert(node->args.size() == 2) << node->args.size();
+        value = codegen_libm_call("atan2", node);
+        return;
+    }
     case Intrinsic::cos: {
         intrin = llvm::Intrinsic::cos;
         break;
@@ -2704,9 +2711,18 @@ void CodeGen_LLVM::visit(const Store *node) {
 
 llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
                                              const Intrinsic *node) {
-    internal_assert(node->args.size() == 1)
-        << "libm call " << name << " takes one argument: " << Expr(node);
+    // One argument or two: `acos(x)` and `atan2(y, x)` differ in nothing else,
+    // so the arity is read off the call rather than assumed. Every argument
+    // has to have the same shape, since a lane of the result is made from the
+    // matching lane of each.
+    internal_assert(!node->args.empty())
+        << "libm call " << name << " takes arguments: " << Expr(node);
     const Type arg_type = node->args[0].type();
+    for (const Expr &arg : node->args) {
+        internal_assert(equals(arg.type(), arg_type))
+            << "libm call " << name << " has arguments of differing types: "
+            << Expr(node);
+    }
     const bool is_vector = arg_type.is<Vector_t>();
     const Type scalar_type = is_vector ? arg_type.element_of() : arg_type;
     internal_assert(scalar_type.is_float())
@@ -2717,21 +2733,29 @@ llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
     internal_assert(single || scalar_type.bits() == 64)
         << "No libm entry point for " << scalar_type << " in " << Expr(node);
     llvm::Type *llvm_scalar = single ? f32_t : f64_t;
+    const std::vector<llvm::Type *> params(node->args.size(), llvm_scalar);
     llvm::FunctionCallee callee = module->getOrInsertFunction(
         single ? name + "f" : name,
-        llvm::FunctionType::get(llvm_scalar, {llvm_scalar},
-                                /*isVarArg=*/false));
+        llvm::FunctionType::get(llvm_scalar, params, /*isVarArg=*/false));
 
-    llvm::Value *arg = codegen_expr(node->args[0]);
+    std::vector<llvm::Value *> args;
+    args.reserve(node->args.size());
+    for (const Expr &arg : node->args) {
+        args.push_back(codegen_expr(arg));
+    }
     if (!is_vector) {
-        return builder->CreateCall(callee, {arg}, name);
+        return builder->CreateCall(callee, args, name);
     }
 
     llvm::Value *result = llvm::UndefValue::get(codegen_type(node->type));
     for (uint32_t lane = 0; lane < arg_type.lanes(); lane++) {
         llvm::Value *index = llvm::ConstantInt::get(i32_t, lane);
-        llvm::Value *element = builder->CreateExtractElement(arg, index);
-        llvm::Value *applied = builder->CreateCall(callee, {element}, name);
+        std::vector<llvm::Value *> lane_args;
+        lane_args.reserve(args.size());
+        for (llvm::Value *arg : args) {
+            lane_args.push_back(builder->CreateExtractElement(arg, index));
+        }
+        llvm::Value *applied = builder->CreateCall(callee, lane_args, name);
         result = builder->CreateInsertElement(result, applied, index);
     }
     return result;
