@@ -346,11 +346,29 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
     struct RewriteFilter : public Rewriter {
         ir::Expr predicate;
         const IntervalMap &intervals;
+        // Set while rewriting the body of a leaf's element loop, where the
+        // predicate's bound over the *node's* volume has already been emitted
+        // outside the loop. See `visit(Iterate)`.
+        bool bound_hoisted = false;
 
         RewriteFilter(ir::Expr pred, const IntervalMap &intervals)
             : predicate(std::move(pred)), intervals(intervals) {}
 
         using ir::Mutator::visit;
+
+        // The predicate's bound over the volume of the node currently being
+        // matched. It is a property of the node, so it is the same for every
+        // element a leaf holds.
+        Interval node_bounds() const {
+            const ir::Lambda *lambda = predicate.as<ir::Lambda>();
+            if (lambda == nullptr || volumes.empty() ||
+                volumes.size() != lambda->args.size()) {
+                return Interval{};
+            }
+            VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
+            return predicate_analysis(lambda->value, vols, ints);
+        }
 
         ir::Stmt visit(const ir::Yield *node) override {
             internal_assert(!volumes.empty());
@@ -388,8 +406,10 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             IntervalMap ints = make_interval_map(lambda->args, intervals);
 
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
-            if (bounds.max.defined()) {
-                // Maybe true.
+            if (bounds.max.defined() && !bound_hoisted) {
+                // Maybe true. Skipped when this yield is the body of a leaf's
+                // element loop, because `visit(Iterate)` has already emitted it
+                // once outside the loop.
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
             }
             if (bounds.min.defined() && !is_const_zero(bounds.min)) {
@@ -401,9 +421,36 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             return body;
         }
 
+        // A leaf's elements, and the one place the node-level bound belongs.
+        //
+        // The bound is a property of the node's *volume*, so it is the same for
+        // every element the leaf holds -- and it used to be emitted inside the
+        // loop, once per element. On a BVH that is the leaf's own box
+        // re-intersected with the ray for each of the four-odd primitives in
+        // it, to answer a question that cannot change between them.
+        //
+        // Hoisting is not merely code motion, because for a reduction the bound
+        // contains the running accumulator: `distmin(r, leafbox) < best`, and
+        // `best` tightens inside the loop. Evaluating it once at entry is still
+        // exact, and in the safe direction -- `best` only ever decreases, so
+        // the condition is at its weakest here and a leaf is never skipped that
+        // should have been entered. What is given up is abandoning the rest of
+        // a leaf part-way through, which for four primitives is not worth one
+        // box intersection each.
         ir::Stmt visit(const ir::Iterate *node) override {
-            return mutate(
-                lower_iterate(node->value)); // lower into a concrete loop.
+            Interval bounds = node_bounds();
+            const bool hoist = bounds.max.defined();
+
+            const bool outer = bound_hoisted;
+            bound_hoisted = hoist;
+            ir::Stmt loop =
+                mutate(lower_iterate(node->value)); // a concrete loop.
+            bound_hoisted = outer;
+
+            if (hoist) {
+                loop = ir::IfElse::make(std::move(bounds.max), std::move(loop));
+            }
+            return loop;
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
