@@ -21,6 +21,47 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 
 PREFIX="apps/pbrt"
+
+# PBRT's own `--spp <n>`, taken before the positional argument so it can appear
+# anywhere on the line, and passed to scene_dump -- which sets it on PBRTOptions
+# before parsing, so it reaches PBRT's reference render and the scene handed to
+# this renderer by the same route. Both sides therefore compare at the sample
+# count asked for, which is the only way it could be allowed to change a
+# comparison at all.
+#
+# A scene says how many samples it wants and that number is part of what a
+# comparison means, so the figures below are only comparable against other runs
+# at the same count. Mostly this is for making a picture less noisy; render.sh
+# is the script for that.
+# `--disable-pixel-jitter` is pbrt's other option, and it goes the same way. It
+# pins every sample of a pixel to the pixel's centre, which makes this a
+# question about the geometry alone: with all of a pixel's samples on one ray, a
+# difference between the two images cannot be noise. That is how the normals got
+# to zero disagreeing pixels, and it is worth being able to ask for again.
+DUMP_OPTS=()
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --spp)
+      if [[ $# -lt 2 ]]; then
+        echo "--spp needs a sample count" >&2
+        exit 1
+      fi
+      DUMP_OPTS+=(--spp "$2")
+      shift 2
+      ;;
+    --disable-pixel-jitter)
+      DUMP_OPTS+=(--disable-pixel-jitter)
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
 PBRT="${PBRT:-$HOME/projects/pbrt-v4/build/pbrt}"
 # The driver has to be built with clang: the generated header declares its
 # vectors with ext_vector_type, which is what makes the C++ side's float3 the
@@ -133,7 +174,8 @@ REPEATS="${REPEATS:-5}"
 # Wavelength jitter is left on, and pixel jitter off, both by the options
 # main() sets before parsing; the reference render reads pbrt's own options, so
 # there is no second implementation of what those flags mean.
-DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" --reference "$WORK/pbrt" \
+DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" \
+    ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} --reference "$WORK/pbrt" \
     --repeats "$REPEATS" "$SCENE" "$WORK/scene.txt")
 echo "$DUMP_OUT"
 PBRT_SECONDS=$(echo "$DUMP_OUT" | sed -n 's/^scene_dump: reference seconds: //p')

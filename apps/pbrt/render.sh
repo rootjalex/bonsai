@@ -10,6 +10,43 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 
 PREFIX="apps/pbrt"
+
+# PBRT's own `--spp <n>`, under PBRT's own name, taken before the positional
+# arguments so it can appear anywhere on the line. It is passed straight to
+# scene_dump, which sets it on PBRTOptions before parsing -- so every sampler's
+# Create reads it and there is no second implementation here of what the flag
+# means.
+#
+# Worth having because a scene in `scenes/` is sized for a comparison that has
+# to finish, and 64 samples with the pixel jitter off is a noisy picture. This
+# script is the one for looking at an image, so this is the knob it wants.
+# `--disable-pixel-jitter` is pbrt's other option and goes the same way: it pins
+# every sample of a pixel to the pixel's centre, which is what this renderer did
+# before it had a reconstruction filter.
+DUMP_OPTS=()
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --spp)
+      if [[ $# -lt 2 ]]; then
+        echo "--spp needs a sample count" >&2
+        exit 1
+      fi
+      DUMP_OPTS+=(--spp "$2")
+      shift 2
+      ;;
+    --disable-pixel-jitter)
+      DUMP_OPTS+=(--disable-pixel-jitter)
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
 # The driver has to be built with clang: the generated header declares its
 # vectors with ext_vector_type, and only clang has it. gcc's vector_size takes a
 # size in bytes and requires a power of two, so it cannot spell a three-element
@@ -55,7 +92,8 @@ bash $PREFIX/build_scene_dump.sh
 # film's D65 -- is reproduced by following what pbrt does rather than copied.
 # Ask a running pbrt whether the result is right before rendering with it.
 ./$PREFIX/scene_dump --check-tables
-./$PREFIX/scene_dump "$SCENE" "$PREFIX/scene.txt"
+./$PREFIX/scene_dump ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} "$SCENE" \
+    "$PREFIX/scene.txt"
 
 # The spectral data is generated (see make_spectrum_tables.py) and the fit that
 # uses it is a port, so check the round trip before rendering with it: a fit
