@@ -1052,14 +1052,34 @@ their values were unrelated; after it, the same 5,038.
   available: the two render almost the same picture, because `simplepath` and
   `path` differ in how they weigh two estimators and not in what they estimate.
   `scenes/infinite-uniform-simple.pbrt` is the same trick again.
-- The light list is built in pbrt's order — area lights per emissive shape,
-  then everything else — but *our* area lights come out in BVH order where
-  pbrt's come out in scene order, because the primitives have been reordered by
-  the time the driver walks them. With one area light the two agree; with
-  several they do not, and a uniform sampler would hand the same random number
-  to different lights on the two sides. No scene here has more than one, and
+- **The area lights are in the wrong order, and it is measured.** The list has
+  pbrt's *shape* — area lights first, then everything else — but not pbrt's
+  order within the first part. pbrt walks the scene's shape entities as
+  declared; the driver walks `shapes` after `build_bvh` has permuted them so
+  that a leaf names a contiguous run, so light *i* is a different light on the
+  two sides. Nothing about lights is sorted or built into a tree; this is the
+  BVH over geometry, reordering the primitives the lights hang off.
+
+  On a scene with two area lights of different colours under `simplepath`:
+  the means agree, 1.00038x, because both sides are unbiased estimators of the
+  same integral — and per-pixel agreement collapses to **44.2%**, where a
+  one-light scene of the same kind gives 85-90%. Making the two lights the same
+  colour, so the permutation cannot be observed, takes it to **100.0%**
+  (79,124 of 79,127). That is the whole diagnosis: same lights, same count,
+  same emission, different index.
+
+  It bites `simplepath` and `path` and not `randomwalk`, which samples no light.
   `path` refuses a multi-light scene already for the light-sampler reason under
-  item 3, but `simplepath` does not and would diverge silently.
+  item 3, so `simplepath` is what is exposed today. No scene in `scenes/` has
+  more than one area light, which is why this survived.
+
+  The fix is not a one-liner: `prim.light` indexes `loaded.lights`, which has
+  one entry per `AreaLightSource` *directive*, while pbrt makes one Light per
+  emissive *shape* — so a mesh's thousand triangles share one entry and their
+  original order is not recoverable from what the scene file carries. Either a
+  Shape gains its pre-reorder index, or the driver builds the light list before
+  handing the primitives to the BVH. It belongs with item 3, which is where
+  multiple lights start to matter anyway.
 - pbrt's own reference render for `area-light` moved by 8e-6 in its mean at some
   point during this round — 0.759337 to 0.759329, which shifted about 1,100
   pixels across the comparison's 1e-3 relative tolerance and so read as a
