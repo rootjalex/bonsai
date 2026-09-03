@@ -1463,7 +1463,8 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
 // work in removes the question rather than answering it.
 void render_reference(pbrt::BasicScene &scene,
                       const pbrt::RGBColorSpace *colour_space,
-                      int integrator_max_depth, int repeats,
+                      int integrator_max_depth,
+                      const std::string &integrator_name, int repeats,
                       const std::string &prefix) {
     // Sampled at the pixel centre, which main() asked for before parsing began.
     // GetCameraSample below is PBRT's own and reads PBRT's own option, so there
@@ -1500,9 +1501,16 @@ void render_reference(pbrt::BasicScene &scene,
     // answers, not a harder one. The depth is the scene's if it named one and
     // PBRT's default of five otherwise, which is the same number `load` writes
     // into the scene file for the renderer to use.
-    pbrt::RandomWalkIntegrator reference_integrator(integrator_max_depth,
-                                                    camera, sampler, accel,
-                                                    lights);
+    // The same integrator the renderer runs, chosen by the same scene
+    // directive. A comparison between two different integrators measures
+    // nothing about either.
+    pbrt::RandomWalkIntegrator random_walk(integrator_max_depth, camera,
+                                           sampler, accel, lights);
+    pbrt::SimplePathIntegrator simple_path(integrator_max_depth,
+                                           /*sampleLights=*/true,
+                                           /*sampleBSDF=*/true, camera,
+                                           sampler, accel, lights);
+    const bool use_simple_path = integrator_name == "simplepath";
 
     pbrt::ThreadLocal<pbrt::ScratchBuffer> buffers(
         []() { return pbrt::ScratchBuffer(); });
@@ -1573,8 +1581,12 @@ void render_reference(pbrt::BasicScene &scene,
                 // undoing it is here. See colour.bonsai.
                 {
                     pbrt::RayDifferential ray = cr->ray;
-                    const pbrt::SampledSpectrum L = reference_integrator.Li(
-                        ray, lambda, tile_sampler, scratch, nullptr);
+                    const pbrt::SampledSpectrum L =
+                        use_simple_path
+                            ? simple_path.Li(ray, lambda, tile_sampler, scratch,
+                                             nullptr)
+                            : random_walk.Li(ray, lambda, tile_sampler, scratch,
+                                             nullptr);
                     const pbrt::XYZ xyz =
                         L.ToXYZ(lambda) * pbrt::CIE_Y_integral;
                     const pbrt::RGB rgb = colour_space->ToRGB(xyz);
@@ -1761,12 +1773,15 @@ void load(const char *filename, bonsai_scene::Scene &out,
     // error. A scene naming none is the one exception: PBRT's default is
     // volpath, but the comparison renders both sides with the integrator this
     // renderer has, so there is nothing to disagree about.
-    if (!builder.integrator_name.empty() &&
-        builder.integrator_name != "randomwalk") {
-        fail("this renderer implements `randomwalk`, and the scene asks for `" +
-             builder.integrator_name + "`");
+    if (builder.integrator_name.empty() ||
+        builder.integrator_name == "randomwalk") {
+        out.integrator = bonsai_scene::IntegratorTag::RandomWalk;
+    } else if (builder.integrator_name == "simplepath") {
+        out.integrator = bonsai_scene::IntegratorTag::SimplePath;
+    } else {
+        fail("this renderer implements `randomwalk` and `simplepath`, and the "
+             "scene asks for `" + builder.integrator_name + "`");
     }
-    out.integrator = bonsai_scene::IntegratorTag::RandomWalk;
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,
@@ -1994,8 +2009,8 @@ void load(const char *filename, bonsai_scene::Scene &out,
         // The film's colour space rather than sRGB by assumption: it is what
         // GBufferFilm converts the albedo with, and a scene can name another.
         render_reference(scene, builder.film_params.ColorSpace(),
-                         builder.integrator_max_depth, repeats,
-                         reference_prefix);
+                         builder.integrator_max_depth,
+                         builder.integrator_name, repeats, reference_prefix);
     }
 }
 

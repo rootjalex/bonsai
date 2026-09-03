@@ -678,6 +678,23 @@ func spawn_ray(g : SurfaceGeometry, d : vec3f) -> Ray {
     return r;
 }
 
+// pbrt: SpawnRayTo, the shadow ray between two surfaces.
+//
+// Both ends are pushed off their surfaces, not just the origin: a ray that
+// stops exactly on the light would find the light, and one that stops exactly
+// on the surface it left would find that. The direction is deliberately *not*
+// normalized, so `t` runs from zero at one end to one at the other and the
+// `tmax` below is a fraction rather than a distance -- which is what lets one
+// epsilon work for a light a metre away and one a kilometre away.
+func spawn_ray_to(from_p : vec3f, from_error : vec3f, from_n : vec3f,
+                  to_p : vec3f, to_error : vec3f, to_n : vec3f) -> Ray {
+    pf = offset_ray_origin(from_p, from_error, from_n, to_p - from_p);
+    pt = offset_ray_origin(to_p, to_error, to_n, pf - to_p);
+    // pbrt: ShadowEpsilon, which stops the ray just short of the far surface.
+    r : Ray = {pf, pt - pf, 0.9999};
+    return r;
+}
+
 // pbrt: ShapeSampleContext, the point a shape is being sampled *from*.
 //
 // A surface asking "where on the light should I look?" -- so the shading normal

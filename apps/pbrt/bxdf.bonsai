@@ -1332,3 +1332,38 @@ func material_f(mat : Material, wo : vec3f, wi : vec3f,
         }
     }
 }
+
+// pbrt: Material::GetBSDF followed by BSDF::Sample_f -- the surface choosing
+// where the path goes next, and what it carries there.
+//
+// The third of the trio: `rho` for the gbuffer, `f` for a direction the
+// integrator picked, and this for a direction the surface picks. A path tracer
+// needs all three, and each is a different question.
+func material_sample_f(mat : Material, wo : vec3f, uc : Float, u : vec2f,
+                       lambda : SampledWavelengths,
+                       seed : i32) -> option[BSDFSample] {
+    match mat {
+        Diffuse(albedo) => {
+            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
+            return diffuse_sample_f(d, wo, uc, u, sample_all());
+        }
+        CoatedDiffuse(m) => {
+            alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness),
+                             m.u_roughness);
+            alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness),
+                             m.v_roughness);
+            top : DielectricBxDF = {m.eta,
+                                    make_trowbridge_reitz(alpha_u, alpha_v)};
+            bottom : DiffuseBxDF =
+                {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
+            medium = select(m.has_medium,
+                            min(max(spectrum_at(m.medium_albedo, lambda), 0.0),
+                                1.0),
+                            vec4f{0.0, 0.0, 0.0, 0.0});
+            b = make_coated_diffuse(top, bottom, m.thickness, medium,
+                                    min(max(m.g, -1.0), 1.0), m.max_depth,
+                                    m.n_samples);
+            return coated_sample_f(b, wo, uc, u, seed);
+        }
+    }
+}

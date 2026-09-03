@@ -1,0 +1,80 @@
+# A scene with a light in it, and the integrator that has to find it.
+#
+# The other scenes here are gbuffer tests: they have no emitter, so every one of
+# them renders black radiance however good the transport is. This is the
+# smallest scene that exercises the whole path -- an emissive sphere, a surface
+# that reflects it, and both materials the renderer knows.
+#
+# `Integrator "simplepath"` is named rather than left to the default so that the
+# scene states the algorithm both sides run. PBRT's default is `volpath`, which
+# this renderer does not have; a scene naming it is refused rather than rendered
+# with something else. killeroo-simple names no integrator at all, which is the
+# other legal case: with nothing to disagree about, both sides use the random
+# walk.
+#
+# The geometry is deliberately close and the light deliberately large. A random
+# walk finds a light by scattering into it, so the fraction of paths that find
+# a small distant one is tiny -- killeroo-simple lights one pixel in a hundred
+# at 256 samples. Here the light subtends a big enough solid angle that the
+# image is recognisably an image, which is what makes this useful to look at
+# while the light-sampling integrators are being written.
+
+Integrator "simplepath"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "rgb"
+    "string filename" [ "area-light.exr" ]
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The emitter: big and near, so that a walk scattering uniformly still lands on
+# it often enough to make a picture.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# The floor, which is what most of the image is.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A coateddiffuse sphere, so the layered BSDF is on the path that the walk
+# evaluates rather than only on the one `rho` estimates.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# And a plain diffuse one beside it, for the same reason in reverse: the two
+# materials are lit by the same light in the same image, so a mistake in one
+# shows against the other.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

@@ -337,7 +337,8 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
 // depth, and a variant is where those belong rather than in a shared struct
 // whose fields half the arms ignore.
 element Integrator =
-    | RandomWalk(max_depth : i32);
+    | RandomWalk(max_depth : i32)
+    | SimplePath(max_depth : i32, sampler : LightSampler);
 
 // pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
 //
@@ -422,6 +423,116 @@ func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
     walk_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, lambda,
               sampler, state, seed, 0, max_depth);
 
+// pbrt: Unoccluded -- is there anything between these two surfaces?
+//
+// A shadow ray, which is the whole reason sampling a light is worth doing: the
+// direction is known to reach the light, so all that is left is to ask whether
+// something is in the way. `trace` answers with the nearest hit rather than
+// with any hit, which is more work than an occlusion test needs; pbrt has
+// IntersectP for this, and a `trace_any` here would be the same idea. It would
+// not change a pixel, only the time.
+func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
+                to_p : vec3f, to_error : vec3f, to_n : vec3f) -> bool {
+    shadow = spawn_ray_to(from_p, from_error, from_n, to_p, to_error, to_n);
+    blocker : option[Primitive] = trace(shadow);
+    return !blocker;
+}
+
+// pbrt: SimplePathIntegrator::Li, with `sampleLights` and `sampleBSDF` both on.
+//
+// The difference from the random walk is one idea: at every surface, sample a
+// point *on a light* and ask whether it is visible, instead of hoping to
+// scatter into one. That is what turns a thousand lit pixels into a picture --
+// the walk finds a small light by chance, and this one always finds it.
+//
+// `specular_bounce` is what stops the light being counted twice. A path that
+// samples a light directly has already accounted for it, so when the next
+// bounce lands on that same light its emission must be ignored -- unless the
+// bounce was specular, which has no density to sample against and so was never
+// accounted for. pbrt threads exactly this flag for exactly this reason.
+//
+// Tail-recursive, as `walk_step` is: what the schedule does with the path is
+// the schedule's to decide.
+func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
+               lambda : SampledWavelengths, sampler : Sampler,
+               state : mut SamplerState, ls : LightSampler, seed : i32,
+               depth : i32, max_depth : i32) -> vec4f {
+    isect : option[Primitive] = trace(ray);
+    if !isect {
+        // pbrt sums the infinite lights here, and this app has none yet.
+        return l;
+    }
+    prim = *isect;
+    surf = surface_geometry(prim.shape, ray);
+    wo = unit_vector_(-ray.d);
+
+    // The emission of the surface itself, counted only when the previous bounce
+    // could not have sampled it.
+    emitted = select(specular_bounce && (prim.light >= 0),
+                     beta * light_l(lights[max(prim.light, 0)], surf.n, wo,
+                                    lambda),
+                     vec4f{0.0, 0.0, 0.0, 0.0});
+    found : mut vec4f = l + emitted;
+
+    if depth == max_depth {
+        return found;
+    }
+
+    shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
+    ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, surf.ns};
+
+    // Direct lighting: pick a light, pick a point on it, and connect.
+    chosen = light_sampler_sample(ls, get_1d(sampler, state));
+    if chosen {
+        picked = *chosen;
+        u_light = get_2d(sampler, state);
+        sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda);
+        if sampled {
+            lsample = *sampled;
+            if nonzero(lsample.l) && (lsample.pdf > 0.0) {
+                fcos = material_f(materials[prim.material],
+                                  frame_to_local(shading, wo),
+                                  frame_to_local(shading, lsample.wi), lambda,
+                                  seed) *
+                       abs(dot(lsample.wi, surf.ns));
+                if nonzero(fcos) &&
+                   unoccluded(surf.p, surf.p_error, surf.n, lsample.p_light,
+                              lsample.p_light_error, lsample.n_light) {
+                    found = found + beta * fcos * lsample.l /
+                                    (picked.p * lsample.pdf);
+                }
+            }
+        }
+    }
+
+    // And the path continues in whatever direction the surface chooses.
+    uc = get_1d(sampler, state);
+    u = get_2d(sampler, state);
+    bs = material_sample_f(materials[prim.material], frame_to_local(shading, wo),
+                           uc, u, lambda, seed);
+    if !bs {
+        return found;
+    }
+    sample = *bs;
+    if !nonzero(sample.f) || (sample.pdf == 0.0) {
+        return found;
+    }
+    wi = frame_from_local(shading, sample.wi);
+    next_beta = beta * sample.f * abs(dot(wi, surf.ns)) / sample.pdf;
+    return path_step(spawn_ray(surf, wi), next_beta, found,
+                     is_specular(sample.flags), lambda, sampler, state, ls,
+                     seed, depth + 1, max_depth);
+}
+
+// The entry point, which names the state a path starts with. `specular_bounce`
+// starts true because the camera ray has sampled no light, so a light it lands
+// on directly must be counted.
+func li_simple_path(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
+                    state : mut SamplerState, ls : LightSampler, seed : i32,
+                    max_depth : i32) -> vec4f =
+    path_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, true,
+              lambda, sampler, state, ls, seed, 0, max_depth);
+
 // pbrt: Integrator::Li, the dispatch itself -- one arm per integrator, which is
 // what pbrt's TaggedPointer does at a call site.
 func integrator_li(integrator : Integrator, r : Ray,
@@ -430,6 +541,9 @@ func integrator_li(integrator : Integrator, r : Ray,
     match integrator {
         RandomWalk(max_depth) =>
             return li_random_walk(r, lambda, sampler, state, seed, max_depth);
+        SimplePath(max_depth, ls) =>
+            return li_simple_path(r, lambda, sampler, state, ls, seed,
+                                  max_depth);
     }
 }
 

@@ -76,6 +76,21 @@ RADIANCE_TOLERANCE = 1e-3
 # The 106.86x the film was once out by would show here as 0.009.
 RADIANCE_MEAN_TOLERANCE = 0.02
 
+# How far the *count* of lit pixels may differ, as a fraction of them.
+#
+# Zero would be right for a random walk: it never samples a light, so whether a
+# pixel receives anything is decided by the directions it scattered in, and two
+# renderers drawing the same numbers scatter identically. That is what caught
+# the missing camera-sample draws.
+#
+# An integrator that samples lights has one more way to differ. Whether a shadow
+# ray is blocked is a comparison against a surface, and a direction that differs
+# in the last bit can fall on either side of it -- so a handful of pixels flip
+# between lit and not without anything being wrong. What would still be wrong is
+# a *lot* of them, which is what this bounds. Observed: six pixels in eighty-one
+# thousand on area-light-path.
+RADIANCE_LIT_TOLERANCE = 1e-3
+
 
 def diff_png(path, width, height, ref, got):
     """Where the two disagree, brightened so that anything at all shows up.
@@ -387,12 +402,13 @@ def main(argv):
     if radiance_pair is not None:
         lit_pbrt, lit_bonsai, ratio = compare_radiance(
             radiance_pair[0], radiance_pair[1], ref_w, ref_h)
-        if lit_pbrt != lit_bonsai:
+        lit_gap = abs(lit_pbrt - lit_bonsai)
+        if lit_gap > RADIANCE_LIT_TOLERANCE * max(lit_pbrt, 1):
             radiance_failed = True
             print(f"FAILED: {lit_bonsai} pixels received light here against "
-                  f"pbrt's {lit_pbrt}. Two walks drawing the same numbers "
-                  f"scatter the same way, so this is a sampler stream that has "
-                  f"come apart rather than noise")
+                  f"pbrt's {lit_pbrt}, a gap of {lit_gap}. Two paths drawing "
+                  f"the same numbers go the same way, so a gap this size is a "
+                  f"sampler stream that has come apart rather than noise")
         if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
             radiance_failed = True
             print(f"FAILED: the image is {ratio:.5f}x pbrt's on average, over "

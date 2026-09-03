@@ -45,6 +45,7 @@ enum MaterialTag : uint32_t {
 // answer to a question nobody asked.
 enum IntegratorTag : uint32_t {
     RandomWalk = 0,
+    SimplePath = 1,
 };
 
 // One material, with every texture already evaluated to a constant.
@@ -282,7 +283,10 @@ inline bool write(const char *path, const Scene &scene) {
             << scene.sampler.seed << '\n';
     }
     out << "seed " << scene.seed << '\n';
-    out << "integrator randomwalk maxdepth " << scene.max_depth << '\n';
+    out << "integrator "
+        << (scene.integrator == IntegratorTag::SimplePath ? "simplepath"
+                                                         : "randomwalk")
+        << " maxdepth " << scene.max_depth << '\n';
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
@@ -432,6 +436,8 @@ inline bool read(const char *path, Scene &scene) {
     }
     if (word == "randomwalk") {
         scene.integrator = IntegratorTag::RandomWalk;
+    } else if (word == "simplepath") {
+        scene.integrator = IntegratorTag::SimplePath;
     } else {
         return false;
     }

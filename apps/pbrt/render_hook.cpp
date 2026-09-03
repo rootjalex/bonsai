@@ -731,6 +731,14 @@ int main(int argc, char **argv) {
     case bonsai_scene::IntegratorTag::RandomWalk:
         Integrator_RandomWalk(integrator, loaded.max_depth);
         break;
+    case bonsai_scene::IntegratorTag::SimplePath: {
+        // The light sampler is the integrator's, as it is in pbrt: which light
+        // to try is a decision about sampling and not about the scene.
+        LightSampler light_sampler;
+        LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
+        Integrator_SimplePath(integrator, loaded.max_depth, light_sampler);
+        break;
+    }
     default:
         fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
         return 1;
