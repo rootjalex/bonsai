@@ -18,7 +18,13 @@ func _traverse_tree0(lo : i32, hi : i32, items : tree[[Item]] ItemTree) -> bool 
         }
       }
     | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
-      _holds0 = _holds0 && ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi))
+      if (!((lo <= (items as Leaf).idl) && ((items as Leaf).idh <= hi))) {
+        if (_holds0 && ((lo <= (items as Leaf).idh) && ((items as Leaf).idl <= hi))) {
+          _holds0 = _holds0 && ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi))
+        } else {
+          _holds0 = false
+        }
+      }
     }
   }
   yield _holds0

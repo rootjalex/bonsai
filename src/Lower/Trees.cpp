@@ -890,7 +890,22 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             return is_any ? ~acc : acc;
         }
 
-        // yield x => upd a (a | P(x))
+        // yield x => upd a (a | P(x)), under the same two guards `visit(Scan)`
+        // puts on a subtree.
+        //
+        // The guards are not an optimization the backend could find. Without
+        // them a quantifier evaluates its predicate on every element of every
+        // leaf the traversal reaches: after the answer is already settled, and
+        // -- the expensive one -- inside leaves whose own bounding volume the
+        // predicate provably cannot hold anywhere in. A leaf is where the
+        // elements are, so that is where the predicate is at its most
+        // expensive: skipping one leaf of a BVH costs a box test and saves as
+        // many triangle intersections as the leaf holds.
+        //
+        // `build_filter` puts the volume guard on its yields already, which is
+        // why `argmin(f, filter(p, tree))` prunes leaves and a bare
+        // `any(p, tree)` did not. The same reasoning applies to both and it
+        // belongs in both.
         ir::Stmt visit(const ir::Yield *node) override {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
@@ -898,7 +913,36 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             ir::Expr p = apply_lambda(predicate, node->value);
             ir::Expr acc = loc.to_expr();
             ir::Expr combined = is_any ? (acc || p) : (acc && p);
-            return ir::Store::make(loc, std::move(combined));
+            ir::Stmt test = ir::Store::make(loc, std::move(combined));
+
+            Interval bounds = subtree_bounds();
+
+            // Where the predicate cannot hold over the volume: `any` learns
+            // nothing and skips, `all` is settled false -- exactly as a
+            // subtree that cannot hold it settles `all` false.
+            ir::Stmt otherwise;
+            if (!is_any) {
+                otherwise = ir::Store::make(loc, ir::BoolImm::make(false));
+            }
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
+                test = ir::IfElse::make(still_undecided() && bounds.max,
+                                        std::move(test), std::move(otherwise));
+            } else {
+                test = ir::IfElse::make(still_undecided(), std::move(test));
+            }
+
+            // And where it provably holds over the whole volume it holds for
+            // this element, so `any` is decided and `all` learns nothing.
+            if (bounds.min.defined() && !is_const_zero(bounds.min)) {
+                ir::Stmt settled =
+                    is_any ? ir::Store::make(loc, ir::BoolImm::make(true))
+                           : ir::Stmt();
+                test = settled.defined()
+                           ? ir::IfElse::make(bounds.min, settled,
+                                              std::move(test))
+                           : ir::IfElse::make(~bounds.min, std::move(test));
+            }
+            return test;
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {
