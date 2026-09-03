@@ -16,16 +16,26 @@ gcc wrapper.
 
 ## Where it is
 
-The renderer answers one question — what does the camera ray hit, and what
-colour is it — and writes pbrt's gbuffer normals and albedo. There is no light
-transport yet.
+The renderer traces light. `randomwalk` and `simplepath` are both implemented,
+area lights are sampled, and the film records pbrt's gbuffer normals and albedo
+beside the radiance — so a comparison can ask three questions of the same render
+rather than one.
 
-The seven scenes in `scenes/` and `killeroo-simple.pbrt` from the pbrt-v4-scenes
-collection all match pbrt at **0 disagreeing pixels** on the normals. The albedo
-agrees to ~6e-5 mean on every diffuse scene. On killeroo-simple, which is the
-first scene with a `coateddiffuse` material, 97.3% of pixels are inside the
-comparison's tolerance and the other 2.7% differ by Monte Carlo noise — see
-"the last 2.7%" below, which is the open question.
+Every scene compared matches pbrt at **0 disagreeing pixels** on the normals,
+and killeroo-simple's random walk lights the same 5,038 pixels of 490,000 with
+a mean 0.99998 of pbrt's. The albedo agrees to ~6e-5 mean on every diffuse
+scene; on killeroo-simple, the first scene with a `coateddiffuse` material,
+97.3% of pixels are inside the comparison's tolerance and the other 2.7% differ
+by Monte Carlo noise — see "the last 2.7%" below, which is the open question.
+
+It is also faster than pbrt on the same work: **1.57x on killeroo-simple**,
+1.58x on area-light-path, 1.88x on area-light, where "the same work" means
+pbrt's own intersection, rho and integrator over the same samples of the same
+pixels rather than the pbrt binary running a different integrator.
+
+The qualification on all of that is which scenes can be compared at all: six of
+the nine in `scenes/` ask for `Integrator "path"`, which is not implemented, so
+`compare.sh` refuses them. See Known-open.
 
 Verified against pbrt directly, not by inspection:
 
@@ -40,6 +50,15 @@ Verified against pbrt directly, not by inspection:
 - the reference gbuffer itself, against the pbrt binary's EXR.
 
 ### What the last round added
+
+The renderer went from 1.36x slower than pbrt on killeroo-simple to 1.57x
+faster, and neither fix was in the traced ray — in absolute cycles the traversal
+and the BSDF were already ahead of pbrt's. A `bind`'s loop was being split into
+contiguous blocks, which idles most of the machine on a frame whose cost is in
+the middle of it, and the Halton sampler was recomputing a table pbrt looks up.
+Both are written up under "Once the render was a whole path" below.
+
+### What the rounds before that added
 
 `coateddiffuse` works. That is pbrt's `LayeredBxDF<DielectricBxDF, DiffuseBxDF>`
 in `bxdf.bonsai`: a dielectric coating over a diffuse base whose reflectance has
@@ -89,6 +108,10 @@ Along the way, six things in the compiler:
   `tests/bonsai/ssa/address-across-call.bonsai`.
 
 ## What is next, in order
+
+Numbered by how long they have been open rather than by what to do first. What
+to do first is item 3: the comparison is down to three scenes, and every other
+question here is answered by running it.
 
 ### 1. The last 2.7%, and what it says about matching a build
 
@@ -201,7 +224,45 @@ zero, so `fma(a, b, -c)` built on it would be wrong. A real `Neg` instruction is
 the prerequisite, and it is the same shape of work as the `AtomicAdd` that went
 in for `tagged_index`.
 
-### 2. Where the time went
+### 2. Pixel jitter
+
+`render.bonsai` hardcodes the camera sample at the pixel centre and never calls
+`get_pixel_2d`, and `compare.sh` passes `--disable-pixel-jitter` to match. So
+the whole pixel-sampling half of every sampler is written, verified against
+pbrt, and unexercised by any render.
+
+Turning it on is small and buys a lot: silhouettes get antialiased, stratified
+and halton start to differ from independent visibly, the comparison gets much
+stronger — right now no render depends on `get_pixel_2d` being right — and a
+layered material's albedo starts to average over the pixel's samples instead of
+evaluating the same estimate 256 times.
+
+One thing to fix when doing it: pbrt *normalizes* the summed normal
+(`GBufferFilm::GetImage`) where `render.bonsai` divides by the sample count.
+Identical while every sample of a pixel traces the same ray; different as soon
+as they do not.
+
+### 3. `path`, so that the other six scenes can be compared
+
+`scenes/` has nine scenes and six of them say `Integrator "path"`, which is
+pbrt's `PathIntegrator` and is not implemented, so `compare.sh` refuses them.
+They were written when the comparison was a gbuffer and the integrator a scene
+named did not matter; now it decides whether the scene can be run at all. What
+is being checked against pbrt today is three scenes -- `area-light`,
+`area-light-path` and killeroo-simple -- which is thin cover for eight scenes'
+worth of geometry, cameras and transforms that used to be checked.
+
+Two ways out, and the first is better. Implementing `path` is the natural next
+integrator anyway: it is `simplepath` plus multiple importance sampling between
+the BSDF sample and the light sample, plus regularization and Russian roulette,
+and every piece it needs -- `SampleLi`, the PDFs, the power heuristic -- is
+already here for `simplepath` and for `LayeredBxDF::f`. Failing that, the six
+scenes could say `simplepath`, which restores the coverage at the cost of no
+longer rendering what their author asked for.
+
+## What has been built, and what it cost
+
+### Where the time went
 
 Best of three on each side, against a pbrt that is integrating a whole path
 where this returns the nearest hit and its reflectance:
@@ -397,7 +458,7 @@ over 66,533 triangles is a fraction of that. The rest is `material_rho`, a
 layered BSDF walked at sixteen sample points for every hit, evaluated once per
 sample. How big a primitive is barely matters to a render that spends its time
 shading. (That the estimate is identical for all 256 samples of a pixel, because
-the jitter is off, is item 3 below.) And many-shapes is traversal-bound but
+the jitter is off, is item 2 above.) And many-shapes is traversal-bound but
 far too small: 56 primitives is 3.6 KB at 64 bytes each and 900 bytes at 16, and
 both fit in L1. The seven per cent the earlier 208-to-64 change won here was a
 cache boundary being crossed -- 11.6 KB did not fit alongside the nodes -- and
@@ -435,25 +496,79 @@ merely warned about: it asks for a representation and forbids the only way to
 build one. `compare.sh` and `render.sh` both pass `--no-heap`, so the two would
 meet the first time this renderer asked for the layout it is imitating.
 
-### 3. Pixel jitter
+### Once the render was a whole path, killeroo was 1.36x slower
 
-`render.bonsai` hardcodes the camera sample at the pixel centre and never calls
-`get_pixel_2d`, and `compare.sh` passes `--disable-pixel-jitter` to match. So
-the whole pixel-sampling half of every sampler is written, verified against
-pbrt, and unexercised by any render.
+The numbers above are from the era when this app answered what a camera ray hit.
+With the random walk in, the same scene went the other way: 15.7 seconds against
+pbrt's 12.2. Two causes, neither in the traced ray. What a `perf` of each side
+said, as fractions of that side's own cycles:
 
-Turning it on is small and buys a lot: silhouettes get antialiased, stratified
-and halton start to differ from independent visibly, the comparison gets much
-stronger — right now no render depends on `get_pixel_2d` being right — and a
-layered material's albedo starts to average over the pixel's samples instead of
-evaluating the same estimate 256 times.
+    sampler   bonsai  permuted_digit 27.3, halton_dimension 8.5,
+                      get_pixel_2d 2.9, start_pixel_sample 0.7   39.4%
+              pbrt    HaltonSampler::SampleDimension              5.6%
+    traverse  bonsai  _traverse_tree0 15.2, triangle_hit 7.7     22.9%
+              pbrt    BVHAggregate 11.6, Triangle::Intersect 7.7,
+                      IntersectTriangle 6.8, SimplePrimitive 4.6,
+                      Primitive 0.7                              31.4%
 
-One thing to fix when doing it: pbrt *normalizes* the summed normal
-(`GBufferFilm::GetImage`) where `render.bonsai` divides by the sample count.
-Identical while every sample of a pixel traces the same ray; different as soon
-as they do not.
+Which is worth reading twice: in absolute cycles the traversal and the BSDF were
+already *faster* than pbrt's -- 336 against 562 gigacycles on the first and 240
+against 335 on the second. Nothing about the ray was wrong.
 
-### 4. Light transport — killeroo-simple renders
+**The loop was split into contiguous blocks.** `bonsai_parallel_for` gave each
+thread a run of `n / threads` iterations, on the assumption stated in the header
+that they cost about the same. A pixel of a render is one iteration and the
+killeroo is in the middle of the frame, so the threads holding the middle did
+most of the work and the rest finished early and idled: **18.8 of 32 threads
+busy** on average, against pbrt's 26.9, which its own `ParallelFor2D` gets by
+handing out tiles on demand.
+
+The header was written so that this choice lives in it and nowhere else, and it
+now asks TBB: `tbb::parallel_for` with the default partitioner, which splits the
+range further while threads are idle and steals between them. std::thread
+remains for a machine with no TBB, doing the crude version -- a fixed chunk
+taken off an atomic, no stealing. Which one is used is `__has_include`, so a
+build that has TBB gets it and a build that does not still compiles; `compare.sh`
+and `render.sh` look for it beside `$BONSAI_CXX`, which is where a conda
+environment puts both, and say so when they do not find it. 15.7 seconds became
+10.9, and 1881% CPU became 3063%.
+
+**The Halton sampler recomputed what pbrt looks up.** `permuted_digit` ran
+`hash3` and then `permutation_element` -- a rejection loop -- for every digit of
+every draw, where pbrt's `DigitPermutation` is a table its constructor fills
+once. The old comment said computing it "buys back a table that is tens of
+megabytes ... if the sampler ever shows up in a profile, the table is what to do
+about it, and it answers the same". It showed up at 39%.
+
+So the table is built, and it is pbrt's: 26.2 MB over all thousand primes, the
+same `nDigits * base` uint16 per base, laid end to end with a 1000-entry offset
+array because an array of arrays is a pointer to chase on the hot path. What
+fills it is the *renderer's* `permutation_element` and `hash3`, through two
+exported functions -- `digit_permutation_extent` sizes it and
+`build_digit_permutations` fills it -- rather than a C++ copy of both in the
+driver, because a second implementation of a thing this app checks against pbrt
+is one more than it can afford. The driver owns the storage, as it owns the ADT
+pools, which is what lets a table this large exist under `--no-heap`. 10.9
+seconds became 7.9, and the 26 MB costs 0.2 seconds to build before the timer
+starts, which is where pbrt builds its own.
+
+The rule the two share: `digit_permutation_digits` and the loop in
+`scrambled_radical_inverse` must stay the same expression, since the table
+having one fewer digit than the loop asks for is a read past the end of it.
+
+Where that leaves the comparison:
+
+    killeroo-simple  1.36x slower  ->  1.57x faster
+    area-light-path  1.01x faster  ->  1.58x faster
+    area-light       (unmeasured)  ->  1.88x faster
+
+Every rendered pixel is unchanged: killeroo-simple is still 0 disagreeing
+normals and the radiance PFM is byte-for-byte what it was before the sampler
+changed. The profile now reads like pbrt's -- `dielectric_sample_f` 23.6%,
+`_traverse_tree0` 22.1%, `triangle_hit` 10.7%, and the whole sampler down to
+13%.
+
+### Light transport — killeroo-simple renders
 
 `RandomWalkIntegrator` is implemented and killeroo-simple renders through it.
 Against pbrt's own randomwalk on the same scene at the same `maxdepth`:

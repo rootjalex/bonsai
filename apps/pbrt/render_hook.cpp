@@ -513,6 +513,32 @@ int main(int argc, char **argv) {
         }
     }
 
+    // pbrt: ComputeRadicalInversePermutations, which the HaltonSampler's
+    // constructor runs -- and only when the scene asked for the default
+    // `permutedigits`, which is the only randomization that reads the table.
+    //
+    // The driver owns the storage for the same reason it owns the ADT pools:
+    // the renderer is built with --no-heap and cannot allocate, and 26 MB is
+    // not a stack slot. What fills it is the renderer's own
+    // `permutation_element` and `hash3`, reached through the two exported
+    // functions, so there is no second implementation of either here to drift
+    // from the one that is checked against pbrt.
+    //
+    // Built before the timer starts, which is where pbrt builds it too: its
+    // sampler is constructed while the scene is.
+    std::array<int32_t, 1000> digit_permutation_offsets{};
+    std::vector<uint16_t> digit_permutations;
+    if (loaded.sampler.tag == bonsai_scene::SamplerTag::Halton &&
+        loaded.sampler.randomize ==
+            bonsai_scene::RandomizeTag::RandomizePermuteDigits) {
+        const int32_t extent =
+            digit_permutation_extent(digit_permutation_offsets.data(), primes);
+        digit_permutations.resize(size_t(extent));
+        build_digit_permutations(loaded.sampler.seed,
+                                 digit_permutation_offsets.data(),
+                                 digit_permutations.data(), primes);
+    }
+
     // pbrt: the path integrator's fixed sample points for a reflectance
     // estimate, which are file-scope constants there and reach the renderer as
     // externs here. Built once, because they are constants; they used to be
@@ -774,7 +800,8 @@ int main(int argc, char **argv) {
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                loaded.seed, out, albedo, radiance, meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
-               uvs.data(), x, y, z, d65, primes, lights.data(),
+               uvs.data(), x, y, z, d65, primes, digit_permutations.data(),
+               digit_permutation_offsets, lights.data(),
                materials.data(), rho_uc, rho_ux, rho_uy, tree,
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();

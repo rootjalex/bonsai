@@ -26,6 +26,23 @@ extern primes : array[i32, 1000];
 // pbrt: PrimeTableSize, which is where the dimensions wrap round.
 func prime_table_size() -> i32 = 1000;
 
+// pbrt: the DigitPermutations the HaltonSampler's constructor builds -- one per
+// prime, each a permutation of the digit values in that base for each digit
+// position that can still change the answer.
+//
+// pbrt keeps a `DigitPermutation` per base, holding its own pointer into an
+// allocation of `nDigits * base` uint16_t. Here the thousand of them are laid
+// end to end and `digit_permutation_offsets[base_index]` says where each one
+// begins, for the reason the triangle meshes are laid end to end: an array
+// inside an array is a pointer to chase, and this one is read on the hot path
+// of every draw.
+//
+// They are built by `build_digit_permutations` below, into storage the driver
+// owns -- the same arrangement the ADT pools have, and what lets a table this
+// large exist in a program that refuses to allocate.
+extern digit_permutations : array[u16];
+extern digit_permutation_offsets : array[i32, 1000];
+
 // pbrt: OneMinusEpsilon, the largest float below one. A radical inverse that
 // reached exactly one would put a sample on the far edge of whatever it
 // indexes, the same reason RNG::Uniform<Float> is held below one.
@@ -71,23 +88,72 @@ func inverse_radical_inverse(inverse : u64, base : i32, n_digits : i32) -> u64 {
     return index;
 }
 
-// pbrt: DigitPermutation::Permute.
+// pbrt: DigitPermutation, "compute number of digits needed for base".
 //
-// pbrt builds a table of these in the HaltonSampler's constructor and looks
-// them up; this computes the entry instead. The values are identical, because
-// the table is a cache of exactly this pure function -- a permutation of the
-// digit values in this base, chosen by the base, the digit's position and the
-// seed. Computing it costs a rejection loop per digit where a lookup costs
-// nothing, and buys back a table that is tens of megabytes over all thousand
-// dimensions and would have to be built by the driver and carried in. If the
-// sampler ever shows up in a profile, the table is what to do about it, and it
-// answers the same.
-func permuted_digit(base : i32, digit_index : i32, digit_value : i32,
-                    seed : i32) -> i32 {
-    dseed = hash3(base, digit_index, seed);
-    return cast[[i32]](permutation_element(cast[[u32]](digit_value),
-                                           cast[[u32]](base),
-                                           cast[[u32]](dseed)));
+// How many digits of a radical inverse in this base can still change a Float,
+// which is how many the permutation has to cover. The expression is the one
+// `scrambled_radical_inverse` loops on below, and it has to stay the same
+// expression: the two answers being different by a digit is a read past the end
+// of that base's permutation.
+func digit_permutation_digits(base : i32) -> i32 {
+    inv_base = 1.0 / cast[[Float]](base);
+    inv_base_m : mut Float = 1.0;
+    n : mut i32 = 0;
+    while 1.0 - cast[[Float]](base - 1) * inv_base_m < 1.0 {
+        n = n + 1;
+        inv_base_m = inv_base_m * inv_base;
+    }
+    return n;
+}
+
+// pbrt: ComputeRadicalInversePermutations, and DigitPermutation's constructor
+// inside it. Called once, by the driver, with the storage the table lives in.
+//
+// Two functions rather than one because the driver has to size the allocation
+// before it can be filled, and the size is a sum over the bases of a loop that
+// only the definition above knows how to run. `digit_permutation_extent` fills
+// the offsets and returns the total; `build_digit_permutations` fills the
+// table. Neither is on any hot path -- they run before the render does.
+//
+// Written here rather than in the driver because the driver would then hold a
+// second implementation of `permutation_element` and of pbrt's hash, and two
+// implementations of a thing this app checks against pbrt is exactly one more
+// than it can afford.
+func [[export]] digit_permutation_extent(offsets : mut array[i32]) -> i32 {
+    total : mut i32 = 0;
+    for i in 0:prime_table_size() {
+        base = primes[i];
+        offsets[i] = total;
+        total = total + digit_permutation_digits(base) * base;
+    }
+    return total;
+}
+
+func [[export]] build_digit_permutations(seed : i32, offsets : array[i32],
+                                         table : mut array[u16]) -> void {
+    parfor i in 0:prime_table_size() {
+        base = primes[i];
+        n = digit_permutation_digits(base);
+        for digit_index in 0:n {
+            // pbrt: Hash(base, digitIndex, seed), truncated to the low word
+            // where PermutationElement takes it.
+            dseed = hash3(base, digit_index, seed);
+            for digit_value in 0:base {
+                table[offsets[i] + digit_index * base + digit_value] =
+                    cast[[u16]](permutation_element(cast[[u32]](digit_value),
+                                                    cast[[u32]](base),
+                                                    cast[[u32]](dseed)));
+            }
+        }
+    }
+}
+
+// pbrt: DigitPermutation::Permute, which is a load and an index.
+func permuted_digit(base_index : i32, base : i32, digit_index : i32,
+                    digit_value : i32) -> i32 {
+    return cast[[i32]](
+        digit_permutations[digit_permutation_offsets[base_index] +
+                           digit_index * base + digit_value]);
 }
 
 // pbrt: ScrambledRadicalInverse, the default randomization.
@@ -100,8 +166,8 @@ func permuted_digit(base : i32, digit_index : i32, digit_value : i32,
 //
 // The loop runs while a digit can still change the answer -- the condition
 // pbrt's DigitPermutation uses to decide how many digits to tabulate, so the
-// digit indices here line up with the ones it would have stored.
-func scrambled_radical_inverse(base_index : i32, a : u64, seed : i32) -> Float {
+// digit indices here line up with the ones it stored.
+func scrambled_radical_inverse(base_index : i32, a : u64) -> Float {
     base = primes[base_index];
     b : u64 = cast[[u64]](base);
     limit = 0xffffffffffffffff / b - b;
@@ -114,7 +180,7 @@ func scrambled_radical_inverse(base_index : i32, a : u64, seed : i32) -> Float {
           (reversed < limit) {
         next = v / b;
         digit_value = cast[[i32]](v - next * b);
-        permuted = permuted_digit(base, digit_index, digit_value, seed);
+        permuted = permuted_digit(base_index, base, digit_index, digit_value);
         reversed = reversed * b + cast[[u64]](permuted);
         inv_base_m = inv_base_m * inv_base;
         digit_index = digit_index + 1;
@@ -305,8 +371,10 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
 // Takes what it needs rather than the Sampler, because it is only ever reached
 // from a Halton arm that has already unpacked it: matching again would mean
 // arms for the other two samplers that cannot happen and have no answer.
-func halton_dimension(dim : i32, index : i64, seed : i32,
-                      randomize : i32) -> Float {
+// No seed: pbrt's `permutedigits` reads a DigitPermutation that its seed went
+// into when it was built, and so does this -- the seed is the driver's argument
+// to `build_digit_permutations` and is in the table by the time a draw happens.
+func halton_dimension(dim : i32, index : i64, randomize : i32) -> Float {
     a = cast[[u64]](index);
     if randomize == randomize_none() {
         return radical_inverse(dim, a);
@@ -317,7 +385,7 @@ func halton_dimension(dim : i32, index : i64, seed : i32,
         h = cast[[u32]](mix_bits(cast[[u64]](1 + (dim << 4))));
         return owen_scrambled_radical_inverse(dim, a, h);
     }
-    return scrambled_radical_inverse(dim, a, seed);
+    return scrambled_radical_inverse(dim, a);
 }
 
 // pbrt: Get1D.
@@ -356,7 +424,7 @@ func get_1d(s : Sampler, st : mut SamplerState) -> Float {
             }
             dim = st.dimension;
             st.dimension = st.dimension + 1;
-            return halton_dimension(dim, st.halton_index, seed, randomize);
+            return halton_dimension(dim, st.halton_index, randomize);
         }
     }
 }
@@ -398,8 +466,8 @@ func get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
             dim = st.dimension;
             st.dimension = st.dimension + 2;
             return vec2f{
-                halton_dimension(dim, st.halton_index, seed, randomize),
-                halton_dimension(dim + 1, st.halton_index, seed, randomize)};
+                halton_dimension(dim, st.halton_index, randomize),
+                halton_dimension(dim + 1, st.halton_index, randomize)};
         }
     }
 }
