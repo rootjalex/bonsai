@@ -64,6 +64,23 @@ if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
   exit 1
 fi
 
+# TBB, looked for beside the compiler -- which is where a conda environment
+# puts both. runtime/bonsai_parallel.h runs a bind(p, CPUThread) loop through
+# tbb::parallel_for when that header is reachable and through std::thread when
+# it is not, and the difference is worth the search: the pixels of a render
+# cost wildly different amounts, so a loop balanced by work stealing finishes
+# when its work does rather than when its unluckiest thread does. On
+# killeroo-simple that is 15.7 seconds against 10.9.
+TBB_PREFIX="$(dirname "$(dirname "$(command -v "$BONSAI_CXX")")")"
+TBB_FLAGS=()
+if [[ -f "$TBB_PREFIX/include/tbb/parallel_for.h" ]]; then
+  TBB_FLAGS=(-I"$TBB_PREFIX/include" -L"$TBB_PREFIX/lib"
+             -Wl,-rpath,"$TBB_PREFIX/lib" -ltbb)
+else
+  echo "no TBB beside $BONSAI_CXX -- the render will be timed with the" >&2
+  echo "std::thread fallback, which balances the loop less well." >&2
+fi
+
 mkdir -p "$WORK"
 
 cmake --build build -j
@@ -135,7 +152,7 @@ PBRT_SECONDS=$(echo "$DUMP_OUT" | sed -n 's/^scene_dump: reference seconds: //p'
 ./build/compiler -p ssa --no-heap --ffp-contract \
     -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
-    $PREFIX/render.o -o "$WORK/render.out"
+    $PREFIX/render.o "${TBB_FLAGS[@]}" -o "$WORK/render.out"
 BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
     "$WORK/bonsai.pfm")
 echo "$BONSAI_OUT"

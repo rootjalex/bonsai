@@ -30,6 +30,16 @@ if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
   echo "ext_vector_type. Set BONSAI_CXX to a clang++." >&2
   exit 1
 fi
+# See compare.sh: runtime/bonsai_parallel.h uses tbb::parallel_for where TBB is
+# reachable and std::thread where it is not, and TBB lives beside the compiler
+# in a conda environment. Silent here rather than warning, because this script
+# is for looking at an image and not for timing one.
+TBB_PREFIX="$(dirname "$(dirname "$(command -v "$BONSAI_CXX")")")"
+TBB_FLAGS=()
+if [[ -f "$TBB_PREFIX/include/tbb/parallel_for.h" ]]; then
+  TBB_FLAGS=(-I"$TBB_PREFIX/include" -L"$TBB_PREFIX/lib"
+             -Wl,-rpath,"$TBB_PREFIX/lib" -ltbb)
+fi
 SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 # The renderer writes linear float, as pbrt does; the PNG beside it is the
 # post-processing step, and is what to actually look at.
@@ -70,7 +80,7 @@ FLAGS=(-p ssa --no-heap --ffp-contract)
 
 # -I. so that the generated header can find the runtime it includes.
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
-    $PREFIX/render.o -o $PREFIX/render.out
+    $PREFIX/render.o "${TBB_FLAGS[@]}" -o $PREFIX/render.out
 
 ./$PREFIX/render.out "$PREFIX/scene.txt" "$OUT"
 
