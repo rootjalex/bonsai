@@ -253,13 +253,86 @@ Along the way, six things in the compiler:
   variable rather than on anything a reader could see.
   `tests/bonsai/ssa/address-across-call.bonsai`.
 
+## The mission: real scenes, and what stands between here and them
+
+`scenes/` is ten scenes written for this app. The point of the exercise is
+scenes nobody wrote for it, and the measurement is `pbrt-v4-scenes`: 98 real
+scenes across 29 collections. **Two of them convert today** —
+`killeroo-simple` and `killeroo-moving`.
+
+That is measured rather than estimated. `scene_dump` was run over all 98 and its
+first refusal recorded; then again with the integrator and sampler checks
+relaxed, since those fire first and hide everything behind them. The second
+number is the one that says what to build, because it is what is left when the
+things that are only *named* by a scene are set aside:
+
+    what refuses                                        scenes
+    ------------------------------------------------------------
+    a light that is not a shape's emission                  13
+    a material parameter that is a texture or a spectrum    27
+    a material other than diffuse/coateddiffuse             24
+    a shape other than sphere/trianglemesh                  23
+    an area light on a mesh rather than on a sphere          7
+    a camera other than perspective                          1
+    a PLY file holding quads                                 1
+
+and, hiding in front of those, `Integrator "volpath"` (51 scenes) and the
+Sobol-family samplers (17). Broken down:
+
+    shapes      bilinearmesh 20, disk 2, curve 1
+    materials   hair 10, dielectric 7, subsurface 4, interface 2, conductor 1
+    parameters  an area light's L 20, a material's reflectance 7
+    samplers    zsobol 12, sobol 3, pmj02bn 2
+
+The survey found one outright bug and it is fixed: **a `LightSource` that was
+not an area light was silently dropped.** Thirteen of the fifteen scenes that
+got as far as converting were lit by one -- almost all `infinite`, an
+environment map -- so they converted without complaint and would have rendered
+black. That is precisely the failure this app exists to refuse, and it went
+unnoticed because no scene in `scenes/` has a light that is not a sphere. It is
+a refusal now, which is why the headline number above is two rather than
+fifteen.
+
+Read in dependency order rather than by count, the road is:
+
+1. **`infinite` lights**, which is `ImageInfiniteLight` and so is really *image
+   textures*: reading an EXR, a bilinear lookup, an equal-area octahedral
+   mapping, and a 2D distribution to importance-sample it -- the last of which
+   `sampling.bonsai` already has, since the pixel filter needed it. It unblocks
+   the most scenes and it is the prerequisite for the next item.
+2. **Textures**, the same machinery pointed at materials. 27 scenes ask for a
+   material parameter that is not a plain RGB, and a fifth of a scene's look is
+   in them.
+3. **Materials**: `dielectric` first -- 7 scenes, and every piece of it is
+   already written, since `coateddiffuse` is a dielectric over a diffuse and the
+   coating *is* `DielectricBxDF`. `conductor` is one more BxDF. `hair` and
+   `subsurface` are their own projects.
+4. **Shapes**: `bilinearmesh` alone is 20 scenes and is also what the PLY quad
+   refusal is about, so the two close together. `disk` is an afternoon.
+5. **Triangle area lights**, which is `Triangle::Sample` towards a point and its
+   PDF -- 7 scenes, and the thing that makes an emissive quad work, which is how
+   most scenes are lit indoors.
+6. **`volpath`**, which is 51 scenes by name and rather fewer by need: it is
+   pbrt's default, so a scene names it whether or not it has any medium in it.
+   The ones that genuinely need media are the cloud and smoke scenes. Every
+   other scene naming it wants `path` and would agree with `path`; making that
+   substitution *honestly* means implementing volpath, since a scene with no
+   medium is a case volpath handles rather than a case that is not volpath.
+7. **Samplers**, 17 scenes, and the cheapest item on this list per scene
+   unblocked -- the Sobol family shares one matrix-based construction and
+   `zsobol` alone is 12.
+
 ## What is next, in order
 
 Numbered by how long they have been open rather than by what to do first. Items
-1 and 2 are answered; what to do first is item 3, the light samplers, and after
-that the profile — killeroo's speed against pbrt fell from 1.56x to 1.37x when
-it stopped being a random walk, and nobody has looked at where the time goes in
-a path.
+1, 2 and 5 are answered.
+
+These are the items that came out of comparing against pbrt on the scenes that
+already work. They are not the same list as the section above, which is about
+scenes that do not work yet, and that list is the more important of the two —
+what to do first is an `infinite` light. The items below are what the comparison
+itself still owes: item 3 is the light samplers, item 4 is a profile of a path
+rather than of a walk.
 
 ### 1. The last 2.7% — answered: it was noise, and it converges
 
@@ -944,8 +1017,8 @@ their values were unrelated; after it, the same 5,038.
   the comparison uses — but it does mean the agreement percentages here should
   be read as approximate, and it would be worth knowing what pbrt is doing that
   is not reproducible.
-- Sobol and zsobol samplers are refused. Three scenes in the collection use
-  them; 81 of 87 use halton, which is implemented.
+- Sobol, zsobol and pmj02bn samplers are refused. Measured over
+  `pbrt-v4-scenes`: 17 of 98 scenes ask for one, zsobol being 12 of those.
 - PLY files holding quads are refused: pbrt makes those bilinear patches rather
   than pairs of triangles, and the renderer has no bilinear patch.
 - A mesh with per-vertex tangents (`S`) is refused: its shading tangent is not
