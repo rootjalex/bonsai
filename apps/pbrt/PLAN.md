@@ -519,6 +519,15 @@ their values were unrelated; after it, the same 5,038.
   an array element did (see the sixth compiler fix above) and cannot be closed
   the same way: binding a Ramp to a name is what makes a dense access look like
   a gather. Nothing reaches it today, so it is a note rather than a bug.
+- `SSA/CodeGen_Stmt.cpp` names `FieldPtr` as having no binding but has no case
+  to rebuild one in `codegen_value`, so a FieldPtr read as a value would name
+  something that does not exist. Unreachable today -- every FieldPtr is built by
+  `walk_accesses` for a store's destination and consumed by `codegen_gep`, which
+  asks for a WriteLoc and never for a value. The fix is the one GEP already has
+  there. No failing test is possible without first making something produce a
+  FieldPtr in value position, which is why it is a TODO in the file rather than
+  a change: an untested rebuild of an address miscompiles quietly, which is the
+  failure mode this whole app exists to catch.
 - `scenes/stratified.pbrt` and `scenes/halton.pbrt` share three-spheres'
   geometry on purpose — they isolate the sampler — but that does mean their
   normal images are identical to `three-spheres`, which is confusing until you

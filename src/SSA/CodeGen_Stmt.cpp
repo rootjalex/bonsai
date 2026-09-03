@@ -133,6 +133,17 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
 // dense or a gather is read off the shape of its index, so a Ramp behind a name
 // is a gather. If a Ramp ever reaches a successor this way it needs the other
 // fix -- rebuilding it there -- rather than a binding.
+//
+// TODO(ajr): FieldPtr is named here as having no binding, and `codegen_value`
+// has no case to rebuild one -- so a FieldPtr *read as a value* would produce a
+// Var naming nothing. Nothing reaches that today: every FieldPtr is made by
+// `walk_accesses` for the destination of a store and consumed by `codegen_gep`,
+// which never asks for its value. The fix is the one GEP already has a few
+// lines above in codegen_value -- rebuild it as `PtrTo(Access(field,
+// Deref(base)))`, taking the field's name from the pointee struct at the
+// recorded index. Left undone rather than written blind, because there is no
+// way to make it fail yet and an untested rebuild of an address is exactly the
+// kind of thing that miscompiles quietly.
 bool has_no_binding(const std::shared_ptr<Value> &v) {
     const auto *in = std::get_if<std::shared_ptr<Instruction>>(&v->data);
     if (in == nullptr) {
