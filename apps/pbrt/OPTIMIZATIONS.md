@@ -149,6 +149,18 @@ Unmeasured. A 2048x2048 map read by an escaped ray is a near-random access into
 67 MB, which is a cache miss per escaped ray either way -- halving the footprint
 may or may not change the miss rate.
 
+## 8. Keep `RayDifferential` off the `Ray`
+
+Not a saving so much as a cost not to incur, written down before the mistake is
+made. Textures need a ray to carry `rxOrigin`, `rxDirection`, `ryOrigin`,
+`ryDirection` and a flag -- 49 more bytes -- and the obvious place to put them
+is on `Ray`, which is passed by value into the tree query.
+
+The traversal never reads any of them. pbrt separates `RayDifferential` from
+`Ray` and passes the base to `Intersect`; the same split here keeps the ray the
+BVH copies at 28 bytes. Worth stating because the fields are only ever used
+together with the ray, which makes putting them on it look natural.
+
 ## Done, kept for the record
 
 - **`any()` for shadow rays** rather than `argmin` over the same predicate, and

@@ -525,13 +525,8 @@ is five features deep. Its 28 `NamedMaterial` uses resolve to:
 
 So, in the order they block it:
 
-1. **Image textures.** Eight of its materials, and 27 scenes in the survey. Not
-   a small feature: `SpectrumImageTexture` filters through a MIPMap with EWA by
-   default, which needs ray differentials from the camera, `ScaleDifferentials`,
-   and `SurfaceInteraction::ComputeDifferentials` -- none of which exist here,
-   and a texture read at the wrong filter width is a different image. It also
-   needs `uv` on the hit, which `SurfaceGeometry` does not carry, and `scale`
-   textures composed over image ones.
+1. **Image textures.** Eight of its materials, and 27 scenes in the survey. The
+   chain is mapped out below; the first link of it is done.
 2. **`conductor`**, 21 uses -- and it wants `metal-Al-eta` and `metal-Al-k`,
    which are pbrt's *named spectra*. A spectral index terminates the secondary
    wavelengths, which nothing here does, so this drags in `TerminateSecondary`
@@ -546,6 +541,64 @@ So, in the order they block it:
 
 None of that is a reason not to do it, but it is four rounds and not one, and
 the first of them is the one that unblocks everything else.
+
+### Image textures: the whole chain, mapped
+
+Worth writing down in full because the research is the expensive part and it
+has been done. A texture lookup is one line of pbrt --
+`mipmap->Filter(st, {dsdx, dtdx}, {dsdy, dtdy})` -- and every argument of it is
+a feature.
+
+**Done.** `uv`, `dpdu` and `dpdv` are on the hit and agree with pbrt exactly,
+checked by `--print-shading` against the `shading-frame` golden. `uv` is where
+a textured material is asked about; `dpdu` and `dpdv` are what turn a
+screen-space footprint into a texture-space one. Note they are the *geometric*
+pair, not `dpdus`, which has been orthogonalized against the shading normal --
+pbrt keeps both and filters in the geometric one.
+
+**Next, and the gate: ray differentials.** `Filter` needs a width, the width
+comes from `dudx, dvdx, dudy, dvdy`, and those come from
+`SurfaceInteraction::ComputeDifferentials`, which has two branches:
+
+- With a differential ray, it intersects `rxOrigin + t * rxDirection` with the
+  tangent plane at the hit and takes `dpdx = px - p`. So `Ray` needs a
+  companion carrying `rxOrigin/rxDirection/ryOrigin/ryDirection` and a flag.
+  It must be a *companion* and not fields on `Ray`: pbrt separates
+  `RayDifferential` from `Ray` for the same reason, and putting 48 more bytes
+  on the ray the BVH traversal copies would be a real cost for something the
+  traversal never reads.
+- Without one -- which is every vertex after a non-specular bounce, because
+  `SurfaceInteraction::SpawnRay` only propagates differentials through specular
+  reflection and transmission -- it calls `Camera::Approximate_dp_dxy`. That
+  wants `RotateFromTo`, the camera's `CameraFromRender`, and four vectors
+  `minPosDifferentialX/Y` and `minDirDifferentialX/Y` that pbrt finds by
+  sampling its own camera at 512 points in `FindMinimumDifferentials`. Those
+  four are setup and belong in the driver, computed with pbrt's own
+  `GenerateRayDifferential` -- the same division of labour as the spectral fits
+  and the BVH.
+
+Then `dpdx, dpdy` become `dudx …` by solving the least-squares fit against
+`dpdu, dpdv`, which is where the two derivatives above earn their keep.
+
+Two smaller things go with it. The camera has to generate differentials at all
+(`rxDirection = Normalize(pCamera + dxCamera)`, with `dxCamera` a constant of
+the camera), and `RenderCPU` scales them by `max(0.125, 1/sqrt(spp))` before
+tracing -- **which `render_reference` does not currently do**, so the harness
+has that to fix as well.
+
+**Then the texture itself**, and the good news is that most of it is setup. The
+default filter is `bilinear` over a MIP pyramid, not EWA, so a lookup is: pick
+a level from the width, and bilerp at that level with the wrap mode. Building
+the pyramid is pbrt's `Image::GenerateMIPMap` with its own resampling filter,
+and that belongs in `scene_dump`, which links pbrt and already reads the image
+-- the levels ship in the sidecar beside the environment maps. The renderer
+then does the lookup and nothing else, which is the part that has to be
+transcribed and the part that is small.
+
+What is left after that is plumbing: a material parameter becomes either a
+constant or a texture reference, `scale` textures compose over image ones, the
+`uscale/vscale/udelta/vdelta` mapping applies, and PNG files are sRGB-encoded
+where EXR files are linear.
 
 The survey found one outright bug and it is fixed: **a `LightSource` that was
 not an area light was silently dropped.** Thirteen of the fifteen scenes that
