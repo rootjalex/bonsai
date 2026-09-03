@@ -79,5 +79,19 @@ func [[export]] probe(mesh : u32, tri : u32, d : vec3f,
     out[19] = w.x;
     out[20] = w.y;
     out[21] = w.z;
+
+    // The parametric coordinates and the geometric derivatives, which a
+    // textured material is asked about and filtered by. `dpdu` here is not
+    // `dpdus` above: the shading one has been orthogonalized against the
+    // shading normal and this one has not, and a texture is filtered in the
+    // second. Nothing needed either until a texture did.
+    out[22] = g.uv.x;
+    out[23] = g.uv.y;
+    out[24] = g.dpdu.x;
+    out[25] = g.dpdu.y;
+    out[26] = g.dpdu.z;
+    out[27] = g.dpdv.x;
+    out[28] = g.dpdv.y;
+    out[29] = g.dpdv.z;
     return true;
 }

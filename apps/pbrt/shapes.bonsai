@@ -491,6 +491,23 @@ element SurfaceGeometry {
     n : vec3f;
     ns : vec3f;
     dpdus : vec3f;
+    // pbrt: SurfaceInteraction::uv, and the two partial derivatives of position
+    // with respect to it.
+    //
+    // Nothing needed these until a texture did. A material's parameter can be a
+    // texture rather than a number, and where it is, `uv` is where the surface
+    // is being asked about -- so a hit that does not carry it can only have
+    // constant materials. `dpdu` and `dpdv` are what turn a screen-space
+    // footprint into a texture-space one, which is how a texture knows how wide
+    // to filter.
+    //
+    // `dpdus` above is the *shading* tangent, orthogonalized against the
+    // shading normal; `dpdu` here is the geometric one the parameterization
+    // gives. pbrt keeps both for the same reason: a BSDF is evaluated in the
+    // first and a texture is filtered in the second.
+    uv : vec2f;
+    dpdu : vec3f;
+    dpdv : vec3f;
     // pbrt: Point3fi, the hit point as an interval -- the position and a bound
     // on how far the arithmetic that produced it could have strayed.
     //
@@ -548,7 +565,16 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     // at the origin, so the bound is about the refined point above -- and the
     // point itself is in render space, which for a translation is the same
     // error.
-    g : SurfaceGeometry = {n, n, dpdu, p + s.center, gamma(5) * abs(p)};
+    // pbrt: the parametric coordinates, which for a sphere are the angle round
+    // the axis and the angle down from the pole. The same two `sphere_sample`
+    // computes, and written the same way.
+    phi0 = atan2(p.y, p.x);
+    phi = select(phi0 < 0.0, phi0 + phi_max, phi0);
+    uv = vec2f{phi / phi_max,
+               (theta - 3.14159265358979323846) / theta_span};
+
+    g : SurfaceGeometry = {n, n, dpdu, uv, dpdu, dpdv, p + s.center,
+                           gamma(5) * abs(p)};
     return g;
 }
 
@@ -605,11 +631,15 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
     p_hit = b.x * p0 + b.y * p1 + b.z * p2;
     p_abs_sum = abs(b.x * p0) + abs(b.y * p1) + abs(b.z * p2);
     p_err = gamma(7) * p_abs_sum;
+    // pbrt: `Point2f uvHit = b0 * uv[0] + b1 * uv[1] + b2 * uv[2]`, the same
+    // barycentric interpolation as the point.
+    uv_hit = b.x * uv0 + b.y * uv1 + b.z * uv2;
 
     if !m.has_normals {
         // pbrt never enters its shading-geometry block for such a mesh, so the
         // shading normal is the geometric one and the tangent is unadjusted.
-        plain : SurfaceGeometry = {n, n, dpdu, p_hit, p_err};
+        plain : SurfaceGeometry = {n, n, dpdu, uv_hit, dpdu, dpdv, p_hit,
+                                   p_err};
         return plain;
     }
 
@@ -647,8 +677,8 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
 
     // The geometric normal turns to face the shading one, which the film's own
     // FaceForward against the ray then makes invisible -- but not to a BSDF.
-    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su, p_hit,
-                           p_err};
+    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su, uv_hit,
+                           dpdu, dpdv, p_hit, p_err};
     return g;
 }
 
@@ -911,7 +941,9 @@ func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
 
 func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
     away = -r.d;
-    missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0}, r.o,
+    missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0},
+                                vec2f{0.0, 0.0}, vec3f{1.0, 0.0, 0.0},
+                                vec3f{0.0, 1.0, 0.0}, r.o,
                                 vec3f{0.0, 0.0, 0.0}};
     match sh {
         Sph(s) => {

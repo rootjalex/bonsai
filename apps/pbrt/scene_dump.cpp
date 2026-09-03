@@ -1410,6 +1410,19 @@ void print_shading() {
                        double(isect.shading.n.z), double(isect.shading.dpdu.x),
                        double(isect.shading.dpdu.y), double(isect.shading.dpdu.z),
                        double(local.x), double(local.y), double(local.z));
+                // The parametric coordinates and the two derivatives a texture
+                // is filtered in. `uv` is where a textured material is asked
+                // about, and `dpdu`/`dpdv` are the *geometric* pair rather than
+                // the shading one printed above -- pbrt keeps both, and the
+                // difference between them is the orthogonalization against the
+                // shading normal.
+                printf("uvdp %s %d %.9g: %.9g %.9g | %.9g %.9g %.9g | "
+                       "%.9g %.9g %.9g\n",
+                       c.label, tri, double(target.y), double(isect.uv.x),
+                       double(isect.uv.y), double(isect.dpdu.x),
+                       double(isect.dpdu.y), double(isect.dpdu.z),
+                       double(isect.dpdv.x), double(isect.dpdv.y),
+                       double(isect.dpdv.z));
                 // The interpolated shading normal before it is normalized,
                 // written as PBRT writes it and so compiled the way PBRT's is.
                 // Three multiplies and two adds, which the compiler fuses, and

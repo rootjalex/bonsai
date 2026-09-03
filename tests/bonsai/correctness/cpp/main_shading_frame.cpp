@@ -80,7 +80,7 @@ int main() {
 
     for (uint32_t mesh = 0; mesh < meshes.size(); mesh++) {
         for (const float3 &d : kRays) {
-            float out[22] = {};
+            float out[30] = {};
             if (!probe(mesh, /*tri=*/1, d, out, meshes.data(), indices.data(),
                        positions.data(), normals.data(), uvs.data())) {
                 // Not a case any of these rays takes, and printing something
