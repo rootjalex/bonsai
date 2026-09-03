@@ -420,12 +420,13 @@ struct Simplifier : ir::Mutator {
             return fvalue;
         }
         if (is_const_zero(tvalue) && is_const_one(fvalue)) {
-            // select(a, 0, 1) = cast<type>(a)
-            return cast(tvalue.type(), cond);
+            // select(a, 0, 1) = cast<type>(!a) -- a true condition takes the
+            // *true* arm, which is the zero.
+            return cast(tvalue.type(), ~cond);
         }
         if (is_const_one(tvalue) && is_const_zero(fvalue)) {
-            // select(a, 1, 0) = cast<type>(!a)
-            return cast(tvalue.type(), ~cond);
+            // select(a, 1, 0) = cast<type>(a)
+            return cast(tvalue.type(), cond);
         }
         if (equals(tvalue, fvalue)) {
             // select(x, a, a) = a

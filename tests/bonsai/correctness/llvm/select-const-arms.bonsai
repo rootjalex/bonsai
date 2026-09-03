@@ -1,0 +1,34 @@
+//! flags: -b llvm -e
+
+// `select(c, 1, 0)` is `c` as a number, and `select(c, 0, 1)` is its negation.
+//
+// The simplifier folds both into a cast of the condition, and for a long time
+// it folded them the wrong way round -- returning the negation for the first
+// and the plain condition for the second. Nothing caught it, because the two
+// rules only fire when the condition is *not* constant and both arms are
+// literal 1 and 0: a constant condition is folded away by an earlier rule, and
+// arms that are named values rather than literals do not match at all.
+//
+// The loop is what makes the condition unknown. Every value below is printed
+// from inside it for that reason, and not because the loop is interesting.
+//
+// What found it was `sort()`. A schedule's sort key is a lambda over the branch
+// index, and lowering substitutes the index and simplifies -- so a key written
+// `select(dir_is_negative, 1 - i, i)` becomes exactly `select(c, 1, 0)` at
+// i = 0. The inverted fold made a BVH traverse its children back to front, and
+// since visit order changes no answer, every image was still correct and only
+// the time was wrong.
+func main() -> i32 {
+    i : mut i32 = 0;
+    while i < 4 {
+        c : bool = (i % 2) == 0;
+        print(cast[[i32]](select(c, 1, 0)));
+        print(cast[[i32]](select(c, 0, 1)));
+        // The same thing at the other width, since the fold keeps the arms'
+        // type and a sort key is a u8.
+        print(cast[[i32]](select(c, cast[[u8]](1), cast[[u8]](0))));
+        print(cast[[i32]](select(c, cast[[u8]](0), cast[[u8]](1))));
+        i = i + 1;
+    }
+    return 0;
+}

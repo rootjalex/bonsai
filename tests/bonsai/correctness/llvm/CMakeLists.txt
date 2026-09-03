@@ -40,6 +40,7 @@ add_bonsai_tests(
     reinterpret.bonsai
     round.bonsai
     sampler.bonsai
+    select-const-arms.bonsai
     shadowed-let.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
