@@ -172,46 +172,11 @@ func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();
 // pbrt: SampleExponential, which is the inverse of the exponential CDF.
 func sample_exponential(u : Float, a : Float) -> Float = -log(1.0 - u) / a;
 
-// pbrt: FastExp, from util/math.h.
-//
-// Not a call to `exp`. pbrt's is a polynomial in the fractional part of
-// x/ln 2, scaled by a power of two written straight into the exponent field,
-// and it disagrees with a correctly rounded exponential in the last few bits.
-// The layered walk multiplies its throughput by one of these at every layer
-// crossing, so the difference compounds; matching pbrt means matching the
-// approximation and not the function it approximates.
-func floor_f(x : Float) -> Float {
-    t = cast[[Float]](cast[[i32]](x));
-    // Truncation rounds towards zero, so a negative non-integer lands one
-    // above where the floor is.
-    return select(t > x, t - 1.0, t);
-}
-
-func fast_exp(x : Float) -> Float {
-    // e^x = 2^(x log2 e).
-    xp = x * 1.442695041;
-    fxp = floor_f(xp);
-    f = xp - fxp;
-    i = cast[[i32]](fxp);
-
-    // pbrt: EvaluatePolynomial, which is Horner built out of fused
-    // multiply-adds -- so this is fma and not multiply-then-add.
-    two_to_f = fma(f, fma(f, fma(f, 0.0781455737, 0.226173572), 0.695556856),
-                   1.0);
-
-    bits = reinterpret[[u32]](two_to_f);
-    // pbrt: Exponent, the biased exponent field read back as a power of two.
-    exponent = cast[[i32]](bits >> 23u) - 127 + i;
-    if exponent < -126 {
-        return 0.0;
-    }
-    if exponent > 127 {
-        return inf;
-    }
-    // The sign and significand of 2^f with the new exponent dropped in.
-    scaled = (bits & 0x807fffffu) | (cast[[u32]](exponent + 127) << 23u);
-    return reinterpret[[Float]](scaled);
-}
+// `fast_exp` and `floor_f` used to be here, because a layered walk was the only
+// thing that needed them. They are in sampling.bonsai now: pbrt's Gaussian
+// reconstruction filter is built out of `FastExp` too, and the filter cannot
+// import this file -- this file imports sampling.bonsai, so the arrow only goes
+// one way.
 
 // pbrt: BxDFFlags, which is what a BSDFSample says it was. The values are
 // pbrt's own bits, because the layered walk asks the same questions of them.
@@ -231,6 +196,15 @@ func sample_transmission() -> i32 = 2;
 func is_reflective(flags : i32) -> bool = (flags & flag_reflection()) != 0;
 func is_transmissive(flags : i32) -> bool = (flags & flag_transmission()) != 0;
 func is_specular(flags : i32) -> bool = (flags & flag_specular()) != 0;
+func is_diffuse(flags : i32) -> bool = (flags & flag_diffuse()) != 0;
+func is_glossy(flags : i32) -> bool = (flags & flag_glossy()) != 0;
+
+// pbrt: IsNonSpecular, which is what the path integrator asks before it spends
+// a shadow ray on a surface. A delta lobe has no density to weigh a light
+// sample against, so sampling a light there contributes nothing and the ray is
+// wasted.
+func is_non_specular(flags : i32) -> bool =
+    (flags & (flag_diffuse() | flag_glossy())) != 0;
 
 // pbrt: SampledSpectrum::operator bool, which is false only when every sample
 // is zero. The walk uses it to give up on a path that can carry nothing.
@@ -275,6 +249,26 @@ func make_trowbridge_reitz(ax : Float, ay : Float) -> TrowbridgeReitz {
 // square rather than the square root, and left alone so that existing scenes
 // keep rendering the way they did.
 func roughness_to_alpha(roughness : Float) -> Float = sqrt(roughness);
+
+// pbrt: TrowbridgeReitzDistribution::Regularize, one axis of it.
+//
+// What `Integrator "path" "bool regularize" true` does: a nearly-smooth lobe is
+// widened, so that a path which has already scattered off something rough
+// cannot then land on a near-delta highlight and return a value a hundred times
+// the mean. It is deliberately biased -- the image is not the one the scene
+// describes -- which is why it is off by default and why it applies only after
+// a non-specular bounce, where the eye can no longer see the sharp answer.
+//
+// Above 0.3 the lobe is already wide enough and is left alone.
+func regularize_alpha(alpha : Float) -> Float =
+    select(alpha < 0.3, clampf(2.0 * alpha, 0.1, 0.3), alpha);
+
+// pbrt: TrowbridgeReitzDistribution::Regularize.
+func regularize_distrib(d : TrowbridgeReitz) -> TrowbridgeReitz {
+    r : TrowbridgeReitz = {regularize_alpha(d.alpha_x),
+                           regularize_alpha(d.alpha_y)};
+    return r;
+}
 
 // pbrt: D(wm), the fraction of microfacets facing wm.
 func distrib_d(d : TrowbridgeReitz, wm : vec3f) -> Float {
@@ -375,6 +369,12 @@ func diffuse_sample_f(b : DiffuseBxDF, wo : vec3f, uc : Float, u : vec2f,
                       flag_diffuse() | flag_reflection(), 1.0, false};
     return s;
 }
+
+// pbrt: DiffuseBxDF::Flags. A reflectance of exactly zero is not a lobe at all,
+// which is what makes an integrator skip the surface rather than trace a shadow
+// ray to it.
+func diffuse_flags(b : DiffuseBxDF) -> i32 =
+    select(nonzero(b.r), flag_diffuse() | flag_reflection(), 0);
 
 // pbrt: DielectricBxDF. Reflection and transmission at a boundary between two
 // dielectrics, either as a delta or spread over a microfacet distribution.
@@ -582,6 +582,22 @@ func dielectric_pdf(b : DielectricBxDF, wo : vec3f, wi : vec3f,
     return distrib_pdf(b.distrib, wo, wm) * dwm_dwi * pt / (pr + pt);
 }
 
+// pbrt: DielectricBxDF::Flags.
+//
+// Note what this does *not* say: an index of one makes `f`, `Sample_f` and
+// `PDF` above all take their delta path -- a boundary between two identical
+// media transmits perfectly -- and yet pbrt's Flags calls that Glossy unless
+// the microfacet distribution is also smooth. Transcribed as pbrt has it,
+// discrepancy and all, because what the flags decide is how a layered walk
+// weights its two estimators, and inventing a different answer here would make
+// this renderer disagree with pbrt on a scene that sets `interface.eta 1`.
+func dielectric_flags(b : DielectricBxDF) -> i32 {
+    kind = select(b.eta == 1.0, flag_transmission(),
+                  flag_reflection() | flag_transmission());
+    return kind | select(effectively_smooth(b.distrib), flag_specular(),
+                         flag_glossy());
+}
+
 // pbrt: DiffuseBxDF::PDF, the cosine-weighted density its Sample_f draws from.
 func diffuse_pdf(wo : vec3f, wi : vec3f, sample_flags : i32) -> Float {
     if ((sample_flags & sample_reflection()) == 0) || !same_hemisphere(wo, wi) {
@@ -711,18 +727,43 @@ func interface_pdf(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f,
     return diffuse_pdf(wo, wi, sample_flags);
 }
 
-// pbrt: TopOrBottomBxDF::Flags(), asked only through IsSpecular.
-//
-// The bottom interface is a DiffuseBxDF and is never specular. The top is a
-// DielectricBxDF, which is specular exactly when it is smooth -- and that is
-// what decides whether the walk can weight two estimators against each other
-// at that interface or has to take the sampled one alone, because a delta has
-// no density to weight with.
-func interface_is_specular(b : CoatedDiffuseBxDF, at_top : bool) -> bool {
+// pbrt: TopOrBottomBxDF::Flags().
+func interface_flags(b : CoatedDiffuseBxDF, at_top : bool) -> i32 {
     if at_top {
-        return (b.top.eta == 1.0) || effectively_smooth(b.top.distrib);
+        return dielectric_flags(b.top);
     }
-    return false;
+    return diffuse_flags(b.bottom);
+}
+
+// The question the walk actually asks of those flags: whether an interface can
+// be weighted against another estimator at all. A delta has no density to
+// weight with, so where this is true the sampled estimate stands alone.
+func interface_is_specular(b : CoatedDiffuseBxDF, at_top : bool) -> bool =
+    is_specular(interface_flags(b, at_top));
+
+// pbrt: LayeredBxDF::Flags. Always reflective, because a two-sided layered
+// stack over a diffuse base always sends something back the way it came;
+// transmissive only if both interfaces are, which a diffuse base never is.
+//
+// The medium counts as diffuse: a scattering albedo between the interfaces
+// spreads the lobe however sharp the two interfaces are, which is what stops a
+// smooth coating over a smooth base being called specular when it is not.
+func coated_flags(b : CoatedDiffuseBxDF) -> i32 {
+    top_flags = dielectric_flags(b.top);
+    bottom_flags = diffuse_flags(b.bottom);
+    flags : mut i32 = flag_reflection();
+    if is_specular(top_flags) {
+        flags = flags | flag_specular();
+    }
+    if is_diffuse(top_flags) || is_diffuse(bottom_flags) || nonzero(b.albedo) {
+        flags = flags | flag_diffuse();
+    } else if is_glossy(top_flags) || is_glossy(bottom_flags) {
+        flags = flags | flag_glossy();
+    }
+    if is_transmissive(top_flags) && is_transmissive(bottom_flags) {
+        flags = flags | flag_transmission();
+    }
+    return flags;
 }
 
 // pbrt: LayeredBxDF::Sample_f.
@@ -1186,6 +1227,206 @@ func coated_f(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
     return f / cast[[Float]](b.n_samples);
 }
 
+// pbrt: LayeredBxDF::PDF, the density `coated_sample_f` would have drawn `wi`
+// with.
+//
+// The third question, and the one a path tracer cannot do without: multiple
+// importance sampling weighs the light's estimator against the BSDF's, and the
+// BSDF's weight is this. `coated_sample_f` reports a pdf that is only
+// proportional to the real one -- it is the entrance interface's density and
+// not the whole stack's -- so an integrator that samples a layered surface has
+// to come back and ask.
+//
+// There is no closed form here either, so this is a third walk. It is shorter
+// than `coated_f`'s: a density does not have to follow the light all the way
+// through the medium, only to account for the two ways a direction can be
+// reached -- reflected off the coating (TRT: through the top, off the base,
+// back out through the top) or transmitted clean through (TT).
+//
+// The answer is deliberately mixed with a uniform-sphere density at the end.
+// The estimate can be zero where the true density is not, and a zero in a
+// denominator is a fireproof way to make an MIS weight infinite; pbrt blends in
+// a tenth of `1/4pi` so that it never is. That makes the *pdf* wrong on purpose
+// and the *estimator* still unbiased, because the same number is used on both
+// sides of the weight.
+//
+// A note on the draw order, which is what has to be reproduced bit for bit.
+// pbrt writes the two entry samples as `Sample_f(wo, r(), {r(), r()}, ...)`,
+// where the braced list is one argument evaluated left to right and the
+// arguments around it are evaluated right to left by the gcc pbrt is built
+// with -- so the pair comes out before the single, x before y. The TT branch
+// writes `Float uc = r(); Point2f u(r(), r());` as two statements, which is the
+// other order: uc, then y, then x, the same as everywhere in `coated_f`.
+// Measured on gcc rather than reasoned about.
+func coated_pdf(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
+                seed : i32) -> Float {
+    // Two-sided, so a question asked from below is the mirrored question.
+    flip = wo_in.z < 0.0;
+    wo = select(flip, -wo_in, wo_in);
+    wi = select(flip, -wi_in, wi_in);
+
+    // Seeded from `wi` and `wo` in that order -- the opposite way round from
+    // `coated_f`, which seeds from `wo` and `wi`. pbrt's own asymmetry, and it
+    // matters: the two walks would otherwise share their noise.
+    rng : mut RNG =
+        set_sequence(hash4(seed, reinterpret[[i32]](wi.x),
+                           reinterpret[[i32]](wi.y), reinterpret[[i32]](wi.z)),
+                     hash3(reinterpret[[i32]](wo.x), reinterpret[[i32]](wo.y),
+                           reinterpret[[i32]](wo.z)));
+
+    // Entered through the top, so a direction on the same side left through the
+    // top as well.
+    reflected = same_hemisphere(wo, wi);
+
+    // The density of the reflection that never entered the coating, counted
+    // `n_samples` times because the whole sum is divided by that below.
+    pdf_sum : mut Float = 0.0;
+    if reflected {
+        pdf_sum = cast[[Float]](b.n_samples) *
+                  interface_pdf(b, true, wo, wi, sample_reflection());
+    }
+
+    s : mut i32 = 0;
+    while s < b.n_samples {
+        s = s + 1;
+
+        if reflected {
+            // TRT. The path crosses the top interface twice and reflects off
+            // the base between, so the top is what transmits and the bottom is
+            // what reflects.
+            wos_ux = next_float(rng);
+            wos_uy = next_float(rng);
+            wos_uc = next_float(rng);
+            wos = interface_sample_f(b, true, wo, wos_uc,
+                                     vec2f{wos_ux, wos_uy}, radiance_mode(),
+                                     sample_transmission());
+            // Drawn before either is tested, as pbrt draws them: the guard is
+            // one condition over both samples.
+            wis_ux = next_float(rng);
+            wis_uy = next_float(rng);
+            wis_uc = next_float(rng);
+            wis = interface_sample_f(b, true, wi, wis_uc,
+                                     vec2f{wis_ux, wis_uy}, importance_mode(),
+                                     sample_transmission());
+
+            wos_wi : mut vec3f = vec3f{0.0, 0.0, 1.0};
+            wis_wi : mut vec3f = vec3f{0.0, 0.0, 1.0};
+            wis_pdf : mut Float = 0.0;
+            valid : mut bool = false;
+            if wos && wis {
+                a = *wos;
+                c = *wis;
+                if nonzero(a.f) && (a.pdf > 0.0) && nonzero(c.f) &&
+                   (c.pdf > 0.0) {
+                    valid = true;
+                    wos_wi = a.wi;
+                    wis_wi = c.wi;
+                    wis_pdf = c.pdf;
+                }
+            }
+
+            if valid {
+                if !is_non_specular(interface_flags(b, true)) {
+                    // A delta coating: there is only one way through it, so the
+                    // base's own density is the whole answer.
+                    pdf_sum = pdf_sum + interface_pdf(b, false, -wos_wi,
+                                                      -wis_wi, sample_all());
+                } else {
+                    rs_ux = next_float(rng);
+                    rs_uy = next_float(rng);
+                    rs_uc = next_float(rng);
+                    rs = interface_sample_f(b, false, -wos_wi, rs_uc,
+                                            vec2f{rs_ux, rs_uy},
+                                            radiance_mode(), sample_all());
+                    if rs {
+                        v = *rs;
+                        if nonzero(v.f) && (v.pdf > 0.0) {
+                            if !is_non_specular(interface_flags(b, false)) {
+                                pdf_sum = pdf_sum +
+                                          interface_pdf(b, true, -v.wi, wi,
+                                                        sample_all());
+                            } else {
+                                // Both interfaces have a density, so both ways
+                                // of reaching `wi` are estimated and the two are
+                                // weighed against each other.
+                                r_pdf = interface_pdf(b, false, -wos_wi,
+                                                      -wis_wi, sample_all());
+                                pdf_sum = pdf_sum +
+                                          power_heuristic(1.0, wis_pdf, 1.0,
+                                                          r_pdf) * r_pdf;
+                                t_pdf = interface_pdf(b, true, -v.wi, wi,
+                                                      sample_all());
+                                pdf_sum = pdf_sum +
+                                          power_heuristic(1.0, v.pdf, 1.0,
+                                                          t_pdf) * t_pdf;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // TT. Straight through both interfaces, so the top is what the path
+            // enters by and the bottom is what it leaves by.
+            out_uc = next_float(rng);
+            out_uy = next_float(rng);
+            out_ux = next_float(rng);
+            wos = interface_sample_f(b, true, wo, out_uc,
+                                     vec2f{out_ux, out_uy}, radiance_mode(),
+                                     sample_all());
+            wos_wi : mut vec3f = vec3f{0.0, 0.0, 1.0};
+            // pbrt's `continue`, which is what stops the second pair being
+            // drawn -- so the flag has to be tested before they are.
+            ok : mut bool = false;
+            if wos {
+                v = *wos;
+                if nonzero(v.f) && (v.pdf != 0.0) && (v.wi.z != 0.0) &&
+                   !is_reflective(v.flags) {
+                    ok = true;
+                    wos_wi = v.wi;
+                }
+            }
+
+            if ok {
+                in_uc = next_float(rng);
+                in_uy = next_float(rng);
+                in_ux = next_float(rng);
+                wis = interface_sample_f(b, false, wi, in_uc,
+                                         vec2f{in_ux, in_uy},
+                                         importance_mode(), sample_all());
+                wis_wi : mut vec3f = vec3f{0.0, 0.0, 1.0};
+                ok2 : mut bool = false;
+                if wis {
+                    v = *wis;
+                    if nonzero(v.f) && (v.pdf != 0.0) && (v.wi.z != 0.0) &&
+                       !is_reflective(v.flags) {
+                        ok2 = true;
+                        wis_wi = v.wi;
+                    }
+                }
+
+                if ok2 {
+                    if is_specular(interface_flags(b, true)) {
+                        pdf_sum = pdf_sum + interface_pdf(b, false, -wos_wi, wi,
+                                                          sample_all());
+                    } else if is_specular(interface_flags(b, false)) {
+                        pdf_sum = pdf_sum + interface_pdf(b, true, wo, -wis_wi,
+                                                          sample_all());
+                    } else {
+                        pdf_sum = pdf_sum +
+                                  (interface_pdf(b, true, wo, -wis_wi,
+                                                 sample_all()) +
+                                   interface_pdf(b, false, -wos_wi, wi,
+                                                 sample_all())) / 2.0;
+                    }
+                }
+            }
+        }
+    }
+
+    return lerp(0.9, 1.0 / (4.0 * pi()),
+                pdf_sum / cast[[Float]](b.n_samples));
+}
+
 // pbrt: BxDF::rho(wo, uc, u), the hemispherical-directional reflectance -- how
 // much of the light arriving from `wo` leaves in any direction at all.
 //
@@ -1250,6 +1491,39 @@ element Material =
     | Diffuse(albedo : SigmoidPolynomial)
     | CoatedDiffuse(m : CoatedDiffuseMaterial);
 
+// pbrt: CoatedDiffuseMaterial::GetBxDF, and the `bsdf.Regularize()` the path
+// integrator may apply to what it returns.
+//
+// Run per intersection rather than once per material because pbrt runs it per
+// intersection: the reflectance is a spectrum at *these* wavelengths and the
+// roughness is a texture lookup, and both are properties of the hit rather than
+// of the material.
+//
+// `regularize` is the integrator's, and it is the whole of what
+// `Integrator "path" "bool regularize" true` does to this material: the
+// coating's lobe is widened once the path has already scattered off something
+// non-specular. The base is diffuse and has nothing to widen, which is why only
+// the top is touched -- pbrt calls Regularize on both and DiffuseBxDF's is
+// empty.
+func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
+                    regularize : bool) -> CoatedDiffuseBxDF {
+    alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness), m.u_roughness);
+    alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness), m.v_roughness);
+    distrib : mut TrowbridgeReitz = make_trowbridge_reitz(alpha_u, alpha_v);
+    if regularize {
+        distrib = regularize_distrib(distrib);
+    }
+    top : DielectricBxDF = {m.eta, distrib};
+    bottom : DiffuseBxDF =
+        {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
+    medium = select(m.has_medium,
+                    min(max(spectrum_at(m.medium_albedo, lambda), 0.0), 1.0),
+                    vec4f{0.0, 0.0, 0.0, 0.0});
+    return make_coated_diffuse(top, bottom, m.thickness, medium,
+                               min(max(m.g, -1.0), 1.0), m.max_depth,
+                               m.n_samples);
+}
+
 // pbrt: Material::GetBSDF followed by BxDF::rho -- the hemispherical
 // reflectance of whatever BSDF this material makes at these wavelengths, which
 // is the albedo the gbuffer records.
@@ -1270,27 +1544,34 @@ func material_rho(mat : Material, wo : vec3f, lambda : SampledWavelengths,
             return spectrum_at(albedo, lambda);
         }
         CoatedDiffuse(m) => {
-            // pbrt: CoatedDiffuseMaterial::GetBxDF, run here rather than once
-            // per material because pbrt runs it here -- the reflectance is a
-            // spectrum at these wavelengths and the roughness is a texture
-            // lookup, and both happen per intersection.
-            alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness),
-                             m.u_roughness);
-            alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness),
-                             m.v_roughness);
-            top : DielectricBxDF = {m.eta,
-                                    make_trowbridge_reitz(alpha_u, alpha_v)};
-            bottom : DiffuseBxDF =
-                {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
-            medium = select(m.has_medium,
-                            min(max(spectrum_at(m.medium_albedo, lambda), 0.0),
-                                1.0),
-                            vec4f{0.0, 0.0, 0.0, 0.0});
-            b = make_coated_diffuse(top, bottom, m.thickness, medium,
-                                    min(max(m.g, -1.0), 1.0), m.max_depth,
-                                    m.n_samples);
+            // Never regularized: pbrt fills its VisibleSurface at the first
+            // intersection, where no bounce has happened yet and so nothing has
+            // been regularized either.
+            b = coated_bxdf_at(m, lambda, false);
             return coated_rho(b, wo, seed, uc, ux, uy);
         }
+    }
+}
+
+// pbrt: Material::GetBSDF followed by BSDF::Flags -- which lobes this surface
+// has at all.
+//
+// What a path integrator decides with it: whether to spend a shadow ray here
+// (a delta lobe has no density to weigh a light sample against, so the estimate
+// would be zero), and which side of the surface to nudge the light-sampling
+// point to.
+//
+// `regularize` is threaded because regularizing widens a near-delta lobe, which
+// turns a Specular flag into a Glossy one -- so the answer depends on it.
+func material_flags(mat : Material, lambda : SampledWavelengths,
+                    regularize : bool) -> i32 {
+    match mat {
+        Diffuse(albedo) => {
+            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
+            return diffuse_flags(d);
+        }
+        CoatedDiffuse(m) => return coated_flags(coated_bxdf_at(m, lambda,
+                                                               regularize));
     }
 }
 
@@ -1306,30 +1587,44 @@ func material_rho(mat : Material, wo : vec3f, lambda : SampledWavelengths,
 // builds it here: a reflectance is a spectrum at these wavelengths and a
 // roughness is a texture lookup, and both are per intersection.
 func material_f(mat : Material, wo : vec3f, wi : vec3f,
-                lambda : SampledWavelengths, seed : i32) -> vec4f {
+                lambda : SampledWavelengths, seed : i32,
+                regularize : bool) -> vec4f {
+    // pbrt: BSDF::f's first line. A direction lying exactly in the surface has
+    // no hemisphere to be in, and every BxDF below would take a branch on the
+    // sign of a zero.
+    if wo.z == 0.0 {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
     match mat {
         Diffuse(albedo) => {
             d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
             return diffuse_f(d, wo, wi);
         }
-        CoatedDiffuse(m) => {
-            alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness),
-                             m.u_roughness);
-            alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness),
-                             m.v_roughness);
-            top : DielectricBxDF = {m.eta,
-                                    make_trowbridge_reitz(alpha_u, alpha_v)};
-            bottom : DiffuseBxDF =
-                {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
-            medium = select(m.has_medium,
-                            min(max(spectrum_at(m.medium_albedo, lambda), 0.0),
-                                1.0),
-                            vec4f{0.0, 0.0, 0.0, 0.0});
-            b = make_coated_diffuse(top, bottom, m.thickness, medium,
-                                    min(max(m.g, -1.0), 1.0), m.max_depth,
-                                    m.n_samples);
-            return coated_f(b, wo, wi, seed);
-        }
+        CoatedDiffuse(m) =>
+            return coated_f(coated_bxdf_at(m, lambda, regularize), wo, wi,
+                            seed);
+    }
+}
+
+// pbrt: Material::GetBSDF followed by BSDF::PDF -- the density this surface
+// would have chosen `wi` with, had it been asked to choose.
+//
+// The fourth question, and the one multiple importance sampling is made of: a
+// light sample and a BSDF sample are two estimators of the same integral, and
+// weighing them against each other needs each one's density under the other's
+// scheme. `simplepath` needs none of this, which is why it did not exist until
+// `path` did.
+func material_pdf(mat : Material, wo : vec3f, wi : vec3f,
+                  lambda : SampledWavelengths, seed : i32,
+                  regularize : bool) -> Float {
+    if wo.z == 0.0 {
+        return 0.0;
+    }
+    match mat {
+        Diffuse(albedo) => return diffuse_pdf(wo, wi, sample_all());
+        CoatedDiffuse(m) =>
+            return coated_pdf(coated_bxdf_at(m, lambda, regularize), wo, wi,
+                              seed);
     }
 }
 
@@ -1340,30 +1635,18 @@ func material_f(mat : Material, wo : vec3f, wi : vec3f,
 // integrator picked, and this for a direction the surface picks. A path tracer
 // needs all three, and each is a different question.
 func material_sample_f(mat : Material, wo : vec3f, uc : Float, u : vec2f,
-                       lambda : SampledWavelengths,
-                       seed : i32) -> option[BSDFSample] {
+                       lambda : SampledWavelengths, seed : i32,
+                       regularize : bool) -> option[BSDFSample] {
+    if wo.z == 0.0 {
+        return {};
+    }
     match mat {
         Diffuse(albedo) => {
             d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
             return diffuse_sample_f(d, wo, uc, u, sample_all());
         }
-        CoatedDiffuse(m) => {
-            alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness),
-                             m.u_roughness);
-            alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness),
-                             m.v_roughness);
-            top : DielectricBxDF = {m.eta,
-                                    make_trowbridge_reitz(alpha_u, alpha_v)};
-            bottom : DiffuseBxDF =
-                {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
-            medium = select(m.has_medium,
-                            min(max(spectrum_at(m.medium_albedo, lambda), 0.0),
-                                1.0),
-                            vec4f{0.0, 0.0, 0.0, 0.0});
-            b = make_coated_diffuse(top, bottom, m.thickness, medium,
-                                    min(max(m.g, -1.0), 1.0), m.max_depth,
-                                    m.n_samples);
-            return coated_sample_f(b, wo, uc, u, seed);
-        }
+        CoatedDiffuse(m) =>
+            return coated_sample_f(coated_bxdf_at(m, lambda, regularize), wo,
+                                   uc, u, seed);
     }
 }

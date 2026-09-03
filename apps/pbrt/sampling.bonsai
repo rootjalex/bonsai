@@ -36,3 +36,105 @@ func uniform_sphere_pdf() -> Float = 1.0 / (4.0 * sampling_pi());
 // in bxdf.bonsai because a shape's cone sampling needs it too, and neither file
 // imports the other.
 func safe_sqrt(x : Float) -> Float = sqrt(max(0.0, x));
+
+// pbrt: FastExp, from util/math.h.
+//
+// Not a call to `exp`. pbrt's is a polynomial in the fractional part of
+// x/ln 2, scaled by a power of two written straight into the exponent field,
+// and it disagrees with a correctly rounded exponential in the last few bits.
+// A layered walk multiplies its throughput by one of these at every layer
+// crossing, so the difference compounds; matching pbrt means matching the
+// approximation and not the function it approximates.
+//
+// Here rather than in bxdf.bonsai, where it started, because the Gaussian
+// reconstruction filter in filter.bonsai is built out of it as well and cannot
+// import bxdf.bonsai -- that file imports this one.
+func floor_f(x : Float) -> Float {
+    t = cast[[Float]](cast[[i32]](x));
+    // Truncation rounds towards zero, so a negative non-integer lands one
+    // above where the floor is.
+    return select(t > x, t - 1.0, t);
+}
+
+func fast_exp(x : Float) -> Float {
+    // e^x = 2^(x log2 e).
+    xp = x * 1.442695041;
+    fxp = floor_f(xp);
+    f = xp - fxp;
+    i = cast[[i32]](fxp);
+
+    // pbrt: EvaluatePolynomial, which is Horner built out of fused
+    // multiply-adds -- so this is fma and not multiply-then-add.
+    two_to_f = fma(f, fma(f, fma(f, 0.0781455737, 0.226173572), 0.695556856),
+                   1.0);
+
+    bits = reinterpret[[u32]](two_to_f);
+    // pbrt: Exponent, the biased exponent field read back as a power of two.
+    exponent = cast[[i32]](bits >> 23u) - 127 + i;
+    if exponent < -126 {
+        return 0.0;
+    }
+    if exponent > 127 {
+        return inf;
+    }
+    // The sign and significand of 2^f with the new exponent dropped in.
+    scaled = (bits & 0x807fffffu) | (cast[[u32]](exponent + 127) << 23u);
+    return reinterpret[[Float]](scaled);
+}
+
+// pbrt: FindInterval, from util/math.h. The last index whose CDF entry is still
+// at or below `u`, found by a branchless binary search over a table that is
+// known to be sorted.
+//
+// `base` because every distribution here is a row of one flat array: an array
+// of arrays is a pointer to chase, and the filter's conditionals are forty-eight
+// tables of forty-nine entries that are better off laid end to end.
+//
+// pbrt's is written over `size` and `first` rather than over a low and a high
+// bound, and the two are not the same search when the predicate is false
+// everywhere -- so it is transcribed rather than rewritten as the bisection a
+// reader would reach for.
+func find_interval(n : i32, cdf : array[Float], base : i32, u : Float) -> i32 {
+    size : mut i32 = n - 2;
+    first : mut i32 = 1;
+    while size > 0 {
+        half = size >> 1;
+        middle = first + half;
+        found = cdf[base + middle] <= u;
+        first = select(found, middle + 1, first);
+        size = select(found, size - (half + 1), half);
+    }
+    return min(max(first - 1, 0), n - 2);
+}
+
+// Where in a piecewise-constant distribution a uniform sample lands, and which
+// of its intervals that was.
+element CdfSample {
+    x : Float;
+    offset : i32;
+}
+
+// pbrt: PiecewiseConstant1D::Sample, minus the density.
+//
+// The density is the caller's because the two distributions that use this do
+// not share a function table: a filter's conditional rows are the absolute
+// value of the filter itself, and the marginal has a table of its own made of
+// their integrals. Returning the interval is what lets the caller look the
+// right value up.
+//
+// `lo` and `hi` are the domain the intervals are spread over, which for a
+// filter is its radius either side of zero rather than the unit interval.
+func cdf_sample(cdf : array[Float], base : i32, n : i32, lo : Float, hi : Float,
+                u : Float) -> CdfSample {
+    o = find_interval(n + 1, cdf, base, u);
+    width = cdf[base + o + 1] - cdf[base + o];
+    du : mut Float = u - cdf[base + o];
+    if width > 0.0 {
+        du = du / width;
+    }
+    // pbrt: Lerp(t, min, max), which is `(1 - t) * min + t * max` and not
+    // `min + t * (max - min)`. The two differ in the last bit.
+    t = (cast[[Float]](o) + du) / cast[[Float]](n);
+    s : CdfSample = {(1.0 - t) * lo + t * hi, o};
+    return s;
+}

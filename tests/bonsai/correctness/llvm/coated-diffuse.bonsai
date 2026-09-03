@@ -34,6 +34,14 @@
 // algorithm. The residual is about one part in ten million, against an albedo
 // comparison that agrees with pbrt to six parts in a hundred thousand, so it is
 // two orders of magnitude below the difference the render already has.
+//
+// The `PDF` section at the end has no such residual: every one of its twelve
+// values equals pbrt's to the six decimals printed. That is worth saying,
+// because it is the check that the third walk's seeding and draw order are
+// right, and those are the two things about it that cannot be read off pbrt's
+// source -- the order two `r()` calls are evaluated in is a property of the
+// compiler pbrt was built with, and it differs between the braced list this
+// walk uses and the constructor call every other walk here uses.
 import apps/pbrt/bxdf;
 
 // The four wavelengths a diffuse base reflects, as a number written down on
@@ -53,6 +61,18 @@ func coating(roughness : Float, eta : Float, thickness : Float,
     top : DielectricBxDF = {eta, make_trowbridge_reitz(a, a)};
     return make_coated_diffuse(top, bottom, thickness,
                                vec4f{0.0, 0.0, 0.0, 0.0}, 0.0, 10, 1);
+}
+
+// The same, with the sample count the layered estimators average over. `coating`
+// above fixes it at pbrt's default of one; the PDF section below wants a case
+// where the loop runs more than once, because a sum divided by `nSamples` and a
+// sum that forgot to be are the same number at one sample.
+func coating_n(roughness : Float, eta : Float, thickness : Float,
+               bottom : DiffuseBxDF, n : i32) -> CoatedDiffuseBxDF {
+    a = roughness_to_alpha(roughness);
+    top : DielectricBxDF = {eta, make_trowbridge_reitz(a, a)};
+    return make_coated_diffuse(top, bottom, thickness,
+                               vec4f{0.0, 0.0, 0.0, 0.0}, 0.0, 10, n);
 }
 
 func print4(v : vec4f) -> void {
@@ -250,5 +270,64 @@ func main() -> i32 {
     print4(coated_rho(spectral, slanted, 0, uc, ux, uy));
     print4(coated_rho(spectral, grazing, 0, uc, ux, uy));
     print4(coated_rho(spectral, below, 0, uc, ux, uy));
+
+    // `LayeredBxDF::Flags`, which is what a path integrator decides with -- a
+    // surface with no non-specular lobe gets no shadow ray and no draws. The
+    // smooth case is the only one that differs, and it differs by the Specular
+    // bit alone: a smooth coating over a diffuse base is both.
+    pdf_rough = coating(0.05, 1.5, 0.01, base(0.4, 0.4, 0.4, 0.4));
+    pdf_smooth = coating(0.0, 1.5, 0.01, base(0.4, 0.4, 0.4, 0.4));
+    pdf_thick = coating_n(0.15, 1.33, 0.5, base(0.4, 0.4, 0.4, 0.4), 4);
+    print(coated_flags(pdf_rough));
+    print(coated_flags(pdf_smooth));
+    print(coated_flags(pdf_thick));
+
+    // `LayeredBxDF::PDF`, the third random walk and the one the path integrator
+    // added. It is seeded from `wi` and then `wo` where `f` is seeded from `wo`
+    // and then `wi`, and its two entry samples draw the pair before the single
+    // where every other call in this file draws the single first -- neither of
+    // which is visible in an image, since a walk with different noise estimates
+    // the same density and converges to the same picture.
+    //
+    // The last two pairs cross the surface, which takes the TT branch. It
+    // contributes nothing for a coated *diffuse* -- the base cannot transmit,
+    // so the second sample is always a reflection and the sample is dropped --
+    // and the answer is the constant a tenth of `1/4pi` that pbrt blends in to
+    // keep an MIS weight finite. Worth pinning precisely because a branch that
+    // always returns a constant is also what a wrong hemisphere test looks
+    // like.
+    pdf_wo0 = unit_vector(vec3f{0.3, 0.2, 0.9});
+    pdf_wi0 = unit_vector(vec3f{-0.1, 0.35, 0.8});
+    pdf_wo1 = unit_vector(vec3f{0.7, -0.5, 0.15});
+    pdf_wi1 = unit_vector(vec3f{-0.6, 0.4, 0.2});
+    pdf_wo2 = unit_vector(vec3f{0.3, 0.2, 0.9});
+    pdf_wi2 = unit_vector(vec3f{0.1, -0.2, -0.95});
+    pdf_wo3 = unit_vector(vec3f{0.2, 0.1, -0.9});
+    pdf_wi3 = unit_vector(vec3f{-0.3, 0.25, 0.88});
+
+    print(coated_pdf(pdf_rough, pdf_wo0, pdf_wi0, 0));
+    print(coated_pdf(pdf_rough, pdf_wo1, pdf_wi1, 0));
+    print(coated_pdf(pdf_rough, pdf_wo2, pdf_wi2, 0));
+    print(coated_pdf(pdf_rough, pdf_wo3, pdf_wi3, 0));
+
+    print(coated_pdf(pdf_smooth, pdf_wo0, pdf_wi0, 0));
+    print(coated_pdf(pdf_smooth, pdf_wo1, pdf_wi1, 0));
+    print(coated_pdf(pdf_smooth, pdf_wo2, pdf_wi2, 0));
+    print(coated_pdf(pdf_smooth, pdf_wo3, pdf_wi3, 0));
+
+    print(coated_pdf(pdf_thick, pdf_wo0, pdf_wi0, 0));
+    print(coated_pdf(pdf_thick, pdf_wo1, pdf_wi1, 0));
+    print(coated_pdf(pdf_thick, pdf_wo2, pdf_wi2, 0));
+    print(coated_pdf(pdf_thick, pdf_wo3, pdf_wi3, 0));
+
+    // And the widening `Integrator "path" "bool regularize" true` applies. Two
+    // roughnesses below the threshold, one above it and left alone, and a
+    // smooth coating -- which regularization turns from a delta into a lobe,
+    // so a regularized smooth surface has a PDF where an unregularized one has
+    // nothing but the blended constant.
+    print(regularize_alpha(0.0));
+    print(regularize_alpha(0.02));
+    print(regularize_alpha(0.2));
+    print(regularize_alpha(0.5));
     return 0;
 }
