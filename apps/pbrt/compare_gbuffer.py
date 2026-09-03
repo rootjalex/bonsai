@@ -280,12 +280,25 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     n = width * height * 3
     pbrt_mean = pbrt_total / n
     bonsai_mean = bonsai_total / n
-    ratio = bonsai_mean / pbrt_mean if pbrt_mean else float("inf")
-    agree = close / lit_both if lit_both else 0.0
+    # Six of the nine scenes here have no emitter at all -- they were written
+    # when the comparison was a gbuffer -- so both sides render an image that is
+    # exactly black. Two black images agree perfectly, and the ratio of their
+    # means is 0/0; reporting that as a failure said the transport was wrong on
+    # the scenes where there is no transport to get wrong. A ratio of one is the
+    # honest reading, and the two means printed beside it show why.
+    if pbrt_mean == 0.0 and bonsai_mean == 0.0:
+        ratio = 1.0
+    else:
+        ratio = bonsai_mean / pbrt_mean if pbrt_mean else float("inf")
+    agree = close / lit_both if lit_both else 1.0
     print(f"radiance: {lit_pbrt} lit pixels in pbrt, {lit_bonsai} here; "
           f"mean {pbrt_mean:.6g} vs {bonsai_mean:.6g} ({ratio:.5f}x)")
-    print(f"  {close} of {lit_both} touched pixels agree to "
-          f"{RADIANCE_TOLERANCE:.0e} relative ({100 * agree:.1f}%)")
+    if lit_both:
+        print(f"  {close} of {lit_both} touched pixels agree to "
+              f"{RADIANCE_TOLERANCE:.0e} relative ({100 * agree:.1f}%)")
+    else:
+        print("  no pixel received light on either side, which is what a scene "
+              "with no emitter renders")
     return lit_pbrt, lit_bonsai, ratio
 
 
@@ -377,7 +390,7 @@ def main(argv):
         # filled in a gbuffer as well, and the ratio compared two different
         # workloads plus a difference of algorithm.
         print("  (the same work on both sides: normals, a sixteen-sample "
-              "reflectance, and a random walk)")
+              "reflectance, and the integrator the scene names)")
 
     # Only disagreements away from an edge are failures. A silhouette pixel is
     # a grazing ray, and which surface it lands on is decided by how carefully
