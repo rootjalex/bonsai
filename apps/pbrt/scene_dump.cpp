@@ -1719,295 +1719,12 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
     return nullptr;
 }
 
-// The gbuffer PBRT would have written, rendered here with PBRT's own code.
-//
-// The comparison used to be against the `pbrt` binary's output, which meant the
-// scene had to ask for `Film "gbuffer"` -- and no scene anyone else wrote does.
-// They say `Film "rgb"`, and PBRT has a command-line override for the sample
-// count but none for the film, so the comparison simply could not be run on
-// them. Rewriting someone's scene to change one line is not a fix; asking PBRT
-// directly is.
-//
-// Nothing here is a reimplementation. The camera, the sampler, the aggregate,
-// the intersection and the BSDF are PBRT's, assembled the way RenderCPU
-// assembles them and driven the way the path integrator drives them at depth
-// zero. What is left out is everything past the first hit, which is the part
-// the gbuffer does not record.
-//
-// A consequence worth having: `bsdf.rho` is PBRT's, so the albedo is right for
-// every material PBRT has, whether or not this renderer can yet reproduce it --
-// and the normals, which no material affects, compare exactly regardless.
-//
-// The normals are in render space, which is where the rays are. PBRT's gbuffer
-// film writes them in whichever space `coordinatesystem` names, and matching
-// that used to mean every scene here saying "world"; a scene someone else wrote
-// says nothing and gets "camera". Reporting the space both renderers actually
-// work in removes the question rather than answering it.
-void render_reference(pbrt::BasicScene &scene,
-                      const pbrt::RGBColorSpace *colour_space,
-                      int integrator_max_depth, uint32_t integrator_tag,
-                      const std::string &light_sampler_name,
-                      bool integrator_regularize, int repeats,
-                      const std::string &prefix) {
-    // Sampled at the pixel centre, which main() asked for before parsing began.
-    // GetCameraSample below is PBRT's own and reads PBRT's own option, so there
-    // is no second implementation of what that flag means.
-    std::map<std::string, pbrt::Medium> media = scene.CreateMedia();
-    pbrt::NamedTextures textures = scene.CreateTextures();
-    std::map<int, pstd::vector<pbrt::Light> *> shape_index_to_area_lights;
-    std::vector<pbrt::Light> lights =
-        scene.CreateLights(textures, &shape_index_to_area_lights);
-    std::map<std::string, pbrt::Material> named_materials;
-    std::vector<pbrt::Material> materials;
-    scene.CreateMaterials(textures, &named_materials, &materials);
-    pbrt::Primitive accel = scene.CreateAggregate(
-        textures, shape_index_to_area_lights, media, named_materials, materials);
-
-    pbrt::Camera camera = scene.GetCamera();
-    pbrt::Film film = camera.GetFilm();
-    pbrt::Filter filter = film.GetFilter();
-    pbrt::Sampler sampler = scene.GetSampler();
-    const pbrt::Bounds2i bounds = film.PixelBounds();
-    const pbrt::Vector2i extent = bounds.Diagonal();
-    const int width = extent.x, height = extent.y;
-    const int spp = sampler.SamplesPerPixel();
-
-    std::vector<float> normals(size_t(width) * height * 3, 0.f);
-    std::vector<float> albedos(size_t(width) * height * 3, 0.f);
-    std::vector<float> radiances(size_t(width) * height * 3, 0.f);
-
-    // PBRT's own RandomWalkIntegrator, which is what render.bonsai's
-    // `li_random_walk` is a transcription of. Constructed here rather than
-    // taken from the scene: the scene names whatever integrator it was written
-    // for -- killeroo-simple names none, so PBRT would default to volpath --
-    // and what this file is for is asking PBRT the same question the renderer
-    // answers, not a harder one. The depth is the scene's if it named one and
-    // PBRT's default of five otherwise, which is the same number `load` writes
-    // into the scene file for the renderer to use.
-    // The same integrator the renderer runs, chosen by the same scene
-    // directive. A comparison between two different integrators measures
-    // nothing about either.
-    // Only the one the scene named is built. Constructing all three worked --
-    // the reference render is the same either way, checked -- but PBRT's
-    // Integrator base constructor preprocesses every light in the scene and
-    // BVHLightSampler, which `path` defaults to, builds a tree over them, so
-    // two of the three were a light BVH built to be thrown away.
-    //
-    // The `path` one is given the light sampler and the regularization the
-    // scene asked for rather than the ones this renderer happens to have. That
-    // is the point of the comparison: `load` below refuses a scene whose light
-    // sampler this renderer cannot reproduce, and for the scenes it does not
-    // refuse, PBRT's own BVH sampler runs here against the uniform one over
-    // there -- so the claim that the two agree on a scene with a single light
-    // is checked rather than asserted.
-    // The tag `load` resolved, not the name the scene wrote. A scene that names
-    // no integrator has a fallback, and the two sides have to take the same one
-    // -- deciding it twice is how they would come to run different algorithms
-    // and report the difference as a disagreement about transport.
-    const bool use_simple_path =
-        integrator_tag == bonsai_scene::IntegratorTag::SimplePath;
-    const bool use_path = integrator_tag == bonsai_scene::IntegratorTag::Path;
-    std::unique_ptr<pbrt::RandomWalkIntegrator> random_walk;
-    std::unique_ptr<pbrt::SimplePathIntegrator> simple_path;
-    std::unique_ptr<pbrt::PathIntegrator> path;
-    if (use_path) {
-        path = std::make_unique<pbrt::PathIntegrator>(
-            integrator_max_depth, camera, sampler, accel, lights,
-            light_sampler_name, integrator_regularize);
-    } else if (use_simple_path) {
-        simple_path = std::make_unique<pbrt::SimplePathIntegrator>(
-            integrator_max_depth, /*sampleLights=*/true, /*sampleBSDF=*/true,
-            camera, sampler, accel, lights);
-    } else {
-        random_walk = std::make_unique<pbrt::RandomWalkIntegrator>(
-            integrator_max_depth, camera, sampler, accel, lights);
-    }
-
-    pbrt::ThreadLocal<pbrt::ScratchBuffer> buffers(
-        []() { return pbrt::ScratchBuffer(); });
-    pbrt::ThreadLocal<pbrt::Sampler> samplers(
-        [&sampler]() { return sampler.Clone({}); });
-
-    // Timed, and this is the number worth comparing against. The pbrt binary
-    // renders this scene with whatever integrator the scene names -- none, for
-    // killeroo-simple, so PBRT's default of volpath -- into an rgb film, which
-    // computes no VisibleSurface and no reflectance. That is three differences
-    // at once from what the renderer does, and none of them is the schedule.
-    //
-    // What is below is the same work: PBRT's own intersection, PBRT's own rho,
-    // PBRT's own RandomWalkIntegrator, over the same samples of the same
-    // pixels. Best of `repeats`, as the other side is, and for the same reason:
-    // every source of noise adds time and none removes it.
-    double seconds = std::numeric_limits<double>::infinity();
-    for (int run = 0; run < repeats; run++) {
-        const auto started = std::chrono::steady_clock::now();
-        std::fill(normals.begin(), normals.end(), 0.f);
-        std::fill(albedos.begin(), albedos.end(), 0.f);
-        std::fill(radiances.begin(), radiances.end(), 0.f);
-    pbrt::ParallelFor2D(bounds, [&](pbrt::Bounds2i tile) {
-        pbrt::ScratchBuffer &scratch = buffers.Get();
-        pbrt::Sampler tile_sampler = samplers.Get();
-        for (pbrt::Point2i p : tile) {
-            // The accumulator widths are PBRT's, from GBufferFilm::Pixel: the
-            // colour sums are double and the normal sum is not. A float sum
-            // here would agree to about six digits and disagree in the last
-            // bit of the half the film writes, which is a difference nobody
-            // could explain from the source.
-            pbrt::Normal3f n_sum(0, 0, 0);
-            double albedo_sum[3] = {0., 0., 0.};
-            double radiance_sum[3] = {0., 0., 0.};
-            double weight_sum = 0.;
-
-            for (int i = 0; i < spp; i++) {
-                scratch.Reset();
-                tile_sampler.StartPixelSample(p, i);
-
-                // The order the path integrator draws in: the wavelength
-                // first, then the camera sample. Getting it wrong would put
-                // every later draw one value out.
-                pbrt::Float lu = tile_sampler.Get1D();
-                if (pbrt::GetOptions().disableWavelengthJitter) {
-                    lu = 0.5f;
-                }
-                pbrt::SampledWavelengths lambda = film.SampleWavelengths(lu);
-                pbrt::CameraSample cs =
-                    pbrt::GetCameraSample(tile_sampler, p, filter);
-                pstd::optional<pbrt::CameraRayDifferential> cr =
-                    camera.GenerateRayDifferential(cs, lambda);
-                weight_sum += cs.filterWeight;
-                if (!cr) {
-                    continue;
-                }
-
-                // The radiance, from PBRT's own integrator and drawing from
-                // this sample's stream exactly where the renderer's walk draws
-                // from it. Before the gbuffer work below, because that is where
-                // an integrator runs: PBRT fills a VisibleSurface from inside
-                // `Li`, and every draw after the camera sample belongs to the
-                // walk.
-                //
-                // Converted the way PixelSensor does and not the way a
-                // reflectance is: XYZ without the division by the CIE Y
-                // integral that `ToRGB` applies, which is why the multiply
-                // undoing it is here. See colour.bonsai.
-                {
-                    pbrt::RayDifferential ray = cr->ray;
-                    const pbrt::SampledSpectrum L =
-                        use_path
-                            ? path->Li(ray, lambda, tile_sampler, scratch,
-                                       nullptr)
-                        : use_simple_path
-                            ? simple_path->Li(ray, lambda, tile_sampler,
-                                              scratch, nullptr)
-                            : random_walk->Li(ray, lambda, tile_sampler,
-                                              scratch, nullptr);
-                    const pbrt::XYZ xyz =
-                        L.ToXYZ(lambda) * pbrt::CIE_Y_integral;
-                    const pbrt::RGB rgb = colour_space->ToRGB(xyz);
-                    for (int c = 0; c < 3; c++) {
-                        radiance_sum[c] += cs.filterWeight * rgb[c];
-                    }
-                }
-
-                pstd::optional<pbrt::ShapeIntersection> si =
-                    accel.Intersect(cr->ray, pbrt::Infinity);
-                if (!si) {
-                    continue;
-                }
-                pbrt::SurfaceInteraction &isect = si->intr;
-                pbrt::BSDF bsdf = isect.GetBSDF(cr->ray, lambda, camera,
-                                                scratch, tile_sampler);
-                if (!bsdf) {
-                    continue;
-                }
-
-                // pbrt: VisibleSurface's constructor, which turns the normal to
-                // face the way the ray came from -- the film's convention
-                // rather than the geometry's winding.
-                const pbrt::Normal3f n =
-                    pbrt::FaceForward(isect.n, isect.wo);
-                n_sum += cs.filterWeight * n;
-
-                // pbrt: GBufferFilm::AddSample, which lights the reflectance by
-                // the colour space's illuminant before converting it, so that
-                // the answer is a colour under a white point rather than a
-                // reflectance under an equal-energy light.
-                const pbrt::SampledSpectrum rho =
-                    bsdf.rho(isect.wo, kRhoUC, kRhoU);
-                const pbrt::SampledSpectrum lit =
-                    rho * colour_space->illuminant.Sample(lambda);
-                const pbrt::RGB rgb = lit.ToRGB(lambda, *colour_space);
-                for (int c = 0; c < 3; c++) {
-                    albedo_sum[c] += cs.filterWeight * rgb[c];
-                }
-            }
-
-            const size_t at =
-                (size_t(p.y - bounds.pMin.y) * width + (p.x - bounds.pMin.x)) * 3;
-            // pbrt: GetImage. The normal is normalized rather than averaged --
-            // a direction has no magnitude to average -- while the albedo is
-            // divided by the whole weight, including the samples that hit
-            // nothing, so a pixel on a silhouette comes out darker.
-            if (pbrt::LengthSquared(n_sum) > 0) {
-                const pbrt::Normal3f n = pbrt::Normalize(n_sum);
-                normals[at + 0] = float(n.x);
-                normals[at + 1] = float(n.y);
-                normals[at + 2] = float(n.z);
-            }
-            if (weight_sum != 0) {
-                for (int c = 0; c < 3; c++) {
-                    albedos[at + c] = float(albedo_sum[c] / weight_sum);
-                    radiances[at + c] = float(radiance_sum[c] / weight_sum);
-                }
-            }
-        }
-    });
-        const auto finished = std::chrono::steady_clock::now();
-        seconds = std::min(
-            seconds, std::chrono::duration<double>(finished - started).count());
-    }
-
-    const auto write = [&](const std::string &path,
-                           const std::vector<float> &pixels) {
-        std::ofstream out(path, std::ios::binary);
-        if (!out) {
-            fail("cannot open " + path + " for writing");
-        }
-        // PFM rows run bottom to top, and a negative scale says little-endian.
-        out << "PF\n" << width << ' ' << height << "\n-1.000000\n";
-        for (int y = height - 1; y >= 0; y--) {
-            out.write(reinterpret_cast<const char *>(
-                          pixels.data() + size_t(y) * width * 3),
-                      std::streamsize(sizeof(float)) * width * 3);
-        }
-        if (!out) {
-            fail("cannot write " + path);
-        }
-    };
-    write(prefix + ".pfm", normals);
-    write(prefix + "-albedo.pfm", albedos);
-    write(prefix + "-radiance.pfm", radiances);
-    printf("scene_dump: reference %s.pfm, %s-albedo.pfm and %s-radiance.pfm "
-           "(%dx%d, %d spp, %s maxdepth %d)\n",
-           prefix.c_str(), prefix.c_str(), prefix.c_str(), width, height, spp,
-           use_path ? "path"
-                    : (use_simple_path ? "simplepath" : "randomwalk"),
-           integrator_max_depth);
-    // Parsed by compare.sh. On a line of its own, as the renderer's is.
-    printf("scene_dump: reference seconds: %g\n", seconds);
-    // What PBRT's own binary would write this scene to, so that a comparison
-    // script can find the image it timed. A scene names it and no two need
-    // agree.
-    printf("scene_dump: film filename %s\n",
-           film.GetFilename().c_str());
-}
 
 // Parse and convert. Everything PBRT owns is local to this function, so all of
 // it is destroyed on the way out -- before CleanupPBRT takes the arenas it was
 // allocated from out from under it. Doing this inline in main instead crashes
 // on the way out, because the locals outlive the cleanup call.
-void load(const char *filename, bonsai_scene::Scene &out,
-          const std::string &reference_prefix, int repeats) {
+void load(const char *filename, bonsai_scene::Scene &out) {
     std::vector<float> matrices;
     std::vector<bonsai_scene::Shape> &shapes = out.shapes;
 
@@ -2626,18 +2343,6 @@ void load(const char *filename, bonsai_scene::Scene &out,
         }
     }
 
-    // Last, because CreateAggregate empties `scene.shapes` on its way through
-    // -- it hands the entities to the primitives it builds -- and the
-    // conversion above reads them.
-    if (!reference_prefix.empty()) {
-        // The film's colour space rather than sRGB by assumption: it is what
-        // GBufferFilm converts the albedo with, and a scene can name another.
-        render_reference(scene, builder.film_params.ColorSpace(),
-                         builder.integrator_max_depth, out.integrator,
-                         builder.light_sampler_name,
-                         builder.integrator_regularize, repeats,
-                         reference_prefix);
-    }
 }
 
 // Build the tree with PBRT's own BVHAggregate, over the shapes this scene
@@ -2797,13 +2502,23 @@ int main(int argc, char **argv) {
     bool shading_only = false;
     bool light_only = false;
     bool shape_sample_only = false;
-    int repeats = 1;
-    // --reference writes the gbuffer PBRT would have written, rendered with
-    // PBRT's own camera, aggregate and BSDFs. It is how the comparison runs on
-    // a scene someone else wrote: those say `Film "rgb"`, PBRT has no
-    // command-line override for the film, and rewriting a scene to change one
-    // line would make the comparison about our copy of it.
-    std::string reference_prefix;
+    // There was a `--reference` here, which rendered the gbuffer with PBRT's
+    // own camera, aggregate and BSDFs driven from a loop written in this file.
+    // It is gone, and what replaced it is the `pbrt` binary: compare.sh runs
+    // it and compares against what it writes.
+    //
+    // The loop was faithful -- every value it produced agreed with the binary
+    // to a part in a million -- and it was still the wrong thing to have. It
+    // differed from PBRT's own `RenderCPU` in two ways that were found by
+    // reading it rather than by any check failing: it traced the camera ray
+    // twice, and it never called `ScaleDifferentials`. Neither showed, because
+    // the first costs only time and the second had nothing to affect yet. A
+    // reference that can drift without saying so is not a reference.
+    //
+    // What this program does now is convert a scene and print what PBRT thinks
+    // about small things -- the tables, the sampler, a BSDF. It renders
+    // nothing.
+
     // --spp is PBRT's own option under PBRT's own name, and it reaches both
     // sides the same way PBRT's does: by being set on PBRTOptions before the
     // scene is parsed, so that every sampler's Create reads it. A scene here
@@ -2830,11 +2545,6 @@ int main(int argc, char **argv) {
             light_only = true;
         } else if (arg == "--print-shape-sample") {
             shape_sample_only = true;
-        } else if (arg == "--reference") {
-            if (i + 1 >= argc) {
-                fail("--reference needs a path prefix to write to");
-            }
-            reference_prefix = argv[++i];
         } else if (arg == "--disable-pixel-jitter") {
             disable_pixel_jitter = true;
         } else if (arg == "--spp") {
@@ -2847,18 +2557,21 @@ int main(int argc, char **argv) {
             }
             spp_override = n;
         } else if (arg == "--repeats") {
+            // Accepted and ignored: it timed the reference render that used to
+            // live here, and compare.sh still passes it. The repeats that
+            // matter now are the binary's, which compare.sh runs itself.
             if (i + 1 >= argc) {
                 fail("--repeats needs a count");
             }
-            repeats = std::max(1, atoi(argv[++i]));
+            i++;
         } else {
             positional.push_back(argv[i]);
         }
     }
     if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
         !light_only && !shape_sample_only && positional.size() != 2) {
-        fail("usage: scene_dump [--pbrt-tree] [--reference <prefix>]"
-             " [--spp <n>] [--disable-pixel-jitter] <scene.pbrt> <out.txt>\n"
+        fail("usage: scene_dump [--pbrt-tree] [--spp <n>]"
+             " [--disable-pixel-jitter] <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
              "       scene_dump --print-sampler\n"
              "       scene_dump --print-bsdf\n"
@@ -2921,7 +2634,7 @@ int main(int argc, char **argv) {
     }
 
     bonsai_scene::Scene scene;
-    load(positional[0], scene, reference_prefix, repeats);
+    load(positional[0], scene);
     if (pbrt_tree) {
         build_pbrt_tree(scene);
     }

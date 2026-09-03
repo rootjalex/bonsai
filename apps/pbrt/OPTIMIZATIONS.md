@@ -83,9 +83,16 @@ the thing every ray points at would spend this differently.
 traces the same ray again. pbrt fills its `VisibleSurface` from *inside* `Li` at
 depth zero, off the intersection it already has.
 
-The reference render does the same double trace, so the comparison is honest --
-but a pbrt render of these scenes into an `rgb` film traces once, and the second
-traversal is a real cost on every camera sample.
+There is no third renderer here and "the reference" is not one: it is pbrt-v4.
+`render_reference` in scene_dump.cpp uses pbrt's own camera, aggregate, BSDFs
+and integrator -- what it replaces is only pbrt's `RenderCPU` loop around them.
+But it is *our* loop, and it is the thing that traces twice: it calls `Li` for
+the radiance and then intersects again for the gbuffer. So both sides pay a
+traversal that **pbrt itself would not** -- `RenderCPU` fills its
+`VisibleSurface` from inside `Li`, off the intersection it already has.
+
+The comparison between the two sides is therefore fair, and neither side is
+what pbrt does. That second point is the one worth fixing.
 
 Not free to fix, and the reason is in pbrt: only its **path** integrator fills a
 `VisibleSurface`. `RandomWalkIntegrator` and `SimplePathIntegrator` ignore the

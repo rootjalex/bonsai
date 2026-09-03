@@ -142,44 +142,105 @@ DUMP_FLAGS=()
 if [[ -n "${PBRT_TREE:-}" ]]; then
   DUMP_FLAGS+=(--pbrt-tree)
 fi
-# --reference renders the gbuffer with pbrt's own camera, aggregate and BSDFs
-# rather than running the pbrt binary and pulling channels out of its EXR. The
-# binary can only produce those channels for a scene that asks for
-# `Film "gbuffer"`, and no scene anyone else wrote does -- they say
-# `Film "rgb"`, and pbrt has a command-line override for the sample count but
-# none for the film. Verified against the binary on a scene that does ask for a
-# gbuffer: the normals are identical once ours are rounded to the half floats
-# the binary stores.
 # Both sides are timed as the best of several runs. Every source of noise on a
 # shared machine adds time and none removes it, so the minimum is the closest
 # estimate of how long the work actually takes; a mean would be an estimate of
 # how busy the machine was. REPEATS=1 to skip it.
 REPEATS="${REPEATS:-5}"
 
-# pbrt's side is timed inside scene_dump, rendering the same three channels
-# with pbrt's own code, rather than by running the pbrt binary.
-#
-# The binary was the wrong thing to time and had been for a while. It renders
-# whatever integrator the scene names -- none, in killeroo-simple, so pbrt's
-# default of volpath -- into an `rgb` film, which computes no VisibleSurface and
-# no reflectance. This renderer computes normals, a sixteen-sample reflectance
-# and a random walk. Comparing those two says nothing about the schedule: it
-# says volpath and randomwalk are different algorithms, and that one side was
-# also filling in a gbuffer.
-#
-# What is timed now is pbrt's intersection, pbrt's rho and pbrt's
-# RandomWalkIntegrator over the same samples of the same pixels -- the same
-# work, so the difference is the thing being measured.
-#
-# Wavelength jitter is left on, and pixel jitter off, both by the options
-# main() sets before parsing; the reference render reads pbrt's own options, so
-# there is no second implementation of what those flags mean.
+# The scene, converted for this renderer. Only converted -- nothing is rendered
+# here.
 DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" \
-    ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} --reference "$WORK/pbrt" \
-    --repeats "$REPEATS" "$SCENE" "$WORK/scene.txt")
+    ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} "$SCENE" "$WORK/scene.txt")
 echo "$DUMP_OUT"
-PBRT_SECONDS=$(echo "$DUMP_OUT" | sed -n 's/^scene_dump: reference seconds: //p')
 
+# And pbrt's side: the `pbrt` binary, rendering the scene.
+#
+# Not a harness around pbrt's pieces -- the binary, running its own `RenderCPU`
+# over its own film. That distinction is the whole point of this block. What
+# used to be here assembled pbrt's camera, aggregate, BSDFs and integrator and
+# drove them from a loop written in scene_dump.cpp, and every value it produced
+# turned out to agree with the binary to a part in a million -- but it was still
+# our loop, and it differed from `RenderCPU` in two ways that were found by
+# reading rather than by any check failing: it traced the camera ray twice, and
+# it never called `ScaleDifferentials`. The first costs only time and the second
+# had nothing to affect yet, so neither showed. The next one might.
+#
+# So: pbrt renders, and what it writes is what is compared against.
+#
+# `--outfile` with a `.pfm` extension rather than the scene's `.exr`, because
+# pbrt writes half floats into an EXR by default and PFM is float. A scene that
+# asks for `Film "gbuffer"` is the exception -- PFM has no way to say more than
+# three channels -- and gets an EXR with `savefp16` turned off, out of which
+# `imgtool` pulls the channels one set at a time.
+#
+# The sample count and the pixel jitter reach pbrt as pbrt's own flags, which
+# is what they already were: scene_dump sets them on PBRTOptions and the binary
+# takes them on the command line, and both are reading the same option.
+PBRT_FLAGS=()
+for opt in ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"}; do
+  PBRT_FLAGS+=("$opt")
+done
+
+# Which channels pbrt can give, which takes *two* things and not one.
+#
+# The film has to be a gbuffer, because an `rgb` one has no normals and no
+# albedo in it -- that is every scene nobody wrote for this comparison.
+#
+# And the integrator has to be one that fills a VisibleSurface. Only pbrt's
+# `path` and `volpath` do; `RandomWalkIntegrator` and `SimplePathIntegrator`
+# take the parameter and ignore it, so a gbuffer of one of those renders comes
+# out all zeros. That is not a gap in this harness, it is what pbrt does, and
+# the answer is to compare what pbrt actually wrote rather than to go back to
+# driving its pieces from a loop of our own. A scene under `randomwalk` is
+# checked on its radiance; its geometry is checked by whichever scene shares it
+# and names `path`.
+FILM=$(sed -n 's/^[[:space:]]*Film[[:space:]]*"\([a-z]*\)".*/\1/p' "$SCENE" \
+       | head -1)
+INTEGRATOR=$(sed -n 's/^[[:space:]]*Integrator[[:space:]]*"\([a-z]*\)".*/\1/p' \
+             "$SCENE" | head -1)
+GBUFFER=0
+if [[ "$FILM" == "gbuffer" ]]; then
+  case "${INTEGRATOR:-volpath}" in
+    path|volpath) GBUFFER=1 ;;
+    *) GBUFFER=0 ;;
+  esac
+fi
+
+pbrt_render() {
+  local out="$1"
+  "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} "$SCENE" \
+      >/dev/null 2>&1
+}
+
+# What pbrt writes it to is decided by the *film* and not by what is going to
+# be compared: a gbuffer has twenty-five channels and PFM holds three, so a
+# gbuffer film has to go to an EXR whether or not its normals are worth
+# reading. pbrt reports its own render time in the image's metadata, which is
+# the number to use -- it is measured around the render and excludes parsing
+# the scene and building the aggregate, which is what our side excludes too --
+# and PFM carries no metadata, so an `rgb` film gets one extra EXR run for the
+# clock.
+PBRT_SECONDS=""
+if [[ "$FILM" == "gbuffer" ]]; then
+  for _ in $(seq "$REPEATS"); do pbrt_render "$WORK/pbrt.exr"; done
+  "$IMGTOOL" convert --channels R,G,B --outfile "$WORK/pbrt-radiance.pfm" \
+      "$WORK/pbrt.exr" >/dev/null
+  if [[ "$GBUFFER" == "1" ]]; then
+    "$IMGTOOL" convert --channels N.X,N.Y,N.Z --outfile "$WORK/pbrt.pfm" \
+        "$WORK/pbrt.exr" >/dev/null
+    "$IMGTOOL" convert --channels Albedo.R,Albedo.G,Albedo.B \
+        --outfile "$WORK/pbrt-albedo.pfm" "$WORK/pbrt.exr" >/dev/null
+  fi
+  PBRT_SECONDS=$("$IMGTOOL" info "$WORK/pbrt.exr" 2>/dev/null |
+      sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1)
+else
+  for _ in $(seq "$REPEATS"); do pbrt_render "$WORK/pbrt-radiance.pfm"; done
+  pbrt_render "$WORK/pbrt-time.exr"
+  PBRT_SECONDS=$("$IMGTOOL" info "$WORK/pbrt-time.exr" 2>/dev/null |
+      sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1)
+fi
+echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\")"
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
 # inside one process, so there is no per-run startup to pay.
@@ -207,11 +268,31 @@ python3 $PREFIX/to_png.py "$WORK/pbrt-radiance.pfm" "$WORK/pbrt-radiance.png"
 python3 $PREFIX/to_png.py "$WORK/bonsai-radiance.pfm" \
     "$WORK/bonsai-radiance.png"
 
-python3 $PREFIX/compare_gbuffer.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
-    --albedo "$WORK/pbrt-albedo.pfm" "$WORK/bonsai-albedo.pfm" \
-    --radiance "$WORK/pbrt-radiance.pfm" "$WORK/bonsai-radiance.pfm" \
-    --pbrt-seconds "${PBRT_SECONDS:-0}" --bonsai-seconds "${BONSAI_SECONDS:-0}" \
-    --repeats "$REPEATS"
+# Which comparison can be run at all is decided by the scene's film, and this
+# is where that shows. A gbuffer film gives pbrt's own normals and albedo
+# alongside the image; an `rgb` one gives only the image -- so a scene nobody
+# wrote for this comparison is checked on its radiance, which is the thing it
+# was written to produce.
+COMPARE_ARGS=(--radiance "$WORK/pbrt-radiance.pfm" "$WORK/bonsai-radiance.pfm"
+              --pbrt-seconds "${PBRT_SECONDS:-0}"
+              --bonsai-seconds "${BONSAI_SECONDS:-0}" --repeats "$REPEATS")
+if [[ "$GBUFFER" == "1" ]]; then
+  python3 $PREFIX/compare_gbuffer.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
+      --albedo "$WORK/pbrt-albedo.pfm" "$WORK/bonsai-albedo.pfm" \
+      "${COMPARE_ARGS[@]}"
+else
+  if [[ "$FILM" == "gbuffer" ]]; then
+    echo "pbrt's \"${INTEGRATOR}\" fills no VisibleSurface, so its gbuffer is"
+    echo "empty and only the radiance is compared. Only \`path\` and \`volpath\`"
+    echo "fill one; the geometry is checked by the scene that shares this one's"
+    echo "and names \`path\`."
+  else
+    echo "the scene's film is \"$FILM\", so pbrt writes no normals and no"
+    echo "albedo and only the radiance is compared. Say \`Film \"gbuffer\"\`"
+    echo "with \`\"bool savefp16\" false\` to get the other two."
+  fi
+  python3 $PREFIX/compare_gbuffer.py --radiance-only "${COMPARE_ARGS[@]}"
+fi
 
 rm -f $PREFIX/render.o "$WORK/render.out"
 rm -rf "$WORK/render.out.dSYM"

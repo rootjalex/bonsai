@@ -28,6 +28,10 @@ Film "gbuffer"
     # difference that otherwise shows up as every normal being slightly
     # rotated -- which looks like an intersection bug and is not one.
     "string coordinatesystem" ["world"]
+    # pbrt writes half floats into an EXR unless told not to, and a comparison
+    # against halves bottoms out at about a thousandth -- which is coarser than
+    # the difference being looked for.
+    "bool savefp16" false
 
 WorldBegin
 

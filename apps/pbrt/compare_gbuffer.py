@@ -302,6 +302,52 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     return lit_pbrt, lit_bonsai, ratio
 
 
+def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
+    """The image and nothing else, for a scene whose film is `rgb`.
+
+    Which is every scene nobody wrote for this comparison. pbrt's `rgb` film
+    computes no VisibleSurface and no reflectance, so there are no normals and
+    no albedo for it to write -- and there is no way to ask for them without
+    editing somebody else's scene, which would make the comparison about our
+    copy of it.
+
+    What is left is the thing the scene was written to produce, checked the way
+    a stochastic estimate can be checked: the set of pixels that received light,
+    the mean over the image, and how many pixels agree closely anyway.
+    """
+    pw, ph, _ = read_pfm(radiance_pair[0])
+    lit_pbrt, lit_bonsai, ratio = compare_radiance(
+        radiance_pair[0], radiance_pair[1], pw, ph)
+    failed = False
+    lit_gap = abs(lit_pbrt - lit_bonsai)
+    if lit_gap > RADIANCE_LIT_TOLERANCE * max(lit_pbrt, 1):
+        failed = True
+        print(f"FAILED: {lit_bonsai} pixels received light here against "
+              f"pbrt's {lit_pbrt}, a gap of {lit_gap}")
+    if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
+        failed = True
+        print(f"FAILED: the image is {ratio:.5f}x pbrt's on average, over the "
+              f"{RADIANCE_MEAN_TOLERANCE:.0%} two estimates of one integral "
+              f"should agree to")
+    if pbrt_seconds is not None and bonsai_seconds is not None:
+        print(f"render time: pbrt {pbrt_seconds * 1e3:.1f} ms, "
+              f"bonsai {bonsai_seconds * 1e3:.1f} ms", end="")
+        if bonsai_seconds > 0:
+            speedup = pbrt_seconds / bonsai_seconds
+            if speedup >= 1.0:
+                print(f" ({speedup:.2f}x faster than pbrt)", end="")
+            else:
+                print(f" ({1.0 / speedup:.2f}x slower than pbrt)", end="")
+        print()
+        if repeats is not None and repeats > 1:
+            print(f"  (best of {int(repeats)} runs on each side)")
+        print("  (pbrt's own render timer, from the image it wrote; ours wraps "
+              "the render call)")
+    if not failed:
+        print("ok: the image matches pbrt")
+    return 1 if failed else 0
+
+
 def main(argv):
     args = argv[1:]
     albedo_pair = take_pair(args, "--albedo")
@@ -309,10 +355,24 @@ def main(argv):
     pbrt_seconds = take_option(args, "--pbrt-seconds")
     bonsai_seconds = take_option(args, "--bonsai-seconds")
     repeats = take_option(args, "--repeats")
+    # A scene whose film is `rgb` -- which is every scene nobody wrote for this
+    # comparison -- gives pbrt no normals and no albedo to write, so there is
+    # nothing to compare but the image. Said explicitly rather than inferred
+    # from a missing file, so that a normals comparison cannot be skipped by
+    # accident.
+    radiance_only = "--radiance-only" in args
+    if radiance_only:
+        args.remove("--radiance-only")
+    if radiance_only:
+        if radiance_pair is None:
+            raise SystemExit("--radiance-only needs --radiance")
+        return report_radiance_only(radiance_pair, pbrt_seconds,
+                                    bonsai_seconds, repeats)
     if len(args) != 2:
         raise SystemExit(
             f"usage: {argv[0]} <pbrt.pfm> <bonsai.pfm> "
-            f"[--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]")
+            f"[--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]\n"
+            f"       {argv[0]} --radiance-only --radiance <a.pfm> <b.pfm>")
 
     ref_w, ref_h, ref = read_pfm(args[0])
     got_w, got_h, got = read_pfm(args[1])

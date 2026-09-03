@@ -21,6 +21,8 @@ Film "gbuffer"
     "integer xresolution" [1600]
     "integer yresolution" [1200]
     "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
 
 WorldBegin
 

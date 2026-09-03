@@ -32,8 +32,18 @@ Camera "perspective"
 Sampler "independent"
     "integer pixelsamples" [ 64 ]
 
-Film "rgb"
+# `gbuffer` and not `rgb`, and the two parameters under it matter as much as
+# the film does. pbrt writes the normals and the albedo only for this film, and
+# they are what the comparison can check that an image cannot: a normal is the
+# camera and the intersection and nothing else. "world" because this renderer
+# works in render space, which differs from world by a translation that a normal
+# does not notice -- the default, "camera", would rotate every one of them.
+# `savefp16 false` because pbrt writes halves otherwise, and a comparison
+# against halves bottoms out at a thousandth.
+Film "gbuffer"
     "string filename" [ "dielectric.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
     "integer xresolution" [ 400 ]
     "integer yresolution" [ 300 ]
 

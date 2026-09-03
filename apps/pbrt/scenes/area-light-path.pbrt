@@ -29,8 +29,13 @@ Camera "perspective"
 Sampler "independent"
     "integer pixelsamples" [ 64 ]
 
-Film "rgb"
+# See dielectric.pbrt: `gbuffer` is what makes pbrt write the normals and the
+# albedo, "world" is the space this renderer works in, and float is what stops
+# the comparison bottoming out at a thousandth.
+Film "gbuffer"
     "string filename" [ "area-light.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
     "integer xresolution" [ 400 ]
     "integer yresolution" [ 300 ]
 

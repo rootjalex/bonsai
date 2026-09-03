@@ -37,8 +37,11 @@ Camera "perspective"
 Sampler "independent"
     "integer pixelsamples" [ 64 ]
 
-Film "rgb"
+# See dielectric.pbrt for why the film is a gbuffer and the other two are set.
+Film "gbuffer"
     "string filename" [ "infinite-uniform.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
     "integer xresolution" [ 400 ]
     "integer yresolution" [ 300 ]
 
