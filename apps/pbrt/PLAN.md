@@ -9,40 +9,83 @@ the scene both ways and reports disagreeing pixels, albedo difference, and
 relative speed. `apps/pbrt/render.sh <scene.pbrt>` renders and writes PNGs to
 look at.
 
+Both take `--spp <n>` and `--disable-pixel-jitter`, which are pbrt's own flags
+reaching both sides by pbrt's own route: `scene_dump` sets them on `PBRTOptions`
+before parsing, so every sampler's `Create` and pbrt's own `GetCameraSample`
+read them and the scene handed to this renderer is converted under the same
+overrides. The scenes in `scenes/` are sized for a comparison that has to
+finish, so a picture worth looking at usually wants more samples than they ask
+for:
+
+    apps/pbrt/render.sh --spp 1024 apps/pbrt/scenes/area-light-mis.pbrt
+
+Only three of the ten scenes have an emitter at all (`area-light`,
+`area-light-path`, `area-light-mis`); the other six were written when the
+comparison was a gbuffer test, and their radiance is correctly black. For those,
+the images to open are the normals and the albedo.
+
 Both scripts need clang — the generated header uses `ext_vector_type`, which
 gcc has no equivalent of. They default to `clang++` on PATH; `BONSAI_CXX`
 overrides. Do **not** use `CXX`: conda's compiler packages export it as their
 gcc wrapper.
 
+One thing to know before reading a number off a run at a different `--spp`. The
+"pixels agreeing to 1e-3 relative" figure **gets worse as samples go up**, and
+that is not a regression: a pixel agrees exactly when *none* of its samples took
+a divergent branch in the layered walk, and the chance of that decays with the
+sample count. The mean converges while the percentage falls. Compare that figure
+only against runs at the same count. The albedo, which is an average rather than
+a hit test, converges the way an estimate should — see item 1.
+
 ## Where it is
 
-The renderer traces light. `randomwalk` and `simplepath` are both implemented,
-area lights are sampled, and the film records pbrt's gbuffer normals and albedo
-beside the radiance — so a comparison can ask three questions of the same render
-rather than one.
+The renderer traces light. `randomwalk`, `simplepath` and `path` are all
+implemented, area lights are sampled, camera samples are jittered within pbrt's
+Gaussian reconstruction filter, and the film records pbrt's gbuffer normals and
+albedo beside the radiance — so a comparison can ask three questions of the same
+render rather than one.
 
-Every scene compared matches pbrt at **0 disagreeing pixels** on the normals,
-and killeroo-simple's random walk lights the same 5,038 pixels of 490,000 with
-a mean 0.99998 of pbrt's. The albedo agrees to ~6e-5 mean on every diffuse
-scene; on killeroo-simple, the first scene with a `coateddiffuse` material,
-97.3% of pixels are inside the comparison's tolerance and the other 2.7% differ
-by Monte Carlo noise — see "the last 2.7%" below, which is the open question.
+**killeroo-simple renders.** It names no integrator, so it gets `path`; it is
+lit by a sphere of radius 3 seen from four hundred units away, which a random
+walk found by chance in 5,038 of its 490,000 pixels and which light sampling
+finds in 489,999 of them. Against pbrt running the same integrator over the same
+samples, the two means agree to 0.99997x.
 
-It is also faster than pbrt on the same work: **1.57x on killeroo-simple**,
-1.58x on area-light-path, 1.88x on area-light, where "the same work" means
-pbrt's own intersection, rho and integrator over the same samples of the same
-pixels rather than the pbrt binary running a different integrator.
+**Every scene in `scenes/` is compared, and every one of them matches pbrt on
+the normals**: nine at 0 disagreeing pixels and many-shapes at one, which is on
+a silhouette and is what the comparison tolerates by construction. That was not
+true two rounds ago: six of the nine asked for `Integrator "path"`, which did
+not exist, so `compare.sh` refused them and what was actually checked was three
+scenes. It is ten now.
 
-The qualification on all of that is which scenes can be compared at all: six of
-the nine in `scenes/` ask for `Integrator "path"`, which is not implemented, so
-`compare.sh` refuses them. See Known-open.
+The albedo agrees to ~6e-5 mean on every diffuse scene. On the three scenes with
+a `coateddiffuse` material it is 4.4e-04 at the 64 samples they ask for and it
+**converges** — 2.9e-04 at 1024, where 5 pixels of 82,183 are outside the
+comparison's tolerance and the check passes. That is item 1 answered; see below.
+
+Radiance, against pbrt running the integrator the scene names over the same
+samples of the same pixels:
+
+    killeroo-simple  path        489,999 lit of 490,000 / 489,998  0.99997x
+    area-light       randomwalk  58,476 lit both sides             1.00016x
+    area-light-path  simplepath  82,108 lit / 82,105 here          1.00012x
+    area-light-mis   path        81,993 lit both sides             1.00012x
+
+It is also faster than pbrt on that same work: **1.37x on killeroo-simple**,
+1.67x on area-light-mis, 1.50x on area-light-path, 1.68x on area-light, and
+between 1.47x and 1.82x on the six gbuffer scenes. Killeroo's figure fell from
+1.56x when it stopped being a random walk: `path` spends its time in shadow
+rays, in `LayeredBxDF::PDF` and in MIS, and those are a different mix of work
+from the one the schedule was tuned against. Both sides do the same work, so
+the ratio is still the ratio — but where the time goes is worth re-measuring.
 
 Verified against pbrt directly, not by inspection:
 
 - the sampler streams (independent, stratified, halton) value for value,
 - the spectral tables, by `scene_dump --check-tables`,
 - the BVH, which is pbrt's SAH build over AABBs in pbrt's 32-byte node layout,
-- the `coateddiffuse` BSDF, by `scene_dump --print-bsdf` against the golden in
+- the `coateddiffuse` BSDF — its `Sample_f`, its `f`, its `PDF` and its
+  `Flags` — by `scene_dump --print-bsdf` against the golden in
   `tests/bonsai/correctness/llvm/coated-diffuse.bonsai`,
 - the shading geometry and the frame a BSDF is evaluated in, by
   `scene_dump --print-shading` against
@@ -51,14 +94,116 @@ Verified against pbrt directly, not by inspection:
 
 ### What the last round added
 
-The renderer went from 1.36x slower than pbrt on killeroo-simple to 1.57x
-faster, and neither fix was in the traced ray — in absolute cycles the traversal
-and the BSDF were already ahead of pbrt's. A `bind`'s loop was being split into
-contiguous blocks, which idles most of the machine on a frame whose cost is in
-the middle of it, and the Halton sampler was recomputing a table pbrt looks up.
-Both are written up under "Once the render was a whole path" below.
+**Pixel jitter, which is pbrt's Gaussian reconstruction filter.** A camera
+sample now lands where the filter puts it instead of at the pixel's centre, and
+the film weighs it by what the filter says it is worth.
 
-### What the rounds before that added
+A Gaussian has no closed-form inverse, so pbrt does not sample it directly: it
+tabulates the filter over a grid — 32 cells per unit of radius, so 48x48 at the
+default 1.5 — and samples that as a piecewise-constant 2D distribution, a
+marginal in y and a conditional row in x. `filter.bonsai` is that, and
+`sampling.bonsai` gained the `PiecewiseConstant1D` and the `FindInterval` it
+stands on. The table is the driver's, built once before the render as the Halton
+digit permutations and the ADT pools are, and filled by an exported
+`build_filter_table` so the Gaussian it tabulates is the renderer's own
+`FastExp` polynomial rather than a second copy in C++.
+
+Three things came with it:
+
+- **The film stopped dividing by the sample count.** pbrt divides the colours by
+  the *sum of the weights* and normalizes the summed normal rather than
+  averaging it. Those were the same thing while every sample of a pixel traced
+  one ray; they are not now, and `weight_out` is a film channel for the same
+  reason pbrt's `Pixel::weightSum` is a member.
+- **The camera sample carries the drawn lens and time**, which were fixed
+  constants here while their draws were thrown away. Nothing reads them yet — a
+  pinhole camera has no lens and no shutter — but pbrt hands them over and now
+  so does this.
+- **`--disable-pixel-jitter`** is pbrt's flag under pbrt's name, and it is worth
+  keeping: with every sample of a pixel on one ray, a difference between the two
+  images cannot be noise, so the gbuffer comparison becomes a question about the
+  geometry alone. That is how the normals got to zero disagreeing pixels.
+
+The result that mattered is under item 1: the albedo disagreement that had been
+stuck at 1,287 pixels no matter how many samples were thrown at it now falls to
+5 at 1024 samples.
+
+**`path` became the fallback for a scene that names no integrator**, where the
+random walk used to be. pbrt's default is `volpath`, which is `path` plus
+participating media; a scene that named no integrator named no media either, so
+`path` is the closer of the two by a long way. It is one scene in the collection
+and it is killeroo-simple, which is the difference between 5,038 lit pixels and
+a photograph. Both sides resolve the fallback from the same value now — the
+reference render is handed the tag `load` decided rather than the name the scene
+wrote, because deciding it twice is how the two would come to run different
+algorithms and report it as a disagreement about transport.
+
+### What the round before that added
+
+**`path`, which is pbrt's own workhorse and what every scene here names.** It is
+`simplepath` plus four ways of not wasting a sample, and all four are in:
+multiple importance sampling between the light's estimator and the BSDF's,
+Russian roulette on a throughput that has fallen away, the `etaScale` that stops
+roulette reading a refraction's radiance compression as a path going dark, and
+regularization — off by default, and a widening of a near-delta lobe after the
+first non-specular bounce.
+
+What it needed that nothing before it did:
+
+- **`LayeredBxDF::PDF`**, a third random walk beside `Sample_f`'s and `f`'s. A
+  layered BSDF reports a density only *proportional* to the one it sampled from
+  — the entrance interface's rather than the whole stack's — which is fine for
+  its own estimator and useless as an MIS weight, so a path tracer has to come
+  back and ask. Two things about it cannot be read off pbrt's source: it seeds
+  its RNG from `wi` and then `wo` where `f` seeds from `wo` and then `wi`, and it
+  draws its entry samples as `Sample_f(w, r(), {r(), r()})` — a braced list,
+  evaluated left to right, inside an argument list gcc evaluates right to left,
+  so the pair comes out of the RNG *before* the single, which is the opposite of
+  every other walk in the file. Both were measured rather than reasoned about,
+  the second by compiling the three spellings and looking. All twelve of its
+  values match pbrt to the six decimals the golden prints.
+- **`BSDF::Flags`**, for the two questions a path integrator asks before it
+  spends anything: whether the surface has a non-specular lobe at all (a delta
+  gets no shadow ray and, importantly, no draws), and which side of the surface
+  to nudge the light-sampling point to.
+- **`SampleLd`'s nudge**, which is easy to overlook: a reflective surface samples
+  the light as seen from just *above* itself, and the offset point carries no
+  error interval of its own because it is already the outward-rounded one.
+
+**A faithfulness fix found along the way, worth 267 pixels.** `walk_step` and
+`path_step` both normalized the outgoing direction — `wo = unit_vector_(-ray.d)`
+— and pbrt's integrators do not. pbrt writes `Vector3f wo = -ray.d;` and uses
+`isect.wo`, which *is* normalized, only in `SampleLd` and in `rho`. A ray
+direction is a unit vector put through a rigid motion, so the two differ in the
+last bit or two; that is invisible in a gbuffer and is not invisible at all in a
+layered BSDF, whose walk is seeded by hashing the bytes of this vector expressed
+in the shading frame. On killeroo-simple the pixels agreeing with pbrt to 1e-3
+relative went from 3,973 of 5,038 to **4,240 of 5,038**, measured both ways.
+Same class as the five `fma` placements under item 1 below, and found the same
+way — by reading pbrt closely rather than by the numbers pointing at it.
+
+**A new scene, `area-light-mis.pbrt`.** The six scenes that say `path` have no
+emitter, so none of them reaches MIS, roulette, or `LayeredBxDF::PDF` — they
+would have let the whole integrator go unexercised while reporting that six more
+scenes now compare. It is `area-light-path` with one line changed, so a
+disagreement between the three is a disagreement about transport and nothing
+else.
+
+**And the comparison stopped failing scenes that agree.** Six of the ten renders
+are black on both sides, and the ratio of two zero means is 0/0;
+`compare_gbuffer.py` was reporting that as "the image is infx pbrt's".
+
+**`--spp`**, which is pbrt's flag under pbrt's name and reaching both sides by
+pbrt's route — set on `PBRTOptions` before parsing, so every sampler's `Create`
+reads it. Each of the three samplers is overridden the way its own `Create`
+overrides it, which is not one rule: independent and halton take the number,
+and stratified factors it into a grid by walking down from its square root, so
+`--spp 12` is 4x3 and `--spp 13` is 13x1. Checked against pbrt on a lit
+stratified scene at 4, 12 and 13, where a transposed grid would put the samplers
+in different strata and pull the streams apart. It is mostly for looking at
+pictures, and it immediately paid for itself as the measurement under item 2.
+
+### What the rounds before those added
 
 `coateddiffuse` works. That is pbrt's `LayeredBxDF<DielectricBxDF, DiffuseBxDF>`
 in `bxdf.bonsai`: a dielectric coating over a diffuse base whose reflectance has
@@ -109,16 +254,45 @@ Along the way, six things in the compiler:
 
 ## What is next, in order
 
-Numbered by how long they have been open rather than by what to do first. What
-to do first is item 3: the comparison is down to three scenes, and every other
-question here is answered by running it.
+Numbered by how long they have been open rather than by what to do first. Items
+1 and 2 are answered; what to do first is item 3, the light samplers, and after
+that the profile — killeroo's speed against pbrt fell from 1.56x to 1.37x when
+it stopped being a random walk, and nobody has looked at where the time goes in
+a path.
 
-### 1. The last 2.7%, and what it says about matching a build
+### 1. The last 2.7% — answered: it was noise, and it converges
 
-On killeroo-simple, 2.7% of pixels have an albedo that differs from pbrt's by
-more than the comparison allows. They are all on the two `coateddiffuse`
-killeroos, and the difference is not bias: over those pixels the ratio of the
-two renders has a median of 0.98, a tenth percentile of 0.69 and a ninetieth of
+**Resolved.** It was Monte Carlo noise in the layered material's reflectance
+estimate, and pixel jitter is what made that demonstrable. The albedo
+disagreement on `area-light-mis`, as the sample count goes up:
+
+     64 spp   mean 4.38e-04, 1325 pixels over 5e-03 (1.61%)
+    256 spp   mean 3.34e-04,  324 pixels over 5e-03 (0.39%)
+    1024 spp  mean 2.89e-04,    5 pixels over 5e-03 (0.006%)
+
+Five pixels of 82,183, which is inside the 0.01% the comparison allows for
+rounding a wavelength — so at 1024 samples the albedo check passes. Before
+jitter the same sweep read 1287, 1284: an estimate that would not converge,
+because with every sample of a pixel on one ray `rho` was handed the identical
+`wo` and returned the identical sixteen-sample number over and over. The
+comparison had no way to distinguish noise from a mistake and now it does.
+
+killeroo-simple went the same way: 13,290 pixels over the threshold before,
+1,007 after, at the 256 samples the scene asks for.
+
+What is left of this item is the history below, which is worth keeping because
+the method is what found five real bugs. The residual — 2.9e-04 mean at 1024
+samples, against ~6e-5 on a diffuse scene — is still a real gap and still
+consistent with a last-bit difference reseeding a walk. The way to close it
+further is unchanged: print pbrt's intermediates at a pixel and find the first
+one that differs.
+
+The original writing-up follows.
+
+On killeroo-simple, 2.7% of pixels had an albedo that differed from pbrt's by
+more than the comparison allowed. They were all on the two `coateddiffuse`
+killeroos, and the difference was not bias: over those pixels the ratio of the
+two renders had a median of 0.98, a tenth percentile of 0.69 and a ninetieth of
 1.45. It is noise. Two random walks that start from directions differing in the
 last bit take completely different paths, and sixteen samples is nowhere near
 enough for the two to converge to the same number.
@@ -136,6 +310,16 @@ written as an explicit `fma` before 97.3% of the pixels agreed:
   `stdlib/numerics.bonsai`),
 - the length a vector is normalized by (`sqlen_`, `unit_vector_`),
 - the rows of the camera's matrix–vector product (`camera.bonsai`).
+
+A sixth divergence of the same *kind* turned up this round and it was not a
+rounding one at all: `walk_step` and `path_step` were normalizing `wo` where
+pbrt does not. It is written up under "What the last round added"; it belongs
+here because it says something about method. It was found by reading pbrt line
+by line rather than by printing intermediates, and it moved 267 killeroo pixels
+across the agreement threshold where turning contraction on had moved none. The
+question this section asks — is the direction handed to the BSDF bit for bit
+pbrt's? — has answers that are not about rounding, and the search should not
+assume they are.
 
 This is not fast maths and it is not gcc doing something it should not. pbrt's
 build has no `-ffast-math` and no `-ffp-contract` flag, so it gets gcc's default
@@ -224,41 +408,83 @@ zero, so `fma(a, b, -c)` built on it would be wrong. A real `Neg` instruction is
 the prerequisite, and it is the same shape of work as the `AtomicAdd` that went
 in for `tagged_index`.
 
-### 2. Pixel jitter
+### 2. Pixel jitter — done
 
-`render.bonsai` hardcodes the camera sample at the pixel centre and never calls
-`get_pixel_2d`, and `compare.sh` passes `--disable-pixel-jitter` to match. So
-the whole pixel-sampling half of every sampler is written, verified against
-pbrt, and unexercised by any render.
+**Resolved**, and written up under "What the last round added". It is pbrt's
+Gaussian in `filter.bonsai`, sampled through the piecewise-constant 2D
+distribution in `sampling.bonsai`, over a table the driver builds once. The film
+divides by the summed weight and normalizes the summed normal, as
+`GBufferFilm::GetImage` does. `--disable-pixel-jitter` asks for the old
+behaviour and the gbuffer comparison still wants it.
 
-Turning it on is small and buys a lot: silhouettes get antialiased, stratified
-and halton start to differ from independent visibly, the comparison gets much
-stronger — right now no render depends on `get_pixel_2d` being right — and a
-layered material's albedo starts to average over the pixel's samples instead of
-evaluating the same estimate 256 times.
+The claims made for it here all held. The pixel-sampling half of every sampler
+is exercised now — nothing depended on `get_pixel_2d` being right before, and
+the normals still land on pbrt's exactly, which says the filter table is bit for
+bit pbrt's. Item 1 became answerable and was answered. And the one thing that
+had to be fixed along with it, the summed normal, was.
 
-One thing to fix when doing it: pbrt *normalizes* the summed normal
-(`GBufferFilm::GetImage`) where `render.bonsai` divides by the sample count.
-Identical while every sample of a pixel traces the same ray; different as soon
-as they do not.
+What it cost: silhouette pixels can now disagree, because a pixel straddling an
+edge averages normals from two surfaces and a last-bit difference in one
+sample's jitter changes which side that sample landed on. `many-shapes` has one
+such pixel and killeroo-simple has eight. The comparison has always treated a
+silhouette disagreement as tolerable and reported them separately, which is
+exactly the distinction that now earns its keep.
 
-### 3. `path`, so that the other six scenes can be compared
+### 3. The light samplers `path` actually defaults to
 
-`scenes/` has nine scenes and six of them say `Integrator "path"`, which is
-pbrt's `PathIntegrator` and is not implemented, so `compare.sh` refuses them.
-They were written when the comparison was a gbuffer and the integrator a scene
-named did not matter; now it decides whether the scene can be run at all. What
-is being checked against pbrt today is three scenes -- `area-light`,
-`area-light-path` and killeroo-simple -- which is thin cover for eight scenes'
-worth of geometry, cameras and transforms that used to be checked.
+`path` is in and every scene compares, but it runs with the uniform light
+sampler and pbrt's `path` defaults to `bvh`. So this is item 3 renamed rather
+than item 3 closed.
 
-Two ways out, and the first is better. Implementing `path` is the natural next
-integrator anyway: it is `simplepath` plus multiple importance sampling between
-the BSDF sample and the light sample, plus regularization and Russian roulette,
-and every piece it needs -- `SampleLi`, the PDFs, the power heuristic -- is
-already here for `simplepath` and for `LayeredBxDF::f`. Failing that, the six
-scenes could say `simplepath`, which restores the coverage at the cost of no
-longer rendering what their author asked for.
+The two are the same function on a scene with a single non-infinite light, and
+that is an argument rather than a hope: `BVHLightSampler` over one light has a
+one-node tree, so its PMF is 1 — the number the uniform sampler returns — and
+the only way its `Sample` can differ is by declining to return the light where
+the light's bounds say no energy can reach the shading point, which contributes
+nothing either way. Both of its draws happen before either sampler is consulted,
+so the stream does not move. The comparison checks the argument rather than
+restating it: `render_reference` builds pbrt's `PathIntegrator` with the light
+sampler the *scene* named, so on `area-light-mis` pbrt's real BVH sampler runs
+against the uniform one here, and they agree to 1.0001x on the mean.
+
+With more than one light they genuinely differ, so `scene_dump` refuses the
+scene and says so. That is what has to be lifted, and lifting it is real work
+rather than a switch: `BVHLightSampler` needs `LightBounds`, `DirectionCone`,
+`Importance`, a SAH-ish build over 12 buckets, and the bit trails `PMF` walks
+back down. `PowerLightSampler` is much smaller — an alias table over each
+light's `Phi` — and is the sensible first of the two, since it removes the
+refusal for every scene where importance does not vary over the frame.
+
+Until then, no scene with two lights can be compared, which is the shape the
+`path` gap had before this round: the renderer refuses rather than substitutes,
+and the refusal names what is missing.
+
+### 4. Where the time goes in a path
+
+The schedule was tuned against a render whose cost was a traced ray and a
+sixteen-sample reflectance. It is not that any more, and the number moved:
+killeroo-simple was 1.56x faster than pbrt as a random walk and is 1.37x faster
+as a path. Both sides do the same work, so the ratio is still honest — but the
+mix of work is new and nothing has been profiled since it changed.
+
+What is new in it, roughly in the order it is likely to matter:
+
+- **`LayeredBxDF::PDF`.** A third random walk, run once per light sample at
+  every `coateddiffuse` vertex, and killeroo-simple is two `coateddiffuse`
+  killeroos filling the frame. Nothing else added this round is a walk.
+- **Shadow rays.** `unoccluded` calls `trace`, which answers with the *nearest*
+  hit where an occlusion test only needs *any* hit. pbrt has `IntersectP` for
+  exactly this and it is the cheaper query: it can stop at the first
+  intersection rather than ordering the whole traversal. A `trace_any` here
+  would change no pixel, only the time, and the scheduling question it raises is
+  interesting — the same `filter`/`argmin` source with the `argmin` dropped.
+- **A path is longer than a walk of the same depth**, because Russian roulette
+  only starts killing at the second vertex and the throughput on a diffuse
+  bounce is not small.
+
+The last `perf` on record is under "Once the render was a whole path" below and
+describes a different program. Redoing it is the cheapest thing on this list and
+would say which of the three above to look at.
 
 ## What has been built, and what it cost
 
@@ -570,6 +796,11 @@ changed. The profile now reads like pbrt's -- `dielectric_sample_f` 23.6%,
 
 ### Light transport — killeroo-simple renders
 
+Historical: killeroo-simple gets `path` now, since it names no integrator, and
+the numbers below are from when a scene naming none got the random walk. The
+scene has not changed and neither has the random walk, so `area-light.pbrt` —
+which names `randomwalk` — is where this is still checked.
+
 `RandomWalkIntegrator` is implemented and killeroo-simple renders through it.
 Against pbrt's own randomwalk on the same scene at the same `maxdepth`:
 
@@ -577,11 +808,15 @@ Against pbrt's own randomwalk on the same scene at the same `maxdepth`:
     bonsai  5038 lit pixels of 490,000   mean 2.26933   max 2032.23
 
 The same pixels are lit, every unlit pixel is bit-identical, and the means agree
-to a thousandth of a per cent. Of the 5,038 lit pixels 3,750 agree to better
-than 1e-3 relative; the rest diverge sharply, which is what a last-bit
-difference does to a stochastic walk -- it flips a branch and the path goes
-somewhere else entirely. Same class as the albedo divergence in item 1, and not
-something contraction reached there either.
+to a thousandth of a per cent. Of the 5,038 lit pixels 3,750 agreed to better
+than 1e-3 relative when this was written; the rest diverge sharply, which is
+what a last-bit difference does to a stochastic walk -- it flips a branch and the
+path goes somewhere else entirely. Same class as the albedo divergence in item 1,
+and not something contraction reached there either.
+
+That figure is **4,240 of 5,038** now, and the whole of the gain was the `wo`
+normalization written up under "What the last round added". The two were
+measured against each other on this scene: normalized 3,973, raw 4,240.
 
 What was built, and what each piece cost:
 
@@ -647,6 +882,22 @@ their values were unrelated; after it, the same 5,038.
   geometry on purpose — they isolate the sampler — but that does mean their
   normal images are identical to `three-spheres`, which is confusing until you
   know why.
+- `scenes/area-light-mis.pbrt` is `scenes/area-light-path.pbrt` with one line
+  changed, for the same kind of reason and with the same kind of confusion
+  available: the two render almost the same picture, because `simplepath` and
+  `path` differ in how they weigh two estimators and not in what they estimate.
+- pbrt's own reference render for `area-light` moved by 8e-6 in its mean at some
+  point during this round — 0.759337 to 0.759329, which shifted about 1,100
+  pixels across the comparison's 1e-3 relative tolerance and so read as a
+  change of 2 percentage points in the agreement figure. It is stable at the
+  second value over four runs and the obvious suspect was checked and cleared
+  (constructing pbrt's three integrators rather than only the one the scene
+  names does not change it). Nothing in the renderer moved; our side's mean is
+  the same digit for digit either way. Recorded rather than chased, because it
+  is a wobble in the reference and an order of magnitude below every threshold
+  the comparison uses — but it does mean the agreement percentages here should
+  be read as approximate, and it would be worth knowing what pbrt is doing that
+  is not reproducible.
 - Sobol and zsobol samplers are refused. Three scenes in the collection use
   them; 81 of 87 use halton, which is implemented.
 - PLY files holding quads are refused: pbrt makes those bilinear patches rather
