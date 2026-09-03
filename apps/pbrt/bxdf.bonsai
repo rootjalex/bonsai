@@ -1487,9 +1487,25 @@ element CoatedDiffuseMaterial {
 // `albedo` rather than pbrt's `reflectance`, because `reflectance` is Schlick's
 // approximation in stdlib/numerics and binding the name in a match arm hides
 // it.
+// pbrt: DielectricMaterial, with its textures evaluated. Glass: a boundary
+// between two media of different index, which reflects and transmits and does
+// nothing else.
+//
+// It has no reflectance at all, which is what makes it the first material here
+// that is not a colour -- what a dielectric does to light is decided entirely
+// by the index and the roughness. `eta` is a scalar because a spectral one
+// terminates the secondary wavelengths, and scene_dump refuses that rather than
+// reading it at one wavelength.
+element DielectricMaterial {
+    u_roughness, v_roughness : Float;
+    remap : bool;
+    eta : Float;
+}
+
 element Material =
     | Diffuse(albedo : SigmoidPolynomial)
-    | CoatedDiffuse(m : CoatedDiffuseMaterial);
+    | CoatedDiffuse(m : CoatedDiffuseMaterial)
+    | Dielectric(g : DielectricMaterial);
 
 // pbrt: CoatedDiffuseMaterial::GetBxDF, and the `bsdf.Regularize()` the path
 // integrator may apply to what it returns.
@@ -1542,7 +1558,9 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
 // pbrt, no more and no less.
 element BxDF =
     | Lambertian(d : DiffuseBxDF)
-    | Layered(b : CoatedDiffuseBxDF);
+    | Layered(b : CoatedDiffuseBxDF)
+    // The same `DielectricBxDF` a Layered one has on top of it, on its own.
+    | Boundary(g : DielectricBxDF);
 
 // pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
 // evaluated once at the point the ray hit.
@@ -1563,6 +1581,21 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         }
         CoatedDiffuse(m) =>
             return Layered(coated_bxdf_at(m, lambda, regularize));
+        Dielectric(g) => {
+            // pbrt: DielectricMaterial::GetBxDF. The same three lines the
+            // coating of a layered material gets, which is the same class.
+            alpha_u = select(g.remap, roughness_to_alpha(g.u_roughness),
+                             g.u_roughness);
+            alpha_v = select(g.remap, roughness_to_alpha(g.v_roughness),
+                             g.v_roughness);
+            distrib : mut TrowbridgeReitz =
+                make_trowbridge_reitz(alpha_u, alpha_v);
+            if regularize {
+                distrib = regularize_distrib(distrib);
+            }
+            b : DielectricBxDF = {g.eta, distrib};
+            return Boundary(b);
+        }
     }
 }
 
@@ -1594,6 +1627,23 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             return r / 16.0;
         }
         Layered(l) => return coated_rho(l, wo, seed, uc, ux, uy);
+        // The same sixteen samples again. A smooth dielectric answers `none` to
+        // most of them -- a delta lobe returns a sample only where the sample
+        // point selects one of its two branches -- and pbrt counts those as
+        // zero rather than skipping them, which is what makes the estimate an
+        // average over sixteen and not over however many succeeded.
+        Boundary(g) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = dielectric_sample_f(g, wo, uc[i], vec2f{ux[i], uy[i]},
+                                            radiance_mode(), sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
     }
 }
 
@@ -1607,6 +1657,7 @@ func bxdf_flags(b : BxDF) -> i32 {
     match b {
         Lambertian(d) => return diffuse_flags(d);
         Layered(l) => return coated_flags(l);
+        Boundary(g) => return dielectric_flags(g);
     }
 }
 
@@ -1624,6 +1675,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
     match b {
         Lambertian(d) => return diffuse_f(d, wo, wi);
         Layered(l) => return coated_f(l, wo, wi, seed);
+        Boundary(g) => return dielectric_f(g, wo, wi, radiance_mode());
     }
 }
 
@@ -1642,6 +1694,7 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
     match b {
         Lambertian(d) => return diffuse_pdf(wo, wi, sample_all());
         Layered(l) => return coated_pdf(l, wo, wi, seed);
+        Boundary(g) => return dielectric_pdf(g, wo, wi, sample_all());
     }
 }
 
@@ -1659,5 +1712,8 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
     match b {
         Lambertian(d) => return diffuse_sample_f(d, wo, uc, u, sample_all());
         Layered(l) => return coated_sample_f(l, wo, uc, u, seed);
+        Boundary(g) =>
+            return dielectric_sample_f(g, wo, uc, u, radiance_mode(),
+                                       sample_all());
     }
 }

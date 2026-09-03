@@ -1,0 +1,78 @@
+# Glass: pbrt's `dielectric`, which is a boundary between two media of
+# different index and nothing else.
+#
+# The BxDF is not new -- it is the same `DielectricBxDF` that sits on top of a
+# `coateddiffuse`, and it has been checked against pbrt value for value since
+# that material went in. What is new is a material that is *only* that, and the
+# path it takes through an integrator is quite different from anything here so
+# far:
+#
+#   - it is the first **specular** surface. A smooth dielectric's lobes are
+#     deltas, so `IsNonSpecular` is false, `path` spends no shadow ray and no
+#     draws on it, and the light it shows is found by scattering rather than by
+#     sampling. That is the branch `specular_bounce` exists for and nothing
+#     exercised it before.
+#   - it is the first **transmissive** one, so `etaScale` stops being one and
+#     Russian roulette has something to undo.
+#   - `SampleLd` nudges its light-sampling point to the *other* side of the
+#     surface for a purely transmissive lobe, which is the second arm of a
+#     branch that only ever took its first.
+#
+# Two spheres: one smooth, whose BSDF is a pair of deltas, and one rough, whose
+# is a microfacet distribution -- the two take opposite branches of every
+# `EffectivelySmooth` test in the file.
+
+Integrator "path"
+    "integer maxdepth" [ 8 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "rgb"
+    "string filename" [ "dielectric.exr" ]
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# A big near light, so that what the glass refracts is worth looking at.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# Smooth: `EffectivelySmooth` is true and both lobes are deltas.
+AttributeBegin
+    Material "dielectric"
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# Rough: the same material with a microfacet distribution, so the same code
+# takes the other branch everywhere.
+AttributeBegin
+    Material "dielectric"
+        "float roughness" [ 0.1 ]
+        "float eta" [ 1.7 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

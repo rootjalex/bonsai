@@ -34,6 +34,10 @@ enum ShapeTag : uint32_t {
 enum MaterialTag : uint32_t {
     Diffuse = 0,
     CoatedDiffuse = 1,
+    // A boundary between two dielectrics -- glass. It reuses the roughness and
+    // `eta` fields below, which is what the coating of a CoatedDiffuse already
+    // is: PBRT's DielectricBxDF appears in both.
+    Dielectric = 2,
 };
 
 // Which of PBRT's integrators the scene asked for, of the ones this renderer
@@ -382,10 +386,36 @@ inline bool write(const char *path, const Scene &scene) {
 
     out << "materials " << scene.materials.size() << '\n';
     for (const Material &m : scene.materials) {
-        out << (m.tag == MaterialTag::CoatedDiffuse ? "  coateddiffuse"
-                                                    : "  diffuse");
+        // Written out rather than defaulted. This used to be
+        // `tag == CoatedDiffuse ? "coateddiffuse" : "diffuse"`, so the first
+        // material added after it -- `dielectric` -- serialized as a diffuse
+        // and rendered as PBRT's default grey, with the converter, the
+        // renderer and the BxDF all correct and only the file between them
+        // lying. A tag with no case here is a bug in this function, so it says
+        // so instead of picking one.
+        switch (m.tag) {
+        case MaterialTag::Diffuse:
+            out << "  diffuse";
+            break;
+        case MaterialTag::CoatedDiffuse:
+            out << "  coateddiffuse";
+            break;
+        case MaterialTag::Dielectric:
+            out << "  dielectric";
+            break;
+        default:
+            return false;
+        }
         out << " reflectance";
         detail::put(out, m.reflectance, 3);
+        if (m.tag == MaterialTag::Dielectric) {
+            out << " roughness";
+            detail::put(out, &m.u_roughness, 1);
+            detail::put(out, &m.v_roughness, 1);
+            out << " remap " << m.remap;
+            out << " eta";
+            detail::put(out, &m.eta, 1);
+        }
         if (m.tag == MaterialTag::CoatedDiffuse) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
@@ -602,6 +632,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::Diffuse;
         } else if (word == "coateddiffuse") {
             m.tag = MaterialTag::CoatedDiffuse;
+        } else if (word == "dielectric") {
+            m.tag = MaterialTag::Dielectric;
         } else {
             return false;
         }
@@ -609,6 +641,21 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         floats(m.reflectance, 3);
+        if (m.tag == MaterialTag::Dielectric) {
+            if (!tagged("roughness")) {
+                return false;
+            }
+            floats(&m.u_roughness, 1);
+            floats(&m.v_roughness, 1);
+            if (!tagged("remap")) {
+                return false;
+            }
+            in >> m.remap;
+            if (!tagged("eta")) {
+                return false;
+            }
+            floats(&m.eta, 1);
+        }
         if (m.tag == MaterialTag::CoatedDiffuse) {
             if (!tagged("roughness")) {
                 return false;

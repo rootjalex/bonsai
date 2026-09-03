@@ -447,6 +447,37 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
+    if (m.name == "dielectric") {
+        out.tag = bonsai_scene::MaterialTag::Dielectric;
+        // PBRT: DielectricMaterial::Create. The roughness falls back the same
+        // way CoatedDiffuse's does, and defaults to zero -- which makes the
+        // boundary a perfect one and its BSDF a pair of deltas.
+        const float roughness = material_float(m, "roughness", 0.f);
+        out.u_roughness = material_float(m, "uroughness", roughness);
+        out.v_roughness = material_float(m, "vroughness", roughness);
+        const CapturingBuilder::MaterialInfo::Value *dremap =
+            m.find("remaproughness");
+        if (dremap != nullptr) {
+            if (dremap->type != "bool" || dremap->bools.size() != 1) {
+                fail("`remaproughness` has to be a single bool");
+            }
+            out.remap = dremap->bools[0] ? 1u : 0u;
+        }
+        // As on coateddiffuse: a spectral index of refraction terminates the
+        // secondary wavelengths, which nothing here does, so it is refused
+        // rather than read as its value at the first wavelength.
+        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
+        if (eta != nullptr) {
+            if (eta->type != "float" || eta->floats.size() != 1) {
+                fail("only a scalar `float eta` is supported on dielectric, "
+                     "not a named spectrum -- a spectral index terminates the "
+                     "secondary wavelengths, which nothing here does");
+            }
+            out.eta = eta->floats[0];
+        }
+        return out;
+    }
+
     if (m.name == "coateddiffuse") {
         out.tag = bonsai_scene::MaterialTag::CoatedDiffuse;
         material_rgb(m, "reflectance", out.reflectance);
@@ -502,7 +533,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
-    fail("only the diffuse and coateddiffuse materials are supported, scene "
+    fail("only the diffuse, dielectric and coateddiffuse materials are "
+         "supported, scene "
          "asks for \"" +
          m.name + "\"");
 }

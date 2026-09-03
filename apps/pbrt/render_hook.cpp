@@ -628,6 +628,13 @@ int main(int argc, char **argv) {
             coated.max_depth = m.max_depth;
             coated.n_samples = m.n_samples;
             Material_CoatedDiffuse(material, coated);
+        } else if (m.tag == bonsai_scene::MaterialTag::Dielectric) {
+            DielectricMaterial glass;
+            glass.u_roughness = m.u_roughness;
+            glass.v_roughness = m.v_roughness;
+            glass.remap = m.remap != 0;
+            glass.eta = m.eta;
+            Material_Dielectric(material, glass);
         } else {
             Material_Diffuse(material, albedo_of(m.reflectance));
         }
