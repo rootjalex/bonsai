@@ -101,6 +101,18 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Sampler(name, std::move(params), loc);
     }
 
+    // The reconstruction filter, which decides where in a pixel a sample lands.
+    // PBRT's default is `gaussian` and the scene may name another; the renderer
+    // has only the Gaussian, so `load` refuses the rest rather than substituting
+    // -- a box filter and a Gaussian are different images and both look right.
+    void PixelFilter(const std::string &name, pbrt::ParsedParameterVector params,
+                     pbrt::FileLoc loc) override {
+        filter_name = name;
+        filter_params = pbrt::ParameterDictionary(
+            pbrt::ParsedParameterVector(params), pbrt::RGBColorSpace::sRGB);
+        pbrt::BasicSceneBuilder::PixelFilter(name, std::move(params), loc);
+    }
+
     // What a material directive said, kept in the form the scene wrote it.
     //
     // Deliberately not a ParameterDictionary. An `rgb reflectance` reaches a
@@ -147,18 +159,24 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::Material(name, std::move(params), loc);
     }
 
-    // The integrator, for its `maxdepth` alone.
+    // The integrator, and the three things about it both sides need to agree
+    // on: which one, how deep it goes, and -- for `path` -- which light sampler
+    // and whether it regularizes.
     //
-    // Which integrator the scene names is deliberately ignored: this renderer
-    // implements pbrt's RandomWalkIntegrator and the comparison runs pbrt's
-    // too, so that both sides answer the same question. What the scene can
-    // still say is how deep to go.
+    // PBRT's own defaults, taken from PathIntegrator::Create: `maxdepth` 5,
+    // `lightsampler` "bvh", `regularize` false. They are read here rather than
+    // assumed downstream because a scene that names none of them still means
+    // all three, and the reference render has to be built with the same ones.
     void Integrator(const std::string &name, pbrt::ParsedParameterVector params,
                     pbrt::FileLoc loc) override {
         integrator_name = name;
         for (const pbrt::ParsedParameter *p : params) {
             if (p->name == "maxdepth" && !p->ints.empty()) {
                 integrator_max_depth = int(p->ints[0]);
+            } else if (p->name == "lightsampler" && !p->strings.empty()) {
+                light_sampler_name = p->strings[0];
+            } else if (p->name == "regularize" && !p->bools.empty()) {
+                integrator_regularize = p->bools[0];
             }
         }
         pbrt::BasicSceneBuilder::Integrator(name, std::move(params), loc);
@@ -190,6 +208,9 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     pbrt::ParameterDictionary film_params;
     std::string sampler_name = "zsobol";
     pbrt::ParameterDictionary sampler_params;
+    // PBRT's default filter, from BasicSceneBuilder's own initialization.
+    std::string filter_name = "gaussian";
+    pbrt::ParameterDictionary filter_params;
     std::vector<MaterialInfo> materials;
     std::vector<MaterialInfo> area_lights;
     // PBRT's RandomWalkIntegrator default. The name is empty when the scene
@@ -198,6 +219,9 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // so the two cases are told apart where the scene is converted.
     std::string integrator_name;
     int integrator_max_depth = 5;
+    // PathIntegrator::Create's defaults for the two parameters only it reads.
+    std::string light_sampler_name = "bvh";
+    bool integrator_regularize = false;
 };
 
 [[noreturn]] void fail(const std::string &message) {
@@ -932,6 +956,64 @@ void print_bsdf() {
         }
     }
 
+    // `LayeredBxDF::PDF` and `LayeredBxDF::Flags`, which nothing needed until
+    // the path integrator did.
+    //
+    // The PDF is a third random walk, distinct from Sample_f's and from f's:
+    // seeded from `wi` and `wo` in that order where `f` seeds from `wo` and
+    // `wi`, and drawing its two entry samples as `Sample_f(w, r(), {r(), r()})`
+    // -- a braced list, evaluated left to right, sitting in an argument list
+    // gcc evaluates right to left, so the pair comes out of the RNG before the
+    // single does. Every one of those is a thing a careful reader would get
+    // wrong, and none of them is visible in an image: a walk with different
+    // noise is an unbiased estimate of the same density, so it converges to the
+    // same picture and agrees with pbrt at no finite sample count. Hence
+    // numbers.
+    //
+    // Both hemispheres, because the two branches of it are entirely different
+    // estimators -- a direction on pbrt's side of the surface takes the TRT
+    // branch and one through it takes TT.
+    {
+        const struct {
+            const char *name;
+            pbrt::Float roughness;
+            pbrt::Float eta;
+            pbrt::Float thickness;
+            int n_samples;
+        } cases[] = {
+            {"rough", 0.05f, 1.5f, 0.01f, 1},
+            {"smooth", 0.f, 1.5f, 0.01f, 1},
+            {"thick", 0.15f, 1.33f, 0.5f, 4},
+        };
+        const pbrt::Vector3f pairs[][2] = {
+            {pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f)),
+             pbrt::Normalize(pbrt::Vector3f(-0.1f, 0.35f, 0.8f))},
+            {pbrt::Normalize(pbrt::Vector3f(0.7f, -0.5f, 0.15f)),
+             pbrt::Normalize(pbrt::Vector3f(-0.6f, 0.4f, 0.2f))},
+            {pbrt::Normalize(pbrt::Vector3f(0.3f, 0.2f, 0.9f)),
+             pbrt::Normalize(pbrt::Vector3f(0.1f, -0.2f, -0.95f))},
+            {pbrt::Normalize(pbrt::Vector3f(0.2f, 0.1f, -0.9f)),
+             pbrt::Normalize(pbrt::Vector3f(-0.3f, 0.25f, 0.88f))},
+        };
+        for (const auto &c : cases) {
+            const pbrt::Float alpha =
+                pbrt::TrowbridgeReitzDistribution::RoughnessToAlpha(
+                    c.roughness);
+            pbrt::CoatedDiffuseBxDF coated(
+                pbrt::DielectricBxDF(
+                    c.eta, pbrt::TrowbridgeReitzDistribution(alpha, alpha)),
+                pbrt::DiffuseBxDF(pbrt::SampledSpectrum(0.4f)), c.thickness,
+                pbrt::SampledSpectrum(0.f), 0.f, 10, c.n_samples);
+            printf("coatedflags %s: %d\n", c.name, int(coated.Flags()));
+            for (const auto &p : pairs) {
+                printf("coatedpdf %s %.9g %.9g: %.9g\n", c.name,
+                       double(p[0].z), double(p[1].z),
+                       double(coated.PDF(p[0], p[1],
+                                         pbrt::TransportMode::Radiance)));
+            }
+        }
+    }
+
     // The two hashes the walk is seeded with, on their own. They are the part
     // most likely to be transcribed wrongly -- a Murmur over the bytes of a
     // float is not something a reader can check by eye -- and the hardest to
@@ -1463,8 +1545,9 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
 // work in removes the question rather than answering it.
 void render_reference(pbrt::BasicScene &scene,
                       const pbrt::RGBColorSpace *colour_space,
-                      int integrator_max_depth,
-                      const std::string &integrator_name, int repeats,
+                      int integrator_max_depth, uint32_t integrator_tag,
+                      const std::string &light_sampler_name,
+                      bool integrator_regularize, int repeats,
                       const std::string &prefix) {
     // Sampled at the pixel centre, which main() asked for before parsing began.
     // GetCameraSample below is PBRT's own and reads PBRT's own option, so there
@@ -1504,13 +1587,41 @@ void render_reference(pbrt::BasicScene &scene,
     // The same integrator the renderer runs, chosen by the same scene
     // directive. A comparison between two different integrators measures
     // nothing about either.
-    pbrt::RandomWalkIntegrator random_walk(integrator_max_depth, camera,
-                                           sampler, accel, lights);
-    pbrt::SimplePathIntegrator simple_path(integrator_max_depth,
-                                           /*sampleLights=*/true,
-                                           /*sampleBSDF=*/true, camera,
-                                           sampler, accel, lights);
-    const bool use_simple_path = integrator_name == "simplepath";
+    // Only the one the scene named is built. Constructing all three worked --
+    // the reference render is the same either way, checked -- but PBRT's
+    // Integrator base constructor preprocesses every light in the scene and
+    // BVHLightSampler, which `path` defaults to, builds a tree over them, so
+    // two of the three were a light BVH built to be thrown away.
+    //
+    // The `path` one is given the light sampler and the regularization the
+    // scene asked for rather than the ones this renderer happens to have. That
+    // is the point of the comparison: `load` below refuses a scene whose light
+    // sampler this renderer cannot reproduce, and for the scenes it does not
+    // refuse, PBRT's own BVH sampler runs here against the uniform one over
+    // there -- so the claim that the two agree on a scene with a single light
+    // is checked rather than asserted.
+    // The tag `load` resolved, not the name the scene wrote. A scene that names
+    // no integrator has a fallback, and the two sides have to take the same one
+    // -- deciding it twice is how they would come to run different algorithms
+    // and report the difference as a disagreement about transport.
+    const bool use_simple_path =
+        integrator_tag == bonsai_scene::IntegratorTag::SimplePath;
+    const bool use_path = integrator_tag == bonsai_scene::IntegratorTag::Path;
+    std::unique_ptr<pbrt::RandomWalkIntegrator> random_walk;
+    std::unique_ptr<pbrt::SimplePathIntegrator> simple_path;
+    std::unique_ptr<pbrt::PathIntegrator> path;
+    if (use_path) {
+        path = std::make_unique<pbrt::PathIntegrator>(
+            integrator_max_depth, camera, sampler, accel, lights,
+            light_sampler_name, integrator_regularize);
+    } else if (use_simple_path) {
+        simple_path = std::make_unique<pbrt::SimplePathIntegrator>(
+            integrator_max_depth, /*sampleLights=*/true, /*sampleBSDF=*/true,
+            camera, sampler, accel, lights);
+    } else {
+        random_walk = std::make_unique<pbrt::RandomWalkIntegrator>(
+            integrator_max_depth, camera, sampler, accel, lights);
+    }
 
     pbrt::ThreadLocal<pbrt::ScratchBuffer> buffers(
         []() { return pbrt::ScratchBuffer(); });
@@ -1582,11 +1693,14 @@ void render_reference(pbrt::BasicScene &scene,
                 {
                     pbrt::RayDifferential ray = cr->ray;
                     const pbrt::SampledSpectrum L =
-                        use_simple_path
-                            ? simple_path.Li(ray, lambda, tile_sampler, scratch,
-                                             nullptr)
-                            : random_walk.Li(ray, lambda, tile_sampler, scratch,
-                                             nullptr);
+                        use_path
+                            ? path->Li(ray, lambda, tile_sampler, scratch,
+                                       nullptr)
+                        : use_simple_path
+                            ? simple_path->Li(ray, lambda, tile_sampler,
+                                              scratch, nullptr)
+                            : random_walk->Li(ray, lambda, tile_sampler,
+                                              scratch, nullptr);
                     const pbrt::XYZ xyz =
                         L.ToXYZ(lambda) * pbrt::CIE_Y_integral;
                     const pbrt::RGB rgb = colour_space->ToRGB(xyz);
@@ -1674,8 +1788,10 @@ void render_reference(pbrt::BasicScene &scene,
     write(prefix + "-albedo.pfm", albedos);
     write(prefix + "-radiance.pfm", radiances);
     printf("scene_dump: reference %s.pfm, %s-albedo.pfm and %s-radiance.pfm "
-           "(%dx%d, %d spp, randomwalk maxdepth %d)\n",
+           "(%dx%d, %d spp, %s maxdepth %d)\n",
            prefix.c_str(), prefix.c_str(), prefix.c_str(), width, height, spp,
+           use_path ? "path"
+                    : (use_simple_path ? "simplepath" : "randomwalk"),
            integrator_max_depth);
     // Parsed by compare.sh. On a line of its own, as the renderer's is.
     printf("scene_dump: reference seconds: %g\n", seconds);
@@ -1712,6 +1828,23 @@ void load(const char *filename, bonsai_scene::Scene &out,
     out.width = uint32_t(x_resolution);
     out.height = uint32_t(y_resolution);
 
+    // The reconstruction filter. Only the Gaussian, which is PBRT's default and
+    // what every scene here gets; the others differ in one function and a
+    // radius, and go in as arms of a variant when one is asked for. The
+    // defaults are GaussianFilter::Create's own.
+    if (builder.filter_name != "gaussian") {
+        fail("only the `gaussian` reconstruction filter is supported, scene "
+             "asks for \"" + builder.filter_name + "\"");
+    }
+    out.filter_radius[0] = float(builder.filter_params.GetOneFloat("xradius",
+                                                                   1.5f));
+    out.filter_radius[1] = float(builder.filter_params.GetOneFloat("yradius",
+                                                                   1.5f));
+    out.filter_sigma = float(builder.filter_params.GetOneFloat("sigma", 0.5f));
+    // Read from PBRT rather than written down, so that scene_dump's flag and
+    // the reference render below cannot mean different things by it.
+    out.disable_pixel_jitter = pbrt::Options->disablePixelJitter ? 1u : 0u;
+
     // The three samplers the renderer reproduces. Sobol and zsobol are a
     // different construction again and are refused rather than approximated: a
     // stand-in would give noise that is not pbrt's while looking perfectly
@@ -1720,14 +1853,25 @@ void load(const char *filename, bonsai_scene::Scene &out,
     // The defaults below are pbrt's own, from IndependentSampler::Create and
     // StratifiedSampler::Create; a scene that names a sampler without naming
     // its parameters has to get the same ones pbrt would have given it.
+    //
+    // `--spp` overrides them, and each sampler is overridden the way its own
+    // Create overrides it. That is not one rule: an independent or halton
+    // sampler takes the number as given, and a stratified one has to factor it
+    // into a grid, because what it samples is a grid. PBRT's own reference
+    // render below reads `Options->pixelSamples` directly through
+    // `scene.GetSampler()`, so the two sides cannot drift on what the flag
+    // means -- but this side does have to transcribe the same three rules.
+    const pstd::optional<int> spp_override = pbrt::Options->pixelSamples;
     if (builder.sampler_name == "independent") {
         out.sampler.tag = bonsai_scene::SamplerTag::Independent;
-        out.sampler.samples_per_pixel =
-            uint32_t(builder.sampler_params.GetOneInt("pixelsamples", 4));
+        out.sampler.samples_per_pixel = uint32_t(
+            spp_override ? *spp_override
+                         : builder.sampler_params.GetOneInt("pixelsamples", 4));
     } else if (builder.sampler_name == "halton") {
         out.sampler.tag = bonsai_scene::SamplerTag::Halton;
-        out.sampler.samples_per_pixel =
-            uint32_t(builder.sampler_params.GetOneInt("pixelsamples", 16));
+        out.sampler.samples_per_pixel = uint32_t(
+            spp_override ? *spp_override
+                         : builder.sampler_params.GetOneInt("pixelsamples", 16));
         const std::string randomization =
             builder.sampler_params.GetOneString("randomization",
                                                 "permutedigits");
@@ -1745,10 +1889,25 @@ void load(const char *filename, bonsai_scene::Scene &out,
         halton_scales(x_resolution, y_resolution, out.sampler);
     } else if (builder.sampler_name == "stratified") {
         out.sampler.tag = bonsai_scene::SamplerTag::Stratified;
-        out.sampler.x_samples =
-            uint32_t(builder.sampler_params.GetOneInt("xsamples", 4));
-        out.sampler.y_samples =
-            uint32_t(builder.sampler_params.GetOneInt("ysamples", 4));
+        int x_samples = builder.sampler_params.GetOneInt("xsamples", 4);
+        int y_samples = builder.sampler_params.GetOneInt("ysamples", 4);
+        if (spp_override) {
+            // PBRT's own factoring, from StratifiedSampler::Create. It walks
+            // down from the square root until it finds a divisor, so `--spp 12`
+            // is a 4x3 grid and `--spp 13` -- a prime -- is 13x1. Not the
+            // rounding a reader would guess, and the grid is what decides which
+            // stratum each sample falls in, so guessing would give a different
+            // image rather than a differently-sized one.
+            const int n = *spp_override;
+            int div = int(std::sqrt(double(n)));
+            while (n % div) {
+                div--;
+            }
+            x_samples = n / div;
+            y_samples = n / x_samples;
+        }
+        out.sampler.x_samples = uint32_t(x_samples);
+        out.sampler.y_samples = uint32_t(y_samples);
         out.sampler.jitter =
             builder.sampler_params.GetOneBool("jitter", true) ? 1u : 0u;
         out.sampler.samples_per_pixel =
@@ -1770,18 +1929,34 @@ void load(const char *filename, bonsai_scene::Scene &out,
     // Which integrator, refused rather than substituted. A scene that names
     // `volpath` and gets a random walk is an image that answers a question
     // nobody asked, and it would look plausible -- which is worse than an
-    // error. A scene naming none is the one exception: PBRT's default is
-    // volpath, but the comparison renders both sides with the integrator this
-    // renderer has, so there is nothing to disagree about.
-    if (builder.integrator_name.empty() ||
-        builder.integrator_name == "randomwalk") {
+    // error.
+    //
+    // A scene naming none is the one exception, and it now falls back to `path`
+    // rather than to the random walk. PBRT's default is `volpath`, which is
+    // `path` plus participating media; a scene with no media in it -- and one
+    // that named no integrator has named no media either -- is asking `path`
+    // for an answer volpath would give the same way. The comparison renders
+    // both sides with whatever this resolves to, so the two cannot disagree
+    // about it.
+    //
+    // The random walk was the fallback while it was the only integrator here,
+    // and the difference is not academic: killeroo-simple names no integrator
+    // and is lit by a sphere of radius 3 seen from four hundred units away, so
+    // a walk that finds a light only by scattering into one lit 5,038 of its
+    // 490,000 pixels. The same scene through `path` is a photograph.
+    if (builder.integrator_name.empty()) {
+        out.integrator = bonsai_scene::IntegratorTag::Path;
+    } else if (builder.integrator_name == "randomwalk") {
         out.integrator = bonsai_scene::IntegratorTag::RandomWalk;
     } else if (builder.integrator_name == "simplepath") {
         out.integrator = bonsai_scene::IntegratorTag::SimplePath;
+    } else if (builder.integrator_name == "path") {
+        out.integrator = bonsai_scene::IntegratorTag::Path;
     } else {
-        fail("this renderer implements `randomwalk` and `simplepath`, and the "
-             "scene asks for `" + builder.integrator_name + "`");
+        fail("this renderer implements `randomwalk`, `simplepath` and `path`, "
+             "and the scene asks for `" + builder.integrator_name + "`");
     }
+    out.regularize = builder.integrator_regularize ? 1u : 0u;
 
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,
@@ -2002,6 +2177,39 @@ void load(const char *filename, bonsai_scene::Scene &out,
         out.matrices[i] = matrices[i];
     }
 
+    // The light sampler, which only `path` reads and which PBRT defaults to
+    // `bvh` there. This renderer has the uniform one and no other.
+    //
+    // The two are the same function on a scene with a single light, and that is
+    // not a hopeful reading of them. BVHLightSampler over one non-infinite
+    // light has a one-node tree, so its PMF is 1 -- the same number the uniform
+    // sampler returns -- and the only way its Sample can differ is by declining
+    // to return the light at all where the light's bounds say no energy can
+    // reach the shading point. That case contributes nothing either way: the
+    // uniform sampler returns the light and the shadow ray or the emitted
+    // radiance then comes out zero. The two draws happen before either sampler
+    // is consulted, so the sampler stream does not move either.
+    //
+    // With more than one light they genuinely differ -- the BVH sampler picks
+    // by importance and reports the probability it picked with -- so the scene
+    // is refused. Substituting the uniform sampler there would render a picture
+    // that is merely a noisier estimate of the same integral, which is exactly
+    // the kind of wrong that looks right.
+    if (out.integrator == bonsai_scene::IntegratorTag::Path &&
+        builder.light_sampler_name != "uniform") {
+        size_t emitters = 0;
+        for (const bonsai_scene::Shape &s : shapes) {
+            if (s.light >= 0) {
+                emitters++;
+            }
+        }
+        if (emitters > 1) {
+            fail("this renderer has only the `uniform` light sampler and the "
+                 "scene has " + std::to_string(emitters) + " lights under `" +
+                 builder.light_sampler_name + "`");
+        }
+    }
+
     // Last, because CreateAggregate empties `scene.shapes` on its way through
     // -- it hands the entities to the primitives it builds -- and the
     // conversion above reads them.
@@ -2009,8 +2217,10 @@ void load(const char *filename, bonsai_scene::Scene &out,
         // The film's colour space rather than sRGB by assumption: it is what
         // GBufferFilm converts the albedo with, and a scene can name another.
         render_reference(scene, builder.film_params.ColorSpace(),
-                         builder.integrator_max_depth,
-                         builder.integrator_name, repeats, reference_prefix);
+                         builder.integrator_max_depth, out.integrator,
+                         builder.light_sampler_name,
+                         builder.integrator_regularize, repeats,
+                         reference_prefix);
     }
 }
 
@@ -2178,6 +2388,15 @@ int main(int argc, char **argv) {
     // command-line override for the film, and rewriting a scene to change one
     // line would make the comparison about our copy of it.
     std::string reference_prefix;
+    // --spp is PBRT's own option under PBRT's own name, and it reaches both
+    // sides the same way PBRT's does: by being set on PBRTOptions before the
+    // scene is parsed, so that every sampler's Create reads it. A scene here
+    // says how many samples it wants and that number is part of a comparison's
+    // meaning, so this is for looking at pictures rather than for the numbers
+    // -- 64 samples with no pixel jitter is a noisy image and the scenes are
+    // sized for a comparison that has to finish.
+    int spp_override = 0; // 0 for "the scene decides", as PBRT's unset does.
+    bool disable_pixel_jitter = false;
     std::vector<const char *> positional;
     for (int i = 1; i < argc; i++) {
         const std::string arg(argv[i]);
@@ -2200,6 +2419,17 @@ int main(int argc, char **argv) {
                 fail("--reference needs a path prefix to write to");
             }
             reference_prefix = argv[++i];
+        } else if (arg == "--disable-pixel-jitter") {
+            disable_pixel_jitter = true;
+        } else if (arg == "--spp") {
+            if (i + 1 >= argc) {
+                fail("--spp needs a sample count");
+            }
+            const int n = atoi(argv[++i]);
+            if (n < 1) {
+                fail("--spp needs a positive sample count");
+            }
+            spp_override = n;
         } else if (arg == "--repeats") {
             if (i + 1 >= argc) {
                 fail("--repeats needs a count");
@@ -2212,7 +2442,7 @@ int main(int argc, char **argv) {
     if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
         !light_only && !shape_sample_only && positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] [--reference <prefix>]"
-             " <scene.pbrt> <out.txt>\n"
+             " [--spp <n>] [--disable-pixel-jitter] <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
              "       scene_dump --print-sampler\n"
              "       scene_dump --print-bsdf\n"
@@ -2220,10 +2450,27 @@ int main(int argc, char **argv) {
     }
 
     pbrt::PBRTOptions options;
-    // The renderer takes one sample at the centre of each pixel, and the
-    // reference is rendered the same way. This has to be set before parsing
-    // because it is read while the scene is built.
-    options.disablePixelJitter = true;
+    // The pixel jitter is *on*, as PBRT has it. It used to be forced off here
+    // and could not be anything else: the renderer had no reconstruction
+    // filter, so it had no way to place a sample anywhere but a pixel's centre,
+    // and the reference had to be crippled to match. Now both sides sample
+    // PBRT's Gaussian, and `--disable-pixel-jitter` -- PBRT's own flag, under
+    // PBRT's own name -- is what asks for the old behaviour.
+    //
+    // It is still worth asking for. With every sample of a pixel on the same
+    // ray, a difference between the two images cannot be noise, so the gbuffer
+    // comparison becomes a question about the geometry alone. That is how the
+    // normals got to zero disagreeing pixels.
+    //
+    // Set before parsing because it is read while the scene is built.
+    options.disablePixelJitter = disable_pixel_jitter;
+    // PBRT's `--spp`, in the place PBRT puts it. Every sampler's Create reads
+    // `Options->pixelSamples` and so does the conversion in `load`, so the
+    // reference render and the scene the renderer is given cannot disagree
+    // about how many samples were asked for.
+    if (spp_override > 0) {
+        options.pixelSamples = spp_override;
+    }
     pbrt::InitPBRT(options);
 
     if (tables_only) {

@@ -1,0 +1,214 @@
+// pbrt: Filter and FilterSampler, from filters.h -- the reconstruction filter a
+// camera sample is jittered within, and the tabulated distribution it is drawn
+// from.
+//
+// What this is for. Without it every sample of a pixel starts at the pixel's
+// exact centre, so a pixel is one ray traced N times: silhouettes are hard
+// edges, the pixel-sampling half of every sampler is never called, and a
+// stochastic estimate like a layered material's reflectance is recomputed
+// identically rather than averaged. `--disable-pixel-jitter` is pbrt's way of
+// asking for that, and it was the only way this app could run.
+//
+// pbrt's default filter is `gaussian`, and it is the only one here. The others
+// -- box, triangle, mitchell, sinc -- differ only in `filter_evaluate` and in
+// the radius, so they go in as arms of a variant when a scene asks for one,
+// which nothing in `scenes/` does. A scene naming one is refused rather than
+// given a Gaussian, for the reason every refusal here exists: a different
+// filter is a different image and it would look perfectly reasonable.
+//
+// A Gaussian is not analytically invertible, so pbrt does not sample it in
+// closed form. It tabulates the filter over a grid -- 32 cells per unit of
+// radius, so 48x48 at the default 1.5 -- and samples that table as a
+// piecewise-constant 2D distribution. The table is the driver's, built once
+// before the render, exactly as the Halton digit permutations and the ADT pools
+// are: it is a constant of the film and has no business being rebuilt per
+// sample. `build_filter_table` below is what fills it, exported so that the
+// driver runs *this* Gaussian rather than a second copy of it in C++.
+import stdlib/numerics;
+import apps/pbrt/sampling;
+
+// pbrt: FilterSampler's tabulated filter values, `f` in its constructor. The
+// filter evaluated at the centre of each cell, laid out row-major with x
+// fastest -- pbrt's Array2D indexes `f(x, y)` as `y * xSize + x`.
+//
+// Signed, and the distribution below takes the absolute value where it needs a
+// density. For a Gaussian the two are the same table, since `filter_evaluate`
+// clamps at zero; for a Mitchell filter, whose lobes go negative, they are not,
+// and a sample's weight is the signed value while its density is the magnitude.
+// Written as pbrt has it so that the second filter does not have to fix this.
+extern filter_f : array[Float];
+
+// pbrt: PiecewiseConstant2D's `pConditionalV`, one distribution per row. Their
+// CDFs laid end to end -- `nx + 1` entries each, since a CDF has a leading zero
+// -- because an array of arrays is a pointer to chase on a path that runs once
+// per camera ray.
+extern filter_cond_cdf : array[Float];
+
+// pbrt: `pMarginal`'s function table, which is each row's integral, and its CDF.
+// One array serves two purposes: PiecewiseConstant2D builds the marginal out of
+// `pConditionalV[v].Integral()`, so the marginal's function values *are* the
+// conditionals' normalizing constants, and both are read at every sample.
+extern filter_marg_func : array[Float];
+extern filter_marg_cdf : array[Float];
+
+// pbrt: GaussianFilter, and what a render needs of it once the table is built.
+//
+// `sigma`, `exp_x` and `exp_y` are only read while tabulating -- a sample looks
+// the answer up -- but they are carried rather than dropped because
+// `build_filter_table` is handed one of these and because a scene can set them.
+element Filter {
+    radius : vec2f;
+    sigma : Float;
+    // pbrt: expX and expY, the filter's value at its own radius, subtracted so
+    // that a Gaussian reaches exactly zero at the edge of its support instead
+    // of being truncated there.
+    exp_x, exp_y : Float;
+    // The table's resolution. pbrt's `int(32 * radius)` per axis.
+    nx, ny : i32;
+    // pbrt: pMarginal's funcInt, which its density divides by.
+    marg_int : Float;
+}
+
+// pbrt: Gaussian, from util/math.h. `FastExp` and not `exp`, as everywhere else
+// in this app that pbrt writes FastExp.
+func gaussian(x : Float, mu : Float, sigma : Float) -> Float =
+    1.0 / sqrt(2.0 * 3.14159265358979323846 * sigma * sigma) *
+    fast_exp(-sqr(x - mu) / (2.0 * sigma * sigma));
+
+// pbrt: the GaussianFilter constructor's `expX` and `expY`.
+func gaussian_edge(radius : Float, sigma : Float) -> Float =
+    gaussian(radius, 0.0, sigma);
+
+// pbrt: the GaussianFilter constructor, and the FilterSampler's sizing of its
+// table -- `int(32 * radius)` per axis, which is 48x48 at the default 1.5.
+//
+// Exported so that the driver, which has to size the tables before it can ask
+// for them to be filled, asks *this* for the size rather than writing the same
+// three expressions again. `marg_int` is left at zero and filled in by
+// `build_filter_table`, which is the only thing that can know it.
+func [[export]] make_filter(radius : vec2f, sigma : Float) -> Filter {
+    f : Filter = {radius, sigma, gaussian_edge(radius.x, sigma),
+                  gaussian_edge(radius.y, sigma),
+                  cast[[i32]](32.0 * radius.x), cast[[i32]](32.0 * radius.y),
+                  0.0};
+    return f;
+}
+
+// pbrt: GaussianFilter::Evaluate. Separable, and clamped at zero so the support
+// really does end at the radius.
+func filter_evaluate(f : Filter, p : vec2f) -> Float =
+    max(0.0, gaussian(p.x, 0.0, f.sigma) - f.exp_x) *
+    max(0.0, gaussian(p.y, 0.0, f.sigma) - f.exp_y);
+
+// pbrt: FilterSample -- where in the pixel the sample lands, and what the film
+// should weigh it by.
+//
+// The weight is not the filter's value: it is the value divided by the density
+// it was drawn with, which for an exactly-proportional sampler would be a
+// constant. It is not constant here because the density is piecewise constant
+// over the cells while the filter varies inside one.
+element FilterSample {
+    p : vec2f;
+    weight : Float;
+}
+
+// pbrt: FilterSampler::Sample, which is PiecewiseConstant2D::Sample followed by
+// the one division that turns a sample into a weight.
+//
+// The marginal is sampled in `y` first and the conditional it selects in `x`,
+// which is pbrt's order and matters: the two components of `u` are not
+// interchangeable once the distribution is not separable.
+func filter_sample(f : Filter, u : vec2f) -> FilterSample {
+    marg = cdf_sample(filter_marg_cdf, 0, f.ny, -f.radius.y, f.radius.y, u.y);
+    row = marg.offset;
+    pdf_y = select(f.marg_int > 0.0, filter_marg_func[row] / f.marg_int, 0.0);
+
+    // The row's own integral, which is the marginal's function value at it.
+    row_int = filter_marg_func[row];
+    cond = cdf_sample(filter_cond_cdf, row * (f.nx + 1), f.nx, -f.radius.x,
+                      f.radius.x, u.x);
+    at = row * f.nx + cond.offset;
+    pdf_x = select(row_int > 0.0, abs(filter_f[at]) / row_int, 0.0);
+
+    // pbrt divides without a guard, and so does this. A cell can only be
+    // sampled if its density is positive, so the zero is unreachable -- and a
+    // guard here would turn a table built wrongly into a black image instead of
+    // a NaN, which is the harder of the two to notice.
+    s : FilterSample = {vec2f{cond.x, marg.x}, filter_f[at] / (pdf_x * pdf_y)};
+    return s;
+}
+
+// pbrt: the FilterSampler constructor and PiecewiseConstant2D's, run once by
+// the driver before the render starts.
+//
+// Exported rather than written in C++ for the reason the Halton digit
+// permutations are: a second implementation of something this app checks
+// against pbrt is one more than it can afford, and the Gaussian here has to be
+// the same `FastExp` polynomial the rest of the renderer uses.
+//
+// Returns the marginal's integral, which is the one scalar the sampler needs
+// that is not in a table.
+func [[export]] build_filter_table(f : Filter, f_out : mut array[Float],
+                                   cond_cdf_out : mut array[Float],
+                                   marg_func_out : mut array[Float],
+                                   marg_cdf_out : mut array[Float]) -> Float {
+    // pbrt: "Tabularize unnormalized filter function in f". The cell centres of
+    // a grid over the filter's whole support, which is the radius either side
+    // of zero in both axes.
+    for y in 0:f.ny {
+        for x in 0:f.nx {
+            // pbrt: domain.Lerp of the cell centre. Written as pbrt's Lerp is,
+            // `(1 - t) * lo + t * hi`.
+            tx = (cast[[Float]](x) + 0.5) / cast[[Float]](f.nx);
+            ty = (cast[[Float]](y) + 0.5) / cast[[Float]](f.ny);
+            px = (1.0 - tx) * -f.radius.x + tx * f.radius.x;
+            py = (1.0 - ty) * -f.radius.y + ty * f.radius.y;
+            f_out[y * f.nx + x] = filter_evaluate(f, vec2f{px, py});
+        }
+    }
+
+    // pbrt: PiecewiseConstant1D's constructor, once per row. The CDF is the
+    // running integral of the absolute value, then divided by its own total --
+    // and where that total is zero the CDF is the uniform one instead, so that
+    // a row the filter never reaches is still sampleable rather than a
+    // division by zero.
+    dx = 2.0 * f.radius.x / cast[[Float]](f.nx);
+    for y in 0:f.ny {
+        base = y * (f.nx + 1);
+        cond_cdf_out[base] = 0.0;
+        for x in 0:f.nx {
+            cond_cdf_out[base + x + 1] =
+                cond_cdf_out[base + x] + abs(f_out[y * f.nx + x]) * dx;
+        }
+        row_int = cond_cdf_out[base + f.nx];
+        if row_int == 0.0 {
+            for x in 0:f.nx {
+                cond_cdf_out[base + x + 1] =
+                    cast[[Float]](x + 1) / cast[[Float]](f.nx);
+            }
+        } else {
+            for x in 0:f.nx {
+                cond_cdf_out[base + x + 1] = cond_cdf_out[base + x + 1] / row_int;
+            }
+        }
+        marg_func_out[y] = row_int;
+    }
+
+    // And the same construction over the rows' integrals, which is the marginal.
+    dy = 2.0 * f.radius.y / cast[[Float]](f.ny);
+    marg_cdf_out[0] = 0.0;
+    for y in 0:f.ny {
+        marg_cdf_out[y + 1] = marg_cdf_out[y] + abs(marg_func_out[y]) * dy;
+    }
+    marg_int = marg_cdf_out[f.ny];
+    if marg_int == 0.0 {
+        for y in 0:f.ny {
+            marg_cdf_out[y + 1] = cast[[Float]](y + 1) / cast[[Float]](f.ny);
+        }
+    } else {
+        for y in 0:f.ny {
+            marg_cdf_out[y + 1] = marg_cdf_out[y + 1] / marg_int;
+        }
+    }
+    return marg_int;
+}

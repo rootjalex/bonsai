@@ -46,6 +46,7 @@ enum MaterialTag : uint32_t {
 enum IntegratorTag : uint32_t {
     RandomWalk = 0,
     SimplePath = 1,
+    Path = 2,
 };
 
 // One material, with every texture already evaluated to a constant.
@@ -221,6 +222,19 @@ struct Scene {
     // are carried separately rather than shared.
     int32_t max_depth = 5;
     uint32_t integrator = IntegratorTag::RandomWalk;
+    // PBRT's `Integrator "path" "bool regularize"`, which widens a near-delta
+    // lobe once a path has already scattered off something rough. Only the path
+    // integrator has it, and its default is off.
+    uint32_t regularize = 0;
+    // The reconstruction filter a camera sample is jittered within. PBRT's
+    // defaults, from GaussianFilter::Create -- which is also PBRT's default
+    // filter, so a scene that names none gets these.
+    float filter_radius[2] = {1.5f, 1.5f};
+    float filter_sigma = 0.5f;
+    // PBRT's `--disable-pixel-jitter`, which pins every sample of a pixel to
+    // its centre. Not a property of the scene; carried here because it has to
+    // reach the renderer and this is the channel that exists.
+    uint32_t disable_pixel_jitter = 0;
     // camera_from_raster then render_from_camera, each 4x4 in row order.
     float matrices[32] = {};
     std::vector<Material> materials;
@@ -284,9 +298,15 @@ inline bool write(const char *path, const Scene &scene) {
     }
     out << "seed " << scene.seed << '\n';
     out << "integrator "
-        << (scene.integrator == IntegratorTag::SimplePath ? "simplepath"
-                                                         : "randomwalk")
-        << " maxdepth " << scene.max_depth << '\n';
+        << (scene.integrator == IntegratorTag::Path
+                ? "path"
+                : (scene.integrator == IntegratorTag::SimplePath ? "simplepath"
+                                                                 : "randomwalk"))
+        << " maxdepth " << scene.max_depth << " regularize "
+        << scene.regularize << '\n';
+    out << "filter gaussian " << scene.filter_radius[0] << ' '
+        << scene.filter_radius[1] << ' ' << scene.filter_sigma << " jitter "
+        << (scene.disable_pixel_jitter ? 0 : 1) << '\n';
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
@@ -438,6 +458,8 @@ inline bool read(const char *path, Scene &scene) {
         scene.integrator = IntegratorTag::RandomWalk;
     } else if (word == "simplepath") {
         scene.integrator = IntegratorTag::SimplePath;
+    } else if (word == "path") {
+        scene.integrator = IntegratorTag::Path;
     } else {
         return false;
     }
@@ -445,6 +467,25 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     in >> scene.max_depth;
+    if (!(in >> word) || word != "regularize") {
+        return false;
+    }
+    in >> scene.regularize;
+
+    if (!(in >> word) || word != "filter") {
+        return false;
+    }
+    if (!(in >> word) || word != "gaussian") {
+        return false;
+    }
+    in >> scene.filter_radius[0] >> scene.filter_radius[1] >>
+        scene.filter_sigma;
+    if (!(in >> word) || word != "jitter") {
+        return false;
+    }
+    uint32_t jitter = 1;
+    in >> jitter;
+    scene.disable_pixel_jitter = jitter ? 0u : 1u;
 
     if (!(in >> word) || word != "camera_from_raster") {
         return false;

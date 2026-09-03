@@ -539,6 +539,38 @@ int main(int argc, char **argv) {
                                  digit_permutations.data(), primes);
     }
 
+    // pbrt: the FilterSampler a GaussianFilter builds in its constructor -- the
+    // filter tabulated over a grid and turned into a piecewise-constant 2D
+    // distribution, because a Gaussian has no closed-form inverse.
+    //
+    // The driver owns it for the same reasons it owns the digit permutations:
+    // the renderer is built with --no-heap, and this is a constant of the film
+    // that has no business being rebuilt per sample. What fills it is the
+    // renderer's own `build_filter_table`, so the Gaussian and the CDFs here
+    // are the ones the render samples rather than a second copy in C++.
+    //
+    // `int(32 * radius)` per axis is pbrt's own sizing, from the FilterSampler
+    // constructor: 48x48 at the default radius of 1.5.
+    Filter pixel_filter;
+    make_filter(pixel_filter,
+                float2{loaded.filter_radius[0], loaded.filter_radius[1]},
+                loaded.filter_sigma);
+    if (pixel_filter.nx < 1 || pixel_filter.ny < 1) {
+        fprintf(stderr, "a filter radius of %g x %g tabulates to nothing\n",
+                double(loaded.filter_radius[0]),
+                double(loaded.filter_radius[1]));
+        return 1;
+    }
+    std::vector<float> filter_f(size_t(pixel_filter.nx) * pixel_filter.ny);
+    std::vector<float> filter_cond_cdf(size_t(pixel_filter.nx + 1) *
+                                       pixel_filter.ny);
+    std::vector<float> filter_marg_func(size_t(pixel_filter.ny));
+    std::vector<float> filter_marg_cdf(size_t(pixel_filter.ny) + 1);
+    pixel_filter.marg_int =
+        build_filter_table(pixel_filter, filter_f.data(),
+                           filter_cond_cdf.data(), filter_marg_func.data(),
+                           filter_marg_cdf.data());
+
     // pbrt: the path integrator's fixed sample points for a reflectance
     // estimate, which are file-scope constants there and reach the renderer as
     // externs here. Built once, because they are constants; they used to be
@@ -698,6 +730,10 @@ int main(int argc, char **argv) {
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
     float3 *albedo = (float3 *)malloc(sizeof(float3) * npixels);
     float3 *radiance = (float3 *)malloc(sizeof(float3) * npixels);
+    // pbrt: Pixel::weightSum. It is a film channel like the others -- the sum
+    // of the filter weights the pixel's samples carried, which is what its
+    // colours are divided by.
+    float *weights = (float *)malloc(sizeof(float) * npixels);
 
     // The lights, with L fitted the same way every other spectrum is. An
     // illuminant rather than an albedo, which is why the fit is of L divided by
@@ -765,6 +801,16 @@ int main(int argc, char **argv) {
         Integrator_SimplePath(integrator, loaded.max_depth, light_sampler);
         break;
     }
+    case bonsai_scene::IntegratorTag::Path: {
+        // Uniform here too. pbrt's `path` defaults to its BVH light sampler,
+        // and scene_dump refuses any scene where the two could disagree -- see
+        // the note there.
+        LightSampler light_sampler;
+        LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
+        Integrator_Path(integrator, loaded.max_depth, light_sampler,
+                        loaded.regularize != 0);
+        break;
+    }
     default:
         fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
         return 1;
@@ -798,9 +844,12 @@ int main(int argc, char **argv) {
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
-               loaded.seed, out, albedo, radiance, meshes.data(),
+               pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0, out,
+               albedo, radiance, weights, meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
-               uvs.data(), x, y, z, d65, primes, digit_permutations.data(),
+               uvs.data(), x, y, z, d65, filter_f.data(),
+               filter_cond_cdf.data(), filter_marg_func.data(),
+               filter_marg_cdf.data(), primes, digit_permutations.data(),
                digit_permutation_offsets, lights.data(),
                materials.data(), rho_uc, rho_ux, rho_uy, tree,
                sphere_pool.data(), triangle_pool.data());

@@ -33,6 +33,7 @@ import stdlib/numerics;
 import apps/pbrt/bxdf;
 import apps/pbrt/camera;
 import apps/pbrt/colour;
+import apps/pbrt/filter;
 import apps/pbrt/frame;
 import apps/pbrt/sampler;
 import apps/pbrt/shapes;
@@ -159,6 +160,21 @@ func light_pdf_li(light : Light, ctx : ShapeSampleContext,
 element SampledLight {
     light : i32;
     p : Float;
+}
+
+// pbrt: LightType, asked through IsDeltaLight. A point or a directional light
+// is a delta in solid angle: there is no density to weigh a BSDF sample against
+// because a BSDF will never sample that direction, so multiple importance
+// sampling has nothing to combine and the light's estimator stands alone.
+//
+// An area light is not one, which is why every arm here answers false. It is
+// written out rather than left implicit because the day a point light arrives
+// this is the line that has to change, and a `path` integrator that forgot it
+// would quietly halve the light's contribution.
+func light_is_delta(light : Light) -> bool {
+    match light {
+        DiffuseArea(area, shape) => return false;
+    }
 }
 
 // pbrt: LightSampler, another TaggedPointer and so another variant. Uniform is
@@ -329,16 +345,17 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
 // integrator the scene named and the same binary runs it, rather than there
 // being an exported entry point per configuration.
 //
-// One variant so far. The others are named in the order they are worth adding:
-// `SimplePath`, which samples lights and is what turns this scene from a
-// thousand lit pixels into a picture, then `Path` with its MIS and its
-// regularisation. Their parameters go in their own variants -- pbrt's
-// SimplePathIntegrator carries `sampleLights` and `sampleBSDF` as well as a
-// depth, and a variant is where those belong rather than in a shared struct
-// whose fields half the arms ignore.
+// Three variants. Their parameters go in their own arms -- pbrt's
+// SimplePathIntegrator carries `sampleLights` and `sampleBSDF` where
+// PathIntegrator carries `regularize`, and a variant is where those belong
+// rather than in a shared struct whose fields two thirds of the arms ignore.
+//
+// `VolPath` is what pbrt defaults to and is the next one worth having; it needs
+// participating media, which nothing here has.
 element Integrator =
     | RandomWalk(max_depth : i32)
-    | SimplePath(max_depth : i32, sampler : LightSampler);
+    | SimplePath(max_depth : i32, sampler : LightSampler)
+    | Path(max_depth : i32, sampler : LightSampler, regularize : bool);
 
 // pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
 //
@@ -380,7 +397,15 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
     }
     prim = *isect;
     surf = surface_geometry(prim.shape, ray);
-    wo = unit_vector_(-ray.d);
+    // pbrt: `Vector3f wo = -ray.d`, and *not* `isect.wo`. The two differ:
+    // Interaction's constructor normalizes the direction it is handed, and this
+    // integrator never asks it for one -- it negates the ray directly. A camera
+    // ray's direction is a unit vector transformed by a rigid motion, so it is
+    // unit to within a bit or two and not exactly, which is enough to change
+    // the last bit of everything downstream of the shading frame. `rho` in
+    // `visible_surface` does go through `isect.wo` and is normalized there, for
+    // the same reason: because pbrt does.
+    wo = -ray.d;
 
     // pbrt: SurfaceInteraction::Le. The emission of the surface the ray landed
     // on, which for a random walk is the only way light is ever found.
@@ -400,7 +425,7 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
     u = get_2d(sampler, state);
     wp = sample_uniform_sphere(u);
     fcos = material_f(materials[prim.material], frame_to_local(shading, wo),
-                      frame_to_local(shading, wp), lambda, seed) *
+                      frame_to_local(shading, wp), lambda, seed, false) *
            abs(dot(wp, surf.ns));
     if !nonzero(fcos) {
         return found;
@@ -464,7 +489,9 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
     }
     prim = *isect;
     surf = surface_geometry(prim.shape, ray);
-    wo = unit_vector_(-ray.d);
+    // Raw rather than normalized, as in `walk_step` above and for the same
+    // reason: pbrt's SimplePathIntegrator writes `Vector3f wo = -ray.d`.
+    wo = -ray.d;
 
     // The emission of the surface itself, counted only when the previous bounce
     // could not have sampled it.
@@ -493,7 +520,7 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
                 fcos = material_f(materials[prim.material],
                                   frame_to_local(shading, wo),
                                   frame_to_local(shading, lsample.wi), lambda,
-                                  seed) *
+                                  seed, false) *
                        abs(dot(lsample.wi, surf.ns));
                 if nonzero(fcos) &&
                    unoccluded(surf.p, surf.p_error, surf.n, lsample.p_light,
@@ -509,7 +536,7 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
     uc = get_1d(sampler, state);
     u = get_2d(sampler, state);
     bs = material_sample_f(materials[prim.material], frame_to_local(shading, wo),
-                           uc, u, lambda, seed);
+                           uc, u, lambda, seed, false);
     if !bs {
         return found;
     }
@@ -533,6 +560,264 @@ func li_simple_path(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
     path_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, true,
               lambda, sampler, state, ls, seed, 0, max_depth);
 
+// pbrt: PathIntegrator::SampleLd, the direct-lighting estimate at one vertex.
+//
+// The difference from the one inside `path_step` above is the last two lines:
+// this one asks the surface what density *it* would have chosen the light's
+// direction with, and weighs the two estimators against each other. Without
+// that, a path tracer that samples both a light and a BSDF counts the same
+// transport twice and has to pick one everywhere; with it, each estimator is
+// trusted where it is good -- the light sample near a small bright source, the
+// BSDF sample on a sharp highlight -- and the two sum to one.
+//
+// The nudge at the top is pbrt's and is easy to overlook. A light is sampled
+// from a point, and the point the geometry gives is on the surface; a purely
+// reflective surface should sample the light as seen from *just above* it,
+// because a light sample from exactly on it can land on the wrong side of a
+// grazing shadow ray. The offset point has no error interval of its own -- it
+// is already the outward-rounded one.
+//
+// The draws are what must not move: one for the light, then two for the point
+// on it, both taken before anything is tested, so a vertex costs the same three
+// numbers whether or not the light turns out to be visible.
+// `wo` here is pbrt's `intr.wo` -- the normalized one -- and not the `-ray.d`
+// the caller hands to `Sample_f`. pbrt reads a different member in each place,
+// and the two are not the same vector.
+func path_sample_ld(mat : Material, surf : SurfaceGeometry, shading : Frame,
+                    wo : vec3f, flags : i32, lambda : SampledWavelengths,
+                    sampler : Sampler, state : mut SamplerState,
+                    ls : LightSampler, seed : i32,
+                    regularize : bool) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+
+    // The nudged point is already outward-rounded, so it carries no interval of
+    // its own -- pbrt's `ctx.pi = intr.OffsetRayOrigin(...)` assigns a Point3f
+    // into a Point3fi, which is a zero-width interval.
+    no_error = vec3f{0.0, 0.0, 0.0};
+    ctx_p : mut vec3f = surf.p;
+    ctx_error : mut vec3f = surf.p_error;
+    if is_reflective(flags) && !is_transmissive(flags) {
+        ctx_p = offset_ray_origin(surf.p, surf.p_error, surf.n, wo);
+        ctx_error = no_error;
+    } else if is_transmissive(flags) && !is_reflective(flags) {
+        ctx_p = offset_ray_origin(surf.p, surf.p_error, surf.n, -wo);
+        ctx_error = no_error;
+    }
+    ctx : ShapeSampleContext = {ctx_p, ctx_error, surf.n, surf.ns};
+
+    // pbrt calls the context-taking overload of Sample here where `path_step`
+    // calls the one that takes only a number. For a uniform sampler they are
+    // the same function; for the BVH sampler pbrt defaults `path` to, they are
+    // not, which is why the difference is written down rather than smoothed
+    // over. See the refusal in scene_dump.cpp.
+    u = get_1d(sampler, state);
+    chosen = light_sampler_sample(ls, u);
+    u_light = get_2d(sampler, state);
+    if !chosen {
+        return zero;
+    }
+    picked = *chosen;
+    sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda);
+    if !sampled {
+        return zero;
+    }
+    lsample = *sampled;
+    if !nonzero(lsample.l) || (lsample.pdf == 0.0) {
+        return zero;
+    }
+
+    wi = lsample.wi;
+    wo_local = frame_to_local(shading, wo);
+    wi_local = frame_to_local(shading, wi);
+    f = material_f(mat, wo_local, wi_local, lambda, seed, regularize) *
+        abs(dot(wi, surf.ns));
+    if !nonzero(f) {
+        return zero;
+    }
+    // The shadow ray leaves from the surface itself, not from the nudged point
+    // above: the nudge is about where the light is *seen* from, and the ray
+    // still has to clear the geometry it started on.
+    if !unoccluded(surf.p, surf.p_error, surf.n, lsample.p_light,
+                   lsample.p_light_error, lsample.n_light) {
+        return zero;
+    }
+
+    p_l = picked.p * lsample.pdf;
+    if light_is_delta(lights[picked.light]) {
+        return lsample.l * f / p_l;
+    }
+    p_b = material_pdf(mat, wo_local, wi_local, lambda, seed, regularize);
+    return power_heuristic(1.0, p_l, 1.0, p_b) * lsample.l * f / p_l;
+}
+
+// pbrt: PathIntegrator::Li, which is the integrator every scene in `scenes/`
+// asks for and pbrt's own workhorse for a scene with no media in it.
+//
+// It is `simplepath` plus four things, and each of them is a way of not wasting
+// samples:
+//
+//   - multiple importance sampling, above and in the emission below, so that
+//     the light's estimator and the BSDF's are combined rather than chosen
+//     between;
+//   - Russian roulette, so that a path whose throughput has fallen away is
+//     killed at random instead of traced to the depth limit -- unbiased,
+//     because the survivors are scaled back up by the survival probability;
+//   - `eta_scale`, which undoes the radiance compression a refraction applies
+//     before roulette looks at the throughput, so that a path inside glass is
+//     not killed for being dim when what is dim is the units it is measured in;
+//   - regularization, optional and off by default, which widens a near-delta
+//     lobe after the first non-specular bounce so that an indirect path cannot
+//     land on a highlight and return a value a hundred times the mean.
+//
+// `p_b` and `prev_ctx` are what the MIS weight for emission needs: the density
+// the *previous* vertex chose this ray's direction with, and the point it chose
+// it from. They are carried rather than recomputed because neither is
+// recoverable from where the path is now.
+//
+// Tail-recursive, as `walk_step` and `path_step` are, and for the same reason:
+// what the schedule does with a path is the schedule's to decide.
+func full_path_step(ray : Ray, beta : vec4f, l : vec4f, depth : i32,
+                    specular_bounce : bool, any_non_specular : bool,
+                    eta_scale : Float, p_b : Float,
+                    prev_ctx : ShapeSampleContext,
+                    lambda : SampledWavelengths, sampler : Sampler,
+                    state : mut SamplerState, ls : LightSampler, seed : i32,
+                    max_depth : i32, regularize : bool) -> vec4f {
+    isect : option[Primitive] = trace(ray);
+    if !isect {
+        // pbrt weighs each infinite light's emission the same way the surface
+        // emission below is weighed. This app has no infinite light, so a ray
+        // that escapes carries nothing.
+        return l;
+    }
+    prim = *isect;
+    surf = surface_geometry(prim.shape, ray);
+    // Both of them, because pbrt uses both. `Li` writes
+    // `Vector3f wo = -ray.d` and hands *that* to `Le` and to `Sample_f`;
+    // `SampleLd` reads `intr.wo`, which Interaction's constructor normalized.
+    // The two differ in the last bit or two, and a layered BSDF's walk is
+    // seeded by hashing this vector -- so using one where pbrt uses the other
+    // gives a walk with different noise, which converges to the same picture
+    // and agrees with pbrt at no finite sample count. Not a distinction worth
+    // inventing; it is only here because pbrt has it.
+    wo = -ray.d;
+    wo_unit = unit_vector_(wo);
+
+    // pbrt: SurfaceInteraction::Le, and the MIS weight that goes with it. A
+    // camera ray and a ray that left a specular lobe found this light by the
+    // only means they had, so their estimate is the whole of it; any other ray
+    // could also have got here by sampling the light directly, and the two ways
+    // share the credit.
+    found : mut vec4f = l;
+    if prim.light >= 0 {
+        emitted = light_l(lights[max(prim.light, 0)], surf.n, wo, lambda);
+        if nonzero(emitted) {
+            if (depth == 0) || specular_bounce {
+                found = l + beta * emitted;
+            } else {
+                p_l = light_sampler_pmf(ls, prim.light) *
+                      light_pdf_li(lights[max(prim.light, 0)], prev_ctx, ray.d);
+                found = l + beta * power_heuristic(1.0, p_b, 1.0, p_l) *
+                            emitted;
+            }
+        }
+    }
+
+    // pbrt: GetBSDF, then Regularize, then the depth test. Regularizing shows
+    // up here as an argument rather than as a mutation, because a bonsai BSDF
+    // is a value: `material_flags` and everything below are asked about the
+    // widened lobe by being told to widen it.
+    do_regularize = regularize && any_non_specular;
+    if depth == max_depth {
+        return found;
+    }
+    next_depth = depth + 1;
+
+    shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
+    mat = materials[prim.material];
+    flags = material_flags(mat, lambda, do_regularize);
+
+    // Direct lighting, but only where there is a density to weigh it with. A
+    // purely specular surface would return zero from every term of it, so pbrt
+    // does not spend the shadow ray -- and, importantly, does not spend the
+    // three draws either.
+    if is_non_specular(flags) {
+        found = found + beta * path_sample_ld(mat, surf, shading, wo_unit,
+                                              flags, lambda, sampler, state, ls,
+                                              seed, do_regularize);
+    }
+
+    // And the path continues in whatever direction the surface chooses.
+    wo_local = frame_to_local(shading, wo);
+    uc = get_1d(sampler, state);
+    u = get_2d(sampler, state);
+    bs = material_sample_f(mat, wo_local, uc, u, lambda, seed, do_regularize);
+    if !bs {
+        return found;
+    }
+    sample = *bs;
+    if !nonzero(sample.f) || (sample.pdf == 0.0) || (sample.wi.z == 0.0) {
+        return found;
+    }
+    wi = frame_from_local(shading, sample.wi);
+    next_beta = beta * sample.f * abs(dot(wi, surf.ns)) / sample.pdf;
+
+    // A layered BSDF reports a density that is only proportional to the one it
+    // actually sampled from -- the entrance interface's rather than the whole
+    // stack's -- which is fine for its own estimator and useless as an MIS
+    // weight. So the real density is asked for, and asked for about the
+    // direction *after* its round trip through the shading frame, because that
+    // is the vector pbrt has in hand at this point.
+    next_p_b : mut Float = sample.pdf;
+    if sample.pdf_is_proportional {
+        next_p_b = material_pdf(mat, wo_local, frame_to_local(shading, wi),
+                                lambda, seed, do_regularize);
+    }
+
+    next_specular = is_specular(sample.flags);
+    next_any_ns = any_non_specular || !next_specular;
+    // pbrt: `etaScale *= Sqr(bs->eta)` on a transmission. Radiance is scaled by
+    // the square of the index ratio when it crosses into a denser medium, and
+    // roulette must not read that scaling as a path going dark.
+    next_eta_scale = select(is_transmissive(sample.flags),
+                            eta_scale * sqr(sample.eta), eta_scale);
+    next_ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, surf.ns};
+    next_ray = spawn_ray(surf, wi);
+
+    // pbrt: Russian roulette, after the ray is spawned and never at the first
+    // vertex -- `depth > 1` on the already-incremented depth. Killing a camera
+    // ray would put holes in the image for no saving worth having.
+    rr_beta = max(next_beta * next_eta_scale);
+    survived : mut vec4f = next_beta;
+    if (rr_beta < 1.0) && (next_depth > 1) {
+        q = max(0.0, 1.0 - rr_beta);
+        if get_1d(sampler, state) < q {
+            return found;
+        }
+        survived = next_beta / (1.0 - q);
+    }
+
+    return full_path_step(next_ray, survived, found, next_depth, next_specular,
+                          next_any_ns, next_eta_scale, next_p_b, next_ctx,
+                          lambda, sampler, state, ls, seed, max_depth,
+                          regularize);
+}
+
+// The entry point, which names the state a path starts with: full throughput,
+// no radiance, no scattering yet, and a previous vertex that does not exist --
+// `depth == 0` is what stops `prev_ctx` and `p_b` ever being read before one
+// does.
+func li_path(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
+             state : mut SamplerState, ls : LightSampler, seed : i32,
+             max_depth : i32, regularize : bool) -> vec4f {
+    origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
+                                   vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
+    return full_path_step(r0, vec4f{1.0, 1.0, 1.0, 1.0},
+                          vec4f{0.0, 0.0, 0.0, 0.0}, 0, false, false, 1.0, 0.0,
+                          origin, lambda, sampler, state, ls, seed, max_depth,
+                          regularize);
+}
+
 // pbrt: Integrator::Li, the dispatch itself -- one arm per integrator, which is
 // what pbrt's TaggedPointer does at a call site.
 func integrator_li(integrator : Integrator, r : Ray,
@@ -544,6 +829,9 @@ func integrator_li(integrator : Integrator, r : Ray,
         SimplePath(max_depth, ls) =>
             return li_simple_path(r, lambda, sampler, state, ls, seed,
                                   max_depth);
+        Path(max_depth, ls, regularize) =>
+            return li_path(r, lambda, sampler, state, ls, seed, max_depth,
+                           regularize);
     }
 }
 
@@ -551,17 +839,31 @@ func integrator_li(integrator : Integrator, r : Ray,
 // One flat loop over pixels rather than two nested ones, because the schedule
 // wants a single index to bind.
 //
-// Two outputs because pbrt's gbuffer film records several channels from one
+// Several outputs because pbrt's gbuffer film records several channels from one
 // render, and comparing only one of them was how a normal pointing the wrong
 // way went unnoticed for as long as it did.
 //
+// `weight_out` is pbrt's `Pixel::weightSum`, and it is an output because it has
+// to be: a filtered sample carries a weight, the channels are sums of weighted
+// samples, and what a pixel is divided by at the end is the sum of the weights
+// and not the number of them. It is per pixel because the weights are -- each
+// sample draws its own jitter, so no two pixels sum to the same thing.
+//
 // The film has no size on it: the caller owns the allocation, and how many
 // pixels there are is the resolution, which is already here.
+//
+// `disable_pixel_jitter` is pbrt's option of that name, threaded rather than
+// baked because it is what a comparison turns off to ask a question about the
+// geometry alone -- with it set, every sample of a pixel traces the identical
+// ray and a difference in the image can only be a difference in the scene.
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
-                       sampler : Sampler, integrator : Integrator, seed : i32,
+                       sampler : Sampler, integrator : Integrator,
+                       pixel_filter : Filter, seed : i32,
+                       disable_pixel_jitter : bool,
                        normal_out : mut array[vec3f],
                        albedo_out : mut array[vec3f],
-                       radiance_out : mut array[vec3f]) -> void {
+                       radiance_out : mut array[vec3f],
+                       weight_out : mut array[Float]) -> void {
     spp = samples_per_pixel(sampler);
     parfor p in 0u:(width * height) {
         i = p % width;
@@ -570,6 +872,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
         normal_out[p] = vec3f{0.0, 0.0, 0.0};
         albedo_out[p] = vec3f{0.0, 0.0, 0.0};
         radiance_out[p] = vec3f{0.0, 0.0, 0.0};
+        weight_out[p] = 0.0;
 
         // The samples of a pixel are a parfor and an atomic accumulate, not a
         // sequential loop, because a sequential loop cannot be scheduled: the
@@ -592,35 +895,35 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // uniform.
             lambda = sample_wavelengths_visible(get_1d(sampler, state));
 
-            // pbrt: GetCameraSample, draws and all.
-            //
-            // The three draws happen and their results are thrown away, which
-            // is what pbrt does: it samples the filter, the time and the lens
-            // and *then* overwrites all three when --disable-pixel-jitter is
-            // set. Skipping them instead leaves the sampler three draws behind
-            // pbrt's for everything that comes after -- which is invisible in a
-            // gbuffer, where nothing else draws, and is the whole difference in
-            // a render, where the walk's every scattering direction comes from
-            // the stream. Two estimators of the same integral that consume
-            // different numbers agree on their average and on nothing else.
-            //
-            // The filter is not sampled from `pixel_u` yet: with the jitter off
-            // its result is discarded, so what matters here is that the draw
-            // happened. Turning the jitter on is what makes it matter, and
-            // needs pbrt's gaussian filter.
+            // pbrt: GetCameraSample. The filter is sampled first, then the time,
+            // then the lens, and all three draws happen whether or not their
+            // results are used -- pbrt overwrites the filter's *after* drawing
+            // it when --disable-pixel-jitter is set. Skipping a draw instead
+            // would leave the sampler out of step with pbrt's for everything
+            // after it, which is invisible in a gbuffer and is the whole
+            // difference in a render.
             pixel_u = get_pixel_2d(sampler, state);
+            fs = filter_sample(pixel_filter, pixel_u);
+            // pbrt: `fs.p = Point2f(0, 0); fs.weight = 1;` under the option --
+            // applied to the sample and not to the draw.
+            jitter = select(disable_pixel_jitter, vec2f{0.0, 0.0}, fs.p);
+            weight = select(disable_pixel_jitter, 1.0, fs.weight);
             time_u = get_1d(sampler, state);
             lens_u = get_2d(sampler, state);
+            // pbrt: `cs.pFilm = pPixel + Vector2f(0.5, 0.5) + fs.p`, and the
+            // time and lens as drawn. The two were fixed constants here while
+            // the jitter was off; they reach the camera now because pbrt hands
+            // them over, and a camera with a lens or a shutter would read them.
             sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
-                                        cast[[Float]](j) + 0.5},
-                                  vec2f{0.5, 0.5}, 0.5, 1.0};
+                                        cast[[Float]](j) + 0.5} + jitter,
+                                  lens_u, time_u, weight};
             ray = generate_ray(camera, sample);
 
             found = visible_surface(ray, lambda, seed);
             if found {
                 surface = *found;
-                atomic normal_out[p] += surface.n;
-                atomic albedo_out[p] += surface.albedo;
+                atomic normal_out[p] += weight * surface.n;
+                atomic albedo_out[p] += weight * surface.albedo;
             }
 
             // The radiance, which is the render. Traced from the same ray as
@@ -629,13 +932,33 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // sample and the visible surface is filled in along the way.
             radiance = integrator_li(integrator, ray, lambda, sampler, state,
                                      seed);
-            atomic radiance_out[p] += radiance_to_rgb(radiance, lambda);
+            atomic radiance_out[p] += weight * radiance_to_rgb(radiance, lambda);
+            // pbrt: `p.weightSum += weight`, outside the visible-surface test.
+            // Every sample counts towards what the pixel is divided by, even
+            // one that hit nothing -- which is what makes a pixel on a
+            // silhouette come out darker rather than as bright as its
+            // neighbour.
+            atomic weight_out[p] += weight;
         }
 
-        inv = 1.0 / cast[[Float]](spp);
-        normal_out[p] = normal_out[p] * inv;
-        albedo_out[p] = albedo_out[p] * inv;
-        radiance_out[p] = radiance_out[p] * inv;
+        // pbrt: GBufferFilm::GetImage. The normal is *normalized* and not
+        // averaged -- a direction has no magnitude to average, and a pixel
+        // straddling an edge would otherwise report the short vector two
+        // opposed normals sum to. The colours are divided by the whole weight.
+        //
+        // The two were the same thing while the jitter was off, since every
+        // sample of a pixel then found the same surface and the sum was one
+        // normal repeated. They are not the same thing now.
+        if sqlen_(normal_out[p]) > 0.0 {
+            normal_out[p] = unit_vector_(normal_out[p]);
+        } else {
+            normal_out[p] = vec3f{0.0, 0.0, 0.0};
+        }
+        w = weight_out[p];
+        if w != 0.0 {
+            albedo_out[p] = albedo_out[p] / w;
+            radiance_out[p] = radiance_out[p] / w;
+        }
     }
     return;
 }
@@ -697,6 +1020,8 @@ schedule {
     // now, a queue of suspended paths advanced together later -- is this
     // block's to decide.
     walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
 
     render.bind(p, CPUThread);
 }

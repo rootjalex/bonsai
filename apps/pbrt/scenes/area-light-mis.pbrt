@@ -1,0 +1,84 @@
+# The same scene as area-light-path, rendered by the integrator that weighs its
+# two estimators against each other.
+#
+# It is a copy on purpose. `area-light.pbrt` renders this geometry with a random
+# walk, `area-light-path.pbrt` with `simplepath`, and this with `path`; the
+# three differ only in the integrator line, so a disagreement between them is a
+# disagreement about transport and about nothing else. Six of the other scenes
+# here also say `Integrator "path"`, but none of them has an emitter, so none of
+# them reaches multiple importance sampling, Russian roulette, or a BSDF asked
+# for the density it would have chosen a direction with. This one reaches all
+# three.
+#
+# One light, which is what lets the comparison run at all: pbrt's `path`
+# defaults to its BVH light sampler and this renderer has the uniform one, and
+# the two are the same function over a single non-infinite light. scene_dump
+# refuses a scene where they would not be. See the note there.
+#
+# `maxdepth` is pbrt's default of five, left unwritten in area-light-path and
+# written here because Russian roulette only exists below the depth limit --
+# a path that always runs to its limit never reaches the roulette.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "rgb"
+    "string filename" [ "area-light.exr" ]
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The emitter: big and near, so that the light-sampling and BSDF-sampling
+# estimators are both worth something and the MIS weight between them is not
+# nearly zero or nearly one everywhere.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# The floor, which is what most of the image is.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A coateddiffuse sphere. This is the one that makes the scene worth having:
+# a layered BSDF reports a density only proportional to the one it sampled
+# from, so the integrator has to go back and ask `LayeredBxDF::PDF` -- a third
+# random walk, with its own seeding and its own draw order, which nothing
+# before `path` ever called.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# And a plain diffuse one beside it, for the same reason in reverse: the two
+# materials are lit by the same light in the same image, so a mistake in one
+# shows against the other.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
