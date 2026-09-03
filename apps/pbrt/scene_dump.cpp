@@ -1960,6 +1960,15 @@ void load(const char *filename, bonsai_scene::Scene &out,
                 bonsai_scene::Shape shape;
                 shape.tag = bonsai_scene::ShapeTag::Triangle;
                 shape.mesh = mesh_index;
+                if (light >= 0) {
+                    // A mesh that emits needs Triangle::Sample, which is
+                    // pbrt's spherical-triangle sampling. Its area-sampled
+                    // fallback is a different estimator, so standing that in
+                    // would render an image that is unbiased, plausible, and
+                    // not pbrt's -- which no comparison could tell from a bug.
+                    fail("an area light on a mesh is not supported yet: only a "
+                         "sphere can be sampled towards");
+                }
                 shape.tri = uint32_t(i);
                 shape.material = material;
                 shape.light = light;

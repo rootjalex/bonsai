@@ -60,8 +60,6 @@ element AreaLight {
     two_sided : bool;
 }
 
-extern lights : array[AreaLight];
-
 // pbrt: DiffuseAreaLight::L, which is what SurfaceInteraction::Le calls.
 //
 // `n` is the geometric normal as the shape gives it and `w` points back the way
@@ -76,6 +74,126 @@ func area_light_l(light : AreaLight, n : vec3f, w : vec3f,
     }
     return light.scale * spectrum_at(light.l, lambda) *
            spectrum_at_dense(illuminant_d65, lambda);
+}
+
+// pbrt: LightLiSample -- a direction towards a light, what arrives along it,
+// and the density it was chosen with.
+//
+// `p_light` and `n_light` are the point on the light, which the caller needs to
+// aim a shadow ray at: the ray has to stop just short of the surface rather
+// than run to infinity, or the light occludes itself.
+element LightLiSample {
+    l : vec4f;
+    wi : vec3f;
+    pdf : Float;
+    p_light : vec3f;
+    p_light_error : vec3f;
+    n_light : vec3f;
+}
+
+// pbrt: Light, which is a TaggedPointer over nine kinds. A variant here, for
+// the same reason Integrator is: `match` is how this app spells a vtable.
+//
+// One kind so far, and it is the one killeroo-simple has. The others go in as
+// their own arms -- `UniformInfinite` needs no shape and would be the next --
+// and `light_sample_li` grows an arm rather than the callers growing a branch.
+element Light =
+    | DiffuseArea(area : AreaLight, shape : Shape);
+
+// pbrt: the scene's lights, one per emissive shape -- which is what pbrt's
+// `std::vector<Light>` is. A primitive names one by index, as it names a
+// material.
+extern lights : array[Light];
+
+// pbrt: Light::L, which SurfaceInteraction::Le reaches through the light rather
+// than through the area light directly. An arm per kind, and only the ones that
+// are surfaces have an `L` at all -- an infinite light answers `Le(ray)` and
+// never this.
+func light_l(light : Light, n : vec3f, w : vec3f,
+             lambda : SampledWavelengths) -> vec4f {
+    match light {
+        DiffuseArea(area, shape) => return area_light_l(area, n, w, lambda);
+    }
+}
+
+// pbrt: Light::SampleLi. Choose a point on the light as seen from `ctx`, and
+// report what it sends back along the direction that reaches it.
+//
+// Thin, because the work is in the shape: sampling a light *is* sampling its
+// geometry towards a point, and the light only decides what the point emits.
+func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
+                     lambda : SampledWavelengths) -> option[LightLiSample] {
+    match light {
+        DiffuseArea(area, shape) => {
+            found = shape_sample(shape, ctx, u);
+            if !found {
+                return {};
+            }
+            ss = *found;
+            if (ss.pdf == 0.0) || (sqlen[[Float]](ss.p - ctx.p) == 0.0) {
+                return {};
+            }
+            wi = unit_vector_(ss.p - ctx.p);
+            // The light is asked what it emits *towards the viewer*, which is
+            // -wi: `wi` points from the surface to the light.
+            emitted = area_light_l(area, ss.n, -wi, lambda);
+            if !nonzero(emitted) {
+                return {};
+            }
+            s : LightLiSample = {emitted, wi, ss.pdf, ss.p, ss.p_error, ss.n};
+            return s;
+        }
+    }
+}
+
+// pbrt: Light::PDF_Li, the density `light_sample_li` draws `wi` with. What MIS
+// weighs the light's estimator against the BSDF's with.
+func light_pdf_li(light : Light, ctx : ShapeSampleContext,
+                  wi : vec3f) -> Float {
+    match light {
+        DiffuseArea(area, shape) => return shape_pdf(shape, ctx, wi);
+    }
+}
+
+// pbrt: SampledLight -- which light was chosen and with what probability.
+element SampledLight {
+    light : i32;
+    p : Float;
+}
+
+// pbrt: LightSampler, another TaggedPointer and so another variant. Uniform is
+// the one pbrt falls back to and the only one worth having while every scene
+// here has a single light; `Power` and `BVH` are the arms that follow, and they
+// differ only in how `light_sampler_sample` picks.
+element LightSampler =
+    | UniformLights(num : i32);
+
+// pbrt: UniformLightSampler::Sample. One draw picks a light, and every light is
+// equally likely -- which is exactly right for one light and increasingly poor
+// for many, which is what the other samplers exist to fix.
+//
+// `min` because a `u` of exactly one would index off the end. pbrt guards it
+// the same way rather than assuming the sampler never returns it.
+func light_sampler_sample(ls : LightSampler, u : Float) -> option[SampledLight] {
+    match ls {
+        UniformLights(num) => {
+            if num == 0 {
+                return {};
+            }
+            index = min(cast[[i32]](u * cast[[Float]](num)), num - 1);
+            s : SampledLight = {index, 1.0 / cast[[Float]](num)};
+            return s;
+        }
+    }
+}
+
+// pbrt: LightSampler::PMF, the probability `light_sampler_sample` would have
+// chosen this light. The other half of the MIS weight.
+func light_sampler_pmf(ls : LightSampler, light : i32) -> Float {
+    match ls {
+        UniformLights(num) =>
+            return select(num == 0, 0.0, 1.0 / cast[[Float]](num));
+    }
 }
 
 element Primitive {
@@ -266,8 +384,8 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
     // pbrt: SurfaceInteraction::Le. The emission of the surface the ray landed
     // on, which for a random walk is the only way light is ever found.
     emitted = select(prim.light >= 0,
-                     beta * area_light_l(lights[max(prim.light, 0)], surf.n, wo,
-                                         lambda),
+                     beta * light_l(lights[max(prim.light, 0)], surf.n, wo,
+                                    lambda),
                      vec4f{0.0, 0.0, 0.0, 0.0});
     found = l + emitted;
 

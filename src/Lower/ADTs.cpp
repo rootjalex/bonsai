@@ -58,7 +58,18 @@ struct RewriteADTs : public Mutator {
     Type mutate(const Type &type) override {
         Type rec = Mutator::mutate(type);
         if (rec.is<ADT_t>()) {
-            return layout_of(rec).storage;
+            // The storage rewritten in turn, not as the layout recorded it.
+            // Layouts are chosen from the program's types before any of them
+            // change, so a variant that holds another variant type still names
+            // it -- `Light`'s storage holds a `DiffuseArea` holding a `Shape`,
+            // and a `tagged_index` Shape is a `u64`. Returning the recorded
+            // storage gives two structs with one name and different fields,
+            // which surfaces much later as `Light vs Light`.
+            //
+            // This terminates because a variant type cannot contain itself:
+            // the recursion is over the *contents* of the storage, and each
+            // step strips one ADT away.
+            return mutate(layout_of(rec).storage);
         }
         return rec;
     }
@@ -221,13 +232,19 @@ struct RewriteADTs : public Mutator {
                 Var::make(found->second->call_type(), fname), std::move(args));
         }
 
+        // The layouts were chosen from the program's types before any of them
+        // were rewritten, so a variant that holds *another* variant type still
+        // names it. `Light::DiffuseArea` holds a `Shape`, and a `Shape` under
+        // `tagged_index` is a `u64`; building the one from the other without
+        // this is a struct whose field types disagree with its values.
         std::vector<Expr> whole;
         whole.push_back(
             UIntImm::make(layout.tag_type, layout.tag(node->variant)));
         whole.push_back(UnionOf::make(
-            layout.payload, node->variant,
-            Build::make(layout.variant(node->variant), std::move(args))));
-        return Build::make(layout.storage, std::move(whole));
+            mutate(layout.payload), node->variant,
+            Build::make(mutate(layout.variant(node->variant)),
+                        std::move(args))));
+        return Build::make(mutate(layout.storage), std::move(whole));
     }
 
     // A match becomes a test per arm, in the order they were written.
@@ -520,12 +537,17 @@ ir::Program LowerADTs::run(ir::Program program,
         type = rewriter.mutate(std::move(type));
     }
     // The types the layouts introduced. Added after the program's own have
-    // been rewritten, so that rewriting does not walk over them.
+    // been rewritten, so that rewriting does not walk over them -- but the
+    // layouts themselves were built from the types as they were *found*, so a
+    // variant naming another variant type still names it here. Rewriting each
+    // as it is registered is what makes `Light::DiffuseArea` hold the `u64` a
+    // `tagged_index` Shape actually is rather than the `Shape` it was.
     for (const auto &[name, layout] : layouts) {
         for (const Type &variant : layout.variants) {
-            program.types[variant.as<Struct_t>()->name] = variant;
+            program.types[variant.as<Struct_t>()->name] =
+                rewriter.mutate(variant);
         }
-        program.types[name] = layout.storage;
+        program.types[name] = rewriter.mutate(layout.storage);
     }
 
     for (auto &[fname, func] : program.funcs) {

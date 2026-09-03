@@ -678,8 +678,13 @@ int main(int argc, char **argv) {
     // twice its largest component and the scale carries that factor back:
     // pbrt's RGBIlluminantSpectrum is a fit scaled to fit inside the sigmoid,
     // multiplied by the colour space's own illuminant.
-    std::vector<AreaLight> lights;
-    lights.reserve(loaded.lights.size());
+    // The emission of each light the scene declared, with L fitted the same way
+    // every other spectrum is. An illuminant rather than an albedo, which is
+    // why the fit is of L divided by twice its largest component and the scale
+    // carries that factor back: pbrt's RGBIlluminantSpectrum is a fit scaled to
+    // fit inside the sigmoid, multiplied by the colour space's own illuminant.
+    std::vector<AreaLight> emission;
+    emission.reserve(loaded.lights.size());
     for (const bonsai_scene::Light &l : loaded.lights) {
         const float m = std::max({l.l[0], l.l[1], l.l[2]});
         const float rsp_scale = 2.f * m;
@@ -690,7 +695,30 @@ int main(int argc, char **argv) {
         out_light.l = SigmoidPolynomial{c.c0, c.c1, c.c2};
         out_light.scale = l.scale * rsp_scale;
         out_light.two_sided = l.two_sided != 0;
-        lights.push_back(out_light);
+        emission.push_back(out_light);
+    }
+
+    // One `Light` per emissive *shape*, which is what pbrt builds: a light has
+    // to know the geometry it sits on, because sampling one is sampling that
+    // geometry towards a point. A scene's `AreaLightSource` directive can cover
+    // many shapes -- every triangle of a mesh -- and each becomes its own light.
+    //
+    // Built here rather than beside the emission above because the shape handle
+    // is what the Light holds, and the handles are made in the loop below.
+    // The index is read off the Primitive rather than off `loaded.shapes`,
+    // because by now the BVH build has reordered them and the two no longer
+    // correspond. And it happens after `compact_pools`, which rewrites every
+    // shape handle: a Light holds one, and a stale one would name whatever
+    // moved into that slot.
+    std::vector<Light> lights;
+    for (Primitive &prim : shapes) {
+        if (prim.light < 0) {
+            continue;
+        }
+        Light light;
+        Light_DiffuseArea(light, emission[size_t(prim.light)], prim.shape);
+        prim.light = int32_t(lights.size());
+        lights.push_back(light);
     }
 
     // The integrator the scene named, built through the constructor the
