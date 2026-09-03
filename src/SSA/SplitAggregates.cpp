@@ -416,6 +416,75 @@ SplitResult split_aggregates(Function &func, const string &entry,
                                fix(a);
                            }
                        },
+                       [&](Terminator::MultiCall &t) {
+                           // As for Call, plus one thing to keep straight:
+                           // splitting an argument into components moves every
+                           // argument after it, so the varying positions have
+                           // to be remapped, and each varying value has to
+                           // split into as many components as the placeholder
+                           // it stands in for -- otherwise one call in the run
+                           // would hand the callee a different number of
+                           // arguments than another.
+                           vector<shared_ptr<Value>> flattened;
+                           vector<uint32_t> shape;
+                           vector<size_t> new_at(t.call.args.size());
+                           vector<size_t> width(t.call.args.size());
+                           for (size_t i = 0; i < t.call.args.size(); i++) {
+                               auto &a = t.call.args[i];
+                               fix(a);
+                               new_at[i] = flattened.size();
+                               if (const Components *split =
+                                       splitter.components_of(*a)) {
+                                   for (const auto &part : *split) {
+                                       flattened.push_back(part);
+                                   }
+                                   shape.push_back(uint32_t(split->size()));
+                                   width[i] = split->size();
+                               } else {
+                                   flattened.push_back(a);
+                                   shape.push_back(1);
+                                   width[i] = 1;
+                               }
+                           }
+                           t.call.args = std::move(flattened);
+                           result.call_shapes[name] = std::move(shape);
+
+                           vector<size_t> varying_at;
+                           for (const size_t old : t.varying_at) {
+                               for (size_t j = 0; j < width[old]; j++) {
+                                   varying_at.push_back(new_at[old] + j);
+                               }
+                           }
+                           for (auto &vs : t.varying) {
+                               vector<shared_ptr<Value>> flat;
+                               for (size_t k = 0; k < vs.size(); k++) {
+                                   fix(vs[k]);
+                                   const size_t old = t.varying_at[k];
+                                   const Components *split =
+                                       splitter.components_of(*vs[k]);
+                                   const size_t parts =
+                                       split ? split->size() : 1;
+                                   internal_assert(parts == width[old])
+                                       << "A varying value splits into "
+                                       << parts << " components but the "
+                                       << "argument it replaces splits into "
+                                       << width[old];
+                                   if (split) {
+                                       for (const auto &part : *split) {
+                                           flat.push_back(part);
+                                       }
+                                   } else {
+                                       flat.push_back(vs[k]);
+                                   }
+                               }
+                               vs = std::move(flat);
+                           }
+                           t.varying_at = std::move(varying_at);
+
+                           for (auto &a : t.cont.args) {
+                               fix(a);
+                           }
+                       },
                    },
                    block->terminator.data);
     }

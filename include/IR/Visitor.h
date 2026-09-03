@@ -70,6 +70,7 @@ struct Visitor {
     virtual void visit(const AtomicAdd *);
     // Stmts
     virtual void visit(const CallStmt *);
+    virtual void visit(const MultiRecurse *);
     virtual void visit(const Print *);
     virtual void visit(const Return *);
     virtual void visit(const LetStmt *);

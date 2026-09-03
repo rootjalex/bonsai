@@ -96,6 +96,9 @@ void collect_argument_flows(const Block &block,
                        // arguments, so the explicitly passed ones start at 1.
                        add(c.cont, c.drop ? 0 : 1);
                    },
+                   [&](const Terminator::MultiCall &c) {
+                       add(c.cont, c.drop ? 0 : 1);
+                   },
                },
                block.terminator.data);
 }

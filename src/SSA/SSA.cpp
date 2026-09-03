@@ -365,8 +365,81 @@ void Terminator::dump(std::ostream &os) const {
                        os << " ";
                        dump_target(os, c.cont);
                    },
+                   [&](const MultiCall &c) {
+                       os << "multicall";
+                       if (!c.drop) {
+                           os << "c";
+                       }
+                       os << " ";
+                       dump_target(os, c.call);
+                       os << " from {";
+                       for (size_t i = 0; i < c.varying.size(); i++) {
+                           os << (i ? ", (" : " (");
+                           for (size_t k = 0; k < c.varying[i].size(); k++) {
+                               if (k) {
+                                   os << ", ";
+                               }
+                               c.varying[i][k]->dump(os);
+                           }
+                           os << ")";
+                       }
+                       os << " } at {";
+                       for (size_t i = 0; i < c.varying_at.size(); i++) {
+                           os << (i ? ", " : " ") << c.varying_at[i];
+                       }
+                       os << " } ";
+                       dump_target(os, c.cont);
+                   },
                },
                data);
+}
+
+const Terminator::Jump *Terminator::callee() const {
+    if (const auto *c = std::get_if<Call>(&data)) {
+        return &c->call;
+    }
+    if (const auto *c = std::get_if<MultiCall>(&data)) {
+        return &c->call;
+    }
+    return nullptr;
+}
+
+Terminator::Jump *Terminator::callee() {
+    if (auto *c = std::get_if<Call>(&data)) {
+        return &c->call;
+    }
+    if (auto *c = std::get_if<MultiCall>(&data)) {
+        return &c->call;
+    }
+    return nullptr;
+}
+
+const Terminator::Jump *Terminator::continuation() const {
+    if (const auto *c = std::get_if<Call>(&data)) {
+        return &c->cont;
+    }
+    if (const auto *c = std::get_if<MultiCall>(&data)) {
+        return &c->cont;
+    }
+    if (const auto *p = std::get_if<ParFor>(&data)) {
+        return &p->cont;
+    }
+    return nullptr;
+}
+
+std::vector<std::shared_ptr<Value>>
+Terminator::MultiCall::call_args(size_t c) const {
+    internal_assert(c < varying.size())
+        << "MultiCall::call_args asked for call " << c << " of "
+        << varying.size();
+    std::vector<std::shared_ptr<Value>> result = call.args;
+    for (size_t k = 0; k < varying_at.size(); k++) {
+        internal_assert(varying_at[k] < result.size())
+            << "MultiCall varying position " << varying_at[k]
+            << " is past the end of a " << result.size() << "-argument call";
+        result[varying_at[k]] = varying[c][k];
+    }
+    return result;
 }
 
 void Block::make_instruction(const std::string &name, Type type,
@@ -525,6 +598,20 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
                               c.call.args.push_back(p->get_value(name, type));
                           } else if (c.cont.name == this->name) {
                               // Recursively adds to parent block.
+                              c.cont.args.push_back(p->get_value(name, type));
+                          } else {
+                              p->dump(std::cerr);
+                              internal_error << this->name
+                                             << " lists predecessor ^ that "
+                                                "does not point to it.";
+                          }
+                      },
+                      [&](Terminator::MultiCall &c) {
+                          // Appending is safe for the varying positions, which
+                          // index the leading arguments.
+                          if (c.call.name == this->name) {
+                              c.call.args.push_back(p->get_value(name, type));
+                          } else if (c.cont.name == this->name) {
                               c.cont.args.push_back(p->get_value(name, type));
                           } else {
                               p->dump(std::cerr);

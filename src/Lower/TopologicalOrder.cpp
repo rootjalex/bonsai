@@ -89,6 +89,25 @@ struct CallGraphBuilder : public ir::Visitor {
             a.accept(this);
         }
     }
+
+    void visit(const ir::MultiRecurse *node) override {
+        internal_assert(!in_call)
+            << "Nested call, how can that happen?" << node;
+        in_call = true;
+        node->func.accept(this);
+        internal_assert(in_call)
+            << "Somehow un-nested call, how can that happen?" << node;
+        in_call = false;
+
+        for (const auto &a : node->args) {
+            a.accept(this);
+        }
+        for (const auto &vs : node->varying) {
+            for (const auto &v : vs) {
+                v.accept(this);
+            }
+        }
+    }
 };
 
 } // namespace

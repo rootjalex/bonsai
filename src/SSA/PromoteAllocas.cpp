@@ -59,6 +59,10 @@ vector<std::pair<Terminator::Jump *, size_t>> jumps(Block &block) {
                        result.push_back({&c.call, 0});
                        result.push_back({&c.cont, c.drop ? size_t(0) : 1});
                    },
+                   [&](Terminator::MultiCall &c) {
+                       result.push_back({&c.call, 0});
+                       result.push_back({&c.cont, c.drop ? size_t(0) : 1});
+                   },
                },
                block.terminator.data);
     return result;
@@ -88,6 +92,19 @@ vector<shared_ptr<Value>> terminator_uses(const Block &block) {
             [&](const Terminator::Call &c) {
                 for (const auto &a : c.call.args) {
                     uses.push_back(a);
+                }
+            },
+            [&](const Terminator::MultiCall &c) {
+                for (const auto &a : c.call.args) {
+                    uses.push_back(a);
+                }
+                // Every varying value is handed to the callee too, in one of
+                // the calls, so an allocation appearing among them escapes
+                // just as much as one in the shared arguments.
+                for (const auto &vs : c.varying) {
+                    for (const auto &a : vs) {
+                        uses.push_back(a);
+                    }
                 }
             },
         },

@@ -85,6 +85,36 @@ void append_store(const shared_ptr<Block> &block, shared_ptr<Value> dest,
         vector<shared_ptr<Value>>{std::move(dest), std::move(v)}, block));
 }
 
+// What a block's terminator calls, if it calls at all: one argument list per
+// call it makes, and the continuation reached after all of them.
+//
+// A Call makes one call and a MultiCall makes as many as the `from` it came
+// from had branches. Everything below works off this rather than off the
+// terminator, because the only thing here that cares about the difference is
+// the stack pushing, which does it once per entry.
+struct RecursiveCall {
+    string callee;
+    vector<vector<shared_ptr<Value>>> args; // one per call, in visit order
+    Terminator::Jump cont;
+    bool drop;
+};
+
+std::optional<RecursiveCall> called_by(const Block &block) {
+    if (const auto *c = std::get_if<Terminator::Call>(&block.terminator.data)) {
+        return RecursiveCall{c->call.name, {c->call.args}, c->cont, c->drop};
+    }
+    if (const auto *c =
+            std::get_if<Terminator::MultiCall>(&block.terminator.data)) {
+        vector<vector<shared_ptr<Value>>> args;
+        args.reserve(c->varying.size());
+        for (size_t i = 0; i < c->varying.size(); i++) {
+            args.push_back(c->call_args(i));
+        }
+        return RecursiveCall{c->call.name, std::move(args), c->cont, c->drop};
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 void queue_recursion(Function &func, size_t size) {
@@ -97,9 +127,8 @@ void queue_recursion(Function &func, size_t size) {
         const BlockMap blocks = make_block_map(func);
         for (const string &name :
              reachable_from(entry_name, compute_successors(func))) {
-            const auto *call = std::get_if<Terminator::Call>(
-                &blocks.at(name)->terminator.data);
-            if (call != nullptr && call->call.name == entry_name) {
+            const auto call = called_by(*blocks.at(name));
+            if (call && call->callee == entry_name) {
                 recursive.insert(name);
             }
         }
@@ -122,15 +151,16 @@ void queue_recursion(Function &func, size_t size) {
     {
         const BlockMap blocks = make_block_map(func);
         for (const string &name : recursive) {
-            const auto &call =
-                std::get<Terminator::Call>(blocks.at(name)->terminator.data);
-            internal_assert(call.call.args.size() == params.size())
-                << "Recursive call in " << name << " passes "
-                << call.call.args.size() << " arguments to a function taking "
-                << params.size();
-            for (size_t i = 0; i < params.size(); i++) {
-                varies[i] = varies[i] || !is_named_argument(*call.call.args[i],
-                                                            params[i].name);
+            const auto call = called_by(*blocks.at(name));
+            internal_assert(call);
+            for (const auto &args : call->args) {
+                internal_assert(args.size() == params.size())
+                    << "Recursive call in " << name << " passes " << args.size()
+                    << " arguments to a function taking " << params.size();
+                for (size_t i = 0; i < params.size(); i++) {
+                    varies[i] = varies[i] ||
+                                !is_named_argument(*args[i], params[i].name);
+                }
             }
         }
     }
@@ -148,12 +178,12 @@ void queue_recursion(Function &func, size_t size) {
         const BlockMap blocks = make_block_map(func);
         const AdjacencyMap succs = compute_successors(func);
         for (const string &name : recursive) {
-            const auto &call =
-                std::get<Terminator::Call>(blocks.at(name)->terminator.data);
-            internal_assert(call.drop)
+            const auto call = called_by(*blocks.at(name));
+            internal_assert(call);
+            internal_assert(call->drop)
                 << "The recursive call in " << name << " keeps its result, "
                 << "which a deferred call has not got";
-            for (const string &after : reachable_from(call.cont.name, succs)) {
+            for (const string &after : reachable_from(call->cont.name, succs)) {
                 const Block &block = *blocks.at(after);
                 for (const auto &instr : block.instrs) {
                     internal_assert(instr->op != Instruction::Op::Store &&
@@ -164,12 +194,10 @@ void queue_recursion(Function &func, size_t size) {
                         << "happens after the recursive call in " << name
                         << ", which would be deferred past it";
                 }
-                const auto *other =
-                    std::get_if<Terminator::Call>(&block.terminator.data);
-                internal_assert(other == nullptr ||
-                                other->call.name == entry_name)
+                const auto other = called_by(block);
+                internal_assert(!other || other->callee == entry_name)
                     << "Cannot put the recursion of " << entry_name
-                    << " on a stack: " << after << " calls " << other->call.name
+                    << " on a stack: " << after << " calls " << other->callee
                     << " after the recursive call in " << name
                     << ", which would be deferred past it";
             }
@@ -288,23 +316,38 @@ void queue_recursion(Function &func, size_t size) {
     const BlockMap blocks = make_block_map(func);
     for (const string &name : recursive) {
         auto block = blocks.at(name);
-        const auto call = std::get<Terminator::Call>(block->terminator.data);
+        const auto call = called_by(*block);
+        internal_assert(call);
 
-        // Write down what the call would have been, on top of the stack.
-        auto top =
-            append(func, block, count_type, Instruction::Op::Load, {count});
-        for (const Stack &stack : stacks) {
-            auto slot =
-                append(func, block, Ptr_t::make(params[stack.param].type),
-                       Instruction::Op::GEP, {stack.storage, top});
-            append_store(block, slot, call.call.args[stack.param]);
+        // Write down what each call would have been, on top of the stack.
+        //
+        // In reverse, because the stack is last-in-first-out and `args` is in
+        // visit order: pushing the first call last leaves it on top, so it is
+        // the one the next pop takes. That is what makes `from (a, b)` mean
+        // "visit a, then b" -- and it is what a sort() before this is relying
+        // on, since a sort orders `args` by its key and expects the traversal
+        // to follow that order.
+        //
+        // The old lowering had no say in this. It made one Call per branch in
+        // a chain of blocks, so each pushed in turn and the *last* branch came
+        // off the stack first -- `from (a, b)` visited b before a, and there
+        // was nothing at this level that could have said otherwise.
+        for (size_t i = call->args.size(); i-- > 0;) {
+            auto top =
+                append(func, block, count_type, Instruction::Op::Load, {count});
+            for (const Stack &stack : stacks) {
+                auto slot =
+                    append(func, block, Ptr_t::make(params[stack.param].type),
+                           Instruction::Op::GEP, {stack.storage, top});
+                append_store(block, slot, call->args[i][stack.param]);
+            }
+            append_store(block, count,
+                         append(func, block, count_type, Instruction::Op::Add,
+                                {top, count_of(1)}));
         }
-        append_store(block, count,
-                     append(func, block, count_type, Instruction::Op::Add,
-                            {top, count_of(1)}));
 
-        // ...and carry straight on to what came after it.
-        block->terminator.data = call.cont;
+        // ...and carry straight on to what came after them.
+        block->terminator.data = call->cont;
     }
 
     // Returning from a visit is the end of that node, not of the traversal.

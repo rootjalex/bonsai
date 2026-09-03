@@ -110,18 +110,31 @@ struct RewriteMutables : public ir::Mutator {
         const bool by_ptr = callee_takes_structs_by_ptr(func);
 
         for (size_t i = 0; i < n; i++) {
-            ir::Expr arg = mutate(args[i]);
-            if ((func_t->arg_types[i].is_mutable ||
-                 func_t->arg_types[i].type.is<ir::Ptr_t>() ||
-                 (by_ptr && func_t->arg_types[i].type.is<ir::Struct_t>())) &&
-                !arg.type().is<ir::Ptr_t>() && !arg.type().is_reference()) {
-                arg = ir::PtrTo::make(std::move(arg));
-                ret.rewrote_mut = true;
-            }
+            ir::Expr arg = mutate_arg(func_t, i, by_ptr, args[i],
+                                      ret.rewrote_mut);
             ret.changed = ret.changed || !arg.same_as(args[i]);
             ret.args.emplace_back(std::move(arg));
         }
         return ret;
+    }
+
+    // One argument, rewritten for the parameter it is passed to. Split out of
+    // the loop above because a MultiRecurse rewrites its varying values one at
+    // a time, and they have to get the same answer as the argument they stand
+    // in for -- passing a mutable accumulator by value where the shared list
+    // passes it by pointer would put a whole copy of it on the traversal's
+    // stack.
+    ir::Expr mutate_arg(const ir::Function_t *func_t, size_t i, bool by_ptr,
+                        const ir::Expr &in, bool &rewrote_mut) {
+        ir::Expr arg = mutate(in);
+        if ((func_t->arg_types[i].is_mutable ||
+             func_t->arg_types[i].type.is<ir::Ptr_t>() ||
+             (by_ptr && func_t->arg_types[i].type.is<ir::Struct_t>())) &&
+            !arg.type().is<ir::Ptr_t>() && !arg.type().is_reference()) {
+            arg = ir::PtrTo::make(std::move(arg));
+            rewrote_mut = true;
+        }
+        return arg;
     }
 
     ir::Type mutate_type(const ir::Function_t *func_t, bool by_ptr) {
@@ -170,6 +183,47 @@ struct RewriteMutables : public ir::Mutator {
 
     ir::Stmt visit(const ir::CallStmt *node) override {
         return handle<ir::Stmt>(node);
+    }
+
+    ir::Stmt visit(const ir::MultiRecurse *node) override {
+        // Not `handle`, which makes its node from a callee and one argument
+        // list. The run has a second list per call, and those have to be
+        // rewritten by the rule for the position they occupy rather than by
+        // the generic mutator -- which would load a mutable argument instead
+        // of taking its address, and so hand the callee a copy.
+        const ir::Function_t *func_t = node->func.type().as<ir::Function_t>();
+        internal_assert(func_t);
+
+        auto check = mutate_args(func_t, node->args, node->func);
+        const bool by_ptr = callee_takes_structs_by_ptr(node->func);
+
+        bool changed = check.changed;
+        std::vector<std::vector<ir::Expr>> varying;
+        varying.reserve(node->varying.size());
+        for (const auto &vs : node->varying) {
+            std::vector<ir::Expr> mutated;
+            mutated.reserve(vs.size());
+            for (size_t k = 0; k < vs.size(); k++) {
+                ir::Expr arg = mutate_arg(func_t, node->varying_at[k], by_ptr,
+                                          vs[k], check.rewrote_mut);
+                changed = changed || !arg.same_as(vs[k]);
+                mutated.push_back(std::move(arg));
+            }
+            varying.push_back(std::move(mutated));
+        }
+
+        if (!changed) {
+            return node;
+        }
+
+        ir::Expr func = node->func;
+        if (check.rewrote_mut) {
+            const ir::Var *var = node->func.as<ir::Var>();
+            internal_assert(var);
+            func = ir::Var::make(mutate_type(func_t, by_ptr), var->name);
+        }
+        return ir::MultiRecurse::make(std::move(func), std::move(check.args),
+                                      node->varying_at, std::move(varying));
     }
 
     ir::Stmt visit(const ir::Launch *node) override {

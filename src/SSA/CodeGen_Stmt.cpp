@@ -765,6 +765,9 @@ std::set<std::string> reachable(const std::string &name,
                 [&](const Terminator::Call &c) {
                     succs.push_back(c.cont.name);
                 },
+                [&](const Terminator::MultiCall &c) {
+                    succs.push_back(c.cont.name);
+                },
                 [&](const std::monostate &) {},
             },
             block->terminator.data);
@@ -819,6 +822,9 @@ find_merge_block(const std::string &true_branch,
                 [&](const Terminator::Return &) {},
                 [&](const Terminator::Yield &) {},
                 [&](const Terminator::Call &c) {
+                    succs.push_back(c.cont.name);
+                },
+                [&](const Terminator::MultiCall &c) {
                     succs.push_back(c.cont.name);
                 },
                 [&](const std::monostate &) {},
@@ -1468,6 +1474,65 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     // Bind all continuation args (immutable, so all become
                     // let-bindings)
                     // emit_jump_args(c.cont.name, c.cont.args);
+
+                    name = c.cont.name;
+                },
+
+                [&](const Terminator::MultiCall &c) {
+                    // The run becomes one CallStmt per entry, in order. This
+                    // is a code generator -- the relooper feeding the C++ and
+                    // Stmt backends -- so every pass that could have reordered
+                    // the run has already run, and there is nothing left for
+                    // keeping it together to buy.
+                    auto &cont_block = block_map.at(c.cont.name);
+
+                    internal_assert(cont_block->preds.size() == 1)
+                        << "Call continuation " << c.cont.name << " has "
+                        << cont_block->preds.size()
+                        << " predecessors, expected exactly 1";
+
+                    auto &muts = mut_map.at(c.cont.name);
+                    for (size_t i = 0; i < muts.size(); i++) {
+                        internal_assert(!muts[i])
+                            << "Call continuation " << c.cont.name << " arg "
+                            << i << " (" << cont_block->args[i].name
+                            << ") is mutable, but continuations with one "
+                               "predecessor should never have mutable args";
+                    }
+
+                    internal_assert(c.drop)
+                        << "A run of " << c.varying.size()
+                        << " calls in " << block->name
+                        << " keeps its result, but there is only one "
+                           "continuation to give a result to.";
+
+                    const size_t threaded =
+                        cont_block->args.size() - c.cont.args.size();
+                    internal_assert(threaded == 0u)
+                        << "Call continuation " << c.cont.name << " takes "
+                        << cont_block->args.size() << " arguments and is passed "
+                        << c.cont.args.size();
+                    for (size_t i = 0; i < c.cont.args.size(); i++) {
+                        if (!has_no_binding(c.cont.args[i])) {
+                            continue;
+                        }
+                        const Argument &param = cont_block->args[i];
+                        append(LetStmt::make(WriteLoc(param.name, param.type),
+                                             codegen_value(c.cont.args[i])));
+                    }
+
+                    internal_assert(func_type_map.contains(c.call.name))
+                        << c.call.name;
+                    Type func_t = func_type_map.at(c.call.name);
+
+                    for (size_t i = 0; i < c.varying.size(); i++) {
+                        std::vector<Expr> call_args;
+                        for (auto &arg : c.call_args(i)) {
+                            call_args.push_back(codegen_value(arg));
+                        }
+                        append(CallStmt::make(Var::make(func_t, c.call.name),
+                                              std::move(call_args)));
+                    }
 
                     name = c.cont.name;
                 },

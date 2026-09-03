@@ -146,6 +146,17 @@ shared_ptr<Function> clone_function(const Function &func) {
                     return Terminator::Call{clone_jump(c.call, instrs),
                                             clone_jump(c.cont, instrs), c.drop};
                 },
+                [&](const Terminator::MultiCall &c)
+                    -> decltype(Terminator::data) {
+                    std::vector<std::vector<shared_ptr<Value>>> varying;
+                    varying.reserve(c.varying.size());
+                    for (const auto &vs : c.varying) {
+                        varying.push_back(clone_values(vs, instrs));
+                    }
+                    return Terminator::MultiCall{
+                        clone_jump(c.call, instrs), clone_jump(c.cont, instrs),
+                        c.varying_at, std::move(varying), c.drop};
+                },
             },
             block->terminator.data);
     }

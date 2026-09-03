@@ -23,6 +23,53 @@ Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
     return node;
 }
 
+Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
+                        std::vector<size_t> varying_at,
+                        std::vector<std::vector<Expr>> varying) {
+    internal_assert(func.defined())
+        << "MultiRecurse::make received undefined func";
+    const Function_t *f = func.type().as<Function_t>();
+    internal_assert(f) << "MultiRecurse::make received bad function type: "
+                       << func.type();
+    internal_assert(std::all_of(args.cbegin(), args.cend(),
+                                [](const Expr &e) { return e.defined(); }))
+        << "MultiRecurse::make received undefined arg to func: " << func;
+    internal_assert(!varying.empty())
+        << "MultiRecurse::make received no calls to make";
+
+    for (size_t at : varying_at) {
+        internal_assert(at < args.size())
+            << "MultiRecurse::make varying position " << at
+            << " is past the end of a " << args.size() << "-argument call";
+    }
+    for (const auto &vs : varying) {
+        internal_assert(vs.size() == varying_at.size())
+            << "MultiRecurse::make received " << vs.size() << " varying values "
+            << "for " << varying_at.size() << " varying positions";
+        internal_assert(std::all_of(vs.cbegin(), vs.cend(),
+                                    [](const Expr &e) { return e.defined(); }))
+            << "MultiRecurse::make received an undefined varying value";
+    }
+
+    MultiRecurse *node = new MultiRecurse;
+    node->func = std::move(func);
+    node->args = std::move(args);
+    node->varying_at = std::move(varying_at);
+    node->varying = std::move(varying);
+    return node;
+}
+
+std::vector<Expr> MultiRecurse::call_args(size_t c) const {
+    internal_assert(c < varying.size())
+        << "MultiRecurse::call_args asked for call " << c << " of "
+        << varying.size();
+    std::vector<Expr> result = args;
+    for (size_t k = 0; k < varying_at.size(); k++) {
+        result[varying_at[k]] = varying[c][k];
+    }
+    return result;
+}
+
 Stmt Print::make(std::vector<Expr> args) {
     internal_assert(std::all_of(args.cbegin(), args.cend(), [](const Expr &e) {
         return e.defined();

@@ -33,12 +33,12 @@ struct InsertExternsIntoCalls : public ir::Mutator {
 
     // The callee and the arguments a call needs, or nothing if it needs none.
     //
-    // Shared by the two ways this IR spells a call, which differ only in
-    // whether the result is used: a Call is an expression and a CallStmt is a
-    // statement. Only the first used to be rewritten here, and what that cost
-    // was a whole class of call being left with too few arguments -- see
+    // Shared by the three ways this IR spells a call: a Call is an expression,
+    // a CallStmt is a statement, and a MultiRecurse is a run of statements
+    // sharing a callee. Only the first used to be rewritten here, and what that
+    // cost was a whole class of call being left with too few arguments -- see
     // Lower/RecLoops.cpp, which builds the self-call of a loopified recursion
-    // as a CallStmt.
+    // as a CallStmt, and now as a MultiRecurse.
     std::optional<std::pair<ir::Expr, std::vector<ir::Expr>>>
     with_externs(const ir::Expr &func, const std::vector<ir::Expr> &args) const {
         const ir::Var *name = func.as<ir::Var>();
@@ -81,6 +81,22 @@ struct InsertExternsIntoCalls : public ir::Mutator {
         }
         return ir::CallStmt::make(std::move(whole->first),
                                   std::move(whole->second));
+    }
+
+    ir::Stmt visit(const ir::MultiRecurse *node) override {
+        ir::Stmt rec = ir::Mutator::visit(node);
+        node = rec.as<ir::MultiRecurse>();
+        internal_assert(node);
+        // The externs land after the arguments the call already had, so the
+        // varying positions -- which index the leading arguments -- still name
+        // the same things.
+        auto whole = with_externs(node->func, node->args);
+        if (!whole.has_value()) {
+            return node;
+        }
+        return ir::MultiRecurse::make(std::move(whole->first),
+                                      std::move(whole->second),
+                                      node->varying_at, node->varying);
     }
 };
 

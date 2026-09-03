@@ -74,6 +74,16 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
                                rename(a);
                            }
                        },
+                       [&](Terminator::MultiCall &c) {
+                           for (const auto &a : c.call.args) {
+                               rename(a);
+                           }
+                           for (const auto &vs : c.varying) {
+                               for (const auto &a : vs) {
+                                   rename(a);
+                               }
+                           }
+                       },
                    },
                    block->terminator.data);
     }

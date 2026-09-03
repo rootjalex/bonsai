@@ -1280,6 +1280,35 @@ void Printer::visit(const CallStmt *node) {
     end_stmt();
 }
 
+void Printer::visit(const MultiRecurse *node) {
+    os << get_indent() << "multirecurse ";
+    print_no_parens(node->func);
+    os << '(';
+    for (size_t i = 0; i < node->args.size(); i++) {
+        if (i) {
+            os << ", ";
+        }
+        // A varying position prints as its index into each `from` tuple rather
+        // than as the argument standing there, since that argument is only a
+        // placeholder and every call overwrites it.
+        auto it =
+            std::find(node->varying_at.begin(), node->varying_at.end(), i);
+        if (it != node->varying_at.end()) {
+            os << '<' << (it - node->varying_at.begin()) << '>';
+        } else {
+            print(node->args[i]);
+        }
+    }
+    os << ") from {";
+    for (size_t c = 0; c < node->varying.size(); c++) {
+        os << (c ? ", (" : " (");
+        print_expr_list(node->varying[c]);
+        os << ')';
+    }
+    os << " }";
+    end_stmt();
+}
+
 void Printer::visit(const Print *node) {
     os << get_indent();
     os << "print(";

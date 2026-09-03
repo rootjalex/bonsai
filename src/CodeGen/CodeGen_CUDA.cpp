@@ -1020,6 +1020,12 @@ void CodeGen_CUDA::visit(const ir::CallStmt *node) {
     os << ';' << '\n';
 }
 
+void CodeGen_CUDA::visit(const ir::MultiRecurse *node) {
+    for (size_t i = 0; i < node->varying.size(); i++) {
+        ir::CallStmt::make(node->func, node->call_args(i)).accept(this);
+    }
+}
+
 void CodeGen_CUDA::visit(const Print *node) {
     // TODO(cgyurgyik): Extend support; borrow from LLVM's printf.
     std::vector<Expr> args = node->args;

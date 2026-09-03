@@ -178,6 +178,12 @@ map<string, vector<Incoming>> snapshot_arguments(const BlockMap &blocks,
                            // arguments.
                            incoming[c.cont.name].push_back({name, c.cont.args});
                        },
+                       [&](const Terminator::MultiCall &c) {
+                           // Like Call: the run's calls all leave the region,
+                           // and the only edge inside it is the one after
+                           // them.
+                           incoming[c.cont.name].push_back({name, c.cont.args});
+                       },
                    },
                    block.terminator.data);
     }
@@ -624,6 +630,19 @@ BlockMasks linearize(Function &func, const string &entry,
                            [&](Terminator::Call &t) {
                                for (auto &a : t.call.args) {
                                    replace(a);
+                               }
+                               for (auto &a : t.cont.args) {
+                                   replace(a);
+                               }
+                           },
+                           [&](Terminator::MultiCall &t) {
+                               for (auto &a : t.call.args) {
+                                   replace(a);
+                               }
+                               for (auto &vs : t.varying) {
+                                   for (auto &a : vs) {
+                                       replace(a);
+                                   }
                                }
                                for (auto &a : t.cont.args) {
                                    replace(a);

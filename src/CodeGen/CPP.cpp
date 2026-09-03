@@ -967,6 +967,15 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const CallStmt *) override;
     // void visit(const Print *) override;
 
+    // A run of recursive calls becomes the calls themselves here, in the order
+    // the schedule left them in. Overridden rather than inherited because the
+    // base printer prints the run in the IR's own notation, which is not C++.
+    void visit(const MultiRecurse *node) override {
+        for (size_t i = 0; i < node->varying.size(); i++) {
+            CallStmt::make(node->func, node->call_args(i)).accept(this);
+        }
+    }
+
     // needs to override for ending `;`
     // void visit(const Return *node) override;
 

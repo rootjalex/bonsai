@@ -296,6 +296,49 @@ tuple<Type, Continuation> FindPath(const FuncMap &funcs,
                                               fname, c, cont_mask);
                     }
                 },
+                [&](const Terminator::MultiCall &call) -> VisitorRetT {
+                    // The same as Call. The run's calls all go to one callee
+                    // with one arity, so the masks -- which are per parameter
+                    // and not per value -- are the same for every call in it,
+                    // and `call.call.args` stands for all of them.
+                    if (c.ids.front() == call.call.name) {
+                        c.ids.pop_front();
+
+                        state_stack.push_back({});
+                        save_type_state(call.cont.args);
+                        cont_stack.push_back({fname, call.cont.name});
+
+                        VisitorRetT rec;
+                        if (c.ids.empty()) {
+                            save_type_state(call.call.args);
+                            for (const auto &vs : call.varying) {
+                                save_type_state(vs);
+                            }
+                            rec = {flatten_state_stack(), cont_stack};
+                        } else {
+                            internal_assert(call.cont.args.empty())
+                                << "TODO: support stack continuations!";
+                            BlockMap new_bmap = get_bmap(call.call.name);
+                            const auto &fiter = funcs.find(call.call.name);
+                            internal_assert(fiter != funcs.cend())
+                                << call.call.name;
+                            auto new_block =
+                                fiter->second->blocks.front()->name;
+                            auto new_mask = make_mask(call.call.args, false);
+                            rec =
+                                visit_producer(new_bmap, new_bmap.at(new_block),
+                                               call.call.name, c, new_mask);
+                        }
+
+                        state_stack.pop_back();
+                        cont_stack.pop_back();
+                        return rec;
+                    } else {
+                        auto cont_mask = make_mask(call.cont.args, !call.drop);
+                        return visit_producer(bmap, bmap.at(call.cont.name),
+                                              fname, c, cont_mask);
+                    }
+                },
             },
             block->terminator.data);
         // Pop frame added by propogate_uniformity()
@@ -351,6 +394,9 @@ tuple<Type, Continuation> FindPath(const FuncMap &funcs,
                 [&](const Terminator::Yield &y) -> VisitorRetT { return {}; },
                 [&](const Terminator::Call &call) -> VisitorRetT {
                     internal_error << "TODO: call owner";
+                },
+                [&](const Terminator::MultiCall &call) -> VisitorRetT {
+                    internal_error << "TODO: multicall owner";
                 },
             },
             block->terminator.data);
@@ -453,6 +499,9 @@ shared_ptr<Block> GetTerminatorBlock(const shared_ptr<Function> &func,
                     return block;
                 },
                 [&](const Terminator::Call &c) -> shared_ptr<Block> {
+                    return dfs(c.cont.name);
+                },
+                [&](const Terminator::MultiCall &c) -> shared_ptr<Block> {
                     return dfs(c.cont.name);
                 },
             },
@@ -683,9 +732,11 @@ namespace {
 // Does `func` call itself?
 bool is_recursive(const Function &func) {
     for (const auto &block : func.blocks) {
-        const auto *call =
-            std::get_if<Terminator::Call>(&block->terminator.data);
-        if (call != nullptr && call->call.name == func.blocks.front()->name) {
+        // `callee()` rather than a Call test: a branching recursion terminates
+        // its block with a MultiCall, and that is exactly the case loopify
+        // needs to find in order to queue it.
+        const auto *call = block->terminator.callee();
+        if (call != nullptr && call->name == func.blocks.front()->name) {
             return true;
         }
     }
@@ -717,9 +768,8 @@ std::set<std::string> recursive_functions_from(const FuncMap &funcs,
             found.insert(name);
         }
         for (const auto &block : it->second->blocks) {
-            if (const auto *call =
-                    std::get_if<Terminator::Call>(&block->terminator.data)) {
-                work.push_back(call->call.name);
+            if (const auto *call = block->terminator.callee()) {
+                work.push_back(call->name);
             }
         }
     }

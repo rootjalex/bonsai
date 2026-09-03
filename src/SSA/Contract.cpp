@@ -71,6 +71,18 @@ UseCounts use_counts(const Function &f) {
                     count(c.call, uses);
                     count(c.cont, uses);
                 },
+                [&](const Terminator::MultiCall &c) {
+                    count(c.call, uses);
+                    count(c.cont, uses);
+                    // Each varying value is a use in its own right: a product
+                    // read by two of the calls is read twice, and fusing it
+                    // into one of them would leave the other recomputing it.
+                    for (const auto &vs : c.varying) {
+                        for (const auto &v : vs) {
+                            count(v, uses);
+                        }
+                    }
+                },
             },
             block->terminator.data);
     }

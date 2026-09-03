@@ -93,25 +93,53 @@ struct LowerRecLoopsImpl : public Mutator {
 
     Stmt visit(const YieldFrom *node) override {
         internal_assert(current_func.defined());
-        // TODO(ajr): handle sorting and compression.
         auto ids = break_tuple(node->value);
-        std::vector<Stmt> stmts;
-        stmts.reserve(ids.size());
+        internal_assert(!ids.empty()) << "`from` with nothing to recurse into";
 
-        // Make n recursive calls.
+        // How many of the leading arguments each recursion replaces: the whole
+        // tuple where the recursion carries one, and otherwise just the node.
+        // Every branch of a `from` has the same type, so measuring the first
+        // measures all of them, but the rest are checked below rather than
+        // assumed -- getting this wrong builds a call with the arguments of
+        // two different functions interleaved, which type checking downstream
+        // would not obviously catch.
+        size_t width = 1;
+        if (const Tuple_t *tuple_t = ids.front().type().as<Tuple_t>()) {
+            internal_assert(tuple_t->etypes.size() < current_args.size());
+            width = tuple_t->etypes.size();
+        }
+
+        std::vector<size_t> varying_at;
+        varying_at.reserve(width);
+        for (size_t i = 0; i < width; i++) {
+            varying_at.push_back(i);
+        }
+
+        std::vector<std::vector<Expr>> varying;
+        varying.reserve(ids.size());
         for (const auto &id : ids) {
-            std::vector<Expr> call_args = current_args;
+            std::vector<Expr> vs;
+            vs.reserve(width);
             if (const Tuple_t *tuple_t = id.type().as<Tuple_t>()) {
-                internal_assert(tuple_t->etypes.size() < current_args.size());
-                for (size_t i = 0; i < tuple_t->etypes.size(); i++) {
-                    call_args[i] = Extract::make(id, i);
+                internal_assert(tuple_t->etypes.size() == width)
+                    << "`from` given recursions of differing arity: " << width
+                    << " and " << tuple_t->etypes.size();
+                for (size_t i = 0; i < width; i++) {
+                    vs.push_back(Extract::make(id, i));
                 }
             } else {
-                call_args[0] = id;
+                internal_assert(width == 1)
+                    << "`from` given recursions of differing arity: " << width
+                    << " and 1";
+                vs.push_back(id);
             }
-            stmts.push_back(CallStmt::make(current_func, std::move(call_args)));
+            varying.push_back(std::move(vs));
         }
-        return Sequence::make(std::move(stmts));
+
+        // One node rather than N calls, so that a schedule still has something
+        // to reorder. See IR/Stmt.h; the backends are what split it up.
+        return MultiRecurse::make(current_func, current_args,
+                                  std::move(varying_at), std::move(varying));
     }
 };
 

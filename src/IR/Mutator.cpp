@@ -543,6 +543,24 @@ Stmt Mutator::visit(const CallStmt *node) {
     return CallStmt::make(std::move(func), std::move(args));
 }
 
+Stmt Mutator::visit(const MultiRecurse *node) {
+    Expr func = mutate(node->func);
+    auto [args, args_same] = visit_list(this, node->args);
+    bool varying_same = true;
+    std::vector<std::vector<Expr>> varying;
+    varying.reserve(node->varying.size());
+    for (const auto &vs : node->varying) {
+        auto [mutated, same] = visit_list(this, vs);
+        varying_same = varying_same && same;
+        varying.push_back(std::move(mutated));
+    }
+    if (func.same_as(node->func) && args_same && varying_same) {
+        return node;
+    }
+    return MultiRecurse::make(std::move(func), std::move(args),
+                              node->varying_at, std::move(varying));
+}
+
 Stmt Mutator::visit(const Print *node) {
     auto [args, not_changed] = visit_list(this, node->args);
     if (not_changed) {

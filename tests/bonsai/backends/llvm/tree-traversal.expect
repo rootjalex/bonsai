@@ -217,14 +217,14 @@ then_bb16.i:                                      ; preds = %distmin_Ray_AABB.ex
   br i1 %48, label %then_bb22.i, label %next_bb23.i
 
 then_bb22.i:                                      ; preds = %then_bb16.i
+  %extract20.elt112.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 36
+  %extract20.unpack113183.i = load i32, ptr %extract20.elt112.i, align 1
   %49 = add i32 %extract.i, 1
-  store i32 %49, ptr %extract_ptr.i, align 4, !tbaa !1
-  %extract28.elt191.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 36
-  %extract28.unpack192194.i = load i32, ptr %extract28.elt191.i, align 1
-  %50 = add i32 %extract28.unpack192194.i, %extract.i
+  %50 = add i32 %extract20.unpack113183.i, %extract.i
+  store i32 %50, ptr %extract_ptr.i, align 4, !tbaa !1
   %51 = sext i32 %"!count.0.i32" to i64
   %"!stack30.i" = getelementptr inbounds i32, ptr %"!stack81.i", i64 %51
-  store i32 %50, ptr %"!stack30.i", align 4, !tbaa !1
+  store i32 %49, ptr %"!stack30.i", align 4, !tbaa !1
   %52 = add i32 %"!count.0.i32", 1
   br label %after_bb.i
 

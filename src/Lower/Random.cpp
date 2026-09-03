@@ -69,6 +69,19 @@ bool calls_rand(const Stmt &stmt,
             }
             Visitor::visit(node);
         }
+
+        void visit(const MultiRecurse *node) override {
+            if (found) {
+                return;
+            }
+            if (const Var *var = node->func.as<Var>()) {
+                if (funcs_call_rand.contains(var->name)) {
+                    found = true;
+                    return;
+                }
+            }
+            Visitor::visit(node);
+        }
     };
     CallsRandFinder finder(funcs_call_rand);
     stmt.accept(&finder);
@@ -206,6 +219,27 @@ Stmt insert_rand_state(const Stmt &stmt,
                 return node;
             }
             return CallStmt::make(node->func, std::move(args));
+        }
+
+        Stmt visit(const MultiRecurse *node) override {
+            // The state goes on the end of the uniform arguments, so the
+            // varying positions -- which are leading -- keep their indices.
+            auto [func, args, not_changed] = handle(node->func, node->args);
+            std::vector<std::vector<Expr>> varying;
+            varying.reserve(node->varying.size());
+            for (const auto &vs : node->varying) {
+                auto [mutated, same] = visit_list(vs);
+                not_changed = not_changed && same;
+                varying.push_back(std::move(mutated));
+            }
+            if (func.defined()) {
+                return MultiRecurse::make(std::move(func), std::move(args),
+                                          node->varying_at, std::move(varying));
+            } else if (not_changed) {
+                return node;
+            }
+            return MultiRecurse::make(node->func, std::move(args),
+                                      node->varying_at, std::move(varying));
         }
     };
     CallsRandFinder finder(funcs_call_rand);

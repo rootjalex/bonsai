@@ -176,6 +176,9 @@ OriginMap make_origin_map(const ssa::Function &func) {
                 [&](const Terminator::Call &call) {
                     handle_jump(call.cont, !call.drop);
                 },
+                [&](const Terminator::MultiCall &call) {
+                    handle_jump(call.cont, !call.drop);
+                },
             },
             block->terminator.data);
     }
@@ -276,6 +279,11 @@ vector<string> successors(const Block &block) {
             [](const Terminator::Call &c) -> vector<string> {
                 return {c.cont.name};
             },
+            [](const Terminator::MultiCall &c) -> vector<string> {
+                // Like Call: the callee is a separate function, so within this
+                // CFG the only successor is what comes after the run.
+                return {c.cont.name};
+            },
         },
         block.terminator.data);
 }
@@ -312,6 +320,7 @@ vector<Terminator::Jump *> jumps_of(Block &block) {
                    },
                    [&](Terminator::Yield &) {},
                    [&](Terminator::Call &c) { jumps.push_back(&c.cont); },
+                   [&](Terminator::MultiCall &c) { jumps.push_back(&c.cont); },
                },
                block.terminator.data);
     return jumps;

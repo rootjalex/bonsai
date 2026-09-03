@@ -354,6 +354,52 @@ struct FunctionBuilder : Visitor {
         block = cont_block;
     }
 
+    void visit(const MultiRecurse *node) override {
+        auto func = get_value(node->func);
+        std::vector<std::shared_ptr<Value>> args;
+        args.reserve(node->args.size());
+        for (const auto &arg : node->args) {
+            args.emplace_back(get_value(arg));
+        }
+
+        std::vector<std::vector<std::shared_ptr<Value>>> varying;
+        varying.reserve(node->varying.size());
+        for (const auto &vs : node->varying) {
+            std::vector<std::shared_ptr<Value>> values;
+            values.reserve(vs.size());
+            for (const auto &v : vs) {
+                values.emplace_back(get_value(v));
+            }
+            varying.push_back(std::move(values));
+        }
+
+        // Every value the run uses has to reach this block, including the ones
+        // that only one of the calls passes: the run is a single terminator,
+        // so there is nowhere later for them to be threaded in.
+        rethread(args);
+        for (auto &vs : varying) {
+            rethread(vs);
+        }
+
+        auto call_name = get_call_name(func);
+
+        auto cont_block = make_block(call_name + "_multicall_cont");
+        cont_block->preds.push_back(block);
+
+        internal_assert(!block->terminator.defined());
+        auto call_block = std::move(block);
+
+        call_block->terminator.data = Terminator::MultiCall{
+            .call =
+                Terminator::Jump{.name = call_name, .args = std::move(args)},
+            .cont = Terminator::Jump{.name = cont_block->name, .args = {}},
+            .varying_at = node->varying_at,
+            .varying = std::move(varying),
+            .drop = true};
+
+        block = cont_block;
+    }
+
     void visit(const Print *node) override {
         std::vector<std::shared_ptr<Value>> args;
         args.reserve(node->args.size());

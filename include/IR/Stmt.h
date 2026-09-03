@@ -18,6 +18,7 @@ struct Stmt;
 
 enum class IRStmtEnum {
     CallStmt,
+    MultiRecurse,
     Print,
     Return,
     LetStmt,
@@ -89,6 +90,42 @@ struct CallStmt : StmtNode<CallStmt> {
     static Stmt make(Expr func, std::vector<Expr> args);
 
     static const IRStmtEnum node_type = IRStmtEnum::CallStmt;
+};
+
+// A run of recursive calls that differ only in some of their arguments.
+//
+// `from (a, b)` inside a tree query means "recurse into a, then into b", and
+// until this node existed it became two independent CallStmts as soon as
+// LowerRecLoops ran. That is too early to be useful. A schedule that wants to
+// *order* those calls -- sort() -- then has no single thing to reorder, so the
+// only place left to express the order was before the recursion was split at
+// all, on whole subtree values and ahead of the layout that turns them into
+// indices. Keeping the run together until the backend gives the order somewhere
+// to live: reordering becomes a permutation of `varying`, which is a list.
+//
+// `args` are the arguments every call in the run shares. `varying` holds one
+// entry per call, and entry `c` supplies the values that replace
+// `args[varying_at[k]]` for each k. So the number of calls is `varying.size()`,
+// and every entry has `varying_at.size()` values in it.
+//
+// Expanding this to one CallStmt per entry is always legal and is what the
+// backends do; what is *not* legal is expanding it and hoping to put it back
+// together.
+struct MultiRecurse : StmtNode<MultiRecurse> {
+    Expr func;
+    std::vector<Expr> args;
+    std::vector<size_t> varying_at;
+    std::vector<std::vector<Expr>> varying;
+
+    static Stmt make(Expr func, std::vector<Expr> args,
+                     std::vector<size_t> varying_at,
+                     std::vector<std::vector<Expr>> varying);
+
+    // The full argument list of call `c`, i.e. `args` with `varying[c]`
+    // substituted in at `varying_at`. This is what expanding the node emits.
+    std::vector<Expr> call_args(size_t c) const;
+
+    static const IRStmtEnum node_type = IRStmtEnum::MultiRecurse;
 };
 
 struct Print : StmtNode<Print> {

@@ -251,13 +251,49 @@ struct Terminator {
                    // appended as the first argument to cont
         bool drop = true;
     };
+    struct MultiCall {
+        // A run of calls to one callee, differing only in some arguments, and
+        // then one continuation after all of them. This is what a tree query's
+        // `from (a, b)` becomes -- see ir::MultiRecurse, whose shape it keeps.
+        //
+        // It is a terminator rather than N chained Calls because the order of
+        // the run is a scheduling decision: sort() rewrites it by permuting
+        // `varying`, which it can only do while the run is still one thing.
+        // Expanding it into a chain of Calls is what code generation does, and
+        // is the point past which the order can no longer be changed.
+        Jump call;  // callee and the arguments every call in the run shares
+        Jump cont;  // continuation, reached after the last call returns
+        std::vector<size_t> varying_at; // indices into call.args
+        // One entry per call, each holding `varying_at.size()` values.
+        std::vector<std::vector<std::shared_ptr<Value>>> varying;
+        bool drop = true;
 
-    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call>
+        // `call.args` with entry `c` substituted in at `varying_at`.
+        std::vector<std::shared_ptr<Value>> call_args(size_t c) const;
+    };
+
+    std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call,
+                 MultiCall>
         data;
 
     bool defined() const {
         return !std::holds_alternative<std::monostate>(data);
     }
+
+    // The callee, for a terminator that calls -- Call or MultiCall -- and null
+    // for one that does not. A MultiCall's calls all go to the same place, so
+    // there is one answer either way.
+    //
+    // Worth preferring over `get_if<Call>` at any site that is asking "does
+    // this go somewhere else?": those sites are looking for the edge, not for
+    // how many times it is taken, and one that checks only for Call silently
+    // stops seeing branching recursions.
+    const Jump *callee() const;
+    Jump *callee();
+
+    // The continuation of a terminator that has one -- Call, MultiCall or
+    // ParFor -- and null otherwise.
+    const Jump *continuation() const;
 
     void dump(std::ostream &os) const;
 };

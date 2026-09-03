@@ -138,9 +138,9 @@ after_bb:                                         ; preds = %intersectsp_ray_aab
   ret void
 
 then_bb:                                          ; preds = %intersects_Ray_AABB.exit
-  br i1 %15, label %distmin_Ray_AABB.exit, label %next_bb.i.i182
+  br i1 %15, label %distmin_Ray_AABB.exit, label %next_bb.i.i171
 
-next_bb.i.i182:                                   ; preds = %then_bb
+next_bb.i.i171:                                   ; preds = %then_bb
   %32 = tail call float @llvm.maxnum.f32(float %11, float %13)
   %33 = tail call float @llvm.minnum.f32(float %9, float %10)
   %34 = extractelement <3 x float> %8, i64 2
@@ -148,9 +148,9 @@ next_bb.i.i182:                                   ; preds = %then_bb
   %36 = extractelement <3 x float> %6, i64 2
   %37 = fcmp olt float %33, %36
   %38 = or i1 %35, %37
-  br i1 %38, label %distmin_Ray_AABB.exit, label %next_bb16.i.i183
+  br i1 %38, label %distmin_Ray_AABB.exit, label %next_bb16.i.i172
 
-next_bb16.i.i183:                                 ; preds = %next_bb.i.i182
+next_bb16.i.i172:                                 ; preds = %next_bb.i.i171
   %39 = tail call float @llvm.maxnum.f32(float %32, float %36)
   %40 = tail call float @llvm.minnum.f32(float %33, float %34)
   %41 = insertvalue %struct.FInterval undef, float %39, 0
@@ -159,39 +159,40 @@ next_bb16.i.i183:                                 ; preds = %next_bb.i.i182
   %44 = insertvalue %struct._option1 %43, i1 true, 1
   br label %distmin_Ray_AABB.exit
 
-distmin_Ray_AABB.exit:                            ; preds = %then_bb, %next_bb.i.i182, %next_bb16.i.i183
-  %common.ret.op.i.i185 = phi %struct._option1 [ %44, %next_bb16.i.i183 ], [ zeroinitializer, %then_bb ], [ zeroinitializer, %next_bb.i.i182 ]
-  %interval.set.i186 = extractvalue %struct._option1 %common.ret.op.i.i185, 1
-  %interval.value.i187 = extractvalue %struct._option1 %common.ret.op.i.i185, 0
-  %extract.low.i188 = extractvalue %struct.FInterval %interval.value.i187, 0
-  %common.ret.op.i189 = select i1 %interval.set.i186, float %extract.low.i188, float 0xFFF0000000000000
+distmin_Ray_AABB.exit:                            ; preds = %then_bb, %next_bb.i.i171, %next_bb16.i.i172
+  %common.ret.op.i.i174 = phi %struct._option1 [ %44, %next_bb16.i.i172 ], [ zeroinitializer, %then_bb ], [ zeroinitializer, %next_bb.i.i171 ]
+  %interval.set.i175 = extractvalue %struct._option1 %common.ret.op.i.i174, 1
+  %interval.value.i176 = extractvalue %struct._option1 %common.ret.op.i.i174, 0
+  %extract.low.i177 = extractvalue %struct.FInterval %interval.value.i176, 0
+  %common.ret.op.i178 = select i1 %interval.set.i175, float %extract.low.i177, float 0xFFF0000000000000
   %"@16._field0" = load float, ptr %_best0, align 4
-  %45 = fcmp olt float %common.ret.op.i189, %"@16._field0"
+  %45 = fcmp olt float %common.ret.op.i178, %"@16._field0"
   br i1 %45, label %then_bb11, label %after_bb
 
 then_bb11:                                        ; preds = %distmin_Ray_AABB.exit
   %extract15.elt88 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
   %extract15.unpack89 = load i16, ptr %extract15.elt88, align 1
   %46 = icmp eq i16 %extract15.unpack89, 0
-  %extract21.elt175 = getelementptr inbounds i8, ptr %extract_ptr, i64 36
   br i1 %46, label %then_bb17, label %next_bb18
 
 then_bb17:                                        ; preds = %then_bb11
+  %extract15.elt96 = getelementptr inbounds i8, ptr %extract_ptr, i64 36
+  %extract15.unpack97167 = load i32, ptr %extract15.elt96, align 1
   %47 = add i32 %triangles_index.tr, 1
+  %48 = add i32 %extract15.unpack97167, %triangles_index.tr
   tail call void @_recloop_func0(i32 %47, %struct._tree_layout0 %triangles, %struct.Ray %ray, ptr %_best0)
-  %extract21.unpack176178 = load i32, ptr %extract21.elt175, align 1
-  %48 = add i32 %extract21.unpack176178, %triangles_index.tr
   br label %tailrecurse
 
 next_bb18:                                        ; preds = %then_bb11
   %49 = zext i16 %extract15.unpack89 to i32
   %triangles.prims = extractvalue %struct._tree_layout0 %triangles, 1
+  %extract28.elt107 = getelementptr inbounds i8, ptr %extract_ptr, i64 36
   br label %while.body
 
 while.body:                                       ; preds = %next_bb18, %after_bb32
-  %_idx0.0198 = phi i32 [ 0, %next_bb18 ], [ %55, %after_bb32 ]
-  %extract28.unpack108110 = load i32, ptr %extract21.elt175, align 1
-  %50 = add i32 %extract28.unpack108110, %_idx0.0198
+  %_idx0.0187 = phi i32 [ 0, %next_bb18 ], [ %55, %after_bb32 ]
+  %extract28.unpack108110 = load i32, ptr %extract28.elt107, align 1
+  %50 = add i32 %extract28.unpack108110, %_idx0.0187
   %51 = sext i32 %50 to i64
   %extract_ptr30 = getelementptr inbounds %struct.Triangle, ptr %triangles.prims, i64 %51
   %extract31.unpack = load <3 x float>, ptr %extract_ptr30, align 16
@@ -207,7 +208,7 @@ while.body:                                       ; preds = %next_bb18, %after_b
   br i1 %"@43.set", label %then_bb33, label %after_bb32
 
 after_bb32:                                       ; preds = %then_bb33, %then_bb44, %while.body
-  %55 = add nuw nsw i32 %_idx0.0198, 1
+  %55 = add nuw nsw i32 %_idx0.0187, 1
   %56 = icmp ult i32 %55, %49
   br i1 %56, label %while.body, label %after_bb
 

@@ -232,6 +232,14 @@ void Visitor::visit(const CallStmt *node) {
     visit_list(this, node->args);
 }
 
+void Visitor::visit(const MultiRecurse *node) {
+    node->func.accept(this);
+    visit_list(this, node->args);
+    for (const auto &vs : node->varying) {
+        visit_list(this, vs);
+    }
+}
+
 void Visitor::visit(const Print *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Return *node) {

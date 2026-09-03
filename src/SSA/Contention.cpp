@@ -189,6 +189,9 @@ parallel_loops_by_block(const Function &f) {
                 [&](const Terminator::Call &call) {
                     worklist.emplace_back(call.cont.name, stack);
                 },
+                [&](const Terminator::MultiCall &call) {
+                    worklist.emplace_back(call.cont.name, stack);
+                },
                 [](const Terminator::Return &) {},
             },
             block.terminator.data);

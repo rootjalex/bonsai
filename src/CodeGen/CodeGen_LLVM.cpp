@@ -1288,6 +1288,14 @@ void CodeGen_LLVM::visit(const CallStmt *node) {
     value = nullptr;
 }
 
+void CodeGen_LLVM::visit(const MultiRecurse *node) {
+    // The run becomes its calls here, in whatever order the schedule left it.
+    for (size_t i = 0; i < node->varying.size(); i++) {
+        Call::make(node->func, node->call_args(i)).accept(this);
+    }
+    value = nullptr;
+}
+
 void CodeGen_LLVM::visit(const Print *node) {
     // TODO(ajr): fix this to print like a vector.
     /*

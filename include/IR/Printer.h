@@ -151,6 +151,7 @@ struct Printer : public Visitor {
     void visit(const AtomicAdd *) override;
     // Stmts
     void visit(const CallStmt *) override;
+    void visit(const MultiRecurse *) override;
     void visit(const Print *) override;
     void visit(const Return *) override;
     void visit(const LetStmt *) override;

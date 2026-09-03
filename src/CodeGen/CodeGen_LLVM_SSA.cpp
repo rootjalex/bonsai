@@ -447,6 +447,34 @@ struct CodeGen_LLVM::SSALowering {
                            c.drop ? nullptr : result);
                     cg.builder->CreateBr(blocks.at(c.cont.name));
                 },
+                [&](const Terminator::MultiCall &c) {
+                    // Where a run of recursive calls finally becomes several
+                    // calls. Nothing after this point can reorder them, which
+                    // is the whole reason the run was kept together until now:
+                    // the schedule has already decided the order, and this
+                    // just spells it out.
+                    llvm::Function *callee =
+                        cg.module->getFunction(c.call.name);
+                    internal_assert(callee)
+                        << "Call to undeclared function " << c.call.name;
+                    internal_assert(c.drop || c.varying.size() == 1)
+                        << block.name << " keeps the result of a run of "
+                        << c.varying.size()
+                        << " calls, but a run has one continuation and so at "
+                           "most one result to give it.";
+                    llvm::Value *result = nullptr;
+                    for (size_t i = 0; i < c.varying.size(); i++) {
+                        std::vector<llvm::Value *> args;
+                        for (const auto &a : c.call_args(i)) {
+                            args.push_back(cg.codegen_expr(operand(a)));
+                        }
+                        result = cg.builder->CreateCall(callee, args);
+                    }
+                    llvm::BasicBlock *after = cg.builder->GetInsertBlock();
+                    supply(c.cont, after, c.drop ? 0 : 1,
+                           c.drop ? nullptr : result);
+                    cg.builder->CreateBr(blocks.at(c.cont.name));
+                },
                 [&](const Terminator::ParFor &p) {
                     internal_error
                         << block.name << " still has a parfor over " << p.index

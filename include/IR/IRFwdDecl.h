@@ -74,6 +74,7 @@ struct AtomicAdd;
 // Stmts
 struct Stmt;
 struct CallStmt;
+struct MultiRecurse;
 struct Print;
 struct Return;
 struct Store;
