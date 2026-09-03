@@ -154,6 +154,35 @@ Two more asymmetries, both checked and both fine:
 
 ### What the last round added
 
+**Sampling an environment map, which is what turns it from a background into a
+light.** `SampleLi` draws a direction from a `PiecewiseConstant2D` built across
+the map's texels -- so a bright patch of sky is found often and an even one
+rarely -- and `PDF_Li` answers the density at a direction, which is what MIS
+weighs the BSDF sample against. The density comes back in the square's measure
+and is divided by `4pi` to become one in solid angle; that single constant is
+the whole Jacobian, and it is why the map has to be equal-area.
+
+There are **two** distributions, not one, and the second is the interesting
+part. Under `allowIncompletePDF` pbrt samples a *compensated* table built over
+`max(0, texel - average)`: the part of the sky that is brighter than average.
+The reasoning is that a BSDF sample finds an even sky perfectly well on its own,
+so the light sampler should spend its effort on what the BSDF sample is bad at.
+`path` takes that table and `simplepath` takes the plain one, so the two scenes
+below reach the same sky through different tables:
+
+    envmap.pbrt       path        1.00006x   45.4% of pixels within 1e-3
+    envmap-walk.pbrt  randomwalk  1.00009x   24.8%
+    (simplepath)                  1.00031x   64.6%
+
+The agreement percentages are the point of the feature rather than a caveat:
+the random walk finds the sky only by flying into it, so every escaped ray lands
+on a different texel of a high-frequency map. Sampling it is what makes the
+picture converge.
+
+`sampling.bonsai` gained `EqualAreaSquareToSphere` and a general
+`PiecewiseConstant2D` -- general because two tables over one image want it, and
+because the pixel filter already had the 1D half.
+
 **Environment maps, as far as being able to see one.** `LightSource "infinite"`
 with an image is pbrt's `ImageInfiniteLight`, and it is what every real infinite
 light in `pbrt-v4-scenes` turns out to be. A ray that leaves the scene now reads
@@ -417,9 +446,31 @@ Sobol-family samplers (17). Broken down:
     parameters  an area light's L 20, a material's reflectance 7
     samplers    zsobol 12, sobol 3, pmj02bn 2
 
-Two of those lines have moved since the survey was taken: `infinite` lights
-without an image are implemented, and the light-list ordering bug below was
-fixed with them. The counts are otherwise as measured.
+**The survey was re-run after infinite lights went in**, and the shape of it
+changed more than the headline did. Still two scenes convert -- but thirteen of
+the fifteen that used to were converting with their light silently dropped, and
+an unknown number with a named material silently turned to grey. What the
+collection refuses on now:
+
+    a portal on an infinite light                           25
+    `Integrator "volpath"`                                  24
+    a named material                                        11
+    an environment map in a colour space other than sRGB    11
+    a material parameter that is a texture or a spectrum     7
+    a `distant` light                                        3
+    a sampler in the Sobol family                            3
+    a material other than diffuse/coateddiffuse              3
+    `bdpt`, `sppm`                                           1 each
+
+Two of those are new and both were previously *silent*: the named material, and
+the colour space. The second is worth a note -- eleven scenes' `sky.exr`
+declares **ACES**, and `RGBIlluminantSpectrum` over ACES uses that space's
+illuminant and its own fit table, so reading one as sRGB would be a sky of the
+wrong colour. Checked with `imgtool info` rather than assumed.
+
+The scenes closest to working are `pavilion-day` and `lte-orb-simple-ball`,
+which now want only named materials, and `villa-daylight`, `sanmiguel-*` and
+`clouds`, which want only the ACES colour space.
 
 The survey found one outright bug and it is fixed: **a `LightSource` that was
 not an area light was silently dropped.** Thirteen of the fifteen scenes that
@@ -432,16 +483,15 @@ fifteen.
 
 Read in dependency order rather than by count, the road is:
 
-1. **`infinite` lights.** `UniformInfiniteLight` is **done**, and so is half of
-   `ImageInfiniteLight`: an environment map can be **seen** -- an escaped ray
-   reads the right texel, through the right rotation, and agrees with pbrt to
-   1.00009x on a real 2048x2048 map. What is left is **sampling** one, which is
-   what turns it from a background into a light: `SampleLi` and `PDF_Li` over a
-   `PiecewiseConstant2D` built across the map's texels, plus the *compensated*
-   distribution pbrt uses under `allowIncompletePDF`. Until then `scene_dump`
-   refuses an environment map with any integrator that samples lights, which is
-   all of them but the random walk. `sampling.bonsai` already has the 1D pieces,
-   since the pixel filter needed them.
+1. **`infinite` lights — done.** `UniformInfiniteLight` and
+   `ImageInfiniteLight`, seen *and* sampled: an escaped ray reads the right
+   texel through the right rotation, and `SampleLi` draws a direction from a
+   `PiecewiseConstant2D` over the map, including pbrt's MIS-compensated second
+   table. Against pbrt on a real 2048x2048 map, 1.00006x under `path` and
+   1.00031x under `simplepath`. What is left of the family is
+   `PortalImageInfiniteLight`, which is now the single most common refusal in
+   the collection at 25 scenes -- it was hidden behind the dropped-light bug
+   until this round.
 2. **Textures**, the same machinery pointed at materials. 27 scenes ask for a
    material parameter that is not a plain RGB, and a fifth of a scene's look is
    in them.
