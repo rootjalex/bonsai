@@ -1,0 +1,30 @@
+//! flags: -b llvm -e
+
+// A bool is an i1, so widening it has to be *unsigned*: a signed widening makes
+// true into -1 rather than 1. Every one of these is a case the simplifier can
+// produce on its own by folding a select over two constants, which is how the
+// float one first turned up -- a sort key written `select(c, 1.0 - i, i)`
+// became `cast[[f32]](c)` at i = 0 and failed to compile.
+
+func main() -> i32 {
+  t: bool = true;
+  f: bool = false;
+
+  print(cast[[i32]](t));
+  print(cast[[i32]](f));
+  print(cast[[u32]](t));
+  print(cast[[u32]](cast[[u8]](t)));
+
+  print(cast[[f32]](t));
+  print(cast[[f32]](f));
+  print(cast[[f64]](t));
+
+  // The fold the simplifier actually performs.
+  print(select(t, 1.0, 0.0));
+  print(select(f, 1.0, 0.0));
+
+  // And that it is a value, not just a flag: arithmetic on it agrees.
+  print(1.0 - cast[[f32]](t));
+  print(1.0 - cast[[f32]](f));
+  return 0;
+}

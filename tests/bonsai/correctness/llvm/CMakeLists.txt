@@ -7,6 +7,7 @@ add_bonsai_tests(
     atomic-accumulate.bonsai
     bitwise.bonsai
     bsdf-f.bonsai
+    cast-bool.bonsai
     coated-diffuse.bonsai
     collapse.bonsai
     dce.bonsai

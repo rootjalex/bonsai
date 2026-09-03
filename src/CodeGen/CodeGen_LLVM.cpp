@@ -1430,9 +1430,19 @@ void CodeGen_LLVM::visit(const Cast *node) {
         // -typed pointer (e.g. for reading a whole immutable array as a
         // vector). Both are address reinterprets, not size-sensitive.
         value = builder->CreateBitCast(inner, llvm_dst);
-    } else if (src.is_bool() && dst.is_uint()) {
+    } else if (src.is_bool() && dst.is_int_or_uint()) {
         value = builder->CreateIntCast(inner, llvm_dst,
                                        /* isSigned */ false);
+    } else if (src.is_bool() && dst.is_float()) {
+        // A bool is an i1, so a *signed* widening would make true into -1.
+        // Unsigned is the only reading that gives one and zero, which is what
+        // `cast[[Float]](b)` means everywhere else in the language.
+        //
+        // Reachable because the simplifier folds `select(c, 1.0, 0.0)` into
+        // exactly this -- which is how it turned up: a `sort()` key written as
+        // `select(dir_is_negative, 1.0 - i, i)` becomes that at i = 0, and the
+        // whole schedule failed to compile over an arithmetic identity.
+        value = builder->CreateUIToFP(inner, llvm_dst);
     } else {
         internal_error << "TODO: implement Cast codegen: " << Expr(node)
                        << " with types: " << src << " -> " << dst;
