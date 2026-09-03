@@ -1,0 +1,81 @@
+# A scene lit by nothing but the sky.
+#
+# The same geometry as area-light-mis with the emissive sphere taken out, so the
+# only light is `LightSource "infinite"` -- pbrt's UniformInfiniteLight, the
+# same radiance arriving from every direction. That makes it the first scene
+# here whose light is not a surface, and it exercises the three things that
+# follow from that:
+#
+#   - a ray that hits nothing carries radiance, where before it carried none,
+#   - the light has no geometry to sample, so `SampleLi` draws over the whole
+#     sphere and the shadow ray it aims has to be given somewhere to stop,
+#   - and, under `path`, the light declines to be sampled at all: pbrt passes
+#     `allowIncompletePDF` and a uniform infinite light answers with nothing,
+#     because a BSDF sample that escapes finds it for free. Its whole
+#     contribution then arrives through the escaped ray, with an MIS weight of
+#     one. Getting that wrong counts the sky twice and looks like a scale
+#     factor rather than like a bug.
+#
+# An `rgb L` rather than none, deliberately: with no L pbrt emits the colour
+# space's illuminant itself, and with one it emits a sigmoid fit of the RGB
+# times that illuminant. Both are implemented and they are different spectra;
+# this is the one that goes through the fit, which is the harder of the two to
+# get right and the one that shares a code path with an area light.
+#
+# The companion is `infinite-uniform-simple.pbrt`, which is this scene under
+# `simplepath` -- where the same light is sampled rather than declined, and so
+# takes the other branch of every decision above. The two reach the sky by
+# opposite routes and have to agree with pbrt about the same picture.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "rgb"
+    "string filename" [ "infinite-uniform.exr" ]
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+LightSource "infinite"
+    "rgb L" [ 0.4 0.45 0.6 ]
+    "float scale" [ 1.5 ]
+
+# The floor, which is what most of the image is.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A coateddiffuse sphere, so the sky is seen through a layered BSDF as well as
+# a diffuse one -- and so that `LayeredBxDF::PDF` is still on the path, since it
+# is what an MIS weight against the sky's estimator would use if the sky had one.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# And a plain diffuse one beside it, for the same reason in reverse: the two
+# materials are lit by the same sky in the same image, so a mistake in one shows
+# against the other.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

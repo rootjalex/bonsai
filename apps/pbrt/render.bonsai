@@ -92,14 +92,44 @@ element LightLiSample {
     n_light : vec3f;
 }
 
+// pbrt: UniformInfiniteLight -- the same radiance arriving from every direction,
+// which is what a scene gets when it writes `LightSource "infinite"` with no
+// image behind it.
+//
+// It is the first light here that is not a surface, and that is most of what is
+// interesting about it. A ray finds it by *failing* to hit anything, so every
+// integrator grows an arm in the branch it used to treat as "carries nothing";
+// it has no geometry to sample, so `SampleLi` picks a direction over the whole
+// sphere rather than over a shape; and it has no point on it, so the shadow ray
+// aimed at it has to be given an end, which is what `scene_radius` is for --
+// pbrt's `Preprocess` bounds the scene in a sphere and the sample sits two radii
+// away, far enough to be outside anything.
+//
+// `has_l` is not decoration. With no `L` written, pbrt emits the colour space's
+// own illuminant -- for sRGB, D65 itself -- and with an `L` it emits an
+// RGBIlluminantSpectrum, which is a sigmoid fit *times* that illuminant. The
+// two are different spectra and the fit is not the identity, so which one this
+// is has to be carried rather than guessed.
+element UniformInfiniteLight {
+    l : SigmoidPolynomial;
+    scale : Float;
+    has_l : bool;
+    // pbrt: sceneRadius, from Preprocess. The scene's bounding sphere.
+    scene_radius : Float;
+}
+
 // pbrt: Light, which is a TaggedPointer over nine kinds. A variant here, for
 // the same reason Integrator is: `match` is how this app spells a vtable.
 //
-// One kind so far, and it is the one killeroo-simple has. The others go in as
-// their own arms -- `UniformInfinite` needs no shape and would be the next --
-// and `light_sample_li` grows an arm rather than the callers growing a branch.
+// Two kinds. The rest go in as their own arms -- `ImageInfinite` is the one
+// every real scene in pbrt-v4-scenes actually asks for and is next -- and
+// `light_sample_li` grows an arm rather than the callers growing a branch.
 element Light =
-    | DiffuseArea(area : AreaLight, shape : Shape);
+    | DiffuseArea(area : AreaLight, shape : Shape)
+    // `sky` rather than the `inf` that reads more naturally: `inf` is the
+    // floating-point infinity in stdlib/numerics, and binding it in a match arm
+    // shadows it.
+    | UniformInfinite(sky : UniformInfiniteLight);
 
 // pbrt: the scene's lights, one per emissive shape -- which is what pbrt's
 // `std::vector<Light>` is. A primitive names one by index, as it names a
@@ -114,6 +144,33 @@ func light_l(light : Light, n : vec3f, w : vec3f,
              lambda : SampledWavelengths) -> vec4f {
     match light {
         DiffuseArea(area, shape) => return area_light_l(area, n, w, lambda);
+        // An infinite light is not a surface, so nothing ever lands on one and
+        // this is unreachable for it. pbrt says the same by not declaring `L`
+        // on the class at all.
+        UniformInfinite(sky) => return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+}
+
+// pbrt: UniformInfiniteLight::Le, `scale * Lemit.Sample(lambda)`.
+func uniform_infinite_le(sky : UniformInfiniteLight,
+                         lambda : SampledWavelengths) -> vec4f {
+    illuminant = spectrum_at_dense(illuminant_d65, lambda);
+    // With an L, pbrt's Lemit is an RGBIlluminantSpectrum: the fit times the
+    // colour space's illuminant, which is what `area_light_l` computes too.
+    // Without one, Lemit *is* that illuminant.
+    if sky.has_l {
+        return sky.scale * spectrum_at(sky.l, lambda) * illuminant;
+    }
+    return sky.scale * illuminant;
+}
+
+// pbrt: Light::Le, the radiance a ray that hit nothing carries. Only the
+// infinite lights have one, which is why pbrt keeps them in a list of their own
+// and loops over that rather than over every light in the scene.
+func light_le(light : Light, lambda : SampledWavelengths) -> vec4f {
+    match light {
+        DiffuseArea(area, shape) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        UniformInfinite(sky) => return uniform_infinite_le(sky, lambda);
     }
 }
 
@@ -122,9 +179,40 @@ func light_l(light : Light, n : vec3f, w : vec3f,
 //
 // Thin, because the work is in the shape: sampling a light *is* sampling its
 // geometry towards a point, and the light only decides what the point emits.
+// `allow_incomplete_pdf` is pbrt's flag of that name, and it is not a detail
+// that can be left out.
+//
+// It says the caller will find this light some other way as well, so the light
+// is allowed to decline to sample the parts of itself that the other way covers
+// -- and a uniform infinite light declines entirely, because a BSDF sample that
+// escapes finds it with no shadow ray at all. `path` passes true and
+// `simplepath` passes false, which is pbrt's own split: the first weighs two
+// estimators against each other and the second has only one, so the second
+// cannot afford to be declined.
+//
+// Getting this wrong is not visible as an error. Passing false from `path`
+// would sample the light *and* pick it up on escape, count it twice, and
+// produce a scene that is simply too bright -- which looks like a scale factor
+// somewhere, not like a bug in an MIS weight.
 func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
-                     lambda : SampledWavelengths) -> option[LightLiSample] {
+                     lambda : SampledWavelengths,
+                     allow_incomplete_pdf : bool) -> option[LightLiSample] {
     match light {
+        UniformInfinite(sky) => {
+            if allow_incomplete_pdf {
+                return {};
+            }
+            // No geometry to sample, so the whole sphere with a constant
+            // density. The point is put two scene radii away, which is pbrt's
+            // way of giving a shadow ray somewhere to stop that is certainly
+            // outside everything.
+            wi = sample_uniform_sphere(u);
+            far = ctx.p + 2.0 * sky.scene_radius * wi;
+            s : LightLiSample = {uniform_infinite_le(sky, lambda), wi,
+                                 uniform_sphere_pdf(), far,
+                                 vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
+            return s;
+        }
         DiffuseArea(area, shape) => {
             found = shape_sample(shape, ctx, u);
             if !found {
@@ -149,11 +237,30 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
 
 // pbrt: Light::PDF_Li, the density `light_sample_li` draws `wi` with. What MIS
 // weighs the light's estimator against the BSDF's with.
-func light_pdf_li(light : Light, ctx : ShapeSampleContext,
-                  wi : vec3f) -> Float {
+func light_pdf_li(light : Light, ctx : ShapeSampleContext, wi : vec3f,
+                  allow_incomplete_pdf : bool) -> Float {
     match light {
         DiffuseArea(area, shape) => return shape_pdf(shape, ctx, wi);
+        // Zero rather than the sphere's density, and it has to be: the caller
+        // asked with `allow_incomplete_pdf` set, `light_sample_li` declined to
+        // sample this light at all, and a weight computed against a density
+        // nothing drew from would be a weight against nothing.
+        UniformInfinite(sky) =>
+            return select(allow_incomplete_pdf, 0.0, uniform_sphere_pdf());
     }
+}
+
+// pbrt: the `infiniteLights` an Integrator keeps beside its `lights`.
+//
+// A subrange rather than a second list, because it is one: `scene_dump` writes
+// the scene's lights in pbrt's own order, which is every area light first and
+// then every other kind, so the infinite ones are a run at the end. What the
+// integrators need it for is the escaped ray -- looping over all of a scene's
+// lights there would be 66,533 of them on killeroo-simple and none of them
+// would answer anything.
+element LightSet {
+    count : i32;
+    first_infinite : i32;
 }
 
 // pbrt: SampledLight -- which light was chosen and with what probability.
@@ -174,6 +281,9 @@ element SampledLight {
 func light_is_delta(light : Light) -> bool {
     match light {
         DiffuseArea(area, shape) => return false;
+        // pbrt: LightType::Infinite, which IsDeltaLight does not include. It
+        // arrives from every direction, so a BSDF sample can find it.
+        UniformInfinite(sky) => return false;
     }
 }
 
@@ -367,10 +477,15 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
 //
 // `VolPath` is what pbrt defaults to and is the next one worth having; it needs
 // participating media, which nothing here has.
+// Every arm carries a `LightSet`, which is pbrt's `Integrator::infiniteLights`
+// -- a base-class member, so every integrator has one, including the random
+// walk that samples no light at all. A ray that leaves the scene has to be
+// asked what it flew off into whatever the integrator is.
 element Integrator =
-    | RandomWalk(max_depth : i32)
-    | SimplePath(max_depth : i32, sampler : LightSampler)
-    | Path(max_depth : i32, sampler : LightSampler, regularize : bool);
+    | RandomWalk(max_depth : i32, set : LightSet)
+    | SimplePath(max_depth : i32, sampler : LightSampler, set : LightSet)
+    | Path(max_depth : i32, sampler : LightSampler, set : LightSet,
+           regularize : bool);
 
 // pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
 //
@@ -400,15 +515,19 @@ element Integrator =
 // taken before the ray for the next bounce is built.
 func walk_step(ray : Ray, beta : vec4f, l : vec4f,
                lambda : SampledWavelengths, sampler : Sampler,
-               state : mut SamplerState, seed : i32, depth : i32,
-               max_depth : i32) -> vec4f {
+               state : mut SamplerState, ls : LightSet, seed : i32,
+               depth : i32, max_depth : i32) -> vec4f {
     isect : option[Primitive] = trace(ray);
     if !isect {
-        // pbrt sums `light.Le(ray)` over the infinite lights here. This app has
-        // none -- killeroo-simple is lit by an emissive sphere -- so a ray that
-        // escapes carries nothing, and adding an infinite light later is adding
-        // it here.
-        return l;
+        // pbrt sums `light.Le(ray)` over the infinite lights. A random walk
+        // never samples a light, so there is no weight to apply and nothing to
+        // avoid counting twice -- this is simply the emission along a ray that
+        // left the scene.
+        escaped : mut vec4f = l;
+        for i in ls.first_infinite:ls.count {
+            escaped = escaped + beta * light_le(lights[i], lambda);
+        }
+        return escaped;
     }
     prim = *isect;
     surf = surface_geometry(prim.shape, ray);
@@ -450,7 +569,7 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
     // surface by the hit point's own error bound. Without it the next ray finds
     // the surface it just left, at a distance of nearly zero.
     return walk_step(spawn_ray(surf, wp), beta * fcos / uniform_sphere_pdf(),
-                     found, lambda, sampler, state, seed, depth + 1,
+                     found, lambda, sampler, state, ls, seed, depth + 1,
                      max_depth);
 }
 
@@ -458,10 +577,10 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
 // passed in by a caller that should not have to know it: a full throughput and
 // no radiance yet.
 func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
-                    state : mut SamplerState, seed : i32,
+                    state : mut SamplerState, ls : LightSet, seed : i32,
                     max_depth : i32) -> vec4f =
     walk_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, lambda,
-              sampler, state, seed, 0, max_depth);
+              sampler, state, ls, seed, 0, max_depth);
 
 // pbrt: Unoccluded -- is there anything between these two surfaces?
 //
@@ -493,12 +612,22 @@ func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
 // the schedule's to decide.
 func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
                lambda : SampledWavelengths, sampler : Sampler,
-               state : mut SamplerState, ls : LightSampler, seed : i32,
-               depth : i32, max_depth : i32) -> vec4f {
+               state : mut SamplerState, ls : LightSampler, set : LightSet,
+               seed : i32, depth : i32, max_depth : i32) -> vec4f {
     isect : option[Primitive] = trace(ray);
     if !isect {
-        // pbrt sums the infinite lights here, and this app has none yet.
-        return l;
+        // pbrt: `if (!sampleLights || specularBounce)` around the sum over the
+        // infinite lights, and `sampleLights` is on here. The same
+        // double-counting rule the surface emission below follows: a ray that
+        // left a non-specular bounce had its chance to sample this light
+        // directly, so picking it up again on the way out would count it twice.
+        escaped : mut vec4f = l;
+        if specular_bounce {
+            for i in set.first_infinite:set.count {
+                escaped = escaped + beta * light_le(lights[i], lambda);
+            }
+        }
+        return escaped;
     }
     prim = *isect;
     surf = surface_geometry(prim.shape, ray);
@@ -526,7 +655,11 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
     if chosen {
         picked = *chosen;
         u_light = get_2d(sampler, state);
-        sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda);
+        // `false`, which is pbrt's default and what SimplePathIntegrator takes:
+        // this integrator has no second estimator to fall back on, so a light
+        // is not allowed to decline part of itself.
+        sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda,
+                                  false);
         if sampled {
             lsample = *sampled;
             if nonzero(lsample.l) && (lsample.pdf > 0.0) {
@@ -560,7 +693,7 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
     wi = frame_from_local(shading, sample.wi);
     next_beta = beta * sample.f * abs(dot(wi, surf.ns)) / sample.pdf;
     return path_step(spawn_ray(surf, wi), next_beta, found,
-                     is_specular(sample.flags), lambda, sampler, state, ls,
+                     is_specular(sample.flags), lambda, sampler, state, ls, set,
                      seed, depth + 1, max_depth);
 }
 
@@ -568,10 +701,10 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
 // starts true because the camera ray has sampled no light, so a light it lands
 // on directly must be counted.
 func li_simple_path(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
-                    state : mut SamplerState, ls : LightSampler, seed : i32,
-                    max_depth : i32) -> vec4f =
+                    state : mut SamplerState, ls : LightSampler, set : LightSet,
+                    seed : i32, max_depth : i32) -> vec4f =
     path_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, true,
-              lambda, sampler, state, ls, seed, 0, max_depth);
+              lambda, sampler, state, ls, set, seed, 0, max_depth);
 
 // pbrt: PathIntegrator::SampleLd, the direct-lighting estimate at one vertex.
 //
@@ -630,7 +763,12 @@ func path_sample_ld(mat : Material, surf : SurfaceGeometry, shading : Frame,
         return zero;
     }
     picked = *chosen;
-    sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda);
+    // `true`: this integrator will find the light again through its BSDF
+    // sample, so a light that a BSDF sample reaches perfectly well is entitled
+    // to decline. A uniform infinite light declines every time, and the whole
+    // of its contribution then arrives through the escaped-ray branch of
+    // `full_path_step` with an MIS weight of one.
+    sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda, true);
     if !sampled {
         return zero;
     }
@@ -694,14 +832,34 @@ func full_path_step(ray : Ray, beta : vec4f, l : vec4f, depth : i32,
                     eta_scale : Float, p_b : Float,
                     prev_ctx : ShapeSampleContext,
                     lambda : SampledWavelengths, sampler : Sampler,
-                    state : mut SamplerState, ls : LightSampler, seed : i32,
-                    max_depth : i32, regularize : bool) -> vec4f {
+                    state : mut SamplerState, ls : LightSampler, set : LightSet,
+                    seed : i32, max_depth : i32, regularize : bool) -> vec4f {
     isect : option[Primitive] = trace(ray);
     if !isect {
-        // pbrt weighs each infinite light's emission the same way the surface
-        // emission below is weighed. This app has no infinite light, so a ray
-        // that escapes carries nothing.
-        return l;
+        // pbrt weighs each infinite light's emission exactly the way the
+        // surface emission below is weighed, and for the same reason: a ray
+        // that left a non-specular bounce could also have reached this light by
+        // sampling it, so the two estimators share the credit.
+        //
+        // For a *uniform* infinite light the light's share is always zero,
+        // because `light_sample_li` declined to sample it -- `light_pdf_li`
+        // answers 0 under `allow_incomplete_pdf` and the power heuristic then
+        // gives this estimator the whole weight. That is not a special case
+        // written here; it falls out of the two functions agreeing about what
+        // was sampled, which is the point of threading the flag.
+        escaped : mut vec4f = l;
+        for i in set.first_infinite:set.count {
+            emitted = light_le(lights[i], lambda);
+            if (depth == 0) || specular_bounce {
+                escaped = escaped + beta * emitted;
+            } else {
+                p_l = light_sampler_pmf(ls, i) *
+                      light_pdf_li(lights[i], prev_ctx, ray.d, true);
+                escaped = escaped +
+                          beta * power_heuristic(1.0, p_b, 1.0, p_l) * emitted;
+            }
+        }
+        return escaped;
     }
     prim = *isect;
     surf = surface_geometry(prim.shape, ray);
@@ -729,7 +887,8 @@ func full_path_step(ray : Ray, beta : vec4f, l : vec4f, depth : i32,
                 found = l + beta * emitted;
             } else {
                 p_l = light_sampler_pmf(ls, prim.light) *
-                      light_pdf_li(lights[max(prim.light, 0)], prev_ctx, ray.d);
+                      light_pdf_li(lights[max(prim.light, 0)], prev_ctx, ray.d,
+                                   true);
                 found = l + beta * power_heuristic(1.0, p_b, 1.0, p_l) *
                             emitted;
             }
@@ -812,7 +971,7 @@ func full_path_step(ray : Ray, beta : vec4f, l : vec4f, depth : i32,
 
     return full_path_step(next_ray, survived, found, next_depth, next_specular,
                           next_any_ns, next_eta_scale, next_p_b, next_ctx,
-                          lambda, sampler, state, ls, seed, max_depth,
+                          lambda, sampler, state, ls, set, seed, max_depth,
                           regularize);
 }
 
@@ -821,14 +980,14 @@ func full_path_step(ray : Ray, beta : vec4f, l : vec4f, depth : i32,
 // `depth == 0` is what stops `prev_ctx` and `p_b` ever being read before one
 // does.
 func li_path(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
-             state : mut SamplerState, ls : LightSampler, seed : i32,
-             max_depth : i32, regularize : bool) -> vec4f {
+             state : mut SamplerState, ls : LightSampler, set : LightSet,
+             seed : i32, max_depth : i32, regularize : bool) -> vec4f {
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
     return full_path_step(r0, vec4f{1.0, 1.0, 1.0, 1.0},
                           vec4f{0.0, 0.0, 0.0, 0.0}, 0, false, false, 1.0, 0.0,
-                          origin, lambda, sampler, state, ls, seed, max_depth,
-                          regularize);
+                          origin, lambda, sampler, state, ls, set, seed,
+                          max_depth, regularize);
 }
 
 // pbrt: Integrator::Li, the dispatch itself -- one arm per integrator, which is
@@ -837,13 +996,14 @@ func integrator_li(integrator : Integrator, r : Ray,
                    lambda : SampledWavelengths, sampler : Sampler,
                    state : mut SamplerState, seed : i32) -> vec4f {
     match integrator {
-        RandomWalk(max_depth) =>
-            return li_random_walk(r, lambda, sampler, state, seed, max_depth);
-        SimplePath(max_depth, ls) =>
-            return li_simple_path(r, lambda, sampler, state, ls, seed,
+        RandomWalk(max_depth, set) =>
+            return li_random_walk(r, lambda, sampler, state, set, seed,
                                   max_depth);
-        Path(max_depth, ls, regularize) =>
-            return li_path(r, lambda, sampler, state, ls, seed, max_depth,
+        SimplePath(max_depth, ls, set) =>
+            return li_simple_path(r, lambda, sampler, state, ls, set, seed,
+                                  max_depth);
+        Path(max_depth, ls, set, regularize) =>
+            return li_path(r, lambda, sampler, state, ls, set, seed, max_depth,
                            regularize);
     }
 }

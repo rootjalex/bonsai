@@ -129,6 +129,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
             std::vector<float> floats;
             std::vector<int> ints;
             std::vector<uint8_t> bools;
+            // Only a light reads these, and only to notice that it was given a
+            // filename -- which is what makes an infinite light an image one
+            // rather than a uniform one, and so refused rather than converted.
+            std::vector<std::string> strings;
         };
         std::string name;
         std::map<std::string, Value> params;
@@ -195,7 +199,18 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // can name the kind, which is what decides which one to implement next.
     void LightSource(const std::string &name, pbrt::ParsedParameterVector params,
                      pbrt::FileLoc loc) override {
-        lights.push_back(name);
+        MaterialInfo info;
+        info.name = name;
+        for (const pbrt::ParsedParameter *p : params) {
+            MaterialInfo::Value v;
+            v.type = p->type;
+            v.floats.assign(p->floats.begin(), p->floats.end());
+            v.ints.assign(p->ints.begin(), p->ints.end());
+            v.bools.assign(p->bools.begin(), p->bools.end());
+            v.strings.assign(p->strings.begin(), p->strings.end());
+            info.params.emplace(p->name, std::move(v));
+        }
+        lights.push_back(std::move(info));
         pbrt::BasicSceneBuilder::LightSource(name, std::move(params), loc);
     }
 
@@ -230,8 +245,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     pbrt::ParameterDictionary filter_params;
     std::vector<MaterialInfo> materials;
     std::vector<MaterialInfo> area_lights;
-    // The names of every non-area LightSource the scene declared. See above.
-    std::vector<std::string> lights;
+    // Every non-area LightSource the scene declared, in declaration order --
+    // which is the order PBRT appends them to its own light list, after the
+    // area lights. See above.
+    std::vector<MaterialInfo> lights;
     // PBRT's RandomWalkIntegrator default. The name is empty when the scene
     // named no integrator, which is not the same as naming the default: PBRT
     // would fall back to volpath, and this renderer has only the random walk,
@@ -1847,16 +1864,63 @@ void load(const char *filename, bonsai_scene::Scene &out,
     out.width = uint32_t(x_resolution);
     out.height = uint32_t(y_resolution);
 
-    // A light that is not a shape's emission. `DiffuseAreaLight` is the only
-    // kind implemented, so any of these would be dropped, and a scene lit only
-    // by one would render black -- which looks like a scene, not like an error.
-    if (!builder.lights.empty()) {
-        std::string names;
-        for (const std::string &light : builder.lights) {
-            names += (names.empty() ? "" : ", ") + light;
+    // A light that is not a shape's emission. Until one of these is
+    // implemented it has to be refused rather than dropped: a scene lit only by
+    // an environment map that quietly rendered black would look like a scene
+    // and not like an error, which is how this went unnoticed for as long as it
+    // did.
+    //
+    // `infinite` with no image is PBRT's UniformInfiniteLight and is converted.
+    // `infinite` *with* one is ImageInfiniteLight -- a different light, and the
+    // one every real scene in pbrt-v4-scenes actually asks for -- so it is
+    // named in the refusal rather than approximated by its average.
+    for (const CapturingBuilder::MaterialInfo &light : builder.lights) {
+        if (light.name != "infinite") {
+            fail("this renderer has area lights and uniform infinite lights, "
+                 "and the scene declares a `" + light.name + "` light");
         }
-        fail("this renderer has only area lights, and the scene declares: " +
-             names);
+        const CapturingBuilder::MaterialInfo::Value *filename =
+            light.find("filename");
+        if (filename == nullptr) {
+            filename = light.find("mapname");
+        }
+        if (filename != nullptr) {
+            fail("an `infinite` light with an image is an ImageInfiniteLight, "
+                 "which is not implemented; the scene names \"" +
+                 (filename->strings.empty() ? std::string() :
+                                              filename->strings[0]) +
+                 "\"");
+        }
+        if (light.find("portal") != nullptr) {
+            fail("an `infinite` light with a portal is a "
+                 "PortalImageInfiniteLight, which is not implemented");
+        }
+        if (light.find("illuminance") != nullptr) {
+            fail("an `infinite` light with an `illuminance` is not supported");
+        }
+
+        bonsai_scene::InfiniteLight out_light;
+        // PBRT: `scale /= SpectrumToPhotometric(...)`, over whichever spectrum
+        // it ends up emitting -- the colour space's illuminant when the scene
+        // wrote no L, and the RGBIlluminantSpectrum built from it when it did.
+        // Folded in here for the same reason the area light's is: it is a
+        // property of the scene rather than of the conversion.
+        pbrt::Allocator alloc;
+        const float scale = material_float(light, "scale", 1.f);
+        if (material_rgb(light, "L", out_light.l)) {
+            out_light.has_l = 1u;
+            const pbrt::RGBIlluminantSpectrum emitted(
+                *pbrt::RGBColorSpace::sRGB,
+                pbrt::RGB(out_light.l[0], out_light.l[1], out_light.l[2]));
+            out_light.scale =
+                float(scale / pbrt::SpectrumToPhotometric(&emitted));
+        } else {
+            out_light.has_l = 0u;
+            out_light.scale =
+                float(scale / pbrt::SpectrumToPhotometric(
+                                  &pbrt::RGBColorSpace::sRGB->illuminant));
+        }
+        out.infinite_lights.push_back(out_light);
     }
 
     // The reconstruction filter. Only the Gaussian, which is PBRT's default and
@@ -2206,6 +2270,39 @@ void load(const char *filename, bonsai_scene::Scene &out,
     }
     for (size_t i = 0; i < matrices.size(); i++) {
         out.matrices[i] = matrices[i];
+    }
+
+    // PBRT: the Integrator constructor's
+    // `aggregate.Bounds().BoundingSphere(&sceneCenter, &sceneRadius)`, which is
+    // what an infinite light is preprocessed with. The aggregate's bounds are
+    // the union of its primitives', and a primitive's are Sphere::Bounds --
+    // centre plus or minus the radius, since these are placed by a translation
+    // -- or Triangle::Bounds, the union of its three vertices. So the union is
+    // computable here without building the tree first.
+    if (!out.infinite_lights.empty()) {
+        pbrt::Bounds3f scene_bounds;
+        for (const bonsai_scene::Shape &s : shapes) {
+            if (s.tag == bonsai_scene::ShapeTag::Sphere) {
+                const pbrt::Point3f c(s.center[0], s.center[1], s.center[2]);
+                const pbrt::Vector3f r(s.radius, s.radius, s.radius);
+                scene_bounds = pbrt::Union(scene_bounds, pbrt::Bounds3f(c - r,
+                                                                        c + r));
+            } else {
+                uint32_t corner[3];
+                out.corners(s, corner);
+                for (const uint32_t v : corner) {
+                    scene_bounds = pbrt::Union(
+                        scene_bounds,
+                        pbrt::Point3f(out.positions[3 * v + 0],
+                                      out.positions[3 * v + 1],
+                                      out.positions[3 * v + 2]));
+                }
+            }
+        }
+        pbrt::Point3f centre;
+        pbrt::Float radius = 0;
+        scene_bounds.BoundingSphere(&centre, &radius);
+        out.scene_radius = float(radius);
     }
 
     // The light sampler, which only `path` reads and which PBRT defaults to

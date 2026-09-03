@@ -735,27 +735,32 @@ int main(int argc, char **argv) {
     // colours are divided by.
     float *weights = (float *)malloc(sizeof(float) * npixels);
 
-    // The lights, with L fitted the same way every other spectrum is. An
-    // illuminant rather than an albedo, which is why the fit is of L divided by
-    // twice its largest component and the scale carries that factor back:
-    // pbrt's RGBIlluminantSpectrum is a fit scaled to fit inside the sigmoid,
-    // multiplied by the colour space's own illuminant.
-    // The emission of each light the scene declared, with L fitted the same way
-    // every other spectrum is. An illuminant rather than an albedo, which is
-    // why the fit is of L divided by twice its largest component and the scale
-    // carries that factor back: pbrt's RGBIlluminantSpectrum is a fit scaled to
-    // fit inside the sigmoid, multiplied by the colour space's own illuminant.
+    // An emitted spectrum, fitted the way every other spectrum here is -- and
+    // as an illuminant rather than as an albedo, which is what the division by
+    // twice the largest component is for: pbrt's RGBIlluminantSpectrum scales
+    // an RGB down until the sigmoid can represent it, fits that, and multiplies
+    // the colour space's own illuminant back in. The factor comes back through
+    // `scale`, which the renderer applies alongside pbrt's own.
+    //
+    // One function because two kinds of light need it: an area light's L and a
+    // uniform infinite light's.
+    const auto fit_emission = [&](const float rgb[3], float scale,
+                                  SigmoidPolynomial *fit) {
+        const float m = std::max({rgb[0], rgb[1], rgb[2]});
+        const float rsp_scale = 2.f * m;
+        const float inv = rsp_scale == 0.f ? 0.f : 1.f / rsp_scale;
+        const rgb2spec::Coefficients c =
+            rgb2spec::fit(fit_tables, rgb[0] * inv, rgb[1] * inv, rgb[2] * inv);
+        *fit = SigmoidPolynomial{c.c0, c.c1, c.c2};
+        return scale * rsp_scale;
+    };
+
+    // The emission of each area light the scene declared.
     std::vector<AreaLight> emission;
     emission.reserve(loaded.lights.size());
     for (const bonsai_scene::Light &l : loaded.lights) {
-        const float m = std::max({l.l[0], l.l[1], l.l[2]});
-        const float rsp_scale = 2.f * m;
-        const float inv = rsp_scale == 0.f ? 0.f : 1.f / rsp_scale;
-        const rgb2spec::Coefficients c = rgb2spec::fit(
-            fit_tables, l.l[0] * inv, l.l[1] * inv, l.l[2] * inv);
         AreaLight out_light;
-        out_light.l = SigmoidPolynomial{c.c0, c.c1, c.c2};
-        out_light.scale = l.scale * rsp_scale;
+        out_light.scale = fit_emission(l.l, l.scale, &out_light.l);
         out_light.two_sided = l.two_sided != 0;
         emission.push_back(out_light);
     }
@@ -783,6 +788,41 @@ int main(int argc, char **argv) {
         lights.push_back(light);
     }
 
+    // And the lights that are not shapes, appended after the area ones --
+    // which is the order pbrt builds its own list in, area lights from
+    // `CreateLights`'s loop over shapes and then the rest from its light jobs.
+    // The order is not cosmetic: a uniform light sampler picks `lights[u * n]`,
+    // so two lists in different orders hand the same random number to different
+    // lights and render different images.
+    //
+    // The renderer finds them as a subrange rather than as a second array,
+    // which is what `LightSet` says: everything from `first_infinite` to
+    // `count` is a light a ray can fly off into.
+    const int32_t first_infinite = int32_t(lights.size());
+    for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
+        UniformInfiniteLight sky;
+        // Fitted exactly as an area light's L is. The fit is meaningless when
+        // the scene wrote no L, and `has_l` is what says so; pbrt emits the
+        // colour space's illuminant itself in that case, which
+        // `uniform_infinite_le` reaches directly and which is why the scale
+        // must not pick up the fit's factor either.
+        if (l.has_l) {
+            sky.scale = fit_emission(l.l, l.scale, &sky.l);
+        } else {
+            sky.scale = l.scale;
+            sky.l = SigmoidPolynomial{0.f, 0.f, 0.f};
+        }
+        sky.has_l = l.has_l != 0;
+        sky.scene_radius = loaded.scene_radius;
+        Light light;
+        Light_UniformInfinite(light, sky);
+        lights.push_back(light);
+    }
+
+    LightSet light_set;
+    light_set.count = int32_t(lights.size());
+    light_set.first_infinite = first_infinite;
+
     // The integrator the scene named, built through the constructor the
     // Integrator variant generated. This is the whole of what a vtable does
     // here: the driver picks a variant, hands it across once, and the bonsai
@@ -791,14 +831,15 @@ int main(int argc, char **argv) {
     Integrator integrator;
     switch (loaded.integrator) {
     case bonsai_scene::IntegratorTag::RandomWalk:
-        Integrator_RandomWalk(integrator, loaded.max_depth);
+        Integrator_RandomWalk(integrator, loaded.max_depth, light_set);
         break;
     case bonsai_scene::IntegratorTag::SimplePath: {
         // The light sampler is the integrator's, as it is in pbrt: which light
         // to try is a decision about sampling and not about the scene.
         LightSampler light_sampler;
         LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
-        Integrator_SimplePath(integrator, loaded.max_depth, light_sampler);
+        Integrator_SimplePath(integrator, loaded.max_depth, light_sampler,
+                              light_set);
         break;
     }
     case bonsai_scene::IntegratorTag::Path: {
@@ -807,7 +848,7 @@ int main(int argc, char **argv) {
         // the note there.
         LightSampler light_sampler;
         LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
-        Integrator_Path(integrator, loaded.max_depth, light_sampler,
+        Integrator_Path(integrator, loaded.max_depth, light_sampler, light_set,
                         loaded.regularize != 0);
         break;
     }

@@ -128,6 +128,24 @@ struct Light {
     uint32_t two_sided = 0;
 };
 
+// A UniformInfiniteLight: the same radiance from every direction, which is what
+// `LightSource "infinite"` means with no image behind it.
+//
+// Not a shape, so it is not in `shapes` and no primitive points at it; it goes
+// in its own list and the driver appends it to the renderer's lights after the
+// area ones, which is the order PBRT builds them in.
+//
+// `has_l` is the difference between the two spectra PBRT can put here. With no
+// `L` written it emits the colour space's illuminant itself; with one it emits
+// an RGBIlluminantSpectrum, which is a fit of that RGB *times* the illuminant.
+// The fit of a flat spectrum is not exactly flat, so which of the two this is
+// cannot be recovered from the numbers and has to be said.
+struct InfiniteLight {
+    float l[3] = {1.f, 1.f, 1.f};
+    float scale = 1.f;
+    uint32_t has_l = 0;
+};
+
 struct Shape {
     uint32_t tag;
     // Sphere.
@@ -246,6 +264,13 @@ struct Scene {
     std::vector<float> normals;
     std::vector<float> uvs;
     std::vector<Light> lights;
+    std::vector<InfiniteLight> infinite_lights;
+    // PBRT's `sceneRadius`, from `Light::Preprocess` -- the radius of the
+    // scene's bounding sphere. An infinite light has no geometry, so a shadow
+    // ray aimed at one needs somewhere to stop, and PBRT puts that two radii
+    // out. Computed here because it is a property of the whole scene and the
+    // renderer sees the scene one primitive at a time.
+    float scene_radius = 0.f;
     std::vector<Shape> shapes;
     std::vector<Node> nodes;
 
@@ -369,6 +394,15 @@ inline bool write(const char *path, const Scene &scene) {
         detail::put(out, l.l, 3);
         detail::put(out, &l.scale, 1);
         out << " twosided " << l.two_sided << '\n';
+    }
+
+    out << "infinite_lights " << scene.infinite_lights.size() << " radius "
+        << scene.scene_radius << '\n';
+    for (const InfiniteLight &l : scene.infinite_lights) {
+        out << "  uniform";
+        detail::put(out, l.l, 3);
+        detail::put(out, &l.scale, 1);
+        out << " hasl " << l.has_l << '\n';
     }
 
     out << "shapes " << scene.shapes.size() << '\n';
@@ -636,6 +670,29 @@ inline bool read(const char *path, Scene &scene) {
         }
         in >> l.two_sided;
         scene.lights.push_back(l);
+    }
+
+    if (!(in >> word) || word != "infinite_lights") {
+        return false;
+    }
+    in >> count;
+    if (!tagged("radius")) {
+        return false;
+    }
+    in >> scene.scene_radius;
+    scene.infinite_lights.clear();
+    for (size_t i = 0; i < count; i++) {
+        if (!(in >> word) || word != "uniform") {
+            return false;
+        }
+        InfiniteLight l;
+        floats(l.l, 3);
+        floats(&l.scale, 1);
+        if (!tagged("hasl")) {
+            return false;
+        }
+        in >> l.has_l;
+        scene.infinite_lights.push_back(l);
     }
 
     if (!(in >> word) || word != "shapes") {
