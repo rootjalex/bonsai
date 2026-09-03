@@ -77,7 +77,32 @@ the work.
 Worth saying: this profile is not typical. A scene whose emitter is not also
 the thing every ray points at would spend this differently.
 
-## 3. The camera ray is traced twice
+## 3. The renderer computes a gbuffer pbrt's integrator would not
+
+Found the moment the comparison started using the `pbrt` binary, and invisible
+before it.
+
+pbrt fills a `VisibleSurface` from inside `Li`, and **only its `path` and
+`volpath` integrators do**. `RandomWalkIntegrator` and `SimplePathIntegrator`
+take the parameter and ignore it, so a gbuffer of one of those renders is all
+zeros -- pbrt spends nothing on normals or reflectance. This renderer computes
+all three channels whatever the integrator is, which on those scenes is a
+second traversal and a sixteen-sample `rho` per camera sample that pbrt does
+not spend at all. Measured, against the binary:
+
+    area-light       randomwalk   1.14x slower than pbrt
+    area-light-path  simplepath   1.05x slower
+    envmap-walk      randomwalk   1.75x slower
+
+Those are the only scenes here where this renderer is slower than pbrt, and
+this is why. It is the same class of finding as the diffuse `rho` shortcut, in
+the other direction: work done that pbrt does not do.
+
+The fix is the same one as the item below -- fill the visible surface from
+inside the integrator, where pbrt fills it, and only in the integrator that
+fills it.
+
+## 4. The camera ray is traced twice
 
 `render` calls `visible_surface`, which traces, and then `integrator_li`, which
 traces the same ray again. pbrt fills its `VisibleSurface` from *inside* `Li` at
@@ -103,7 +128,7 @@ allow. The honest version is to fill it where pbrt does and have `compare.sh`
 fall back to a separate pass only for the integrators where pbrt leaves it
 empty.
 
-## 4. A leaf's bounding-box test is inside its element loop
+## 5. A leaf's bounding-box test is inside its element loop -- DONE
 
 Both traversals evaluate the leaf's own guard per element:
 
@@ -115,13 +140,21 @@ Both traversals evaluate the leaf's own guard per element:
     }
 
 `intersects` and `distmax` against the leaf's box do not depend on the element.
-`distmin(...) < best` does, because `best` changes inside the loop. So the first
-two are loop-invariant and the third is not. Whether LLVM hoists them has not
-been checked; if it does not, hoisting the invariant part of a leaf guard out of
-the `foreach` is a compiler-side change that helps every tree query in the
-language, not just this app.
+`distmin(...) < best` does, because `best` changes inside the loop.
 
-## 5. Nothing is vectorized
+**Fixed**, and it was a mistake in the lowering rather than something for LLVM
+to clean up. `RewriteFilter` emitted the predicate's bound over the node's
+volume at each *yield*, which inside a leaf means once per element;
+`visit(Scan)` had always emitted the interior's once per node. It is emitted
+around the loop now.
+
+Hoisting is exact even though the bound contains the running accumulator:
+`best` only ever decreases, so the condition evaluated at loop entry is the
+weakest it will be and a leaf is never skipped that should have been entered.
+What is given up is abandoning the rest of a leaf part-way through, which for
+four primitives is not worth one box intersection each.
+
+## 6. Nothing is vectorized
 
 The renderer is entirely scalar. `vectorize()` is the schedule directive with
 the most headroom here and the least applied: a wavefront of suspended paths, or
@@ -129,7 +162,7 @@ the sample loop of a pixel, are both wide and independent. The obstacle is
 divergence -- a layered BSDF's random walk takes a different number of steps per
 lane -- which is exactly the case ISPC-style vectorization is built for.
 
-## 6. The sample loop is deliberately sequential
+## 7. The sample loop is deliberately sequential
 
     parfor s in 0u:spp { ... }
 
@@ -141,7 +174,7 @@ and cost that agreement.
 Worth listing because it is a real choice and not an oversight: the schedule can
 make it, and a comparison run and a production run might reasonably differ.
 
-## 7. Memory the film and the lights stream
+## 8. Memory the film and the lights stream
 
     environment map, fitted     67 MB   (4 floats per texel, 2048x2048)
     its two distributions       68 MB
@@ -156,7 +189,7 @@ Unmeasured. A 2048x2048 map read by an escaped ray is a near-random access into
 67 MB, which is a cache miss per escaped ray either way -- halving the footprint
 may or may not change the miss rate.
 
-## 8. Keep `RayDifferential` off the `Ray`
+## 9. Keep `RayDifferential` off the `Ray`
 
 Not a saving so much as a cost not to incur, written down before the mistake is
 made. Textures need a ray to carry `rxOrigin`, `rxDirection`, `ryOrigin`,
@@ -170,6 +203,7 @@ together with the ray, which makes putting them on it look natural.
 
 ## Done, kept for the record
 
+- **A leaf's volume bound hoisted out of its element loop** -- item 5.
 - **`any()` for shadow rays** rather than `argmin` over the same predicate, and
   a fix to the quantifier lowering so a leaf's box is tested before its
   primitives. 14173 ms to 13299 ms on killeroo-simple, every pixel identical.

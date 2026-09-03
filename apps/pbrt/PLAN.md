@@ -9,6 +9,36 @@ the scene both ways and reports disagreeing pixels, albedo difference, and
 relative speed. `apps/pbrt/render.sh <scene.pbrt>` renders and writes PNGs to
 look at.
 
+**The reference is the `pbrt` binary and nothing else.** compare.sh runs it,
+and compares against the image it writes. There used to be a second thing here
+-- `render_reference` in scene_dump.cpp, which assembled pbrt's camera,
+aggregate, BSDFs and integrator and drove them from a loop of our own. Every
+value it ever produced agreed with the binary to a part in a million, and it
+was still wrong to have: it differed from pbrt's `RenderCPU` in two ways found
+by reading it rather than by any check failing (it traced the camera ray twice,
+and it never called `ScaleDifferentials`), and a reference that can drift
+without saying so is not a reference. It is deleted.
+
+Two things follow from that, and both are honest limits rather than gaps in the
+harness:
+
+- **pbrt only writes normals and albedo for `path` and `volpath`.**
+  `RandomWalkIntegrator` and `SimplePathIntegrator` take the `VisibleSurface`
+  parameter and ignore it, so a gbuffer of one of those renders is all zeros.
+  A scene under those integrators is compared on its radiance, and its geometry
+  is checked by whichever scene shares it and names `path`.
+- **A scene that names no integrator gets `volpath` from pbrt and `path` from
+  us**, so the two run different algorithms over different random numbers.
+  killeroo-simple is the one that does this: the means agree to 0.99997x,
+  because both are unbiased estimates of the same integral, and 1.1% of pixels
+  agree individually rather than the 32.7% the old harness reported when it was
+  running `path` on both sides. Nothing regressed; the old number was measuring
+  something easier.
+
+Our own scenes therefore say `Film "gbuffer"` with `"string coordinatesystem"
+"world"` and `"bool savefp16" false`, which is what makes pbrt write normals,
+in the space this renderer works in, as floats rather than halves.
+
 Both take `--spp <n>` and `--disable-pixel-jitter`, which are pbrt's own flags
 reaching both sides by pbrt's own route: `scene_dump` sets them on `PBRTOptions`
 before parsing, so every sampler's `Create` and pbrt's own `GetCameraSample`
