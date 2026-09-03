@@ -144,6 +144,18 @@ struct InfiniteLight {
     float l[3] = {1.f, 1.f, 1.f};
     float scale = 1.f;
     uint32_t has_l = 0;
+    // An ImageInfiniteLight rather than a uniform one: the equal-area
+    // octahedral environment map's square resolution, and where its texels
+    // begin in the scene's shared texel pool. Zero resolution means there is no
+    // image and this is the uniform light above.
+    uint32_t resolution = 0;
+    uint32_t first_texel = 0;
+    // PBRT's `renderFromLight`, already inverted -- 4x4 in row order. The only
+    // thing done with it is ApplyInverse, so the direction it is used in is the
+    // one handed over. Identity when the scene wrapped the light in no
+    // transform, which most do not.
+    float light_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                   0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 };
 
 struct Shape {
@@ -265,6 +277,11 @@ struct Scene {
     std::vector<float> uvs;
     std::vector<Light> lights;
     std::vector<InfiniteLight> infinite_lights;
+    // Every environment map's texels, laid end to end -- three floats each, in
+    // the image's own colour space. Written to a binary file beside the scene
+    // rather than into it: a 2048x2048 map is twelve million numbers, and the
+    // scene file is text.
+    std::vector<float> env_texels;
     // PBRT's `sceneRadius`, from `Light::Preprocess` -- the radius of the
     // scene's bounding sphere. An infinite light has no geometry, so a shadow
     // ray aimed at one needs somewhere to stop, and PBRT puts that two radii
@@ -298,7 +315,27 @@ inline void put(std::ofstream &out, const float *v, int n) {
 
 } // namespace detail
 
+// Where an environment map's texels live: beside the scene file rather than in
+// it. A 2048x2048 map is twelve million floats, and the scene file is text --
+// writing them there would make it eighty times the size of the geometry and
+// slower to parse than to render.
+inline std::string env_path(const char *scene_path) {
+    return std::string(scene_path) + ".env";
+}
+
 inline bool write(const char *path, const Scene &scene) {
+    if (!scene.env_texels.empty()) {
+        std::ofstream env(env_path(path), std::ios::binary);
+        if (!env) {
+            return false;
+        }
+        env.write(reinterpret_cast<const char *>(scene.env_texels.data()),
+                  std::streamsize(sizeof(float) * scene.env_texels.size()));
+        if (!env) {
+            return false;
+        }
+    }
+
     std::ofstream out(path);
     if (!out) {
         return false;
@@ -399,10 +436,16 @@ inline bool write(const char *path, const Scene &scene) {
     out << "infinite_lights " << scene.infinite_lights.size() << " radius "
         << scene.scene_radius << '\n';
     for (const InfiniteLight &l : scene.infinite_lights) {
-        out << "  uniform";
+        out << (l.resolution == 0 ? "  uniform" : "  image");
         detail::put(out, l.l, 3);
         detail::put(out, &l.scale, 1);
-        out << " hasl " << l.has_l << '\n';
+        out << " hasl " << l.has_l;
+        if (l.resolution != 0) {
+            out << " resolution " << l.resolution << " first " << l.first_texel
+                << " light_from_render";
+            detail::put(out, l.light_from_render, 16);
+        }
+        out << '\n';
     }
 
     out << "shapes " << scene.shapes.size() << '\n';
@@ -682,9 +725,10 @@ inline bool read(const char *path, Scene &scene) {
     in >> scene.scene_radius;
     scene.infinite_lights.clear();
     for (size_t i = 0; i < count; i++) {
-        if (!(in >> word) || word != "uniform") {
+        if (!(in >> word) || (word != "uniform" && word != "image")) {
             return false;
         }
+        const bool is_image = word == "image";
         InfiniteLight l;
         floats(l.l, 3);
         floats(&l.scale, 1);
@@ -692,6 +736,20 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> l.has_l;
+        if (is_image) {
+            if (!tagged("resolution")) {
+                return false;
+            }
+            in >> l.resolution;
+            if (!tagged("first")) {
+                return false;
+            }
+            in >> l.first_texel;
+            if (!tagged("light_from_render")) {
+                return false;
+            }
+            floats(l.light_from_render, 16);
+        }
         scene.infinite_lights.push_back(l);
     }
 
@@ -775,7 +833,32 @@ inline bool read(const char *path, Scene &scene) {
         scene.nodes.push_back(n);
     }
 
-    return bool(in);
+    if (!in) {
+        return false;
+    }
+
+    // And the environment maps' texels, from the file beside this one. How many
+    // there are is the sum of the squares of the resolutions, which the lights
+    // have already said.
+    size_t texels = 0;
+    for (const InfiniteLight &l : scene.infinite_lights) {
+        texels += size_t(l.resolution) * l.resolution;
+    }
+    if (texels != 0) {
+        std::ifstream env(env_path(path), std::ios::binary);
+        if (!env) {
+            return false;
+        }
+        scene.env_texels.resize(texels * 3);
+        env.read(reinterpret_cast<char *>(scene.env_texels.data()),
+                 std::streamsize(sizeof(float) * scene.env_texels.size()));
+        if (env.gcount() !=
+            std::streamsize(sizeof(float) * scene.env_texels.size())) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 } // namespace bonsai_scene

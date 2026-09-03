@@ -1,0 +1,65 @@
+# An environment map, under the one integrator that can use it so far.
+#
+# `randomwalk` because an ImageInfiniteLight can be *seen* but not yet
+# *sampled*: `Le` is implemented and `SampleLi` is not, so the sky is found only
+# by rays that fly into it. That is exactly what a random walk does and it is
+# why scene_dump refuses this map with any other integrator -- a `SampleLi` that
+# returned nothing would be a sky that lights only what looks straight at it,
+# which is a picture and the wrong one. The noise in the render is the cost of
+# the missing half: every escaped ray lands on a different texel of a
+# high-frequency sky.
+#
+# The map is one of pbrt-v4-scenes' own, by absolute path, because it is 24 MB
+# and generated files do not live in this repository. A scene that cannot find
+# it is refused by the reader rather than rendered dark.
+
+Integrator "randomwalk"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "rgb"
+    "string filename" [ "envmap.exr" ]
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The rotation is the point: it is what makes `renderFromLight` not the
+# identity, and a map placed by the wrong transform is a sky in the wrong place.
+AttributeBegin
+    Rotate -90 1 0 0
+    LightSource "infinite"
+        "string filename" "/home/ajroot/projects/pbrt-v4-scenes/lte-orb/textures/small_rural_road_equiarea.exr"
+        "float scale" [ 1.4 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

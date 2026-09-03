@@ -118,18 +118,46 @@ element UniformInfiniteLight {
     scene_radius : Float;
 }
 
+// pbrt: the environment map an ImageInfiniteLight reads.
+//
+// The texels are an extern rather than a field because they are the biggest
+// thing in the scene: every real environment map in pbrt-v4-scenes turns out to
+// be 2048x2048, which is four million of them.
+//
+// Each texel is a *fitted* spectrum and not an RGB. pbrt builds an
+// `RGBIlluminantSpectrum` at every lookup, which is a table lookup into the
+// rgb2spec coefficients and a scale; the result is a deterministic function of
+// the RGB, so doing it once per texel in the driver gives the same number and
+// keeps a table lookup out from under the ray -- which is what this app does
+// with every other spectrum. `xyz` are the sigmoid coefficients and `w` is the
+// scale the fit was taken at, pbrt's `2 * rgb.MaxComponentValue()`.
+extern env_texels : array[vec4f];
+
+element ImageInfiniteLight {
+    // pbrt: `renderFromLight`, handed over already inverted -- `ApplyInverse`
+    // is the only thing ever done with it.
+    light_from_render : Transform;
+    scale : Float;
+    // The map is square, which pbrt insists on: a non-square one is almost
+    // certainly a latitude-longitude image rather than an equal-area octahedral
+    // one, and reading it as if it were would be silently wrong.
+    resolution : i32;
+    // Where this light's texels begin, so two maps can share the array.
+    first_texel : i32;
+}
+
 // pbrt: Light, which is a TaggedPointer over nine kinds. A variant here, for
 // the same reason Integrator is: `match` is how this app spells a vtable.
 //
-// Two kinds. The rest go in as their own arms -- `ImageInfinite` is the one
-// every real scene in pbrt-v4-scenes actually asks for and is next -- and
-// `light_sample_li` grows an arm rather than the callers growing a branch.
+// Three kinds. The rest go in as their own arms, and `light_sample_li` grows an
+// arm rather than the callers growing a branch.
 element Light =
     | DiffuseArea(area : AreaLight, shape : Shape)
     // `sky` rather than the `inf` that reads more naturally: `inf` is the
     // floating-point infinity in stdlib/numerics, and binding it in a match arm
     // shadows it.
-    | UniformInfinite(sky : UniformInfiniteLight);
+    | UniformInfinite(sky : UniformInfiniteLight)
+    | ImageInfinite(img : ImageInfiniteLight);
 
 // pbrt: the scene's lights, one per emissive shape -- which is what pbrt's
 // `std::vector<Light>` is. A primitive names one by index, as it names a
@@ -148,6 +176,7 @@ func light_l(light : Light, n : vec3f, w : vec3f,
         // this is unreachable for it. pbrt says the same by not declaring `L`
         // on the class at all.
         UniformInfinite(sky) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        ImageInfinite(img) => return vec4f{0.0, 0.0, 0.0, 0.0};
     }
 }
 
@@ -164,13 +193,80 @@ func uniform_infinite_le(sky : UniformInfiniteLight,
     return sky.scale * illuminant;
 }
 
+// pbrt: RemapPixelCoords under WrapMode::OctahedralSphere -- what an
+// environment map does with a texel coordinate that fell off the edge.
+//
+// Not a clamp and not a repeat. The square is an unfolded octahedron, so
+// stepping off one edge arrives back on the *opposite* side of the same
+// edge, mirrored: leaving across `u = 0` continues at `u = 0` with `v` flipped
+// about the middle, because those two texels are neighbours on the sphere even
+// though they are a square apart on the map. A clamp would smear the seam and a
+// repeat would join the wrong halves; both would look like a plausible sky.
+func wrap_octahedral(px : i32, py : i32, res : i32) -> vec2f {
+    x : mut i32 = px;
+    y : mut i32 = py;
+    if x < 0 {
+        x = -x;
+        y = res - 1 - y;
+    } else if x >= res {
+        x = 2 * res - 1 - x;
+        y = res - 1 - y;
+    }
+    if y < 0 {
+        x = res - 1 - x;
+        y = -y;
+    } else if y >= res {
+        x = res - 1 - x;
+        y = 2 * res - 1 - y;
+    }
+    return vec2f{cast[[Float]](x), cast[[Float]](y)};
+}
+
+// pbrt: ImageInfiniteLight::ImageLe, and the LookupNearestChannel inside it.
+//
+// *Nearest* and not bilinear, which is pbrt's choice and worth not
+// second-guessing: the map is sampled by a distribution built over the same
+// texels, so interpolating the lookup and not the distribution would put the
+// value and the density slightly out of step with each other.
+func image_le(img : ImageInfiniteLight, uv : vec2f,
+              lambda : SampledWavelengths) -> vec4f {
+    // pbrt: `Point2i pi(p.x * resolution.x, p.y * resolution.y)`, which
+    // truncates -- so a uv of exactly one lands one past the edge and is
+    // brought back by the wrap below rather than by a clamp.
+    res = cast[[Float]](img.resolution);
+    at = wrap_octahedral(cast[[i32]](uv.x * res), cast[[i32]](uv.y * res),
+                         img.resolution);
+    texel = env_texels[img.first_texel +
+                       cast[[i32]](at.y) * img.resolution + cast[[i32]](at.x)];
+    fit : SigmoidPolynomial = {texel.x, texel.y, texel.z};
+    // pbrt: `scale * RGBIlluminantSpectrum(cs, rgb).Sample(lambda)`, which is
+    // the light's scale times the fit's own scale times the fit times the
+    // colour space's illuminant.
+    return img.scale * texel.w * spectrum_at(fit, lambda) *
+           spectrum_at_dense(illuminant_d65, lambda);
+}
+
+// pbrt: ImageInfiniteLight::Le. The ray's direction, taken back into the
+// light's own frame, is a point on the sphere; the map is that sphere unfolded.
+func image_infinite_le(img : ImageInfiniteLight, d : vec3f,
+                       lambda : SampledWavelengths) -> vec4f {
+    w_light = unit_vector_(apply_vector(img.light_from_render, d));
+    return image_le(img, equal_area_sphere_to_square(w_light), lambda);
+}
+
 // pbrt: Light::Le, the radiance a ray that hit nothing carries. Only the
 // infinite lights have one, which is why pbrt keeps them in a list of their own
 // and loops over that rather than over every light in the scene.
-func light_le(light : Light, lambda : SampledWavelengths) -> vec4f {
+//
+// The ray's direction is a parameter where an area light needed none: an
+// environment map answers differently in every direction, which is the whole
+// difference between it and the uniform light beside it.
+func light_le(light : Light, d : vec3f,
+              lambda : SampledWavelengths) -> vec4f {
     match light {
         DiffuseArea(area, shape) => return vec4f{0.0, 0.0, 0.0, 0.0};
         UniformInfinite(sky) => return uniform_infinite_le(sky, lambda);
+        ImageInfinite(img) => return image_infinite_le(img, d, lambda);
     }
 }
 
@@ -198,6 +294,13 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
                      lambda : SampledWavelengths,
                      allow_incomplete_pdf : bool) -> option[LightLiSample] {
     match light {
+        // Not implemented, and unreachable rather than approximated: sampling
+        // an environment map means sampling a distribution built over its
+        // texels, and until that exists `scene_dump` refuses any scene that
+        // pairs one with an integrator that samples lights. Returning nothing
+        // here would otherwise be a sky that lights nothing it is not looked at
+        // directly through -- a picture, and the wrong one.
+        ImageInfinite(img) => return {};
         UniformInfinite(sky) => {
             if allow_incomplete_pdf {
                 return {};
@@ -247,6 +350,8 @@ func light_pdf_li(light : Light, ctx : ShapeSampleContext, wi : vec3f,
         // nothing drew from would be a weight against nothing.
         UniformInfinite(sky) =>
             return select(allow_incomplete_pdf, 0.0, uniform_sphere_pdf());
+        // As above: unreachable while `scene_dump` refuses the pairing.
+        ImageInfinite(img) => return 0.0;
     }
 }
 
@@ -284,6 +389,7 @@ func light_is_delta(light : Light) -> bool {
         // pbrt: LightType::Infinite, which IsDeltaLight does not include. It
         // arrives from every direction, so a BSDF sample can find it.
         UniformInfinite(sky) => return false;
+        ImageInfinite(img) => return false;
     }
 }
 
@@ -525,7 +631,7 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
         // left the scene.
         escaped : mut vec4f = l;
         for i in ls.first_infinite:ls.count {
-            escaped = escaped + beta * light_le(lights[i], lambda);
+            escaped = escaped + beta * light_le(lights[i], ray.d, lambda);
         }
         return escaped;
     }
@@ -624,7 +730,7 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
         escaped : mut vec4f = l;
         if specular_bounce {
             for i in set.first_infinite:set.count {
-                escaped = escaped + beta * light_le(lights[i], lambda);
+                escaped = escaped + beta * light_le(lights[i], ray.d, lambda);
             }
         }
         return escaped;
@@ -849,7 +955,7 @@ func full_path_step(ray : Ray, beta : vec4f, l : vec4f, depth : i32,
         // was sampled, which is the point of threading the flag.
         escaped : mut vec4f = l;
         for i in set.first_infinite:set.count {
-            emitted = light_le(lights[i], lambda);
+            emitted = light_le(lights[i], ray.d, lambda);
             if (depth == 0) || specular_bounce {
                 escaped = escaped + beta * emitted;
             } else {

@@ -136,6 +136,11 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         };
         std::string name;
         std::map<std::string, Value> params;
+        // Where the directive was, for the ones that are placed. Only a light
+        // reads it, and only an environment map needs it: the map is a sphere
+        // and the transform says which way round.
+        pbrt::Transform ctm;
+        bool ctm_is_tracked = true;
 
         const Value *find(const std::string &key) const {
             const auto it = params.find(key);
@@ -197,10 +202,95 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // pbrt-v4-scenes that got as far as converting, thirteen were lit by one
     // of these. Recorded rather than refused on the spot so that the message
     // can name the kind, which is what decides which one to implement next.
+    // The current transformation matrix, mirrored.
+    //
+    // PBRT keeps one and hands it to every directive that needs placing, but
+    // `BasicSceneBuilder::RenderFromObject` is private and a light's
+    // `renderFromLight` is protected on the light it ends up in -- so a tool
+    // that wants to know where a light was pointed has to follow along. Every
+    // directive below is a `ParserTarget` virtual, so this is the same sequence
+    // of calls PBRT sees, in the same order, applied with PBRT's own Transform
+    // arithmetic. What is reimplemented is the bookkeeping and not the maths.
+    //
+    // Only the world-space half is tracked. `RenderFromObject` is
+    // `renderFromWorld * ctm`, WorldBegin resets the CTM to the identity, and
+    // `renderFromWorld` is available afterwards from the camera -- so what has
+    // to be followed is only what happens between `WorldBegin` and the light.
+    //
+    // It is checked rather than trusted: an environment map placed by the wrong
+    // rotation is a sky in the wrong place, and the comparison against PBRT
+    // sees that immediately. This is not a quantity that can be subtly wrong.
+    void WorldBegin(pbrt::FileLoc loc) override {
+        ctm = pbrt::Transform();
+        ctm_stack.clear();
+        pbrt::BasicSceneBuilder::WorldBegin(loc);
+    }
+    void AttributeBegin(pbrt::FileLoc loc) override {
+        ctm_stack.push_back(ctm);
+        pbrt::BasicSceneBuilder::AttributeBegin(loc);
+    }
+    void AttributeEnd(pbrt::FileLoc loc) override {
+        if (!ctm_stack.empty()) {
+            ctm = ctm_stack.back();
+            ctm_stack.pop_back();
+        }
+        pbrt::BasicSceneBuilder::AttributeEnd(loc);
+    }
+    void Identity(pbrt::FileLoc loc) override {
+        ctm = pbrt::Transform();
+        pbrt::BasicSceneBuilder::Identity(loc);
+    }
+    void Translate(pbrt::Float dx, pbrt::Float dy, pbrt::Float dz,
+                   pbrt::FileLoc loc) override {
+        ctm = ctm * pbrt::Translate(pbrt::Vector3f(dx, dy, dz));
+        pbrt::BasicSceneBuilder::Translate(dx, dy, dz, loc);
+    }
+    void Scale(pbrt::Float sx, pbrt::Float sy, pbrt::Float sz,
+               pbrt::FileLoc loc) override {
+        ctm = ctm * pbrt::Scale(sx, sy, sz);
+        pbrt::BasicSceneBuilder::Scale(sx, sy, sz, loc);
+    }
+    void Rotate(pbrt::Float angle, pbrt::Float ax, pbrt::Float ay,
+                pbrt::Float az, pbrt::FileLoc loc) override {
+        ctm = ctm * pbrt::Rotate(angle, pbrt::Vector3f(ax, ay, az));
+        pbrt::BasicSceneBuilder::Rotate(angle, ax, ay, az, loc);
+    }
+    void LookAt(pbrt::Float ex, pbrt::Float ey, pbrt::Float ez, pbrt::Float lx,
+                pbrt::Float ly, pbrt::Float lz, pbrt::Float ux, pbrt::Float uy,
+                pbrt::Float uz, pbrt::FileLoc loc) override {
+        ctm = ctm * pbrt::Inverse(pbrt::LookAt(pbrt::Point3f(ex, ey, ez),
+                                               pbrt::Point3f(lx, ly, lz),
+                                               pbrt::Vector3f(ux, uy, uz)));
+        pbrt::BasicSceneBuilder::LookAt(ex, ey, ez, lx, ly, lz, ux, uy, uz,
+                                        loc);
+    }
+    void Transform(pbrt::Float tr[16], pbrt::FileLoc loc) override {
+        ctm = pbrt::Transpose(
+            pbrt::Transform(pbrt::SquareMatrix<4>(pstd::MakeSpan(tr, 16))));
+        pbrt::BasicSceneBuilder::Transform(tr, loc);
+    }
+    void ConcatTransform(pbrt::Float tr[16], pbrt::FileLoc loc) override {
+        ctm = ctm * pbrt::Transpose(
+            pbrt::Transform(pbrt::SquareMatrix<4>(pstd::MakeSpan(tr, 16))));
+        pbrt::BasicSceneBuilder::ConcatTransform(tr, loc);
+    }
+    // The two that name a transform rather than compose one. Refused where a
+    // light would be affected, because following them means mirroring PBRT's
+    // named-coordinate-system table as well, and no scene here uses them.
+    void CoordinateSystem(const std::string &n, pbrt::FileLoc loc) override {
+        pbrt::BasicSceneBuilder::CoordinateSystem(n, loc);
+    }
+    void CoordSysTransform(const std::string &n, pbrt::FileLoc loc) override {
+        ctm_is_tracked = false;
+        pbrt::BasicSceneBuilder::CoordSysTransform(n, loc);
+    }
+
     void LightSource(const std::string &name, pbrt::ParsedParameterVector params,
                      pbrt::FileLoc loc) override {
         MaterialInfo info;
         info.name = name;
+        info.ctm = ctm;
+        info.ctm_is_tracked = ctm_is_tracked;
         for (const pbrt::ParsedParameter *p : params) {
             MaterialInfo::Value v;
             v.type = p->type;
@@ -249,6 +339,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // which is the order PBRT appends them to its own light list, after the
     // area lights. See above.
     std::vector<MaterialInfo> lights;
+    // The mirrored CTM. See the transform overrides above.
+    pbrt::Transform ctm;
+    std::vector<pbrt::Transform> ctm_stack;
+    bool ctm_is_tracked = true;
     // PBRT's RandomWalkIntegrator default. The name is empty when the scene
     // named no integrator, which is not the same as naming the default: PBRT
     // would fall back to volpath, and this renderer has only the random walk,
@@ -1884,13 +1978,6 @@ void load(const char *filename, bonsai_scene::Scene &out,
         if (filename == nullptr) {
             filename = light.find("mapname");
         }
-        if (filename != nullptr) {
-            fail("an `infinite` light with an image is an ImageInfiniteLight, "
-                 "which is not implemented; the scene names \"" +
-                 (filename->strings.empty() ? std::string() :
-                                              filename->strings[0]) +
-                 "\"");
-        }
         if (light.find("portal") != nullptr) {
             fail("an `infinite` light with a portal is a "
                  "PortalImageInfiniteLight, which is not implemented");
@@ -1907,6 +1994,94 @@ void load(const char *filename, bonsai_scene::Scene &out,
         // property of the scene rather than of the conversion.
         pbrt::Allocator alloc;
         const float scale = material_float(light, "scale", 1.f);
+        if (filename != nullptr) {
+            if (filename->strings.empty()) {
+                fail("an `infinite` light's filename is not a string");
+            }
+            if (light.find("L") != nullptr) {
+                // PBRT refuses this pairing too.
+                fail("an `infinite` light cannot have both an `L` and a "
+                     "`filename`");
+            }
+            if (!light.ctm_is_tracked) {
+                fail("an `infinite` light placed by a named coordinate system "
+                     "is not supported: scene_dump follows the transform stack "
+                     "itself and does not follow that directive");
+            }
+
+            const std::string resolved =
+                pbrt::ResolveFilename(filename->strings[0]);
+            pbrt::ImageAndMetadata im = pbrt::Image::Read(resolved, alloc);
+            if (im.image.HasAnyInfinitePixels() || im.image.HasAnyNaNPixels()) {
+                fail(resolved + ": an environment map with infinite or "
+                                "not-a-number pixels is refused, as PBRT "
+                                "refuses it");
+            }
+            const pbrt::Point2i res = im.image.Resolution();
+            // PBRT's own check, and the reason it exists is worth keeping: a
+            // non-square image is almost certainly a latitude-longitude
+            // environment map, and reading one as an equal-area octahedral map
+            // produces a sky that is wrong everywhere and looks like a sky.
+            if (res.x != res.y) {
+                fail(resolved + ": an environment map must be square to be an "
+                                "equal-area octahedral one, and this is " +
+                     std::to_string(res.x) + "x" + std::to_string(res.y));
+            }
+            // The colour space the texels are fitted against. Only sRGB is
+            // implemented -- `illuminant_d65` in the renderer is sRGB's
+            // illuminant -- so another one is refused rather than silently read
+            // as sRGB.
+            const pbrt::RGBColorSpace *image_space = im.metadata.GetColorSpace();
+            if (image_space != pbrt::RGBColorSpace::sRGB) {
+                fail(resolved + ": an environment map in a colour space other "
+                                "than sRGB is not supported");
+            }
+            const pbrt::ImageChannelDesc desc =
+                im.image.GetChannelDesc({"R", "G", "B"});
+            if (!desc) {
+                fail(resolved + ": an environment map needs R, G and B "
+                                "channels");
+            }
+
+            out_light.resolution = uint32_t(res.x);
+            out_light.first_texel =
+                uint32_t(out.env_texels.size() / 3);
+            out.env_texels.reserve(out.env_texels.size() +
+                                   size_t(res.x) * res.y * 3);
+            for (int y = 0; y < res.y; y++) {
+                for (int x = 0; x < res.x; x++) {
+                    const pbrt::ImageChannelValues v =
+                        im.image.GetChannels({x, y}, desc);
+                    // PBRT: ClampZero, applied where it applies it -- inside
+                    // ImageLe, before the spectrum is built. A negative texel
+                    // is not a colour and the fit has nothing to say about one.
+                    for (int c = 0; c < 3; c++) {
+                        out.env_texels.push_back(std::max(0.f, float(v[c])));
+                    }
+                }
+            }
+            // PBRT: `scale /= SpectrumToPhotometric(&colorSpace->illuminant)`
+            // for the image case -- over the colour space's illuminant and not
+            // over the image, which is the same division the no-L uniform case
+            // makes.
+            out_light.scale =
+                float(scale / pbrt::SpectrumToPhotometric(
+                                  &pbrt::RGBColorSpace::sRGB->illuminant));
+            // PBRT: `renderFromLight`, inverted here because ApplyInverse is
+            // the only use it has. `renderFromWorld * ctm` is what
+            // BasicSceneBuilder would have built.
+            const pbrt::Transform light_from_render = pbrt::Inverse(
+                scene.GetCamera().GetCameraTransform().RenderFromWorld() *
+                light.ctm);
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    out_light.light_from_render[4 * r + c] =
+                        float(light_from_render.GetMatrix()[r][c]);
+                }
+            }
+            out.infinite_lights.push_back(out_light);
+            continue;
+        }
         if (material_rgb(light, "L", out_light.l)) {
             out_light.has_l = 1u;
             const pbrt::RGBIlluminantSpectrum emitted(
@@ -2147,6 +2322,19 @@ void load(const char *filename, bonsai_scene::Scene &out,
     for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
         const std::string name(entity.name);
         const pbrt::Transform &render_from_object = *entity.renderFromObject;
+        // A shape under `NamedMaterial` names its material by string and PBRT
+        // leaves `materialIndex` at -1. Nothing here resolves the name, and -1
+        // is also what a shape declared outside any Material directive gets --
+        // so without this check a `MakeNamedMaterial` of any type at all became
+        // PBRT's default fifty-per-cent grey diffuse, silently.
+        //
+        // That is how it was found: lte-orb's `measured` BSDF rendered as a
+        // grey ball, five times too bright, and the geometry and the normals
+        // matched perfectly the whole time.
+        if (!entity.materialName.empty()) {
+            fail("a shape uses the named material \"" + entity.materialName +
+                 "\", and named materials are not supported");
+        }
         const uint32_t material = material_for(entity.materialIndex);
         const int32_t light = light_for(entity.lightIndex);
 
@@ -2303,6 +2491,24 @@ void load(const char *filename, bonsai_scene::Scene &out,
         pbrt::Float radius = 0;
         scene_bounds.BoundingSphere(&centre, &radius);
         out.scene_radius = float(radius);
+    }
+
+    // An environment map can be *seen* but not yet *sampled*: `Le` is
+    // implemented and `SampleLi` is not, because sampling one means sampling a
+    // distribution built over its texels. So an integrator that samples lights
+    // is refused with one, and the random walk -- which never samples a light,
+    // and finds every light by flying into it -- is not.
+    //
+    // The alternative would be a `SampleLi` that returns nothing, which is a
+    // sky that lights only what looks straight at it: a picture, and the wrong
+    // one, which is the failure this app refuses on principle.
+    for (const bonsai_scene::InfiniteLight &l : out.infinite_lights) {
+        if (l.resolution != 0 &&
+            out.integrator != bonsai_scene::IntegratorTag::RandomWalk) {
+            fail("an environment map can be seen but not sampled yet, so it "
+                 "needs `Integrator \"randomwalk\"`; the scene resolves to a "
+                 "light-sampling integrator");
+        }
     }
 
     // The light sampler, which only `path` reads and which PBRT defaults to

@@ -798,8 +798,47 @@ int main(int argc, char **argv) {
     // The renderer finds them as a subrange rather than as a second array,
     // which is what `LightSet` says: everything from `first_infinite` to
     // `count` is a light a ray can fly off into.
+    // Every environment map's texels, fitted once here rather than at every
+    // lookup. pbrt builds an `RGBIlluminantSpectrum` inside `ImageLe`, which is
+    // a table lookup into the rgb2spec coefficients and a scale; the result is
+    // a deterministic function of the texel's RGB, so precomputing it gives the
+    // same number and keeps the table out from under the ray -- which is what
+    // this app does with every other spectrum, and the reason the fit tables
+    // are here and not in the renderer.
+    std::vector<float4> env_texels(loaded.env_texels.size() / 3);
+    for (size_t i = 0; i < env_texels.size(); i++) {
+        SigmoidPolynomial fit;
+        const float rgb[3] = {loaded.env_texels[3 * i + 0],
+                              loaded.env_texels[3 * i + 1],
+                              loaded.env_texels[3 * i + 2]};
+        const float texel_scale = fit_emission(rgb, 1.f, &fit);
+        env_texels[i] = float4{fit.c0, fit.c1, fit.c2, texel_scale};
+    }
+
     const int32_t first_infinite = int32_t(lights.size());
     for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
+        if (l.resolution != 0) {
+            ImageInfiniteLight img;
+            img.light_from_render =
+                Transform{float4{l.light_from_render[0], l.light_from_render[1],
+                                 l.light_from_render[2], l.light_from_render[3]},
+                          float4{l.light_from_render[4], l.light_from_render[5],
+                                 l.light_from_render[6], l.light_from_render[7]},
+                          float4{l.light_from_render[8], l.light_from_render[9],
+                                 l.light_from_render[10],
+                                 l.light_from_render[11]},
+                          float4{l.light_from_render[12],
+                                 l.light_from_render[13],
+                                 l.light_from_render[14],
+                                 l.light_from_render[15]}};
+            img.scale = l.scale;
+            img.resolution = int32_t(l.resolution);
+            img.first_texel = int32_t(l.first_texel);
+            Light light;
+            Light_ImageInfinite(light, img);
+            lights.push_back(light);
+            continue;
+        }
         UniformInfiniteLight sky;
         // Fitted exactly as an area light's L is. The fit is meaningless when
         // the scene wrote no L, and `has_l` is what says so; pbrt emits the
@@ -891,7 +930,7 @@ int main(int argc, char **argv) {
                uvs.data(), x, y, z, d65, filter_f.data(),
                filter_cond_cdf.data(), filter_marg_func.data(),
                filter_marg_cdf.data(), primes, digit_permutations.data(),
-               digit_permutation_offsets, lights.data(),
+               digit_permutation_offsets, env_texels.data(), lights.data(),
                materials.data(), rho_uc, rho_ux, rho_uy, tree,
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();

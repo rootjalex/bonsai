@@ -82,6 +82,78 @@ func fast_exp(x : Float) -> Float {
     return reinterpret[[Float]](scaled);
 }
 
+// pbrt: std::copysign, which is a bit operation and not a comparison. The
+// difference is the two zeroes: `copysign(1, -0)` is -1 where `-0 < 0` is
+// false, and an environment map's mirroring lands on exactly that case at the
+// seams of the octahedron.
+func copysign_(magnitude : Float, sign : Float) -> Float {
+    bits = (reinterpret[[u32]](magnitude) & 0x7fffffffu) |
+           (reinterpret[[u32]](sign) & 0x80000000u);
+    return reinterpret[[Float]](bits);
+}
+
+// pbrt: EqualAreaSphereToSquare, from util/math.h -- Clarberg's mapping between
+// the unit sphere and the unit square, which is what an environment map is
+// stored in.
+//
+// "Equal area" is the property that makes it worth the trouble: every texel of
+// the square covers the same solid angle, so a uniform sample of the square is
+// a uniform sample of the sphere and a sum over texels is an integral over
+// directions with no Jacobian to carry. A latitude-longitude map has neither
+// property -- its texels crowd at the poles -- which is why pbrt refuses to
+// treat one as an environment map without converting it first.
+//
+// The shape of it: fold the sphere onto an octahedron, unfold the octahedron
+// onto a square. `r = sqrt(1 - |z|)` is the fold, the polynomial is the angle
+// around it, and the two mirrorings at the end put the point back in the
+// quadrant its signs came from.
+//
+// The polynomial is pbrt's own minimax approximation of `atan(b) * 2/pi` over
+// [0, 1] and not a call to `atan`. Matching pbrt means matching the
+// approximation, exactly as `fast_exp` above does -- and it is evaluated by
+// Horner in fused multiply-adds, because pbrt's EvaluatePolynomial is.
+func equal_area_sphere_to_square(d : vec3f) -> vec2f {
+    x = abs(d.x);
+    y = abs(d.y);
+    z = abs(d.z);
+
+    // The radius, as the distance from the pole rather than from the axis.
+    r = safe_sqrt(1.0 - z);
+
+    // The argument to the arctangent, guarded where the larger of the two is
+    // zero and the ratio would be zero over zero.
+    a = max(x, y);
+    b0 = min(x, y);
+    b = select(a == 0.0, 0.0, b0 / a);
+
+    phi0 = fma(b, fma(b, fma(b, fma(b, fma(b, fma(b, 0.419038818029165735901852432784e-1,
+                                             -0.251390972343483509333252996350e-1),
+                                        0.881770664775316294736387951347e-1),
+                                   -0.247333733281268944196501420480),
+                              0.61572017898280213493197203466e-2),
+                         0.636226545274016134946890922156),
+              0.406758566246788489601959989e-5);
+    // Past 45 degrees the roles of the two axes swap, which is the same angle
+    // measured from the other side.
+    phi = select(x < y, 1.0 - phi0, phi0);
+
+    v0 = phi * r;
+    u0 = r - v0;
+
+    // The southern hemisphere is the northern one mirrored through the centre
+    // of the square, which is what unfolding the lower half of the octahedron
+    // outwards comes to.
+    u1 = select(d.z < 0.0, 1.0 - v0, u0);
+    v1 = select(d.z < 0.0, 1.0 - u0, v0);
+
+    // And back into the quadrant the signs of x and y name. `copysign` rather
+    // than a comparison, because pbrt uses copysign and the two differ at a
+    // negative zero.
+    u = copysign_(u1, d.x);
+    v = copysign_(v1, d.y);
+    return vec2f{0.5 * (u + 1.0), 0.5 * (v + 1.0)};
+}
+
 // pbrt: FindInterval, from util/math.h. The last index whose CDF entry is still
 // at or below `u`, found by a branchless binary search over a table that is
 // known to be sorted.
