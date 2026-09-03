@@ -154,6 +154,40 @@ func equal_area_sphere_to_square(d : vec3f) -> vec2f {
     return vec2f{0.5 * (u + 1.0), 0.5 * (v + 1.0)};
 }
 
+func pi_quarter() -> Float = 0.78539816339744830961;
+
+// pbrt: EqualAreaSquareToSphere, the other direction -- a point on the square
+// back to the direction it stands for. What sampling an environment map needs,
+// where reading one needs the inverse above.
+//
+// The two are not each other's transcription: this one goes through the signed
+// distance from the octahedron's diagonal and a real `cos`/`sin`, where the
+// inverse uses a polynomial for the angle. pbrt writes them that way and the
+// asymmetry is theirs.
+func equal_area_square_to_sphere(p : vec2f) -> vec3f {
+    // Onto [-1, 1]^2, and the quadrant folded away.
+    u = fma(2.0, p.x, -1.0);
+    v = fma(2.0, p.y, -1.0);
+    up = abs(u);
+    vp = abs(v);
+
+    // How far inside the diagonal `|u| + |v| = 1` the point is. Its sign is
+    // which hemisphere, its magnitude is how far from the equator.
+    signed_distance = 1.0 - (up + vp);
+    d = abs(signed_distance);
+    r = 1.0 - d;
+
+    // The angle around the axis. `r == 0` is the pole, where every angle is the
+    // same point and pbrt picks one rather than dividing by zero.
+    phi = select(r == 0.0, 1.0, (vp - up) / r + 1.0) * (pi_quarter());
+    z = copysign_(1.0 - sqr(r), signed_distance);
+
+    cos_phi = copysign_(cos(phi), u);
+    sin_phi = copysign_(sin(phi), v);
+    ring = r * safe_sqrt(2.0 - sqr(r));
+    return vec3f{cos_phi * ring, sin_phi * ring, z};
+}
+
 // pbrt: FindInterval, from util/math.h. The last index whose CDF entry is still
 // at or below `u`, found by a branchless binary search over a table that is
 // known to be sorted.
@@ -209,4 +243,65 @@ func cdf_sample(cdf : array[Float], base : i32, n : i32, lo : Float, hi : Float,
     t = (cast[[Float]](o) + du) / cast[[Float]](n);
     s : CdfSample = {(1.0 - t) * lo + t * hi, o};
     return s;
+}
+
+// pbrt: PiecewiseConstant2D, as the renderer needs it -- where its tables begin
+// and what its marginal integrates to.
+//
+// The tables themselves are the caller's arrays, because two different things
+// want this over the same image: an environment map's texels, and the same
+// texels with their own average subtracted. They differ only in the numbers, so
+// they differ only in these offsets.
+element Dist2D {
+    // `nx * ny` values, the function being sampled.
+    first_value : i32;
+    // `ny * (nx + 1)` entries: one conditional CDF per row, laid end to end,
+    // because an array of arrays is a pointer to chase per sample.
+    first_cond_cdf : i32;
+    // `ny` entries, each row's integral -- which is also the marginal's own
+    // function, exactly as PiecewiseConstant2D builds it.
+    first_marg_func : i32;
+    // `ny + 1` entries.
+    first_marg_cdf : i32;
+    // pbrt: pMarginal.Integral().
+    integral : Float;
+}
+
+element Dist2DSample {
+    uv : vec2f;
+    pdf : Float;
+}
+
+// pbrt: PiecewiseConstant2D::Sample over the unit square. The marginal in `v`
+// first and then the conditional row it landed in, which is pbrt's order and
+// matters -- the two components of `u` are not interchangeable once the
+// distribution is not separable.
+func dist2d_sample(d : Dist2D, nx : i32, ny : i32, u : vec2f,
+                   values : array[Float], cond_cdf : array[Float],
+                   marg_func : array[Float],
+                   marg_cdf : array[Float]) -> Dist2DSample {
+    marg = cdf_sample(marg_cdf, d.first_marg_cdf, ny, 0.0, 1.0, u.y);
+    row = marg.offset;
+    row_int = marg_func[d.first_marg_func + row];
+    pdf_v = select(d.integral > 0.0, row_int / d.integral, 0.0);
+
+    cond = cdf_sample(cond_cdf, d.first_cond_cdf + row * (nx + 1), nx, 0.0, 1.0,
+                      u.x);
+    pdf_u = select(row_int > 0.0,
+                   values[d.first_value + row * nx + cond.offset] / row_int,
+                   0.0);
+
+    s : Dist2DSample = {vec2f{cond.x, marg.x}, pdf_u * pdf_v};
+    return s;
+}
+
+// pbrt: PiecewiseConstant2D::PDF. The density at a point, without sampling to
+// get there -- `func[iu] / pMarginal.Integral()`, which is what the sampler's
+// two halves multiply to.
+func dist2d_pdf(d : Dist2D, nx : i32, ny : i32, uv : vec2f,
+                values : array[Float]) -> Float {
+    iu = min(max(cast[[i32]](uv.x * cast[[Float]](nx)), 0), nx - 1);
+    iv = min(max(cast[[i32]](uv.y * cast[[Float]](ny)), 0), ny - 1);
+    return select(d.integral > 0.0,
+                  values[d.first_value + iv * nx + iu] / d.integral, 0.0);
 }

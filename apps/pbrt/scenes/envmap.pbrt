@@ -1,18 +1,24 @@
-# An environment map found only by flying into it.
+# An environment map, sampled.
 #
-# `randomwalk` never samples a light, so the sky here arrives entirely through
-# `Le` on escaped rays -- no distribution, no shadow ray, no MIS. That makes it
-# the control for `envmap.pbrt`, which is the same scene under `path` and
-# reaches the same sky by sampling the map instead. The two agree with pbrt
-# about the same picture and disagree wildly about how noisy it is, which is
-# the entire argument for importance-sampling an environment map: every escaped
-# ray here lands on a different texel of a high-frequency sky.
+# The scene `envmap-walk.pbrt` renders with a random walk, which finds the sky
+# only by flying into it. This one samples it: `SampleLi` draws a direction from
+# a distribution built across the map's texels, so a bright patch is found often
+# and an even one rarely, and a shadow ray is spent on it. The two renders are
+# the same picture and are not remotely the same amount of noise, which is the
+# whole argument for importance-sampling an environment map.
+#
+# `path` also selects the *compensated* distribution: pbrt passes
+# `allowIncompletePDF` and an ImageInfiniteLight answers with a second table
+# built over `max(0, texel - average)`, so the light sampler spends its effort
+# on the part of the sky that is brighter than average and leaves the even part
+# to the BSDF sample, which finds it perfectly well. `simplepath` on the same
+# scene takes the plain table instead, which is the other branch and is checked
+# the same way.
 #
 # The map is one of pbrt-v4-scenes' own, by absolute path, because it is 24 MB
-# and generated files do not live in this repository. A scene that cannot find
-# it is refused by the reader rather than rendered dark.
+# and generated files do not live in this repository.
 
-Integrator "randomwalk"
+Integrator "path"
     "integer maxdepth" [ 5 ]
 
 LookAt 0 4 12   0 1 0   0 1 0

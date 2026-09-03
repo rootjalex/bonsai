@@ -133,10 +133,24 @@ element UniformInfiniteLight {
 // scale the fit was taken at, pbrt's `2 * rgb.MaxComponentValue()`.
 extern env_texels : array[vec4f];
 
+// pbrt: the two `PiecewiseConstant2D`s an ImageInfiniteLight builds over its
+// image. Their tables, for every environment map in the scene, laid end to end
+// -- a `Dist2D` on the light says where each one starts.
+//
+// `env_dist_values` is what is being sampled: the average of a texel's three
+// channels, which is `Image::GetSamplingDistribution`. It is not the texel
+// itself, so it is a fifth array rather than a field of `env_texels`.
+extern env_dist_values : array[Float];
+extern env_dist_cond_cdf : array[Float];
+extern env_dist_marg_func : array[Float];
+extern env_dist_marg_cdf : array[Float];
+
 element ImageInfiniteLight {
-    // pbrt: `renderFromLight`, handed over already inverted -- `ApplyInverse`
-    // is the only thing ever done with it.
+    // pbrt: `renderFromLight` and its inverse. Both, because both are used:
+    // `Le` and `PDF_Li` take a render-space direction back into the light's
+    // frame, and `SampleLi` sends one the other way.
     light_from_render : Transform;
+    render_from_light : Transform;
     scale : Float;
     // The map is square, which pbrt insists on: a non-square one is almost
     // certainly a latitude-longitude image rather than an equal-area octahedral
@@ -144,6 +158,18 @@ element ImageInfiniteLight {
     resolution : i32;
     // Where this light's texels begin, so two maps can share the array.
     first_texel : i32;
+    // pbrt: sceneRadius, for the point a shadow ray towards the sky stops at.
+    scene_radius : Float;
+    // pbrt: `distribution` and `compensatedDistribution`.
+    //
+    // Two distributions over the same image, and the second is what
+    // `allowIncompletePDF` selects. It samples `max(0, texel - average)`: the
+    // part of the sky that is *brighter than average*, on the grounds that a
+    // BSDF sample will find the even part perfectly well on its own. Sampling
+    // what the other estimator is bad at is the whole idea of MIS compensation,
+    // and it is why an environment map needs two tables rather than one.
+    dist : Dist2D;
+    compensated : Dist2D;
 }
 
 // pbrt: Light, which is a TaggedPointer over nine kinds. A variant here, for
@@ -294,13 +320,31 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
                      lambda : SampledWavelengths,
                      allow_incomplete_pdf : bool) -> option[LightLiSample] {
     match light {
-        // Not implemented, and unreachable rather than approximated: sampling
-        // an environment map means sampling a distribution built over its
-        // texels, and until that exists `scene_dump` refuses any scene that
-        // pairs one with an integrator that samples lights. Returning nothing
-        // here would otherwise be a sky that lights nothing it is not looked at
-        // directly through -- a picture, and the wrong one.
-        ImageInfinite(img) => return {};
+        // pbrt: ImageInfiniteLight::SampleLi. A direction is chosen by sampling
+        // the map -- so a bright patch of sky is found often and an even one
+        // rarely, which is what makes a shadow ray towards an environment map
+        // worth spending at all.
+        //
+        // The density comes back in the *square's* measure and is divided by
+        // 4pi to become one in solid angle. That single constant is the whole
+        // of the Jacobian, and it is why the map has to be equal-area: on a
+        // latitude-longitude map the factor would vary with latitude.
+        ImageInfinite(img) => {
+            picked = select(allow_incomplete_pdf, img.compensated, img.dist);
+            s = dist2d_sample(picked, img.resolution, img.resolution, u,
+                              env_dist_values, env_dist_cond_cdf,
+                              env_dist_marg_func, env_dist_marg_cdf);
+            if s.pdf == 0.0 {
+                return {};
+            }
+            w_light = equal_area_square_to_sphere(s.uv);
+            wi = apply_vector(img.render_from_light, w_light);
+            far = ctx.p + 2.0 * img.scene_radius * wi;
+            out : LightLiSample = {image_le(img, s.uv, lambda), wi,
+                                   s.pdf / (4.0 * pi()), far,
+                                   vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
+            return out;
+        }
         UniformInfinite(sky) => {
             if allow_incomplete_pdf {
                 return {};
@@ -350,8 +394,16 @@ func light_pdf_li(light : Light, ctx : ShapeSampleContext, wi : vec3f,
         // nothing drew from would be a weight against nothing.
         UniformInfinite(sky) =>
             return select(allow_incomplete_pdf, 0.0, uniform_sphere_pdf());
-        // As above: unreachable while `scene_dump` refuses the pairing.
-        ImageInfinite(img) => return 0.0;
+        // pbrt: ImageInfiniteLight::PDF_Li, and the same 4pi. Note what is
+        // *not* here: pbrt normalizes the direction in `Le` and does not
+        // normalize it here, so neither does this.
+        ImageInfinite(img) => {
+            uv = equal_area_sphere_to_square(
+                apply_vector(img.light_from_render, wi));
+            picked = select(allow_incomplete_pdf, img.compensated, img.dist);
+            return dist2d_pdf(picked, img.resolution, img.resolution, uv,
+                              env_dist_values) / (4.0 * pi());
+        }
     }
 }
 

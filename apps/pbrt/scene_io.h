@@ -156,6 +156,11 @@ struct InfiniteLight {
     // transform, which most do not.
     float light_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    // And the way round PBRT stores it. Both, because both are used: `Le` and
+    // `PDF_Li` take a render-space direction into the light's frame, and
+    // `SampleLi` sends a sampled one the other way.
+    float render_from_light[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                   0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 };
 
 struct Shape {
@@ -444,6 +449,8 @@ inline bool write(const char *path, const Scene &scene) {
             out << " resolution " << l.resolution << " first " << l.first_texel
                 << " light_from_render";
             detail::put(out, l.light_from_render, 16);
+            out << " render_from_light";
+            detail::put(out, l.render_from_light, 16);
         }
         out << '\n';
     }
@@ -749,6 +756,10 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             floats(l.light_from_render, 16);
+            if (!tagged("render_from_light")) {
+                return false;
+            }
+            floats(l.render_from_light, 16);
         }
         scene.infinite_lights.push_back(l);
     }

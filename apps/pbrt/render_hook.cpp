@@ -815,25 +815,120 @@ int main(int argc, char **argv) {
         env_texels[i] = float4{fit.c0, fit.c1, fit.c2, texel_scale};
     }
 
+    // pbrt: the ImageInfiniteLight constructor, which builds two
+    // `PiecewiseConstant2D`s over the map.
+    //
+    // The first samples the map itself. The second is pbrt's MIS-compensated
+    // one: the map with its own average subtracted and clamped at zero, so that
+    // it samples only the part of the sky that is brighter than average. That
+    // is what `allowIncompletePDF` selects, and the reasoning is that a BSDF
+    // sample finds an even sky perfectly well by itself, so the light sampler
+    // should spend its effort on what the BSDF sample is bad at.
+    //
+    // Built here rather than in scene_dump for the same reason the filter's
+    // table is built here: it is derived from data the scene file already
+    // carries, so writing it out as well would be writing a thing that can be
+    // recomputed -- and it is thirty-four megabytes of it.
+    //
+    // The function being sampled is `Image::GetSamplingDistribution`: the
+    // *average of the texel's channels*, taken from the raw image values and
+    // not from the fitted spectrum above.
+    std::vector<float> env_dist_values, env_dist_cond_cdf, env_dist_marg_func,
+        env_dist_marg_cdf;
+    std::vector<Dist2D> env_dists; // Two per light: plain, then compensated.
+    {
+        // One PiecewiseConstant1D over `n` values, appended to the pools. The
+        // CDF is the running integral over a unit domain, normalized by its own
+        // total -- and where that total is zero the CDF is the uniform one, so
+        // that a row the map never reaches is still sampleable.
+        const auto build_1d = [](const float *values, size_t n,
+                                 std::vector<float> *cdf) {
+            const size_t base = cdf->size();
+            cdf->push_back(0.f);
+            for (size_t i = 0; i < n; i++) {
+                cdf->push_back((*cdf)[base + i] +
+                               std::abs(values[i]) / float(n));
+            }
+            const float total = (*cdf)[base + n];
+            for (size_t i = 1; i <= n; i++) {
+                (*cdf)[base + i] =
+                    total == 0.f ? float(i) / float(n) : (*cdf)[base + i] / total;
+            }
+            return total;
+        };
+        const auto build_2d = [&](const std::vector<float> &values, size_t first,
+                                  uint32_t res) {
+            Dist2D d;
+            d.first_value = int32_t(first);
+            d.first_cond_cdf = int32_t(env_dist_cond_cdf.size());
+            d.first_marg_func = int32_t(env_dist_marg_func.size());
+            for (uint32_t y = 0; y < res; y++) {
+                env_dist_marg_func.push_back(
+                    build_1d(values.data() + first + size_t(y) * res, res,
+                             &env_dist_cond_cdf));
+            }
+            d.first_marg_cdf = int32_t(env_dist_marg_cdf.size());
+            d.integral = build_1d(env_dist_marg_func.data() + d.first_marg_func,
+                                  res, &env_dist_marg_cdf);
+            return d;
+        };
+
+        for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
+            if (l.resolution == 0) {
+                continue;
+            }
+            const size_t n = size_t(l.resolution) * l.resolution;
+            const size_t plain = env_dist_values.size();
+            double total = 0.;
+            for (size_t i = 0; i < n; i++) {
+                const size_t t = size_t(l.first_texel) + i;
+                const float avg = (loaded.env_texels[3 * t + 0] +
+                                   loaded.env_texels[3 * t + 1] +
+                                   loaded.env_texels[3 * t + 2]) / 3.f;
+                env_dist_values.push_back(avg);
+                total += avg;
+            }
+            // pbrt: `average = accumulate(d) / d.size()`, then
+            // `v = max(v - average, 0)`, and a uniform fallback if that leaves
+            // nothing -- a map with no above-average texel at all.
+            const float average = float(total / double(n));
+            const size_t compensated = env_dist_values.size();
+            bool any = false;
+            for (size_t i = 0; i < n; i++) {
+                const float v =
+                    std::max(0.f, env_dist_values[plain + i] - average);
+                any = any || v != 0.f;
+                env_dist_values.push_back(v);
+            }
+            if (!any) {
+                std::fill(env_dist_values.begin() + std::ptrdiff_t(compensated),
+                          env_dist_values.end(), 1.f);
+            }
+            env_dists.push_back(build_2d(env_dist_values, plain, l.resolution));
+            env_dists.push_back(
+                build_2d(env_dist_values, compensated, l.resolution));
+        }
+    }
+
     const int32_t first_infinite = int32_t(lights.size());
+    size_t next_dist = 0;
     for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
         if (l.resolution != 0) {
+            const auto rows = [](const float m[16]) {
+                return Transform{float4{m[0], m[1], m[2], m[3]},
+                                 float4{m[4], m[5], m[6], m[7]},
+                                 float4{m[8], m[9], m[10], m[11]},
+                                 float4{m[12], m[13], m[14], m[15]}};
+            };
             ImageInfiniteLight img;
-            img.light_from_render =
-                Transform{float4{l.light_from_render[0], l.light_from_render[1],
-                                 l.light_from_render[2], l.light_from_render[3]},
-                          float4{l.light_from_render[4], l.light_from_render[5],
-                                 l.light_from_render[6], l.light_from_render[7]},
-                          float4{l.light_from_render[8], l.light_from_render[9],
-                                 l.light_from_render[10],
-                                 l.light_from_render[11]},
-                          float4{l.light_from_render[12],
-                                 l.light_from_render[13],
-                                 l.light_from_render[14],
-                                 l.light_from_render[15]}};
+            img.light_from_render = rows(l.light_from_render);
+            img.render_from_light = rows(l.render_from_light);
             img.scale = l.scale;
             img.resolution = int32_t(l.resolution);
             img.first_texel = int32_t(l.first_texel);
+            img.scene_radius = loaded.scene_radius;
+            img.dist = env_dists[next_dist++];
+            img.compensated = env_dists[next_dist++];
             Light light;
             Light_ImageInfinite(light, img);
             lights.push_back(light);
@@ -930,7 +1025,10 @@ int main(int argc, char **argv) {
                uvs.data(), x, y, z, d65, filter_f.data(),
                filter_cond_cdf.data(), filter_marg_func.data(),
                filter_marg_cdf.data(), primes, digit_permutations.data(),
-               digit_permutation_offsets, env_texels.data(), lights.data(),
+               digit_permutation_offsets, env_texels.data(),
+               env_dist_values.data(), env_dist_cond_cdf.data(),
+               env_dist_marg_func.data(), env_dist_marg_cdf.data(),
+               lights.data(),
                materials.data(), rho_uc, rho_ux, rho_uy, tree,
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();

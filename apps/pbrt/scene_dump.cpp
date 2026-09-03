@@ -2070,13 +2070,17 @@ void load(const char *filename, bonsai_scene::Scene &out,
             // PBRT: `renderFromLight`, inverted here because ApplyInverse is
             // the only use it has. `renderFromWorld * ctm` is what
             // BasicSceneBuilder would have built.
-            const pbrt::Transform light_from_render = pbrt::Inverse(
+            const pbrt::Transform render_from_light =
                 scene.GetCamera().GetCameraTransform().RenderFromWorld() *
-                light.ctm);
+                light.ctm;
+            const pbrt::Transform light_from_render =
+                pbrt::Inverse(render_from_light);
             for (int r = 0; r < 4; r++) {
                 for (int c = 0; c < 4; c++) {
                     out_light.light_from_render[4 * r + c] =
                         float(light_from_render.GetMatrix()[r][c]);
+                    out_light.render_from_light[4 * r + c] =
+                        float(render_from_light.GetMatrix()[r][c]);
                 }
             }
             out.infinite_lights.push_back(out_light);
@@ -2491,24 +2495,6 @@ void load(const char *filename, bonsai_scene::Scene &out,
         pbrt::Float radius = 0;
         scene_bounds.BoundingSphere(&centre, &radius);
         out.scene_radius = float(radius);
-    }
-
-    // An environment map can be *seen* but not yet *sampled*: `Le` is
-    // implemented and `SampleLi` is not, because sampling one means sampling a
-    // distribution built over its texels. So an integrator that samples lights
-    // is refused with one, and the random walk -- which never samples a light,
-    // and finds every light by flying into it -- is not.
-    //
-    // The alternative would be a `SampleLi` that returns nothing, which is a
-    // sky that lights only what looks straight at it: a picture, and the wrong
-    // one, which is the failure this app refuses on principle.
-    for (const bonsai_scene::InfiniteLight &l : out.infinite_lights) {
-        if (l.resolution != 0 &&
-            out.integrator != bonsai_scene::IntegratorTag::RandomWalk) {
-            fail("an environment map can be seen but not sampled yet, so it "
-                 "needs `Integrator \"randomwalk\"`; the scene resolves to a "
-                 "light-sampling integrator");
-        }
     }
 
     // The light sampler, which only `path` reads and which PBRT defaults to
