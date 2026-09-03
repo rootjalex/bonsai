@@ -1524,107 +1524,124 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
                                m.n_samples);
 }
 
-// pbrt: Material::GetBSDF followed by BxDF::rho -- the hemispherical
-// reflectance of whatever BSDF this material makes at these wavelengths, which
-// is the albedo the gbuffer records.
+// pbrt: BxDF, the TaggedPointer a BSDF holds. A variant here, as everything
+// pbrt dispatches virtually is.
 //
-// `wo` is in the shading frame already; converting into it is the caller's
-// business, because the frame comes from the shape and not from the material.
-func material_rho(mat : Material, wo : vec3f, lambda : SampledWavelengths,
-                  seed : i32, uc : array[Float], ux : array[Float],
-                  uy : array[Float]) -> vec4f {
+// This exists so that a surface's BSDF is built *once* per intersection, which
+// is what pbrt does and what this app was not doing. `GetBSDF` is called once
+// there and the `f`, `Sample_f`, `PDF` and `Flags` that follow are methods on
+// the value it returned; here every one of those used to take a `Material` and
+// rebuild the BxDF inside itself. A single vertex of the path integrator asks
+// four of those questions and sometimes five, so a `coateddiffuse` surface was
+// remapping two roughnesses, evaluating two sigmoid polynomials over four
+// wavelengths and clamping them, five times over, to arrive at the same value
+// each time.
+//
+// That is not a schedule's business and it is not a layout: it is arithmetic
+// pbrt does not do. The rule for this app is that it does the same work as
+// pbrt, no more and no less.
+element BxDF =
+    | Lambertian(d : DiffuseBxDF)
+    | Layered(b : CoatedDiffuseBxDF);
+
+// pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
+// evaluated once at the point the ray hit.
+//
+// Per intersection and not per material, because pbrt evaluates it per
+// intersection: a reflectance is a spectrum at *these* wavelengths and a
+// roughness is a texture lookup, and both are properties of the hit.
+//
+// `regularize` is the integrator's, and this is where it applies -- pbrt calls
+// `bsdf.Regularize()` on the value `GetBSDF` returned, once, before asking it
+// anything.
+func material_bxdf(mat : Material, lambda : SampledWavelengths,
+                   regularize : bool) -> BxDF {
     match mat {
         Diffuse(albedo) => {
-            // pbrt estimates this with the same sixteen samples as anything
-            // else, and every one of them returns the reflectance: a
-            // Lambertian BRDF's hemispherical reflectance is exactly its
-            // reflectance, and the cosine and the density it is divided by
-            // cancel. So this is the answer rather than an average of sixteen
-            // copies of it.
-            return spectrum_at(albedo, lambda);
+            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
+            return Lambertian(d);
         }
-        CoatedDiffuse(m) => {
-            // Never regularized: pbrt fills its VisibleSurface at the first
-            // intersection, where no bounce has happened yet and so nothing has
-            // been regularized either.
-            b = coated_bxdf_at(m, lambda, false);
-            return coated_rho(b, wo, seed, uc, ux, uy);
-        }
+        CoatedDiffuse(m) =>
+            return Layered(coated_bxdf_at(m, lambda, regularize));
     }
 }
 
-// pbrt: Material::GetBSDF followed by BSDF::Flags -- which lobes this surface
-// has at all.
+// pbrt: BxDF::rho(wo, uc, u) -- the hemispherical reflectance, which is the
+// albedo the gbuffer records.
+//
+// `wo` is in the shading frame already; converting into it is the caller's
+// business, because the frame comes from the shape and not from the BSDF.
+func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
+              ux : array[Float], uy : array[Float]) -> vec4f {
+    match b {
+        // pbrt estimates this with the same sixteen samples as anything else,
+        // and this does too. A Lambertian BRDF's hemispherical reflectance is
+        // exactly its reflectance -- the cosine and the density cancel -- so
+        // every one of the sixteen returns the same number and the answer could
+        // be written down instead. It is not written down, because pbrt spends
+        // the sixteen samples and this app is meant to be doing the same work:
+        // the shortcut is invisible in the image and shows up in the clock.
+        Lambertian(d) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = diffuse_sample_f(d, wo, uc[i], vec2f{ux[i], uy[i]},
+                                         sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
+        Layered(l) => return coated_rho(l, wo, seed, uc, ux, uy);
+    }
+}
+
+// pbrt: BSDF::Flags -- which lobes this surface has at all.
 //
 // What a path integrator decides with it: whether to spend a shadow ray here
 // (a delta lobe has no density to weigh a light sample against, so the estimate
 // would be zero), and which side of the surface to nudge the light-sampling
 // point to.
-//
-// `regularize` is threaded because regularizing widens a near-delta lobe, which
-// turns a Specular flag into a Glossy one -- so the answer depends on it.
-func material_flags(mat : Material, lambda : SampledWavelengths,
-                    regularize : bool) -> i32 {
-    match mat {
-        Diffuse(albedo) => {
-            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
-            return diffuse_flags(d);
-        }
-        CoatedDiffuse(m) => return coated_flags(coated_bxdf_at(m, lambda,
-                                                               regularize));
+func bxdf_flags(b : BxDF) -> i32 {
+    match b {
+        Lambertian(d) => return diffuse_flags(d);
+        Layered(l) => return coated_flags(l);
     }
 }
 
-// pbrt: Material::GetBSDF followed by BSDF::f -- what the surface carries from
-// `wo` to `wi`, which is the question an integrator that chose `wi` itself has
-// to ask.
+// pbrt: BSDF::f -- what the surface carries from `wo` to `wi`, which is the
+// question an integrator that chose `wi` itself has to ask.
 //
-// Both directions are in the shading frame already, as in `material_rho`:
-// converting into it is the caller's business, because the frame comes from the
-// shape and not from the material.
-//
-// The BxDF is built here rather than once per material for the reason pbrt
-// builds it here: a reflectance is a spectrum at these wavelengths and a
-// roughness is a texture lookup, and both are per intersection.
-func material_f(mat : Material, wo : vec3f, wi : vec3f,
-                lambda : SampledWavelengths, seed : i32,
-                regularize : bool) -> vec4f {
+// Both directions are in the shading frame already, as in `bxdf_rho`.
+func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
     // pbrt: BSDF::f's first line. A direction lying exactly in the surface has
     // no hemisphere to be in, and every BxDF below would take a branch on the
     // sign of a zero.
     if wo.z == 0.0 {
         return vec4f{0.0, 0.0, 0.0, 0.0};
     }
-    match mat {
-        Diffuse(albedo) => {
-            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
-            return diffuse_f(d, wo, wi);
-        }
-        CoatedDiffuse(m) =>
-            return coated_f(coated_bxdf_at(m, lambda, regularize), wo, wi,
-                            seed);
+    match b {
+        Lambertian(d) => return diffuse_f(d, wo, wi);
+        Layered(l) => return coated_f(l, wo, wi, seed);
     }
 }
 
-// pbrt: Material::GetBSDF followed by BSDF::PDF -- the density this surface
-// would have chosen `wi` with, had it been asked to choose.
+// pbrt: BSDF::PDF -- the density this surface would have chosen `wi` with, had
+// it been asked to choose.
 //
 // The fourth question, and the one multiple importance sampling is made of: a
 // light sample and a BSDF sample are two estimators of the same integral, and
 // weighing them against each other needs each one's density under the other's
 // scheme. `simplepath` needs none of this, which is why it did not exist until
 // `path` did.
-func material_pdf(mat : Material, wo : vec3f, wi : vec3f,
-                  lambda : SampledWavelengths, seed : i32,
-                  regularize : bool) -> Float {
+func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
     if wo.z == 0.0 {
         return 0.0;
     }
-    match mat {
-        Diffuse(albedo) => return diffuse_pdf(wo, wi, sample_all());
-        CoatedDiffuse(m) =>
-            return coated_pdf(coated_bxdf_at(m, lambda, regularize), wo, wi,
-                              seed);
+    match b {
+        Lambertian(d) => return diffuse_pdf(wo, wi, sample_all());
+        Layered(l) => return coated_pdf(l, wo, wi, seed);
     }
 }
 
@@ -1634,19 +1651,13 @@ func material_pdf(mat : Material, wo : vec3f, wi : vec3f,
 // The third of the trio: `rho` for the gbuffer, `f` for a direction the
 // integrator picked, and this for a direction the surface picks. A path tracer
 // needs all three, and each is a different question.
-func material_sample_f(mat : Material, wo : vec3f, uc : Float, u : vec2f,
-                       lambda : SampledWavelengths, seed : i32,
-                       regularize : bool) -> option[BSDFSample] {
+func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
+                   seed : i32) -> option[BSDFSample] {
     if wo.z == 0.0 {
         return {};
     }
-    match mat {
-        Diffuse(albedo) => {
-            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
-            return diffuse_sample_f(d, wo, uc, u, sample_all());
-        }
-        CoatedDiffuse(m) =>
-            return coated_sample_f(coated_bxdf_at(m, lambda, regularize), wo,
-                                   uc, u, seed);
+    match b {
+        Lambertian(d) => return diffuse_sample_f(d, wo, uc, u, sample_all());
+        Layered(l) => return coated_sample_f(l, wo, uc, u, seed);
     }
 }
