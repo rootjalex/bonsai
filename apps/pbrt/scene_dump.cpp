@@ -335,6 +335,40 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     pbrt::ParameterDictionary filter_params;
     std::vector<MaterialInfo> materials;
     std::vector<MaterialInfo> area_lights;
+    // `MakeNamedMaterial`, which is the same thing as `Material` written down
+    // for later: a shape reaches one through `NamedMaterial` and PBRT records
+    // it on the shape by *name* rather than by index.
+    //
+    // The one structural difference is where the type lives. A `Material`
+    // directive names its type as the directive's own argument -- `Material
+    // "diffuse"` -- and this one carries it as a `"string type"` parameter, so
+    // it is lifted out into the same field the other kind fills.
+    void MakeNamedMaterial(const std::string &name,
+                           pbrt::ParsedParameterVector params,
+                           pbrt::FileLoc loc) override {
+        MaterialInfo info;
+        for (const pbrt::ParsedParameter *p : params) {
+            if (p->name == "type" && !p->strings.empty()) {
+                info.name = p->strings[0];
+                continue;
+            }
+            MaterialInfo::Value v;
+            v.type = p->type;
+            v.floats.assign(p->floats.begin(), p->floats.end());
+            v.ints.assign(p->ints.begin(), p->ints.end());
+            v.bools.assign(p->bools.begin(), p->bools.end());
+            v.strings.assign(p->strings.begin(), p->strings.end());
+            info.params.emplace(p->name, std::move(v));
+        }
+        named_materials.emplace(name, std::move(info));
+        pbrt::BasicSceneBuilder::MakeNamedMaterial(name, std::move(params), loc);
+    }
+
+    // Declared but not used is fine and common -- a scene's `materials.pbrt`
+    // usually defines every material the model ever had. Nothing is converted
+    // until a shape asks for it.
+    std::map<std::string, MaterialInfo> named_materials;
+
     // Every non-area LightSource the scene declared, in declaration order --
     // which is the order PBRT appends them to its own light list, after the
     // area lights. See above.
@@ -401,17 +435,8 @@ bool material_rgb(const CapturingBuilder::MaterialInfo &m,
 // CoatedDiffuseMaterial::Create, because a material that names nothing has to
 // arrive as the one PBRT would have built rather than as a guess.
 bonsai_scene::Material
-convert_material(const std::vector<CapturingBuilder::MaterialInfo> &materials,
-                 int index) {
+convert_material(const CapturingBuilder::MaterialInfo &m) {
     bonsai_scene::Material out;
-    // What a shape declared outside any Material directive gets.
-    if (index < 0) {
-        return out;
-    }
-    if (index >= int(materials.size())) {
-        fail("a shape names a material that was never declared");
-    }
-    const CapturingBuilder::MaterialInfo &m = materials[index];
     if (m.name.empty() || m.name == "none") {
         return out;
     }
@@ -2253,9 +2278,39 @@ void load(const char *filename, bonsai_scene::Scene &out,
         if (it != material_index.end()) {
             return it->second;
         }
+        // What a shape declared outside any Material directive gets: PBRT's
+        // own default, which is a fifty-per-cent grey diffuse.
+        bonsai_scene::Material converted;
+        if (declared >= 0) {
+            if (declared >= int(builder.materials.size())) {
+                fail("a shape names a material that was never declared");
+            }
+            converted = convert_material(builder.materials[size_t(declared)]);
+        }
         const uint32_t at = uint32_t(out.materials.size());
-        out.materials.push_back(convert_material(builder.materials, declared));
+        out.materials.push_back(converted);
         material_index.emplace(declared, at);
+        return at;
+    };
+
+    // And the same for a material a shape reached by name. Separate maps
+    // because PBRT indexes the two differently -- a `Material` directive gets
+    // an index and a `MakeNamedMaterial` gets a name -- and a shape carries
+    // whichever applied.
+    std::map<std::string, uint32_t> named_material_index;
+    const auto material_for_named = [&](const std::string &name) {
+        const auto it = named_material_index.find(name);
+        if (it != named_material_index.end()) {
+            return it->second;
+        }
+        const auto declared = builder.named_materials.find(name);
+        if (declared == builder.named_materials.end()) {
+            fail("a shape uses the named material \"" + name +
+                 "\", which was never declared");
+        }
+        const uint32_t at = uint32_t(out.materials.size());
+        out.materials.push_back(convert_material(declared->second));
+        named_material_index.emplace(name, at);
         return at;
     };
 
@@ -2327,19 +2382,15 @@ void load(const char *filename, bonsai_scene::Scene &out,
         const std::string name(entity.name);
         const pbrt::Transform &render_from_object = *entity.renderFromObject;
         // A shape under `NamedMaterial` names its material by string and PBRT
-        // leaves `materialIndex` at -1. Nothing here resolves the name, and -1
-        // is also what a shape declared outside any Material directive gets --
-        // so without this check a `MakeNamedMaterial` of any type at all became
-        // PBRT's default fifty-per-cent grey diffuse, silently.
-        //
-        // That is how it was found: lte-orb's `measured` BSDF rendered as a
-        // grey ball, five times too bright, and the geometry and the normals
-        // matched perfectly the whole time.
-        if (!entity.materialName.empty()) {
-            fail("a shape uses the named material \"" + entity.materialName +
-                 "\", and named materials are not supported");
-        }
-        const uint32_t material = material_for(entity.materialIndex);
+        // leaves `materialIndex` at -1 -- which is also what a shape declared
+        // outside any Material directive gets. Telling the two apart is the
+        // whole of this line, and not telling them apart is how a
+        // `MakeNamedMaterial` of any type at all silently became PBRT's default
+        // fifty-per-cent grey diffuse for as long as it did.
+        const uint32_t material =
+            entity.materialName.empty()
+                ? material_for(entity.materialIndex)
+                : material_for_named(std::string(entity.materialName));
         const int32_t light = light_for(entity.lightIndex);
 
         if (name == "sphere") {
