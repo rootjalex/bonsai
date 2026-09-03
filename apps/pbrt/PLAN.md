@@ -73,14 +73,23 @@ samples of the same pixels:
     infinite-uniform         path        120,000 both sides            1.00012x
     infinite-uniform-simple  simplepath  120,000 both sides            1.00034x
 
-It is also faster than pbrt on that same work: **1.43x on killeroo-simple**,
-1.67x on area-light-mis, 1.50x on area-light-path, 1.68x on area-light, and
-between 1.47x and 1.82x on the six gbuffer scenes. Killeroo's figure fell from
-1.56x when it stopped being a random walk: `path` spends its time in shadow
-rays, in `LayeredBxDF::PDF` and in MIS, and those are a different mix of work
-from the one the schedule was tuned against. Both sides do the same work, so the
-ratio is still the ratio. Item 5 below won 6.6% of it back by asking `any` for a
-shadow ray instead of the nearest hit; item 4 is what is left to look at.
+It is also faster than pbrt on that same work: **1.35x on killeroo-simple**,
+1.35x on area-light-mis and area-light-path, 1.43x on area-light, 1.96x on
+infinite-uniform, and between 1.30x and 1.50x on the six gbuffer scenes.
+
+**Those numbers are lower than the ones this file used to quote, and the old
+ones were wrong.** Not measured wrongly — earned wrongly. The renderer was
+skipping work pbrt does. See "the same work, no more and no less" below; the
+short version is that a diffuse surface's reflectance was being written down
+instead of estimated, which is exactly the same number and sixteen BSDF samples
+cheaper, on every camera ray that hits anything diffuse. On three-spheres that
+alone was 17% of the render.
+
+Killeroo's figure also fell when it stopped being a random walk: `path` spends
+its time in shadow rays, in `LayeredBxDF::PDF` and in MIS, which is a different
+mix of work from the one the schedule was tuned against. Item 5 below won 6.6%
+back by asking `any` for a shadow ray instead of the nearest hit; item 4 is what
+is left to look at.
 
 Verified against pbrt directly, not by inspection:
 
@@ -94,6 +103,54 @@ Verified against pbrt directly, not by inspection:
   `scene_dump --print-shading` against
   `tests/bonsai/correctness/cpp/shading-frame.bonsai`,
 - the reference gbuffer itself, against the pbrt binary's EXR.
+
+### The same work, no more and no less
+
+The rule this app is built on is that the algorithm is pbrt's and only the
+*schedule* differs — where "schedule" includes memory layout and parallelism.
+That is a claim about the work done and not only about the numbers produced, and
+it had drifted in both directions. Two were found and fixed; the audit that
+found them is worth repeating whenever a number looks good.
+
+**A surface's BSDF was built up to five times per vertex.** pbrt calls
+`GetBSDF` once at an intersection and then asks `Flags`, `f`, `PDF` and
+`Sample_f` of the value it returned. Here each of those took a `Material` and
+rebuilt the BxDF inside itself, so one vertex of the path integrator remapped
+two roughnesses, evaluated two sigmoid polynomials over four wavelengths and
+clamped them, five times over, to arrive at the same value each time. `BxDF` is
+a variant now and `material_bxdf` is `GetBSDF`; everything after it is a method
+on the value. Nothing about the image changed.
+
+**A diffuse `rho` was written down rather than estimated.** pbrt's `BxDF::rho`
+spends sixteen `Sample_f` calls whatever the BxDF is. A Lambertian BRDF's
+hemispherical reflectance is exactly its reflectance -- the cosine and the
+density cancel -- so this returned the reflectance and skipped the sixteen. The
+value is identical, bit for bit, which is why it went unnoticed: three-spheres
+and area-light-mis report the same albedo difference to every digit before and
+after. The *cost* is not identical, and it is not small. On three-spheres,
+which is one camera ray per pixel into diffuse spheres, spending the sixteen
+samples pbrt spends is **17% of the render**: 1.57x faster than pbrt became
+1.43x, and then 1.38x once the machine settled.
+
+That is the shape of the failure to watch for. A shortcut that provably cannot
+change the answer is invisible to every check this app has -- the images match,
+the albedo matches, the sampler stream is untouched -- and it shows up only in
+the clock, where it looks like the schedule doing well.
+
+Two more asymmetries, both checked and both fine:
+
+- **The traversal evaluates `intersects` once and `distmin` three times per
+  candidate primitive** in the lowered IR, where pbrt intersects once. The
+  backend common-subexpression-eliminates them: the generated
+  `_traverse_tree0` contains exactly one call to `triangle_hit` and one to
+  `sphere_roots`. Checked in the LLVM rather than assumed.
+- **The camera ray is traced twice** -- once by `visible_surface` for the
+  gbuffer and once by the integrator. That is the comparison harness rather
+  than the renderer: pbrt fills a `VisibleSurface` from inside `Li` at depth
+  zero, but only its *path* integrator does, so a gbuffer of a random-walk
+  render would be empty. `render_reference` traces twice for the same reason,
+  so both sides do the same work and the ratio is honest -- but a pbrt render
+  of these scenes into an `rgb` film would trace once.
 
 ### What the last round added
 
@@ -694,6 +751,11 @@ is what the *other* lowerings of the same shape already do.
 
 ### Where the time went
 
+Historical, and flattered: every figure in this section was measured while a
+diffuse `rho` skipped the sixteen samples pbrt spends on it. See "the same work,
+no more and no less" above for what that was worth -- on three-spheres, 17%.
+The current numbers are in "Where it is".
+
 Best of three on each side, against a pbrt that is integrating a whole path
 where this returns the nearest hit and its reflectance:
 
@@ -986,7 +1048,9 @@ The rule the two share: `digit_permutation_digits` and the loop in
 `scrambled_radical_inverse` must stay the same expression, since the table
 having one fewer digit than the loop asks for is a read past the end of it.
 
-Where that leaves the comparison:
+Where that leaves the comparison, as measured at the time -- and, like the
+table further up, flattered by the diffuse `rho` shortcut that was not found
+until later:
 
     killeroo-simple  1.36x slower  ->  1.57x faster
     area-light-path  1.01x faster  ->  1.58x faster
