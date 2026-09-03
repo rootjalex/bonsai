@@ -270,6 +270,28 @@ func intersects(r : Ray, b : AABB) -> bool {
     return false;
 }
 
+// The other half of what the tree lowering prunes with, and the half only an
+// `any` query asks for.
+//
+// `intersects` is the *necessary* condition -- a node the ray misses holds
+// nothing the ray hits, so the traversal can skip it. `contains` is the
+// *sufficient* one: a node the ray contains entirely holds nothing the ray
+// misses, so an `any` could answer yes without descending into it at all. The
+// lowering asks for both and uses whichever its query needs.
+//
+// For a ray the sufficient condition is never satisfiable and this is always
+// false. A ray is a one-dimensional set of points and a box with any extent is
+// three-dimensional, so no ray contains a box; the early-out this would license
+// cannot fire, and a shadow ray's saving comes from the other direction --
+// stopping at the first primitive that answers yes rather than ordering every
+// one that could be nearer.
+//
+// Written out rather than left for the lowering to fail on, because "no ray
+// contains a box" is a fact about geometry and this is where this app keeps
+// those. A `contains` that guessed `true` would prune away real occluders and
+// light the scene through walls.
+func contains(r : Ray, b : AABB) -> bool = false;
+
 // pbrt: TriangleIntersection, which is where a ray met a triangle: how far
 // along, and where in the triangle. The barycentrics are what the shading
 // geometry interpolates the vertex normals with, so the intersection has to

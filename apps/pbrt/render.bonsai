@@ -269,6 +269,21 @@ func trace(r : Ray) =
            filter(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001,
                   primitives));
 
+// pbrt: Primitive::IntersectP -- is there *anything* along this ray?
+//
+// The same question as `trace` with the `argmin` taken off, which is exactly
+// what a shadow ray wants: an occlusion test does not care which surface is in
+// the way or how far off it is, only that one is. That is a strictly easier
+// query and the schedule can lower it as one -- a traversal that stops at the
+// first leaf that answers yes, rather than one that has to visit every subtree
+// that could hold something nearer than the best hit so far.
+//
+// Written as `any` over the same predicate rather than as a second traversal,
+// because the difference between the two queries is the whole point: the
+// source says what is being asked and the schedule decides what that costs.
+func trace_any(r : Ray) =
+    any(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001, primitives);
+
 // pbrt: VisibleSurface, what a camera ray leaves behind for the film to
 // record. pbrt fills one of these from a single intersection and the gbuffer
 // writes every channel out of it.
@@ -452,15 +467,13 @@ func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
 //
 // A shadow ray, which is the whole reason sampling a light is worth doing: the
 // direction is known to reach the light, so all that is left is to ask whether
-// something is in the way. `trace` answers with the nearest hit rather than
-// with any hit, which is more work than an occlusion test needs; pbrt has
-// IntersectP for this, and a `trace_any` here would be the same idea. It would
-// not change a pixel, only the time.
+// something is in the way. `trace_any` and not `trace`, because which surface
+// blocks it and how far away that surface is are both answers nobody here
+// reads.
 func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
                 to_p : vec3f, to_error : vec3f, to_n : vec3f) -> bool {
     shadow = spawn_ray_to(from_p, from_error, from_n, to_p, to_error, to_n);
-    blocker : option[Primitive] = trace(shadow);
-    return !blocker;
+    return !trace_any(shadow);
 }
 
 // pbrt: SimplePathIntegrator::Li, with `sampleLights` and `sampleBSDF` both on.
@@ -1013,6 +1026,9 @@ schedule {
     };
 
     trace.loopify(64);
+    // The occlusion test gets its own stack, and it is the same 64 pbrt's
+    // IntersectP uses.
+    trace_any.loopify(64);
 
     // The random walk is a tail recursion, so this turns it into a loop. Said
     // here rather than written as one: what the source says is that a path's
