@@ -19,10 +19,10 @@ for:
 
     apps/pbrt/render.sh --spp 1024 apps/pbrt/scenes/area-light-mis.pbrt
 
-Only three of the ten scenes have an emitter at all (`area-light`,
-`area-light-path`, `area-light-mis`); the other six were written when the
-comparison was a gbuffer test, and their radiance is correctly black. For those,
-the images to open are the normals and the albedo.
+Five of the twelve scenes have an emitter (`area-light`, `area-light-path`,
+`area-light-mis` and the two `infinite-uniform` ones); the other six were
+written when the comparison was a gbuffer test, and their radiance is correctly
+black. For those, the images to open are the normals and the albedo.
 
 Both scripts need clang — the generated header uses `ext_vector_type`, which
 gcc has no equivalent of. They default to `clang++` on PATH; `BONSAI_CXX`
@@ -40,10 +40,10 @@ a hit test, converges the way an estimate should — see item 1.
 ## Where it is
 
 The renderer traces light. `randomwalk`, `simplepath` and `path` are all
-implemented, area lights are sampled, camera samples are jittered within pbrt's
-Gaussian reconstruction filter, and the film records pbrt's gbuffer normals and
-albedo beside the radiance — so a comparison can ask three questions of the same
-render rather than one.
+implemented, area lights and uniform infinite lights are sampled, camera samples
+are jittered within pbrt's Gaussian reconstruction filter, and the film records
+pbrt's gbuffer normals and albedo beside the radiance — so a comparison can ask
+three questions of the same render rather than one.
 
 **killeroo-simple renders.** It names no integrator, so it gets `path`; it is
 lit by a sphere of radius 3 seen from four hundred units away, which a random
@@ -66,10 +66,12 @@ comparison's tolerance and the check passes. That is item 1 answered; see below.
 Radiance, against pbrt running the integrator the scene names over the same
 samples of the same pixels:
 
-    killeroo-simple  path        489,999 lit of 490,000 / 489,998  0.99997x
-    area-light       randomwalk  58,476 lit both sides             1.00016x
-    area-light-path  simplepath  82,108 lit / 82,105 here          1.00012x
-    area-light-mis   path        81,993 lit both sides             1.00012x
+    killeroo-simple          path        489,999 of 490,000 / 489,998  0.99997x
+    area-light               randomwalk  58,476 both sides             1.00011x
+    area-light-path          simplepath  82,108 / 82,105 here          1.00012x
+    area-light-mis           path        81,993 both sides             1.00012x
+    infinite-uniform         path        120,000 both sides            1.00012x
+    infinite-uniform-simple  simplepath  120,000 both sides            1.00034x
 
 It is also faster than pbrt on that same work: **1.43x on killeroo-simple**,
 1.67x on area-light-mis, 1.50x on area-light-path, 1.68x on area-light, and
@@ -94,6 +96,44 @@ Verified against pbrt directly, not by inspection:
 - the reference gbuffer itself, against the pbrt binary's EXR.
 
 ### What the last round added
+
+**Uniform infinite lights, and the machinery a light that is not a surface
+needs.** `LightSource "infinite"` with no image behind it is pbrt's
+`UniformInfiniteLight`: the same radiance from every direction. It unblocks no
+real scene on its own — every infinite light in `pbrt-v4-scenes` has an image —
+but it is the whole of the integrator side of that feature, and the image is
+then a second arm rather than a second design.
+
+Four things came with it, and the third is the one that would have been got
+wrong:
+
+- **A ray that hits nothing now carries radiance.** All three integrators had a
+  branch that returned early there; each grows a loop over the scene's infinite
+  lights, and each weighs it differently — the random walk sums with no weight,
+  `simplepath` only counts it after a specular bounce, and `path` weighs it
+  against the light's own sampling density with the power heuristic.
+- **A light with no geometry to sample.** `SampleLi` draws over the whole sphere
+  and the shadow ray it aims has nowhere to stop, so pbrt puts the sampled point
+  two scene radii out. That means `Light::Preprocess` and a scene bounding
+  sphere, computed in `scene_dump` from the same per-shape bounds a BVH build
+  uses.
+- **`allowIncompletePDF`**, which had been ignorable and stops being so here. It
+  says the caller will find this light another way as well, so the light may
+  decline to sample the parts that other way covers — and a uniform infinite
+  light declines *entirely*, because a BSDF sample that escapes finds it for
+  free. `path` passes true and `simplepath` passes false. Getting it wrong is
+  not visible as an error: sampling the light *and* picking it up on escape
+  counts the sky twice and looks like a stray scale factor. Both branches are
+  checked against pbrt, by two scenes that differ only in the integrator line.
+- **A light-list order that matches pbrt's.** pbrt builds area lights first, one
+  per emissive shape, then everything else in declaration order. A uniform light
+  sampler picks `lights[u * n]`, so two lists ordered differently hand the same
+  random number to different lights.
+
+`infinite-uniform.pbrt` and `infinite-uniform-simple.pbrt` are the same geometry
+lit only by the sky, under `path` and under `simplepath`. Both light 120,000
+pixels of 120,000 on each side and agree with pbrt to 1.00012x and 1.00034x on
+the mean; the random walk was checked the same way and agrees to 1.00012x.
 
 **Pixel jitter, which is pbrt's Gaussian reconstruction filter.** A camera
 sample now lands where the filter puts it instead of at the pixel's centre, and
@@ -284,6 +324,10 @@ Sobol-family samplers (17). Broken down:
     parameters  an area light's L 20, a material's reflectance 7
     samplers    zsobol 12, sobol 3, pmj02bn 2
 
+Two of those lines have moved since the survey was taken: `infinite` lights
+without an image are implemented, and the light-list ordering bug below was
+fixed with them. The counts are otherwise as measured.
+
 The survey found one outright bug and it is fixed: **a `LightSource` that was
 not an area light was silently dropped.** Thirteen of the fifteen scenes that
 got as far as converting were lit by one -- almost all `infinite`, an
@@ -295,11 +339,13 @@ fifteen.
 
 Read in dependency order rather than by count, the road is:
 
-1. **`infinite` lights**, which is `ImageInfiniteLight` and so is really *image
-   textures*: reading an EXR, a bilinear lookup, an equal-area octahedral
-   mapping, and a 2D distribution to importance-sample it -- the last of which
-   `sampling.bonsai` already has, since the pixel filter needed it. It unblocks
-   the most scenes and it is the prerequisite for the next item.
+1. **`infinite` lights.** The half of this that is not an image is **done** --
+   `UniformInfiniteLight`, and with it everything an integrator needs to cope
+   with a light that is not a surface. Written up below. What is left is
+   `ImageInfiniteLight`, which every real scene actually asks for and which is
+   really *image textures*: reading an EXR, a bilinear lookup, an equal-area
+   octahedral mapping, and a 2D distribution to importance-sample it -- the last
+   of which `sampling.bonsai` already has, since the pixel filter needed it.
 2. **Textures**, the same machinery pointed at materials. 27 scenes ask for a
    material parameter that is not a plain RGB, and a fifth of a scene's look is
    in them.
@@ -1005,6 +1051,15 @@ their values were unrelated; after it, the same 5,038.
   changed, for the same kind of reason and with the same kind of confusion
   available: the two render almost the same picture, because `simplepath` and
   `path` differ in how they weigh two estimators and not in what they estimate.
+  `scenes/infinite-uniform-simple.pbrt` is the same trick again.
+- The light list is built in pbrt's order — area lights per emissive shape,
+  then everything else — but *our* area lights come out in BVH order where
+  pbrt's come out in scene order, because the primitives have been reordered by
+  the time the driver walks them. With one area light the two agree; with
+  several they do not, and a uniform sampler would hand the same random number
+  to different lights on the two sides. No scene here has more than one, and
+  `path` refuses a multi-light scene already for the light-sampler reason under
+  item 3, but `simplepath` does not and would diverge silently.
 - pbrt's own reference render for `area-light` moved by 8e-6 in its mean at some
   point during this round — 0.759337 to 0.759329, which shifted about 1,100
   pixels across the comparison's 1e-3 relative tolerance and so read as a
