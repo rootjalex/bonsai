@@ -97,6 +97,42 @@ Verified against pbrt directly, not by inspection:
 
 ### What the last round added
 
+**Environment maps, as far as being able to see one.** `LightSource "infinite"`
+with an image is pbrt's `ImageInfiniteLight`, and it is what every real infinite
+light in `pbrt-v4-scenes` turns out to be. A ray that leaves the scene now reads
+the map: the direction goes back into the light's own frame, the equal-area
+octahedral mapping unfolds the sphere onto the square, and a nearest lookup with
+pbrt's octahedral wrap picks the texel. Against pbrt on a real 2048x2048 map
+placed by a rotation, the means agree to **1.00009x**.
+
+Three things worth writing down:
+
+- **The texels are fitted spectra, not RGB.** pbrt builds an
+  `RGBIlluminantSpectrum` inside `ImageLe`, once per lookup. That is a
+  deterministic function of the texel, so the driver does it once per texel
+  instead -- four million times at load rather than once per escaped ray -- and
+  gets the same numbers. It is the same division of labour as every other
+  spectrum here, and it is why the rgb2spec tables are in the driver.
+- **The transform had to be followed rather than asked for.** pbrt's
+  `renderFromLight` is protected on the light and `RenderFromObject` is private
+  on the builder, so `scene_dump` now mirrors the CTM: every transform directive
+  is a `ParserTarget` virtual, so it sees the same calls in the same order and
+  applies them with pbrt's own `Transform` arithmetic. Only the bookkeeping is
+  reimplemented, only the world-space half is needed, and a wrong rotation puts
+  the sky visibly in the wrong place -- so this is not a quantity that can be
+  subtly wrong.
+- **The map is a 24 MB sidecar**, written beside the scene file rather than into
+  it. Twelve million floats do not belong in a text format.
+
+**A second silent substitution, found the same way as the light one.** A shape
+under `NamedMaterial` gets `materialIndex = -1` from pbrt, which is also what a
+shape declared outside any `Material` directive gets -- so a
+`MakeNamedMaterial` of any type at all quietly became pbrt's default fifty-per
+cent grey diffuse. It surfaced while trying to use lte-orb as a test scene: its
+`measured` BSDF rendered as a grey ball five times too bright, with the geometry
+and the normals matching perfectly throughout. Refused now, and it means the
+survey's material counts are understated.
+
 **Uniform infinite lights, and the machinery a light that is not a surface
 needs.** `LightSource "infinite"` with no image behind it is pbrt's
 `UniformInfiniteLight`: the same radiance from every direction. It unblocks no
@@ -339,13 +375,16 @@ fifteen.
 
 Read in dependency order rather than by count, the road is:
 
-1. **`infinite` lights.** The half of this that is not an image is **done** --
-   `UniformInfiniteLight`, and with it everything an integrator needs to cope
-   with a light that is not a surface. Written up below. What is left is
-   `ImageInfiniteLight`, which every real scene actually asks for and which is
-   really *image textures*: reading an EXR, a bilinear lookup, an equal-area
-   octahedral mapping, and a 2D distribution to importance-sample it -- the last
-   of which `sampling.bonsai` already has, since the pixel filter needed it.
+1. **`infinite` lights.** `UniformInfiniteLight` is **done**, and so is half of
+   `ImageInfiniteLight`: an environment map can be **seen** -- an escaped ray
+   reads the right texel, through the right rotation, and agrees with pbrt to
+   1.00009x on a real 2048x2048 map. What is left is **sampling** one, which is
+   what turns it from a background into a light: `SampleLi` and `PDF_Li` over a
+   `PiecewiseConstant2D` built across the map's texels, plus the *compensated*
+   distribution pbrt uses under `allowIncompletePDF`. Until then `scene_dump`
+   refuses an environment map with any integrator that samples lights, which is
+   all of them but the random walk. `sampling.bonsai` already has the 1D pieces,
+   since the pixel filter needed them.
 2. **Textures**, the same machinery pointed at materials. 27 scenes ask for a
    material parameter that is not a plain RGB, and a fifth of a scene's look is
    in them.
