@@ -734,8 +734,14 @@ int main(int argc, char **argv) {
     // constructors rather than by setting the tag: which number a variant is
     // belongs to the compiler.
     std::vector<Material> materials;
+    // Beside the materials rather than inside them, exactly as PBRT keeps it:
+    // a displacement tilts the shading frame before any material is asked
+    // anything, so it belongs to every kind of material and to none of them.
+    std::vector<int32_t> material_displacement;
     materials.reserve(loaded.materials.size());
+    material_displacement.reserve(loaded.materials.size());
     for (const bonsai_scene::Material &m : loaded.materials) {
+        material_displacement.push_back(m.displacement_texture);
         Material material;
         Reflectance reflectance;
         reflectance.albedo = albedo_of(m.reflectance);
@@ -1164,7 +1170,8 @@ int main(int argc, char **argv) {
                env_dist_values.data(), env_dist_cond_cdf.data(),
                env_dist_marg_func.data(), env_dist_marg_cdf.data(),
                lights.data(),
-               materials.data(), rho_uc, rho_ux, rho_uy, tree,
+               materials.data(), material_displacement.data(), rho_uc, rho_ux,
+               rho_uy, tree,
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(

@@ -15,6 +15,7 @@
 // in a path tracer, not an edge case.
 import stdlib/numerics;
 import apps/pbrt/bxdf;
+import apps/pbrt/textures;
 import apps/pbrt/shapes;
 import apps/pbrt/camera;
 
@@ -333,4 +334,68 @@ func compute_differentials(g : SurfaceGeometry, dr : RayDifferential,
     return Differentials{dp.dpdx, dp.dpdy, clamp_derivative(dudx),
                          clamp_derivative(dvdx), clamp_derivative(dudy),
                          clamp_derivative(dvdy)};
+}
+
+// pbrt: BumpMap, from materials.h.
+//
+// A displacement texture says how far the surface would be pushed along its
+// normal at each point. Nothing is actually moved -- what changes is the
+// shading frame, tilted by how fast that displacement is changing across the
+// surface, which is what makes a flat triangle look like rough stone.
+//
+// The two derivatives are estimated by finite differences, and the step is the
+// footprint the ray differentials give: sampling the displacement finer than
+// the pixel can see would turn detail into noise. pbrt's 0.0005 fallback is for
+// a hit with no footprint at all.
+//
+// pbrt then does `SetShadingGeometry(ns, dpdu, dpdv, dndu, dndv, false)`, and
+// the `false` matters: the *geometric* normal decides the orientation here,
+// where a mesh's interpolated normals decided it in triangle_geometry.
+func bump_map(t : ImageTexture, g : SurfaceGeometry,
+              d : Differentials) -> SurfaceGeometry {
+    du_raw = 0.5 * (abs(d.dudx) + abs(d.dudy));
+    du = select(du_raw == 0.0, 0.0005, du_raw);
+    dv_raw = 0.5 * (abs(d.dvdx) + abs(d.dvdy));
+    dv = select(dv_raw == 0.0, 0.0005, dv_raw);
+
+    // The shifted lookups move `uv` and leave the footprint alone, exactly as
+    // pbrt's `shiftedCtx` does -- it copies the context and overwrites `p` and
+    // `uv`, so the derivatives it is filtered by are still the hit's.
+    displace = texture_float(t, g.uv, d.dudx, d.dvdx, d.dudy, d.dvdy);
+    u_displace = texture_float(t, g.uv + vec2f{du, 0.0}, d.dudx, d.dvdx,
+                               d.dudy, d.dvdy);
+    v_displace = texture_float(t, g.uv + vec2f{0.0, dv}, d.dudx, d.dvdx,
+                               d.dudy, d.dvdy);
+
+    dpdu = g.dpdus + (u_displace - displace) / du * g.ns + displace * g.dndu;
+    dpdv = g.dpdvs + (v_displace - displace) / dv * g.ns + displace * g.dndv;
+
+    ns_raw = unit_vector_(cross_(dpdu, dpdv));
+    // pbrt: FaceForward(shading.n, n) -- the geometric normal is authoritative.
+    ns = select(dot_(ns_raw, g.n) < 0.0, -ns_raw, ns_raw);
+
+    // pbrt: SetShadingGeometry's loop, which scales the two derivatives down
+    // until the differentials can be taken in them.
+    su : mut vec3f = dpdu;
+    sv : mut vec3f = dpdv;
+    while (sqlen_(su) > 1e16) || (sqlen_(sv) > 1e16) {
+        su = su / 1e8;
+        sv = sv / 1e8;
+    }
+
+    return SurfaceGeometry{g.n, ns, su, sv, g.uv, g.dpdu, g.dpdv, g.dndu,
+                           g.dndv, g.p, g.p_error};
+}
+
+// The hit a BSDF is built about: the one that came out of the shape, or that
+// one with its shading frame tilted by a displacement texture.
+//
+// pbrt does this at the top of `GetBSDF`, before the material is asked for
+// anything, which is why it is here and not inside the material.
+func displaced(g : SurfaceGeometry, displacement : i32,
+               d : Differentials) -> SurfaceGeometry {
+    if displacement < 0 {
+        return g;
+    }
+    return bump_map(textures[cast[[u32]](displacement)], g, d);
 }

@@ -771,6 +771,28 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
+    // PBRT keeps `displacement` and `normalmap` on the base Material and
+    // applies them in `GetBSDF` before the material is asked for anything, so
+    // they belong to every kind and are read here rather than per material.
+    //
+    // A normal map is a different thing from a bump map -- it replaces the
+    // shading normal outright rather than tilting it by a gradient -- and is
+    // still refused rather than approximated by the one implemented.
+    if (m.find("normalmap") != nullptr) {
+        fail("a normal map replaces the shading normal outright, which is a "
+             "different thing from the `displacement` bump map this renderer "
+             "has");
+    }
+    {
+        const CapturingBuilder::MaterialInfo::Value *d = m.find("displacement");
+        if (d != nullptr) {
+            if (d->type != "texture" || d->strings.empty()) {
+                fail("`displacement` has to be a texture");
+            }
+            out.displacement_texture = convert_texture(d->strings[0]);
+        }
+    }
+
     if (m.name == "diffuse") {
         out.tag = bonsai_scene::MaterialTag::Diffuse;
         out.reflectance_texture =
@@ -856,11 +878,6 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
                 fail("`nsamples` has to be a single integer");
             }
             out.n_samples = n->ints[0];
-        }
-        if (m.find("displacement") != nullptr ||
-            m.find("normalmap") != nullptr) {
-            fail("a displacement or normal map changes the shading frame, "
-                 "which this renderer takes from the geometry alone");
         }
         return out;
     }

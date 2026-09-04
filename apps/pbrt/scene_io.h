@@ -120,6 +120,11 @@ struct Material {
     // diffuse surface do a texture lookup to find out it has none would cost
     // more than the uniformity is worth.
     int32_t reflectance_texture = -1;
+    // PBRT's `displacement`, a float texture every material may carry. It does
+    // not change what the material *is* -- it tilts the shading frame before
+    // the BSDF is built, which is why PBRT keeps it on the base Material and
+    // applies it in GetBSDF rather than in any one material's GetBxDF.
+    int32_t displacement_texture = -1;
     // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
     // remaps per intersection and `remaproughness` says whether it does at all.
     float u_roughness = 0.f;
@@ -559,7 +564,8 @@ inline bool write(const char *path, const Scene &scene) {
         }
         out << " reflectance";
         detail::put(out, m.reflectance, 3);
-        out << " reflectancetex " << m.reflectance_texture;
+        out << " reflectancetex " << m.reflectance_texture << " displacement "
+            << m.displacement_texture;
         if (m.tag == MaterialTag::Dielectric) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
@@ -893,6 +899,10 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> m.reflectance_texture;
+        if (!tagged("displacement")) {
+            return false;
+        }
+        in >> m.displacement_texture;
         if (m.tag == MaterialTag::Dielectric) {
             if (!tagged("roughness")) {
                 return false;

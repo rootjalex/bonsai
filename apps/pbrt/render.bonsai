@@ -502,6 +502,13 @@ element Primitive {
 // nowhere near a ray, so the driver does it once per material, exactly as pbrt
 // looks it up in a table generated offline.
 extern materials : array[Material];
+// pbrt: `Material::GetDisplacement()`, indexed the same way `materials` is.
+//
+// Beside the materials rather than inside them because that is where pbrt keeps
+// it: a displacement is not part of what any one material *is*, it tilts the
+// shading frame before `GetBSDF` asks the material anything, and every kind of
+// material may carry one. Negative where there is none.
+extern material_displacement : array[i32];
 
 // pbrt: the path integrator's fixed sample points for a reflectance estimate,
 // which are file-scope constants there. Fixed rather than drawn from the
@@ -603,7 +610,9 @@ func visible_surface(r : Ray, dr : RayDifferential,
         // and BSDF::rho, which asks the question in it. The tangent is
         // normalized here and the normal is not, exactly as Frame::FromXZ
         // takes them.
-        shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
+        diffs = compute_differentials(surf, dr, camera, spp_scale);
+        hit = displaced(surf, material_displacement[prim.material], diffs);
+        shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
 
         // pbrt: GetBSDF, then rho on what it returned. Never regularized: pbrt
         // fills its VisibleSurface at the first intersection, where no bounce
@@ -611,8 +620,7 @@ func visible_surface(r : Ray, dr : RayDifferential,
         //
         // `reflectance` is Schlick's approximation in stdlib/numerics, so the
         // name is taken.
-        diffs = compute_differentials(surf, dr, camera, spp_scale);
-        bsdf = material_bxdf(materials[prim.material], lambda, false, surf.uv,
+        bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
                              diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
         rho = bxdf_rho(bsdf, frame_to_local(shading, wo), seed, rho_uc, rho_ux,
                        rho_uy);
@@ -729,15 +737,16 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
 
     // pbrt: GetBSDF, then a direction sampled uniformly over the sphere, then
     // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
-    shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
     diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
-    bsdf = material_bxdf(materials[prim.material], lambda, false, surf.uv,
+    hit = displaced(surf, material_displacement[prim.material], diffs);
+    shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
+    bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
                          diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
     u = get_2d(sampler, state);
     wp = sample_uniform_sphere(u);
     fcos = bxdf_f(bsdf, frame_to_local(shading, wo),
                   frame_to_local(shading, wp), seed) *
-           abs(dot(wp, surf.ns));
+           abs(dot(wp, hit.ns));
     if !nonzero(fcos) {
         return found;
     }
@@ -749,7 +758,7 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
     // SpawnRay carries no differentials past here and every later lookup falls
     // to the camera approximation.
     next_ray = spawn_ray(surf, wp);
-    next_diff = spawn_ray_differential(surf, diffs, ray_diff, wo, wp, 0, 1.0);
+    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo, wp, 0, 1.0);
     return walk_step(next_ray, next_diff, camera, spp_scale,
                      beta * fcos / uniform_sphere_pdf(),
                      found, lambda, sampler, state, ls, seed, depth + 1,
@@ -835,13 +844,14 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
         return found;
     }
 
-    shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
-    // pbrt: GetBSDF, once, before anything is asked of it -- differentials and
-    // all, which is what a textured material is filtered by.
+    // pbrt: GetBSDF, once, before anything is asked of it -- differentials,
+    // then the displacement, then the material.
     diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
-    bsdf = material_bxdf(materials[prim.material], lambda, false, surf.uv,
+    hit = displaced(surf, material_displacement[prim.material], diffs);
+    shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
+    bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
                          diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
-    ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, surf.ns};
+    ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
     // Direct lighting: pick a light, pick a point on it, and connect.
     chosen = light_sampler_sample(ls, get_1d(sampler, state));
@@ -858,7 +868,7 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
             if nonzero(lsample.l) && (lsample.pdf > 0.0) {
                 fcos = bxdf_f(bsdf, frame_to_local(shading, wo),
                               frame_to_local(shading, lsample.wi), seed) *
-                       abs(dot(lsample.wi, surf.ns));
+                       abs(dot(lsample.wi, hit.ns));
                 if nonzero(fcos) &&
                    unoccluded(surf.p, surf.p_error, surf.n, lsample.p_light,
                               lsample.p_light_error, lsample.n_light) {
@@ -881,9 +891,9 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
         return found;
     }
     wi = frame_from_local(shading, sample.wi);
-    next_beta = beta * sample.f * abs(dot(wi, surf.ns)) / sample.pdf;
+    next_beta = beta * sample.f * abs(dot(wi, hit.ns)) / sample.pdf;
     next_ray = spawn_ray(surf, wi);
-    next_diff = spawn_ray_differential(surf, diffs, ray_diff, wo, wi,
+    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo, wi,
                                        sample.flags, sample.eta);
     return path_step(next_ray, next_diff, camera, spp_scale, next_beta, found,
                      is_specular(sample.flags), lambda, sampler, state, ls, set,
@@ -1103,15 +1113,14 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     }
     next_depth = depth + 1;
 
-    shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
-    // pbrt computes these at the top of `GetBSDF`, once per vertex, whether or
-    // not any material at this vertex turns out to want them -- so they are
-    // computed here, in the same place, for the same reason. What reads them
-    // today is the specular propagation below; a textured material will read
-    // the (u,v) derivatives directly.
+    // pbrt's `GetBSDF`, in its order: the differentials first, then the
+    // displacement -- which tilts the shading frame and so has to happen before
+    // the frame is built -- and only then the material.
     diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    hit = displaced(surf, material_displacement[prim.material], diffs);
+    shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
-                         surf.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
+                         hit.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
                          diffs.dvdy);
     flags = bxdf_flags(bsdf);
 
@@ -1120,7 +1129,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     // does not spend the shadow ray -- and, importantly, does not spend the
     // three draws either.
     if is_non_specular(flags) {
-        found = found + beta * path_sample_ld(bsdf, surf, shading, wo_unit,
+        found = found + beta * path_sample_ld(bsdf, hit, shading, wo_unit,
                                               flags, lambda, sampler, state, ls,
                                               seed);
     }
@@ -1138,7 +1147,9 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
         return found;
     }
     wi = frame_from_local(shading, sample.wi);
-    next_beta = beta * sample.f * abs(dot(wi, surf.ns)) / sample.pdf;
+    // pbrt: `AbsDot(bs->wi, isect.shading.n)`, the *shading* normal -- which is
+    // the bumped one where there is a displacement.
+    next_beta = beta * sample.f * abs(dot(wi, hit.ns)) / sample.pdf;
 
     // A layered BSDF reports a density that is only proportional to the one it
     // actually sampled from -- the entrance interface's rather than the whole
@@ -1158,14 +1169,19 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     // roulette must not read that scaling as a path going dark.
     next_eta_scale = select(is_transmissive(sample.flags),
                             eta_scale * sqr(sample.eta), eta_scale);
-    next_ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, surf.ns};
+    // The geometric normal and the point stay the shape's -- a bump map moves
+    // nothing -- and the shading normal is the bumped one, which is the pair
+    // pbrt's ShapeSampleContext takes.
+    next_ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
     next_ray = spawn_ray(surf, wi);
     // pbrt: the four-argument SpawnRay, which carries the differentials across
     // a *specular* bounce and drops them across any other. A mirror or a pane
     // of glass sends the two companion rays somewhere predictable; a rough
     // surface does not, and the next hit falls back on the camera's minimum
     // footprint.
-    next_diff = spawn_ray_differential(surf, diffs, ray_diff, wo_unit, wi,
+    // The bumped hit: pbrt's SpawnRay reads `shading.n` and the shading normal
+    // derivatives, which is what the bump changed.
+    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo_unit, wi,
                                        sample.flags, sample.eta);
 
     // pbrt: Russian roulette, after the ray is spawned and never at the first
@@ -1290,7 +1306,7 @@ func [[export]] differentials_at(camera : PerspectiveCamera,
     // pbrt's SurfaceInteraction constructor sets the geometric normal from the
     // parameterization, and the shading fields from the geometric ones.
     n = unit_vector_(cross_(dpdu, dpdv));
-    g = SurfaceGeometry{n, n, dpdu, vec2f{0.375, 0.625}, dpdu, dpdv,
+    g = SurfaceGeometry{n, n, dpdu, dpdv, vec2f{0.375, 0.625}, dpdu, dpdv,
                         vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}, p,
                         vec3f{0.0, 0.0, 0.0}};
     d = compute_differentials(g, dr, camera,

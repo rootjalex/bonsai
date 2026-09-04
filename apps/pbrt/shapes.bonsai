@@ -491,6 +491,11 @@ element SurfaceGeometry {
     n : vec3f;
     ns : vec3f;
     dpdus : vec3f;
+    // The shading bitangent, the second axis of the frame `dpdus` is the first
+    // of. pbrt's `shading` keeps both and only the first was needed here until
+    // bump mapping turned up: a bump map rebuilds the shading frame from two
+    // perturbed derivatives, so it needs the one it is perturbing.
+    dpdvs : vec3f;
     // pbrt: SurfaceInteraction::uv, and the two partial derivatives of position
     // with respect to it.
     //
@@ -609,7 +614,9 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     uv = vec2f{phi / phi_max,
                (theta - 3.14159265358979323846) / theta_span};
 
-    g : SurfaceGeometry = {n, n, dpdu, uv, dpdu, dpdv, dndu, dndv,
+    // A sphere brings no vertex normals, so its shading geometry is its
+    // geometry and the shading bitangent is the geometric one.
+    g : SurfaceGeometry = {n, n, dpdu, dpdv, uv, dpdu, dpdv, dndu, dndv,
                            p + s.center, gamma(5) * abs(p)};
     return g;
 }
@@ -677,8 +684,8 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
         // dndu and dndv are zero for a mesh with no normals: the shading
         // normal is the face's and does not turn within the triangle.
         zero = vec3f{0.0, 0.0, 0.0};
-        plain : SurfaceGeometry = {n, n, dpdu, uv_hit, dpdu, dpdv, zero, zero,
-                                   p_hit, p_err};
+        plain : SurfaceGeometry = {n, n, dpdu, dpdv, uv_hit, dpdu, dpdv, zero,
+                                   zero, p_hit, p_err};
         return plain;
     }
 
@@ -743,7 +750,7 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
     // FaceForward against the ray then makes invisible -- but not to a BSDF.
     // pbrt: SetShadingGeometry sets dndu and dndv and does *not* put them
     // through the scaling loop above, which only ever touches the tangents.
-    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su, uv_hit,
+    g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su, sv, uv_hit,
                            dpdu, dpdv, dndu, dndv, p_hit, p_err};
     return g;
 }
@@ -1008,10 +1015,10 @@ func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
 func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
     away = -r.d;
     missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0},
-                                vec2f{0.0, 0.0}, vec3f{1.0, 0.0, 0.0},
-                                vec3f{0.0, 1.0, 0.0}, vec3f{0.0, 0.0, 0.0},
-                                vec3f{0.0, 0.0, 0.0}, r.o,
-                                vec3f{0.0, 0.0, 0.0}};
+                                vec3f{0.0, 1.0, 0.0}, vec2f{0.0, 0.0},
+                                vec3f{1.0, 0.0, 0.0}, vec3f{0.0, 1.0, 0.0},
+                                vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
+                                r.o, vec3f{0.0, 0.0, 0.0}};
     match sh {
         Sph(s) => {
             t = sphere_t(r, s);
