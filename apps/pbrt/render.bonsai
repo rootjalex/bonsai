@@ -33,6 +33,7 @@ import stdlib/numerics;
 import apps/pbrt/bxdf;
 import apps/pbrt/camera;
 import apps/pbrt/colour;
+import apps/pbrt/differentials;
 import apps/pbrt/filter;
 import apps/pbrt/frame;
 import apps/pbrt/sampler;
@@ -1190,6 +1191,64 @@ func integrator_li(integrator : Integrator, r : Ray,
 // baked because it is what a comparison turns off to ask a question about the
 // geometry alone -- with it set, every sample of a pixel traces the identical
 // ray and a difference in the image can only be a difference in the scene.
+// Everything a texture would be filtered by, for one pixel and one hit, so it
+// can be checked against `scene_dump --print-differentials`.
+//
+// Exported rather than folded into `render` because a wrong footprint does not
+// show in an image: it makes a texture a little too blurry or too sharp and
+// moves no edge, so no pixel comparison against pbrt would fail on it. The hit
+// is passed in rather than traced for the same reason the pbrt side passes one
+// in -- what is under test is `compute_differentials`, and a chosen hit
+// exercises both of its branches, including the one a first hit never takes.
+//
+// Twenty-two floats out: the camera ray's four differential vectors, then dpdx,
+// dpdy and the four (u,v) derivatives.
+func [[export]] differentials_at(camera : PerspectiveCamera,
+                                 px : Float, py : Float,
+                                 has_differentials : bool, spp : u32,
+                                 p : vec3f, dpdu : vec3f, dpdv : vec3f,
+                                 out : mut array[Float]) -> void {
+    sample = CameraSample{vec2f{px + 0.5, py + 0.5}, vec2f{0.5, 0.5}, 0.0, 1.0};
+    camera_ray = generate_ray_differential(camera, sample);
+    dr_scaled = scale_differentials(camera_ray.ray, camera_ray.diff,
+                                    ray_differential_scale(spp, false));
+    dr = RayDifferential{dr_scaled.rx_origin, dr_scaled.ry_origin,
+                         dr_scaled.rx_direction, dr_scaled.ry_direction,
+                         has_differentials};
+
+    out[0u] = dr.rx_origin.x;
+    out[1u] = dr.rx_origin.y;
+    out[2u] = dr.rx_origin.z;
+    out[3u] = dr.ry_origin.x;
+    out[4u] = dr.ry_origin.y;
+    out[5u] = dr.ry_origin.z;
+    out[6u] = dr.rx_direction.x;
+    out[7u] = dr.rx_direction.y;
+    out[8u] = dr.rx_direction.z;
+    out[9u] = dr.ry_direction.x;
+    out[10u] = dr.ry_direction.y;
+    out[11u] = dr.ry_direction.z;
+
+    // pbrt's SurfaceInteraction constructor sets the geometric normal from the
+    // parameterization, and the shading fields from the geometric ones.
+    n = unit_vector_(cross_(dpdu, dpdv));
+    g = SurfaceGeometry{n, n, dpdu, vec2f{0.375, 0.625}, dpdu, dpdv, p,
+                        vec3f{0.0, 0.0, 0.0}};
+    d = compute_differentials(g, dr, camera,
+                              ray_differential_scale(spp, false));
+
+    out[12u] = d.dpdx.x;
+    out[13u] = d.dpdx.y;
+    out[14u] = d.dpdx.z;
+    out[15u] = d.dpdy.x;
+    out[16u] = d.dpdy.y;
+    out[17u] = d.dpdy.z;
+    out[18u] = d.dudx;
+    out[19u] = d.dvdx;
+    out[20u] = d.dudy;
+    out[21u] = d.dvdy;
+}
+
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                        sampler : Sampler, integrator : Integrator,
                        pixel_filter : Filter, seed : i32,
@@ -1251,7 +1310,16 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
                                         cast[[Float]](j) + 0.5} + jitter,
                                   lens_u, time_u, weight};
-            ray = generate_ray(camera, sample);
+            // pbrt: `camera.GenerateRayDifferential(cameraSample, lambda)`,
+            // then `cameraRay->ray.ScaleDifferentials(rayDiffScale)` in
+            // RenderCPU before anything is traced with it. The scale narrows
+            // the one-pixel footprint the camera produced to the one a single
+            // sample of `spp` covers.
+            camera_ray = generate_ray_differential(camera, sample);
+            ray = camera_ray.ray;
+            ray_diff = scale_differentials(
+                ray, camera_ray.diff,
+                ray_differential_scale(spp, disable_pixel_jitter));
 
             found = visible_surface(ray, lambda, seed);
             if found {

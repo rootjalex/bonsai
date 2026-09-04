@@ -274,8 +274,29 @@ struct Scene {
     // its centre. Not a property of the scene; carried here because it has to
     // reach the renderer and this is the channel that exists.
     uint32_t disable_pixel_jitter = 0;
-    // camera_from_raster then render_from_camera, each 4x4 in row order.
-    float matrices[32] = {};
+    // camera_from_raster, render_from_camera then camera_from_render, each
+    // 4x4 in row order. The third is not the second's inverse recomputed --
+    // it is PBRT's own `CameraFromRender`, and the pair is carried in both
+    // directions because `Approximate_dp_dxy` goes camera-ward and back and
+    // nothing here inverts a matrix.
+    float matrices[48] = {};
+    // PBRT: PerspectiveCamera's `dxCamera` and `dyCamera`, three floats each.
+    // The change in the camera-space sample position for a one-pixel step in
+    // raster x and in raster y, which is what makes a camera ray's
+    // differentials. Constants of the camera, so they are derived here from
+    // the same `cameraFromRaster` rather than in the renderer.
+    float d_camera[6] = {};
+    // PBRT: `CameraBase::minPosDifferentialX/Y` and `minDirDifferentialX/Y`,
+    // three floats each in that order.
+    //
+    // `FindMinimumDifferentials` finds them by generating 512 differential
+    // rays across the film and keeping the shortest offset it saw, which is a
+    // loop over the camera and not over the scene -- so it runs here, using
+    // PBRT's own `GenerateRayDifferential`, and the four vectors ship as data.
+    // They are what a hit falls back on once a path has scattered and its ray
+    // no longer carries differentials of its own, which after the first
+    // non-specular bounce is every hit.
+    float min_differentials[12] = {};
     std::vector<Material> materials;
     // The meshes, and the pools their runs live in. Three floats per position
     // and normal, two per texture coordinate.
@@ -382,6 +403,12 @@ inline bool write(const char *path, const Scene &scene) {
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
     detail::put(out, scene.matrices + 16, 16);
+    out << "\ncamera_from_render";
+    detail::put(out, scene.matrices + 32, 16);
+    out << "\nd_camera";
+    detail::put(out, scene.d_camera, 6);
+    out << "\nmin_differentials";
+    detail::put(out, scene.min_differentials, 12);
     out << '\n';
 
     out << "materials " << scene.materials.size() << '\n';
@@ -609,6 +636,18 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     floats(scene.matrices + 16, 16);
+    if (!(in >> word) || word != "camera_from_render") {
+        return false;
+    }
+    floats(scene.matrices + 32, 16);
+    if (!(in >> word) || word != "d_camera") {
+        return false;
+    }
+    floats(scene.d_camera, 6);
+    if (!(in >> word) || word != "min_differentials") {
+        return false;
+    }
+    floats(scene.min_differentials, 12);
 
     // A labelled field, checked as it is read. The labels are what makes a
     // stale file fail here rather than three fields later with plausible

@@ -56,17 +56,75 @@ element CameraSample {
     filter_weight : Float = 1.0;
 }
 
-// pbrt: PerspectiveCamera. The two transforms its constructor derives from the
-// field of view, the screen window and the resolution; see scene_dump.cpp.
+// pbrt: RayDifferential's extra members, kept beside a `Ray` rather than on it.
+//
+// pbrt makes RayDifferential a subclass of Ray and this keeps the same split
+// for the same reason: the BVH traversal never reads any of these, and a `Ray`
+// is what it copies at every node. Forty-eight more bytes on that would be paid
+// per node visited, for something only the shading code wants.
+//
+// `has_differentials` is false for every ray after a non-specular bounce --
+// pbrt's SpawnRay only propagates differentials through specular reflection and
+// transmission -- which is why the approximation below is the common path and
+// not the fallback it looks like.
+element RayDifferential {
+    rx_origin : vec3f;
+    ry_origin : vec3f;
+    rx_direction : vec3f;
+    ry_direction : vec3f;
+    has_differentials : bool = false;
+}
+
+// pbrt: CameraRayDifferential, a ray and its differentials together.
+element CameraRay {
+    ray : Ray;
+    diff : RayDifferential;
+}
+
+// pbrt: PerspectiveCamera, and the constants its constructor derives. The two
+// transforms come from the field of view, the screen window and the resolution;
+// `camera_from_render` is the second one inverted; the rest are what ray
+// differentials need. All of them are computed by scene_dump using pbrt's own
+// arithmetic -- see the note at the top of this file.
 element PerspectiveCamera {
     camera_from_raster : Transform;
     render_from_camera : Transform;
+    camera_from_render : Transform;
+    // pbrt: dxCamera, dyCamera. One raster pixel, in camera space.
+    dx_camera : vec3f;
+    dy_camera : vec3f;
+    // pbrt: minPosDifferentialX/Y, minDirDifferentialX/Y, from
+    // FindMinimumDifferentials.
+    min_pos_differential_x : vec3f;
+    min_pos_differential_y : vec3f;
+    min_dir_differential_x : vec3f;
+    min_dir_differential_y : vec3f;
 }
 
-// pbrt: PerspectiveCamera::GenerateRay. Every ray leaves the camera's origin
-// and passes through the sample's point on the film plane. The differentials
-// PBRT also computes here are for texture filtering, which there is none of
-// yet.
+// pbrt: PerspectiveCamera::GenerateRayDifferential, the `lensRadius == 0`
+// branch -- scene_dump refuses a lens, so the other branch has no scene to run
+// on.
+//
+// Every ray leaves the camera's origin and passes through the sample's point on
+// the film plane; the two differential rays leave the same origin and pass
+// through the point one raster pixel across and one down. pbrt transforms the
+// whole ray by `RenderFromCamera` at the end, which is why the origin is shared
+// and only the directions differ.
+func generate_ray_differential(camera : PerspectiveCamera,
+                               sample : CameraSample) -> CameraRay {
+    p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
+    p_camera = apply_point(camera.camera_from_raster, p_film);
+    o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
+    d = apply_vector(camera.render_from_camera, unit_vector_(p_camera));
+    rx_d = apply_vector(camera.render_from_camera,
+                        unit_vector_(p_camera + camera.dx_camera));
+    ry_d = apply_vector(camera.render_from_camera,
+                        unit_vector_(p_camera + camera.dy_camera));
+    return CameraRay{Ray{o, d}, RayDifferential{o, o, rx_d, ry_d, true}};
+}
+
+// pbrt: PerspectiveCamera::GenerateRay, for the places that want a ray and no
+// differentials -- there is nothing to filter along a shadow ray.
 func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
     p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
     p_camera = apply_point(camera.camera_from_raster, p_film);
@@ -74,3 +132,25 @@ func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
     d = apply_vector(camera.render_from_camera, unit_vector_(p_camera));
     return Ray{o, d};
 }
+
+// pbrt: RayDifferential::ScaleDifferentials, which RenderCPU applies to every
+// camera ray before tracing it.
+//
+// The differentials come out of the camera one pixel apart, and a pixel is
+// sampled `spp` times -- so the footprint a texture should filter over is
+// narrower than a pixel by roughly 1/sqrt(spp). The 0.125 floor stops a very
+// high sample count from asking for a footprint far below one texel, where the
+// filtering would cost more than the aliasing it removes.
+func scale_differentials(r : Ray, dr : RayDifferential,
+                         s : Float) -> RayDifferential {
+    return RayDifferential{r.o + (dr.rx_origin - r.o) * s,
+                           r.o + (dr.ry_origin - r.o) * s,
+                           r.d + (dr.rx_direction - r.d) * s,
+                           r.d + (dr.ry_direction - r.d) * s,
+                           dr.has_differentials};
+}
+
+// pbrt: RenderCPU's `cameraRay->ray.ScaleDifferentials(rayDiffScale)`, where
+// `rayDiffScale` is `max(.125, 1 / sqrt(spp))` unless jitter is disabled.
+func ray_differential_scale(spp : u32, disable_jitter : bool) -> Float =
+    select(disable_jitter, 1.0, max(0.125, 1.0 / sqrt(cast[[Float]](spp))));

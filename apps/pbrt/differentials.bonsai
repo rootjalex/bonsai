@@ -1,0 +1,245 @@
+// pbrt: SurfaceInteraction::ComputeDifferentials and the camera approximation
+// it falls back on, from interaction.cpp and cameras.h.
+//
+// This is how a texture knows how wide to filter. A lookup is
+// `mipmap->Filter(st, {dsdx, dtdx}, {dsdy, dtdy})`, and everything here exists
+// to produce those four numbers: how far across the surface, in texture
+// coordinates, one step in screen x or screen y moves.
+//
+// Two things produce them. A camera ray carries differentials -- two companion
+// rays one pixel across and one down -- and where it does, the answer is where
+// those companions hit the tangent plane at the hit. Where it does not, which
+// is every hit after a non-specular bounce, the camera is asked for the
+// narrowest footprint it ever generates and that is projected onto the tangent
+// plane instead. pbrt has both and so does this; the second is the common one
+// in a path tracer, not an edge case.
+import stdlib/numerics;
+import apps/pbrt/shapes;
+import apps/pbrt/camera;
+
+// pbrt: DifferenceOfProducts, which is `a*b - c*d` computed so that the
+// cancellation does not eat the answer.
+//
+// The two products are each rounded, and subtracting two rounded numbers of
+// similar size leaves an error as large as the result. `fma(a, b, -cd)`
+// computes `a*b` exactly before subtracting, and `fma(-c, d, cd)` recovers the
+// rounding of `c*d`, so adding the two puts the lost bits back. Used here
+// because pbrt uses it: the determinant below is a difference of products of
+// dot products, and on a nearly-degenerate parameterization it cancels hard.
+func difference_of_products(a : Float, b : Float, c : Float, d : Float) -> Float {
+    cd = c * d;
+    diff = fma(a, b, -cd);
+    error = fma(-c, d, cd);
+    return diff + error;
+}
+
+func is_finite(x : Float) -> bool = (x - x) == 0.0;
+
+// pbrt: `IsFinite(d) ? Clamp(d, -1e8f, 1e8f) : 0.f`, applied to each of the
+// four (u,v) derivatives.
+//
+// Not defensive rounding. A hit where the parameterization is degenerate -- a
+// sphere's pole, a triangle whose texture coordinates have collapsed -- gives a
+// singular normal-equations matrix, and the derivative that falls out of it
+// would ask a texture to filter over the whole image.
+func clamp_derivative(x : Float) -> Float =
+    select(is_finite(x), select(x < -1.0e8, -1.0e8, select(x > 1.0e8, 1.0e8, x)),
+           0.0);
+
+// pbrt: SurfaceInteraction's dpdx, dpdy and the four (u,v) derivatives.
+element Differentials {
+    dpdx : vec3f;
+    dpdy : vec3f;
+    dudx : Float;
+    dvdx : Float;
+    dudy : Float;
+    dvdy : Float;
+}
+
+// A rotation, as three rows. pbrt's RotateFromTo builds a full Transform and
+// stores its transpose as the inverse; a rotation's inverse *is* its transpose,
+// so only the rows are kept and `apply_rot_inverse` transposes as it goes.
+element Rotation {
+    r0, r1, r2 : vec3f;
+}
+
+// One row against a vector, contracted as pbrt's `Transform::operator()` is.
+//
+// Not `dot_`, and the difference matters. Both are three multiplies and two
+// adds fused into two multiply-adds, and they disagree about which pair goes
+// where: `dot_` reproduces pbrt's `Dot`, which is a different function that
+// happens to compute the same thing. Everything here goes through a
+// `Transform`, so everything here uses this one -- and the two round
+// differently, which after the cancellation below is worth four digits.
+func apply_rot_row(row : vec3f, v : vec3f) -> Float =
+    fma(row.z, v.z, fma(row.y, v.y, row.x * v.x));
+
+func apply_rot(m : Rotation, v : vec3f) -> vec3f =
+    vec3f{apply_rot_row(m.r0, v), apply_rot_row(m.r1, v),
+          apply_rot_row(m.r2, v)};
+
+// pbrt: Transform::ApplyInverse(Normal3f), which is what
+// `CameraFromRender(Normal3f, time)` resolves to -- `renderFromCamera` applied
+// inversely to a normal, which reads the *columns* of the forward matrix
+// because a normal transforms by the inverse transpose.
+//
+// So this takes `render_from_camera` and not `camera_from_render`. For a rigid
+// camera the two give the same bits, since one matrix's columns are the other's
+// rows; written pbrt's way anyway, so that a camera transform with a scale in
+// it would still be right rather than accidentally so.
+func apply_normal_inverse(t : Transform, n : vec3f) -> vec3f =
+    vec3f{fma(t.r2.x, n.z, fma(t.r1.x, n.y, t.r0.x * n.x)),
+          fma(t.r2.y, n.z, fma(t.r1.y, n.y, t.r0.y * n.x)),
+          fma(t.r2.z, n.z, fma(t.r1.z, n.y, t.r0.z * n.x))};
+
+// pbrt: Transform::ApplyInverse(Vector3f), which reads the inverse's rows --
+// and a rotation's inverse is its transpose, so those are this matrix's
+// columns. Written as three explicit gathers rather than as a sum of scaled
+// rows, because the sum would associate the adds the other way.
+func apply_rot_inverse(m : Rotation, v : vec3f) -> vec3f =
+    vec3f{fma(m.r2.x, v.z, fma(m.r1.x, v.y, m.r0.x * v.x)),
+          fma(m.r2.y, v.z, fma(m.r1.y, v.y, m.r0.y * v.x)),
+          fma(m.r2.z, v.z, fma(m.r1.z, v.y, m.r0.z * v.x))};
+
+// pbrt: RotateFromTo, the rotation taking `from` to `to`.
+//
+// Built as two reflections rather than from an axis and an angle, which is what
+// makes it stable when the two vectors are nearly parallel or nearly opposite:
+// there is no small cross product to normalize. `refl` is chosen so that
+// neither `refl - from` nor `refl - to` is near zero, which is what the 0.72
+// tests are for -- a unit vector cannot have two components that large.
+func rotate_from_to(from : vec3f, to : vec3f) -> Rotation {
+    refl = select(abs(from.x) < 0.72 && abs(to.x) < 0.72,
+                  vec3f{1.0, 0.0, 0.0},
+                  select(abs(from.y) < 0.72 && abs(to.y) < 0.72,
+                         vec3f{0.0, 1.0, 0.0},
+                         vec3f{0.0, 0.0, 1.0}));
+    u = refl - from;
+    v = refl - to;
+    uu = dot_(u, u);
+    vv = dot_(v, v);
+    uv = dot_(u, v);
+    a = 2.0 / uu;
+    b = 2.0 / vv;
+    c = 4.0 * uv / (uu * vv);
+    // pbrt: r[i][j] = (i == j) - a*u[i]*u[j] - b*v[i]*v[j] + c*v[i]*u[j].
+    // Written out rather than looped: three rows is fewer lines this way than
+    // the indexing it would take to fold them.
+    return Rotation{
+        vec3f{1.0 - a * u.x * u.x - b * v.x * v.x + c * v.x * u.x,
+                    -a * u.x * u.y - b * v.x * v.y + c * v.x * u.y,
+                    -a * u.x * u.z - b * v.x * v.z + c * v.x * u.z},
+        vec3f{      -a * u.y * u.x - b * v.y * v.x + c * v.y * u.x,
+              1.0 - a * u.y * u.y - b * v.y * v.y + c * v.y * u.y,
+                    -a * u.y * u.z - b * v.y * v.z + c * v.y * u.z},
+        vec3f{      -a * u.z * u.x - b * v.z * v.x + c * v.z * u.x,
+                    -a * u.z * u.y - b * v.z * v.y + c * v.z * u.y,
+              1.0 - a * u.z * u.z - b * v.z * v.z + c * v.z * u.z}};
+}
+
+// pbrt: CameraBase::Approximate_dp_dxy.
+//
+// What a hit falls back on when its ray carries no differentials. The idea is
+// to take the narrowest footprint the camera ever produces -- the four vectors
+// FindMinimumDifferentials measured -- and ask where a ray offset by that much
+// would meet the tangent plane at this hit.
+//
+// The work happens in a rotated camera space where the hit lies down the z
+// axis, because there the tangent plane's equation is one number: `d = n.z *
+// p.z`. That is the whole reason RotateFromTo is here.
+func approximate_dp_dxy(camera : PerspectiveCamera, p : vec3f, n : vec3f,
+                        spp_scale : Float) -> Differentials {
+    p_camera = apply_point(camera.camera_from_render, p);
+    down_z = rotate_from_to(unit_vector_(p_camera), vec3f{0.0, 0.0, 1.0});
+    p_down_z = apply_rot(down_z, p_camera);
+    // pbrt: `DownZFromCamera(CameraFromRender(n, time))`. The inner call is a
+    // normal's inverse transform, hence the columns of render_from_camera; the
+    // outer is `Transform::operator()(Normal3f)`, whose inverse-transpose of a
+    // rotation is the rotation's own rows -- which is `apply_rot`.
+    n_down_z = apply_rot(down_z,
+                         apply_normal_inverse(camera.render_from_camera, n));
+    d = n_down_z.z * p_down_z.z;
+
+    x_o = camera.min_pos_differential_x;
+    x_d = vec3f{0.0, 0.0, 1.0} + camera.min_dir_differential_x;
+    tx = -(dot_(n_down_z, x_o) - d) / dot_(n_down_z, x_d);
+
+    y_o = camera.min_pos_differential_y;
+    y_d = vec3f{0.0, 0.0, 1.0} + camera.min_dir_differential_y;
+    ty = -(dot_(n_down_z, y_o) - d) / dot_(n_down_z, y_d);
+
+    px = x_o + tx * x_d;
+    py = y_o + ty * y_d;
+
+    dpdx = spp_scale * apply_vector(camera.render_from_camera,
+                                    apply_rot_inverse(down_z, px - p_down_z));
+    dpdy = spp_scale * apply_vector(camera.render_from_camera,
+                                    apply_rot_inverse(down_z, py - p_down_z));
+    return Differentials{dpdx, dpdy, 0.0, 0.0, 0.0, 0.0};
+}
+
+// pbrt: the first branch of ComputeDifferentials -- where the two companion
+// rays actually hit the plane through the hit point.
+func differential_dp_dxy(g : SurfaceGeometry, dr : RayDifferential) -> Differentials {
+    d = -dot_(g.n, g.p);
+    tx = (-dot_(g.n, dr.rx_origin) - d) / dot_(g.n, dr.rx_direction);
+    px = dr.rx_origin + tx * dr.rx_direction;
+    ty = (-dot_(g.n, dr.ry_origin) - d) / dot_(g.n, dr.ry_direction);
+    py = dr.ry_origin + ty * dr.ry_direction;
+    return Differentials{px - g.p, py - g.p, 0.0, 0.0, 0.0, 0.0};
+}
+
+// pbrt: SurfaceInteraction::ComputeDifferentials.
+//
+// Having got dpdx and dpdy -- how far the hit point moves for one step in
+// screen x or y -- the rest is a least-squares solve. dpdu and dpdv span the
+// tangent plane, dpdx is some combination of them, and the (u,v) derivatives
+// are the coefficients. Written as the normal equations, which for a 3x2 system
+// is a 2x2 solve: A^T A is the three dot products, A^T b is two more per
+// direction, and the determinant is where DifferenceOfProducts earns its place.
+//
+// The clamps are pbrt's, and they are not belt and braces: a hit on a surface
+// whose parameterization is degenerate there -- a sphere's pole, a triangle
+// with collapsed texture coordinates -- has a singular A^T A, and an unclamped
+// derivative would ask a texture to filter over the whole image.
+func compute_differentials(g : SurfaceGeometry, dr : RayDifferential,
+                           camera : PerspectiveCamera,
+                           spp_scale : Float) -> Differentials {
+    // pbrt tests the dot products as well as the flag: a companion ray parallel
+    // to the surface never meets the plane, and the division below would be an
+    // infinity that the clamps would then turn into a zero -- but only after
+    // producing a NaN on the way. Falling back is what pbrt does.
+    dp : mut Differentials = Differentials{vec3f{0.0, 0.0, 0.0},
+                                           vec3f{0.0, 0.0, 0.0},
+                                           0.0, 0.0, 0.0, 0.0};
+    if (dr.has_differentials && dot_(g.n, dr.rx_direction) != 0.0 &&
+        dot_(g.n, dr.ry_direction) != 0.0) {
+        dp = differential_dp_dxy(g, dr);
+    } else {
+        // An `if` and not a `select`: the approximation is a rotation, two
+        // plane intersections and two transforms, and a select would run it at
+        // every hit that did not need it.
+        dp = approximate_dp_dxy(camera, g.p, g.n, spp_scale);
+    }
+
+    ata00 = dot_(g.dpdu, g.dpdu);
+    ata01 = dot_(g.dpdu, g.dpdv);
+    ata11 = dot_(g.dpdv, g.dpdv);
+    det = difference_of_products(ata00, ata11, ata01, ata01);
+    inv_det_raw = 1.0 / det;
+    inv_det = select(is_finite(inv_det_raw), inv_det_raw, 0.0);
+
+    atb0x = dot_(g.dpdu, dp.dpdx);
+    atb1x = dot_(g.dpdv, dp.dpdx);
+    atb0y = dot_(g.dpdu, dp.dpdy);
+    atb1y = dot_(g.dpdv, dp.dpdy);
+
+    dudx = difference_of_products(ata11, atb0x, ata01, atb1x) * inv_det;
+    dvdx = difference_of_products(ata00, atb1x, ata01, atb0x) * inv_det;
+    dudy = difference_of_products(ata11, atb0y, ata01, atb1y) * inv_det;
+    dvdy = difference_of_products(ata00, atb1y, ata01, atb0y) * inv_det;
+
+    return Differentials{dp.dpdx, dp.dpdy, clamp_derivative(dudx),
+                         clamp_derivative(dvdx), clamp_derivative(dudy),
+                         clamp_derivative(dvdy)};
+}

@@ -586,7 +586,34 @@ screen-space footprint into a texture-space one. Note they are the *geometric*
 pair, not `dpdus`, which has been orthogonalized against the shading normal --
 pbrt keeps both and filters in the geometric one.
 
-**Next, and the gate: ray differentials.** `Filter` needs a width, the width
+**Ray differentials -- done.** `RayDifferential` is a companion to `Ray` and not
+fields on it, so the 48 bytes stay off what the BVH copies; the camera generates
+the two offset rays (`PerspectiveCamera::GenerateRayDifferential`, the
+`lensRadius == 0` branch, and a lens is now refused rather than silently
+rendered sharp); `RenderCPU`'s `ScaleDifferentials` is applied before tracing;
+`FindMinimumDifferentials` runs in scene_dump against pbrt's own camera, since
+the four vectors it produces are protected on `CameraBase`; and
+`ComputeDifferentials` has both of its branches -- the ray's own differentials,
+and `Approximate_dp_dxy` for every hit after a non-specular bounce.
+
+Checked by `apps/pbrt/check_differentials.sh`, which prints the same four camera
+rays and the same synthetic hit from both sides. All four camera rays and their
+scaled differentials agree bit for bit. The derivatives agree to about four
+digits, and no further because they cannot: `Approximate_dp_dxy` ends in
+`px - pDownZ`, a difference of two vectors of magnitude `|p_camera|` that agree
+to 1e-4, which cancels 4.6 of float32's 7.2 digits. pbrt's own answer has no
+more digits than ours does. The script asserts the camera rays exactly and the
+derivatives to 5e-3, which is that floor.
+
+**Still missing: differentials through a specular bounce.**
+`SurfaceInteraction::SpawnRay` propagates them through `SpecularReflection` and
+`SpecularTransmission`, and that needs `shading.dndu` and `shading.dndv` -- the
+derivatives of the shading normal -- which no hit here carries. Until it does,
+a path leaving a dielectric falls to `Approximate_dp_dxy`, which is what pbrt
+does for a rough bounce but not for a smooth one. It matters for a texture seen
+*through* glass, which pavilion has: `glass_architectural`, six uses.
+
+**What it was, for the record: the gate.** `Filter` needs a width, the width
 comes from `dudx, dvdx, dudy, dvdy`, and those come from
 `SurfaceInteraction::ComputeDifferentials`, which has two branches:
 

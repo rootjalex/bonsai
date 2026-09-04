@@ -448,11 +448,25 @@ Transform to_bonsai(const float *m) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cerr << "usage: render <scene.bin> [out.pfm]\n";
+        std::cerr << "usage: render <scene.bin> [out.pfm]\n"
+                  << "       render --print-differentials <scene.bin>\n";
         return 1;
     }
-    const char *scene_path = argv[1];
-    const char *output = (argc > 2) ? argv[2] : "pbrt.pfm";
+    // The same four pixels and the same synthetic hit
+    // `scene_dump --print-differentials` uses, printed in the same format so a
+    // plain diff is the comparison.
+    bool print_differentials = false;
+    int arg = 1;
+    if (std::string(argv[arg]) == "--print-differentials") {
+        print_differentials = true;
+        arg++;
+        if (arg >= argc) {
+            std::cerr << "--print-differentials needs a scene\n";
+            return 1;
+        }
+    }
+    const char *scene_path = argv[arg++];
+    const char *output = (arg < argc) ? argv[arg] : "pbrt.pfm";
 
     // The scene came from a .pbrt file through PBRT's own parser; see
     // scene_dump.cpp. Nothing about the scene is written down here, which is
@@ -468,9 +482,51 @@ int main(int argc, char **argv) {
     const int width = int(loaded.width);
     const int height = int(loaded.height);
 
+    const auto to_vec3 = [](const float *v) {
+        return float3{v[0], v[1], v[2]};
+    };
+
     PerspectiveCamera camera;
     camera.camera_from_raster = to_bonsai(&loaded.matrices[0]);
     camera.render_from_camera = to_bonsai(&loaded.matrices[16]);
+    camera.camera_from_render = to_bonsai(&loaded.matrices[32]);
+    camera.dx_camera = to_vec3(&loaded.d_camera[0]);
+    camera.dy_camera = to_vec3(&loaded.d_camera[3]);
+    camera.min_pos_differential_x = to_vec3(&loaded.min_differentials[0]);
+    camera.min_pos_differential_y = to_vec3(&loaded.min_differentials[3]);
+    camera.min_dir_differential_x = to_vec3(&loaded.min_differentials[6]);
+    camera.min_dir_differential_y = to_vec3(&loaded.min_differentials[9]);
+
+    if (print_differentials) {
+        // Chosen to match scene_dump's; a parameterization that is neither
+        // orthogonal nor unit-length, so the 2x2 solve has something to do.
+        const float3 hit_p{-1.25f, 0.75f, -3.5f};
+        const float3 dpdu{1.7f, 0.3f, -0.4f};
+        const float3 dpdv{-0.2f, 1.1f, 0.9f};
+        const int pixels[][2] = {{0, 0}, {17, 42}, {640, 360}, {1279, 719}};
+        for (const auto &px : pixels) {
+            float out[22] = {};
+            differentials_at(camera, float(px[0]), float(px[1]), true, 16,
+                             hit_p, dpdu, dpdv, out);
+            printf("camdiff %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                   "%.9g %.9g %.9g | %.9g %.9g %.9g\n",
+                   px[0], px[1], double(out[0]), double(out[1]), double(out[2]),
+                   double(out[3]), double(out[4]), double(out[5]),
+                   double(out[6]), double(out[7]), double(out[8]),
+                   double(out[9]), double(out[10]), double(out[11]));
+            for (int has = 1; has >= 0; has--) {
+                differentials_at(camera, float(px[0]), float(px[1]), has != 0,
+                                 16, hit_p, dpdu, dpdv, out);
+                printf("dudxy %d %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                       "%.9g %.9g %.9g %.9g\n",
+                       px[0], px[1], has, double(out[12]), double(out[13]),
+                       double(out[14]), double(out[15]), double(out[16]),
+                       double(out[17]), double(out[18]), double(out[19]),
+                       double(out[20]), double(out[21]));
+            }
+        }
+        return 0;
+    }
 
     // Which sampler the scene asked for, built through the generated
     // constructors rather than by setting the tag -- how a variant is laid out

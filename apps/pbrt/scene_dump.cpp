@@ -59,6 +59,10 @@
 
 namespace {
 
+// Set by `--print-differentials`. Read at the end of `load`, which is where the
+// parsed scene and PBRT's own camera are both in scope; see the block there.
+bool g_print_differentials = false;
+
 // PBRT hands the camera and the film to BasicScene through methods that keep
 // them to itself, and the renderer needs the resolution and the field of view
 // rather than a constructed Camera. So this listens in: the parser's calls go
@@ -2029,6 +2033,187 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     write_matrix(matrices,
                  pbrt::Inverse(
                      scene.GetCamera().GetCameraTransform().CameraFromRender(0.f)));
+    // And the same transform the other way, which `Approximate_dp_dxy` needs:
+    // it takes a hit back to camera space, builds a tangent plane there, and
+    // brings the answer forward again.
+    write_matrix(matrices,
+                 scene.GetCamera().GetCameraTransform().CameraFromRender(0.f));
+
+    // A lens would change both the ray and its differentials -- PBRT samples a
+    // point on it and refocuses, and `GenerateRayDifferential` has a whole
+    // second branch for it. `generate_ray` here is the pinhole one and ignores
+    // `p_lens`, so a scene with a lens would render sharp everywhere and look
+    // plausible. Refused rather than approximated.
+    if (builder.camera_params.GetOneFloat("lensradius", 0.f) != 0.f) {
+        fail("`lensradius` is not supported yet: this renderer's camera is a "
+             "pinhole and would silently render the scene in focus everywhere");
+    }
+
+    // PBRT: PerspectiveCamera's constructor, which derives dxCamera and
+    // dyCamera from the same cameraFromRaster written above.
+    {
+        const pbrt::Transform cfr =
+            camera_from_raster(builder.camera_params, x_resolution,
+                               y_resolution);
+        const pbrt::Point3f p0 = cfr(pbrt::Point3f(0, 0, 0));
+        const pbrt::Vector3f dx = cfr(pbrt::Point3f(1, 0, 0)) - p0;
+        const pbrt::Vector3f dy = cfr(pbrt::Point3f(0, 1, 0)) - p0;
+        out.d_camera[0] = float(dx.x);
+        out.d_camera[1] = float(dx.y);
+        out.d_camera[2] = float(dx.z);
+        out.d_camera[3] = float(dy.x);
+        out.d_camera[4] = float(dy.y);
+        out.d_camera[5] = float(dy.z);
+    }
+
+    // PBRT: CameraBase::FindMinimumDifferentials, run against PBRT's own
+    // camera rather than reimplemented.
+    //
+    // The four vectors it produces are members of CameraBase and protected, so
+    // they cannot simply be read off the camera -- but every input to the loop
+    // is public, so the loop itself is what is repeated here. It walks 512
+    // samples along the film's diagonal, generates a differential ray at each,
+    // and keeps the shortest positional and directional offset it saw. That is
+    // a property of the camera and the resolution alone, so it belongs on this
+    // side with the spectral fits and the BVH.
+    {
+        const pbrt::Camera camera = scene.GetCamera();
+        const pbrt::CameraTransform &ct = camera.GetCameraTransform();
+        pbrt::Vector3f min_pos_x(pbrt::Infinity, pbrt::Infinity, pbrt::Infinity);
+        pbrt::Vector3f min_pos_y = min_pos_x;
+        pbrt::Vector3f min_dir_x = min_pos_x;
+        pbrt::Vector3f min_dir_y = min_pos_x;
+
+        pbrt::CameraSample sample;
+        sample.pLens = pbrt::Point2f(0.5f, 0.5f);
+        sample.time = 0.5f;
+        pbrt::SampledWavelengths lambda =
+            pbrt::SampledWavelengths::SampleVisible(0.5f);
+
+        const int n = 512;
+        for (int i = 0; i < n; ++i) {
+            sample.pFilm.x = pbrt::Float(i) / (n - 1) * x_resolution;
+            sample.pFilm.y = pbrt::Float(i) / (n - 1) * y_resolution;
+
+            pstd::optional<pbrt::CameraRayDifferential> crd =
+                camera.GenerateRayDifferential(sample, lambda);
+            if (!crd) {
+                continue;
+            }
+            pbrt::RayDifferential &ray = crd->ray;
+
+            const pbrt::Vector3f dox =
+                ct.CameraFromRender(ray.time)(ray.rxOrigin - ray.o);
+            if (pbrt::Length(dox) < pbrt::Length(min_pos_x)) {
+                min_pos_x = dox;
+            }
+            const pbrt::Vector3f doy =
+                ct.CameraFromRender(ray.time)(ray.ryOrigin - ray.o);
+            if (pbrt::Length(doy) < pbrt::Length(min_pos_y)) {
+                min_pos_y = doy;
+            }
+
+            ray.d = pbrt::Normalize(ray.d);
+            ray.rxDirection = pbrt::Normalize(ray.rxDirection);
+            ray.ryDirection = pbrt::Normalize(ray.ryDirection);
+
+            const pbrt::Frame f = pbrt::Frame::FromZ(ray.d);
+            const pbrt::Vector3f df = f.ToLocal(ray.d);
+            const pbrt::Vector3f dxf = pbrt::Normalize(f.ToLocal(ray.rxDirection));
+            const pbrt::Vector3f dyf = pbrt::Normalize(f.ToLocal(ray.ryDirection));
+            if (pbrt::Length(dxf - df) < pbrt::Length(min_dir_x)) {
+                min_dir_x = dxf - df;
+            }
+            if (pbrt::Length(dyf - df) < pbrt::Length(min_dir_y)) {
+                min_dir_y = dyf - df;
+            }
+        }
+
+        const pbrt::Vector3f mins[4] = {min_pos_x, min_pos_y, min_dir_x,
+                                        min_dir_y};
+        for (int i = 0; i < 4; i++) {
+            out.min_differentials[3 * i + 0] = float(mins[i].x);
+            out.min_differentials[3 * i + 1] = float(mins[i].y);
+            out.min_differentials[3 * i + 2] = float(mins[i].z);
+        }
+    }
+
+    // `--print-differentials`: PBRT's own answers for the numbers a texture is
+    // filtered by, printed so the renderer can be checked against them before
+    // there is any texture to notice a difference in.
+    //
+    // A wrong footprint is invisible in an image. It does not move an edge or
+    // change a colour, it only makes a texture slightly too blurry or too
+    // sharp, which no pixel comparison against pbrt would fail on -- so this is
+    // checked directly or not at all.
+    //
+    // The hits are synthetic rather than found by tracing: what is under test
+    // is `ComputeDifferentials`, and giving it chosen inputs exercises both of
+    // its branches, including the one a real first hit never takes. Everything
+    // else here is PBRT's -- its camera, its ray differentials, its solve.
+    if (g_print_differentials) {
+        const pbrt::Camera camera = scene.GetCamera();
+        pbrt::SampledWavelengths lambda =
+            pbrt::SampledWavelengths::SampleVisible(0.5f);
+
+        // A hit with a parameterization nothing about is round: dpdu and dpdv
+        // are neither perpendicular nor the same length, which is what makes
+        // the 2x2 solve do some work.
+        const pbrt::Point3f hit_p(-1.25f, 0.75f, -3.5f);
+        const pbrt::Vector3f dpdu(1.7f, 0.3f, -0.4f);
+        const pbrt::Vector3f dpdv(-0.2f, 1.1f, 0.9f);
+        const pbrt::Point2f hit_uv(0.375f, 0.625f);
+
+        const int pixels[][2] = {{0, 0}, {17, 42}, {640, 360}, {1279, 719}};
+        for (const auto &px : pixels) {
+            pbrt::CameraSample sample;
+            sample.pFilm = pbrt::Point2f(px[0] + 0.5f, px[1] + 0.5f);
+            sample.pLens = pbrt::Point2f(0.5f, 0.5f);
+            sample.time = 0.f;
+            sample.filterWeight = 1.f;
+
+            pstd::optional<pbrt::CameraRayDifferential> crd =
+                camera.GenerateRayDifferential(sample, lambda);
+            if (!crd) {
+                continue;
+            }
+            // RenderCPU scales before tracing; 16 samples per pixel, so the
+            // scale is 1/4 and not the 0.125 floor.
+            crd->ray.ScaleDifferentials(
+                std::max<pbrt::Float>(.125f, 1 / std::sqrt((pbrt::Float)16)));
+            const pbrt::RayDifferential &ray = crd->ray;
+            printf("camdiff %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                   "%.9g %.9g %.9g | %.9g %.9g %.9g\n",
+                   px[0], px[1], double(ray.rxOrigin.x), double(ray.rxOrigin.y),
+                   double(ray.rxOrigin.z), double(ray.ryOrigin.x),
+                   double(ray.ryOrigin.y), double(ray.ryOrigin.z),
+                   double(ray.rxDirection.x), double(ray.rxDirection.y),
+                   double(ray.rxDirection.z), double(ray.ryDirection.x),
+                   double(ray.ryDirection.y), double(ray.ryDirection.z));
+
+            // Both branches, at the same hit. `has` chooses whether the ray is
+            // believed to carry differentials, which is the only difference
+            // between "first hit from the camera" and "every hit after a
+            // diffuse bounce".
+            for (int has = 1; has >= 0; has--) {
+                pbrt::SurfaceInteraction isect(
+                    pbrt::Point3fi(hit_p), hit_uv, -ray.d, dpdu, dpdv,
+                    pbrt::Normal3f(0, 0, 0), pbrt::Normal3f(0, 0, 0), 0.f,
+                    false);
+                pbrt::RayDifferential r = ray;
+                r.hasDifferentials = has != 0;
+                isect.ComputeDifferentials(r, camera, 16);
+                printf("dudxy %d %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                       "%.9g %.9g %.9g %.9g\n",
+                       px[0], px[1], has, double(isect.dpdx.x),
+                       double(isect.dpdx.y), double(isect.dpdx.z),
+                       double(isect.dpdy.x), double(isect.dpdy.y),
+                       double(isect.dpdy.z), double(isect.dudx),
+                       double(isect.dvdx), double(isect.dudy),
+                       double(isect.dvdy));
+            }
+        }
+    }
 
     // A shape names its material by index, and several shapes usually name the
     // same one, so the materials are written once and indexed rather than
@@ -2545,6 +2730,10 @@ int main(int argc, char **argv) {
             light_only = true;
         } else if (arg == "--print-shape-sample") {
             shape_sample_only = true;
+        } else if (arg == "--print-differentials") {
+            // Not a `*_only` mode: it needs a parsed scene, so it rides along
+            // with a normal conversion and prints from inside `load`.
+            g_print_differentials = true;
         } else if (arg == "--disable-pixel-jitter") {
             disable_pixel_jitter = true;
         } else if (arg == "--spp") {
