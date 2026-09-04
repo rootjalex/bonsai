@@ -553,19 +553,39 @@ is five features deep. Its 28 `NamedMaterial` uses resolve to:
     water                  1        coateddiffuse + a displacement texture
     xref_*                14        leaf materials, declared in the geometry
 
-So, in the order they block it:
+Walked forward by actually running the converter after each one. What it stops
+on now, in the order it stopped:
 
-1. **Image textures.** Eight of its materials, and 27 scenes in the survey. The
-   chain is mapped out below; the first link of it is done.
+1. ~~a material parameter that is a texture~~ — **done**
+2. ~~`lensradius`~~ — **done**, both branches of `GenerateRayDifferential`
+3. ~~`displacement`~~ — **done**, PBRT's `BumpMap`
+4. **`conductor`** — where it stops today
+5. `measured` — after that
+
+So of the five walls below, the first is down and the fourth is down. What is
+left is `conductor` and `measured`, and then the `xref_*` leaf materials.
+
+The original list, in the order they block it:
+
+1. **Image textures — done.** Eight of its materials, and 27 scenes in the
+   survey. The chain below is built: ray differentials, the camera
+   approximation, the MIP pyramid built by PBRT and shipped, the level pick and
+   the bilerp, the RGB-to-spectrum fit after filtering, `scale` textures folded
+   into the image's own scale, and the `uscale/vscale/udelta/vdelta` mapping.
+   Checked against pbrt on a textured floor at a glancing angle -- 99.9% of lit
+   pixels within 1e-3, which is where an untextured scene sits at the same
+   sample count.
 2. **`conductor`**, 21 uses -- and it wants `metal-Al-eta` and `metal-Al-k`,
    which are pbrt's *named spectra*. A spectral index terminates the secondary
    wavelengths, which nothing here does, so this drags in `TerminateSecondary`
    as well.
 3. **`measured`**, 12 uses. A reader for pbrt's tabulated BSDF format and the
    interpolation over it. Its own project.
-4. **Displacement textures**, on `pavet` and `water`. Already a documented
-   refusal: a displacement replaces the shading frame, which here comes from
-   the geometry alone.
+4. **Displacement textures — done.** PBRT's `BumpMap` on `pavet` and `water`:
+   the displacement is sampled at the hit and one step along each of `u` and
+   `v`, the step being the footprint the differentials give, and the shading
+   frame is rebuilt from the two perturbed derivatives. A *normal* map is still
+   refused, since it replaces the shading normal rather than tilting it.
 5. The `xref_*` leaf materials, which are declared in `geometry.pbrt` rather
    than `materials.pbrt` and have not been looked at.
 
