@@ -508,6 +508,21 @@ element SurfaceGeometry {
     uv : vec2f;
     dpdu : vec3f;
     dpdv : vec3f;
+    // pbrt: SurfaceInteraction::shading.dndu and .dndv -- how the *shading*
+    // normal turns as the surface is walked in u and in v.
+    //
+    // Only one thing reads them, and it is worth saying which: propagating ray
+    // differentials through a specular bounce. A mirror reflects the
+    // neighbouring rays of a differential into directions that depend on how
+    // the normal is changing across the surface, not just on the normal at the
+    // hit -- so a curved mirror widens or narrows the footprint, and these are
+    // what says by how much. Everything else about shading uses the normal
+    // itself.
+    //
+    // Zero for a mesh with no vertex normals, where the shading normal is the
+    // face's and does not turn at all within the triangle.
+    dndu : vec3f;
+    dndv : vec3f;
     // pbrt: Point3fi, the hit point as an interval -- the position and a bound
     // on how far the arithmetic that produced it could have strayed.
     //
@@ -554,6 +569,27 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     dpdv = theta_span * vec3f{p.z * phi_cos, p.z * phi_sin,
                               -s.radius * sin(theta)};
 
+    // pbrt: the sphere's dndu and dndv, from the first and second fundamental
+    // forms of the surface. The second derivatives of position say how the
+    // tangent plane turns, and E/F/G with e/f/g resolve that into the two
+    // directions the parameterization uses.
+    d2pduu = -phi_max * phi_max * vec3f{p.x, p.y, 0.0};
+    d2pduv = theta_span * p.z * phi_max * vec3f{-phi_sin, phi_cos, 0.0};
+    d2pdvv = -sqr(theta_span) * vec3f{p.x, p.y, p.z};
+    form_e = dot_(dpdu, dpdu);
+    form_f = dot_(dpdu, dpdv);
+    form_g = dot_(dpdv, dpdv);
+    form_n = unit_vector_(cross_(dpdu, dpdv));
+    coef_e = dot_(form_n, d2pduu);
+    coef_f = dot_(form_n, d2pduv);
+    coef_g = dot_(form_n, d2pdvv);
+    egf2 = prod_diff[[Float]](form_e, form_g, form_f, form_f);
+    inv_egf2 = select(egf2 == 0.0, 0.0, 1.0 / egf2);
+    dndu = (coef_f * form_f - coef_e * form_g) * inv_egf2 * dpdu +
+           (coef_e * form_f - coef_f * form_e) * inv_egf2 * dpdv;
+    dndv = (coef_g * form_f - coef_f * form_g) * inv_egf2 * dpdu +
+           (coef_f * form_f - coef_g * form_e) * inv_egf2 * dpdv;
+
     // pbrt: the SurfaceInteraction constructor, which takes the normal from
     // the partial derivatives rather than from the position.
     raw_n = unit_vector(cross_(dpdu, dpdv));
@@ -573,8 +609,8 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     uv = vec2f{phi / phi_max,
                (theta - 3.14159265358979323846) / theta_span};
 
-    g : SurfaceGeometry = {n, n, dpdu, uv, dpdu, dpdv, p + s.center,
-                           gamma(5) * abs(p)};
+    g : SurfaceGeometry = {n, n, dpdu, uv, dpdu, dpdv, dndu, dndv,
+                           p + s.center, gamma(5) * abs(p)};
     return g;
 }
 
@@ -638,8 +674,11 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
     if !m.has_normals {
         // pbrt never enters its shading-geometry block for such a mesh, so the
         // shading normal is the geometric one and the tangent is unadjusted.
-        plain : SurfaceGeometry = {n, n, dpdu, uv_hit, dpdu, dpdv, p_hit,
-                                   p_err};
+        // dndu and dndv are zero for a mesh with no normals: the shading
+        // normal is the face's and does not turn within the triangle.
+        zero = vec3f{0.0, 0.0, 0.0};
+        plain : SurfaceGeometry = {n, n, dpdu, uv_hit, dpdu, dpdv, zero, zero,
+                                   p_hit, p_err};
         return plain;
     }
 
@@ -654,6 +693,31 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
     n2 = mesh_normals[m.first_normal + i2 - m.first_vertex];
     raw_ns = fma3(b.z, n2, fma3(b.y, n1, b.x * n0));
     ns = select(sqlen_(raw_ns) > 0.0, unit_vector_(raw_ns), n);
+
+    // pbrt: dndu and dndv for the shading geometry, from the same inversion
+    // that gave dpdu and dpdv -- the vertex normals interpolate across the
+    // triangle exactly as the positions do, so their derivatives come out of
+    // the same 2x2 solve with the normal deltas in place of the position ones.
+    dn1 = n0 - n2;
+    dn2 = n1 - n2;
+    dndu : mut vec3f = vec3f{0.0, 0.0, 0.0};
+    dndv : mut vec3f = vec3f{0.0, 0.0, 0.0};
+    if degenerate_uv {
+        // pbrt takes the trouble to answer here rather than giving up, and
+        // says why: a differential reflected off a triangle whose texture
+        // coordinates are degenerate should still be a reasonable size. The
+        // basis is arbitrary but it is the same arbitrary basis dpdu and dpdv
+        // fell back to above.
+        dn = cross_(n2 - n0, n1 - n0);
+        if sqlen[[Float]](dn) != 0.0 {
+            dn_basis = coordinate_system(dn);
+            dndu = dn_basis.x;
+            dndv = dn_basis.y;
+        }
+    } else {
+        dndu = prod_diff3(duv12.y, dn1, duv02.y, dn2) * invdet;
+        dndv = prod_diff3(duv02.x, dn2, duv12.x, dn1) * invdet;
+    }
 
     // pbrt: the shading tangent, made perpendicular to the shading normal.
     // Where the two are parallel there is nothing to project, and an arbitrary
@@ -677,8 +741,10 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
 
     // The geometric normal turns to face the shading one, which the film's own
     // FaceForward against the ray then makes invisible -- but not to a BSDF.
+    // pbrt: SetShadingGeometry sets dndu and dndv and does *not* put them
+    // through the scaling loop above, which only ever touches the tangents.
     g : SurfaceGeometry = {select(dot(n, ns) < 0.0, -n, n), ns, su, uv_hit,
-                           dpdu, dpdv, p_hit, p_err};
+                           dpdu, dpdv, dndu, dndv, p_hit, p_err};
     return g;
 }
 
@@ -943,7 +1009,8 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
     away = -r.d;
     missed : SurfaceGeometry = {away, away, vec3f{1.0, 0.0, 0.0},
                                 vec2f{0.0, 0.0}, vec3f{1.0, 0.0, 0.0},
-                                vec3f{0.0, 1.0, 0.0}, r.o,
+                                vec3f{0.0, 1.0, 0.0}, vec3f{0.0, 0.0, 0.0},
+                                vec3f{0.0, 0.0, 0.0}, r.o,
                                 vec3f{0.0, 0.0, 0.0}};
     match sh {
         Sph(s) => {

@@ -503,11 +503,29 @@ int main(int argc, char **argv) {
         const float3 hit_p{-1.25f, 0.75f, -3.5f};
         const float3 dpdu{1.7f, 0.3f, -0.4f};
         const float3 dpdv{-0.2f, 1.1f, 0.9f};
+        // The same lobes scene_dump asks about: the two exactly-specular ones,
+        // which carry differentials across the bounce, and a glossy one, which
+        // does not. Flags as apps/pbrt/bxdf.bonsai numbers them.
+        const float3 wi = [] {
+            float3 v{0.31f, -0.82f, 0.48f};
+            const float len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+            return float3{v.x / len, v.y / len, v.z / len};
+        }();
+        struct Lobe {
+            const char *label;
+            int32_t flags;
+            float eta;
+        };
+        const Lobe lobes[] = {{"reflect", 16 | 1, 1.f},
+                              {"transmit", 16 | 2, 1.5f},
+                              {"rough", 8 | 1, 1.f}};
+
         const int pixels[][2] = {{0, 0}, {17, 42}, {640, 360}, {1279, 719}};
         for (const auto &px : pixels) {
-            float out[22] = {};
+            float out[35] = {};
             differentials_at(camera, float(px[0]), float(px[1]), true, 16,
-                             hit_p, dpdu, dpdv, out);
+                             hit_p, dpdu, dpdv, wi, lobes[0].flags,
+                             lobes[0].eta, out);
             printf("camdiff %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                    "%.9g %.9g %.9g | %.9g %.9g %.9g\n",
                    px[0], px[1], double(out[0]), double(out[1]), double(out[2]),
@@ -516,13 +534,26 @@ int main(int argc, char **argv) {
                    double(out[9]), double(out[10]), double(out[11]));
             for (int has = 1; has >= 0; has--) {
                 differentials_at(camera, float(px[0]), float(px[1]), has != 0,
-                                 16, hit_p, dpdu, dpdv, out);
+                                 16, hit_p, dpdu, dpdv, wi, lobes[0].flags,
+                                 lobes[0].eta, out);
                 printf("dudxy %d %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                        "%.9g %.9g %.9g %.9g\n",
                        px[0], px[1], has, double(out[12]), double(out[13]),
                        double(out[14]), double(out[15]), double(out[16]),
                        double(out[17]), double(out[18]), double(out[19]),
                        double(out[20]), double(out[21]));
+                for (const Lobe &lobe : lobes) {
+                    differentials_at(camera, float(px[0]), float(px[1]),
+                                     has != 0, 16, hit_p, dpdu, dpdv, wi,
+                                     lobe.flags, lobe.eta, out);
+                    printf("spawn %d %d %d %s: %d | %.9g %.9g %.9g | "
+                           "%.9g %.9g %.9g | %.9g %.9g %.9g | %.9g %.9g %.9g\n",
+                           px[0], px[1], has, lobe.label, int(out[22] != 0.f),
+                           double(out[23]), double(out[24]), double(out[25]),
+                           double(out[26]), double(out[27]), double(out[28]),
+                           double(out[29]), double(out[30]), double(out[31]),
+                           double(out[32]), double(out[33]), double(out[34]));
+                }
             }
         }
         return 0;

@@ -2211,6 +2211,41 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                        double(isect.dpdy.z), double(isect.dudx),
                        double(isect.dvdx), double(isect.dudy),
                        double(isect.dvdy));
+
+                // And what the differentials become across a bounce. Only the
+                // two exactly-specular lobes carry them; a rough one drops
+                // them, and that `hasDifferentials` going to 0 is as much a
+                // part of the answer as the vectors are.
+                //
+                // `bsdf` is declared by SpawnRay and never read by it, so a
+                // default one is not a stand-in for anything.
+                const pbrt::BSDF bsdf;
+                const pbrt::Vector3f wi =
+                    pbrt::Normalize(pbrt::Vector3f(0.31f, -0.82f, 0.48f));
+                struct Lobe {
+                    const char *label;
+                    int flags;
+                    float eta;
+                };
+                const Lobe lobes[] = {
+                    {"reflect", int(pbrt::BxDFFlags::SpecularReflection), 1.f},
+                    {"transmit", int(pbrt::BxDFFlags::SpecularTransmission),
+                     1.5f},
+                    {"rough", int(pbrt::BxDFFlags::GlossyReflection), 1.f}};
+                for (const Lobe &lobe : lobes) {
+                    const pbrt::RayDifferential sp =
+                        isect.SpawnRay(r, bsdf, wi, lobe.flags, lobe.eta);
+                    printf("spawn %d %d %d %s: %d | %.9g %.9g %.9g | "
+                           "%.9g %.9g %.9g | %.9g %.9g %.9g | %.9g %.9g %.9g\n",
+                           px[0], px[1], has, lobe.label,
+                           int(sp.hasDifferentials), double(sp.rxOrigin.x),
+                           double(sp.rxOrigin.y), double(sp.rxOrigin.z),
+                           double(sp.ryOrigin.x), double(sp.ryOrigin.y),
+                           double(sp.ryOrigin.z), double(sp.rxDirection.x),
+                           double(sp.rxDirection.y), double(sp.rxDirection.z),
+                           double(sp.ryDirection.x), double(sp.ryDirection.y),
+                           double(sp.ryDirection.z));
+                }
             }
         }
     }

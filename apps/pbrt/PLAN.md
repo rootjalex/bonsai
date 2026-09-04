@@ -605,13 +605,26 @@ to 1e-4, which cancels 4.6 of float32's 7.2 digits. pbrt's own answer has no
 more digits than ours does. The script asserts the camera rays exactly and the
 derivatives to 5e-3, which is that floor.
 
-**Still missing: differentials through a specular bounce.**
-`SurfaceInteraction::SpawnRay` propagates them through `SpecularReflection` and
-`SpecularTransmission`, and that needs `shading.dndu` and `shading.dndv` -- the
-derivatives of the shading normal -- which no hit here carries. Until it does,
-a path leaving a dielectric falls to `Approximate_dp_dxy`, which is what pbrt
-does for a rough bounce but not for a smooth one. It matters for a texture seen
-*through* glass, which pavilion has: `glass_architectural`, six uses.
+**Differentials through a specular bounce -- also done.**
+`SurfaceInteraction::SpawnRay` carries them across `SpecularReflection` and
+`SpecularTransmission` and drops them across everything else, which needed
+`shading.dndu` and `shading.dndv` on the hit. Those are now computed where pbrt
+computes them: from the sphere's first and second fundamental forms, and for a
+triangle from the same 2x2 inversion that gives `dpdu` and `dpdv`, with the
+vertex-normal deltas in place of the position ones -- including pbrt's
+degenerate-UV branch, which it takes the trouble to answer rather than zero
+precisely so that a reflection off such a triangle still has a sensible
+footprint. A mesh with no vertex normals gets zero, since its shading normal
+does not turn within a face.
+
+The check covers it: three lobes at each hit, the two specular ones and a
+glossy one. The specular origins come out bit-exact and the directions within
+two or three ulps; the glossy one drops the differentials, and so does every
+lobe when nothing came in, which is as much of the answer as the vectors are.
+
+Without this a texture seen *through* glass -- pavilion's
+`glass_architectural`, six uses -- would have been filtered at the camera's
+minimum footprint rather than the one the refraction actually produces.
 
 **What it was, for the record: the gate.** `Filter` needs a width, the width
 comes from `dudx, dvdx, dudy, dvdy`, and those come from

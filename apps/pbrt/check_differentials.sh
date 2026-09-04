@@ -36,7 +36,7 @@ bash "$PREFIX/build_scene_dump.sh" "$WORK/scene_dump"
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"
 
 "$WORK/scene_dump" --print-differentials "$SCENE" "$WORK/diff-scene.txt" \
-    | grep -E '^(camdiff|dudxy) ' > "$WORK/pbrt-differentials.txt"
+    | grep -E '^(camdiff|dudxy|spawn) ' > "$WORK/pbrt-differentials.txt"
 "$WORK/render.out" --print-differentials "$WORK/diff-scene.txt" \
     > "$WORK/bonsai-differentials.txt"
 

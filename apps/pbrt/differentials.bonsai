@@ -14,6 +14,7 @@
 // plane instead. pbrt has both and so does this; the second is the common one
 // in a path tracer, not an edge case.
 import stdlib/numerics;
+import apps/pbrt/bxdf;
 import apps/pbrt/shapes;
 import apps/pbrt/camera;
 
@@ -187,6 +188,96 @@ func differential_dp_dxy(g : SurfaceGeometry, dr : RayDifferential) -> Different
     ty = (-dot_(g.n, dr.ry_origin) - d) / dot_(g.n, dr.ry_direction);
     py = dr.ry_origin + ty * dr.ry_direction;
     return Differentials{px - g.p, py - g.p, 0.0, 0.0, 0.0, 0.0};
+}
+
+// pbrt: "Squash potentially troublesome differentials" -- a differential that
+// has grown absurd is dropped rather than propagated, and the next hit falls
+// back on the camera approximation.
+func squash_differentials(dr : RayDifferential) -> RayDifferential {
+    too_big = (sqlen_(dr.rx_direction) > 1.0e16) ||
+              (sqlen_(dr.ry_direction) > 1.0e16) ||
+              (sqlen_(dr.rx_origin) > 1.0e16) ||
+              (sqlen_(dr.ry_origin) > 1.0e16);
+    return RayDifferential{dr.rx_origin, dr.ry_origin, dr.rx_direction,
+                           dr.ry_direction,
+                           select(too_big, false, dr.has_differentials)};
+}
+
+// pbrt: SurfaceInteraction::SpawnRay(rayi, bsdf, wi, flags, eta), the part of
+// it that carries differentials across a bounce.
+//
+// A rough bounce scatters the two companion rays into directions that have
+// nothing to do with each other, so pbrt drops them and the next hit falls back
+// on the camera approximation. A *specular* bounce does not: a mirror reflects
+// the neighbours of a ray into the neighbours of its reflection, and the offset
+// between them is a known function of how the surface is curving. That is what
+// this computes, and it is why `dndu` and `dndv` are carried at all.
+//
+// It matters for a texture seen through glass or in a mirror: without this the
+// footprint there is the camera's minimum rather than the one the refraction
+// actually produces, and the texture is filtered at the wrong level.
+//
+// `flags` is the sampled lobe's, and only the two exactly-specular values do
+// anything here -- pbrt tests `flags == SpecularReflection`, an equality and not
+// a mask, so a lobe that is specular *and* something else is not this case.
+// The vectors are left at zero where the flag is false, which is what pbrt's
+// `RayDifferential(const Ray &)` does: it copies the ray and default-constructs
+// the four differential members. Nothing reads them in that state, so this is
+// only about being the same value rather than a plausible one.
+func spawn_ray_differential(g : SurfaceGeometry, d : Differentials,
+                            incoming : RayDifferential, wo : vec3f,
+                            wi : vec3f, flags : i32,
+                            eta : Float) -> RayDifferential {
+    zero = vec3f{0.0, 0.0, 0.0};
+    // Without differentials coming in there is nothing to carry across.
+    if !incoming.has_differentials {
+        return RayDifferential{zero, zero, zero, zero, false};
+    }
+
+    n = g.ns;
+    dndx = g.dndu * d.dudx + g.dndv * d.dvdx;
+    dndy = g.dndu * d.dudy + g.dndv * d.dvdy;
+    dwodx = -incoming.rx_direction - wo;
+    dwody = -incoming.ry_direction - wo;
+
+    is_spec_reflect = flags == (flag_specular() | flag_reflection());
+    is_spec_transmit = flags == (flag_specular() | flag_transmission());
+
+    if is_spec_reflect {
+        dwo_dot_n_dx = dot_(dwodx, n) + dot_(wo, dndx);
+        dwo_dot_n_dy = dot_(dwody, n) + dot_(wo, dndy);
+        rx_d = wi - dwodx + 2.0 * (dot_(wo, n) * dndx + dwo_dot_n_dx * n);
+        ry_d = wi - dwody + 2.0 * (dot_(wo, n) * dndy + dwo_dot_n_dy * n);
+        return squash_differentials(
+            RayDifferential{g.p + d.dpdx, g.p + d.dpdy, rx_d, ry_d, true});
+    }
+
+    if is_spec_transmit {
+        // pbrt orients the normal towards the incoming side before
+        // differentiating, and flips the normal's derivatives with it.
+        flip = dot_(wo, n) < 0.0;
+        nt = select(flip, -n, n);
+        dndxt = select(flip, -dndx, dndx);
+        dndyt = select(flip, -dndy, dndy);
+
+        dwo_dot_n_dx = dot_(dwodx, nt) + dot_(wo, dndxt);
+        dwo_dot_n_dy = dot_(dwody, nt) + dot_(wo, dndyt);
+        // pbrt: `mu = Dot(wo, n) / eta - AbsDot(wi, n)`, and its two partial
+        // derivatives. `mu` is how far along the normal the refracted
+        // direction sits, so its derivative is what bends the companions.
+        mu = dot_(wo, nt) / eta - abs(dot_(wi, nt));
+        dmu_common = 1.0 / eta + 1.0 / sqr(eta) * dot_(wo, nt) / dot_(wi, nt);
+        dmudx = dwo_dot_n_dx * dmu_common;
+        dmudy = dwo_dot_n_dy * dmu_common;
+        rx_d = wi - eta * dwodx + (mu * dndxt + dmudx * nt);
+        ry_d = wi - eta * dwody + (mu * dndyt + dmudy * nt);
+        return squash_differentials(
+            RayDifferential{g.p + d.dpdx, g.p + d.dpdy, rx_d, ry_d, true});
+    }
+
+    // Not a specular lobe: pbrt leaves `rd` as the plain SpawnRay made it,
+    // which carries no differentials.
+    return RayDifferential{zero, zero, zero, zero, false};
 }
 
 // pbrt: SurfaceInteraction::ComputeDifferentials.
