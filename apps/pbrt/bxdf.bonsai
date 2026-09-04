@@ -139,6 +139,81 @@ func fr_dielectric(cos_i_in : Float, eta_in : Float) -> Float {
     return (sqr(r_parl) + sqr(r_perp)) / 2.0;
 }
 
+// pbrt: pstd::complex, for the four wavelengths at once.
+//
+// A conductor's index of refraction is complex -- the imaginary part is the
+// absorption, which is what makes a metal a metal -- and it differs per
+// wavelength, which is why gold is gold. So this is four independent complex
+// numbers held as two four-vectors, and every operation below is pbrt's
+// written componentwise.
+element Complex4 {
+    re : vec4f;
+    im : vec4f;
+}
+
+func complex_mul(a : Complex4, b : Complex4) -> Complex4 =
+    Complex4{a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re};
+
+// pbrt: `operator/`, which multiplies by the reciprocal of the squared
+// magnitude rather than dividing twice.
+func complex_div(a : Complex4, b : Complex4) -> Complex4 {
+    scale = 1.0 / (b.re * b.re + b.im * b.im);
+    return Complex4{scale * (a.re * b.re + a.im * b.im),
+                    scale * (a.im * b.re - a.re * b.im)};
+}
+
+func complex_norm(z : Complex4) -> vec4f = z.re * z.re + z.im * z.im;
+
+// `copysign_` for four at once; sampling.bonsai's is the scalar one.
+func copysign4(magnitude : vec4f, sign : vec4f) -> vec4f {
+    bits = (reinterpret[[vector[u32, 4]]](magnitude) & 0x7fffffffu) |
+           (reinterpret[[vector[u32, 4]]](sign) & 0x80000000u);
+    return reinterpret[[vec4f]](bits);
+}
+
+// pbrt: pstd::sqrt(complex). The principal square root, taken through the
+// magnitude so that it is stable for a value near the negative real axis --
+// which is where a metal's `1 - sin2Theta_t` lands.
+func complex_sqrt(z : Complex4) -> Complex4 {
+    n = sqrt(complex_norm(z));
+    t1 = sqrt(0.5 * (n + abs(z.re)));
+    t2 = 0.5 * z.im / t1;
+    // pbrt returns zero for a zero input, and swaps the two halves when the
+    // real part is negative.
+    positive = Complex4{t1, t2};
+    negative = Complex4{abs(t2), copysign4(t1, z.im)};
+    picked = Complex4{select(z.re >= 0.0, positive.re, negative.re),
+                      select(z.re >= 0.0, positive.im, negative.im)};
+    return Complex4{select(n == 0.0, 0.0, picked.re),
+                    select(n == 0.0, 0.0, picked.im)};
+}
+
+// pbrt: FrComplex, the Fresnel reflectance of a conductor.
+//
+// The same two polarizations `fr_dielectric` averages, with a complex index --
+// so `cosTheta_t` comes out complex too and the reflectances are magnitudes
+// rather than signed ratios. `norm` and not `abs`, because the reflectance is
+// the squared magnitude.
+func fr_complex(cos_i_in : Float, eta : vec4f, k : vec4f) -> vec4f {
+    cos_i = min(max(cos_i_in, 0.0), 1.0);
+    eta_c = Complex4{eta, k};
+    sin2_i = vec4f{1.0, 1.0, 1.0, 1.0} - sqr(cos_i);
+    sin2_t = complex_div(Complex4{sin2_i, vec4f{0.0, 0.0, 0.0, 0.0}},
+                         complex_mul(eta_c, eta_c));
+    cos_t = complex_sqrt(Complex4{vec4f{1.0, 1.0, 1.0, 1.0} - sin2_t.re,
+                                  -sin2_t.im});
+
+    ci = Complex4{vec4f{cos_i, cos_i, cos_i, cos_i},
+                  vec4f{0.0, 0.0, 0.0, 0.0}};
+    eta_ci = complex_mul(eta_c, ci);
+    eta_ct = complex_mul(eta_c, cos_t);
+    r_parl = complex_div(Complex4{eta_ci.re - cos_t.re, eta_ci.im - cos_t.im},
+                         Complex4{eta_ci.re + cos_t.re, eta_ci.im + cos_t.im});
+    r_perp = complex_div(Complex4{ci.re - eta_ct.re, ci.im - eta_ct.im},
+                         Complex4{ci.re + eta_ct.re, ci.im + eta_ct.im});
+    return (complex_norm(r_parl) + complex_norm(r_perp)) / 2.0;
+}
+
 // pbrt: SampleUniformDiskPolar, SampleUniformDiskConcentric and
 // SampleCosineHemisphere, from util/sampling.h.
 func sample_uniform_disk_polar(u : vec2f) -> vec2f {
@@ -599,6 +674,105 @@ func dielectric_flags(b : DielectricBxDF) -> i32 {
                   flag_reflection() | flag_transmission());
     return kind | select(effectively_smooth(b.distrib), flag_specular(),
                          flag_glossy());
+}
+
+// pbrt: ConductorBxDF, a microfacet reflector with a complex index.
+//
+// The same Trowbridge-Reitz distribution the dielectric's interface uses, over
+// a Fresnel term that absorbs. Reflection only -- a conductor transmits
+// nothing, which is the whole of the difference in the code below: there is no
+// second lobe and no `etap`.
+element ConductorBxDF {
+    // Four wavelengths of each, because a metal's colour *is* the way its
+    // index varies with wavelength.
+    eta : vec4f;
+    k : vec4f;
+    distrib : TrowbridgeReitz;
+}
+
+func conductor_flags(b : ConductorBxDF) -> i32 =
+    flag_reflection() | select(effectively_smooth(b.distrib), flag_specular(),
+                               flag_glossy());
+
+// pbrt: ConductorBxDF::f. Zero for a smooth conductor, whose reflection is a
+// delta and so has no density to report here.
+func conductor_f(b : ConductorBxDF, wo : vec3f, wi : vec3f) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    if !same_hemisphere(wo, wi) || effectively_smooth(b.distrib) {
+        return zero;
+    }
+    cos_o = abs_cos_theta(wo);
+    cos_i = abs_cos_theta(wi);
+    if (cos_i == 0.0) || (cos_o == 0.0) {
+        return zero;
+    }
+    wm_raw = wi + wo;
+    if len_squared(wm_raw) == 0.0 {
+        return zero;
+    }
+    wm = unit_vector_(wm_raw);
+    f = fr_complex(abs(dot(wo, wm)), b.eta, b.k);
+    return distrib_d(b.distrib, wm) * f * distrib_g(b.distrib, wo, wi) /
+           (4.0 * cos_i * cos_o);
+}
+
+// pbrt: ConductorBxDF::PDF.
+func conductor_pdf(b : ConductorBxDF, wo : vec3f, wi : vec3f,
+                   sample_flags : i32) -> Float {
+    if ((sample_flags & sample_reflection()) == 0) || !same_hemisphere(wo, wi) ||
+       effectively_smooth(b.distrib) {
+        return 0.0;
+    }
+    wm_raw = wo + wi;
+    if len_squared(wm_raw) == 0.0 {
+        return 0.0;
+    }
+    // pbrt: FaceForward(Normalize(wm), Normal3f(0, 0, 1)) -- the half vector
+    // taken into the upper hemisphere, so D and G are asked about a facet that
+    // faces out.
+    wm_n = unit_vector_(wm_raw);
+    wm = select(wm_n.z < 0.0, -wm_n, wm_n);
+    return distrib_pdf(b.distrib, wo, wm) / (4.0 * abs(dot(wo, wm)));
+}
+
+// pbrt: ConductorBxDF::Sample_f.
+func conductor_sample_f(b : ConductorBxDF, wo : vec3f, u : vec2f,
+                        sample_flags : i32) -> option[BSDFSample] {
+    if (sample_flags & sample_reflection()) == 0 {
+        return {};
+    }
+
+    if effectively_smooth(b.distrib) {
+        // A perfect mirror: one direction, and a density of one because the
+        // lobe is a delta rather than because it was sampled well.
+        wi = vec3f{-wo.x, -wo.y, wo.z};
+        f = fr_complex(abs_cos_theta(wi), b.eta, b.k) / abs_cos_theta(wi);
+        s : BSDFSample = {f, wi, 1.0, flag_specular() | flag_reflection(), 1.0,
+                          false};
+        return s;
+    }
+
+    if wo.z == 0.0 {
+        return {};
+    }
+    wm = sample_wm(b.distrib, wo, u);
+    wi = reflect_(wo, wm);
+    if !same_hemisphere(wo, wi) {
+        return {};
+    }
+
+    pdf = distrib_pdf(b.distrib, wo, wm) / (4.0 * abs(dot(wo, wm)));
+    cos_o = abs_cos_theta(wo);
+    cos_i = abs_cos_theta(wi);
+    if (cos_i == 0.0) || (cos_o == 0.0) {
+        return {};
+    }
+    fr = fr_complex(abs(dot(wo, wm)), b.eta, b.k);
+    f = distrib_d(b.distrib, wm) * fr * distrib_g(b.distrib, wo, wi) /
+        (4.0 * cos_i * cos_o);
+    s : BSDFSample = {f, wi, pdf, flag_glossy() | flag_reflection(), 1.0,
+                      false};
+    return s;
 }
 
 // pbrt: DiffuseBxDF::PDF, the cosine-weighted density its Sample_f draws from.
@@ -1531,10 +1705,61 @@ element DielectricMaterial {
     eta : Float;
 }
 
+// pbrt: ConductorMaterial. The index is spectral, so it ships as a pair of
+// densely-sampled tables and is read at the four wavelengths of the hit -- see
+// `conductor_spectra` below.
+//
+// A conductor does *not* terminate the secondary wavelengths, which is worth
+// saying because a dielectric with a spectral eta does: a dielectric bends the
+// ray by an amount that differs per wavelength, so the four can no longer share
+// a path, while a conductor only *absorbs* differently and they can.
+element ConductorMaterial {
+    // An index into `conductor_eta` / `conductor_k`, one 471-entry table each.
+    spectra : i32;
+    u_roughness, v_roughness : Float;
+    remap : bool;
+}
+
+// Every conductor's eta and k, 4701 entries each at a tenth of a nanometre from
+// 360 nm, laid end to end.
+//
+// Sampled rather than fitted, because pbrt does not fit them: it keeps the
+// published measurements as a PiecewiseLinearSpectrum and interpolates. What
+// ships is that same function on a uniform grid, which reproduces it exactly
+// except inside the one interval straddling each of its own knots -- those are
+// four to six nanometres apart, so all but a handful of intervals are exact.
+// scene_dump measures the residual and prints it; see kConductorPerNm in
+// scene_io.h for why the grid is this fine and not coarser.
+extern conductor_eta : array[Float];
+extern conductor_k : array[Float];
+
+// Samples per nanometre, and the number of entries one spectrum occupies.
+func conductor_per_nm() -> Float = 10.0;
+func conductor_samples() -> u32 = 4701u;
+
+// pbrt: PiecewiseLinearSpectrum::operator(), which interpolates between knots.
+//
+// Not `spectrum_at_dense`, which *rounds* to the nearest nanometre. That is the
+// right answer for the colour space's illuminant, because pbrt wraps that one
+// in a DenselySampledSpectrum and rounds too; a conductor's index stays
+// piecewise linear in pbrt and is interpolated.
+func spectrum_at_linear(table : array[Float], base : u32,
+                        w : SampledWavelengths) -> vec4f {
+    x = (w.lambda - 360.0) * conductor_per_nm();
+    i = cast[[vector[i32, 4]]](x);
+    t = x - cast[[vec4f]](i);
+    o = base + cast[[vector[u32, 4]]](i);
+    lo = vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
+    hi = vec4f{table[o.x + 1u], table[o.y + 1u], table[o.z + 1u],
+               table[o.w + 1u]};
+    return (1.0 - t) * lo + t * hi;
+}
+
 element Material =
     | Diffuse(albedo : Reflectance)
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
-    | Dielectric(g : DielectricMaterial);
+    | Dielectric(g : DielectricMaterial)
+    | Conductor(c : ConductorMaterial);
 
 // pbrt: CoatedDiffuseMaterial::GetBxDF, and the `bsdf.Regularize()` the path
 // integrator may apply to what it returns.
@@ -1591,7 +1816,8 @@ element BxDF =
     | Lambertian(d : DiffuseBxDF)
     | Layered(b : CoatedDiffuseBxDF)
     // The same `DielectricBxDF` a Layered one has on top of it, on its own.
-    | Boundary(g : DielectricBxDF);
+    | Boundary(g : DielectricBxDF)
+    | Metal(c : ConductorBxDF);
 
 // pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
 // evaluated once at the point the ray hit.
@@ -1615,6 +1841,24 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         CoatedDiffuse(m) =>
             return Layered(coated_bxdf_at(m, lambda, regularize, uv, dudx,
                                           dvdx, dudy, dvdy));
+        Conductor(c) => {
+            // pbrt: ConductorMaterial::GetBxDF.
+            alpha_u = select(c.remap, roughness_to_alpha(c.u_roughness),
+                             c.u_roughness);
+            alpha_v = select(c.remap, roughness_to_alpha(c.v_roughness),
+                             c.v_roughness);
+            distrib : mut TrowbridgeReitz =
+                make_trowbridge_reitz(alpha_u, alpha_v);
+            if regularize {
+                distrib = regularize_distrib(distrib);
+            }
+            base = cast[[u32]](c.spectra) * conductor_samples();
+            m : ConductorBxDF = {spectrum_at_linear(conductor_eta, base,
+                                                    lambda),
+                                 spectrum_at_linear(conductor_k, base, lambda),
+                                 distrib};
+            return Metal(m);
+        }
         Dielectric(g) => {
             // pbrt: DielectricMaterial::GetBxDF. The same three lines the
             // coating of a layered material gets, which is the same class.
@@ -1678,6 +1922,21 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             }
             return r / 16.0;
         }
+        // And again for a conductor, which answers `none` to every sample when
+        // it is smooth -- its lobe is a delta and `uc` never selects it, since
+        // there is nothing to select. pbrt counts those as zero the same way.
+        Metal(c) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = conductor_sample_f(c, wo, vec2f{ux[i], uy[i]},
+                                           sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
     }
 }
 
@@ -1692,6 +1951,7 @@ func bxdf_flags(b : BxDF) -> i32 {
         Lambertian(d) => return diffuse_flags(d);
         Layered(l) => return coated_flags(l);
         Boundary(g) => return dielectric_flags(g);
+        Metal(c) => return conductor_flags(c);
     }
 }
 
@@ -1710,6 +1970,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
         Lambertian(d) => return diffuse_f(d, wo, wi);
         Layered(l) => return coated_f(l, wo, wi, seed);
         Boundary(g) => return dielectric_f(g, wo, wi, radiance_mode());
+        Metal(c) => return conductor_f(c, wo, wi);
     }
 }
 
@@ -1729,6 +1990,7 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
         Lambertian(d) => return diffuse_pdf(wo, wi, sample_all());
         Layered(l) => return coated_pdf(l, wo, wi, seed);
         Boundary(g) => return dielectric_pdf(g, wo, wi, sample_all());
+        Metal(c) => return conductor_pdf(c, wo, wi, sample_all());
     }
 }
 
@@ -1749,5 +2011,8 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
         Boundary(g) =>
             return dielectric_sample_f(g, wo, uc, u, radiance_mode(),
                                        sample_all());
+        // No `uc`: a conductor has one lobe, so there is no branch to choose
+        // between and pbrt's Sample_f does not read it.
+        Metal(c) => return conductor_sample_f(c, wo, u, sample_all());
     }
 }

@@ -491,8 +491,107 @@ bool material_rgb(const CapturingBuilder::MaterialInfo &m,
     return true;
 }
 
+// Where a texture's images are looked for, and what has already been
+// converted.
+//
+// File-scope rather than arguments threaded through `convert_material` and its
+// helpers: the conversion is a tree walk over parameters, and these tables are
+// the only things it needs that are not in the parameter it is looking at.
+const CapturingBuilder *g_builder = nullptr;
+bonsai_scene::Scene *g_scene = nullptr;
+std::string g_scene_dir;
+std::map<std::string, int32_t> g_texture_index;
+// Keyed by the pair of spectrum names, since a scene usually names the same
+// metal from several materials.
+std::map<std::string, int32_t> g_conductor_index;
+
 // Defined below, once the texture table it fills is in scope.
 int32_t convert_texture(const std::string &name);
+
+// The name a `"spectrum eta"` parameter carries.
+//
+// PBRT lets a spectrum parameter be a named spectrum, an inline list of
+// wavelength/value pairs, a blackbody temperature or an RGB. Only the first is
+// implemented; the rest are refused rather than approximated, because a metal's
+// colour *is* its index curve and a stand-in for it would look like a different
+// metal rather than like an error.
+std::string named_spectrum(const CapturingBuilder::MaterialInfo::Value &v) {
+    if (v.type != "spectrum" || v.strings.size() != 1) {
+        fail("a conductor's `eta` and `k` have to be named spectra here, and "
+             "this one is a `" + v.type + "`");
+    }
+    return v.strings[0];
+}
+
+// One pair of index-of-refraction curves, resampled at one nanometre.
+//
+// PBRT keeps these as a PiecewiseLinearSpectrum over the published
+// measurements and interpolates between them; this is the same function
+// sampled every nanometre, which the renderer interpolates the same way. That
+// reproduces PBRT exactly wherever a nanometre does not straddle one of the
+// original knots -- they are four to six nanometres apart -- and the residual
+// is measured below rather than assumed.
+int32_t conductor_spectra(const std::string &eta_name,
+                          const std::string &k_name) {
+    const std::string key = eta_name + "|" + k_name;
+    const auto cached = g_conductor_index.find(key);
+    if (cached != g_conductor_index.end()) {
+        return cached->second;
+    }
+
+    const pbrt::Spectrum eta = pbrt::GetNamedSpectrum(eta_name);
+    const pbrt::Spectrum k = pbrt::GetNamedSpectrum(k_name);
+    if (!eta) {
+        fail("no spectrum named \"" + eta_name + "\"");
+    }
+    if (!k) {
+        fail("no spectrum named \"" + k_name + "\"");
+    }
+
+    const int32_t index =
+        int32_t(g_scene->conductor_eta.size() / bonsai_scene::kConductorSamples);
+    for (int i = 0; i < bonsai_scene::kConductorSamples; i++) {
+        const pbrt::Float lambda =
+            pbrt::Float(360.0 + double(i) / bonsai_scene::kConductorPerNm);
+        g_scene->conductor_eta.push_back(float(eta(lambda)));
+        g_scene->conductor_k.push_back(float(k(lambda)));
+    }
+
+    // What the resampling costs, measured against PBRT's own spectrum on a
+    // grid ten times finer than the one shipped -- which is what lands inside
+    // the intervals that straddle one of its knots, where the reconstruction is
+    // a chord across a corner and everywhere else is exact.
+    double worst = 0.0;
+    double worst_at = 0.0;
+    const int probes = (bonsai_scene::kConductorSamples - 1) * 10;
+    for (int i = 0; i <= probes; i++) {
+        const double lambda =
+            360.0 + double(i) / (bonsai_scene::kConductorPerNm * 10.0);
+        const double x = (lambda - 360.0) * bonsai_scene::kConductorPerNm;
+        const int lo = int(x);
+        if (lo < 0 || lo + 1 >= bonsai_scene::kConductorSamples) {
+            continue;
+        }
+        const double t = x - double(lo);
+        const size_t base =
+            size_t(index) * bonsai_scene::kConductorSamples + size_t(lo);
+        const double ours = (1 - t) * g_scene->conductor_eta[base] +
+                            t * g_scene->conductor_eta[base + 1];
+        const double theirs = double(eta(pbrt::Float(lambda)));
+        const double scale = std::max(1e-6, std::abs(theirs));
+        const double rel = std::abs(ours - theirs) / scale;
+        if (rel > worst) {
+            worst = rel;
+            worst_at = lambda;
+        }
+    }
+    fprintf(stderr,
+            "scene_dump: %s resampled, worst relative error %.2e at %.2f nm\n",
+            eta_name.c_str(), worst, worst_at);
+
+    g_conductor_index.emplace(key, index);
+    return index;
+}
 
 // The same parameter, where it is allowed to be a texture.
 //
@@ -529,17 +628,6 @@ int32_t material_rgb_or_texture(const CapturingBuilder::MaterialInfo &m,
     }
     return -1;
 }
-
-// Where a texture's images are looked for, and the textures already converted.
-//
-// A file-scope pair rather than an argument threaded through `convert_material`
-// and its four helpers: the conversion is a tree walk over parameters and the
-// texture table is the only thing it needs that is not in the parameter it is
-// looking at.
-const CapturingBuilder *g_builder = nullptr;
-bonsai_scene::Scene *g_scene = nullptr;
-std::string g_scene_dir;
-std::map<std::string, int32_t> g_texture_index;
 
 // PBRT's WrapMode, by the names a scene writes.
 uint32_t wrap_mode_from(const std::string &s) {
@@ -797,6 +885,46 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         out.tag = bonsai_scene::MaterialTag::Diffuse;
         out.reflectance_texture =
             material_rgb_or_texture(m, "reflectance", out.reflectance);
+        return out;
+    }
+
+    if (m.name == "conductor") {
+        out.tag = bonsai_scene::MaterialTag::Conductor;
+
+        // PBRT: ConductorMaterial::Create. `reflectance` and `eta`/`k` are
+        // alternatives -- PBRT errors if both are given -- and with neither it
+        // falls back to copper.
+        const CapturingBuilder::MaterialInfo::Value *refl =
+            m.find("reflectance");
+        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
+        const CapturingBuilder::MaterialInfo::Value *k = m.find("k");
+        if (refl != nullptr && (eta != nullptr || k != nullptr)) {
+            fail("a conductor may name `reflectance` or `eta`/`k`, not both -- "
+                 "which is PBRT's own error too");
+        }
+        if (refl != nullptr) {
+            fail("a conductor given `reflectance` rather than `eta`/`k` is not "
+                 "supported yet: PBRT turns it into an index by inverting the "
+                 "Fresnel equations at normal incidence, which is a different "
+                 "path through ConductorMaterial::GetBxDF");
+        }
+        out.conductor_spectra = conductor_spectra(
+            eta == nullptr ? std::string("metal-Cu-eta") : named_spectrum(*eta),
+            k == nullptr ? std::string("metal-Cu-k") : named_spectrum(*k));
+
+        // The roughness falls back exactly as CoatedDiffuse's does, and
+        // defaults to zero -- which makes a perfect mirror.
+        const float roughness = material_float(m, "roughness", 0.f);
+        out.u_roughness = material_float(m, "uroughness", roughness);
+        out.v_roughness = material_float(m, "vroughness", roughness);
+        const CapturingBuilder::MaterialInfo::Value *cremap =
+            m.find("remaproughness");
+        if (cremap != nullptr) {
+            if (cremap->type != "bool" || cremap->bools.size() != 1) {
+                fail("`remaproughness` has to be a single bool");
+            }
+            out.remap = cremap->bools[0] ? 1u : 0u;
+        }
         return out;
     }
 

@@ -28,6 +28,16 @@ uint32_t Type::bits() const {
     if (this->is<Bool_t>()) {
         return 1;
     }
+    if (auto *as_vector = this->as<Vector_t>()) {
+        // The width of one lane, which is what every caller is after: `bits()`
+        // is asked how wide the arithmetic is, not how much storage there is.
+        // `bytes()` below is the one that multiplies by the lane count.
+        //
+        // Without this a bitwise operation on a vector of integers failed to
+        // type-check at all -- `reinterpret[[u32x4]](v) & mask`, which is how a
+        // four-wide copysign is written.
+        return as_vector->etype.bits();
+    }
     internal_error << "Called bits() on bad type: " << *this;
 }
 

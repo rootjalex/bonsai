@@ -760,6 +760,13 @@ int main(int argc, char **argv) {
             coated.max_depth = m.max_depth;
             coated.n_samples = m.n_samples;
             Material_CoatedDiffuse(material, coated);
+        } else if (m.tag == bonsai_scene::MaterialTag::Conductor) {
+            ConductorMaterial metal;
+            metal.spectra = m.conductor_spectra;
+            metal.u_roughness = m.u_roughness;
+            metal.v_roughness = m.v_roughness;
+            metal.remap = m.remap != 0;
+            Material_Conductor(material, metal);
         } else if (m.tag == bonsai_scene::MaterialTag::Dielectric) {
             DielectricMaterial glass;
             glass.u_roughness = m.u_roughness;
@@ -1161,7 +1168,8 @@ int main(int argc, char **argv) {
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0, out,
                albedo, radiance, weights, textures.data(),
                texture_levels.data(), texture_texels.data(),
-               loaded.rgb_table.data(), meshes.data(),
+               loaded.rgb_table.data(), loaded.conductor_eta.data(),
+               loaded.conductor_k.data(), meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
                uvs.data(), x, y, z, d65, filter_f.data(),
                filter_cond_cdf.data(), filter_marg_func.data(),

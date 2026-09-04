@@ -559,11 +559,11 @@ on now, in the order it stopped:
 1. ~~a material parameter that is a texture~~ — **done**
 2. ~~`lensradius`~~ — **done**, both branches of `GenerateRayDifferential`
 3. ~~`displacement`~~ — **done**, PBRT's `BumpMap`
-4. **`conductor`** — where it stops today
-5. `measured` — after that
+4. ~~`conductor`~~ — **done**, with pbrt's named metal spectra
+5. **`measured`** — where it stops today
 
-So of the five walls below, the first is down and the fourth is down. What is
-left is `conductor` and `measured`, and then the `xref_*` leaf materials.
+So four of the five walls below are down. What is left is `measured`, and then
+the `xref_*` leaf materials.
 
 The original list, in the order they block it:
 
@@ -575,10 +575,16 @@ The original list, in the order they block it:
    Checked against pbrt on a textured floor at a glancing angle -- 99.9% of lit
    pixels within 1e-3, which is where an untextured scene sits at the same
    sample count.
-2. **`conductor`**, 21 uses -- and it wants `metal-Al-eta` and `metal-Al-k`,
-   which are pbrt's *named spectra*. A spectral index terminates the secondary
-   wavelengths, which nothing here does, so this drags in `TerminateSecondary`
-   as well.
+2. **`conductor` — done.** 21 uses, keyed on `metal-Al-eta` and `metal-Al-k`,
+   which are pbrt's *named spectra*. Checked against pbrt on a smooth aluminium
+   sphere and a rough copper one, so both branches of `Sample_f` run: 0
+   disagreeing pixels.
+
+   This item used to say a spectral index drags in `TerminateSecondary`. It
+   does not, and reading `ConductorMaterial::GetBxDF` is what settled it: only
+   a *dielectric* terminates, and only for a non-constant eta. A dielectric
+   bends the ray by an amount that differs per wavelength, so the four can no
+   longer share a path; a conductor only absorbs differently, and they can.
 3. **`measured`**, 12 uses. A reader for pbrt's tabulated BSDF format and the
    interpolation over it. Its own project.
 4. **Displacement textures — done.** PBRT's `BumpMap` on `pavet` and `water`:

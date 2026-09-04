@@ -11,8 +11,25 @@ namespace bonsai {
 namespace codegen {
 
 void jit(const ir::Program &program, const CompilerOptions &options) {
-    internal_assert(program.externs.empty())
-        << "[unimplemented] JIT with bonsai externs";
+    // What the JIT cannot do is *supply* an extern: it calls `main()` with no
+    // arguments and has nowhere to get an array from. So the question is
+    // whether `main` ends up needing one, not whether the program declares any.
+    //
+    // Those are different questions, and the difference is a whole class of
+    // program: LowerExterns gives an extern to the functions that read it and
+    // to their callers, so a `main` that touches none of them takes no extra
+    // arguments however many the file it imported declared. Asking the coarser
+    // question meant that importing a library was enough to make a program
+    // unrunnable under `-e` -- which is what happened when the BSDF library
+    // gained a texture table that its BSDF tests never look at.
+    const auto entry = program.funcs.find("main");
+    if (entry != program.funcs.end()) {
+        internal_assert(entry->second->args.empty())
+            << "[unimplemented] JIT of a main() that takes arguments: it needs "
+            << entry->second->args.size()
+            << ", which are the externs it reads and which nothing here can "
+               "supply. Compile to a backend and link a driver instead.";
+    }
     CodeGen_LLVM codegen;
     std::unique_ptr<llvm::orc::LLJIT> JIT =
         llvm::cantFail(llvm::orc::LLJITBuilder().create());

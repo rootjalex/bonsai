@@ -38,7 +38,25 @@ enum MaterialTag : uint32_t {
     // `eta` fields below, which is what the coating of a CoatedDiffuse already
     // is: PBRT's DielectricBxDF appears in both.
     Dielectric = 2,
+    // A metal: the same microfacet distribution over a Fresnel term with a
+    // *complex* index, whose imaginary part is the absorption that makes a
+    // metal a metal and whose variation with wavelength is its colour.
+    Conductor = 3,
 };
+
+// How finely a conductor's index of refraction is resampled, and how many
+// entries that makes over 360 to 830 nm.
+//
+// PBRT keeps these curves as a PiecewiseLinearSpectrum over the published
+// measurements, whose knots are four to six nanometres apart, and interpolates
+// between them. Resampling on a uniform grid is exact everywhere except inside
+// the one interval that straddles each knot, where a chord replaces a corner --
+// so the error is proportional to the step, not to its square. At one
+// nanometre that peaked at 2.5e-3 on copper, whose index has a knee at 590 nm
+// and which is orange for that reason; at a tenth of a nanometre it is a tenth
+// of that, for 37 kB a metal.
+inline constexpr int kConductorPerNm = 10;
+inline constexpr int kConductorSamples = 470 * kConductorPerNm + 1;
 
 // Which of PBRT's integrators the scene asked for, of the ones this renderer
 // has. PBRT dispatches these through a TaggedPointer and so does the renderer,
@@ -125,6 +143,9 @@ struct Material {
     // the BSDF is built, which is why PBRT keeps it on the base Material and
     // applies it in GetBSDF rather than in any one material's GetBxDF.
     int32_t displacement_texture = -1;
+    // Conductor only: which pair of `conductor_eta` / `conductor_k` tables this
+    // material's index of refraction is.
+    int32_t conductor_spectra = -1;
     // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
     // remaps per intersection and `remaproughness` says whether it does at all.
     float u_roughness = 0.f;
@@ -397,6 +418,16 @@ struct Scene {
     // in RGB and fits the *filtered* colour, and fitting each texel and
     // interpolating the coefficients is a different, nonlinear thing.
     std::vector<float> rgb_table;
+    // Every conductor's index of refraction: 471 entries each at one nanometre
+    // from 360 nm, laid end to end, one run per distinct pair a material named.
+    //
+    // Resampled from PBRT's own named spectra rather than fitted. PBRT keeps
+    // them as PiecewiseLinearSpectrum and interpolates between the published
+    // measurements; this is that function at one nanometre, which reproduces it
+    // exactly except inside the single nanometre containing each of its own
+    // knots. scene_dump measures that residual and prints it.
+    std::vector<float> conductor_eta;
+    std::vector<float> conductor_k;
     // PBRT's `sceneRadius`, from `Light::Preprocess` -- the radius of the
     // scene's bounding sphere. An infinite light has no geometry, so a shadow
     // ray aimed at one needs somewhere to stop, and PBRT puts that two radii
@@ -537,6 +568,15 @@ inline bool write(const char *path, const Scene &scene) {
         out << "  " << l.width << ' ' << l.height << ' ' << l.first_texel
             << '\n';
     }
+    out << "conductorspectra " << scene.conductor_eta.size() << '\n';
+    for (size_t i = 0; i < scene.conductor_eta.size(); i++) {
+        detail::put(out, &scene.conductor_eta[i], 1);
+        detail::put(out, &scene.conductor_k[i], 1);
+        if ((i + 1) % 8 == 0) {
+            out << '\n';
+        }
+    }
+    out << '\n';
     out << "rgbtable " << scene.rgb_table.size() << '\n';
     out << "texturetexels " << scene.texture_texels.size() << '\n';
 
@@ -559,6 +599,9 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::Dielectric:
             out << "  dielectric";
             break;
+        case MaterialTag::Conductor:
+            out << "  conductor";
+            break;
         default:
             return false;
         }
@@ -573,6 +616,13 @@ inline bool write(const char *path, const Scene &scene) {
             out << " remap " << m.remap;
             out << " eta";
             detail::put(out, &m.eta, 1);
+        }
+        if (m.tag == MaterialTag::Conductor) {
+            out << " roughness";
+            detail::put(out, &m.u_roughness, 1);
+            detail::put(out, &m.v_roughness, 1);
+            out << " remap " << m.remap;
+            out << " spectra " << m.conductor_spectra;
         }
         if (m.tag == MaterialTag::CoatedDiffuse) {
             out << " roughness";
@@ -837,6 +887,17 @@ inline bool read(const char *path, Scene &scene) {
         scene.texture_levels.push_back(l);
     }
 
+    if (!(in >> word) || word != "conductorspectra") {
+        return false;
+    }
+    in >> count;
+    scene.conductor_eta.assign(count, 0.f);
+    scene.conductor_k.assign(count, 0.f);
+    for (size_t i = 0; i < count; i++) {
+        floats(&scene.conductor_eta[i], 1);
+        floats(&scene.conductor_k[i], 1);
+    }
+
     if (!(in >> word) || word != "rgbtable") {
         return false;
     }
@@ -888,6 +949,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::CoatedDiffuse;
         } else if (word == "dielectric") {
             m.tag = MaterialTag::Dielectric;
+        } else if (word == "conductor") {
+            m.tag = MaterialTag::Conductor;
         } else {
             return false;
         }
@@ -917,6 +980,21 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             floats(&m.eta, 1);
+        }
+        if (m.tag == MaterialTag::Conductor) {
+            if (!tagged("roughness")) {
+                return false;
+            }
+            floats(&m.u_roughness, 1);
+            floats(&m.v_roughness, 1);
+            if (!tagged("remap")) {
+                return false;
+            }
+            in >> m.remap;
+            if (!tagged("spectra")) {
+                return false;
+            }
+            in >> m.conductor_spectra;
         }
         if (m.tag == MaterialTag::CoatedDiffuse) {
             if (!tagged("roughness")) {

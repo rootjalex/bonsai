@@ -1,0 +1,50 @@
+//! flags: -b llvm -e
+
+// Bitwise operations on a vector of integers.
+//
+// These failed to type-check at all: `Type::bits()` knew about ints, uints,
+// floats and bools, and a vector of any of them fell through to an internal
+// error. Nothing had asked before, because nothing had written a bit
+// manipulation four lanes wide.
+//
+// What wanted it was `copysign` for four wavelengths at once -- the sign of one
+// float pasted onto the magnitude of another, which is a mask and an or -- on
+// the way to a conductor's complex Fresnel term. `bits()` answers the width of
+// one lane, which is what every caller of it means: `bytes()` is the one that
+// multiplies by the lane count.
+element u32x4 = vector[u32, 4];
+element f32x4 = vector[f32, 4];
+
+func main() -> i32 {
+    v : u32x4 = {0xff00ff00u, 0x0f0f0f0fu, 1u, 0u};
+    m : u32x4 = {0x0000ffffu, 0xffff0000u, 3u, 7u};
+
+    a = v & m;
+    print(cast[[i32]](a.x));
+    print(cast[[i32]](a.y));
+    print(cast[[i32]](a.z));
+    print(cast[[i32]](a.w));
+
+    o = v | m;
+    print(cast[[i32]](o.z));
+    print(cast[[i32]](o.w));
+
+    x = v ^ m;
+    print(cast[[i32]](x.z));
+
+    // Against a broadcast scalar, which is how a mask is usually written.
+    s = v & 0x0000ffffu;
+    print(cast[[i32]](s.x));
+
+    // And the thing it was for: copysign, four wide, through a reinterpret.
+    f : f32x4 = {3.0, 3.0, -3.0, -3.0};
+    g : f32x4 = {1.0, -1.0, 1.0, -1.0};
+    bits = (reinterpret[[u32x4]](f) & 0x7fffffffu) |
+           (reinterpret[[u32x4]](g) & 0x80000000u);
+    c = reinterpret[[f32x4]](bits);
+    print(c.x);
+    print(c.y);
+    print(c.z);
+    print(c.w);
+    return 0;
+}
