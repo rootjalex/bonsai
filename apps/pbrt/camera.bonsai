@@ -6,6 +6,9 @@
 // arithmetic and handed over as data. That is faithful to pbrt's hot path,
 // which only ever *applies* them.
 import stdlib/numerics;
+// For `sample_uniform_disk_concentric`, which is where a lens point comes
+// from. bxdf.bonsai does not depend on the camera, so this is not a cycle.
+import apps/pbrt/bxdf;
 import apps/pbrt/shapes;
 import apps/pbrt/spectrum;
 
@@ -99,38 +102,74 @@ element PerspectiveCamera {
     min_pos_differential_y : vec3f;
     min_dir_differential_x : vec3f;
     min_dir_differential_y : vec3f;
+    // pbrt: ProjectiveCamera's lensRadius and focalDistance. A radius of zero
+    // is a pinhole and is the common case; anything else puts the ray's origin
+    // on the lens and aims it through the point the film is focused on.
+    lens_radius : Float = 0.0;
+    focal_distance : Float = 1.0e6;
 }
 
-// pbrt: PerspectiveCamera::GenerateRayDifferential, the `lensRadius == 0`
-// branch -- scene_dump refuses a lens, so the other branch has no scene to run
-// on.
+// pbrt: PerspectiveCamera::GenerateRayDifferential, both branches.
 //
 // Every ray leaves the camera's origin and passes through the sample's point on
-// the film plane; the two differential rays leave the same origin and pass
-// through the point one raster pixel across and one down. pbrt transforms the
-// whole ray by `RenderFromCamera` at the end, which is why the origin is shared
-// and only the directions differ.
+// the film plane, and the two differential rays pass through the points one
+// raster pixel across and one down. With a lens the origins move onto it and
+// each ray is re-aimed through where the film is focused, which is what puts
+// everything but the focal plane out of focus.
+//
+// pbrt transforms the whole ray by `RenderFromCamera` at the end. That is done
+// per component here, which is the same thing: the transform is applied to the
+// origin as a point and to each direction as a vector, exactly as
+// `Transform::operator()(const RayDifferential &)` does.
 func generate_ray_differential(camera : PerspectiveCamera,
                                sample : CameraSample) -> CameraRay {
     p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
     p_camera = apply_point(camera.camera_from_raster, p_film);
-    o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
-    d = apply_vector(camera.render_from_camera, unit_vector_(p_camera));
-    rx_d = apply_vector(camera.render_from_camera,
-                        unit_vector_(p_camera + camera.dx_camera));
-    ry_d = apply_vector(camera.render_from_camera,
-                        unit_vector_(p_camera + camera.dy_camera));
-    return CameraRay{Ray{o, d}, RayDifferential{o, o, rx_d, ry_d, true}};
+    d_camera = unit_vector_(p_camera);
+
+    if camera.lens_radius <= 0.0 {
+        o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
+        d = apply_vector(camera.render_from_camera, d_camera);
+        rx_d = apply_vector(camera.render_from_camera,
+                            unit_vector_(p_camera + camera.dx_camera));
+        ry_d = apply_vector(camera.render_from_camera,
+                            unit_vector_(p_camera + camera.dy_camera));
+        return CameraRay{Ray{o, d}, RayDifferential{o, o, rx_d, ry_d, true}};
+    }
+
+    // pbrt draws the lens point twice -- once for the ray and once, from the
+    // same `sample.pLens`, for the differentials -- so the two draws give the
+    // same point and the offset rays start where the main one does.
+    p_lens = camera.lens_radius * sample_uniform_disk_concentric(sample.p_lens);
+    lens_o = vec3f{p_lens.x, p_lens.y, 0.0};
+
+    ft = camera.focal_distance / d_camera.z;
+    p_focus = ft * d_camera;
+    d_lens = unit_vector_(p_focus - lens_o);
+
+    dx = unit_vector_(p_camera + camera.dx_camera);
+    ftx = camera.focal_distance / dx.z;
+    p_focus_x = ftx * dx;
+    rx_lens_d = unit_vector_(p_focus_x - lens_o);
+
+    dy = unit_vector_(p_camera + camera.dy_camera);
+    fty = camera.focal_distance / dy.z;
+    p_focus_y = fty * dy;
+    ry_lens_d = unit_vector_(p_focus_y - lens_o);
+
+    o = apply_point(camera.render_from_camera, lens_o);
+    return CameraRay{Ray{o, apply_vector(camera.render_from_camera, d_lens)},
+                     RayDifferential{
+                         o, o,
+                         apply_vector(camera.render_from_camera, rx_lens_d),
+                         apply_vector(camera.render_from_camera, ry_lens_d),
+                         true}};
 }
 
 // pbrt: PerspectiveCamera::GenerateRay, for the places that want a ray and no
 // differentials -- there is nothing to filter along a shadow ray.
 func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
-    p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
-    p_camera = apply_point(camera.camera_from_raster, p_film);
-    o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
-    d = apply_vector(camera.render_from_camera, unit_vector_(p_camera));
-    return Ray{o, d};
+    return generate_ray_differential(camera, sample).ray;
 }
 
 // pbrt: RayDifferential::ScaleDifferentials, which RenderCPU applies to every

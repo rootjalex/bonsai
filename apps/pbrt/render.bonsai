@@ -583,7 +583,9 @@ element VisibleSurface {
 // `seed` is pbrt's `--seed` option, which reaches here because a layered BSDF
 // hashes it together with the direction to seed the walk that estimates its
 // reflectance.
-func visible_surface(r : Ray, lambda : SampledWavelengths,
+func visible_surface(r : Ray, dr : RayDifferential,
+                     camera : PerspectiveCamera, spp_scale : Float,
+                     lambda : SampledWavelengths,
                      seed : i32) -> option[VisibleSurface] {
     isect : option[Primitive] = trace(r);
     if isect {
@@ -609,7 +611,9 @@ func visible_surface(r : Ray, lambda : SampledWavelengths,
         //
         // `reflectance` is Schlick's approximation in stdlib/numerics, so the
         // name is taken.
-        bsdf = material_bxdf(materials[prim.material], lambda, false);
+        diffs = compute_differentials(surf, dr, camera, spp_scale);
+        bsdf = material_bxdf(materials[prim.material], lambda, false, surf.uv,
+                             diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
         rho = bxdf_rho(bsdf, frame_to_local(shading, wo), seed, rho_uc, rho_ux,
                        rho_uy);
         // pbrt: GBufferFilm::AddSample, which lights the albedo by the film's
@@ -676,7 +680,14 @@ element Integrator =
 //
 // The draws from the sampler are what must not move: one `get_2d` per bounce,
 // taken before the ray for the next bounce is built.
-func walk_step(ray : Ray, beta : vec4f, l : vec4f,
+// The camera and the sample scale ride along so that a textured material can be
+// filtered. pbrt's `GetBSDF` computes the differentials whichever integrator
+// called it, so a random walk over a textured scene filters its textures the
+// same way a path does -- it just never has a ray carrying differentials of its
+// own past the first vertex, so every lookup uses the camera approximation.
+func walk_step(ray : Ray, ray_diff : RayDifferential,
+               camera : PerspectiveCamera, spp_scale : Float,
+               beta : vec4f, l : vec4f,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSet, seed : i32,
                depth : i32, max_depth : i32) -> vec4f {
@@ -719,7 +730,9 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
     // pbrt: GetBSDF, then a direction sampled uniformly over the sphere, then
     // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
     shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, false);
+    diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    bsdf = material_bxdf(materials[prim.material], lambda, false, surf.uv,
+                         diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
     u = get_2d(sampler, state);
     wp = sample_uniform_sphere(u);
     fcos = bxdf_f(bsdf, frame_to_local(shading, wo),
@@ -732,7 +745,13 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
     // pbrt: SurfaceInteraction::SpawnRay, which offsets the origin off the
     // surface by the hit point's own error bound. Without it the next ray finds
     // the surface it just left, at a distance of nearly zero.
-    return walk_step(spawn_ray(surf, wp), beta * fcos / uniform_sphere_pdf(),
+    // A uniformly sampled direction is not a specular bounce, so pbrt's
+    // SpawnRay carries no differentials past here and every later lookup falls
+    // to the camera approximation.
+    next_ray = spawn_ray(surf, wp);
+    next_diff = spawn_ray_differential(surf, diffs, ray_diff, wo, wp, 0, 1.0);
+    return walk_step(next_ray, next_diff, camera, spp_scale,
+                     beta * fcos / uniform_sphere_pdf(),
                      found, lambda, sampler, state, ls, seed, depth + 1,
                      max_depth);
 }
@@ -740,11 +759,14 @@ func walk_step(ray : Ray, beta : vec4f, l : vec4f,
 // The entry point, which is where the walk's initial state is named rather than
 // passed in by a caller that should not have to know it: a full throughput and
 // no radiance yet.
-func li_random_walk(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
+func li_random_walk(r0 : Ray, d0 : RayDifferential,
+                    camera : PerspectiveCamera, spp_scale : Float,
+                    lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSet, seed : i32,
                     max_depth : i32) -> vec4f =
-    walk_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, lambda,
-              sampler, state, ls, seed, 0, max_depth);
+    walk_step(r0, d0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
+              vec4f{0.0, 0.0, 0.0, 0.0}, lambda, sampler, state, ls, seed, 0,
+              max_depth);
 
 // pbrt: Unoccluded -- is there anything between these two surfaces?
 //
@@ -774,7 +796,9 @@ func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
 //
 // Tail-recursive, as `walk_step` is: what the schedule does with the path is
 // the schedule's to decide.
-func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
+func path_step(ray : Ray, ray_diff : RayDifferential,
+               camera : PerspectiveCamera, spp_scale : Float,
+               beta : vec4f, l : vec4f, specular_bounce : bool,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
                seed : i32, depth : i32, max_depth : i32) -> vec4f {
@@ -812,8 +836,11 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
     }
 
     shading = frame_from_xz(unit_vector_(surf.dpdus), surf.ns);
-    // pbrt: GetBSDF, once, before anything is asked of it.
-    bsdf = material_bxdf(materials[prim.material], lambda, false);
+    // pbrt: GetBSDF, once, before anything is asked of it -- differentials and
+    // all, which is what a textured material is filtered by.
+    diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    bsdf = material_bxdf(materials[prim.material], lambda, false, surf.uv,
+                         diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
     ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, surf.ns};
 
     // Direct lighting: pick a light, pick a point on it, and connect.
@@ -855,7 +882,10 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
     }
     wi = frame_from_local(shading, sample.wi);
     next_beta = beta * sample.f * abs(dot(wi, surf.ns)) / sample.pdf;
-    return path_step(spawn_ray(surf, wi), next_beta, found,
+    next_ray = spawn_ray(surf, wi);
+    next_diff = spawn_ray_differential(surf, diffs, ray_diff, wo, wi,
+                                       sample.flags, sample.eta);
+    return path_step(next_ray, next_diff, camera, spp_scale, next_beta, found,
                      is_specular(sample.flags), lambda, sampler, state, ls, set,
                      seed, depth + 1, max_depth);
 }
@@ -863,11 +893,14 @@ func path_step(ray : Ray, beta : vec4f, l : vec4f, specular_bounce : bool,
 // The entry point, which names the state a path starts with. `specular_bounce`
 // starts true because the camera ray has sampled no light, so a light it lands
 // on directly must be counted.
-func li_simple_path(r0 : Ray, lambda : SampledWavelengths, sampler : Sampler,
+func li_simple_path(r0 : Ray, d0 : RayDifferential,
+                    camera : PerspectiveCamera, spp_scale : Float,
+                    lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
                     seed : i32, max_depth : i32) -> vec4f =
-    path_step(r0, vec4f{1.0, 1.0, 1.0, 1.0}, vec4f{0.0, 0.0, 0.0, 0.0}, true,
-              lambda, sampler, state, ls, set, seed, 0, max_depth);
+    path_step(r0, d0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
+              vec4f{0.0, 0.0, 0.0, 0.0}, true, lambda, sampler, state, ls, set,
+              seed, 0, max_depth);
 
 // pbrt: PathIntegrator::SampleLd, the direct-lighting estimate at one vertex.
 //
@@ -1077,7 +1110,9 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     // today is the specular propagation below; a textured material will read
     // the (u,v) derivatives directly.
     diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
-    bsdf = material_bxdf(materials[prim.material], lambda, do_regularize);
+    bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
+                         surf.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
+                         diffs.dvdy);
     flags = bxdf_flags(bsdf);
 
     // Direct lighting, but only where there is a density to weigh it with. A
@@ -1180,11 +1215,11 @@ func integrator_li(integrator : Integrator, r : Ray, dr : RayDifferential,
                    state : mut SamplerState, seed : i32) -> vec4f {
     match integrator {
         RandomWalk(max_depth, set) =>
-            return li_random_walk(r, lambda, sampler, state, set, seed,
-                                  max_depth);
+            return li_random_walk(r, dr, camera, spp_scale, lambda, sampler,
+                                  state, set, seed, max_depth);
         SimplePath(max_depth, ls, set) =>
-            return li_simple_path(r, lambda, sampler, state, ls, set, seed,
-                                  max_depth);
+            return li_simple_path(r, dr, camera, spp_scale, lambda, sampler,
+                                  state, ls, set, seed, max_depth);
         Path(max_depth, ls, set, regularize) =>
             return li_path(r, dr, camera, spp_scale, lambda, sampler, state, ls,
                            set, seed, max_depth, regularize);
@@ -1366,7 +1401,10 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                 ray, camera_ray.diff,
                 ray_differential_scale(spp, disable_pixel_jitter));
 
-            found = visible_surface(ray, lambda, seed);
+            found = visible_surface(ray, ray_diff, camera,
+                                    ray_differential_scale(
+                                        spp, disable_pixel_jitter),
+                                    lambda, seed);
             if found {
                 surface = *found;
                 atomic normal_out[p] += weight * surface.n;

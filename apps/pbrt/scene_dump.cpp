@@ -38,7 +38,9 @@
 #include <pbrt/util/file.h>
 #include <pbrt/util/loopsubdiv.h>
 #include <pbrt/util/lowdiscrepancy.h>
+#include <pbrt/util/image.h>
 #include <pbrt/util/math.h>
+#include <pbrt/util/mipmap.h>
 #include <pbrt/util/primes.h>
 #include <pbrt/util/mesh.h>
 #include <pbrt/util/spectrum.h>
@@ -56,6 +58,17 @@
 #include <vector>
 
 #include "scene_io.h"
+
+// PBRT's sRGB RGB-to-spectrum table, which lives in a translation unit of its
+// own and is reached through a `RGBToSpectrumTable` that keeps it private.
+//
+// Declared here because the renderer needs the *table* and not the lookup: it
+// has to fit a filtered texture colour to a spectrum per lookup, which is what
+// PBRT does with these numbers.
+namespace pbrt {
+extern const float sRGBToSpectrumTable_Scale[64];
+extern const RGBToSpectrumTable::CoefficientArray sRGBToSpectrumTable_Data;
+} // namespace pbrt
 
 namespace {
 
@@ -166,6 +179,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
             v.floats.assign(p->floats.begin(), p->floats.end());
             v.ints.assign(p->ints.begin(), p->ints.end());
             v.bools.assign(p->bools.begin(), p->bools.end());
+            // The strings too. Without them a `"texture reflectance"` arrived
+            // with its type intact and the name it referred to gone, which read
+            // as a texture parameter naming nothing.
+            v.strings.assign(p->strings.begin(), p->strings.end());
             info.params.emplace(p->name, std::move(v));
         }
         materials.push_back(std::move(info));
@@ -373,6 +390,47 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // until a shape asks for it.
     std::map<std::string, MaterialInfo> named_materials;
 
+    // `Texture "name" "float|spectrum" "class" ...`, recorded the same way and
+    // for the same reason: a material names one, and which ones a scene
+    // actually uses is not known until its materials are converted.
+    //
+    // `info.name` holds the texture's class -- `imagemap`, `scale`, ... -- so
+    // that it reads the same way as a material's type. The declared type,
+    // float or spectrum, is kept beside it because a `scale` texture over a
+    // float image and one over a spectrum image are different lookups.
+    struct TextureInfo {
+        MaterialInfo params;
+        std::string declared_type;
+    };
+    std::map<std::string, TextureInfo> named_textures;
+    // Declaration order, which is the order a `scale` texture's operand must
+    // already have been declared in -- PBRT resolves texture names as it
+    // parses, so a forward reference is not possible and this can be resolved
+    // in one pass.
+    std::vector<std::string> texture_order;
+
+    void Texture(const std::string &name, const std::string &type,
+                 const std::string &texname, pbrt::ParsedParameterVector params,
+                 pbrt::FileLoc loc) override {
+        TextureInfo info;
+        info.declared_type = type;
+        info.params.name = texname;
+        for (const pbrt::ParsedParameter *p : params) {
+            MaterialInfo::Value v;
+            v.type = p->type;
+            v.floats.assign(p->floats.begin(), p->floats.end());
+            v.ints.assign(p->ints.begin(), p->ints.end());
+            v.bools.assign(p->bools.begin(), p->bools.end());
+            v.strings.assign(p->strings.begin(), p->strings.end());
+            info.params.params.emplace(p->name, std::move(v));
+        }
+        if (named_textures.emplace(name, std::move(info)).second) {
+            texture_order.push_back(name);
+        }
+        pbrt::BasicSceneBuilder::Texture(name, type, texname, std::move(params),
+                                         loc);
+    }
+
     // Every non-area LightSource the scene declared, in declaration order --
     // which is the order PBRT appends them to its own light list, after the
     // area lights. See above.
@@ -433,6 +491,274 @@ bool material_rgb(const CapturingBuilder::MaterialInfo &m,
     return true;
 }
 
+// Defined below, once the texture table it fills is in scope.
+int32_t convert_texture(const std::string &name);
+
+// The same parameter, where it is allowed to be a texture.
+//
+// PBRT's material parameters are all textures and a constant is a
+// `FloatConstantTexture`; here the constant stays a constant and the texture
+// index is -1 unless there is one, because making every untextured surface do a
+// lookup to find out it has none is a cost with nothing behind it.
+//
+// A `float` parameter used as a spectrum is PBRT's own widening -- a scalar
+// reflectance is grey -- and is taken the same way.
+int32_t material_rgb_or_texture(const CapturingBuilder::MaterialInfo &m,
+                                const std::string &key, float *rgb) {
+    const CapturingBuilder::MaterialInfo::Value *v = m.find(key);
+    if (v == nullptr) {
+        return -1;
+    }
+    if (v->type == "texture") {
+        if (v->strings.empty()) {
+            fail("the material parameter \"" + key + "\" names no texture");
+        }
+        return convert_texture(v->strings[0]);
+    }
+    if (v->type == "float" && v->floats.size() == 1) {
+        rgb[0] = rgb[1] = rgb[2] = v->floats[0];
+        return -1;
+    }
+    if (v->type != "rgb" || v->floats.size() != 3) {
+        fail("the material parameter \"" + key +
+             "\" has to be an `rgb`, a `float` or a texture here, and this one "
+             "is a `" + v->type + "`");
+    }
+    for (int i = 0; i < 3; i++) {
+        rgb[i] = v->floats[i];
+    }
+    return -1;
+}
+
+// Where a texture's images are looked for, and the textures already converted.
+//
+// A file-scope pair rather than an argument threaded through `convert_material`
+// and its four helpers: the conversion is a tree walk over parameters and the
+// texture table is the only thing it needs that is not in the parameter it is
+// looking at.
+const CapturingBuilder *g_builder = nullptr;
+bonsai_scene::Scene *g_scene = nullptr;
+std::string g_scene_dir;
+std::map<std::string, int32_t> g_texture_index;
+
+// PBRT's WrapMode, by the names a scene writes.
+uint32_t wrap_mode_from(const std::string &s) {
+    if (s == "repeat") {
+        return bonsai_scene::WrapMode::Repeat;
+    }
+    if (s == "clamp") {
+        return bonsai_scene::WrapMode::Clamp;
+    }
+    if (s == "black") {
+        return bonsai_scene::WrapMode::Black;
+    }
+    fail("unknown texture wrap mode \"" + s + "\"");
+    return 0;
+}
+
+// One `Texture` declaration, converted -- its MIP pyramid built by PBRT and
+// shipped level by level.
+//
+// A `scale` texture over an image one folds into the image's own `scale`, which
+// is exactly what it means and saves a second lookup. A `scale` whose factor is
+// itself a texture does not fold, and is refused: multiplying two filtered
+// lookups is not the same as filtering their product, and quietly doing the
+// first would be a different renderer.
+int32_t convert_texture(const std::string &name);
+
+// The `scale` a chain of `scale` textures multiplies up, and the name of the
+// `imagemap` at the bottom of it.
+struct ScaleChain {
+    std::string image;
+    float scale = 1.f;
+};
+
+ScaleChain resolve_scale_chain(const std::string &name, int depth) {
+    if (depth > 8) {
+        fail("a `scale` texture chain more than eight deep, which is a cycle");
+    }
+    const auto it = g_builder->named_textures.find(name);
+    if (it == g_builder->named_textures.end()) {
+        fail("a material names the texture \"" + name +
+             "\", which the scene never declared");
+    }
+    const CapturingBuilder::MaterialInfo &p = it->second.params;
+    if (p.name == "imagemap") {
+        return ScaleChain{name, 1.f};
+    }
+    if (p.name != "scale") {
+        fail("this renderer implements `imagemap` and `scale` textures, and "
+             "the scene asks for `" + p.name + "` in texture \"" + name + "\"");
+    }
+
+    const CapturingBuilder::MaterialInfo::Value *tex = p.find("tex");
+    if (tex == nullptr) {
+        fail("the `scale` texture \"" + name + "\" has no \"tex\"");
+    }
+    const CapturingBuilder::MaterialInfo::Value *sc = p.find("scale");
+    float factor = 1.f;
+    if (sc != nullptr) {
+        if (sc->type == "texture") {
+            fail("the `scale` texture \"" + name +
+                 "\" scales by another texture. Folding that into the image's "
+                 "own scale would filter the product where PBRT multiplies two "
+                 "filtered lookups, which is a different answer.");
+        }
+        if (sc->floats.empty()) {
+            fail("the `scale` texture \"" + name + "\" has a scale with no "
+                 "value");
+        }
+        factor = sc->floats[0];
+    }
+
+    if (tex->type == "texture") {
+        if (tex->strings.empty()) {
+            fail("the `scale` texture \"" + name + "\" names no operand");
+        }
+        ScaleChain inner = resolve_scale_chain(tex->strings[0], depth + 1);
+        inner.scale *= factor;
+        return inner;
+    }
+    fail("the `scale` texture \"" + name +
+         "\" scales a constant rather than an image, which this renderer does "
+         "not carry yet");
+    return ScaleChain{};
+}
+
+int32_t convert_texture(const std::string &name) {
+    const auto cached = g_texture_index.find(name);
+    if (cached != g_texture_index.end()) {
+        return cached->second;
+    }
+
+    const ScaleChain chain = resolve_scale_chain(name, 0);
+    const auto it = g_builder->named_textures.find(chain.image);
+    const CapturingBuilder::MaterialInfo &p = it->second.params;
+
+    const CapturingBuilder::MaterialInfo::Value *fn = p.find("filename");
+    if (fn == nullptr || fn->strings.empty()) {
+        fail("the `imagemap` texture \"" + chain.image + "\" has no filename");
+    }
+    std::string filename = fn->strings[0];
+    if (!filename.empty() && filename[0] != '/') {
+        filename = g_scene_dir + "/" + filename;
+    }
+
+    // PBRT's ImageTexture defaults, from SpectrumImageTexture::Create.
+    const auto float_of = [&](const char *key, float dflt) {
+        const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+        if (v == nullptr) {
+            return dflt;
+        }
+        if (v->type == "texture") {
+            fail(std::string("the `imagemap` parameter \"") + key +
+                 "\" is a texture, which PBRT does not allow either");
+        }
+        return v->floats.empty() ? dflt : v->floats[0];
+    };
+    const auto string_of = [&](const char *key, const char *dflt) {
+        const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+        return (v == nullptr || v->strings.empty()) ? std::string(dflt)
+                                                    : v->strings[0];
+    };
+
+    const std::string filter = string_of("filter", "bilinear");
+    if (filter != "bilinear") {
+        fail("the texture \"" + chain.image + "\" asks for the `" + filter +
+             "` filter; this renderer implements `bilinear`, which is PBRT's "
+             "default");
+    }
+    const std::string mapping = string_of("mapping", "uv");
+    if (mapping != "uv") {
+        fail("the texture \"" + chain.image + "\" asks for the `" + mapping +
+             "` mapping; this renderer implements `uv`");
+    }
+
+    bonsai_scene::ImageTexture t;
+    t.su = float_of("uscale", 1.f);
+    t.sv = float_of("vscale", 1.f);
+    t.du = float_of("udelta", 0.f);
+    t.dv = float_of("vdelta", 0.f);
+    t.scale = float_of("scale", 1.f) * chain.scale;
+    const CapturingBuilder::MaterialInfo::Value *inv = p.find("invert");
+    t.invert = (inv != nullptr && !inv->bools.empty() && inv->bools[0]) ? 1u
+                                                                       : 0u;
+    t.wrap = wrap_mode_from(string_of("wrap", "repeat"));
+
+    // PBRT builds the pyramid, with PBRT's own resampling filter, and this
+    // reads the levels off it. `CreateFromFile` is what
+    // SpectrumImageTexture::Create calls, so the encoding -- sRGB for a PNG,
+    // linear for an EXR -- is resolved the way PBRT resolves it.
+    pbrt::MIPMapFilterOptions options;
+    options.filter = pbrt::FilterFunction::Bilinear;
+    pbrt::WrapMode wrap = pbrt::WrapMode::Repeat;
+    if (t.wrap == bonsai_scene::WrapMode::Clamp) {
+        wrap = pbrt::WrapMode::Clamp;
+    } else if (t.wrap == bonsai_scene::WrapMode::Black) {
+        wrap = pbrt::WrapMode::Black;
+    }
+    pbrt::MIPMap *mip = pbrt::MIPMap::CreateFromFile(
+        filename, options, wrap, pbrt::ColorEncoding::sRGB, pbrt::Allocator());
+    if (mip == nullptr) {
+        fail("cannot read the texture image " + filename);
+    }
+
+    t.first_level = uint32_t(g_scene->texture_levels.size());
+    t.n_levels = uint32_t(mip->Levels());
+    for (int l = 0; l < mip->Levels(); l++) {
+        const pbrt::Image &img = mip->GetLevel(l);
+        const pbrt::Point2i res = img.Resolution();
+        bonsai_scene::TextureLevel level;
+        level.width = uint32_t(res.x);
+        level.height = uint32_t(res.y);
+        // Counted in texels, not in floats: the renderer reads this pool as
+        // an array of three-vectors.
+        level.first_texel = uint32_t(g_scene->texture_texels.size() / 3);
+        g_scene->texture_levels.push_back(level);
+        // Three channels, whatever the image brought. PBRT's `Texel<RGB>`
+        // widens a one-channel image to grey at lookup time; doing it here
+        // instead means the renderer has one case and not two, and it is the
+        // same number.
+        const int nc = img.NChannels();
+        for (int y = 0; y < res.y; y++) {
+            for (int x = 0; x < res.x; x++) {
+                const pbrt::Point2i px(x, y);
+                if (nc == 1) {
+                    const float v = float(img.GetChannel(px, 0));
+                    g_scene->texture_texels.push_back(v);
+                    g_scene->texture_texels.push_back(v);
+                    g_scene->texture_texels.push_back(v);
+                } else {
+                    for (int c = 0; c < 3; c++) {
+                        g_scene->texture_texels.push_back(
+                            float(img.GetChannel(px, c)));
+                    }
+                }
+            }
+        }
+    }
+
+    // The first texture pulls in the RGB-to-spectrum table, since it is what
+    // makes a filtered RGB into a spectrum and nothing else needs it.
+    if (g_scene->rgb_table.empty()) {
+        g_scene->rgb_table.reserve(64 + 3 * 64 * 64 * 64 * 3);
+        for (int i = 0; i < 64; i++) {
+            g_scene->rgb_table.push_back(
+                pbrt::sRGBToSpectrumTable_Scale[i]);
+        }
+        const float *data =
+            reinterpret_cast<const float *>(pbrt::sRGBToSpectrumTable_Data);
+        for (size_t i = 0; i < size_t(3) * 64 * 64 * 64 * 3; i++) {
+            g_scene->rgb_table.push_back(data[i]);
+        }
+    }
+
+    const int32_t index = int32_t(g_scene->textures.size());
+    g_scene->textures.push_back(t);
+    g_texture_index.emplace(name, index);
+    return index;
+}
+
 // The material a shape was declared under, in the form the renderer reads.
 //
 // The defaults are PBRT's own, from DiffuseMaterial::Create and
@@ -447,7 +773,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
 
     if (m.name == "diffuse") {
         out.tag = bonsai_scene::MaterialTag::Diffuse;
-        material_rgb(m, "reflectance", out.reflectance);
+        out.reflectance_texture =
+            material_rgb_or_texture(m, "reflectance", out.reflectance);
         return out;
     }
 
@@ -484,7 +811,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
 
     if (m.name == "coateddiffuse") {
         out.tag = bonsai_scene::MaterialTag::CoatedDiffuse;
-        material_rgb(m, "reflectance", out.reflectance);
+        out.reflectance_texture =
+            material_rgb_or_texture(m, "reflectance", out.reflectance);
         // PBRT takes `uroughness` and `vroughness` where they are given and
         // falls back to `roughness` for each independently, which is not the
         // same as falling back to `roughness` only when neither is given.
@@ -1737,6 +2065,19 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     const std::vector<std::string> filenames = {filename};
     pbrt::ParseFiles(&builder, filenames);
 
+    // What `convert_texture` needs: where the images are, and where to put the
+    // pyramids it builds. A texture's filename is relative to the scene file,
+    // as every other path in a .pbrt is.
+    g_builder = &builder;
+    g_scene = &out;
+    g_texture_index.clear();
+    {
+        const std::string path(filename);
+        const size_t slash = path.find_last_of('/');
+        g_scene_dir = (slash == std::string::npos) ? std::string(".")
+                                                   : path.substr(0, slash);
+    }
+
 
     if (builder.camera_name != "perspective") {
         fail("only the perspective camera is supported, scene asks for \"" +
@@ -2039,15 +2380,11 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     write_matrix(matrices,
                  scene.GetCamera().GetCameraTransform().CameraFromRender(0.f));
 
-    // A lens would change both the ray and its differentials -- PBRT samples a
-    // point on it and refocuses, and `GenerateRayDifferential` has a whole
-    // second branch for it. `generate_ray` here is the pinhole one and ignores
-    // `p_lens`, so a scene with a lens would render sharp everywhere and look
-    // plausible. Refused rather than approximated.
-    if (builder.camera_params.GetOneFloat("lensradius", 0.f) != 0.f) {
-        fail("`lensradius` is not supported yet: this renderer's camera is a "
-             "pinhole and would silently render the scene in focus everywhere");
-    }
+    // PBRT: ProjectiveCamera's lensRadius and focalDistance, from
+    // PerspectiveCamera::Create. Zero radius is a pinhole and is what almost
+    // every test scene is; a real one usually has a lens.
+    out.lens_radius = builder.camera_params.GetOneFloat("lensradius", 0.f);
+    out.focal_distance = builder.camera_params.GetOneFloat("focaldistance", 1e6f);
 
     // PBRT: PerspectiveCamera's constructor, which derives dxCamera and
     // dyCamera from the same cameraFromRaster written above.

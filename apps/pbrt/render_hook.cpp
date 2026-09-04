@@ -496,6 +496,8 @@ int main(int argc, char **argv) {
     camera.min_pos_differential_y = to_vec3(&loaded.min_differentials[3]);
     camera.min_dir_differential_x = to_vec3(&loaded.min_differentials[6]);
     camera.min_dir_differential_y = to_vec3(&loaded.min_differentials[9]);
+    camera.lens_radius = loaded.lens_radius;
+    camera.focal_distance = loaded.focal_distance;
 
     if (print_differentials) {
         // Chosen to match scene_dump's; a parameterization that is neither
@@ -695,15 +697,52 @@ int main(int argc, char **argv) {
     };
 
     // The scene's materials, with every RGB fitted. Through the generated
+    // The image textures, their levels, and the texels the levels index into.
+    // Laid out exactly as the scene wrote them; the pyramid was built by PBRT.
+    std::vector<ImageTexture> textures;
+    textures.reserve(loaded.textures.size());
+    for (const bonsai_scene::ImageTexture &t : loaded.textures) {
+        ImageTexture tex;
+        tex.su = t.su;
+        tex.sv = t.sv;
+        tex.du = t.du;
+        tex.dv = t.dv;
+        tex.scale = t.scale;
+        tex.invert = t.invert != 0;
+        tex.wrap = t.wrap;
+        tex.first_level = t.first_level;
+        tex.n_levels = t.n_levels;
+        textures.push_back(tex);
+    }
+    std::vector<TextureLevel> texture_levels;
+    texture_levels.reserve(loaded.texture_levels.size());
+    for (const bonsai_scene::TextureLevel &l : loaded.texture_levels) {
+        TextureLevel level;
+        level.width = l.width;
+        level.height = l.height;
+        level.first_texel = l.first_texel;
+        texture_levels.push_back(level);
+    }
+    std::vector<float3> texture_texels;
+    texture_texels.reserve(loaded.texture_texels.size() / 3);
+    for (size_t i = 0; i + 2 < loaded.texture_texels.size(); i += 3) {
+        texture_texels.push_back(float3{loaded.texture_texels[i],
+                                        loaded.texture_texels[i + 1],
+                                        loaded.texture_texels[i + 2]});
+    }
+
     // constructors rather than by setting the tag: which number a variant is
     // belongs to the compiler.
     std::vector<Material> materials;
     materials.reserve(loaded.materials.size());
     for (const bonsai_scene::Material &m : loaded.materials) {
         Material material;
+        Reflectance reflectance;
+        reflectance.albedo = albedo_of(m.reflectance);
+        reflectance.texture = m.reflectance_texture;
         if (m.tag == bonsai_scene::MaterialTag::CoatedDiffuse) {
             CoatedDiffuseMaterial coated;
-            coated.reflectance = albedo_of(m.reflectance);
+            coated.reflectance = reflectance;
             coated.u_roughness = m.u_roughness;
             coated.v_roughness = m.v_roughness;
             coated.remap = m.remap != 0;
@@ -723,7 +762,7 @@ int main(int argc, char **argv) {
             glass.eta = m.eta;
             Material_Dielectric(material, glass);
         } else {
-            Material_Diffuse(material, albedo_of(m.reflectance));
+            Material_Diffuse(material, reflectance);
         }
         materials.push_back(material);
     }
@@ -1114,7 +1153,9 @@ int main(int argc, char **argv) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0, out,
-               albedo, radiance, weights, meshes.data(),
+               albedo, radiance, weights, textures.data(),
+               texture_levels.data(), texture_texels.data(),
+               loaded.rgb_table.data(), meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
                uvs.data(), x, y, z, d65, filter_f.data(),
                filter_cond_cdf.data(), filter_marg_func.data(),

@@ -23,6 +23,9 @@ import apps/pbrt/frame;
 import apps/pbrt/rng;
 import apps/pbrt/sampling;
 import apps/pbrt/spectrum;
+// For a textured reflectance. textures.bonsai knows nothing about materials, so
+// this is not a cycle.
+import apps/pbrt/textures;
 
 // pbrt's constants, as f32. Written out rather than derived: the rounding of
 // each is part of the answer, and `2.0 * pi()` is not `two_pi()`.
@@ -1468,8 +1471,34 @@ func coated_rho(b : CoatedDiffuseBxDF, wo : vec3f, seed : i32,
 // Roughness is the number the scene wrote rather than the microfacet
 // distribution's alpha, because pbrt remaps it per intersection and whether it
 // remaps at all is what `remaproughness` says.
+// A material's reflectance: the constant it was authored with, or an index into
+// `textures` when it was authored as one.
+//
+// pbrt makes every material parameter a texture and a constant a
+// `FloatConstantTexture`, so its `GetBxDF` is uniform and every diffuse surface
+// does a virtual call to find its colour. Here the constant stays a constant
+// and the index is negative when there is none, because a scene of untextured
+// surfaces should not pay for the ones that are.
+element Reflectance {
+    albedo : SigmoidPolynomial;
+    texture : i32 = -1;
+}
+
+// The reflectance at a hit. A textured one is filtered over the footprint the
+// differentials describe and then fitted to a spectrum -- in that order, which
+// is pbrt's: filtering the fit would be a different, nonlinear thing.
+func reflectance_at(r : Reflectance, lambda : SampledWavelengths, uv : vec2f,
+                    dudx : Float, dvdx : Float, dudy : Float,
+                    dvdy : Float) -> vec4f {
+    if r.texture < 0 {
+        return spectrum_at(r.albedo, lambda);
+    }
+    return texture_albedo(textures[cast[[u32]](r.texture)], uv, dudx, dvdx,
+                          dudy, dvdy, lambda);
+}
+
 element CoatedDiffuseMaterial {
-    reflectance : SigmoidPolynomial;
+    reflectance : Reflectance;
     u_roughness, v_roughness : Float;
     remap : bool;
     thickness : Float;
@@ -1503,7 +1532,7 @@ element DielectricMaterial {
 }
 
 element Material =
-    | Diffuse(albedo : SigmoidPolynomial)
+    | Diffuse(albedo : Reflectance)
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
     | Dielectric(g : DielectricMaterial);
 
@@ -1522,7 +1551,8 @@ element Material =
 // the top is touched -- pbrt calls Regularize on both and DiffuseBxDF's is
 // empty.
 func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
-                    regularize : bool) -> CoatedDiffuseBxDF {
+                    regularize : bool, uv : vec2f, dudx : Float, dvdx : Float,
+                    dudy : Float, dvdy : Float) -> CoatedDiffuseBxDF {
     alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness), m.u_roughness);
     alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness), m.v_roughness);
     distrib : mut TrowbridgeReitz = make_trowbridge_reitz(alpha_u, alpha_v);
@@ -1531,7 +1561,8 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
     }
     top : DielectricBxDF = {m.eta, distrib};
     bottom : DiffuseBxDF =
-        {min(max(spectrum_at(m.reflectance, lambda), 0.0), 1.0)};
+        {min(max(reflectance_at(m.reflectance, lambda, uv, dudx, dvdx, dudy,
+                                dvdy), 0.0), 1.0)};
     medium = select(m.has_medium,
                     min(max(spectrum_at(m.medium_albedo, lambda), 0.0), 1.0),
                     vec4f{0.0, 0.0, 0.0, 0.0});
@@ -1573,14 +1604,17 @@ element BxDF =
 // `bsdf.Regularize()` on the value `GetBSDF` returned, once, before asking it
 // anything.
 func material_bxdf(mat : Material, lambda : SampledWavelengths,
-                   regularize : bool) -> BxDF {
+                   regularize : bool, uv : vec2f, dudx : Float, dvdx : Float,
+                   dudy : Float, dvdy : Float) -> BxDF {
     match mat {
         Diffuse(albedo) => {
-            d : DiffuseBxDF = {spectrum_at(albedo, lambda)};
+            d : DiffuseBxDF =
+                {reflectance_at(albedo, lambda, uv, dudx, dvdx, dudy, dvdy)};
             return Lambertian(d);
         }
         CoatedDiffuse(m) =>
-            return Layered(coated_bxdf_at(m, lambda, regularize));
+            return Layered(coated_bxdf_at(m, lambda, regularize, uv, dudx,
+                                          dvdx, dudy, dvdy));
         Dielectric(g) => {
             // pbrt: DielectricMaterial::GetBxDF. The same three lines the
             // coating of a layered material gets, which is the same class.

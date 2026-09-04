@@ -1,0 +1,256 @@
+// pbrt: ImageTexture and the MIPMap under it, from textures.h and
+// util/mipmap.cpp.
+//
+// The pyramid is built by pbrt in scene_dump, with pbrt's own resampling
+// filter, and arrives here as levels of linear RGB. What is left is the part
+// that runs per lookup: pick a level from how wide the footprint is, bilerp in
+// it, and turn the filtered colour into a spectrum.
+//
+// The default filter is `bilinear` and not EWA -- that is
+// `SpectrumImageTexture::Create`'s default, so a scene that names no filter
+// gets this path -- which is why there is one level chosen and not two blended.
+import stdlib/numerics;
+// For `floor_f`, which is pbrt's `pstd::floor` and rounds towards minus
+// infinity where a cast towards zero would not.
+import apps/pbrt/sampling;
+import apps/pbrt/spectrum;
+
+// pbrt: Lerp and Log2, with pbrt's own constant for the second -- it computes
+// a natural log and multiplies, which is not the same last bit as a log2
+// intrinsic would give.
+func lerp_(t : Float, a : Float, b : Float) -> Float = (1.0 - t) * a + t * b;
+func log2_(x : Float) -> Float =
+    log(x) * 1.442695040888963387004650940071;
+
+// pbrt: WrapMode, for a lookup that falls off the edge of the image.
+func wrap_repeat() -> u32 = 0u;
+func wrap_clamp() -> u32 = 1u;
+func wrap_black() -> u32 = 2u;
+
+// One level of a pyramid: where its texels start and how they are shaped.
+element TextureLevel {
+    width : u32;
+    height : u32;
+    first_texel : u32;
+}
+
+// pbrt: ImageTexture, as the lookup needs it.
+element ImageTexture {
+    // pbrt: UVMapping, `st = (su * u + du, sv * v + dv)`.
+    su, sv, du, dv : Float;
+    scale : Float;
+    invert : bool;
+    wrap : u32;
+    first_level : u32;
+    n_levels : u32;
+}
+
+extern textures : array[ImageTexture];
+extern texture_levels : array[TextureLevel];
+extern texture_texels : array[vec3f];
+// pbrt's RGBToSpectrumTable for sRGB: 64 z nodes then the coefficients.
+extern rgb_table : array[Float];
+
+// pbrt: RemapPixelCoords, for the two wrap modes an image texture uses.
+//
+// `Black` is not a coordinate but a decision not to read, so it is handled by
+// the caller -- this answers where to read and whether there is anywhere.
+element TexelAt {
+    x : i32;
+    y : i32;
+    inside : bool;
+}
+
+func remap_texel(x : i32, y : i32, w : i32, h : i32, wrap : u32) -> TexelAt {
+    if wrap == wrap_black() {
+        inside = (x >= 0) && (x < w) && (y >= 0) && (y < h);
+        return TexelAt{x, y, inside};
+    }
+    if wrap == wrap_clamp() {
+        return TexelAt{min(max(x, 0), w - 1), min(max(y, 0), h - 1), true};
+    }
+    // pbrt: `Mod(p[c], resolution[c])`, which is the mathematical modulus and
+    // not C's remainder -- a negative coordinate has to wrap to the far edge
+    // rather than to a negative one.
+    mx = x % w;
+    my = y % h;
+    return TexelAt{select(mx < 0, mx + w, mx), select(my < 0, my + h, my),
+                   true};
+}
+
+// pbrt: Image::GetChannel with a wrap mode, widened to RGB. A one-channel
+// image was widened to three on the way in, so there is one case here.
+func level_texel(level : TextureLevel, x : i32, y : i32,
+                 wrap : u32) -> vec3f {
+    at = remap_texel(x, y, cast[[i32]](level.width),
+                     cast[[i32]](level.height), wrap);
+    if !at.inside {
+        return vec3f{0.0, 0.0, 0.0};
+    }
+    return texture_texels[level.first_texel +
+                          cast[[u32]](at.y) * level.width +
+                          cast[[u32]](at.x)];
+}
+
+// pbrt: Image::BilerpChannel, for all three channels at once.
+func texture_bilerp(level : TextureLevel, st : vec2f, wrap : u32) -> vec3f {
+    x = st.x * cast[[Float]](level.width) - 0.5;
+    y = st.y * cast[[Float]](level.height) - 0.5;
+    xi = cast[[i32]](floor_f(x));
+    yi = cast[[i32]](floor_f(y));
+    dx = x - cast[[Float]](xi);
+    dy = y - cast[[Float]](yi);
+    v00 = level_texel(level, xi, yi, wrap);
+    v10 = level_texel(level, xi + 1, yi, wrap);
+    v01 = level_texel(level, xi, yi + 1, wrap);
+    v11 = level_texel(level, xi + 1, yi + 1, wrap);
+    return (1.0 - dx) * (1.0 - dy) * v00 + dx * (1.0 - dy) * v10 +
+           (1.0 - dx) * dy * v01 + dx * dy * v11;
+}
+
+// pbrt: MIPMap::Filter, the non-EWA branch with a bilinear filter.
+//
+// The level comes from the footprint: `nLevels - 1 + log2(width)`, so a
+// footprint of one texel at the finest level lands on level 0 and each doubling
+// climbs one. A footprint wider than the whole image lands past the top of the
+// pyramid, where the answer is the single texel the top level has.
+func texture_filter(t : ImageTexture, st : vec2f, dstdx : vec2f,
+                    dstdy : vec2f) -> vec3f {
+    width = 2.0 * max(max(abs(dstdx.x), abs(dstdx.y)),
+                      max(abs(dstdy.x), abs(dstdy.y)));
+    n_levels = cast[[Float]](t.n_levels);
+    level = n_levels - 1.0 + log2_(max(width, 1e-8));
+    if level >= n_levels - 1.0 {
+        top = texture_levels[t.first_level + t.n_levels - 1u];
+        return level_texel(top, 0, 0, t.wrap);
+    }
+    i_level = cast[[u32]](max(0.0, floor_f(level)));
+    return texture_bilerp(texture_levels[t.first_level + i_level], st, t.wrap);
+}
+
+// The filtered RGB, before it is made into a spectrum: pbrt's
+// `scale * mipmap->Filter(...)`, clamped at zero, and inverted where the
+// texture says so.
+//
+// `t` is flipped first. pbrt's comment says why: texture coordinates put (0,0)
+// at the lower left and image coordinates put it at the upper left.
+func texture_rgb(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
+                 dudy : Float, dvdy : Float) -> vec3f {
+    st_raw = vec2f{t.su * uv.x + t.du, t.sv * uv.y + t.dv};
+    st = vec2f{st_raw.x, 1.0 - st_raw.y};
+    dstdx = vec2f{t.su * dudx, t.sv * dvdx};
+    dstdy = vec2f{t.su * dudy, t.sv * dvdy};
+    rgb = t.scale * texture_filter(t, st, dstdx, dstdy);
+    inverted = select(t.invert, vec3f{1.0, 1.0, 1.0} - rgb, rgb);
+    // pbrt: ClampZero, componentwise.
+    return vec3f{max(inverted.x, 0.0), max(inverted.y, 0.0),
+                 max(inverted.z, 0.0)};
+}
+
+// pbrt: FloatImageTexture::Evaluate, which is the same lookup taking channel 0.
+func texture_float(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
+                   dudy : Float, dvdy : Float) -> Float {
+    st_raw = vec2f{t.su * uv.x + t.du, t.sv * uv.y + t.dv};
+    st = vec2f{st_raw.x, 1.0 - st_raw.y};
+    dstdx = vec2f{t.su * dudx, t.sv * dvdx};
+    dstdy = vec2f{t.su * dudy, t.sv * dvdy};
+    v = t.scale * texture_filter(t, st, dstdx, dstdy).x;
+    // A float texture clamps only when inverted; pbrt's spectrum one clamps
+    // always. Written the way each is written.
+    return select(t.invert, max(0.0, 1.0 - v), v);
+}
+
+// pbrt: RGBToSpectrumTable::operator(), the trilinear interpolation that turns
+// an RGB into the three coefficients of a sigmoid polynomial.
+//
+// The table is indexed by which component is largest, then by the other two
+// divided by it, then by the largest itself through a non-uniform set of z
+// nodes -- a parameterization that spreads the table's resolution where colours
+// actually are rather than uniformly over the cube.
+// One coefficient of the table, trilinearly interpolated from the eight corners
+// around (xi, yi, zi).
+//
+// A function rather than a lambda inside `rgb_to_sigmoid` because a lambda that
+// captures this many values *and* reads an extern array is more than the extern
+// lowering can thread through today.
+//
+// The strides are the table's shape written out: three coefficients per entry,
+// `res` entries per row, `res` rows per slice.
+func rgb_coeff(base : u32, k : u32, dx : Float, dy : Float,
+               dz : Float) -> Float {
+    sx = 3u;         // one step in x
+    sy = 64u * 3u;   // one step in y
+    sz = 64u * 64u * 3u; // one step in z
+    return lerp_(dz,
+                 lerp_(dy,
+                       lerp_(dx, rgb_table[base + k],
+                             rgb_table[base + sx + k]),
+                       lerp_(dx, rgb_table[base + sy + k],
+                             rgb_table[base + sy + sx + k])),
+                 lerp_(dy,
+                       lerp_(dx, rgb_table[base + sz + k],
+                             rgb_table[base + sz + sx + k]),
+                       lerp_(dx, rgb_table[base + sz + sy + k],
+                             rgb_table[base + sz + sy + sx + k])));
+}
+
+func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
+    res = 64u;
+    rgb = clamp(rgb_in, 0.0, 1.0);
+
+    // A grey has no largest component and the fit is exact, so pbrt answers it
+    // directly rather than interpolating.
+    if (rgb.x == rgb.y) && (rgb.y == rgb.z) {
+        s = select(rgb.x * (1.0 - rgb.x) <= 0.0, 0.0,
+                   (rgb.x - 0.5) / sqrt(rgb.x * (1.0 - rgb.x)));
+        return SigmoidPolynomial{0.0, 0.0, s};
+    }
+
+    maxc : mut u32 = 2u;
+    if rgb.x > rgb.y {
+        maxc = select(rgb.x > rgb.z, 0u, 2u);
+    } else {
+        maxc = select(rgb.y > rgb.z, 1u, 2u);
+    }
+    z = select(maxc == 0u, rgb.x, select(maxc == 1u, rgb.y, rgb.z));
+    // `(maxc + 1) % 3` and `(maxc + 2) % 3`, written out.
+    c1 = select(maxc == 0u, rgb.y, select(maxc == 1u, rgb.z, rgb.x));
+    c2 = select(maxc == 0u, rgb.z, select(maxc == 1u, rgb.x, rgb.y));
+    scale = cast[[Float]](res - 1u) / z;
+    x = c1 * scale;
+    y = c2 * scale;
+
+    xi = min(cast[[u32]](x), res - 2u);
+    yi = min(cast[[u32]](y), res - 2u);
+    // pbrt: `FindInterval(res, [&](int i) { return zNodes[i] < z; })`, the last
+    // index whose node is still below z, clamped to leave room for zi + 1.
+    zi : mut u32 = 0u;
+    i : mut u32 = 1u;
+    while i < res - 1u {
+        zi = select(rgb_table[i] < z, i, zi);
+        i = i + 1u;
+    }
+
+    dx = x - cast[[Float]](xi);
+    dy = y - cast[[Float]](yi);
+    z0 = rgb_table[zi];
+    z1 = rgb_table[zi + 1u];
+    dz = (z - z0) / (z1 - z0);
+
+    // The coefficients start after the 64 z nodes, laid out as
+    // [maxc][zi][yi][xi][coefficient].
+    base = 64u + ((maxc * res + zi) * res + yi) * res * 3u + xi * 3u;
+
+    return SigmoidPolynomial{rgb_coeff(base, 0u, dx, dy, dz),
+                             rgb_coeff(base, 1u, dx, dy, dz),
+                             rgb_coeff(base, 2u, dx, dy, dz)};
+}
+
+// pbrt: `RGBAlbedoSpectrum(cs, Clamp(rgb, 0, 1)).Sample(lambda)`, which is what
+// a `SpectrumType::Albedo` image texture -- a reflectance -- becomes.
+func texture_albedo(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
+                    dudy : Float, dvdy : Float,
+                    lambda : SampledWavelengths) -> vec4f {
+    rgb = texture_rgb(t, uv, dudx, dvdx, dudy, dvdy);
+    return spectrum_at(rgb_to_sigmoid(rgb), lambda);
+}

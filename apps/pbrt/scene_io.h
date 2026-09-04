@@ -62,9 +62,64 @@ enum IntegratorTag : uint32_t {
 //
 // The defaults are PBRT's own, from CoatedDiffuseMaterial::Create, so a
 // material that names nothing arrives as the one PBRT would have built.
+// PBRT's WrapMode, for what a texture lookup does off the edge of its image.
+namespace WrapMode {
+enum : uint32_t { Repeat = 0, Clamp = 1, Black = 2, OctahedralSphere = 3 };
+}
+
+// One level of one texture's MIP pyramid, as a run of `texture_texels`.
+//
+// Three floats per texel, linear, in the image's own colour space. Already
+// decoded: a PNG is sRGB-encoded and an EXR is not, and the difference is
+// resolved on the way in by PBRT's own image reader rather than carried here
+// for the renderer to have an opinion about.
+struct TextureLevel {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    // Counted in texels and not in floats, since the renderer reads
+    // `texture_texels` as an array of three-vectors. Getting that wrong reads
+    // three times past the end of the pool, which on a small texture is still
+    // mapped memory and so shows up as an occasional segfault rather than as a
+    // wrong picture.
+    uint32_t first_texel = 0;
+};
+
+// PBRT's ImageTexture, as its MIP pyramid plus what the lookup needs.
+//
+// The pyramid is built by PBRT's own `MIPMap`, with PBRT's own resampling
+// filter, and shipped level by level -- the same division of labour as the
+// spectral fits and the BVH. What is left for the renderer is choosing a level
+// from the footprint and bilerping in it, which is the part that runs per
+// lookup and the part worth transcribing.
+struct ImageTexture {
+    // PBRT's UVMapping: `st = (su * u + du, sv * v + dv)`.
+    float su = 1.f;
+    float sv = 1.f;
+    float du = 0.f;
+    float dv = 0.f;
+    // PBRT's `scale` and `invert`, applied to the filtered RGB. A `scale`
+    // texture over an image one folds into this, since PBRT's ImageTexture
+    // already has a scale of its own and multiplying them is the same thing --
+    // but only when the scale is a constant, and a scale by another *texture*
+    // is refused rather than flattened.
+    float scale = 1.f;
+    uint32_t invert = 0;
+    uint32_t wrap = WrapMode::Repeat;
+    // The pyramid, as a run of `texture_levels`, coarsest last.
+    uint32_t first_level = 0;
+    uint32_t n_levels = 0;
+};
+
 struct Material {
     uint32_t tag = MaterialTag::Diffuse;
     float reflectance[3] = {0.5f, 0.5f, 0.5f};
+    // An index into `textures` when the reflectance is a texture rather than
+    // the constant above, and -1 when it is not. PBRT's material parameters are
+    // all textures and a constant is a `FloatConstantTexture`; here the
+    // constant is the common case and stays a constant, because making every
+    // diffuse surface do a texture lookup to find out it has none would cost
+    // more than the uniformity is worth.
+    int32_t reflectance_texture = -1;
     // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
     // remaps per intersection and `remaproughness` says whether it does at all.
     float u_roughness = 0.f;
@@ -297,6 +352,11 @@ struct Scene {
     // no longer carries differentials of its own, which after the first
     // non-specular bounce is every hit.
     float min_differentials[12] = {};
+    // PBRT: ProjectiveCamera's lensRadius and focalDistance. Zero radius is a
+    // pinhole, which is what every scene in `scenes/` is and what most real
+    // ones are not.
+    float lens_radius = 0.f;
+    float focal_distance = 1e6f;
     std::vector<Material> materials;
     // The meshes, and the pools their runs live in. Three floats per position
     // and normal, two per texture coordinate.
@@ -312,6 +372,26 @@ struct Scene {
     // rather than into it: a 2048x2048 map is twelve million numbers, and the
     // scene file is text.
     std::vector<float> env_texels;
+    // The image textures, their pyramid levels, and every level's texels laid
+    // end to end. The texels go in the sidecar beside the environment maps and
+    // for the same reason: a 2048x2048 pyramid is seventeen million numbers.
+    std::vector<ImageTexture> textures;
+    std::vector<TextureLevel> texture_levels;
+    std::vector<float> texture_texels;
+    // PBRT's `RGBToSpectrumTable` for the sRGB colour space: the 64 z nodes
+    // followed by 3 * 64 * 64 * 64 * 3 coefficients, laid out as PBRT lays them
+    // out. Empty when the scene has no textures.
+    //
+    // Carried rather than fitted. A constant reflectance is fitted once in
+    // scene_dump by a Gauss-Newton solve, which is fine for a handful of
+    // materials and hopeless per texture lookup -- and PBRT does not solve
+    // there either, it interpolates this table. So the table is what ships, and
+    // the renderer does the same trilinear lookup PBRT does.
+    //
+    // It has to happen per lookup, and not per texel in advance: PBRT filters
+    // in RGB and fits the *filtered* colour, and fitting each texel and
+    // interpolating the coefficients is a different, nonlinear thing.
+    std::vector<float> rgb_table;
     // PBRT's `sceneRadius`, from `Light::Preprocess` -- the radius of the
     // scene's bounding sphere. An infinite light has no geometry, so a shadow
     // ray aimed at one needs somewhere to stop, and PBRT puts that two radii
@@ -353,6 +433,10 @@ inline std::string env_path(const char *scene_path) {
     return std::string(scene_path) + ".env";
 }
 
+inline std::string texel_path(const char *scene_path) {
+    return std::string(scene_path) + ".tex";
+}
+
 inline bool write(const char *path, const Scene &scene) {
     if (!scene.env_texels.empty()) {
         std::ofstream env(env_path(path), std::ios::binary);
@@ -362,6 +446,22 @@ inline bool write(const char *path, const Scene &scene) {
         env.write(reinterpret_cast<const char *>(scene.env_texels.data()),
                   std::streamsize(sizeof(float) * scene.env_texels.size()));
         if (!env) {
+            return false;
+        }
+    }
+    if (!scene.texture_texels.empty() || !scene.rgb_table.empty()) {
+        std::ofstream tex(texel_path(path), std::ios::binary);
+        if (!tex) {
+            return false;
+        }
+        // The table first, so a reader can take it without knowing how many
+        // texels follow.
+        tex.write(reinterpret_cast<const char *>(scene.rgb_table.data()),
+                  std::streamsize(sizeof(float) * scene.rgb_table.size()));
+        tex.write(
+            reinterpret_cast<const char *>(scene.texture_texels.data()),
+            std::streamsize(sizeof(float) * scene.texture_texels.size()));
+        if (!tex) {
             return false;
         }
     }
@@ -409,7 +509,31 @@ inline bool write(const char *path, const Scene &scene) {
     detail::put(out, scene.d_camera, 6);
     out << "\nmin_differentials";
     detail::put(out, scene.min_differentials, 12);
+    out << "\nlens";
+    detail::put(out, &scene.lens_radius, 1);
+    detail::put(out, &scene.focal_distance, 1);
     out << '\n';
+
+    // Before the materials, because a material names one by index.
+    out << "textures " << scene.textures.size() << '\n';
+    for (const ImageTexture &t : scene.textures) {
+        out << "  uv";
+        detail::put(out, &t.su, 1);
+        detail::put(out, &t.sv, 1);
+        detail::put(out, &t.du, 1);
+        detail::put(out, &t.dv, 1);
+        out << " scale";
+        detail::put(out, &t.scale, 1);
+        out << " invert " << t.invert << " wrap " << t.wrap << " levels "
+            << t.first_level << ' ' << t.n_levels << '\n';
+    }
+    out << "texturelevels " << scene.texture_levels.size() << '\n';
+    for (const TextureLevel &l : scene.texture_levels) {
+        out << "  " << l.width << ' ' << l.height << ' ' << l.first_texel
+            << '\n';
+    }
+    out << "rgbtable " << scene.rgb_table.size() << '\n';
+    out << "texturetexels " << scene.texture_texels.size() << '\n';
 
     out << "materials " << scene.materials.size() << '\n';
     for (const Material &m : scene.materials) {
@@ -435,6 +559,7 @@ inline bool write(const char *path, const Scene &scene) {
         }
         out << " reflectance";
         detail::put(out, m.reflectance, 3);
+        out << " reflectancetex " << m.reflectance_texture;
         if (m.tag == MaterialTag::Dielectric) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
@@ -648,6 +773,11 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     floats(scene.min_differentials, 12);
+    if (!(in >> word) || word != "lens") {
+        return false;
+    }
+    floats(&scene.lens_radius, 1);
+    floats(&scene.focal_distance, 1);
 
     // A labelled field, checked as it is read. The labels are what makes a
     // stale file fail here rather than three fields later with plausible
@@ -657,6 +787,85 @@ inline bool read(const char *path, Scene &scene) {
     };
 
     size_t count = 0;
+    if (!(in >> word) || word != "textures") {
+        return false;
+    }
+    in >> count;
+    scene.textures.clear();
+    for (size_t i = 0; i < count; i++) {
+        ImageTexture t;
+        if (!tagged("uv")) {
+            return false;
+        }
+        floats(&t.su, 1);
+        floats(&t.sv, 1);
+        floats(&t.du, 1);
+        floats(&t.dv, 1);
+        if (!tagged("scale")) {
+            return false;
+        }
+        floats(&t.scale, 1);
+        if (!tagged("invert")) {
+            return false;
+        }
+        in >> t.invert;
+        if (!tagged("wrap")) {
+            return false;
+        }
+        in >> t.wrap;
+        if (!tagged("levels")) {
+            return false;
+        }
+        in >> t.first_level >> t.n_levels;
+        scene.textures.push_back(t);
+    }
+
+    if (!(in >> word) || word != "texturelevels") {
+        return false;
+    }
+    in >> count;
+    scene.texture_levels.clear();
+    for (size_t i = 0; i < count; i++) {
+        TextureLevel l;
+        in >> l.width >> l.height >> l.first_texel;
+        scene.texture_levels.push_back(l);
+    }
+
+    if (!(in >> word) || word != "rgbtable") {
+        return false;
+    }
+    size_t table_size = 0;
+    in >> table_size;
+
+    if (!(in >> word) || word != "texturetexels") {
+        return false;
+    }
+    {
+        size_t texels = 0;
+        in >> texels;
+        scene.rgb_table.clear();
+        scene.texture_texels.clear();
+        if (table_size > 0 || texels > 0) {
+            std::ifstream tex(texel_path(path), std::ios::binary);
+            if (!tex) {
+                return false;
+            }
+            scene.rgb_table.resize(table_size);
+            tex.read(reinterpret_cast<char *>(scene.rgb_table.data()),
+                     std::streamsize(sizeof(float) * table_size));
+            if (tex.gcount() != std::streamsize(sizeof(float) * table_size)) {
+                return false;
+            }
+            scene.texture_texels.resize(texels);
+            tex.read(reinterpret_cast<char *>(scene.texture_texels.data()),
+                     std::streamsize(sizeof(float) * texels));
+            if (tex.gcount() !=
+                std::streamsize(sizeof(float) * texels)) {
+                return false;
+            }
+        }
+    }
+
     if (!(in >> word) || word != "materials") {
         return false;
     }
@@ -680,6 +889,10 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         floats(m.reflectance, 3);
+        if (!tagged("reflectancetex")) {
+            return false;
+        }
+        in >> m.reflectance_texture;
         if (m.tag == MaterialTag::Dielectric) {
             if (!tagged("roughness")) {
                 return false;
