@@ -613,8 +613,11 @@ Then `dpdx, dpdy` become `dudx …` by solving the least-squares fit against
 Two smaller things go with it. The camera has to generate differentials at all
 (`rxDirection = Normalize(pCamera + dxCamera)`, with `dxCamera` a constant of
 the camera), and `RenderCPU` scales them by `max(0.125, 1/sqrt(spp))` before
-tracing -- **which `render_reference` does not currently do**, so the harness
-has that to fix as well.
+tracing. That second one used to be written here as something the harness owed,
+back when `render_reference` was the thing being compared against; the harness
+is the `pbrt` binary now and does it itself, so it is simply a step this
+renderer has to have, in the same place pbrt has it -- between generating the
+camera ray and tracing it.
 
 **Then the texture itself**, and the good news is that most of it is setup. The
 default filter is `bilinear` over a MIP pyramid, not EWA, so a lookup is: pick
