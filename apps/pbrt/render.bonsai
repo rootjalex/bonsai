@@ -1346,37 +1346,32 @@ schedule {
         };
     };
 
-    // pbrt's `if (dirIsNeg[node->axis])` -- descend into whichever child the
-    // ray reaches first -- is one line away, and is off because it measured
-    // slower here:
+    // pbrt: `if (dirIsNeg[node->axis])`, which is the whole of how
+    // BVHAggregate::Intersect decides which child to descend into first.
     //
-    //     trace.sort(primitives.Interior,
-    //                |i : u8, r : Ray, axis : u8|
-    //                select(r.d[axis] < 0.0,
-    //                       1.0 - cast[[Float]](i), cast[[Float]](i)))
-    //          .loopify(64);
+    //     int axis = node->axis;
+    //     if (dirIsNeg[axis]) { visit the second child first }
     //
-    // killeroo-simple, best of three, against the same pbrt run: 15.35 s
-    // without it and 16.50 s with it. Every pixel identical either way, which
-    // is the point -- an `argmin` over a set does not depend on the order the
-    // set is visited in, so this is a schedule and not a change of program.
+    // and `dirIsNeg[i]` is `invDir[i] < 0` for `invDir = 1 / ray.d`, which is
+    // what the key spells out. The reciprocal is kept even though `d[axis] < 0`
+    // decides the same way everywhere except a component of exactly -0: this
+    // renderer's job is to compute what pbrt computes, and where the two differ
+    // it should differ for a reason better than a divide.
     //
-    // The ordering does work. Inverting the key costs another 1.7 s, so
-    // front-to-back is genuinely finding the near child; it just does not pay
-    // for itself here. What it is up against is the layout: `left = index + 1`,
-    // so always descending left first walks the node array forwards, and on a
-    // 66k-triangle BVH that streams. Sorting jumps to `index + offset` about
-    // half the time and gives that up, and the primitive tests it saves do not
-    // cover it. A scene whose BVH does not fit in cache should come out the
-    // other way, and the ones here that would show it -- ganesha, crown --
-    // still need mesh area lights and `volpath`.
+    // Visiting the near child first is what makes the running best distance
+    // tighten early, so every subtree whose nearest point is already further
+    // than that is skipped. It changes no answer -- an `argmin` over a set does
+    // not depend on the order the set is visited in -- so it belongs here and
+    // not in `trace`, which says only which primitive is nearest.
     //
-    // The key is `d[axis] < 0` rather than pbrt's `(1 / d)[axis] < 0` because
-    // the reciprocal cannot be hoisted: `axis` is a field of the node, so the
-    // expression scalarizes to an extract and then a divide, once per interior
-    // node on the critical path. The two disagree only for a direction whose
-    // component is exactly -0, and only about which child to look at first.
-    trace.loopify(64);
+    // The key is the child index, flipped when the ray runs backwards along the
+    // axis the node was split on. `axis` is a field of the Interior arm and was
+    // carried by the layout from the beginning without anything reading it.
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
     // The occlusion test gets its own stack, and it is the same 64 pbrt's
     // IntersectP uses.
     trace_any.loopify(64);
