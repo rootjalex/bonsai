@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,42 @@ enum MaterialTag : uint32_t {
     // *complex* index, whose imaginary part is the absorption that makes a
     // metal a metal and whose variation with wavelength is its colour.
     Conductor = 3,
+    // A measured BRDF: no model at all, just a table of what the surface was
+    // observed to do, in Dupuy and Jakob's parameterization.
+    Measured = 4,
+};
+
+// One of PBRT's PiecewiseLinear2D interpolants, as the renderer reads it.
+//
+// The arrays live in the shared pools below; this is where each one's run
+// starts and how it is shaped. `dim` is how many parameters the distribution
+// depends on besides its own two axes -- zero for the NDF and the projected
+// area, two (incoming direction) for the VNDF and the luminance, three
+// (incoming direction and wavelength) for the spectra.
+struct PL2DHeader {
+    uint32_t size_x = 0;
+    uint32_t size_y = 0;
+    uint32_t dim = 0;
+    // Per parameter dimension, outermost first. Unused entries are zero.
+    uint32_t param_size[3] = {0, 0, 0};
+    uint32_t param_stride[3] = {0, 0, 0};
+    uint32_t first_param[3] = {0, 0, 0};
+    uint32_t first_data = 0;
+    uint32_t first_marginal = 0;
+    uint32_t first_conditional = 0;
+    // Whether the CDFs were built. The NDF and the projected area are only
+    // ever evaluated, never sampled, so PBRT does not build theirs.
+    uint32_t has_cdf = 0;
+};
+
+// One measured BRDF: the five interpolants PBRT's MeasuredBxDFData holds.
+struct MeasuredBRDF {
+    uint32_t ndf = 0;
+    uint32_t sigma = 0;
+    uint32_t vndf = 0;
+    uint32_t luminance = 0;
+    uint32_t spectra = 0;
+    uint32_t isotropic = 0;
 };
 
 // How finely a conductor's index of refraction is resampled, and how many
@@ -146,6 +183,8 @@ struct Material {
     // Conductor only: which pair of `conductor_eta` / `conductor_k` tables this
     // material's index of refraction is.
     int32_t conductor_spectra = -1;
+    // Measured only: which entry of `measured_brdfs`.
+    int32_t measured = -1;
     // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
     // remaps per intersection and `remaproughness` says whether it does at all.
     float u_roughness = 0.f;
@@ -264,6 +303,10 @@ struct Shape {
     // rather than per material because `AreaLightSource` is a graphics-state
     // directive like `Material` and the two are set independently.
     int32_t light = -1;
+    // PBRT's GeometricPrimitive alpha texture, or -1 where the shape has none.
+    // A cutout: the texture says how much of the surface is really there, which
+    // is what makes a tree leaf leaf-shaped rather than a quad.
+    int32_t alpha = -1;
 };
 
 // One BVH node, in PBRT's LinearBVHNode shape.
@@ -383,6 +426,14 @@ struct Scene {
     // ones are not.
     float lens_radius = 0.f;
     float focal_distance = 1e6f;
+    // PBRT: PixelSensor's `exposureTime * ISO / 100`, which scales the recorded
+    // radiance. One at PBRT's defaults, which is why every scene here had it
+    // until one set `"float iso"`.
+    float imaging_ratio = 1.f;
+    // PBRT: RGBFilm's `maxcomponentvalue`, which clamps each *sample*'s sensor
+    // RGB before it is accumulated -- a firefly suppressor. Infinite unless the
+    // scene names one.
+    float max_component_value = std::numeric_limits<float>::infinity();
     std::vector<Material> materials;
     // The meshes, and the pools their runs live in. Three floats per position
     // and normal, two per texture coordinate.
@@ -428,6 +479,15 @@ struct Scene {
     // knots. scene_dump measures that residual and prints it.
     std::vector<float> conductor_eta;
     std::vector<float> conductor_k;
+    // The measured BRDFs, their interpolants, and the four pools those index
+    // into. The pools go in the `.tex` sidecar with the texture texels: one
+    // `.bsdf` file is seven megabytes and the scene file is text.
+    std::vector<MeasuredBRDF> measured_brdfs;
+    std::vector<PL2DHeader> pl2d;
+    std::vector<float> pl_data;
+    std::vector<float> pl_marginal;
+    std::vector<float> pl_conditional;
+    std::vector<float> pl_params;
     // PBRT's `sceneRadius`, from `Light::Preprocess` -- the radius of the
     // scene's bounding sphere. An infinite light has no geometry, so a shadow
     // ray aimed at one needs somewhere to stop, and PBRT puts that two radii
@@ -473,6 +533,10 @@ inline std::string texel_path(const char *scene_path) {
     return std::string(scene_path) + ".tex";
 }
 
+inline std::string pl_path(const char *scene_path) {
+    return std::string(scene_path) + ".pl";
+}
+
 inline bool write(const char *path, const Scene &scene) {
     if (!scene.env_texels.empty()) {
         std::ofstream env(env_path(path), std::ios::binary);
@@ -498,6 +562,23 @@ inline bool write(const char *path, const Scene &scene) {
             reinterpret_cast<const char *>(scene.texture_texels.data()),
             std::streamsize(sizeof(float) * scene.texture_texels.size()));
         if (!tex) {
+            return false;
+        }
+    }
+    if (!scene.pl_data.empty()) {
+        std::ofstream pl(pl_path(path), std::ios::binary);
+        if (!pl) {
+            return false;
+        }
+        const auto put_pool = [&](const std::vector<float> &v) {
+            pl.write(reinterpret_cast<const char *>(v.data()),
+                     std::streamsize(sizeof(float) * v.size()));
+        };
+        put_pool(scene.pl_data);
+        put_pool(scene.pl_marginal);
+        put_pool(scene.pl_conditional);
+        put_pool(scene.pl_params);
+        if (!pl) {
             return false;
         }
     }
@@ -548,6 +629,18 @@ inline bool write(const char *path, const Scene &scene) {
     out << "\nlens";
     detail::put(out, &scene.lens_radius, 1);
     detail::put(out, &scene.focal_distance, 1);
+    out << "\nimagingratio";
+    detail::put(out, &scene.imaging_ratio, 1);
+    // As a flag and a value, not as the number itself: `%.9g` writes infinity
+    // as `inf`, and reading that back with `>>` leaves zero and a failed
+    // stream -- which would clamp every sample to black rather than to nothing.
+    {
+        const bool finite = scene.max_component_value !=
+                            std::numeric_limits<float>::infinity();
+        out << "\nmaxcomponent " << (finite ? 1 : 0);
+        const float v = finite ? scene.max_component_value : 0.f;
+        detail::put(out, &v, 1);
+    }
     out << '\n';
 
     // Before the materials, because a material names one by index.
@@ -568,6 +661,25 @@ inline bool write(const char *path, const Scene &scene) {
         out << "  " << l.width << ' ' << l.height << ' ' << l.first_texel
             << '\n';
     }
+    out << "measured " << scene.measured_brdfs.size() << '\n';
+    for (const MeasuredBRDF &b : scene.measured_brdfs) {
+        out << "  " << b.ndf << ' ' << b.sigma << ' ' << b.vndf << ' '
+            << b.luminance << ' ' << b.spectra << ' ' << b.isotropic << '\n';
+    }
+    out << "pl2d " << scene.pl2d.size() << '\n';
+    for (const PL2DHeader &h : scene.pl2d) {
+        out << "  " << h.size_x << ' ' << h.size_y << ' ' << h.dim;
+        for (int i = 0; i < 3; i++) {
+            out << ' ' << h.param_size[i] << ' ' << h.param_stride[i] << ' '
+                << h.first_param[i];
+        }
+        out << ' ' << h.first_data << ' ' << h.first_marginal << ' '
+            << h.first_conditional << ' ' << h.has_cdf << '\n';
+    }
+    out << "plpools " << scene.pl_data.size() << ' ' << scene.pl_marginal.size()
+        << ' ' << scene.pl_conditional.size() << ' ' << scene.pl_params.size()
+        << '\n';
+
     out << "conductorspectra " << scene.conductor_eta.size() << '\n';
     for (size_t i = 0; i < scene.conductor_eta.size(); i++) {
         detail::put(out, &scene.conductor_eta[i], 1);
@@ -602,13 +714,16 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::Conductor:
             out << "  conductor";
             break;
+        case MaterialTag::Measured:
+            out << "  measured";
+            break;
         default:
             return false;
         }
         out << " reflectance";
         detail::put(out, m.reflectance, 3);
         out << " reflectancetex " << m.reflectance_texture << " displacement "
-            << m.displacement_texture;
+            << m.displacement_texture << " measured " << m.measured;
         if (m.tag == MaterialTag::Dielectric) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
@@ -703,7 +818,8 @@ inline bool write(const char *path, const Scene &scene) {
         } else {
             out << "  tri " << s.mesh << ' ' << s.tri;
         }
-        out << " material " << s.material << " light " << s.light << '\n';
+        out << " material " << s.material << " light " << s.light << " alpha "
+            << s.alpha << '\n';
     }
 
     out << "nodes " << scene.nodes.size() << '\n';
@@ -834,6 +950,21 @@ inline bool read(const char *path, Scene &scene) {
     }
     floats(&scene.lens_radius, 1);
     floats(&scene.focal_distance, 1);
+    if (!(in >> word) || word != "imagingratio") {
+        return false;
+    }
+    floats(&scene.imaging_ratio, 1);
+    if (!(in >> word) || word != "maxcomponent") {
+        return false;
+    }
+    {
+        int finite = 0;
+        in >> finite;
+        float v = 0.f;
+        floats(&v, 1);
+        scene.max_component_value =
+            finite ? v : std::numeric_limits<float>::infinity();
+    }
 
     // A labelled field, checked as it is read. The labels are what makes a
     // stale file fail here rather than three fields later with plausible
@@ -885,6 +1016,64 @@ inline bool read(const char *path, Scene &scene) {
         TextureLevel l;
         in >> l.width >> l.height >> l.first_texel;
         scene.texture_levels.push_back(l);
+    }
+
+    if (!(in >> word) || word != "measured") {
+        return false;
+    }
+    in >> count;
+    scene.measured_brdfs.clear();
+    for (size_t i = 0; i < count; i++) {
+        MeasuredBRDF b;
+        in >> b.ndf >> b.sigma >> b.vndf >> b.luminance >> b.spectra >>
+            b.isotropic;
+        scene.measured_brdfs.push_back(b);
+    }
+
+    if (!(in >> word) || word != "pl2d") {
+        return false;
+    }
+    in >> count;
+    scene.pl2d.clear();
+    for (size_t i = 0; i < count; i++) {
+        PL2DHeader h;
+        in >> h.size_x >> h.size_y >> h.dim;
+        for (int j = 0; j < 3; j++) {
+            in >> h.param_size[j] >> h.param_stride[j] >> h.first_param[j];
+        }
+        in >> h.first_data >> h.first_marginal >> h.first_conditional >>
+            h.has_cdf;
+        scene.pl2d.push_back(h);
+    }
+
+    if (!(in >> word) || word != "plpools") {
+        return false;
+    }
+    {
+        size_t n_data = 0, n_marg = 0, n_cond = 0, n_param = 0;
+        in >> n_data >> n_marg >> n_cond >> n_param;
+        scene.pl_data.clear();
+        scene.pl_marginal.clear();
+        scene.pl_conditional.clear();
+        scene.pl_params.clear();
+        if (n_data > 0) {
+            std::ifstream pl(pl_path(path), std::ios::binary);
+            if (!pl) {
+                return false;
+            }
+            const auto get_pool = [&](std::vector<float> &v, size_t n) {
+                v.resize(n);
+                pl.read(reinterpret_cast<char *>(v.data()),
+                        std::streamsize(sizeof(float) * n));
+                return pl.gcount() == std::streamsize(sizeof(float) * n);
+            };
+            if (!get_pool(scene.pl_data, n_data) ||
+                !get_pool(scene.pl_marginal, n_marg) ||
+                !get_pool(scene.pl_conditional, n_cond) ||
+                !get_pool(scene.pl_params, n_param)) {
+                return false;
+            }
+        }
     }
 
     if (!(in >> word) || word != "conductorspectra") {
@@ -951,6 +1140,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::Dielectric;
         } else if (word == "conductor") {
             m.tag = MaterialTag::Conductor;
+        } else if (word == "measured") {
+            m.tag = MaterialTag::Measured;
         } else {
             return false;
         }
@@ -966,6 +1157,10 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> m.displacement_texture;
+        if (!tagged("measured")) {
+            return false;
+        }
+        in >> m.measured;
         if (m.tag == MaterialTag::Dielectric) {
             if (!tagged("roughness")) {
                 return false;
@@ -1190,6 +1385,13 @@ inline bool read(const char *path, Scene &scene) {
         }
         in >> s.light;
         if (s.light >= int32_t(scene.lights.size())) {
+            return false;
+        }
+        if (!tagged("alpha")) {
+            return false;
+        }
+        in >> s.alpha;
+        if (s.alpha >= int32_t(scene.textures.size())) {
             return false;
         }
         scene.shapes.push_back(s);

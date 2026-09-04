@@ -71,8 +71,13 @@ func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
     return rgb_of_xyz(xyz_of(s, w) / 106.856895);
 }
 
-// A radiance, as pbrt's sensor records it. The imaging ratio is one at pbrt's
-// default exposure and ISO, so nothing scales this.
-func radiance_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
-    return rgb_of_xyz(xyz_of(s, w));
+// A radiance, as pbrt's sensor records it.
+//
+// `imaging_ratio` is pbrt's `exposureTime * ISO / 100`, which is one at its
+// defaults -- and was assumed to be one here until a scene set `"float iso"`
+// and came out five times too dim. Every test scene had left it alone, so the
+// assumption held for as long as nothing tried it.
+func radiance_to_rgb(s : vec4f, w : SampledWavelengths,
+                     imaging_ratio : Float) -> vec3f {
+    return imaging_ratio * rgb_of_xyz(xyz_of(s, w));
 }

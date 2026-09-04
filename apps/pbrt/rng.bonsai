@@ -94,6 +94,23 @@ func hash4(a : i32, b : i32, c : i32, d : i32) -> u64 {
     return murmur_finish(murmur_block(h, packed(c, d)));
 }
 
+// pbrt: Hash over twenty-four bytes -- three blocks and no tail.
+//
+// What asks for it is `HashFloat(ray.o, ray.d)`, the deterministic number an
+// alpha test compares against. Two three-float vectors are twenty-four bytes
+// side by side, so the six floats reach Murmur as three eight-byte words in
+// declaration order.
+func hash6(a : i32, b : i32, c : i32, d : i32, e : i32, f : i32) -> u64 {
+    h0 = murmur_block(24u * murmur_m(), packed(a, b));
+    h1 = murmur_block(h0, packed(c, d));
+    return murmur_finish(murmur_block(h1, packed(e, f)));
+}
+
+// pbrt: HashFloat, the low thirty-two bits of the hash scaled into [0, 1).
+func hash_float6(a : i32, b : i32, c : i32, d : i32, e : i32,
+                 f : i32) -> Float =
+    cast[[Float]](cast[[u32]](hash6(a, b, c, d, e, f))) * 2.3283064365386963e-10;
+
 // pbrt: PermutationElement, from util/math.h.
 //
 // The i'th element of a random permutation of 0..l-1 chosen by p, computed

@@ -26,6 +26,8 @@ import apps/pbrt/spectrum;
 // For a textured reflectance. textures.bonsai knows nothing about materials, so
 // this is not a cycle.
 import apps/pbrt/textures;
+// For a measured BRDF's five interpolants, likewise.
+import apps/pbrt/measured;
 
 // pbrt's constants, as f32. Written out rather than derived: the rounding of
 // each is part of the answer, and `2.0 * pi()` is not `two_pi()`.
@@ -773,6 +775,191 @@ func conductor_sample_f(b : ConductorBxDF, wo : vec3f, u : vec2f,
     s : BSDFSample = {f, wi, pdf, flag_glossy() | flag_reflection(), 1.0,
                       false};
     return s;
+}
+
+// pbrt: SphericalTheta, which is `SafeACos(v.z)` -- the clamp is because a
+// component that should be one can round past it, and acos of that is a NaN.
+// Written out rather than calling shapes.bonsai's `safe_acos`, since a BSDF
+// does not otherwise depend on the shapes.
+func spherical_theta(v : vec3f) -> Float = acos(min(max(v.z, -1.0), 1.0));
+
+// pbrt: SphericalDirection, which shapes.bonsai also has -- repeated rather
+// than imported, because bxdf.bonsai does not otherwise depend on the shapes
+// and a BSDF should not have to.
+// `st` and `ct` rather than the spelled-out names, which are already functions
+// here -- `sin_theta` and `cos_theta` take a direction.
+func spherical_direction_(st : Float, ct : Float, phi : Float) -> vec3f =
+    vec3f{min(max(st, -1.0), 1.0) * cos(phi),
+          min(max(st, -1.0), 1.0) * sin(phi), min(max(ct, -1.0), 1.0)};
+
+// pbrt: MeasuredBxDF's four private mappings between an angle and the unit
+// square. `theta2u` is a square root so that the measurements are denser near
+// the normal, where the reflectance varies fastest.
+func theta2u(theta : Float) -> Float = sqrt(theta * (2.0 / pi()));
+func phi2u(phi : Float) -> Float = phi * (1.0 / (2.0 * pi())) + 0.5;
+func u2theta(u : Float) -> Float = sqr(u) * (pi() / 2.0);
+func u2phi(u : Float) -> Float = (2.0 * u - 1.0) * pi();
+
+// pbrt: MeasuredBxDF -- a table of what a real surface was observed to do.
+//
+// The wavelengths come along because the spectral interpolant is indexed by
+// one: pbrt's MeasuredBxDF holds a `SampledWavelengths` for exactly this.
+element MeasuredBxDF {
+    brdf : u32;
+    lambda : SampledWavelengths;
+}
+
+// pbrt: `BxDFFlags::Reflection | BxDFFlags::Glossy`, unconditionally. A
+// measurement has no smooth case to detect.
+func measured_flags() -> i32 = flag_reflection() | flag_glossy();
+
+// pbrt: MeasuredBxDF::f.
+//
+// The measurements are stored against the *warped* coordinates, so evaluating
+// at a given pair of directions means inverting the warp to find where they
+// landed -- which is what `pl_invert` is for.
+func measured_f(m : MeasuredBxDF, wo_in : vec3f, wi_in : vec3f) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    if !same_hemisphere(wo_in, wi_in) {
+        return zero;
+    }
+    // Both directions flipped together, so a hit from below reads the same
+    // measurement as one from above.
+    flip = wo_in.z < 0.0;
+    wo = select(flip, -wo_in, wo_in);
+    wi = select(flip, -wi_in, wi_in);
+
+    wm_raw = wi + wo;
+    if len_squared(wm_raw) == 0.0 {
+        return zero;
+    }
+    wm = unit_vector_(wm_raw);
+
+    b = measured_brdfs[m.brdf];
+    theta_o = spherical_theta(wo);
+    phi_o = atan2(wo.y, wo.x);
+    theta_m = spherical_theta(wm);
+    phi_m = atan2(wm.y, wm.x);
+
+    u_wo = vec2f{theta2u(theta_o), phi2u(phi_o)};
+    u_wm_y0 = phi2u(select(b.isotropic, phi_m - phi_o, phi_m));
+    u_wm = vec2f{theta2u(theta_m), u_wm_y0 - floor_f(u_wm_y0)};
+
+    params = vec3f{phi_o, theta_o, 0.0};
+    ui = pl_invert(pl2d[b.vndf], u_wm, params);
+
+    // The spectral interpolant is a 3D one: the incoming direction and the
+    // wavelength. Four lookups, one per wavelength of the hit.
+    fr = vec4f{
+        max(0.0, pl_evaluate(pl2d[b.spectra], ui.p,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.x})),
+        max(0.0, pl_evaluate(pl2d[b.spectra], ui.p,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.y})),
+        max(0.0, pl_evaluate(pl2d[b.spectra], ui.p,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.z})),
+        max(0.0, pl_evaluate(pl2d[b.spectra], ui.p,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.w}))};
+
+    zero3 = vec3f{0.0, 0.0, 0.0};
+    return fr * pl_evaluate(pl2d[b.ndf], u_wm, zero3) /
+           (4.0 * pl_evaluate(pl2d[b.sigma], u_wo, zero3) * cos_theta(wi));
+}
+
+// pbrt: MeasuredBxDF::PDF.
+func measured_pdf(m : MeasuredBxDF, wo_in : vec3f, wi_in : vec3f,
+                  sample_flags : i32) -> Float {
+    if ((sample_flags & sample_reflection()) == 0) ||
+       !same_hemisphere(wo_in, wi_in) {
+        return 0.0;
+    }
+    flip = wo_in.z < 0.0;
+    wo = select(flip, -wo_in, wo_in);
+    wi = select(flip, -wi_in, wi_in);
+
+    wm_raw = wi + wo;
+    if len_squared(wm_raw) == 0.0 {
+        return 0.0;
+    }
+    wm = unit_vector_(wm_raw);
+
+    b = measured_brdfs[m.brdf];
+    theta_o = spherical_theta(wo);
+    phi_o = atan2(wo.y, wo.x);
+    theta_m = spherical_theta(wm);
+    phi_m = atan2(wm.y, wm.x);
+
+    u_wm_y0 = phi2u(select(b.isotropic, phi_m - phi_o, phi_m));
+    u_wm = vec2f{theta2u(theta_m), u_wm_y0 - floor_f(u_wm_y0)};
+
+    params = vec3f{phi_o, theta_o, 0.0};
+    ui = pl_invert(pl2d[b.vndf], u_wm, params);
+    lum = pl_evaluate(pl2d[b.luminance], ui.p, params);
+
+    sin_theta_m = sqrt(sqr(wm.x) + sqr(wm.y));
+    jacobian = 4.0 * dot(wo, wm) *
+               max(2.0 * sqr(pi()) * u_wm.x * sin_theta_m, 1e-6);
+    return ui.pdf * lum / jacobian;
+}
+
+// pbrt: MeasuredBxDF::Sample_f.
+//
+// Two warps in sequence: the sample is first pushed through the luminance
+// distribution, so that directions the surface actually reflects towards are
+// drawn more often, and the result through the visible-normal distribution to
+// become a microfacet normal. The incident direction is the reflection about
+// that.
+func measured_sample_f(m : MeasuredBxDF, wo_in : vec3f, u_in : vec2f,
+                       sample_flags : i32) -> option[BSDFSample] {
+    if (sample_flags & sample_reflection()) == 0 {
+        return {};
+    }
+    flip_wi = wo_in.z <= 0.0;
+    wo = select(flip_wi, -wo_in, wo_in);
+
+    b = measured_brdfs[m.brdf];
+    theta_o = spherical_theta(wo);
+    phi_o = atan2(wo.y, wo.x);
+    params = vec3f{phi_o, theta_o, 0.0};
+
+    lum = pl_sample(pl2d[b.luminance], u_in, params);
+    u = lum.p;
+    lum_pdf = lum.pdf;
+
+    s = pl_sample(pl2d[b.vndf], u, params);
+    u_wm = s.p;
+    pdf0 = s.pdf;
+
+    phi_m0 = u2phi(u_wm.y);
+    theta_m = u2theta(u_wm.x);
+    phi_m = select(b.isotropic, phi_m0 + phi_o, phi_m0);
+    sin_theta_m = sin(theta_m);
+    cos_theta_m = cos(theta_m);
+    wm = spherical_direction_(sin_theta_m, cos_theta_m, phi_m);
+    wi0 = reflect_(wo, wm);
+    if wi0.z <= 0.0 {
+        return {};
+    }
+
+    fr = vec4f{
+        max(0.0, pl_evaluate(pl2d[b.spectra], u,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.x})),
+        max(0.0, pl_evaluate(pl2d[b.spectra], u,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.y})),
+        max(0.0, pl_evaluate(pl2d[b.spectra], u,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.z})),
+        max(0.0, pl_evaluate(pl2d[b.spectra], u,
+                             vec3f{phi_o, theta_o, m.lambda.lambda.w}))};
+
+    zero3 = vec3f{0.0, 0.0, 0.0};
+    u_wo = vec2f{theta2u(theta_o), phi2u(phi_o)};
+    f = fr * pl_evaluate(pl2d[b.ndf], u_wm, zero3) /
+        (4.0 * pl_evaluate(pl2d[b.sigma], u_wo, zero3) * abs_cos_theta(wi0));
+    pdf = pdf0 / (4.0 * dot(wo, wm) *
+                  max(2.0 * sqr(pi()) * u_wm.x * sin_theta_m, 1e-6));
+
+    wi = select(flip_wi, -wi0, wi0);
+    out : BSDFSample = {f, wi, pdf * lum_pdf, measured_flags(), 1.0, false};
+    return out;
 }
 
 // pbrt: DiffuseBxDF::PDF, the cosine-weighted density its Sample_f draws from.
@@ -1759,7 +1946,10 @@ element Material =
     | Diffuse(albedo : Reflectance)
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
     | Dielectric(g : DielectricMaterial)
-    | Conductor(c : ConductorMaterial);
+    | Conductor(c : ConductorMaterial)
+    // pbrt: MeasuredMaterial, which is nothing but the index of the table --
+    // there is no parameter to it, since the measurement is the material.
+    | Measured(index : u32);
 
 // pbrt: CoatedDiffuseMaterial::GetBxDF, and the `bsdf.Regularize()` the path
 // integrator may apply to what it returns.
@@ -1817,7 +2007,8 @@ element BxDF =
     | Layered(b : CoatedDiffuseBxDF)
     // The same `DielectricBxDF` a Layered one has on top of it, on its own.
     | Boundary(g : DielectricBxDF)
-    | Metal(c : ConductorBxDF);
+    | Metal(c : ConductorBxDF)
+    | Table(t : MeasuredBxDF);
 
 // pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
 // evaluated once at the point the ray hit.
@@ -1841,6 +2032,13 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         CoatedDiffuse(m) =>
             return Layered(coated_bxdf_at(m, lambda, regularize, uv, dudx,
                                           dvdx, dudy, dvdy));
+        Measured(index) => {
+            // pbrt: MeasuredMaterial::GetBxDF, which is one line -- the
+            // wavelengths are what the BxDF needs and everything else about
+            // the surface is in the file.
+            t : MeasuredBxDF = {index, lambda};
+            return Table(t);
+        }
         Conductor(c) => {
             // pbrt: ConductorMaterial::GetBxDF.
             alpha_u = select(c.remap, roughness_to_alpha(c.u_roughness),
@@ -1937,6 +2135,18 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             }
             return r / 16.0;
         }
+        Table(t) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = measured_sample_f(t, wo, vec2f{ux[i], uy[i]},
+                                          sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
     }
 }
 
@@ -1952,6 +2162,7 @@ func bxdf_flags(b : BxDF) -> i32 {
         Layered(l) => return coated_flags(l);
         Boundary(g) => return dielectric_flags(g);
         Metal(c) => return conductor_flags(c);
+        Table(t) => return measured_flags();
     }
 }
 
@@ -1971,6 +2182,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
         Layered(l) => return coated_f(l, wo, wi, seed);
         Boundary(g) => return dielectric_f(g, wo, wi, radiance_mode());
         Metal(c) => return conductor_f(c, wo, wi);
+        Table(t) => return measured_f(t, wo, wi);
     }
 }
 
@@ -1991,6 +2203,7 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
         Layered(l) => return coated_pdf(l, wo, wi, seed);
         Boundary(g) => return dielectric_pdf(g, wo, wi, sample_all());
         Metal(c) => return conductor_pdf(c, wo, wi, sample_all());
+        Table(t) => return measured_pdf(t, wo, wi, sample_all());
     }
 }
 
@@ -2014,5 +2227,8 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
         // No `uc`: a conductor has one lobe, so there is no branch to choose
         // between and pbrt's Sample_f does not read it.
         Metal(c) => return conductor_sample_f(c, wo, u, sample_all());
+        // No `uc` here either: the two warps take the 2D sample and there is
+        // no lobe to choose between.
+        Table(t) => return measured_sample_f(t, wo, u, sample_all());
     }
 }

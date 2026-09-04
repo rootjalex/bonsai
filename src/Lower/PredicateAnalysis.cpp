@@ -818,7 +818,29 @@ struct PredicateAnalysis : public ir::Visitor {
 
     RESTRICT_VISITOR(ir::SetOp);
     RESTRICT_VISITOR(ir::AggOp);
-    RESTRICT_VISITOR(ir::Call);
+
+    // A call this analysis cannot see inside of, which is any of them.
+    //
+    // The answer is "could be anything": a bool one is `false` to `true`, so a
+    // conjunction containing it neither prunes nor is pruned by it, and a
+    // numeric one is left unbounded so that no comparison against it yields a
+    // bound either. Both are the conservative reading, and conservative is the
+    // only safe direction here -- an over-tight bound would skip a subtree that
+    // holds the answer.
+    //
+    // Restricting it instead meant a predicate could not call a function at
+    // all, which surfaced when a filter gained an alpha-cutout test: the test
+    // says nothing about where in the tree a hit can be, so there was never
+    // anything to derive from it, and refusing to look was the only problem.
+    void visit(const ir::Call *node) override {
+        if (node->type.is_bool()) {
+            make_bool_bounds();
+        } else {
+            interval = Interval();
+        }
+    }
+
+
     RESTRICT_VISITOR(ir::Instantiate);
     RESTRICT_VISITOR(ir::PtrTo);
     RESTRICT_VISITOR(ir::Deref);

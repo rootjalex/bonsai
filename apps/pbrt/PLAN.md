@@ -560,10 +560,25 @@ on now, in the order it stopped:
 2. ~~`lensradius`~~ — **done**, both branches of `GenerateRayDifferential`
 3. ~~`displacement`~~ — **done**, PBRT's `BumpMap`
 4. ~~`conductor`~~ — **done**, with pbrt's named metal spectra
-5. **`measured`** — where it stops today
+5. ~~`measured`~~ — **done**, PiecewiseLinear2D and all
+6. ~~`iso` and `maxcomponentvalue`~~ — **done**; both were silently ignored
+7. **`ObjectInstance`** — where it stops today
 
-So four of the five walls below are down. What is left is `measured`, and then
-the `xref_*` leaf materials.
+**All five material walls are down**, and the scene converts and renders end to
+end. It does not yet *match*: at that point it came out 1.49x too bright with
+ninety thousand pixels lit that pbrt leaves dark, and the cause is item 7.
+
+pbrt keeps instanced geometry out of `BasicScene::shapes` entirely -- it is in
+`instanceDefinitions`, and `instances` names one with a transform. This
+converter reads only the first list, so every tree in pavilion was simply not in
+the scene, and nothing said so. That is a refusal now. Implementing it means
+flattening each instance's shapes through its transform, since a `Primitive`
+here is a concrete triangle and there is no instancing to hang the geometry off.
+
+Behind it, on the leaves: `Material "diffusetransmission"`, and the shape
+`alpha` cutouts -- the second of which is **already implemented** (pbrt's
+stochastic test, which for a triangle reduces to a condition on the set because
+its retry can only miss) and simply has no geometry to act on yet.
 
 The original list, in the order they block it:
 

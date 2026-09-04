@@ -495,6 +495,45 @@ element Primitive {
     // four materials and 66,533 triangles, and a material carried by value
     // would be four megabytes of the same sixty-four bytes.
     material : u32;
+    // pbrt: GeometricPrimitive's `alpha` texture, or -1 where the shape has
+    // none -- which is almost all of them, so PBRT keeps such a shape in a
+    // `SimplePrimitive` with no alpha field at all.
+    //
+    // A cutout: the texture says how much of the surface is really there, and
+    // a ray that lands on a transparent part passes through. It is what makes
+    // a tree leaf leaf-shaped rather than a quad.
+    alpha : i32;
+}
+
+// pbrt: GeometricPrimitive::Intersect's alpha test.
+//
+// The test is stochastic and the draw is `HashFloat(ray.o, ray.d)` -- a hash of
+// the ray rather than a sampler draw, so that the same ray always makes the
+// same decision and a shadow ray agrees with the camera ray that cast it.
+//
+// pbrt recurses on rejection, spawning a new ray past the hit and intersecting
+// the same primitive again. For a triangle that recursion can only miss, since
+// a triangle is hit at most once -- so what it comes to is exactly this: the
+// hit does not count. The BVH then goes on to the next candidate of its own
+// accord, which is what makes the whole thing expressible as a condition on
+// the set rather than as a loop around the query.
+func alpha_accepts(r : Ray, p : Primitive) -> bool {
+    if p.alpha < 0 {
+        return true;
+    }
+    g = surface_geometry(p.shape, r);
+    a = texture_float(textures[cast[[u32]](p.alpha)], g.uv, 0.0, 0.0, 0.0, 0.0);
+    if a >= 1.0 {
+        return true;
+    }
+    // pbrt: `Float u = (a <= 0) ? 1.f : HashFloat(r.o, r.d);` -- a fully
+    // transparent texel is rejected without consulting the hash at all.
+    u = select(a <= 0.0, 1.0,
+               hash_float6(reinterpret[[i32]](r.o.x), reinterpret[[i32]](r.o.y),
+                           reinterpret[[i32]](r.o.z), reinterpret[[i32]](r.d.x),
+                           reinterpret[[i32]](r.d.y),
+                           reinterpret[[i32]](r.d.z)));
+    return u <= a;
 }
 
 // pbrt: the scene's materials. Every spectrum in one is an RGB already fitted
@@ -542,7 +581,8 @@ extern primitives : set[Primitive];
 // the surface the ray started on.
 func trace(r : Ray) =
     argmin(|p : Primitive| distmin(r, p),
-           filter(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001,
+           filter(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001 &&
+                                  alpha_accepts(r, p),
                   primitives));
 
 // pbrt: Primitive::IntersectP -- is there *anything* along this ray?
@@ -557,8 +597,14 @@ func trace(r : Ray) =
 // Written as `any` over the same predicate rather than as a second traversal,
 // because the difference between the two queries is the whole point: the
 // source says what is being asked and the schedule decides what that costs.
+// The alpha test is here too, and for pbrt's reason: `GeometricPrimitive::
+// IntersectP` answers `Intersect(...).has_value()` where there is an alpha
+// texture, rather than the shape's cheaper occlusion test. A leaf that a camera
+// ray passes through must not cast a shadow.
 func trace_any(r : Ray) =
-    any(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001, primitives);
+    any(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001 &&
+                        alpha_accepts(r, p),
+        primitives);
 
 // pbrt: VisibleSurface, what a camera ray leaves behind for the film to
 // record. pbrt fills one of these from a single intersection and the gbuffer
@@ -1349,6 +1395,10 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                        sampler : Sampler, integrator : Integrator,
                        pixel_filter : Filter, seed : i32,
                        disable_pixel_jitter : bool,
+                       // pbrt: PixelSensor's `exposureTime * ISO / 100`, and
+                       // RGBFilm's `maxcomponentvalue`, which is infinity
+                       // unless the scene names one.
+                       imaging_ratio : Float, max_component_value : Float,
                        normal_out : mut array[vec3f],
                        albedo_out : mut array[vec3f],
                        radiance_out : mut array[vec3f],
@@ -1435,7 +1485,16 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                                      ray_differential_scale(spp,
                                                             disable_pixel_jitter),
                                      lambda, sampler, state, seed);
-            atomic radiance_out[p] += weight * radiance_to_rgb(radiance, lambda);
+            // pbrt: RGBFilm::AddSample, which clamps the sensor RGB of *each
+            // sample* before accumulating it -- not the pixel afterwards. The
+            // difference is the whole point: it is there to stop one lucky path
+            // through a caustic from dominating a pixel, so it has to act on
+            // the sample that found it.
+            rgb = radiance_to_rgb(radiance, lambda, imaging_ratio);
+            m = max(max(rgb.x, rgb.y), rgb.z);
+            clamped = select(m > max_component_value,
+                             rgb * (max_component_value / m), rgb);
+            atomic radiance_out[p] += weight * clamped;
             // pbrt: `p.weightSum += weight`, outside the visible-surface test.
             // Every sample counts towards what the pixel is divided by, even
             // one that hit nothing -- which is what makes a pixel on a

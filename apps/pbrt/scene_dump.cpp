@@ -57,6 +57,7 @@
 #include <string>
 #include <vector>
 
+#include "measured_io.h"
 #include "scene_io.h"
 
 // PBRT's sRGB RGB-to-spectrum table, which lives in a translation unit of its
@@ -409,6 +410,22 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // in one pass.
     std::vector<std::string> texture_order;
 
+    // `ObjectInstance`, counted so that the conversion can refuse.
+    //
+    // PBRT keeps instanced geometry out of `BasicScene::shapes` entirely -- it
+    // lives in `instanceDefinitions`, and `instances` names one with a
+    // transform. This renderer has no instancing and reads only the first list,
+    // so a scene with instances converted *and rendered* with all of that
+    // geometry simply absent: on pavilion that is every tree, which showed up
+    // as an image half again too bright with ninety thousand pixels lit that
+    // pbrt leaves dark. Nothing said so, which is the point of counting them.
+    size_t object_instances = 0;
+
+    void ObjectInstance(const std::string &name, pbrt::FileLoc loc) override {
+        object_instances++;
+        pbrt::BasicSceneBuilder::ObjectInstance(name, loc);
+    }
+
     void Texture(const std::string &name, const std::string &type,
                  const std::string &texname, pbrt::ParsedParameterVector params,
                  pbrt::FileLoc loc) override {
@@ -504,9 +521,159 @@ std::map<std::string, int32_t> g_texture_index;
 // Keyed by the pair of spectrum names, since a scene usually names the same
 // metal from several materials.
 std::map<std::string, int32_t> g_conductor_index;
+std::map<std::string, int32_t> g_measured_index;
 
 // Defined below, once the texture table it fills is in scope.
 int32_t convert_texture(const std::string &name);
+
+// One PiecewiseLinear2D, appended to the pools.
+uint32_t append_pl2d(const measured_io::PL2D &pl, bool has_cdf) {
+    bonsai_scene::PL2DHeader h;
+    h.size_x = uint32_t(pl.size_x);
+    h.size_y = uint32_t(pl.size_y);
+    h.dim = uint32_t(pl.param_size.size());
+    for (size_t i = 0; i < pl.param_size.size() && i < 3; i++) {
+        h.param_size[i] = uint32_t(pl.param_size[i]);
+        h.param_stride[i] = pl.param_stride[i];
+        h.first_param[i] = uint32_t(g_scene->pl_params.size());
+        g_scene->pl_params.insert(g_scene->pl_params.end(),
+                                  pl.param_values[i].begin(),
+                                  pl.param_values[i].end());
+    }
+    h.first_data = uint32_t(g_scene->pl_data.size());
+    g_scene->pl_data.insert(g_scene->pl_data.end(), pl.data.begin(),
+                            pl.data.end());
+    h.first_marginal = uint32_t(g_scene->pl_marginal.size());
+    g_scene->pl_marginal.insert(g_scene->pl_marginal.end(),
+                                pl.marginal_cdf.begin(), pl.marginal_cdf.end());
+    h.first_conditional = uint32_t(g_scene->pl_conditional.size());
+    g_scene->pl_conditional.insert(g_scene->pl_conditional.end(),
+                                   pl.conditional_cdf.begin(),
+                                   pl.conditional_cdf.end());
+    h.has_cdf = has_cdf ? 1u : 0u;
+
+    const uint32_t index = uint32_t(g_scene->pl2d.size());
+    g_scene->pl2d.push_back(h);
+    return index;
+}
+
+// One `.bsdf` file, read and precomputed.
+//
+// This is PBRT's MeasuredBxDFData::Create, transcribed rather than called: both
+// `Tensor` and `MeasuredBxDFData` are file-local to PBRT's bxdfs.cpp, so
+// linking PBRT gives access to neither. What the five interpolants are is
+// PBRT's structure exactly -- the shapes are checked against each other the
+// same way, because a file that disagrees with itself would otherwise be read
+// as a valid one of different dimensions.
+int32_t convert_measured(const std::string &filename) {
+    const auto cached = g_measured_index.find(filename);
+    if (cached != g_measured_index.end()) {
+        return cached->second;
+    }
+
+    const measured_io::Tensor tf = measured_io::read_tensor(filename);
+    if (!tf.ok()) {
+        fail(tf.error);
+    }
+    const auto need = [&](const char *name) {
+        const measured_io::Tensor::Field *f = tf.find(name);
+        if (f == nullptr) {
+            fail(filename + ": no `" + name + "` field");
+        }
+        return f;
+    };
+    const auto *theta_i = need("theta_i");
+    const auto *phi_i = need("phi_i");
+    const auto *ndf = need("ndf");
+    const auto *sigma = need("sigma");
+    const auto *vndf = need("vndf");
+    const auto *spectra = need("spectra");
+    const auto *luminance = need("luminance");
+    const auto *wavelengths = need("wavelengths");
+
+    const auto f32 = measured_io::Tensor::Float32;
+    if (!(theta_i->shape.size() == 1 && theta_i->dtype == f32 &&
+          phi_i->shape.size() == 1 && phi_i->dtype == f32 &&
+          wavelengths->shape.size() == 1 && wavelengths->dtype == f32 &&
+          ndf->shape.size() == 2 && ndf->dtype == f32 &&
+          sigma->shape.size() == 2 && sigma->dtype == f32 &&
+          vndf->shape.size() == 4 && vndf->dtype == f32 &&
+          vndf->shape[0] == phi_i->shape[0] &&
+          vndf->shape[1] == theta_i->shape[0] &&
+          luminance->shape.size() == 4 && luminance->dtype == f32 &&
+          luminance->shape[0] == phi_i->shape[0] &&
+          luminance->shape[1] == theta_i->shape[0] &&
+          luminance->shape[2] == luminance->shape[3] &&
+          spectra->shape.size() == 5 && spectra->dtype == f32 &&
+          spectra->shape[0] == phi_i->shape[0] &&
+          spectra->shape[1] == theta_i->shape[0] &&
+          spectra->shape[2] == wavelengths->shape[0] &&
+          spectra->shape[3] == spectra->shape[4] &&
+          luminance->shape[2] == spectra->shape[3] &&
+          luminance->shape[3] == spectra->shape[4])) {
+        fail(filename + ": the fields do not have the shapes a measured BRDF "
+                        "has");
+    }
+
+    bonsai_scene::MeasuredBRDF brdf;
+    brdf.isotropic = phi_i->shape[0] <= 2 ? 1u : 0u;
+    if (!brdf.isotropic) {
+        const float *p = phi_i->as_float();
+        const int reduction = int(
+            std::rint((2 * M_PI) / (p[phi_i->shape[0] - 1] - p[0])));
+        if (reduction != 1) {
+            fail(filename + ": a phi reduction other than 1 is not supported, "
+                            "which is PBRT's own refusal");
+        }
+    }
+
+    const std::vector<int> wo_res = {int(phi_i->shape[0]),
+                                     int(theta_i->shape[0])};
+    const std::vector<const float *> wo_vals = {phi_i->as_float(),
+                                                theta_i->as_float()};
+
+    // The NDF and the projected area are only ever evaluated, so PBRT builds
+    // no CDF for them and does not normalize them either.
+    brdf.ndf = append_pl2d(
+        measured_io::build_pl2d(ndf->as_float(), int(ndf->shape[1]),
+                                int(ndf->shape[0]), {}, {}, false, false),
+        false);
+    brdf.sigma = append_pl2d(
+        measured_io::build_pl2d(sigma->as_float(), int(sigma->shape[1]),
+                                int(sigma->shape[0]), {}, {}, false, false),
+        false);
+    brdf.vndf = append_pl2d(
+        measured_io::build_pl2d(vndf->as_float(), int(vndf->shape[3]),
+                                int(vndf->shape[2]), wo_res, wo_vals, true,
+                                true),
+        true);
+    brdf.luminance = append_pl2d(
+        measured_io::build_pl2d(luminance->as_float(),
+                                int(luminance->shape[3]),
+                                int(luminance->shape[2]), wo_res, wo_vals, true,
+                                true),
+        true);
+
+    const std::vector<int> spec_res = {int(phi_i->shape[0]),
+                                       int(theta_i->shape[0]),
+                                       int(wavelengths->shape[0])};
+    const std::vector<const float *> spec_vals = {phi_i->as_float(),
+                                                  theta_i->as_float(),
+                                                  wavelengths->as_float()};
+    brdf.spectra = append_pl2d(
+        measured_io::build_pl2d(spectra->as_float(), int(spectra->shape[4]),
+                                int(spectra->shape[3]), spec_res, spec_vals,
+                                false, false),
+        false);
+
+    const int32_t index = int32_t(g_scene->measured_brdfs.size());
+    g_scene->measured_brdfs.push_back(brdf);
+    g_measured_index.emplace(filename, index);
+    fprintf(stderr, "scene_dump: read %s (%zu wavelengths, %s)\n",
+            filename.c_str(), wavelengths->shape[0],
+            brdf.isotropic ? "isotropic" : "anisotropic");
+    return index;
+}
 
 // The name a `"spectrum eta"` parameter carries.
 //
@@ -885,6 +1052,20 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         out.tag = bonsai_scene::MaterialTag::Diffuse;
         out.reflectance_texture =
             material_rgb_or_texture(m, "reflectance", out.reflectance);
+        return out;
+    }
+
+    if (m.name == "measured") {
+        out.tag = bonsai_scene::MaterialTag::Measured;
+        const CapturingBuilder::MaterialInfo::Value *fn = m.find("filename");
+        if (fn == nullptr || fn->strings.empty()) {
+            fail("a `measured` material needs a `filename`");
+        }
+        std::string path = fn->strings[0];
+        if (!path.empty() && path[0] != '/') {
+            path = g_scene_dir + "/" + path;
+        }
+        out.measured = convert_measured(path);
         return out;
     }
 
@@ -2531,6 +2712,37 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     out.lens_radius = builder.camera_params.GetOneFloat("lensradius", 0.f);
     out.focal_distance = builder.camera_params.GetOneFloat("focaldistance", 1e6f);
 
+    // PBRT: PixelSensor::Create's `imagingRatio = exposureTime * ISO / 100`.
+    // The shutter defaults to one and this renderer has no moving geometry to
+    // open it over, so a scene that sets `shutteropen`/`shutterclose` is
+    // refused rather than silently exposed for a different length of time.
+    {
+        const float shutter_open =
+            builder.camera_params.GetOneFloat("shutteropen", 0.f);
+        const float shutter_close =
+            builder.camera_params.GetOneFloat("shutterclose", 1.f);
+        if (shutter_open != 0.f || shutter_close != 1.f) {
+            fail("a shutter other than [0, 1] changes the exposure, and this "
+                 "renderer has nothing that moves during it");
+        }
+        const float iso = builder.film_params.GetOneFloat("iso", 100.f);
+        const std::string sensor =
+            builder.film_params.GetOneString("sensor", "cie1931");
+        if (sensor != "cie1931") {
+            fail("the `" + sensor +
+                 "` sensor has its own response curves; this renderer has "
+                 "PBRT's default cie1931 one");
+        }
+        if (builder.film_params.GetOneFloat("whitebalance", 0.f) != 0.f) {
+            fail("`whitebalance` re-illuminates the sensor, which this "
+                 "renderer does not do");
+        }
+        out.imaging_ratio = (shutter_close - shutter_open) * iso / 100.f;
+        // PBRT: RGBFilm's own default is Infinity, i.e. no clamping.
+        out.max_component_value = builder.film_params.GetOneFloat(
+            "maxcomponentvalue", std::numeric_limits<float>::infinity());
+    }
+
     // PBRT: PerspectiveCamera's constructor, which derives dxCamera and
     // dyCamera from the same cameraFromRaster written above.
     {
@@ -2857,6 +3069,35 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 : material_for_named(std::string(entity.materialName));
         const int32_t light = light_for(entity.lightIndex);
 
+        // PBRT: the `alpha` a shape may carry, which puts it in a
+        // GeometricPrimitive rather than a SimplePrimitive. Ignoring it made a
+        // tree leaf a solid quad -- and quietly, since a scene with cutouts
+        // still converted and still rendered.
+        int32_t alpha = -1;
+        {
+            const auto &params = entity.parameters;
+            for (const pbrt::ParsedParameter *p :
+                 params.GetParameterVector()) {
+                if (p->name != "alpha") {
+                    continue;
+                }
+                if (p->type == "texture" && !p->strings.empty()) {
+                    alpha = convert_texture(p->strings[0]);
+                } else if (p->type == "float" && !p->floats.empty()) {
+                    // A constant alpha of one is what a shape without the
+                    // parameter has, so it needs no texture; anything else
+                    // would, and PBRT allows it.
+                    if (p->floats[0] != 1.f) {
+                        fail("a constant `alpha` other than 1 on a shape is "
+                             "not supported yet; this renderer carries alpha "
+                             "as a texture");
+                    }
+                } else {
+                    fail("`alpha` on a shape has to be a texture or a float");
+                }
+            }
+        }
+
         if (name == "sphere") {
             pbrt::Vector3f centre;
             if (!translation_only(render_from_object, &centre)) {
@@ -2883,6 +3124,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             shape.flip = entity.reverseOrientation ? 1u : 0u;
             shape.material = material;
             shape.light = light;
+            shape.alpha = alpha;
             shapes.push_back(shape);
 
         } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
@@ -2964,12 +3206,21 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 shape.tri = uint32_t(i);
                 shape.material = material;
                 shape.light = light;
+                shape.alpha = alpha;
                 shapes.push_back(shape);
             }
 
         } else {
             fail("unsupported shape \"" + name + "\"");
         }
+    }
+
+    if (builder.object_instances > 0) {
+        fail("the scene has " + std::to_string(builder.object_instances) +
+             " `ObjectInstance` uses, and this renderer has no instancing. "
+             "PBRT keeps instanced geometry in a separate list, so it would "
+             "not be missing loudly -- it would simply not be in the scene, "
+             "which renders as a plausible picture of somewhere else.");
     }
 
     if (shapes.empty()) {

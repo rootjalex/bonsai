@@ -1,0 +1,316 @@
+// pbrt: PiecewiseLinear2D and MeasuredBxDF, from util/sampling.h and bxdfs.cpp.
+//
+// A measured BRDF is not a model. It is a table of what a real surface was
+// observed to do, in Dupuy and Jakob's parameterization: the outgoing direction
+// is warped through the surface's own visible-normal distribution so that the
+// measurements land where the reflectance actually varies, and the table is
+// then interpolated in that warped space. So there is no Fresnel term here and
+// no roughness -- what the code does is index five interpolants.
+//
+// The `.bsdf` file is read and its CDFs built by scene_dump (see
+// measured_io.h); what is left here is evaluating, sampling and inverting the
+// interpolants, which is what runs per ray.
+import stdlib/numerics;
+import apps/pbrt/frame;
+import apps/pbrt/sampling;
+import apps/pbrt/spectrum;
+
+// One of pbrt's PiecewiseLinear2D interpolants. See scene_io.h's PL2DHeader
+// for what each field means.
+element PL2D {
+    size_x, size_y : u32;
+    dim : u32;
+    param_size : vector[u32, 3];
+    param_stride : vector[u32, 3];
+    first_param : vector[u32, 3];
+    first_data : u32;
+    first_marginal : u32;
+    first_conditional : u32;
+    has_cdf : bool;
+}
+
+// pbrt: MeasuredBxDFData, as five indices into `pl2d`.
+element MeasuredBRDF {
+    ndf : u32;
+    sigma : u32;
+    vndf : u32;
+    luminance : u32;
+    spectra : u32;
+    isotropic : bool;
+}
+
+extern pl2d : array[PL2D];
+extern pl_data : array[Float];
+extern pl_marginal : array[Float];
+extern pl_conditional : array[Float];
+extern pl_params : array[Float];
+extern measured_brdfs : array[MeasuredBRDF];
+
+// pbrt: PLSample, a warped point and the density it was drawn with.
+element PLSample {
+    p : vec2f;
+    pdf : Float;
+}
+
+// The interpolation weights over the parameter dimensions, and which slice of
+// the table they sit in.
+//
+// pbrt keeps these as a `param_weight[2 * Dimension]` array and a
+// `slice_offset`; three dimensions is the most any of the five interpolants
+// has, so they are three pairs here and the unused ones are (1, 0), which makes
+// the lookup below fold them away.
+element PLWeights {
+    w0 : vec3f;
+    w1 : vec3f;
+    slice_offset : u32;
+}
+
+// What one parameter dimension contributes: the two interpolation weights and
+// its share of the slice offset.
+element PLDim {
+    w0, w1 : Float;
+    offset : u32;
+}
+
+// pbrt: FindInterval over the parameter values, then the linear weight between
+// the two it straddles.
+//
+// A dimension this interpolant does not have, or one with a single value,
+// contributes (1, 0) -- which makes `pl_lookup` fold its second corner away
+// without a branch there.
+func pl_dim_weight(pl : PL2D, d : u32, value : Float) -> PLDim {
+    if d >= pl.dim {
+        return PLDim{1.0, 0.0, 0u};
+    }
+    size = pl.param_size[d];
+    if size == 1u {
+        return PLDim{1.0, 0.0, 0u};
+    }
+    base = pl.first_param[d];
+    // pbrt: FindInterval, the last index whose value is still at or below the
+    // parameter, leaving room for index + 1.
+    idx : mut u32 = 0u;
+    i : mut u32 = 1u;
+    while i < size - 1u {
+        idx = select(pl_params[base + i] <= value, i, idx);
+        i = i + 1u;
+    }
+    p0 = pl_params[base + idx];
+    p1 = pl_params[base + idx + 1u];
+    t = min(max((value - p0) / (p1 - p0), 0.0), 1.0);
+    return PLDim{1.0 - t, t, pl.param_stride[d] * idx};
+}
+
+func pl_weights(pl : PL2D, params : vec3f) -> PLWeights {
+    a = pl_dim_weight(pl, 0u, params.x);
+    b = pl_dim_weight(pl, 1u, params.y);
+    c = pl_dim_weight(pl, 2u, params.z);
+    return PLWeights{vec3f{a.w0, b.w0, c.w0}, vec3f{a.w1, b.w1, c.w1},
+                     a.offset + b.offset + c.offset};
+}
+
+// pbrt: the `lookup<Dim>` recursion, which blends the 2^Dim corners of the
+// parameter hypercube.
+//
+// Written out per dimension rather than looped, because pbrt's recursion
+// associates the arithmetic a particular way -- `FMA(v0, w0, v1 * w1)` at each
+// level -- and a flat weighted sum would round differently.
+func pl_lookup(table : array[Float], base : u32, i0 : u32, size : u32,
+               pl : PL2D, w : PLWeights) -> Float {
+    if pl.dim == 0u {
+        return table[base + i0];
+    }
+    s0 = pl.param_stride[0u] * size;
+    if pl.dim == 1u {
+        return fma(table[base + i0], w.w0.x,
+                   table[base + i0 + s0] * w.w1.x);
+    }
+    s1 = pl.param_stride[1u] * size;
+    if pl.dim == 2u {
+        // Innermost dimension first, as the recursion unwinds.
+        a = fma(table[base + i0], w.w0.x, table[base + i0 + s0] * w.w1.x);
+        b = fma(table[base + i0 + s1], w.w0.x,
+                table[base + i0 + s0 + s1] * w.w1.x);
+        return fma(a, w.w0.y, b * w.w1.y);
+    }
+    s2 = pl.param_stride[2u] * size;
+    a0 = fma(table[base + i0], w.w0.x, table[base + i0 + s0] * w.w1.x);
+    b0 = fma(table[base + i0 + s1], w.w0.x,
+             table[base + i0 + s0 + s1] * w.w1.x);
+    c0 = fma(a0, w.w0.y, b0 * w.w1.y);
+    a1 = fma(table[base + i0 + s2], w.w0.x,
+             table[base + i0 + s0 + s2] * w.w1.x);
+    b1 = fma(table[base + i0 + s1 + s2], w.w0.x,
+             table[base + i0 + s0 + s1 + s2] * w.w1.x);
+    c1 = fma(a1, w.w0.y, b1 * w.w1.y);
+    return fma(c0, w.w0.z, c1 * w.w1.z);
+}
+
+func pl_inv_patch(pl : PL2D) -> vec2f =
+    vec2f{cast[[Float]](pl.size_x - 1u), cast[[Float]](pl.size_y - 1u)};
+
+// pbrt: PiecewiseLinear2D::Evaluate, the density at a point of the unit square.
+func pl_evaluate(pl : PL2D, pos_in : vec2f, params : vec3f) -> Float {
+    w = pl_weights(pl, params);
+    inv_patch = pl_inv_patch(pl);
+    pos = vec2f{pos_in.x * inv_patch.x, pos_in.y * inv_patch.y};
+
+    ox = min(cast[[i32]](pos.x), cast[[i32]](pl.size_x) - 2);
+    oy = min(cast[[i32]](pos.y), cast[[i32]](pl.size_y) - 2);
+    w1 = vec2f{pos.x - cast[[Float]](ox), pos.y - cast[[Float]](oy)};
+    w0 = vec2f{1.0 - w1.x, 1.0 - w1.y};
+
+    size = pl.size_x * pl.size_y;
+    index = cast[[u32]](ox) + cast[[u32]](oy) * pl.size_x +
+            w.slice_offset * size;
+
+    v00 = pl_lookup(pl_data, pl.first_data, index, size, pl, w);
+    v10 = pl_lookup(pl_data, pl.first_data + 1u, index, size, pl, w);
+    v01 = pl_lookup(pl_data, pl.first_data + pl.size_x, index, size, pl, w);
+    v11 = pl_lookup(pl_data, pl.first_data + pl.size_x + 1u, index, size, pl,
+                    w);
+    return fma(w0.y, fma(w0.x, v00, w1.x * v10),
+               w1.y * fma(w0.x, v01, w1.x * v11)) *
+           inv_patch.x * inv_patch.y;
+}
+
+// pbrt: PiecewiseLinear2D::Sample. The inversion method, applied to a marginal
+// distribution over rows and then to the conditional along the chosen row.
+//
+// The two `is_const` tests are pbrt's: where the density is flat across a cell
+// the quadratic that inverts the trapezoid degenerates, and the linear answer
+// is taken instead.
+func pl_sample(pl : PL2D, sample_in : vec2f, params : vec3f) -> PLSample {
+    w = pl_weights(pl, params);
+    // pbrt: Clamp to (1 - OneMinusEpsilon, OneMinusEpsilon), which keeps the
+    // inversion off both ends where it is degenerate.
+    one_minus_eps = 0.99999994;
+    sx : mut Float = min(max(sample_in.x, 1.0 - one_minus_eps), one_minus_eps);
+    sy : mut Float = min(max(sample_in.y, 1.0 - one_minus_eps), one_minus_eps);
+
+    slice_size = pl.size_x * pl.size_y;
+    marg_offset = w.slice_offset * pl.size_y;
+
+    // Sample the row.
+    row : mut u32 = 0u;
+    i : mut u32 = 1u;
+    while i < pl.size_y - 1u {
+        v = pl_lookup(pl_marginal, pl.first_marginal, marg_offset + i,
+                      pl.size_y, pl, w);
+        row = select(v < sy, i, row);
+        i = i + 1u;
+    }
+    sy = sy - pl_lookup(pl_marginal, pl.first_marginal, marg_offset + row,
+                        pl.size_y, pl, w);
+
+    offset = row * pl.size_x + w.slice_offset * slice_size;
+    r0 = pl_lookup(pl_conditional, pl.first_conditional,
+                   offset + pl.size_x - 1u, slice_size, pl, w);
+    r1 = pl_lookup(pl_conditional, pl.first_conditional,
+                   offset + pl.size_x * 2u - 1u, slice_size, pl, w);
+
+    row_const = abs(r0 - r1) < 1e-4 * (r0 + r1);
+    sy = select(row_const, 2.0 * sy,
+                r0 - safe_sqrt(r0 * r0 - 2.0 * sy * (r0 - r1)));
+    sy = sy / select(row_const, r0 + r1, r0 - r1);
+
+    // Sample the column.
+    sx = sx * ((1.0 - sy) * r0 + sy * r1);
+    col : mut u32 = 0u;
+    j : mut u32 = 1u;
+    while j < pl.size_x - 1u {
+        v0 = pl_lookup(pl_conditional, pl.first_conditional, offset + j,
+                       slice_size, pl, w);
+        v1 = pl_lookup(pl_conditional, pl.first_conditional + pl.size_x,
+                       offset + j, slice_size, pl, w);
+        v = (1.0 - sy) * v0 + sy * v1;
+        col = select(v < sx, j, col);
+        j = j + 1u;
+    }
+    c_v0 = pl_lookup(pl_conditional, pl.first_conditional, offset + col,
+                     slice_size, pl, w);
+    c_v1 = pl_lookup(pl_conditional, pl.first_conditional + pl.size_x,
+                     offset + col, slice_size, pl, w);
+    sx = sx - ((1.0 - sy) * c_v0 + sy * c_v1);
+
+    at = offset + col;
+    v00 = pl_lookup(pl_data, pl.first_data, at, slice_size, pl, w);
+    v10 = pl_lookup(pl_data, pl.first_data + 1u, at, slice_size, pl, w);
+    v01 = pl_lookup(pl_data, pl.first_data + pl.size_x, at, slice_size, pl, w);
+    v11 = pl_lookup(pl_data, pl.first_data + pl.size_x + 1u, at, slice_size,
+                    pl, w);
+    c0 = fma(1.0 - sy, v00, sy * v01);
+    c1 = fma(1.0 - sy, v10, sy * v11);
+
+    col_const = abs(c0 - c1) < 1e-4 * (c0 + c1);
+    sx = select(col_const, 2.0 * sx,
+                c0 - safe_sqrt(c0 * c0 - 2.0 * sx * (c0 - c1)));
+    sx = sx / select(col_const, c0 + c1, c0 - c1);
+
+    inv_patch = pl_inv_patch(pl);
+    patch = vec2f{1.0 / inv_patch.x, 1.0 / inv_patch.y};
+    return PLSample{vec2f{(cast[[Float]](col) + sx) * patch.x,
+                          (cast[[Float]](row) + sy) * patch.y},
+                    ((1.0 - sx) * c0 + sx * c1) * inv_patch.x * inv_patch.y};
+}
+
+// pbrt: PiecewiseLinear2D::Invert, which undoes Sample -- given a point of the
+// warped space, the uniform sample that would have produced it.
+//
+// This is what `f` needs: the measurements are stored against the warped
+// coordinates, so evaluating the BRDF at a given pair of directions means
+// finding where those directions land in the warp.
+func pl_invert(pl : PL2D, sample_in : vec2f, params : vec3f) -> PLSample {
+    w = pl_weights(pl, params);
+    inv_patch = pl_inv_patch(pl);
+
+    sx0 = sample_in.x * inv_patch.x;
+    sy0 = sample_in.y * inv_patch.y;
+    px = min(cast[[i32]](sx0), cast[[i32]](pl.size_x) - 2);
+    py = min(cast[[i32]](sy0), cast[[i32]](pl.size_y) - 2);
+    sx : mut Float = sx0 - cast[[Float]](px);
+    sy : mut Float = sy0 - cast[[Float]](py);
+
+    slice_size = pl.size_x * pl.size_y;
+    offset = cast[[u32]](px) + cast[[u32]](py) * pl.size_x +
+             w.slice_offset * slice_size;
+
+    v00 = pl_lookup(pl_data, pl.first_data, offset, slice_size, pl, w);
+    v10 = pl_lookup(pl_data, pl.first_data + 1u, offset, slice_size, pl, w);
+    v01 = pl_lookup(pl_data, pl.first_data + pl.size_x, offset, slice_size, pl,
+                    w);
+    v11 = pl_lookup(pl_data, pl.first_data + pl.size_x + 1u, offset, slice_size,
+                    pl, w);
+
+    w1x = sx;
+    w1y = sy;
+    w0x = 1.0 - w1x;
+    w0y = 1.0 - w1y;
+    c0 = fma(w0y, v00, w1y * v01);
+    c1 = fma(w0y, v10, w1y * v11);
+    pdf = fma(w0x, c0, w1x * c1);
+
+    sx = sx * (c0 + 0.5 * sx * (c1 - c0));
+    cv0 = pl_lookup(pl_conditional, pl.first_conditional, offset, slice_size,
+                    pl, w);
+    cv1 = pl_lookup(pl_conditional, pl.first_conditional + pl.size_x, offset,
+                    slice_size, pl, w);
+    sx = sx + (1.0 - sy) * cv0 + sy * cv1;
+
+    row_offset = cast[[u32]](py) * pl.size_x + w.slice_offset * slice_size;
+    r0 = pl_lookup(pl_conditional, pl.first_conditional,
+                   row_offset + pl.size_x - 1u, slice_size, pl, w);
+    r1 = pl_lookup(pl_conditional, pl.first_conditional,
+                   row_offset + pl.size_x * 2u - 1u, slice_size, pl, w);
+    sx = sx / ((1.0 - sy) * r0 + sy * r1);
+
+    sy = sy * (r0 + 0.5 * sy * (r1 - r0));
+    marg_offset = cast[[u32]](py) + w.slice_offset * pl.size_y;
+    sy = sy + pl_lookup(pl_marginal, pl.first_marginal, marg_offset, pl.size_y,
+                        pl, w);
+
+    return PLSample{vec2f{sx, sy}, pdf * inv_patch.x * inv_patch.y};
+}
+
+// The four mappings between an angle and the unit square are MeasuredBxDF's
+// own private methods, so they live beside it in bxdf.bonsai rather than here.

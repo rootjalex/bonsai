@@ -731,6 +731,41 @@ int main(int argc, char **argv) {
                                         loaded.texture_texels[i + 2]});
     }
 
+    // The measured BRDFs and their interpolants. The pools they index into are
+    // read straight out of the scene; only the headers are rebuilt, because
+    // the generated struct is the compiler's layout and not the file's.
+    std::vector<PL2D> pl2d;
+    pl2d.reserve(loaded.pl2d.size());
+    for (const bonsai_scene::PL2DHeader &h : loaded.pl2d) {
+        PL2D p;
+        p.size_x = h.size_x;
+        p.size_y = h.size_y;
+        p.dim = h.dim;
+        p.param_size =
+            uint32_t3{h.param_size[0], h.param_size[1], h.param_size[2]};
+        p.param_stride =
+            uint32_t3{h.param_stride[0], h.param_stride[1], h.param_stride[2]};
+        p.first_param =
+            uint32_t3{h.first_param[0], h.first_param[1], h.first_param[2]};
+        p.first_data = h.first_data;
+        p.first_marginal = h.first_marginal;
+        p.first_conditional = h.first_conditional;
+        p.has_cdf = h.has_cdf != 0;
+        pl2d.push_back(p);
+    }
+    std::vector<MeasuredBRDF> measured_brdfs;
+    measured_brdfs.reserve(loaded.measured_brdfs.size());
+    for (const bonsai_scene::MeasuredBRDF &b : loaded.measured_brdfs) {
+        MeasuredBRDF m;
+        m.ndf = b.ndf;
+        m.sigma = b.sigma;
+        m.vndf = b.vndf;
+        m.luminance = b.luminance;
+        m.spectra = b.spectra;
+        m.isotropic = b.isotropic != 0;
+        measured_brdfs.push_back(m);
+    }
+
     // constructors rather than by setting the tag: which number a variant is
     // belongs to the compiler.
     std::vector<Material> materials;
@@ -760,6 +795,8 @@ int main(int argc, char **argv) {
             coated.max_depth = m.max_depth;
             coated.n_samples = m.n_samples;
             Material_CoatedDiffuse(material, coated);
+        } else if (m.tag == bonsai_scene::MaterialTag::Measured) {
+            Material_Measured(material, uint32_t(m.measured));
         } else if (m.tag == bonsai_scene::MaterialTag::Conductor) {
             ConductorMaterial metal;
             metal.spectra = m.conductor_spectra;
@@ -845,7 +882,7 @@ int main(int argc, char **argv) {
             shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
                               &triangle_fill);
         }
-        shapes.push_back(Primitive{shape, s.light, s.material});
+        shapes.push_back(Primitive{shape, s.light, s.material, s.alpha});
     }
     if (sphere_fill != sphere_pool.size() ||
         triangle_fill != triangle_pool.size()) {
@@ -1165,11 +1202,15 @@ int main(int argc, char **argv) {
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
-               pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0, out,
+               pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
+               loaded.imaging_ratio, loaded.max_component_value, out,
                albedo, radiance, weights, textures.data(),
                texture_levels.data(), texture_texels.data(),
-               loaded.rgb_table.data(), loaded.conductor_eta.data(),
-               loaded.conductor_k.data(), meshes.data(),
+               loaded.rgb_table.data(), pl2d.data(), loaded.pl_data.data(),
+               loaded.pl_marginal.data(), loaded.pl_conditional.data(),
+               loaded.pl_params.data(), measured_brdfs.data(),
+               loaded.conductor_eta.data(), loaded.conductor_k.data(),
+               meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
                uvs.data(), x, y, z, d65, filter_f.data(),
                filter_cond_cdf.data(), filter_marg_func.data(),
