@@ -16,6 +16,8 @@ add_bonsai_tests(
     print.bonsai
     shadowed-let.bonsai
     simple.bonsai
+    quantifier-early-exit.bonsai
+    ray-any-early-exit.bonsai
     sort-recursion.bonsai
     split.bonsai
     split-unsigned.bonsai

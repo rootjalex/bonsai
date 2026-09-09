@@ -85,6 +85,164 @@ void append_store(const shared_ptr<Block> &block, shared_ptr<Value> dest,
         vector<shared_ptr<Value>>{std::move(dest), std::move(v)}, block));
 }
 
+// A boolean the traversal only ever moves one way, and the direction it moves.
+//
+// `any` raises its accumulator from false and never lowers it; `all` lowers
+// from true and never raises. Either way, once it reaches the end of its
+// lattice nothing the rest of the traversal does can move it back -- so the
+// rest of the traversal need not happen. That is the whole of `any` meaning
+// "stop when you find one", and without it a settled query goes on popping its
+// stack, reading a node from memory each time, to decide nothing.
+struct Monotone {
+    shared_ptr<Value> ptr;
+    // Rising: only ever set to true, or to `acc | x`. The traversal is done
+    // once it is true. Falling is the mirror image, for `all`.
+    bool rising = false;
+};
+
+// Whether `v` loads exactly `ptr`.
+bool loads(const shared_ptr<Value> &v, const Value *ptr) {
+    if (!v) {
+        return false;
+    }
+    const auto *instr = std::get_if<shared_ptr<Instruction>>(&v->data);
+    if (instr == nullptr || *instr == nullptr) {
+        return false;
+    }
+    return (*instr)->op == Instruction::Op::Load &&
+           (*instr)->operands.size() == 1 && (*instr)->operands[0].get() == ptr;
+}
+
+// Whether `v` is the boolean constant `want`.
+bool is_bool_const(const shared_ptr<Value> &v, bool want) {
+    if (!v) {
+        return false;
+    }
+    const auto *constant = std::get_if<Constant>(&v->data);
+    if (constant == nullptr) {
+        return false;
+    }
+    const bool *b = std::get_if<bool>(&constant->data);
+    return b != nullptr && *b == want;
+}
+
+// Whether `v` is `acc <op> x` for a combining op, with `acc` a load of `ptr`.
+bool combines_with_self(const shared_ptr<Value> &v, const Value *ptr,
+                        Instruction::Op logical, Instruction::Op bitwise) {
+    if (!v) {
+        return false;
+    }
+    const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+    if (held == nullptr || *held == nullptr) {
+        return false;
+    }
+    const Instruction &instr = **held;
+    if (instr.op != logical && instr.op != bitwise) {
+        return false;
+    }
+    for (const auto &operand : instr.operands) {
+        if (loads(operand, ptr)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Find a boolean accumulator this function only ever moves one way.
+//
+// Deliberately a *check* rather than something the lowering asserts. The
+// lowering knows perfectly well that `any` is monotone, but getting that fact
+// down here would mean carrying it through every pass that rebuilds a
+// function, and a fact carried like that goes missing silently -- it stops
+// being applied and nothing says so. Re-deriving it costs one linear scan, and
+// the worst a mistake anywhere upstream can do is make this decline.
+std::optional<Monotone> find_monotone_accumulator(const Function &func) {
+    struct Candidate {
+        size_t stores = 0;
+        bool rising = false;
+        bool falling = false;
+        bool disqualified = false;
+    };
+    std::map<const Value *, Candidate> candidates;
+
+    // A pointer that escapes into a call may be moved by the callee in a
+    // direction this function cannot see, so it is no longer this function's
+    // to reason about.
+    std::set<const Value *> escaped;
+    const auto note_escapes = [&](const std::vector<shared_ptr<Value>> &args) {
+        for (const auto &arg : args) {
+            if (arg) {
+                escaped.insert(arg.get());
+            }
+        }
+    };
+
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            if (instr->op != Instruction::Op::Store) {
+                if (instr->op == Instruction::Op::AddressOf) {
+                    note_escapes(instr->operands);
+                }
+                continue;
+            }
+            if (instr->operands.size() != 2) {
+                continue;
+            }
+            const shared_ptr<Value> &dest = instr->operands[0];
+            if (!dest) {
+                continue;
+            }
+            const Ptr_t *ptr_type = dest->get_type().as<Ptr_t>();
+            if (ptr_type == nullptr || !ptr_type->etype.is<Bool_t>()) {
+                continue;
+            }
+            // Has to outlive an iteration, so it cannot be something this
+            // function computed: a parameter, not an instruction's result.
+            if (!dest->get_argument().has_value()) {
+                continue;
+            }
+
+            Candidate &candidate = candidates[dest.get()];
+            candidate.stores++;
+            const shared_ptr<Value> &value = instr->operands[1];
+            if (is_bool_const(value, true) ||
+                combines_with_self(value, dest.get(), Instruction::Op::LOr,
+                                   Instruction::Op::BwOr)) {
+                candidate.rising = true;
+            } else if (is_bool_const(value, false) ||
+                       combines_with_self(value, dest.get(),
+                                          Instruction::Op::LAnd,
+                                          Instruction::Op::BwAnd)) {
+                candidate.falling = true;
+            } else {
+                candidate.disqualified = true;
+            }
+        }
+        if (const auto *call = std::get_if<Terminator::Call>(&block->terminator.data)) {
+            note_escapes(call->call.args);
+        }
+    }
+
+    for (const auto &[ptr, candidate] : candidates) {
+        if (candidate.disqualified || candidate.stores == 0 ||
+            candidate.rising == candidate.falling ||
+            escaped.contains(ptr)) {
+            continue;
+        }
+        // Rebuild a handle to the value from the store that named it.
+        for (const auto &block : func.blocks) {
+            for (const auto &instr : block->instrs) {
+                if (instr->op == Instruction::Op::Store &&
+                    instr->operands.size() == 2 &&
+                    instr->operands[0].get() == ptr) {
+                    return Monotone{instr->operands[0], candidate.rising};
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 // What a block's terminator calls, if it calls at all: one argument list per
 // call it makes, and the continuation reached after all of them.
 //
@@ -288,10 +446,24 @@ void queue_recursion(Function &func, size_t size) {
     // The preheader falls into the loop rather than into the body.
     entry->terminator.data = Terminator::Jump{head->name};
 
-    // Go round again as long as anything is left to visit.
+    // Go round again as long as anything is left to visit -- and, if the
+    // traversal is accumulating a boolean it only ever moves one way, as long
+    // as that has not reached the end of its lattice. The second half is what
+    // makes `any` mean "stop when you find one" rather than "keep looking but
+    // ignore what you find", and `all` likewise.
     auto left = append(func, head, count_type, Instruction::Op::Load, {count});
     auto more = append(func, head, Bool_t::make(), Instruction::Op::Ne,
                        {left, count_of(0)});
+    if (std::optional<Monotone> acc = find_monotone_accumulator(func)) {
+        auto now =
+            append(func, head, Bool_t::make(), Instruction::Op::Load, {acc->ptr});
+        auto undecided =
+            acc->rising ? append(func, head, Bool_t::make(),
+                                 Instruction::Op::Not, {now})
+                        : now;
+        more = append(func, head, Bool_t::make(), Instruction::Op::LAnd,
+                      {more, undecided});
+    }
     head->terminator.data = Terminator::Dispatch{
         more, {Terminator::Jump{exit->name}, Terminator::Jump{pop->name}}};
 

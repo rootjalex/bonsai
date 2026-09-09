@@ -1,0 +1,60 @@
+//! flags: -p ssa
+
+// A shadow ray: the query `any` exists for, and the two things that have to
+// happen to it on the way down.
+//
+// First, it stops. `while (count != 0 && !acc)` -- once something is in the
+// way, there is nothing left to learn and the traversal abandons its stack
+// rather than popping it to decide nothing. Shadow rays are most of the rays a
+// renderer traces, and each of those pops is a node read from memory.
+//
+// Second, the `always` arm disappears. Lowering an `any` emits the sufficient
+// condition alongside the necessary one -- "if the predicate holds everywhere
+// in this volume, settle now" -- which for a ray is `contains(r, box)`. A ray
+// has empty interior in three dimensions, so stdlib answers that false, and by
+// the end of the pipeline the whole arm has folded away: `contains` appears
+// twice after `lower-trees` and nowhere here.
+//
+// That is the shape the condition is meant to be derived in. It is not
+// suppressed at emission and no rule special-cases rays; the geometry library
+// says what a ray contains, predicate analysis asks, and constant folding does
+// the rest. A geometry where the sufficient condition *can* hold keeps its arm
+// for free.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func shadow(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] TriBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriBVH, right : TriBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : TriBVH;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    shadow.loopify(8);
+}

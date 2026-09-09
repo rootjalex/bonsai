@@ -1,0 +1,72 @@
+//! flags: -p ssa
+
+// `any` and `all` stop as soon as their answer is settled.
+//
+// A traversal that has found what it was looking for has nothing left to do,
+// and this is the level at which it can act on that: the recursion has become
+// a loop over an explicit stack, so "stop" is a loop condition. In the
+// recursive form it is not expressible -- there is no non-local exit -- and
+// the best available is the guard on each arm, which costs one boolean per
+// pending frame on the way out. Here it costs nothing.
+//
+// It matters most where it is least visible. A shadow ray is an `any` query
+// and shadow rays are most of the rays a renderer traces; without this, every
+// one of them that hits something goes on popping its stack, reading a node
+// from memory each time, to decide nothing.
+//
+// The exit is *derived* rather than declared. `QueueRecursion` looks for a
+// boolean the function only ever moves one way -- assigned `true` or `acc | x`
+// and never anything else, or `false` or `acc & x` and never anything else --
+// and takes reaching the end of that lattice as a reason to stop. Deriving it
+// means no upstream change can make it unsound: the check either recognises
+// the accumulator or it does not, and failing to recognise one only costs the
+// early exit. Nothing carries a claim that could go stale.
+//
+// So `q` below should come out as `while (count != 0 && !acc)` and `r` as
+// `while (count != 0 && acc)` -- the two directions of the same fact.
+
+element Item {
+    id : i32;
+}
+
+extern items : set[Item];
+
+// Rising: false until something in range is found, then true forever.
+func q(lo : i32, hi : i32) = any(|x| (lo <= x.id) & (x.id <= hi), items);
+
+// Falling: true until something out of range is found, then false forever.
+func r(lo : i32, hi : i32) = all(|x| (lo <= x.id) & (x.id <= hi), items);
+
+// A reduction with no absorbing element, which must always finish: there is no
+// value of the running minimum that makes the rest of the tree irrelevant. It
+// is here so that the check declining is tested as well as the check firing.
+func s(lo : i32, hi : i32) =
+    minimum(|x : Item| x.id, filter(|x : Item| (lo <= x.id) & (x.id <= hi), items));
+
+schedule {
+    tree[[Item]] ItemTree(idl idh : i32) with id in [idl, idh] =
+    | Interior(left : ItemTree, right : ItemTree)
+    | Leaf(data : array[Item]) with data = data;
+
+    items : ItemTree;
+
+    layout items {
+        pCount : u32;
+        prims : array[Item, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            idl : i32;
+            idh : i32;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    q.loopify(8);
+    r.loopify(8);
+    s.loopify(8);
+}

@@ -1,0 +1,136 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type TriBVH = (const TriBVH&)
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option1 = struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[nCount] }
+
+func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*), r : Ray) -> void {
+  _idx0 : mut u32
+  !stack : mut u32[8]
+  !count : mut u32
+  !stack[0u] = tris_index
+  !count = 1u
+  while (((*!count) != 0u) && !(*_holds0)) {
+    let @55 = (*!count) in
+    let @56 = @55 - 1u in
+    !count = @56
+    let @57 = !stack[@56] in
+    let tris_index!top = @57 in
+    let @0 = (*_holds0) in
+    let @1 = !@0 in
+    if (@1) {
+      let @2 = tris.group0_index in
+      let @3 = @2[tris_index!top] in
+      let @4 = @3.nPrims in
+      let @5 = @4 == 0u in
+      if (@5) {
+        if (false) {
+          _holds0 = true
+        } else {
+          let @6 = tris.group0_index in
+          let @7 = @6[tris_index!top] in
+          let @8 = @7.low in
+          let @9 = tris.group0_index in
+          let @10 = @9[tris_index!top] in
+          let @11 = @10.high in
+          let @12 = build<AABB>(@8, @11) in
+          let @13 = intersects_Ray_AABB(r, @12) in
+          if (@13) {
+            let @14 = tris_index!top + 1u in
+            let @15 = tris.group0_index in
+            let @16 = @15[tris_index!top] in
+            let @17 = @16.split0on_nPrims in
+            let @18 = reinterpret_cast<_tree_layout2>(@17) in
+            let @19 = @18.offset in
+            let @20 = tris_index!top + @19 in
+            let @58 = (*!count) in
+            !stack[@58] = @20
+            let @60 = @58 + 1u in
+            !count = @60
+            let @61 = (*!count) in
+            !stack[@61] = @14
+            let @63 = @61 + 1u in
+            !count = @63
+          }
+        }
+      } else if (false) {
+        _holds0 = true
+      } else {
+        let @21 = tris.group0_index in
+        let @22 = @21[tris_index!top] in
+        let @23 = @22.low in
+        let @24 = tris.group0_index in
+        let @25 = @24[tris_index!top] in
+        let @26 = @25.high in
+        let @27 = build<AABB>(@23, @26) in
+        let @28 = intersects_Ray_AABB(r, @27) in
+        if (@28) {
+          let @29 = (*_holds0) in
+          let @30 = !@29 in
+          if (@30) {
+            let @31 = tris.group0_index in
+            let @32 = @31[tris_index!top] in
+            let @33 = @32.nPrims in
+            let @34 = cast<u32>(@33) in
+            _idx0 = 0u
+            while ((*_idx0) < @34) {
+              let @36 = (*_holds0) in
+              let @37 = tris.prims in
+              let @38 = tris.group0_index in
+              let @39 = @38[tris_index!top] in
+              let @40 = @39.split0on_nPrims in
+              let @41 = reinterpret_cast<_tree_layout3>(@40) in
+              let @42 = @41.pOffset in
+              let @43 = @42 + (*_idx0) in
+              let @44 = @37[@43] in
+              let @45 = intersectsp_ray_tri(r, @44) in
+              let @46 = @45.set in
+              let @47 = @36 || @46 in
+              _holds0 = @47
+              let @48 = (*_idx0) + 1u in
+              _idx0 = @48
+            }
+          }
+        }
+      }
+    }
+  }
+  return
+}
+
+func _traverse_tree0(r : Ray, tris : _tree_layout0) -> bool {
+  _holds0 : mut bool
+  _holds0 = false
+  _recloop_func0(0u, tris, _holds0, r)
+  let @0 = (*_holds0) in
+  return @0
+}
+
+func shadow(r : Ray, tris : _tree_layout0) -> bool {
+  let @0 = _traverse_tree0(r, tris) in
+  return @0
+}
+
+
+schedule host {
+    shadow.loopify((i32)8)
+
+}
