@@ -1,0 +1,45 @@
+//! flags: -b llvm -e
+
+// `x - x` is zero for every integer and every *finite* float, and a NaN for an
+// infinity. The simplifier folded it to zero for both, which is wrong for the
+// second and, worse, wrong in the one place the expression is normally written:
+// `(x - x) == 0` is how you ask whether a float is finite, and folding it
+// answers "yes, always" without saying so.
+//
+// pbrt reaches this. Its RGB-to-spectrum table answers a pure black texel with
+// minus infinity -- reflects nothing at any wavelength -- and the sigmoid that
+// reads the table has a branch for exactly that. With the branch folded away,
+// half an environment map came back NaN and the render died in the PNG writer,
+// several stages downstream of the fold.
+func main() -> i32 {
+    // Built rather than written, so nothing constant-folds the infinity away
+    // before the subtraction is even formed.
+    big : f32 = 1.0e38;
+    pos_inf = big * big;
+    neg_inf = -big * big;
+
+    // The guard: zero for a finite value, a NaN for an infinite one, so the
+    // comparison is true only for the finite one.
+    print(cast[[i32]](select((1.5 - 1.5) == 0.0, 1, 0)));
+    print(cast[[i32]](select((pos_inf - pos_inf) == 0.0, 1, 0)));
+    print(cast[[i32]](select((neg_inf - neg_inf) == 0.0, 1, 0)));
+
+    // A finite self-subtraction is still zero, which is the case the fold was
+    // there for and which the arithmetic gives anyway.
+    x : f32 = 7.25;
+    print(x - x);
+
+    // Integers keep the fold: there is no integer for which it is wrong.
+    n : i32 = 12345;
+    print(n - n);
+
+    // And what it was written for: pbrt's sigmoid, which maps an infinite
+    // polynomial value to a flat zero or one rather than to a NaN.
+    print(select((neg_inf - neg_inf) == 0.0,
+                 0.5 + neg_inf / (2.0 * sqrt(1.0 + neg_inf * neg_inf)),
+                 select(neg_inf > 0.0, 1.0, 0.0)));
+    print(select((pos_inf - pos_inf) == 0.0,
+                 0.5 + pos_inf / (2.0 * sqrt(1.0 + pos_inf * pos_inf)),
+                 select(pos_inf > 0.0, 1.0, 0.0)));
+    return 0;
+}

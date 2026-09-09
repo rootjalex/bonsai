@@ -239,7 +239,20 @@ struct Simplifier : ir::Mutator {
             }
             // TODO(cgyurgyik): This checks for pointer equality, we want to
             // also check for semantic equality.
-            if (a.same_as(b) || ir::equals(a, b)) {
+            //
+            // Integers only. `a - a` is zero for every integer and for every
+            // *finite* float, and not for an infinity or a NaN, where it is a
+            // NaN -- which is exactly what makes `(x - x) == 0` the standard
+            // way to ask whether a float is finite. Folding it away answers
+            // "yes, always", silently, and the guard it was written to be
+            // disappears.
+            //
+            // pbrt reaches this: its RGB-to-spectrum table answers a pure black
+            // texel with minus infinity, meaning "reflects nothing at any
+            // wavelength", and the sigmoid that reads it has a branch for
+            // exactly that. With the branch folded out, half an environment map
+            // came back NaN.
+            if (!type.is_float() && (a.same_as(b) || ir::equals(a, b))) {
                 // a - a = 0
                 return zero;
             }

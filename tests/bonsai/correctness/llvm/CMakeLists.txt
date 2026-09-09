@@ -18,6 +18,7 @@ add_bonsai_tests(
     exported-recursive-function.bonsai
     extrema.bonsai
     field-store-ssa.bonsai
+    float-self-subtract.bonsai
     function-type.bonsai
     gamma.bonsai
     halton.bonsai
