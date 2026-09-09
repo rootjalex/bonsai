@@ -143,6 +143,10 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::LAYOUT;
     if (token == "group")
         return Token::Type::GROUP;
+    if (token == "indirect")
+        return Token::Type::INDIRECT;
+    if (token == "from")
+        return Token::Type::FROM;
     if (token == "switch")
         return Token::Type::SWITCH;
     if (token == "match")

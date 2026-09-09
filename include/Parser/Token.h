@@ -45,8 +45,10 @@ class Token {
         WITH,   // with
         ON,     // on
         IN,     // in
-        LAYOUT, // layout
-        GROUP,  // group
+        LAYOUT,   // layout
+        GROUP,    // group
+        INDIRECT, // indirect
+        FROM,     // from
         SWITCH, // switch
         MATCH,  // match
 

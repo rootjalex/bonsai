@@ -108,6 +108,7 @@ uint64_t Token::size() const {
     case Token::Type::FUNC:
     case Token::Type::TREE:
     case Token::Type::WITH:
+    case Token::Type::FROM:
         return 4;
     case Token::Type::GROUP:
     case Token::Type::PRINT:
@@ -126,6 +127,7 @@ uint64_t Token::size() const {
     case Token::Type::ELEMENT:
         return 7;
     case Token::Type::SCHEDULE:
+    case Token::Type::INDIRECT:
         return 8;
     case Token::Type::INTERFACE:
         return 9;
@@ -192,6 +194,10 @@ std::string Token::token_type_string(Token::Type type) {
         return "layout";
     case Token::Type::GROUP:
         return "group";
+    case Token::Type::INDIRECT:
+        return "indirect";
+    case Token::Type::FROM:
+        return "from";
     case Token::Type::SWITCH:
         return "switch";
     case Token::Type::MATCH:
@@ -357,6 +363,14 @@ void TokenStream::add_token(Token::Type type, uint64_t line, uint64_t column) {
 }
 
 bool TokenStream::consume(Token::Type type) {
+    // An exhausted stream consumes nothing. `peek` has always guarded this and
+    // this did not, which went unnoticed only because nothing asked for an
+    // optional token at the very end of a file -- `element E { ... }` is the
+    // last declaration of several stdlib files, and it is the first thing to
+    // take a trailing `with`.
+    if (tokens.empty()) {
+        return false;
+    }
     Token token = tokens.back();
     if (token.type == type) {
         current = token;
