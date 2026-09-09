@@ -24,8 +24,78 @@ namespace {
 struct LayoutTypeMap {
     std::map<ir::Layout, ir::Type, ir::LayoutLessThan> layout_to_type;
     std::map<ir::Layout, std::string, ir::LayoutLessThan> layout_to_name;
+    // Named groups, by what the source called them, so that a lookup can be
+    // resolved to the storage it names. A group has to be declared before the
+    // arm that looks it up, which a chain read in order gives for free.
+    struct Named {
+        ir::Layout inner;  // the group's element layout
+        std::string field; // the field of the enclosing struct holding it
+        // The same group as a layout that can be *walked* rather than looked
+        // up: one row at a time, advancing its own index. An indirect group is
+        // exactly this when something traverses it instead of reading a single
+        // row out of it, which is what a tree stored in one is.
+        ir::Layout walkable;
+        // The struct the group is a field of -- what a walk of it is rooted
+        // at.
+        ir::Type owner;
+    };
+    std::map<std::string, Named> groups;
+    // Element fields the schedule bound to a tree, and the type a reference
+    // into that tree's group is. Keyed `Element.field`.
+    //
+    // This is where a nested tree stops being a set and becomes an index: in
+    // the *stored* form only. The program keeps saying `set[Triangle]`, which
+    // is what the query language reasons about; storage says `u32`, which is
+    // what a pool of shared subtrees needs. Keeping the two apart is what lets
+    // an instance's tree be stored once and named twice.
+    std::map<std::string, ir::Type> field_refs;
     uint64_t counter = 0;
 };
+
+// The type an element takes in storage: the same element, with every field the
+// schedule bound to a tree replaced by a reference into that tree's group.
+ir::Type stored_type(const ir::Type &type,
+                     const std::map<std::string, ir::Type> &field_refs) {
+    if (field_refs.empty()) {
+        return type;
+    }
+    if (const auto *as_array = type.as<ir::Array_t>()) {
+        ir::Type etype = stored_type(as_array->etype, field_refs);
+        if (etype.same_as(as_array->etype)) {
+            return type;
+        }
+        return ir::Array_t::make(std::move(etype), as_array->size);
+    }
+    const auto *as_struct = type.as<ir::Struct_t>();
+    if (as_struct == nullptr) {
+        return type;
+    }
+    bool changed = false;
+    ir::Struct_t::Map fields = as_struct->fields;
+    for (auto &field : fields) {
+        const auto ref = field_refs.find(as_struct->name + "." + field.name);
+        if (ref != field_refs.cend()) {
+            field.type = ref->second;
+            changed = true;
+            continue;
+        }
+        ir::Type inner = stored_type(field.type, field_refs);
+        if (!inner.same_as(field.type)) {
+            field.type = std::move(inner);
+            changed = true;
+        }
+    }
+    if (!changed) {
+        return type;
+    }
+    // Keeps the name. There is only ever one element at runtime -- the stored
+    // one -- and the set-typed spelling is a fiction the query language needs
+    // and the machine never sees. Renaming would leave both live at once, and
+    // everything that reads an element out of storage would stop typechecking
+    // against everything that was written about it.
+    return ir::Struct_t::make(as_struct->name, std::move(fields),
+                              as_struct->attributes);
+}
 
 std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
 
@@ -47,12 +117,22 @@ IndexTList get_index_type(const ir::Layout &layout) {
             switch (l.node_type()) {
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
+                if (node->type == ir::Group::Type::Indirect) {
+                    // Auxiliary storage. A lookup into it supplies its own
+                    // index, so it is no part of the reference the traversal
+                    // carries -- which is also why it may sit beside the
+                    // direct group without the two being ambiguous.
+                    break;
+                }
                 internal_assert(index_ts.empty())
                     << "[unimplemented] adjacent groups in layout: " << layout;
                 index_ts = get_index_type(node->inner);
                 index_ts.push_back({node->name, node->index_t});
                 break;
             }
+            case ir::IRLayoutEnum::Lookup:
+                // Names a row of another group; stores nothing here.
+                break;
             case ir::IRLayoutEnum::Switch: {
                 const ir::Switch *node = l.as<ir::Switch>();
                 for (const auto &arm : node->arms) {
@@ -74,6 +154,11 @@ IndexTList get_index_type(const ir::Layout &layout) {
             }
         }
         return index_ts;
+    }
+    if (layout.as<ir::Lookup>()) {
+        // The row is addressed by the index the lookup carries, which the
+        // traversal already holds; it adds no index of its own.
+        return {};
     }
     internal_error << "[unimplemented] handle get_index_type for: " << layout;
 }
@@ -128,17 +213,31 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
         in_cache != ltmap.layout_to_type.cend()) {
         return in_cache->second;
     }
+    // An arm whose fields are a row of another group is that row: its shape is
+    // the group's element shape, wherever the group happens to be stored.
+    if (const ir::Lookup *lookup = layout.as<ir::Lookup>()) {
+        const auto named = ltmap.groups.find(lookup->group_name);
+        internal_assert(named != ltmap.groups.cend())
+            << "Lookup names group " << lookup->group_name
+            << ", which no group in this layout declares. A group has to be "
+               "declared before the arm that looks it up.";
+        ir::Type row = layout_to_structs(named->second.inner, ltmap);
+        ltmap.layout_to_type[layout] = row;
+        return row;
+    }
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         ir::Struct_t::Map fields;
         uint32_t pad_count = 0;
         uint32_t group_count = 0;
         uint32_t split_count = 0;
         std::string name = "_tree_layout" + std::to_string(ltmap.counter++);
+        std::vector<std::pair<std::string, const ir::Group *>> named_here;
         for (const auto &l : chain->layouts) {
             switch (l.node_type()) {
             case ir::IRLayoutEnum::Name: {
                 const ir::Name *node = l.as<ir::Name>();
-                fields.emplace_back(node->name, node->type);
+                fields.emplace_back(node->name,
+                                    stored_type(node->type, ltmap.field_refs));
                 break;
             }
             case ir::IRLayoutEnum::Pad: {
@@ -154,6 +253,19 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                     ir::Array_t::make(std::move(base_t), node->size);
                 internal_assert(!node->name.empty());
                 std::string field_name = group_name(group_count++, node->name);
+                // A named group can be looked up, so remember where its rows
+                // live and what shape they are. Declared before the arm that
+                // names it, which reading the chain in order gives for free.
+                if (!node->declared_name.empty()) {
+                    const auto [_, added] = ltmap.groups.emplace(
+                        node->declared_name,
+                        LayoutTypeMap::Named{node->inner, field_name,
+                                             ir::Layout(), ir::Type()});
+                    internal_assert(added)
+                        << "Two groups named " << node->declared_name
+                        << ": a lookup could not say which it meant.";
+                    named_here.emplace_back(node->declared_name, node);
+                }
                 // push back new field type.
                 fields.emplace_back(std::move(field_name), std::move(group_t));
                 break;
@@ -202,6 +314,30 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
             ir::Struct_t::Attribute::packed, ir::Struct_t::Attribute::layout};
         ir::Type struct_t =
             ir::Struct_t::make(std::move(name), std::move(fields), attributes);
+        // A walk of a named group is rooted at the struct the group is a field
+        // of, which only exists now that the chain is finished -- and it needs
+        // the chain around it, not just the group: a leaf of that group reads
+        // the primitive array declared beside it, and dropping the chain would
+        // put that out of scope. So the walkable form is this chain with the
+        // *other* groups taken out and this one walked directly.
+        for (const auto &[declared, group] : named_here) {
+            std::vector<ir::Layout> members;
+            for (const auto &l : chain->layouts) {
+                if (const ir::Group *g = l.as<ir::Group>()) {
+                    if (g != group) {
+                        continue;
+                    }
+                    members.push_back(ir::Group::make(
+                        g->size, g->name, g->declared_name, g->index_t,
+                        g->inner, ir::Group::Type::Direct));
+                    continue;
+                }
+                members.push_back(l);
+            }
+            LayoutTypeMap::Named &named = ltmap.groups.at(declared);
+            named.walkable = ir::Chain::make(std::move(members));
+            named.owner = struct_t;
+        }
         auto [_, inserted] = ltmap.layout_to_type.try_emplace(layout, struct_t);
         internal_assert(inserted) << layout << " already in cache\n";
         return struct_t;
@@ -214,6 +350,25 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                          const std::string &iter_name,
                          const std::string &node_type, const std::string &field,
                          const LayoutTypeMap &ltmap, ir::Expr group) {
+    // The arm's fields are a row of another group: index that group and go on
+    // looking inside the row.
+    if (const ir::Lookup *lookup = layout.as<ir::Lookup>()) {
+        const auto named = ltmap.groups.find(lookup->group_name);
+        internal_assert(named != ltmap.groups.cend())
+            << "Lookup names group " << lookup->group_name
+            << ", which no group in this layout declares.";
+        const std::optional<ir::Expr> rows =
+            frames.from_frames(lookup->group_name);
+        internal_assert(rows.has_value())
+            << "Group " << lookup->group_name
+            << " is not in scope where it is looked up. A group has to be "
+               "declared before the arm that names it.";
+        ir::Expr row =
+            ir::Extract::make(*rows, fill(frames, lookup->index));
+        return field_in_layout(std::move(row), named->second.inner, frames,
+                               iter_name, node_type, field, ltmap,
+                               std::move(group));
+    }
     if (const ir::Chain *chain = layout.as<ir::Chain>()) {
         uint32_t group_count = 0;
         uint32_t split_count = 0;
@@ -239,6 +394,18 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
                 std::string field_name = group_name(group_count++, node->name);
+                if (node->type == ir::Group::Type::Indirect) {
+                    // Not walked into: its rows are reached only through a
+                    // lookup, which supplies the index, and descending here
+                    // would invent an index variable nothing binds. Put the
+                    // rows in scope under the name a lookup uses instead.
+                    if (!node->declared_name.empty()) {
+                        frames.add_to_frame(
+                            node->declared_name,
+                            ir::Access::make(field_name, base));
+                    }
+                    break;
+                }
                 ir::Expr push_group = ir::Access::make(field_name, base);
                 ir::Expr index =
                     ir::Var::make(node->index_t, iter_name + "_" + node->name);
@@ -327,6 +494,17 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
             std::vector<std::pair<std::string, std::optional<int64_t>>>;
         Path current;
         std::map<std::string, Path> paths;
+
+        // A walk of this layout never arrives inside an indirect group, so the
+        // variants declared there are not this walk's to reach -- and may
+        // reuse the names this one uses. An instance's tree calls its nodes
+        // Interior and Leaf just as the tree holding the instances does.
+        void visit(const ir::Group *node) override {
+            if (node->type == ir::Group::Type::Indirect) {
+                return;
+            }
+            node->inner.accept(this);
+        }
 
         void visit(const ir::Switch *node) override {
             for (const auto &arm : node->arms) {
@@ -737,14 +915,79 @@ struct LowerMatches : public ir::Mutator {
     const ir::TypeMap &structs;
     const LayoutTypeMap &ltmap;
 
+    const std::map<std::string, std::string> &tree_field_groups;
+
     LowerMatches(const ir::LayoutMap &layouts, const ir::TypeMap &structs,
-                 const LayoutTypeMap &ltmap)
-        : layouts(layouts), structs(structs), ltmap(ltmap) {}
+                 const LayoutTypeMap &ltmap,
+                 const std::map<std::string, std::string> &tree_field_groups)
+        : layouts(layouts), structs(structs), ltmap(ltmap),
+          tree_field_groups(tree_field_groups) {}
 
     std::map<std::string, ir::Type> ref_types;
     IndexTList index_list;
     std::set<std::string> matched_objects;
     std::map<std::string, ir::Expr> references;
+    // Trees reached through an element rather than named by the schedule.
+    //
+    // `let _subtree0 = i.blas in rec(_subtree0) { match _subtree0 ... }` --
+    // the match is on a local, so there is no layout under that name. What
+    // there is, is the group the schedule said holds that tree's nodes, and a
+    // walk of it is a walk of the enclosing structure restricted to that
+    // group. So the local is given a layout of exactly that: the group,
+    // walked directly, over the same storage.
+    std::map<std::string, ir::Layout> nested_layouts;
+    std::map<std::string, ir::Type> nested_structs;
+
+    // The layout a match on `name` should be lowered against.
+    const ir::Layout *layout_of(const std::string &name) const {
+        if (const auto iter = nested_layouts.find(name);
+            iter != nested_layouts.cend()) {
+            return &iter->second;
+        }
+        if (const auto iter = layouts.find(name); iter != layouts.cend()) {
+            return &iter->second;
+        }
+        return nullptr;
+    }
+
+    const ir::Type *struct_of(const std::string &name) const {
+        if (const auto iter = nested_structs.find(name);
+            iter != nested_structs.cend()) {
+            return &iter->second;
+        }
+        if (const auto iter = structs.find(name); iter != structs.cend()) {
+            return &iter->second;
+        }
+        return nullptr;
+    }
+
+    // `let <tree> = <element>.<field> in ...` for a field the schedule bound
+    // to a tree: remember which group that tree's nodes live in, so the match
+    // that follows can be lowered against it.
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        const ir::Access *access = node->value.as<ir::Access>();
+        if (access != nullptr && !node->loc.base.empty()) {
+            const auto *element = access->value.type().as<ir::Struct_t>();
+            if (element != nullptr) {
+                const std::string path =
+                    element->name + "." + access->field;
+                const auto group = tree_field_groups.find(path);
+                if (group != tree_field_groups.cend()) {
+                    const auto named = ltmap.groups.find(group->second);
+                    internal_assert(named != ltmap.groups.cend())
+                        << "No group named " << group->second << " for "
+                        << path;
+                    // Walked directly: the reference the recursion advances is
+                    // an index into this group, which is what an indirect
+                    // group is when something is walking it rather than
+                    // looking one row up.
+                    nested_layouts[node->loc.base] = named->second.walkable;
+                    nested_structs[node->loc.base] = named->second.owner;
+                }
+            }
+        }
+        return ir::Mutator::visit(node);
+    }
 
     size_t counter = 0;
 
@@ -753,12 +996,25 @@ struct LowerMatches : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::RecLoop *node) override {
-        // Should not be in a match right now.
-        internal_assert(references.empty()) << ir::Stmt(node);
+        // Recursions nest: a query over a tree held in an element walks the
+        // outer tree and, at each element it reaches, walks that element's own
+        // tree. Each carries its own stack, so each gets its own index
+        // parameters and its own references -- the outer ones are put aside
+        // and restored, rather than shared, because an inner traversal
+        // advances an index into a different pool.
+        auto outer_references = std::move(references);
+        auto outer_index_list = std::move(index_list);
+        references.clear();
+        index_list.clear();
+
         ir::Stmt body = mutate(node->body);
         body = flatten_yield_froms(index_list, std::move(body), references);
-        references.clear();
-        return ir::RecLoop::make(std::move(index_list), std::move(body));
+        ir::Stmt loop =
+            ir::RecLoop::make(std::move(index_list), std::move(body));
+
+        references = std::move(outer_references);
+        index_list = std::move(outer_index_list);
+        return loop;
     }
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -768,19 +1024,19 @@ struct LowerMatches : public ir::Mutator {
 
         // Now, based on layout, form switch-tree.
         ir::Layout layout = [&]() {
-            const auto &iter = layouts.find(tree_name);
-            internal_assert(iter != layouts.cend())
+            const ir::Layout *found = layout_of(tree_name);
+            internal_assert(found != nullptr)
                 << "Failed to find layout of: " << tree_name
                 << " for Match lowering: " << ir::Stmt(node);
-            return iter->second;
+            return *found;
         }();
 
         ir::Type struct_type = [&]() {
-            const auto &iter = structs.find(tree_name);
-            internal_assert(iter != structs.cend())
+            const ir::Type *found = struct_of(tree_name);
+            internal_assert(found != nullptr)
                 << "Failed to find type of: " << tree_name
                 << " for Match lowering: " << ir::Stmt(node);
-            return iter->second;
+            return *found;
         }();
 
         ir::Expr base_struct = ir::Var::make(struct_type, tree_name);
@@ -942,6 +1198,38 @@ ir::Program LowerLayouts::run(ir::Program program,
 
     ir::TypeMap types;
     LayoutTypeMap ltmap;
+
+    // What a field bound to a tree is, in storage. The schedule said which
+    // group holds that tree's nodes; the group says what indexing it costs.
+    for (const auto &[path, group_name] :
+         program.schedules[ir::Target::Host].tree_groups) {
+        ir::Type index_t;
+        for (const auto &[_, layout] : tree_layouts) {
+            struct FindGroup : public ir::Visitor {
+                const std::string &wanted;
+                ir::Type index_t;
+
+                FindGroup(const std::string &wanted) : wanted(wanted) {}
+
+                void visit(const ir::Group *node) override {
+                    if (node->declared_name == wanted) {
+                        index_t = node->index_t;
+                    }
+                    node->inner.accept(this);
+                }
+            };
+            FindGroup finder(group_name);
+            layout.accept(&finder);
+            if (finder.index_t.defined()) {
+                index_t = finder.index_t;
+                break;
+            }
+        }
+        internal_assert(index_t.defined())
+            << path << " is stored in group " << group_name
+            << ", which no layout declares.";
+        ltmap.field_refs[path] = std::move(index_t);
+    }
     for (const auto &[name, layout] : tree_layouts) {
         ir::Type struct_t = layout_to_structs(layout, ltmap);
         types[name] = struct_t;
@@ -1004,7 +1292,8 @@ ir::Program LowerLayouts::run(ir::Program program,
             }
         }
 
-        LowerMatches lowerer(tree_layouts, types, ltmap);
+        LowerMatches lowerer(tree_layouts, types, ltmap,
+                             program.schedules[ir::Target::Host].tree_groups);
         func->body = lowerer.mutate(func->body);
     }
 

@@ -39,6 +39,12 @@ uint64_t Layout::bits() const {
     case IRLayoutEnum::Materialize: {
         return 0; // computed field, not stored.
     }
+    case IRLayoutEnum::Lookup: {
+        // The row lives in the group looked up, not here. What is stored at
+        // this arm is the index, and that is stored by whoever built the
+        // reference -- so this arm contributes nothing of its own.
+        return 0;
+    }
     }
     internal_error << "TODO: Layout::bits()";
 }
@@ -57,6 +63,18 @@ Expr Layout::count() const {
     return u64_1;
 }
 
+Layout Lookup::make(std::string group_name, Expr index) {
+    internal_assert(!group_name.empty())
+        << "Lookup::make received an empty group name";
+    internal_assert(index.defined())
+        << "Lookup::make received an undefined index into " << group_name;
+
+    Lookup *node = new Lookup;
+    node->group_name = std::move(group_name);
+    node->index = std::move(index);
+    return node;
+}
+
 Layout Pad::make(uint32_t bits) {
     internal_assert(bits > 0) << "0 bits in Pad::make";
     Pad *node = new Pad;
@@ -64,12 +82,39 @@ Layout Pad::make(uint32_t bits) {
     return node;
 }
 
+namespace {
+
+// What a layout may store, as far as this level can tell.
+//
+// Weaker than `is_primitive` in one place: a set-typed *field* of an element
+// passes, because a schedule may have bound it to a tree, in which case what
+// is stored is a reference into that tree's pool rather than a tree. Whether a
+// schedule did bind it is not knowable here -- it is a fact about the
+// schedule, not about the type -- so the front end checks that (see the
+// parser's `storable_in_layout`) and this checks what remains.
+bool storable(const Type &type) {
+    if (const auto *as_struct = type.as<Struct_t>()) {
+        for (const auto &field : as_struct->fields) {
+            if (!field.type.is<Set_t>() && !storable(field.type)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (const auto *as_array = type.as<Array_t>()) {
+        return storable(as_array->etype);
+    }
+    return type.is_primitive();
+}
+
+} // namespace
+
 Layout Name::make(std::string name, Type type) {
     internal_assert(!name.empty())
         << "empty name in Name::make with Type: " << type;
     internal_assert(type.defined())
         << "Undefined type in Name::make with name: " << name;
-    internal_assert(type.is_primitive())
+    internal_assert(storable(type))
         << "Non-primitive type in Name::make: " << type;
 
     Name *node = new Name;
@@ -108,7 +153,8 @@ Layout Chain::make(std::vector<Layout> layouts) {
     return node;
 }
 
-Layout Group::make(Expr size, std::string name, Type index_t, Layout inner) {
+Layout Group::make(Expr size, std::string name, std::string declared_name,
+                   ir::Type index_t, Layout inner, Group::Type type) {
     internal_assert(size.defined())
         << "Cannot make Group with undefined size, named: " << name;
     // Groups can have no label, name can be empty and index_t can be undefined
@@ -118,12 +164,19 @@ Layout Group::make(Expr size, std::string name, Type index_t, Layout inner) {
         << index_t;
     internal_assert(inner.defined())
         << "Cannot make Group with undefined inner, named: " << name;
+    // An indirect group is reached only by being named, so one without a name
+    // is storage nothing can ever read.
+    internal_assert(type != Group::Type::Indirect || !declared_name.empty())
+        << "An indirect group has to be named: nothing can look it up "
+           "otherwise.";
 
     Group *node = new Group;
     node->size = std::move(size);
     node->name = std::move(name);
+    node->declared_name = std::move(declared_name);
     node->index_t = std::move(index_t);
     node->inner = std::move(inner);
+    node->type = type;
     return node;
 }
 

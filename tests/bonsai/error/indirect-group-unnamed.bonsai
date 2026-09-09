@@ -1,0 +1,48 @@
+// An indirect group with no name.
+//
+// A layout's groups come in two kinds. A direct group is addressed by the
+// reference the traversal already holds -- a tree's node array, walked by its
+// own index -- so it needs no name of its own, and the layouts written so far
+// leave it anonymous. An indirect group is auxiliary storage: nothing reaches
+// it by walking, and the only way in is to name it from somewhere else.
+//
+// So an unnamed indirect group is storage that cannot be read. That is worth
+// refusing at the point it is written rather than discovering later as an
+// array nothing indexes.
+
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), triangles));
+
+schedule {
+    tree[[Triangle]] TriBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriBVH, right : TriBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : TriBVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

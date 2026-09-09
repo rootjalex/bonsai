@@ -1,0 +1,61 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type TriBVH = (const TriBVH&)
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type __tuple_1 = struct __tuple_1{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
+type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout2{ low : f32x3; high : f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : u8x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ left : u32; right : u32 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ low : f32x3; high : f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : u8x4 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout2{ low : f32x3; high : f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : u8x4 }[nCount] }
+
+func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mut (__tuple_0*)) -> void {
+  if (tris.group1_index[tris_index].nPrims == 0u) {
+    if (intersects_Ray_AABB(r, build<AABB>(tris.group1_index[tris_index].low, tris.group1_index[tris_index].high))) {
+      if (distmin_Ray_AABB(r, build<AABB>(tris.group1_index[tris_index].low, tris.group1_index[tris_index].high)) < (*_best0)._field0) {
+        multirecurse _recloop_func0(<0>, tris, r, _best0) from { (tris.group0_ichild[tris_index].left), (tris.group0_ichild[tris_index].right) }
+      }
+    }
+  } else if (intersects_Ray_AABB(r, build<AABB>(tris.group1_index[tris_index].low, tris.group1_index[tris_index].high))) {
+    if (distmin_Ray_AABB(r, build<AABB>(tris.group1_index[tris_index].low, tris.group1_index[tris_index].high)) < (*_best0)._field0) {
+      forall _idx0 in [0u:cast<u32>(tris.group1_index[tris_index].nPrims):1u] {
+        if (intersects_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])) {
+          if (distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]) < (*_best0)._field0) {
+            _best0 = build<__tuple_0>(distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]), tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])
+          }
+        }
+      }
+    }
+  }
+  return
+}
+
+func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
+  _best0 : mut __tuple_0 := build<__tuple_0>((f32)inf, build<Triangle>())
+  _recloop_func0(0u, tris, r, _best0)
+  return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
+}
+
+func trace(r : Ray, tris : _tree_layout0) -> _option0 {
+  return _traverse_tree0(r, tris)
+}
+
+
+schedule host {
+
+}

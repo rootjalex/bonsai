@@ -16,8 +16,44 @@ using Path = std::map<std::string, Type>;
 namespace {
 
 std::vector<Path> get_paths(const Layout &layout) {
+    // Named groups first, so that a lookup can contribute the fields of the
+    // row it names.
+    struct CollectGroups : public Visitor {
+        std::map<std::string, Layout> groups;
+
+        void visit(const Group *node) override {
+            if (!node->declared_name.empty()) {
+                groups.emplace(node->declared_name, node->inner);
+            }
+            node->inner.accept(this);
+        }
+    };
+    CollectGroups collector;
+    layout.accept(&collector);
+
     struct GetPaths : public Visitor {
+        const std::map<std::string, Layout> *groups = nullptr;
         std::vector<Path> paths = {{}}; // start with one empty path.
+
+        // A direct group is walked into, so its fields are on the path a walk
+        // arrives by. An indirect group is not: nothing reaches its rows by
+        // walking, only by naming them, so its fields belong to whichever arm
+        // looks it up rather than to every arm beside it.
+        void visit(const Group *node) override {
+            if (node->type == Group::Type::Indirect) {
+                return;
+            }
+            node->inner.accept(this);
+        }
+
+        // And here is that arm: the row's fields join this path and no other.
+        void visit(const Lookup *node) override {
+            const auto named = groups->find(node->group_name);
+            internal_assert(named != groups->cend())
+                << "Lookup names group " << node->group_name
+                << ", which no group in this layout declares.";
+            named->second.accept(this);
+        }
 
         void visit(const Name *node) override {
             for (auto &path : paths) {
@@ -75,6 +111,7 @@ std::vector<Path> get_paths(const Layout &layout) {
     };
 
     GetPaths getter;
+    getter.groups = &collector.groups;
     layout.accept(&getter);
     return getter.paths;
 }

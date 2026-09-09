@@ -4,6 +4,7 @@ add_bonsai_tests(
     adt-duplicate-variant.bonsai
     adt-layout-tagged-ptr-no-heap.bonsai
     adt-layout-unknown.bonsai
+    indirect-group-unnamed.bonsai
     adt-variant-shadows-type.bonsai
     aggregation-name-reserved.bonsai
     call-statement-arg-type.bonsai

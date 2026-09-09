@@ -1,0 +1,70 @@
+//! flags: -p core
+
+// Storage that a traversal reaches by naming rather than by walking.
+//
+// A direct group is addressed by the reference the traversal already carries:
+// a node's index picks its row, and the row is where that node's fields are.
+// An indirect group is addressed by nothing in particular. Nothing arrives
+// there by descending; the only way in is `<variant> from <group>[<index>]`,
+// which says this arm's fields are not stored here at all -- they are a row of
+// that group, at that index. The relational reading is a foreign key.
+//
+// What it buys, here, is that a leaf pays nothing for the fields only an
+// interior node has. The node array holds what every node needs -- a box and a
+// primitive count -- and the two child references live in a second array that
+// only interior nodes have rows in. It is the same trick that makes an
+// instanced subtree storable once however many times it appears: two
+// references carrying the same index name the same row.
+//
+// So the traversal below should read a node's bounds from the direct group and
+// its children from the indirect one, at the same index:
+//
+//     if (tris.group1_index[i].nPrims == 0u) ... tris.group1_index[i].low ...
+//     multirecurse ... from { tris.group0_ichild[i].left,
+//                             tris.group0_ichild[i].right }
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] TriBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriBVH, right : TriBVH)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : TriBVH;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+
+        // Reached only by the lookup below, so it needs a name and takes no
+        // part in the reference a walk carries -- which is why it may sit
+        // beside the node group without the two being ambiguous.
+        iCount : u32;
+        indirect group Interiors[iCount] ichild : u32 {
+            left : u32;
+            right : u32;
+        };
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior from Interiors[index];
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

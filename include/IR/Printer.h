@@ -184,6 +184,7 @@ struct Printer : public Visitor {
     void visit(const Chain *) override;
     void visit(const Group *) override;
     void visit(const Materialize *) override;
+    void visit(const Lookup *) override;
 
   protected:
     void set_indent(int _indent) { indent = _indent; }

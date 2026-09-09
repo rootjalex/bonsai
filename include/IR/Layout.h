@@ -23,6 +23,7 @@ enum class IRLayoutEnum {
     Chain,
     Group,
     Materialize,
+    Lookup,
 };
 
 using IRLayoutNode = IRNode<Layout, IRLayoutEnum>;
@@ -109,12 +110,29 @@ struct Chain : LayoutNode<Chain> {
 };
 
 struct Group : LayoutNode<Group> {
-    Expr size;
-    std::string name;
-    Type index_t;
-    Layout inner;
+    // Direct groups are addressed by a component of the reference the
+    // traversal already holds -- the node array of a tree, walked by its own
+    // index. Indirect groups are auxiliary storage, reached only by a lookup
+    // from somewhere else: a foreign table, in the relational reading. They
+    // are what lets one tree's storage hold another's, and so what lets two
+    // terms share a subtree by naming the same index.
+    enum class Type { Direct, Indirect };
 
-    static Layout make(Expr size, std::string name, Type index_t, Layout inner);
+    Expr size;
+    // The index variable this group is addressed by, in scope for its body.
+    std::string name;
+    // What the source called the group, and the group's identity: it is what
+    // `<variant> from <group>[<index>]` resolves against. Empty for a group
+    // the source left anonymous, which is exactly why such a group cannot be
+    // looked up.
+    std::string declared_name;
+    ir::Type index_t;
+    Layout inner;
+    Type type = Type::Direct;
+
+    static Layout make(Expr size, std::string name, std::string declared_name,
+                       ir::Type index_t, Layout inner,
+                       Type type = Type::Direct);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };
@@ -126,6 +144,26 @@ struct Materialize : LayoutNode<Materialize> {
     static Layout make(std::string name, Expr value);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Materialize;
+};
+
+// `<variant> from <group>[<index>]`: this arm's fields are not here, they are
+// a row of another group.
+//
+// A direct group stores a term's fields where the reference lands. A lookup
+// says instead that the reference names a row of some other group -- the
+// relational reading is a foreign key, and it is what makes storage shareable:
+// two terms whose references carry the same index are the same row, so an
+// instanced subtree is stored once however many times it appears.
+//
+// The variant this stands for comes from the arm that holds it, so this node
+// carries only where to look: which group, and at what index into it.
+struct Lookup : LayoutNode<Lookup> {
+    std::string group_name;
+    Expr index;
+
+    static Layout make(std::string group_name, Expr index);
+
+    static const IRLayoutEnum node_type = IRLayoutEnum::Lookup;
 };
 
 using LayoutMap = std::map<std::string, Layout>;

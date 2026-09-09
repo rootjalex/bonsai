@@ -375,6 +375,11 @@ struct Annotation {
         bool broadcast; // if on children
     };
 
+    // An element's `with extent = <expr>` is the fifth augmentation and the
+    // only one not declared here: it is an arbitrary expression rather than a
+    // reference to stored fields, and `Expr` is not a complete type at this
+    // point. It lives in `Program::extents`, keyed by the element's name.
+
     // scalar in [low, high]
     struct Interval {
         std::string scalar;

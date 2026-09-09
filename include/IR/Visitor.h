@@ -103,6 +103,7 @@ struct Visitor {
     virtual void visit(const Chain *);
     virtual void visit(const Group *);
     virtual void visit(const Materialize *);
+    virtual void visit(const Lookup *);
 };
 
 #define RESTRICT_VISITOR(IRNODE)                                               \

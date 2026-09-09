@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/indirect-group-unnamed.bonsai:34:18: [parse error] An indirect group has to be named: nothing can look it up otherwise.
+
+        indirect group[nCount] index : u32 {
+                 ^^^^^

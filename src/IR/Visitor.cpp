@@ -377,5 +377,7 @@ void Visitor::visit(const Group *node) { node->inner.accept(this); }
 
 void Visitor::visit(const Materialize *node) {}
 
+void Visitor::visit(const Lookup *node) { node->index.accept(this); }
+
 } // namespace ir
 } // namespace bonsai

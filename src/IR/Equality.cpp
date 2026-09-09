@@ -862,6 +862,15 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
         }
         return compare_exprs(m0->value, m1->value);
     }
+    case IRLayoutEnum::Lookup: {
+        const Lookup *l0n = l0.as<Lookup>();
+        const Lookup *l1n = l1.as<Lookup>();
+        if (Cmp cmp = compare_primitives(l0n->group_name, l1n->group_name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        return compare_exprs(l0n->index, l1n->index);
+    }
     }
 }
 
