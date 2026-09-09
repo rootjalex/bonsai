@@ -444,11 +444,27 @@ struct Scene {
     std::vector<float> uvs;
     std::vector<Light> lights;
     std::vector<InfiniteLight> infinite_lights;
-    // Every environment map's texels, laid end to end -- three floats each, in
-    // the image's own colour space. Written to a binary file beside the scene
-    // rather than into it: a 2048x2048 map is twelve million numbers, and the
-    // scene file is text.
+    // Every environment map's texels, laid end to end -- *four* floats each:
+    // the three coefficients of the sigmoid PBRT's RGBIlluminantSpectrum fits,
+    // and its scale.
+    //
+    // Fitted here rather than in the renderer, through PBRT's own
+    // RGB-to-spectrum table, because the fit is a deterministic function of the
+    // texel and doing it per lookup would put a table under every escaped ray.
+    // Written to a binary file beside the scene rather than into it: a
+    // 2048x2048 map is sixteen million numbers, and the scene file is text.
     std::vector<float> env_texels;
+    // What the *sampling distribution* over each map is built from: one float
+    // per texel, in the same order as `env_texels`.
+    //
+    // PBRT: `Image::GetSamplingDistribution`, which is the average of the
+    // texel's channels taken from the image itself. It has to be shipped
+    // separately because `env_texels` no longer holds the image -- it holds the
+    // sigmoid the image was fitted to, and a fit is not a thing you can average
+    // to get a density. A black texel's fit is minus infinity, which is a
+    // perfectly good answer to "what does this reflect" and a catastrophic one
+    // to "how often should this be sampled".
+    std::vector<float> env_sampling;
     // The image textures, their pyramid levels, and every level's texels laid
     // end to end. The texels go in the sidecar beside the environment maps and
     // for the same reason: a 2048x2048 pyramid is seventeen million numbers.
@@ -545,6 +561,8 @@ inline bool write(const char *path, const Scene &scene) {
         }
         env.write(reinterpret_cast<const char *>(scene.env_texels.data()),
                   std::streamsize(sizeof(float) * scene.env_texels.size()));
+        env.write(reinterpret_cast<const char *>(scene.env_sampling.data()),
+                  std::streamsize(sizeof(float) * scene.env_sampling.size()));
         if (!env) {
             return false;
         }
@@ -1449,11 +1467,18 @@ inline bool read(const char *path, Scene &scene) {
         if (!env) {
             return false;
         }
-        scene.env_texels.resize(texels * 3);
+        scene.env_texels.resize(texels * 4);
         env.read(reinterpret_cast<char *>(scene.env_texels.data()),
                  std::streamsize(sizeof(float) * scene.env_texels.size()));
         if (env.gcount() !=
             std::streamsize(sizeof(float) * scene.env_texels.size())) {
+            return false;
+        }
+        scene.env_sampling.resize(texels);
+        env.read(reinterpret_cast<char *>(scene.env_sampling.data()),
+                 std::streamsize(sizeof(float) * scene.env_sampling.size()));
+        if (env.gcount() !=
+            std::streamsize(sizeof(float) * scene.env_sampling.size())) {
             return false;
         }
     }

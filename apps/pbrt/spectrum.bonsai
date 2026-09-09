@@ -74,8 +74,25 @@ element SigmoidPolynomial {
 
 // pbrt: RGBSigmoidPolynomial::s, the sigmoid that keeps a reflectance inside
 // zero and one however the polynomial swings.
+// pbrt: RGBSigmoidPolynomial::s, including its infinity case.
+//
+// The infinity is not a degenerate input: pbrt's RGB-to-spectrum table answers
+// a grey directly, as `(c - .5) / sqrt(c * (1 - c))`, and pure black and pure
+// white divide by zero there -- so an all-black texel of an environment map
+// arrives here as minus infinity, meaning "reflects nothing at any wavelength".
+// The formula below turns that into `inf / inf`, which is a NaN, and one NaN
+// texel is one NaN pixel.
+//
+// It was unreachable while the fits were made by the Gauss-Newton solve in
+// rgb2spec.h, which answers a black texel with three finite numbers. Doing the
+// fits pbrt's way is what reached it.
 func sigmoid(x : vec4f) -> vec4f {
-    return 0.5 + x / (2.0 * sqrt(1.0 + x * x));
+    finite = 0.5 + x / (2.0 * sqrt(1.0 + x * x));
+    // `x - x` is zero for a finite x and a NaN for an infinite one, which is
+    // the componentwise test without a helper for it.
+    ones = vec4f{1.0, 1.0, 1.0, 1.0};
+    zeros = vec4f{0.0, 0.0, 0.0, 0.0};
+    return select((x - x) == 0.0, finite, select(x > 0.0, ones, zeros));
 }
 
 func spectrum_at(p : SigmoidPolynomial, w : SampledWavelengths) -> vec4f {

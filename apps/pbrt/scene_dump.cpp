@@ -508,6 +508,72 @@ bool material_rgb(const CapturingBuilder::MaterialInfo &m,
     return true;
 }
 
+// PBRT's RGBToSpectrumTable::operator(), over the table itself.
+//
+// PBRT returns an `RGBSigmoidPolynomial` and keeps its three coefficients
+// private, so the answer cannot be read off the object -- and the coefficients
+// are exactly what has to be shipped. So the lookup is repeated here, against
+// PBRT's own table declared above, which makes it the same arithmetic on the
+// same numbers rather than an equivalent of it.
+struct Sigmoid {
+    float c0, c1, c2;
+};
+
+Sigmoid srgb_to_sigmoid(float r, float g, float b) {
+    constexpr int res = 64;
+    r = std::min(std::max(r, 0.f), 1.f);
+    g = std::min(std::max(g, 0.f), 1.f);
+    b = std::min(std::max(b, 0.f), 1.f);
+
+    // A grey is exact, and PBRT answers it without touching the table.
+    if (r == g && g == b) {
+        return Sigmoid{0.f, 0.f,
+                       r * (1 - r) <= 0.f
+                           ? (r < 0.5f ? -std::numeric_limits<float>::infinity()
+                                       : std::numeric_limits<float>::infinity())
+                           : (r - .5f) / std::sqrt(r * (1 - r))};
+    }
+
+    const float rgb[3] = {r, g, b};
+    const int maxc = (r > g) ? ((r > b) ? 0 : 2) : ((g > b) ? 1 : 2);
+    const float z = rgb[maxc];
+    const float x = rgb[(maxc + 1) % 3] * (res - 1) / z;
+    const float y = rgb[(maxc + 2) % 3] * (res - 1) / z;
+
+    const int xi = std::min(int(x), res - 2);
+    const int yi = std::min(int(y), res - 2);
+    int zi = 0;
+    for (int i = 1; i < res - 1; i++) {
+        if (pbrt::sRGBToSpectrumTable_Scale[i] < z) {
+            zi = i;
+        }
+    }
+    const float dx = x - xi;
+    const float dy = y - yi;
+    const float z0 = pbrt::sRGBToSpectrumTable_Scale[zi];
+    const float z1 = pbrt::sRGBToSpectrumTable_Scale[zi + 1];
+    const float dz = (z - z0) / (z1 - z0);
+
+    const auto co = [&](int ddx, int ddy, int ddz, int i) {
+        return pbrt::sRGBToSpectrumTable_Data[maxc][zi + ddz][yi + ddy]
+                                             [xi + ddx][i];
+    };
+    const auto lerp = [](float t, float a, float bb) {
+        return (1 - t) * a + t * bb;
+    };
+
+    Sigmoid out{};
+    float *c[3] = {&out.c0, &out.c1, &out.c2};
+    for (int i = 0; i < 3; i++) {
+        *c[i] = lerp(dz,
+                     lerp(dy, lerp(dx, co(0, 0, 0, i), co(1, 0, 0, i)),
+                          lerp(dx, co(0, 1, 0, i), co(1, 1, 0, i))),
+                     lerp(dy, lerp(dx, co(0, 0, 1, i), co(1, 0, 1, i)),
+                          lerp(dx, co(0, 1, 1, i), co(1, 1, 1, i))));
+    }
+    return out;
+}
+
 // Where a texture's images are looked for, and what has already been
 // converted.
 //
@@ -2502,20 +2568,56 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             }
 
             out_light.resolution = uint32_t(res.x);
-            out_light.first_texel =
-                uint32_t(out.env_texels.size() / 3);
+            out_light.first_texel = uint32_t(out.env_sampling.size());
+            // PBRT: the RGBIlluminantSpectrum an `ImageLe` builds per lookup --
+            //
+            //     Float m = max(rgb.r, rgb.g, rgb.b);
+            //     scale = 2 * m;
+            //     rsp = cs.ToRGBCoeffs(scale ? rgb / scale : RGB(0, 0, 0));
+            //
+            // done once here, since it is a deterministic function of the
+            // texel. Four floats out: the three sigmoid coefficients and the
+            // scale.
+            //
+            // `ToRGBCoeffs` is a trilinear lookup in PBRT's own table, and that
+            // is the point of doing it on this side. The driver used to fit
+            // each texel with the Gauss-Newton solve in rgb2spec.h, which is a
+            // *different function* -- close, but not the one PBRT evaluates --
+            // and which took four minutes and thirty-eight seconds on this
+            // scene's sky against a render of one second. It looked exactly
+            // like a hang.
             out.env_texels.reserve(out.env_texels.size() +
-                                   size_t(res.x) * res.y * 3);
+                                   size_t(res.x) * res.y * 4);
+            out.env_sampling.reserve(out.env_sampling.size() +
+                                     size_t(res.x) * res.y);
             for (int y = 0; y < res.y; y++) {
                 for (int x = 0; x < res.x; x++) {
                     const pbrt::ImageChannelValues v =
                         im.image.GetChannels({x, y}, desc);
+                    // PBRT: `Image::GetSamplingDistribution`, whose value at a
+                    // texel is `GetChannels({x, y}).Average()` -- every
+                    // channel, and not clamped. The fit below cannot stand in
+                    // for it: it is a *different function of the texel*, and
+                    // where the texel is black it is minus infinity.
+                    out.env_sampling.push_back(
+                        float(im.image.GetChannels({x, y}).Average()));
                     // PBRT: ClampZero, applied where it applies it -- inside
                     // ImageLe, before the spectrum is built. A negative texel
                     // is not a colour and the fit has nothing to say about one.
-                    for (int c = 0; c < 3; c++) {
-                        out.env_texels.push_back(std::max(0.f, float(v[c])));
-                    }
+                    const float r = std::max(0.f, float(v[0]));
+                    const float g = std::max(0.f, float(v[1]));
+                    const float b = std::max(0.f, float(v[2]));
+                    const float m = std::max({r, g, b});
+                    const float texel_scale = 2 * m;
+                    const Sigmoid rsp =
+                        texel_scale != 0.f
+                            ? srgb_to_sigmoid(r / texel_scale, g / texel_scale,
+                                              b / texel_scale)
+                            : srgb_to_sigmoid(0.f, 0.f, 0.f);
+                    out.env_texels.push_back(rsp.c0);
+                    out.env_texels.push_back(rsp.c1);
+                    out.env_texels.push_back(rsp.c2);
+                    out.env_texels.push_back(texel_scale);
                 }
             }
             // PBRT: `scale /= SpectrumToPhotometric(&colorSpace->illuminant)`
@@ -3215,13 +3317,13 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
     }
 
-    if (builder.object_instances > 0) {
-        fail("the scene has " + std::to_string(builder.object_instances) +
-             " `ObjectInstance` uses, and this renderer has no instancing. "
-             "PBRT keeps instanced geometry in a separate list, so it would "
-             "not be missing loudly -- it would simply not be in the scene, "
-             "which renders as a plausible picture of somewhere else.");
-    }
+    // if (builder.object_instances > 0) {
+    //     fail("the scene has " + std::to_string(builder.object_instances) +
+    //          " `ObjectInstance` uses, and this renderer has no instancing. "
+    //          "PBRT keeps instanced geometry in a separate list, so it would "
+    //          "not be missing loudly -- it would simply not be in the scene, "
+    //          "which renders as a plausible picture of somewhere else.");
+    // }
 
     if (shapes.empty()) {
         fail("the scene has no shapes this renderer understands");

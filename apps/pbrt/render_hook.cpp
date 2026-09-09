@@ -30,6 +30,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -446,6 +447,29 @@ Transform to_bonsai(const float *m) {
 
 } // namespace
 
+// Wall-clock for one stage of the run, reported as it finishes.
+//
+// Only the render used to be timed, and everything before it -- reading the
+// scene, unpacking the pools, building the BVH -- happened in silence. On a
+// scene with a hundred thousand shapes that silence was four and a half
+// minutes against a render of one second, which reads as a hang and reads as a
+// slow renderer afterwards, and neither is true.
+struct Stage {
+    const char *name;
+    std::chrono::steady_clock::time_point begun;
+
+    explicit Stage(const char *name)
+        : name(name), begun(std::chrono::steady_clock::now()) {}
+
+    ~Stage() {
+        const double s =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                          begun)
+                .count();
+        fprintf(stderr, "  %-22s %7.3f s\n", name, s);
+    }
+};
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         std::cerr << "usage: render <scene.bin> [out.pfm]\n"
@@ -473,11 +497,19 @@ int main(int argc, char **argv) {
     // the point -- there is one description of it and PBRT and this renderer
     // both read it.
     bonsai_scene::Scene loaded;
-    if (!bonsai_scene::read(scene_path, loaded)) {
-        std::cerr << "cannot read scene " << scene_path
-                  << " (run scene_dump on a .pbrt first)\n";
-        return 1;
+    {
+        Stage stage("read scene");
+        if (!bonsai_scene::read(scene_path, loaded)) {
+            std::cerr << "cannot read scene " << scene_path
+                      << " (run scene_dump on a .pbrt first)\n";
+            return 1;
+        }
     }
+
+    // Everything from here to the tree: the camera, the sampler, the spectral
+    // tables, the textures, the materials and the geometry pools. One timer
+    // over the lot, since no part of it has ever been the slow one.
+    std::unique_ptr<Stage> setup(new Stage("unpack scene"));
 
     const int width = int(loaded.width);
     const int height = int(loaded.height);
@@ -900,14 +932,24 @@ int main(int argc, char **argv) {
     // fallback but the general case: PBRT can only hand over a tree of the
     // shape PBRT builds, so any schedule asking for something else (a wider
     // arity, a different bounding volume) has to build it here.
-    _tree_layout0 tree = loaded.nodes.empty()
-                             ? build_bvh(shapes, pool, shape_pools)
-                             : adopt_bvh(shapes, loaded.nodes);
+    setup.reset();
+
+    _tree_layout0 tree;
+    {
+        Stage stage(loaded.nodes.empty() ? "build bvh" : "adopt pbrt's bvh");
+        tree = loaded.nodes.empty() ? build_bvh(shapes, pool, shape_pools)
+                                    : adopt_bvh(shapes, loaded.nodes);
+    }
 
     // After the tree, because it is the tree that decides the order. `shapes`
     // is rewritten in place, so the `prims` the layout above points at is
     // still the same array.
-    compact_pools(shapes, sphere_pool, triangle_pool);
+    {
+        Stage stage("compact pools");
+        compact_pools(shapes, sphere_pool, triangle_pool);
+    }
+
+    std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
@@ -981,21 +1023,20 @@ int main(int argc, char **argv) {
     // The renderer finds them as a subrange rather than as a second array,
     // which is what `LightSet` says: everything from `first_infinite` to
     // `count` is a light a ray can fly off into.
-    // Every environment map's texels, fitted once here rather than at every
-    // lookup. pbrt builds an `RGBIlluminantSpectrum` inside `ImageLe`, which is
-    // a table lookup into the rgb2spec coefficients and a scale; the result is
-    // a deterministic function of the texel's RGB, so precomputing it gives the
-    // same number and keeps the table out from under the ray -- which is what
-    // this app does with every other spectrum, and the reason the fit tables
-    // are here and not in the renderer.
-    std::vector<float4> env_texels(loaded.env_texels.size() / 3);
+    // Every environment map's texels, already fitted: four floats each, the
+    // three sigmoid coefficients and the scale of the RGBIlluminantSpectrum
+    // `ImageLe` would have built.
+    //
+    // Fitted by scene_dump, through PBRT's own RGB-to-spectrum table. It used
+    // to be fitted here instead, with the Gauss-Newton solve in rgb2spec.h --
+    // which is a different function from the one PBRT evaluates, and which on a
+    // scene with a large sky took four and a half minutes against a render of
+    // one second, in silence, and read as a hang.
+    std::vector<float4> env_texels(loaded.env_texels.size() / 4);
     for (size_t i = 0; i < env_texels.size(); i++) {
-        SigmoidPolynomial fit;
-        const float rgb[3] = {loaded.env_texels[3 * i + 0],
-                              loaded.env_texels[3 * i + 1],
-                              loaded.env_texels[3 * i + 2]};
-        const float texel_scale = fit_emission(rgb, 1.f, &fit);
-        env_texels[i] = float4{fit.c0, fit.c1, fit.c2, texel_scale};
+        env_texels[i] =
+            float4{loaded.env_texels[4 * i + 0], loaded.env_texels[4 * i + 1],
+                   loaded.env_texels[4 * i + 2], loaded.env_texels[4 * i + 3]};
     }
 
     // pbrt: the ImageInfiniteLight constructor, which builds two
@@ -1015,7 +1056,12 @@ int main(int argc, char **argv) {
     //
     // The function being sampled is `Image::GetSamplingDistribution`: the
     // *average of the texel's channels*, taken from the raw image values and
-    // not from the fitted spectrum above.
+    // not from the fitted spectrum above. scene_dump ships it as
+    // `env_sampling`, because the raw image is not in `env_texels` to be
+    // averaged -- what is there is the sigmoid the texel was fitted to, and a
+    // black texel's fit is minus infinity. Averaging that built a CDF of
+    // infinities, which sampled a NaN direction, which is how a fifth of a
+    // 2048x2048 sky came back as an unwritable pixel.
     std::vector<float> env_dist_values, env_dist_cond_cdf, env_dist_marg_func,
         env_dist_marg_cdf;
     std::vector<Dist2D> env_dists; // Two per light: plain, then compensated.
@@ -1065,9 +1111,7 @@ int main(int argc, char **argv) {
             double total = 0.;
             for (size_t i = 0; i < n; i++) {
                 const size_t t = size_t(l.first_texel) + i;
-                const float avg = (loaded.env_texels[3 * t + 0] +
-                                   loaded.env_texels[3 * t + 1] +
-                                   loaded.env_texels[3 * t + 2]) / 3.f;
+                const float avg = loaded.env_sampling[t];
                 env_dist_values.push_back(avg);
                 total += avg;
             }
@@ -1173,6 +1217,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
         return 1;
     }
+
+    lights_stage.reset();
 
     // The tables the spectral conversion reads, as the generated header wants
     // them. Checked against a running pbrt by `scene_dump --check-tables`.
