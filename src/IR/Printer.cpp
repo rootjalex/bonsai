@@ -1155,6 +1155,8 @@ std::string to_string(const SetOp::OpType &op) {
         return "argmin";
     case SetOp::filter:
         return "filter";
+    case SetOp::flatten:
+        return "flatten";
     case SetOp::map:
         return "map";
     case SetOp::maximum:
@@ -1733,6 +1735,13 @@ void Printer::visit(const Materialize *node) {
     os << " = ";
     print_no_parens(node->value);
     os << ";\n";
+}
+
+void Printer::visit(const Lookup *node) {
+    os << get_indent();
+    os << "from " << node->group_name << "[";
+    print_no_parens(node->index);
+    os << "]";
 }
 
 } // namespace ir

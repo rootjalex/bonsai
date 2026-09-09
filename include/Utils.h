@@ -185,19 +185,27 @@ inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
 }
 
+// A motion: takes a motion and an extent, answers the extent moved. The only
+// geometric intrinsic that is not a relation, so the only one whose result is
+// geometry rather than a fact about geometry.
+inline bool is_geometric_motion(const std::string &name) {
+    return name == "transform";
+}
+
 // The topological and ordering predicates of Figure 1.
 inline bool is_geometric_predicate(const std::string &name) {
     for (uint32_t i = 0; i < ir::GeomOp::opcount; i++) {
         const auto op = static_cast<ir::GeomOp::OpType>(i);
         if (name == ir::GeomOp::intrinsic_name(op)) {
-            return !is_geometric_metric(name);
+            return !is_geometric_metric(name) && !is_geometric_motion(name);
         }
     }
     return false;
 }
 
 inline bool is_geometric_intrinsic(const std::string &name) {
-    return is_geometric_predicate(name) || is_geometric_metric(name);
+    return is_geometric_predicate(name) || is_geometric_metric(name) ||
+           is_geometric_motion(name);
 }
 
 // Returns a bit mask of size n.

@@ -20,6 +20,7 @@ add_bonsai_tests(
     import_twice.bonsai
     import_vec3f.bonsai
     index.bonsai
+    indirect-group-lookup.bonsai
     ivector.bonsai
     lambda-simple.bonsai
     logical-operation.bonsai
@@ -27,6 +28,7 @@ add_bonsai_tests(
     multiple-options.bonsai
     negation.bonsai
     nested-exported-function.bonsai
+    nested-trees.bonsai
     option-dereference-struct.bonsai
     option-dereference.bonsai
     option-dereference1.bonsai

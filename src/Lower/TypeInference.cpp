@@ -534,6 +534,9 @@ ir::Program infer_types(const ir::Program &program) {
     new_program.externs = program.externs;
     new_program.types = program.types;
     new_program.schedules = program.schedules;
+    // Carried, not rebuilt: an element's extent is over that element's own
+    // fields and needs no inference of its own.
+    new_program.extents = program.extents;
     ir::global_enable_type_enforcement();
 
     std::vector<std::string> topo_order =

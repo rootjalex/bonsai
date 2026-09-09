@@ -1,0 +1,134 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BLAS = (const BLAS&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Instance = struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }> }
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type TLAS = (const TLAS&)
+type Transform = struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern instances : tree[[struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }> }]] TLAS
+  | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high)
+
+func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Instance, Triangle)> {
+  _best0 : mut (f32, (Instance, Triangle)) := ((f32)inf, ())
+  rec(instances : tree[[Instance]] TLAS) {
+    match instances {
+    | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high) ->
+      if ((intersects(r, build<AABB>((instances as Interior).low, (instances as Interior).high)) && (0.001f < distmax(r, build<AABB>((instances as Interior).low, (instances as Interior).high)))) && (distmin(r, build<AABB>((instances as Interior).low, (instances as Interior).high)) < _best0[0])) {
+        from ((instances as Interior).left, (instances as Interior).right)
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high) ->
+      foreach _iter0 in (instances as Leaf).data {
+        let _subtree0 = _iter0.blas in
+        rec(_subtree0 : tree[[Triangle]] BLAS) {
+          match _subtree0 {
+          | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
+            if ((intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmax(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) < _best0[0])) {
+              from ((_subtree0 as Interior).left, (_subtree0 as Interior).right)
+            }
+          | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
+            foreach _iter1 in (_subtree0 as Leaf).data {
+              if ((intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmax(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) < _best0[0])) {
+                if ((intersects(r, place(_iter0, _iter1)) && (0.001f < distmin(r, place(_iter0, _iter1)))) && (distmin(r, place(_iter0, _iter1)) < _best0[0])) {
+                  _best0 = (distmin(r, place(_iter0, _iter1)), (_iter0, place(_iter0, _iter1)))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  yield select(_best0[0] != (f32)inf, build<option<(Instance, Triangle)>>(_best0[1]), build<option<(Instance, Triangle)>>())
+}
+
+func _traverse_tree1(r : Ray, instances : tree[[Instance]] TLAS) -> bool {
+  _holds0 : mut bool := false
+  rec(instances : tree[[Instance]] TLAS) {
+    match instances {
+    | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high) ->
+      if (!_holds0) {
+        if (contains(r, build<AABB>((instances as Interior).low, (instances as Interior).high)) && (0.001f < distmin(r, build<AABB>((instances as Interior).low, (instances as Interior).high)))) {
+          _holds0 = true
+        } else if (intersects(r, build<AABB>((instances as Interior).low, (instances as Interior).high)) && (0.001f < distmax(r, build<AABB>((instances as Interior).low, (instances as Interior).high)))) {
+          from ((instances as Interior).left, (instances as Interior).right)
+        }
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high) ->
+      foreach _iter2 in (instances as Leaf).data {
+        let _subtree0 = _iter2.blas in
+        rec(_subtree0 : tree[[Triangle]] BLAS) {
+          match _subtree0 {
+          | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
+            if (!_holds0) {
+              if (contains(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmin(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) {
+                _holds0 = true
+              } else if (intersects(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmax(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) {
+                from ((_subtree0 as Interior).left, (_subtree0 as Interior).right)
+              }
+            }
+          | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
+            foreach _iter3 in (_subtree0 as Leaf).data {
+              if (!_holds0) {
+                if (contains(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmin(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) {
+                  _holds0 = true
+                } else if (intersects(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmax(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) {
+                  _holds0 = _holds0 || (intersects(r, place(_iter2, _iter3)) && (0.001f < distmin(r, place(_iter2, _iter3))))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  yield _holds0
+}
+
+func apply(t : Transform, p : f32x3) -> f32x3 {
+  return (((t.m0 * f32x3(p[0u])) + (t.m1 * f32x3(p[1u]))) + (t.m2 * f32x3(p[2u]))) + t.m3
+}
+
+func place(i : Instance, tri : Triangle) -> Triangle {
+  let out = build<Triangle>(apply(i.render_from_instance, tri.p0), apply(i.render_from_instance, tri.p1), apply(i.render_from_instance, tri.p2)) in
+  return out
+}
+
+func trace(r : Ray) -> option<(Instance, Triangle)> {
+  return _traverse_tree0(r, instances)
+}
+
+func trace_any(r : Ray) -> bool {
+  return _traverse_tree1(r, instances)
+}
+
+func transform_Transform_AABB(t : Transform, b : AABB) -> AABB {
+  let c0 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.low[2u])) in
+  let c1 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.low[2u])) in
+  let c2 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.low[2u])) in
+  let c3 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.low[2u])) in
+  let c4 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.high[2u])) in
+  let c5 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.high[2u])) in
+  let c6 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.high[2u])) in
+  let c7 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.high[2u])) in
+  let lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7))) in
+  let hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7))) in
+  let out = build<AABB>(lo, hi) in
+  return out
+}
+
+
+schedule host {
+
+}

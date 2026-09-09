@@ -721,7 +721,8 @@ Stmt Mutator::visit(const Match *node) {
     if (not_changed) {
         return node;
     } else {
-        return Match::make(std::move(loc), std::move(new_arms));
+        return Match::make(std::move(loc), std::move(new_arms),
+                           node->volume_map);
     }
 }
 

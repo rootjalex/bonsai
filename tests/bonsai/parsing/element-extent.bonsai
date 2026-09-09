@@ -1,0 +1,40 @@
+//! flags: -p canonicalize
+
+// `with extent` on an element, and the exhausted token stream it found.
+//
+// The annotation says what a node's bounds augmentation says about a subtree,
+// said about one element: everything reachable through a value of this type
+// lies within this geometry. It is what makes a compound element a geometric
+// object, so a tree over such elements can carry a bounds augmentation at all.
+// The expression is over the element's own fields and nothing else.
+//
+// The second thing here is the parser bug it uncovered. `element E { ... }`
+// takes no terminator, so an element is often the last declaration in a file --
+// every one of stdlib/aabb, stdlib/ray and stdlib/triangle ends with one. Once
+// an element could take a trailing `with`, the parser asked for an optional
+// token with the stream already empty, and `TokenStream::consume` read
+// `tokens.back()` without checking: `peek` had always guarded that case and
+// `consume` never had, because until now nothing reached it. It showed up as a
+// stack smash inside an unrelated `std::to_string`, several frames from the
+// cause, on any file that imported the standard library at all.
+//
+// So the element below is deliberately the last thing in this file, with no
+// trailing declaration to save it.
+import stdlib/aabb;
+import stdlib/numerics;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+func main() -> i32 {
+    return 0;
+}
+
+element Blob {
+    xform : Transform;
+    low, high : vec3f;
+} with extent = AABB{apply(xform, low), apply(xform, high)};

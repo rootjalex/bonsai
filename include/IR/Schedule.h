@@ -168,6 +168,17 @@ struct Schedule {
     LayoutMap tree_layouts;
     AdtLayoutMap adt_layouts;
     TransformMap func_transforms;
+    // Which group backs a tree held in a field, keyed the same way
+    // `tree_types` is: `Instance.blas -> BlasNodes`.
+    //
+    // A top-level tree has a layout of its own and needs no such map. A nested
+    // one has no layout of its own on purpose: its nodes are rows of a group
+    // in the layout of whatever holds it, so that every value of the element
+    // shares one pool and two of them naming the same row share a subtree.
+    // That group is also what gives the field its stored type -- a reference
+    // into it -- which is what lets an element with a tree in it be stored at
+    // all.
+    std::map<std::string, std::string> tree_groups;
 };
 
 } // namespace ir

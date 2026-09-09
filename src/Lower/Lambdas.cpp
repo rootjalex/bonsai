@@ -143,6 +143,7 @@ class Blacklist : public ir::Visitor {
         case ir::SetOp::OpType::any:
         case ir::SetOp::OpType::argmax:
         case ir::SetOp::OpType::argmin:
+        case ir::SetOp::OpType::flatten:
         case ir::SetOp::OpType::map:
         case ir::SetOp::OpType::maximum:
         case ir::SetOp::OpType::minimum:
@@ -177,6 +178,9 @@ ir::Program lower_program(const ir::Program &old_program) {
     ir::Program new_program;
     new_program.externs = old_program.externs;
     new_program.types = old_program.types;
+    // Carried, not rebuilt: this pass rewrites lambdas, and the rest of what
+    // the program holds is none of its business.
+    new_program.extents = old_program.extents;
     for (const auto &[f, func] : old_program.funcs) {
         ir::Stmt body = cltf.mutate(func->body);
         new_program.funcs[f] = func->replace_body(std::move(body));

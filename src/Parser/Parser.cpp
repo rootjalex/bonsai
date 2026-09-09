@@ -119,6 +119,7 @@ struct Parser {
             "argmax",
             "argmin",
             "filter",
+            "flatten",
             "map",
             "maximum",
             "minimum",
@@ -139,6 +140,7 @@ struct Parser {
             "distmin",
             "intersects",
             "contains",
+            "transform",
             // Vector reductions
             "sum",
             "all",
@@ -189,6 +191,18 @@ struct Parser {
     // the program, so naming one is enough to say which type is being built or
     // matched against.
     std::map<std::string, std::string> variant_owners;
+    // Element fields the schedule has bound to a tree, by `Element.field`.
+    //
+    // Such a field is a set in the program and a *reference* in storage: what
+    // an element carries is the index of a tree in the pool its peers share,
+    // not a tree of its own. Which means an element with one in it can be laid
+    // out, where an element with a bare set cannot -- a reference is plain
+    // data and a set is not.
+    //
+    // Kept here rather than derived from the type because it is not a fact
+    // about the type: `set[Triangle]` is storable in an `Instance` because the
+    // schedule said where that field's nodes live, and not otherwise.
+    std::set<std::string> bound_tree_fields;
     // Function variable frames. Maps name to type, mutability, and the name it
     // goes by in the IR.
     struct FunctionVariable {
@@ -631,12 +645,46 @@ struct Parser {
             expect(Token::Type::SEMICOL);
         } while (!consume(Token::Type::RSQUIGGLE));
 
+        const ir::Struct_t::Map scope_fields = fields;
         program.types[name] = defaults.empty()
                                   ? ir::Struct_t::make(name, std::move(fields),
                                                        std::move(attributes))
                                   : ir::Struct_t::make(name, std::move(fields),
                                                        std::move(defaults),
                                                        std::move(attributes));
+
+        // `element E { ... } with extent = <expr>;`
+        //
+        // The element's spatial reach: everything reachable through a value of
+        // this type lies within it. It is what makes a compound element a
+        // geometric object, so a tree over such elements can carry a bounds
+        // augmentation -- and it is a promise, checked nowhere and owed by
+        // whoever builds the tree, exactly as a node's own volume is.
+        //
+        // The expression is over the element's own fields, so they go in scope
+        // for it and nothing else does.
+        while (consume(Token::Type::WITH)) {
+            const std::string annotation = get_id();
+            if (annotation != "extent") {
+                report_error() << "Element " << name << " has a `with "
+                               << annotation
+                               << "` annotation. An element takes only `with "
+                                  "extent = <expr>`; the augmentations that "
+                                  "name stored fields belong on a tree's "
+                                  "nodes, which have fields to name.";
+            }
+            expect(Token::Type::ASSIGN);
+
+            push_frame();
+            for (const auto &field : scope_fields) {
+                add_type_to_frame(field.name, field.type, /* mut */ false);
+            }
+            ir::Expr value = parse_expr();
+            pop_frame();
+
+            program.extents[name] = std::move(value);
+            expect(Token::Type::SEMICOL);
+        }
     }
 
     void parse_interface_def() {
@@ -1564,7 +1612,18 @@ struct Parser {
             if (consume(Token::Type::PERIOD)) {
                 // Field access.
                 std::string field = get_id();
-                base = ir::Access::make(std::move(field), std::move(base));
+                // A set's root augmentation, e.g. `blas.AABB`: the bounding
+                // volume the tree backing this set carries at its root. Which
+                // tree that is comes from the schedule, which is read after
+                // this, so the geometry named on the right is what types the
+                // access; `lower-trees` resolves where it is read from.
+                if (base.type().is<ir::Set_t>() && program.types.contains(field)) {
+                    ir::Type volume = program.types[field];
+                    base = ir::Access::make(std::move(field), std::move(base),
+                                            std::move(volume));
+                } else {
+                    base = ir::Access::make(std::move(field), std::move(base));
+                }
             } else if (consume(Token::Type::LBRACKET)) {
                 // Can have multiple indexes in one `[` `]`
                 std::vector<ir::Expr> idxs =
@@ -1767,6 +1826,7 @@ struct Parser {
             {"argmax", ir::SetOp::argmax},
             {"argmin", ir::SetOp::argmin},
             {"filter", ir::SetOp::filter},
+            {"flatten", ir::SetOp::flatten},
             {"map", ir::SetOp::map},
             {"maximum", ir::SetOp::maximum},
             {"minimum", ir::SetOp::minimum},
@@ -1830,6 +1890,7 @@ struct Parser {
             {"ltz", ir::GeomOp::ltz},
             {"distmax", ir::GeomOp::distmax},
             {"distmin", ir::GeomOp::distmin},
+            {"transform", ir::GeomOp::transform},
         });
 
         if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(),
@@ -2498,6 +2559,86 @@ struct Parser {
                     break;
                 }
 
+                // A set that is a *field* of an element rather than an extern
+                // of its own: `Instance.blas : BLAS;`.
+                //
+                // Named by the path that reaches it, because that is what it
+                // has -- there is one specification per field and one node
+                // pool behind it, however many values of the element exist.
+                // Keyed the same way in `tree_types`, so the lowering looks a
+                // nested set up exactly as it looks up a top-level one.
+                if (peek().type == Token::Type::PERIOD) {
+                    expect(Token::Type::PERIOD);
+                    const std::string field = get_id();
+
+                    const auto type_iter = program.types.find(name);
+                    if (type_iter == program.types.cend()) {
+                        report_error() << "Schedule name: " << name
+                                       << " is neither an extern, a function, "
+                                          "nor a type.";
+                    }
+                    const auto *element = type_iter->second.as<ir::Struct_t>();
+                    if (element == nullptr) {
+                        report_error()
+                            << "Schedule assigns a tree to " << name << "."
+                            << field << ", but " << name
+                            << " is not an element with fields.";
+                    }
+                    const auto field_iter =
+                        std::find_if(element->fields.cbegin(),
+                                     element->fields.cend(),
+                                     [&field](const auto &f) {
+                                         return f.name == field;
+                                     });
+                    if (field_iter == element->fields.cend()) {
+                        report_error() << "Element " << name << " has no field "
+                                       << field << " to assign a tree to.";
+                    }
+                    if (!field_iter->type.is<ir::Set_t>()) {
+                        report_error()
+                            << name << "." << field << " is not a set, cannot "
+                            << "be type-reassigned in a schedule.";
+                    }
+
+                    expect(Token::Type::COL);
+                    const std::string tree_name = get_id();
+
+                    // `Instance.blas : BLAS from BlasNodes;`
+                    //
+                    // Where the nested tree's nodes live. A top-level tree
+                    // gets a layout of its own; this one deliberately does
+                    // not, because every value of the element has to share one
+                    // pool -- that is what makes two of them naming the same
+                    // row share a subtree, which is the whole point. So its
+                    // nodes are rows of a group in the enclosing layout, and
+                    // the field stores a reference into that group.
+                    std::string group;
+                    if (consume(Token::Type::FROM)) {
+                        group = get_id();
+                    } else {
+                        report_error()
+                            << name << "." << field
+                            << " needs to say where its nodes live: `" << name
+                            << "." << field << " : " << tree_name
+                            << " from <group>;`. A tree held in a field has no "
+                               "layout of its own -- it is rows of a group in "
+                               "the layout of whatever holds it.";
+                    }
+                    expect(Token::Type::SEMICOL);
+
+                    const auto tree_iter = trees.find(tree_name);
+                    if (tree_iter == trees.cend()) {
+                        report_error() << "Assigning " << name << "." << field
+                                       << " to non-tree type: " << tree_name;
+                    }
+
+                    schedule.tree_types[name + "." + field] =
+                        tree_iter->second;
+                    schedule.tree_groups[name + "." + field] = std::move(group);
+                    bound_tree_fields.insert(name + "." + field);
+                    break;
+                }
+
                 // Otherwise, must be tree label on set extern.
                 const auto extern_iter = std::find_if(
                     program.externs.cbegin(), program.externs.cend(),
@@ -2901,6 +3042,37 @@ struct Parser {
         return layout;
     }
 
+    // Whether a layout may store a value of this type.
+    //
+    // Everything `is_primitive` allows, plus an element holding a field the
+    // schedule has bound to a tree. Such a field is stored as a reference into
+    // the group that tree's nodes live in -- an index, which is plain data --
+    // so the element as a whole can be stored even though a bare set could
+    // not. `Instance` becomes storable because `Instance.blas : BLAS from
+    // BlasNodes` was written; an element with an unbound set in it stays
+    // unstorable, and says so.
+    bool storable_in_layout(const ir::Type &type) const {
+        if (const auto *as_struct = type.as<ir::Struct_t>()) {
+            for (const auto &field : as_struct->fields) {
+                if (field.type.is<ir::Set_t>()) {
+                    if (!bound_tree_fields.contains(as_struct->name + "." +
+                                                    field.name)) {
+                        return false;
+                    }
+                    continue;
+                }
+                if (!storable_in_layout(field.type)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (const auto *as_array = type.as<ir::Array_t>()) {
+            return storable_in_layout(as_array->etype);
+        }
+        return type.is_primitive();
+    }
+
     ir::Layout parse_layout() {
         // Default.
         static ir::Expr count = ir::Var::make(u32, "count");
@@ -2916,8 +3088,29 @@ struct Parser {
             pop_frame();
             return ir::Chain::make(std::move(layouts));
         }
+        case Token::Type::INDIRECT:
         case Token::Type::GROUP: {
-            consume();
+            // `[indirect] group [Name][size] [idx : T] { ... }`
+            //
+            // A direct group is addressed by the reference the traversal
+            // already holds. An indirect one is auxiliary storage, reached
+            // only by being named from somewhere else -- which is how one
+            // tree's layout can hold another's nodes, and how two terms come
+            // to share a subtree by naming the same index.
+            const bool indirect = consume(Token::Type::INDIRECT).has_value();
+            expect(Token::Type::GROUP);
+
+            // The group's own name, which is what a lookup resolves against.
+            std::string declared_name;
+            if (peek().type == Token::Type::IDENTIFIER &&
+                peek(1).type != Token::Type::COL) {
+                declared_name = get_id();
+            }
+            if (indirect && declared_name.empty()) {
+                report_error() << "An indirect group has to be named: nothing "
+                                  "can look it up otherwise.";
+            }
+
             ir::Expr size;
             if (consume(Token::Type::LBRACKET)) {
                 size = parse_expr();
@@ -2945,14 +3138,17 @@ struct Parser {
                 }
                 size = (count + (isize - make_one(isize.type()))) / isize;
             }
-            return ir::Group::make(std::move(size), std::move(name),
-                                   std::move(index_t), std::move(inner));
+            return ir::Group::make(
+                std::move(size), std::move(name), std::move(declared_name),
+                std::move(index_t), std::move(inner),
+                indirect ? ir::Group::Type::Indirect
+                         : ir::Group::Type::Direct);
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();
             if (consume(Token::Type::COL)) {
                 ir::Type type = parse_type();
-                if (!type.is_primitive()) {
+                if (!storable_in_layout(type)) {
                     report_error() << "Layout received name: " << name
                                    << " with non-primitive type: " << type;
                 }
@@ -2964,7 +3160,7 @@ struct Parser {
                 ir::Expr expr = parse_expr();
                 if (!(expr.defined() && reads(expr, {"this"})) &&
                     (!expr.defined() || !expr.type().defined() ||
-                     !expr.type().is_primitive())) {
+                     !storable_in_layout(expr.type()))) {
                     report_error()
                         << "Layout received materialization of name: " << name
                         << " with non-primitive type: " << expr;
@@ -3014,9 +3210,28 @@ struct Parser {
                 expect(Token::Type::GT);
                 std::optional<std::string> node_name;
                 if (peek().type == Token::Type::IDENTIFIER &&
-                    peek(1).type == Token::Type::LSQUIGGLE) {
-                    // named split.
+                    (peek(1).type == Token::Type::LSQUIGGLE ||
+                     peek(1).type == Token::Type::FROM)) {
+                    // named split, either with its fields inline or drawn
+                    // from another group.
                     node_name = get_id();
+                }
+                // `<variant> from <group>[<index>]`: the arm's fields are a
+                // row of another group rather than bits stored here.
+                if (consume(Token::Type::FROM)) {
+                    if (!node_name.has_value()) {
+                        report_error() << "`from` needs a variant to name what "
+                                          "the row stands for.";
+                    }
+                    const std::string group = get_id();
+                    expect(Token::Type::LBRACKET);
+                    ir::Expr index = parse_expr();
+                    expect(Token::Type::RBRACKET);
+                    expect(Token::Type::SEMICOL);
+                    arms.push_back({std::move(value), std::move(node_name),
+                                    ir::Lookup::make(std::move(group),
+                                                     std::move(index))});
+                    continue;
                 }
                 ir::Layout inner = parse_layout();
                 expect(Token::Type::SEMICOL);

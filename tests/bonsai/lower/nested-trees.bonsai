@@ -1,0 +1,177 @@
+//! flags: -p canonicalize -p lower-trees
+
+// A tree whose elements hold trees of their own: PBRT's TransformedPrimitive.
+//
+// The point of this test is that instancing needs no new *concept*. PBRT's BVH
+// does not know that a TransformedPrimitive is special -- it is a Primitive
+// like any other, with Bounds(), Intersect() and IntersectP(), and the fact
+// that answering those runs a second BVH traversal is entirely inside the
+// primitive. The same is true here: `Instance` is one more geometric object
+// type, of the kind the query language already takes as user-extensible, and
+// its spatial relationships happen to be defined by a query over a nested set.
+//
+// So exactly two things are new, and both are in the ADT language:
+//
+//   - a set-typed field, `blas`, so an element can hold a tree;
+//   - reading a nested tree's *root augmentation*, written `s.AABB`, so that
+//     the instance's extent can be derived from the tree it holds rather than
+//     asserted beside it. This is what keeps the whole pruning chain inside the
+//     ADT language: the inner tree's own `with AABB` annotation says every
+//     triangle is inside the root box, `extent` pushes that box into render
+//     space, and the outer tree's `with AABB` annotation bounds those. No step
+//     is a promise made anywhere else.
+//
+// And one thing is new in the lowering: the outer reduction's accumulator has
+// to be threaded into the nested reduction rather than the nested one starting
+// from its identity. That is PBRT's `tMax` argument to `Primitive::Intersect`,
+// and without it an instance cannot prune against hits found in other
+// instances -- which is most of what the top-level tree is for.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+// PBRT: Transform, which stores the matrix and its inverse rather than
+// inverting on use. An instance is asked for its inverse on every ray that
+// reaches it and for its forward matrix only when a hit comes back.
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+// PBRT: `Transform::operator()(const Bounds3f &)`, which unions the eight
+// transformed corners rather than transforming the two extreme points -- the
+// short version is wrong for any rotation.
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// PBRT: TransformedPrimitive. A transform and a whole acceleration structure.
+//
+// The `with extent` annotation is what makes a compound element a *geometric*
+// object type, so that a tree over instances may carry a bounds augmentation at
+// all. It reads: everything reachable through this element lies within this
+// volume -- the same implicit forall a node's `with AABB` carries, stated about
+// an element instead of a subtree.
+//
+// PBRT: TransformedPrimitive::Bounds(), which is
+// `renderFromPrimitive(primitive.Bounds())`. `blas.AABB` reads the nested
+// tree's root augmentation, which is what makes the extent a derived fact
+// rather than a second, separately maintained copy of one.
+//
+// Two transforms live in an instanced scene and it is worth not confusing
+// them, because only one of them is traversal's business:
+//
+//   - the *box* transform, this annotation, which is PBRT's
+//     `TransformedPrimitive::Bounds()`. Its only geometry call sites are
+//     aggregate constructors (aggregates.cpp:150, :814) and the scene-bounds
+//     query at setup. It is never called from `Intersect`, and it is never
+//     evaluated here either: its readers are the build specification, which
+//     computes the enclosing tree's node boxes from it, and predicate
+//     analysis, which reads it symbolically to derive the pruning condition.
+//
+//   - the *ray* transform, `pull` above, which is PBRT's
+//     `Transform::ApplyInverse(r, &tMax)` at primitive.cpp:115 and :128. That
+//     one is squarely inside the traversal and runs on every visit to every
+//     instance. It is the whole cost of instancing.
+//
+// What PBRT does *not* do at traversal time is test an instance's own box
+// before pulling the ray back: that box already went into the enclosing node's
+// box at build time, so testing it again would be redundant. The consequence
+// is that a leaf holding several instances transforms the ray and descends for
+// each of them with no per-instance culling.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+// PBRT: Primitive::Intersect over a scene with instances in it.
+//
+// A triangle where its instance puts it. PBRT applies the transform to the
+// *ray* and leaves the triangle alone, which computes the same answers more
+// cheaply -- but only more cheaply, and that is the point of writing it this
+// way round.
+//
+// Said as `place`, the query has a uniform ray and one varying geometric
+// object, and the ordinary bounding rule applies to it: a varying geometric
+// argument is replaced by its bounding volume. The chain that licenses it is
+// three annotations and no new concept -- `tri` is inside the inner tree's
+// root box, `with extent` pushes that box forward, and the outer node's box
+// bounds the result.
+//
+// Said PBRT's way round, as `intersects(pull(i, r), tri)`, there is no such
+// rule: the frame change is hidden inside a function predicate analysis cannot
+// see into, `tri`'s box is in the instance's frame while the node's is in the
+// world's, and nothing relates them. Getting from here to PBRT is loop-invariant
+// code motion -- pulling the ray back once per instance rather than pushing
+// every triangle forward -- which is a lowering's business, justified by the
+// two transforms being inverse.
+func place(i : Instance, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(i.render_from_instance, tri.p0),
+                      apply(i.render_from_instance, tri.p1),
+                      apply(i.render_from_instance, tri.p2)};
+    return out;
+}
+
+// The searched set is every triangle of every instance, each where its instance
+// puts it -- which `flatten` and `place` say between them.
+func trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > 0.001,
+                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
+                                             i.blas),
+                          instances)));
+
+// PBRT: Primitive::IntersectP. The same set with the reduction weakened, which
+// is a strictly easier query: the inner traversal may stop at its first answer
+// and the outer one at its first non-empty instance. Here so that the
+// short-circuit is tested -- a nested `any` that lowered to a nested `argmin`
+// with the result discarded would pass a correctness test and be worthless.
+func trace_any(r : Ray) =
+    any(|i : Instance, tri : Triangle|
+            intersects(r, tri) && distmin(r, tri) > 0.001,
+        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+                instances));
+
+schedule {
+    // PBRT: the BVHAggregate an instanced object is built over. Its boxes are
+    // in the instance's own frame and are tested against the pulled-back ray.
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    // PBRT: the top-level BVHAggregate, whose primitives are
+    // TransformedPrimitives. The annotation is the ordinary one -- every
+    // element beneath this node is within this box -- and it is satisfiable
+    // because `extent` gives an Instance an extent.
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    // The nested set gets its tree the same way a top-level one does, named by
+    // the path that reaches it -- and, unlike a top-level one, says where its
+    // nodes live. It has no layout of its own on purpose: every instance's
+    // tree is rows of one shared group, which is what lets two instances
+    // naming the same row share a subtree rather than each carrying a copy.
+    Instance.blas : BLAS from BlasNodes;
+}

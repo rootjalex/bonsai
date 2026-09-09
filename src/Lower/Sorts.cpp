@@ -157,7 +157,8 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
                 << " in match:\n"
                 << Stmt(node);
 
-            return Match::make(node->loc, std::move(new_arms));
+            return Match::make(node->loc, std::move(new_arms),
+                               node->volume_map);
         }
 
         // TODO: this is hacky, need a better way.

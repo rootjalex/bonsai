@@ -314,6 +314,10 @@ Stmt MatchVariant::make(Expr value, std::vector<Arm> arms) {
 }
 
 Stmt Match::make(Expr loc, Match::Arms arms) {
+    return Match::make(std::move(loc), std::move(arms), Expr());
+}
+
+Stmt Match::make(Expr loc, Match::Arms arms, Expr volume_map) {
     internal_assert(loc.defined()) << "Undefined match location in Match::make";
     internal_assert(!arms.empty()) << "Received no match arms in Match::make";
     const BVH_t *bvh = loc.type().as<BVH_t>();
@@ -336,6 +340,7 @@ Stmt Match::make(Expr loc, Match::Arms arms) {
     Match *node = new Match;
     node->loc = std::move(loc);
     node->arms = std::move(arms);
+    node->volume_map = std::move(volume_map);
     return node;
 }
 

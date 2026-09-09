@@ -24,6 +24,7 @@ namespace lower {
 namespace {
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
+                         const std::map<std::string, ir::Expr> &extents,
                          const IntervalMap &intervals);
 
 static size_t counter = 0;
@@ -144,6 +145,19 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
                    })
                 .mutate(left);
         }
+        if (setop->op == ir::SetOp::map) {
+            // iter map(F, xs) => foreach x in xs: yield F(x).
+            //
+            // A collection at a leaf that has had a function mapped over it --
+            // an instance's triangles, placed where the instance puts them.
+            // The function rides along to each yield rather than being applied
+            // to the collection, which would mean materializing it.
+            ir::Stmt body = lower_iterate(setop->b);
+            return RewriteYields([&](const ir::Expr &x) {
+                       return ir::Yield::make(apply_lambda(setop->a, x));
+                   })
+                .mutate(body);
+        }
         internal_error << "TODO: lower_iterate for: " << expr;
     }
     std::string name = unique_iter_name();
@@ -172,8 +186,11 @@ struct Rewriter : public ir::Mutator {
     std::vector<ir::Expr> locs;
 
     ir::Stmt visit(const ir::Match *node) final override {
-        const ir::Var *var = node->loc.as<ir::Var>();
-        internal_assert(var) << "TODO: handle Match on non-Var";
+        // Keyed by how the tree was reached rather than by its name, because a
+        // tree held in a field -- `i.blas` -- has no name. The key only has to
+        // scope child volumes to the match they belong to, and the expression
+        // that reached the tree identifies that exactly.
+        const std::string loc_key = ir::to_string(node->loc);
         locs.push_back(node->loc);
 
         const size_t n = node->arms.size();
@@ -204,7 +221,16 @@ struct Rewriter : public ir::Mutator {
             };
 
             if (bvh_node.has_volume()) {
-                volumes.emplace_back(make_volume(bvh_node.get_volume()));
+                ir::Expr volume = make_volume(bvh_node.get_volume());
+                // A tree's stored bounds bound what it was built over. If a
+                // geometric function has been mapped over its elements, the
+                // bound that still holds is the mapped one -- an instance's
+                // triangles are inside its boxes, but the same triangles
+                // *where the instance puts them* are not.
+                if (node->volume_map.defined()) {
+                    volume = apply_lambda(node->volume_map, volume);
+                }
+                volumes.emplace_back(std::move(volume));
             } else {
                 volumes.emplace_back(); // undef volume
             }
@@ -252,7 +278,7 @@ struct Rewriter : public ir::Mutator {
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
             if (!built_child_volumes.empty()) {
-                child_volumes[var->name] = built_child_volumes;
+                child_volumes[loc_key] = built_child_volumes;
             }
 
             ir::Stmt stmt = mutate(node->arms[i].second);
@@ -260,25 +286,38 @@ struct Rewriter : public ir::Mutator {
             intervals.pop_back();
             aggregations.pop_back();
             if (!built_child_volumes.empty()) {
-                child_volumes.erase(var->name);
+                child_volumes.erase(loc_key);
             }
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
         }
         locs.pop_back();
 
-        return ir::Match::make(node->loc, std::move(new_arms));
+        return ir::Match::make(node->loc, std::move(new_arms),
+                               node->volume_map);
     }
 
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
         VolumeMap vols;
         const size_t n = volumes.size();
-        internal_assert(n == args.size())
+        // A flattened query has one parameter per level, and at a node above
+        // the innermost level there are fewer volumes than parameters: at a
+        // top-level node the instances are bounded but their triangles have
+        // not been reached yet. Those parameters take the innermost volume so
+        // far, which bounds them because the element that reaches them
+        // promised as much -- `with extent` says everything reachable through
+        // an element lies within its extent, and the node's volume bounds the
+        // extent. That promise is the entire reason a query over two levels
+        // can prune at the first one.
+        internal_assert(n <= args.size())
             << "Making volume map with incorrect number of arguments: "
             << args.size() << " vs. " << n;
-        for (size_t i = 0; i < n; i++) {
+        internal_assert(n > 0 || args.empty())
+            << "Making volume map with no volumes for " << args.size()
+            << " arguments.";
+        for (size_t i = 0; i < args.size(); i++) {
             // Even if a volume is undefined, needs to be added so
             // predicate analysis knows it's non-varying.
-            vols[args[i].name] = volumes[i];
+            vols[args[i].name] = volumes[std::min(i, n - 1)];
         }
         return vols;
     }
@@ -292,9 +331,9 @@ struct Rewriter : public ir::Mutator {
             internal_assert(access) << e;
             const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
             internal_assert(unwrap) << e;
-            const ir::Var *var = unwrap->value.as<ir::Var>();
-            internal_assert(var) << e;
-            const auto &iter = child_volumes.find(var->name);
+            // Keyed by how the tree was reached; see the Match visitor.
+            const auto &iter =
+                child_volumes.find(ir::to_string(unwrap->value));
             internal_assert(iter != child_volumes.cend()) << e;
             const auto &citer = iter->second.find(access->field);
             internal_assert(citer != iter->second.cend()) << e;
@@ -318,7 +357,12 @@ struct Rewriter : public ir::Mutator {
                                   const IntervalMap &existing) const {
         IntervalMap ints = existing;
         const size_t n = intervals.size();
-        internal_assert(n == args.size())
+        // Fewer levels entered than the query has parameters; see
+        // `make_volume_map`. A scalar interval says nothing about a parameter
+        // one level down -- the promise `with extent` makes is geometric --
+        // so the extra parameters simply get no interval, which leaves them
+        // unbounded and prunes nothing rather than pruning wrongly.
+        internal_assert(n <= args.size())
             << "Making interval map with incorrect number of arguments: "
             << args.size() << " vs. " << n;
         for (size_t i = 0; i < n; i++) {
@@ -375,7 +419,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volumes.size() <= lambda->args.size());
             const size_t n_args = lambda->args.size();
 
             std::map<std::string, ir::Expr> repls;
@@ -458,7 +502,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volumes.size() <= lambda->args.size());
 
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
@@ -598,6 +642,7 @@ std::pair<ir::Expr, bool> try_fuse_filter(Extremum dir,
 // pair updated with an argmin/argmax accumulate.
 ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                             const ir::TypeMap &tree_types,
+                            const std::map<std::string, ir::Expr> &extents,
                             const IntervalMap &intervals,
                             ir::Type expect_type) {
     struct RewriteArgExtremum : public Rewriter {
@@ -618,13 +663,11 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             internal_assert(!volumes.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
-            internal_assert(
-                ir::equals(lambda->args[0].type, node->value.type()));
-            ir::Expr value =
-                replace(lambda->args[0].name, node->value, lambda->value);
+            internal_assert(volumes.size() <= lambda->args.size());
+            // Tuple data, from a product or a flatten: the metric names one
+            // parameter per level and the yielded element is the tuple of
+            // them, which `apply_lambda` already takes apart.
+            ir::Expr value = apply_lambda(metric, node->value);
 
             std::vector<ir::Expr> values = {std::move(value), node->value};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
@@ -694,7 +737,8 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     // Try to build fused filter inside.
     auto [fused_filter, fused] =
         try_fuse_filter(dir, lambda, best_metric, inner);
-    ir::Stmt body = build_traversal(fused_filter, tree_types, local_intervals);
+    ir::Stmt body =
+        build_traversal(fused_filter, tree_types, extents, local_intervals);
 
     body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
                               std::move(tuple_t))
@@ -716,6 +760,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 // beat the running value.
 ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                         const ir::TypeMap &tree_types,
+                        const std::map<std::string, ir::Expr> &extents,
                         const IntervalMap &intervals, ir::Type expect_type) {
     struct RewriteExtremum : public Rewriter {
         Extremum dir;
@@ -749,13 +794,9 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             internal_assert(!volumes.empty());
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
-            internal_assert(
-                ir::equals(lambda->args[0].type, node->value.type()));
-            ir::Expr value =
-                replace(lambda->args[0].name, node->value, lambda->value);
+            internal_assert(volumes.size() <= lambda->args.size());
+            // Tuple data; see the note in RewriteArgExtremum.
+            ir::Expr value = apply_lambda(metric, node->value);
             return ir::Accumulate::make(loc, accumulate_op(), std::move(value));
         }
 
@@ -815,7 +856,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         Interval subtree_bounds() const {
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volumes.size() <= lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -828,9 +869,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             }
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            internal_assert(volumes.size() == lambda->args.size());
-            // TODO: handle tuple data, e.g. from product()
-            internal_assert(lambda->args.size() == 1);
+            internal_assert(volumes.size() <= lambda->args.size());
 
             ir::Expr bound = reachable_bound(dir, subtree_bounds());
             if (!bound.defined()) {
@@ -900,7 +939,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     auto [fused_filter, fused] = try_fuse_filter(dir, lambda, ret_var, inner);
     const bool keep_scan = !fused && key.has_value();
     ir::Stmt body = build_traversal(keep_scan ? inner : fused_filter,
-                                    tree_types, local_intervals);
+                                    tree_types, extents, local_intervals);
 
     body = RewriteExtremum(dir, std::move(metric), std::move(loc), intervals,
                            std::move(key), !fused)
@@ -917,6 +956,7 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 // `all`.
 ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
                           const ir::TypeMap &tree_types,
+                          const std::map<std::string, ir::Expr> &extents,
                           const IntervalMap &intervals) {
     struct RewriteQuantifier : public Rewriter {
         bool is_any;
@@ -953,6 +993,43 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
         // why `argmin(f, filter(p, tree))` prunes leaves and a bare
         // `any(p, tree)` did not. The same reasoning applies to both and it
         // belongs in both.
+        // Wraps a body in the two guards the *volume* justifies: skip where
+        // the predicate cannot hold anywhere in it, settle where it must hold
+        // everywhere in it. Both are properties of the node, not of any one
+        // element, which is what makes them hoistable out of a leaf's loop.
+        ir::Stmt guard_with_volume(ir::Stmt body, const Interval &bounds) const {
+            // Where the predicate cannot hold over the volume: `any` learns
+            // nothing and skips, `all` is settled false -- exactly as a
+            // subtree that cannot hold it settles `all` false.
+            ir::Stmt otherwise;
+            if (!is_any) {
+                otherwise = ir::Store::make(loc, ir::BoolImm::make(false));
+            }
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
+                body = ir::IfElse::make(bounds.max, std::move(body),
+                                        std::move(otherwise));
+            }
+
+            // And where it provably holds over the whole volume it holds for
+            // everything in it, so `any` is decided and `all` learns nothing.
+            if (bounds.min.defined() && !is_const_zero(bounds.min)) {
+                ir::Stmt settled =
+                    is_any ? ir::Store::make(loc, ir::BoolImm::make(true))
+                           : ir::Stmt();
+                body = settled.defined()
+                           ? ir::IfElse::make(bounds.min, settled,
+                                              std::move(body))
+                           : ir::IfElse::make(~bounds.min, std::move(body));
+            }
+
+            // One test on the accumulator gates the whole node, rather than
+            // being fused into the `maybe` arm and leaving `always` outside
+            // it. Nothing under here can change a settled answer, and `always`
+            // is itself a pair of geometric tests -- run, before this, to
+            // re-decide a question that was already decided.
+            return ir::IfElse::make(still_undecided(), std::move(body));
+        }
+
         ir::Stmt visit(const ir::Yield *node) override {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
@@ -962,47 +1039,49 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             ir::Expr combined = is_any ? (acc || p) : (acc && p);
             ir::Stmt test = ir::Store::make(loc, std::move(combined));
 
+            if (bound_hoisted) {
+                // Inside a leaf's element loop: `visit(Iterate)` emitted the
+                // volume guards once before it, and what is left here is the
+                // early exit -- the one condition that changes as the loop
+                // runs, so the one that cannot be hoisted with them.
+                return ir::IfElse::make(still_undecided(), std::move(test));
+            }
+            return guard_with_volume(std::move(test), subtree_bounds());
+        }
+
+        // A leaf's elements, and the one place the node-level bound belongs.
+        //
+        // The volume guards are the same for every element the leaf holds, and
+        // were being emitted inside the loop, once per element: on a BVH that
+        // is the leaf's own box tested against the ray four-odd times over --
+        // `contains`, `intersects`, `distmin` and `distmax` apiece -- to answer
+        // a question that cannot change between them. `build_filter` has
+        // hoisted them for a while; a bare `any(p, tree)` never did.
+        //
+        // What stays inside is the accumulator's guard, which is the early
+        // exit and has to be re-read as the loop runs.
+        ir::Stmt visit(const ir::Iterate *node) override {
             Interval bounds = subtree_bounds();
 
-            // Where the predicate cannot hold over the volume: `any` learns
-            // nothing and skips, `all` is settled false -- exactly as a
-            // subtree that cannot hold it settles `all` false.
-            ir::Stmt otherwise;
-            if (!is_any) {
-                otherwise = ir::Store::make(loc, ir::BoolImm::make(false));
-            }
-            if (bounds.max.defined() && !is_const_one(bounds.max)) {
-                test = ir::IfElse::make(still_undecided() && bounds.max,
-                                        std::move(test), std::move(otherwise));
-            } else {
-                test = ir::IfElse::make(still_undecided(), std::move(test));
-            }
+            const bool outer = bound_hoisted;
+            bound_hoisted = true;
+            ir::Stmt loop =
+                mutate(lower_iterate(node->value)); // a concrete loop.
+            bound_hoisted = outer;
 
-            // And where it provably holds over the whole volume it holds for
-            // this element, so `any` is decided and `all` learns nothing.
-            if (bounds.min.defined() && !is_const_zero(bounds.min)) {
-                ir::Stmt settled =
-                    is_any ? ir::Store::make(loc, ir::BoolImm::make(true))
-                           : ir::Stmt();
-                test = settled.defined()
-                           ? ir::IfElse::make(bounds.min, settled,
-                                              std::move(test))
-                           : ir::IfElse::make(~bounds.min, std::move(test));
-            }
-            return test;
+            return guard_with_volume(std::move(loop), bounds);
         }
 
-        ir::Stmt visit(const ir::Iterate *node) override {
-            return mutate(
-                lower_iterate(node->value)); // lower into a concrete loop.
-        }
+        // Whether the enclosing `visit(Iterate)` has already emitted the
+        // volume guards, so the yields inside its loop should not repeat them.
+        bool bound_hoisted = false;
 
         // The bounds of the predicate over the subtree currently being matched.
         Interval subtree_bounds() const {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            internal_assert(volumes.size() == lambda->args.size());
+            internal_assert(volumes.size() <= lambda->args.size());
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -1022,15 +1101,8 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             }
 
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
-                recurse =
-                    ir::IfElse::make(still_undecided() && bounds.max,
-                                     std::move(recurse), std::move(otherwise));
-            } else if (otherwise.defined()) {
-                recurse =
-                    ir::IfElse::make(still_undecided(), std::move(recurse));
-            } else {
-                recurse =
-                    ir::IfElse::make(still_undecided(), std::move(recurse));
+                recurse = ir::IfElse::make(bounds.max, std::move(recurse),
+                                           std::move(otherwise));
             }
 
             if (bounds.min.defined() && !is_const_zero(bounds.min)) {
@@ -1045,7 +1117,11 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
                                            std::move(recurse))
                         : ir::IfElse::make(~bounds.min, std::move(recurse));
             }
-            return recurse;
+
+            // As in `guard_with_volume`: one test on the accumulator gates the
+            // node, so a settled query pays a bool rather than the `always`
+            // bound's geometry on the way out.
+            return ir::IfElse::make(still_undecided(), std::move(recurse));
         }
 
         // from tr => if <undecided> && maybe(P, tr): from tr
@@ -1071,7 +1147,7 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
     ir::Expr ret_var = ir::Var::make(bool_t, std::move(name));
     ir::Stmt footer = ir::Yield::make(ret_var);
 
-    ir::Stmt body = build_traversal(inner, tree_types, intervals);
+    ir::Stmt body = build_traversal(inner, tree_types, extents, intervals);
     body = RewriteQuantifier(is_any, std::move(predicate), std::move(loc),
                              intervals)
                .mutate(body);
@@ -1209,6 +1285,7 @@ ir::Stmt make_update(const ir::WriteLoc &loc, const ir::Expr &combiner,
 // traversed.
 ir::Stmt build_reduce(ir::Expr identity, ir::Expr combiner, ir::Expr inner,
                       const ir::TypeMap &tree_types,
+                      const std::map<std::string, ir::Expr> &extents,
                       const IntervalMap &intervals) {
     struct RewriteReduce : public Rewriter {
         ir::Expr combiner;
@@ -1296,7 +1373,7 @@ ir::Stmt build_reduce(ir::Expr identity, ir::Expr combiner, ir::Expr inner,
         }
     }
 
-    ir::Stmt body = build_traversal(inner, tree_types, intervals);
+    ir::Stmt body = build_traversal(inner, tree_types, extents, intervals);
     body = RewriteReduce(std::move(combiner), std::move(loc), std::move(key),
                          std::move(scan_op), std::move(func))
                .mutate(body);
@@ -1460,9 +1537,127 @@ ir::Stmt build_product(ir::Stmt a_body, ir::Stmt b_body, ir::Type ret_type) {
         .mutate(a_body);
 }
 
+// flatten(F, S): the union, over the elements of S, of the set F(x) reached
+// from each one, paired with the element it was reached from.
+//
+// Where `product` coiterates two trees and takes the Cartesian product of
+// their children, this descends: the outer traversal runs as it would alone,
+// and every element it arrives at opens a traversal of its own tree. The pair
+// is kept because the outer element is what makes the inner one mean anything
+// -- an instance's transform is what puts its triangles in the world.
+//
+// Nothing here knows about transforms, or about frames. `F` is an ordinary
+// lambda and the tree it names is reached the ordinary way; what makes the
+// inner tree's contents comparable with the outer tree's bounds is the outer
+// element's `with extent` promise, which predicate analysis reads and this
+// does not.
+// Defined below, beside the pass it wraps.
+ir::Stmt set_nested_volume_maps(ir::Stmt body,
+                                const std::map<std::string, ir::Expr> &extents);
+
+ir::Stmt build_flatten(ir::Stmt outer, ir::Expr func,
+                       const ir::TypeMap &tree_types,
+                       const std::map<std::string, ir::Expr> &extents,
+                       const IntervalMap &intervals) {
+    // Pairs everything the inner traversal produces with the outer element it
+    // was reached from.
+    struct PairWith : public Rewriter {
+        ir::Expr outer;
+
+        PairWith(ir::Expr o) : outer(std::move(o)) {}
+
+        using ir::Mutator::visit;
+
+        ir::Stmt visit(const ir::Yield *node) override {
+            return ir::Yield::make(make_tuple_pair(outer, node->value));
+        }
+
+        // A collection at an inner leaf: every element of it pairs with the
+        // same outer element, so the iteration is opened up and each yield
+        // paired in turn.
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(lower_iterate(node->value));
+        }
+    };
+
+    struct RewriteFlatten : public Rewriter {
+        ir::Expr func;
+        const ir::TypeMap &tree_types;
+        const std::map<std::string, ir::Expr> &extents;
+        const IntervalMap &intervals;
+
+        RewriteFlatten(ir::Expr f, const ir::TypeMap &t,
+                       const std::map<std::string, ir::Expr> &e,
+                       const IntervalMap &i)
+            : func(std::move(f)), tree_types(t), extents(e), intervals(i) {}
+
+        using ir::Mutator::visit;
+
+        // yield x => the whole traversal of F(x), each of its answers paired
+        // with x.
+        ir::Stmt visit(const ir::Yield *node) override {
+            ir::Expr root = apply_lambda(func, node->value);
+            ir::Stmt inner =
+                build_traversal(root, tree_types, extents, intervals);
+            // Before anything reads a bound: the tree just built is in the
+            // element's frame, and its stored bounds only bound this query
+            // once the element's map has carried them into the query's frame.
+            inner = set_nested_volume_maps(std::move(inner), extents);
+            return PairWith(node->value).mutate(inner);
+        }
+
+        // iter xs => foreach x in xs: the above.
+        ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(lower_iterate(node->value));
+        }
+
+        // A recursive call already evaluates the flattened query.
+        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+    };
+
+    return RewriteFlatten(std::move(func), tree_types, extents, intervals)
+        .mutate(outer);
+}
+
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
+                         const std::map<std::string, ir::Expr> &extents,
                          const IntervalMap &intervals) {
-    // TODO: not necessarily always a Var, could be e.g. an Access.
+    // A set held in a field of an element rather than bound to a name of its
+    // own: `i.blas`, the acceleration structure an instance carries.
+    //
+    // The schedule names it by the path that reaches it -- `Instance.blas :
+    // BLAS` -- because that is what such a set has: one specification per
+    // field, and one node pool behind it, however many values of the element
+    // there are. So the key here is built the same way, and the root of the
+    // traversal is the access itself rather than a variable.
+    if (auto as_access = expr.as<ir::Access>();
+        as_access != nullptr && as_access->type.is<ir::Set_t>()) {
+        const ir::Struct_t *element =
+            as_access->value.type().as<ir::Struct_t>();
+        internal_assert(element)
+            << "Cannot build traversal for a set reached through a "
+               "non-element: "
+            << expr << " on " << as_access->value.type();
+
+        const std::string key = element->name + "." + as_access->field;
+        const auto &iter = tree_types.find(key);
+        internal_assert(iter != tree_types.cend())
+            << "Lowering of: " << expr
+            << " does not have an associated BVH type. A set held in a field "
+               "gets one the same way a top-level set does, by being named in "
+               "the schedule: `"
+            << key << " : <TreeType>;`";
+
+        const ir::BVH_t *bvh = iter->second.as<ir::BVH_t>();
+        internal_assert(bvh);
+
+        // Retyped to the tree, so the traversal unwraps the node arms out of
+        // the very expression that reached it.
+        return build_base_scan(
+            ir::Access::make(as_access->field, as_access->value, iter->second),
+            bvh);
+    }
+
     if (auto as_var = expr.as<ir::Var>()) {
         internal_assert(as_var->type.is<ir::Set_t>())
             << "Cannot build traversal for non-set: " << expr;
@@ -1480,10 +1675,10 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         if (as_agg->op != ir::AggOp::reduce) {
             // count, sum and prod are sugar for a map followed by a reduce.
             return build_traversal(expand_aggregate(as_agg), tree_types,
-                                   intervals);
+                                   extents, intervals);
         }
         return build_reduce(as_agg->identity, as_agg->combiner, as_agg->a,
-                            tree_types, intervals);
+                            tree_types, extents, intervals);
     }
 
     const ir::SetOp *as_set = expr.as<ir::SetOp>();
@@ -1493,11 +1688,11 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
 
     switch (as_set->op) {
     case ir::SetOp::filter: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
+        ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
         return build_filter(body, as_set->a, intervals);
     }
     case ir::SetOp::map: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types, intervals);
+        ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
         return build_map(body, as_set->a);
     }
     case ir::SetOp::argmin:
@@ -1506,23 +1701,30 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         const Extremum dir =
             as_set->op == ir::SetOp::argmin ? Extremum::Min : Extremum::Max;
         return build_arg_extremum(dir, as_set->a, as_set->b, tree_types,
-                                  intervals, expr.type());
+                                  extents, intervals, expr.type());
     }
     case ir::SetOp::minimum:
     case ir::SetOp::maximum: {
         const Extremum dir =
             as_set->op == ir::SetOp::minimum ? Extremum::Min : Extremum::Max;
-        return build_extremum(dir, as_set->a, as_set->b, tree_types, intervals,
-                              expr.type());
+        return build_extremum(dir, as_set->a, as_set->b, tree_types, extents,
+                              intervals, expr.type());
     }
     case ir::SetOp::any:
     case ir::SetOp::all: {
         return build_quantifier(as_set->op == ir::SetOp::any, as_set->a,
-                                as_set->b, tree_types, intervals);
+                                as_set->b, tree_types, extents, intervals);
+    }
+    case ir::SetOp::flatten: {
+        // Only the outer set is traversed here. The inner one is reached from
+        // an element, so it cannot be built until there is an element to reach
+        // it from -- which is at the outer traversal's yields.
+        ir::Stmt outer = build_traversal(as_set->b, tree_types, extents, intervals);
+        return build_flatten(outer, as_set->a, tree_types, extents, intervals);
     }
     case ir::SetOp::product: {
-        ir::Stmt a_body = build_traversal(as_set->a, tree_types, intervals);
-        ir::Stmt b_body = build_traversal(as_set->b, tree_types, intervals);
+        ir::Stmt a_body = build_traversal(as_set->a, tree_types, extents, intervals);
+        ir::Stmt b_body = build_traversal(as_set->b, tree_types, extents, intervals);
         return build_product(a_body, b_body, expr.type().element_of());
     }
     default: {
@@ -1532,22 +1734,190 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
 }
 
 // Wrap the first Match seen in a recursive loop on all trees seen in the body.
+// Substitutes one expression for another throughout a statement. Needed for a
+// tree reached by an expression rather than named: the recursion has to name
+// it, so every reference to `i.blas` in the match becomes a reference to the
+// name the recursion advances.
+struct ReplaceExpr : public ir::Mutator {
+    ir::Expr from, to;
+
+    ReplaceExpr(ir::Expr f, ir::Expr t)
+        : from(std::move(f)), to(std::move(t)) {}
+
+    using ir::Mutator::mutate;
+
+    ir::Expr mutate(const ir::Expr &expr) override {
+        if (expr.defined() && ir::equals(expr, from)) {
+            return to;
+        }
+        return ir::Mutator::mutate(expr);
+    }
+};
+
 struct WrapMatchInRecLoop : public ir::Mutator {
     std::vector<ir::TypedVar> trees;
+    size_t nested = 0;
+    size_t depth = 0;
 
     WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
         : trees(std::move(trees)) {}
 
     ir::Stmt visit(const ir::Match *node) override {
-        return ir::RecLoop::make(std::move(trees), node);
+        // Descend first, because a query over a set held in an element's field
+        // has a match inside a match -- and the two are different kinds of
+        // nesting, told apart below.
+        const bool outermost = depth == 0;
+        depth++;
+        ir::Stmt body = ir::Mutator::visit(node);
+        depth--;
+
+        const ir::Match *inner = body.as<ir::Match>();
+        internal_assert(inner);
+
+        if (outermost) {
+            return ir::RecLoop::make(trees, std::move(body));
+        }
+
+        // A nested match on a *name* is a tree coiterated with the enclosing
+        // one -- what `product` builds, where both trees advance together in a
+        // single recursion over their children's Cartesian product. It belongs
+        // to the recursion already wrapped around it.
+        if (inner->loc.as<ir::Var>()) {
+            return body;
+        }
+
+        // A nested match on an *expression* -- `i.blas` -- is a second
+        // traversal, of a tree reached from an element of the first. It gets a
+        // recursion of its own, which needs a name to advance, so the root is
+        // bound to one and the match rewritten to use it. This is where the
+        // second stack begins, and where a schedule will later decide what a
+        // suspension keeps.
+        const std::string name = "_subtree" + std::to_string(nested++);
+        ir::Expr root = ir::Var::make(inner->loc.type(), name);
+        ir::Stmt bind = ir::LetStmt::make(ir::WriteLoc(name, inner->loc.type()),
+                                          inner->loc);
+        ir::Stmt matched = ReplaceExpr(inner->loc, root).mutate(body);
+        std::vector<ir::TypedVar> args = {{name, inner->loc.type()}};
+        return ir::Sequence::make(
+            {std::move(bind),
+             ir::RecLoop::make(std::move(args), std::move(matched))});
     }
 };
 
+// Records the first access of the form `<anything>.<field of `elem`>` whose own
+// base is `elem` -- the nested tree's root augmentation, `i.blas.AABB`.
+struct FindRootVolume : public ir::Visitor {
+    const std::string &set_field;
+    ir::Expr found;
+
+    FindRootVolume(const std::string &set_field) : set_field(set_field) {}
+
+    using ir::Visitor::visit;
+
+    void visit(const ir::Access *node) override {
+        if (!found.defined()) {
+            if (const ir::Var *base = node->value.as<ir::Var>();
+                base != nullptr && base->name == set_field) {
+                found = node;
+                return;
+            }
+        }
+        ir::Visitor::visit(node);
+    }
+};
+
+// Gives a match over a tree reached from an element the function that carries
+// that tree's bounds into the element's frame.
+//
+// The function is not asked for a second time: an element's `with extent`
+// already says it. `extent = transform(render_from_instance, blas.AABB)` states
+// both what the element's own extent is *and* how its tree's frame relates to
+// its own, because the tree's root bound appears inside it. Abstracting that
+// root bound out -- `blas.AABB` becomes the parameter -- leaves exactly the
+// map. Deriving it means the extent and the map cannot disagree, which they
+// could if both were written down.
+struct SetNestedVolumeMaps : public ir::Mutator {
+    const std::map<std::string, ir::Expr> &extents;
+
+    SetNestedVolumeMaps(const std::map<std::string, ir::Expr> &extents)
+        : extents(extents) {}
+
+    using ir::Mutator::visit;
+
+    ir::Stmt visit(const ir::Match *node) override {
+        ir::Stmt mutated = ir::Mutator::visit(node);
+        const ir::Match *match = mutated.as<ir::Match>();
+        internal_assert(match);
+        if (match->volume_map.defined()) {
+            return mutated;
+        }
+
+        // Only a tree reached through an element has a frame of its own.
+        const ir::Access *access = match->loc.as<ir::Access>();
+        if (access == nullptr) {
+            return mutated;
+        }
+        const ir::Struct_t *element = access->value.type().as<ir::Struct_t>();
+        if (element == nullptr) {
+            return mutated;
+        }
+        const auto iter = extents.find(element->name);
+        if (iter == extents.cend()) {
+            // No extent: nothing relates the two frames, so the tree's own
+            // bounds are the only ones there are. Sound when the query does
+            // not move its elements, and when it does, the missing map is
+            // caught by `with extent` being missing rather than here.
+            return mutated;
+        }
+
+        // Abstract the tree's root bound out of the extent *first*: it is the
+        // one subterm that cannot survive being rebuilt, since a set has no
+        // field to look a geometry up by -- only the annotation gave it one.
+        FindRootVolume finder(access->field);
+        iter->second.accept(&finder);
+        if (!finder.found.defined()) {
+            // An extent that does not mention the tree's root bound says
+            // nothing about the tree's frame.
+            return mutated;
+        }
+
+        const std::string name = "_vol";
+        const ir::Type volume_type = finder.found.type();
+        std::map<ir::Expr, ir::Expr, ir::ExprLessThan> abstraction;
+        abstraction[finder.found] = ir::Var::make(volume_type, name);
+        ir::Expr body = replace(abstraction, iter->second);
+
+        // What is left is over the element's other fields; bind them to this
+        // element.
+        std::map<std::string, ir::Expr> fields;
+        for (const auto &field : element->fields) {
+            if (field.name == access->field) {
+                continue; // abstracted away above
+            }
+            fields[field.name] = ir::Access::make(field.name, access->value);
+        }
+        body = replace(fields, body);
+
+        ir::Expr volume_map =
+            ir::Lambda::make({{name, volume_type}}, std::move(body));
+
+        return ir::Match::make(match->loc, match->arms, std::move(volume_map));
+    }
+};
+
+ir::Stmt set_nested_volume_maps(
+    ir::Stmt body, const std::map<std::string, ir::Expr> &extents) {
+    return SetNestedVolumeMaps(extents).mutate(std::move(body));
+}
+
 struct LowerBVH : public ir::Mutator {
     const ir::TypeMap &tree_types;
+    const std::map<std::string, ir::Expr> &extents;
     ir::FuncMap new_funcs;
 
-    LowerBVH(const ir::TypeMap &tree_types) : tree_types(tree_types) {}
+    LowerBVH(const ir::TypeMap &tree_types,
+             const std::map<std::string, ir::Expr> &extents)
+        : tree_types(tree_types), extents(extents) {}
 
     // For unique func names
     size_t counter = 0;
@@ -1584,7 +1954,7 @@ struct LowerBVH : public ir::Mutator {
         // e.g. bounded interval hierarchies, kd-trees, tri.x < bound
         // queries, etc?
         IntervalMap intervals;
-        ir::Stmt body = build_traversal(expr, tree_types, intervals);
+        ir::Stmt body = build_traversal(expr, tree_types, extents, intervals);
         internal_assert(body.defined());
         // Now wrap in a recursive loop on any trees.
         body = WrapMatchInRecLoop(std::move(trees)).mutate(body);
@@ -1621,8 +1991,16 @@ struct LowerBVH : public ir::Mutator {
 } // namespace
 
 ir::Stmt build_base_scan(const std::string &name, const ir::BVH_t *bvh_t) {
-    ir::Expr bvh_expr = ir::Var::make(bvh_t, name);
+    return build_base_scan(ir::Var::make(bvh_t, name), bvh_t);
+}
 
+// The same, rooted at an expression rather than at a name.
+//
+// A top-level set is a variable and its tree is reached by naming it. A set
+// held in a field -- `i.blas`, an instance's own acceleration structure -- has
+// no name of its own: its root is wherever the element that holds it says, so
+// the traversal has to be built against that expression.
+ir::Stmt build_base_scan(ir::Expr bvh_expr, const ir::BVH_t *bvh_t) {
     const size_t n_nodes = bvh_t->nodes.size();
     ir::Match::Arms arms(n_nodes);
     for (size_t i = 0; i < n_nodes; i++) {
@@ -1683,7 +2061,7 @@ ir::Program LowerTrees::run(ir::Program program,
     ir::TypeMap tree_types =
         std::move(program.schedules[ir::Target::Host].tree_types);
 
-    LowerBVH converter(tree_types);
+    LowerBVH converter(tree_types, program.extents);
 
     // Remap externs.
     for (auto &[name, type] : program.externs) {

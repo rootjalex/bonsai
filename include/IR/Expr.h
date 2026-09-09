@@ -366,6 +366,14 @@ struct Access : ExprNode<Access> {
     Expr value;
 
     static Expr make(std::string field, Expr value);
+    // With the result type given rather than looked up in the base.
+    //
+    // For the one access whose type cannot be read off the thing it is taken
+    // from: a set's root augmentation, `blas.AABB`. A `set[Triangle]` does not
+    // know which tree backs it -- the schedule says that, and it is read after
+    // the elements are -- so the geometry named on the right is what gives the
+    // access its type.
+    static Expr make(std::string field, Expr value, Type type);
 
     static const IRExprEnum node_type = IRExprEnum::Access;
 };
@@ -479,6 +487,20 @@ struct GeomOp : ExprNode<GeomOp> {
         // Metrics.
         distmax,
         distmin,
+        // Motions. The odd one out, and deliberately here rather than beside
+        // the relations: every op above relates two extents and answers a
+        // bool or a scalar, while this one takes a *motion* and an extent and
+        // answers an extent -- the same extent, somewhere else.
+        //
+        // It is an intrinsic rather than an ordinary function because two
+        // things about it have to be known rather than guessed. It dispatches
+        // on the type it moves, so the same motion applies to a triangle at a
+        // leaf and to a bounding box at a node, which is what lets a mapped
+        // tree's bounds be the mapped bounds. And it has an inverse, which is
+        // what lets a relation against a moved extent be rewritten as the
+        // same relation against a moved query -- transforming one ray per
+        // instance rather than every triangle in it.
+        transform,
 
         opcount, // sentinel, do not remove!
     };
@@ -504,6 +526,21 @@ struct SetOp : ExprNode<SetOp> {
         argmax,
         argmin,
         filter,
+        // The union, over a set, of a set reached from each of its elements:
+        //
+        //     flatten(T -> Set<S>, Set<T>) : Set<(T, S)>
+        //
+        // The pair is kept rather than dropping the outer element, because the
+        // element is usually what makes the inner one meaningful -- an
+        // instance's transform is what puts its triangles in the world.
+        //
+        // This is the single-index join of the Bonsai paper's Section 7.1 with
+        // the inner index a function of the outer element rather than a set
+        // variable of its own, plus the flattening step that section says a
+        // caller wanting pairs has to add. It is what a two-level acceleration
+        // structure is: every triangle of every instance, each seen through
+        // its instance.
+        flatten,
         map,
         maximum,
         minimum,

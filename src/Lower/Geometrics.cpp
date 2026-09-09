@@ -53,6 +53,7 @@ struct LowerGeomOps : public Mutator {
 
         Type call_type = func->second->call_type();
 
+        const Type b_type = b.type();
         Expr f = Var::make(std::move(call_type), std::move(typed_name));
         Expr call = Call::make(std::move(f), {std::move(a), std::move(b)});
 
@@ -60,6 +61,14 @@ struct LowerGeomOps : public Mutator {
             // some macro error with inlining this into internal_assert
             const bool truthy_type = call.type().is<Option_t, Bool_t>();
             internal_assert(truthy_type);
+        } else if (is_geometric_motion(name)) {
+            // A motion answers the extent it moved, so it answers at the type
+            // it was given -- unlike every relation here, which answers a fact
+            // about its operands rather than one of them.
+            internal_assert(equals(call.type(), b_type))
+                << name << " must answer at the type it moves, but "
+                << typed_name << " answers " << call.type() << " for "
+                << b_type;
         } else {
             internal_assert(is_geometric_metric(name));
             internal_assert(call.type().is_numeric());

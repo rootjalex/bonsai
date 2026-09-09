@@ -32,6 +32,27 @@ struct Program {
     TypeMap types;
     // TODO: what is the right interface for this?
     ScheduleMap schedules;
+
+    // `with extent = <expr>` on an element, keyed by the element's type name.
+    //
+    // What a node's bounds augmentation says about a subtree, said about a
+    // single element: everything reachable through a value of this type lies
+    // within this geometry. It is what makes a compound element a geometric
+    // object, so a tree over such elements can carry a bounds augmentation at
+    // all -- and, like a node's volume, it is a promise owed by whoever builds
+    // the tree rather than a fact the compiler derives.
+    //
+    // PBRT's TransformedPrimitive is the case it exists for. Its `Bounds()` is
+    // `renderFromPrimitive(primitive.Bounds())`, computed from the transform
+    // and the held tree's own root bound, and PBRT calls it only from the BVH
+    // constructor -- never from `Intersect`. The same is true here: this is
+    // read by the build specification and, symbolically, by predicate
+    // analysis, and it is never evaluated per query.
+    //
+    // Beside `types` rather than inside the Struct_t because a Struct_t is
+    // hash-consed on its fields: two elements with the same fields are the
+    // same type, while their extents are not interchangeable.
+    std::map<std::string, Expr> extents;
     // TODO: interfaces / inheritance?
 
     // The SSA form of whichever functions are to be lowered to the backend

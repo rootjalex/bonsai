@@ -897,6 +897,18 @@ Expr Access::make(std::string field, Expr value) {
     return node;
 }
 
+Expr Access::make(std::string field, Expr value, Type type) {
+    internal_assert(!field.empty() && value.defined() && type.defined())
+        << "Bad Access parameters: " << field << " on " << value << " at "
+        << type;
+
+    Access *node = new Access;
+    node->type = std::move(type);
+    node->field = std::move(field);
+    node->value = std::move(value);
+    return node;
+}
+
 Expr Unwrap::make(size_t index, Expr value) {
     internal_assert(value.defined() && value.type().is<BVH_t>())
         << "Bad Unwrap parameters: " << value << " has type: " << value.type();
@@ -1113,6 +1125,9 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
             // TODO: do we need Real_t?
             // For now, just assume f32
             node->type = Float_t::make_f32();
+        } else if (op == GeomOp::transform) {
+            // A motion answers the extent it moved, not a fact about it.
+            node->type = b.type();
         } else {
             node->type = Bool_t::make();
         }
@@ -1128,9 +1143,10 @@ namespace {
 
 // Must stay in the same order as GeomOp::OpType.
 const char *const geometric_op_names[] = {
-    "contains", "covers", "disjoint", "equals",  "intersects",
-    "touches",  "within", "lex",      "ley",     "lez",
-    "ltx",      "lty",    "ltz",      "distmax", "distmin",
+    "contains", "covers", "disjoint",  "equals",  "intersects",
+    "touches",  "within", "lex",       "ley",     "lez",
+    "ltx",      "lty",    "ltz",       "distmax", "distmin",
+    "transform",
 };
 
 static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) ==
@@ -1277,6 +1293,25 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 Expr size = b.type().as<Array_t>()->size;
                 node->type = Array_t::make(f->ret_type, std::move(size));
             }
+            break;
+        }
+        case SetOp::flatten: {
+            internal_assert(b.type().is_iterable())
+                << "Expected rhs of flatten to be an iterable, instead "
+                   "received: "
+                << b << " : " << b.type();
+            const Function_t *f = check_element_lambda("flatten", a, b);
+            internal_assert(f) << "Cannot infer the type of flatten without a "
+                                  "typed lambda: "
+                               << a;
+            internal_assert(f->ret_type.is<Set_t>())
+                << "Expected the lambda of flatten to return a set -- the set "
+                   "reached from each element -- instead it returns: "
+                << f->ret_type << " for " << a;
+            Type outer = b.type().element_of();
+            Type inner = f->ret_type.element_of();
+            node->type = Set_t::make(
+                Tuple_t::make({std::move(outer), std::move(inner)}));
             break;
         }
         case SetOp::product: {

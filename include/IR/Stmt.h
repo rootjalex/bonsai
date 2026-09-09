@@ -341,8 +341,24 @@ struct Match : StmtNode<Match> {
     using Arms = std::vector<std::pair<BVH_t::Node, Stmt>>;
     Expr loc; // Of type BVH_t
     Arms arms;
+    // The geometric function applied to this tree's elements, if any, as a
+    // lambda from a volume to a volume. Undefined when the elements are the
+    // ones the tree was built over.
+    //
+    // A tree's bounds augmentation bounds what the tree was built from. Map a
+    // geometric function over the set and that stops being true: an instance's
+    // triangles are bounded by its own boxes, but the same triangles *where
+    // the instance puts them* are not. The bound that survives is the mapped
+    // one, so the map has to travel with the tree as far as predicate
+    // analysis, which is what this carries.
+    //
+    // Where a map has no volume-to-volume counterpart the field stays
+    // undefined and the level cannot prune -- correct, and slow, rather than
+    // fast and wrong.
+    Expr volume_map;
 
     static Stmt make(Expr loc, Arms arms);
+    static Stmt make(Expr loc, Arms arms, Expr volume_map);
 
     static const IRStmtEnum node_type = IRStmtEnum::Match;
 };

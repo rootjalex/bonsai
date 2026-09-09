@@ -108,7 +108,8 @@ struct NameHygiene : ir::Mutator {
         for (const auto &[variant, stmt] : node->arms) {
             arms.push_back({variant, mutate(stmt)});
         }
-        return ir::Match::make(std::move(loc), std::move(arms));
+        return ir::Match::make(std::move(loc), std::move(arms),
+                               node->volume_map);
     }
 
   private:
