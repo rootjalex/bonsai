@@ -203,16 +203,66 @@ struct PullQueriesImpl : public Mutator {
 
         std::vector<Stmt> stmts;
         std::map<Expr, Expr, ExprLessThan> names;
+        // The query each pulled term stands in for, so that anything still
+        // written over the query inside this recursion can be pointed at the
+        // pulled one.
+        std::map<Expr, Expr, ExprLessThan> queries;
         for (const Expr &term : find.found) {
             const std::string name = "_pulled" + std::to_string(counter++);
-            names[term] = Var::make(term.type(), name);
+            const Expr var = Var::make(term.type(), name);
+            names[term] = var;
+            const GeomOp *pull = term.as<GeomOp>();
+            internal_assert(pull && pull->op == GeomOp::untransform) << term;
+            queries[pull->b] = var;
             stmts.push_back(
                 LetStmt::make(WriteLoc(name, term.type()), term));
         }
         Stmt body = ReplaceTerms(names).mutate(loop->body);
+        body = RepointKeys(queries).mutate(std::move(body));
         stmts.push_back(RecLoop::make(loop->args, std::move(body)));
         return Sequence::make(std::move(stmts));
     }
+
+    // A schedule's sort keys, written over the query, follow it into the
+    // frame the walk now runs in.
+    //
+    // `sort(Instance.blas.Interior, |i, r, axis| select((1 / r.d)[axis] < 0,
+    // ..))` is pbrt's front-to-back rule, and pbrt applies it to the ray *after*
+    // `ApplyInverse`: the split axis is an axis of the instance's frame, and the
+    // sign of the world-space direction along it says nothing about which child
+    // is nearer once the instance is rotated. Every relation in this recursion
+    // has just been moved onto the pulled ray; a key left on the world ray
+    // would order the walk by a ray the walk is no longer testing against --
+    // the right rule applied to the wrong ray, and not visibly wrong, since an
+    // argmin does not depend on the order. Only the keys are touched: what a
+    // `from` recurses into is a node, not a query.
+    struct RepointKeys : public Mutator {
+        const std::map<Expr, Expr, ExprLessThan> &queries;
+
+        RepointKeys(const std::map<Expr, Expr, ExprLessThan> &queries)
+            : queries(queries) {}
+
+        using Mutator::visit;
+
+        Stmt visit(const YieldFrom *node) override {
+            if (node->keys.empty()) {
+                return node;
+            }
+            ReplaceTerms repoint(queries);
+            std::vector<Expr> keys;
+            keys.reserve(node->keys.size());
+            bool not_changed = true;
+            for (const Expr &key : node->keys) {
+                Expr moved = repoint.mutate(key);
+                not_changed = not_changed && moved.same_as(key);
+                keys.push_back(std::move(moved));
+            }
+            if (not_changed) {
+                return node;
+            }
+            return YieldFrom::make(node->value, std::move(keys));
+        }
+    };
 };
 
 } // namespace

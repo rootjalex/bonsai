@@ -128,6 +128,15 @@ ahead of the walk of that instance's tree, once per instance: the outer
 recursion binds the instance, so the term cannot move past it, and the inner
 one does not, so it can. Nothing knows where instances are.
 
+A schedule's `sort()` keys follow the query into the pulled frame, which is
+why the pass runs after `LowerSorts`. pbrt's front-to-back rule reads the sign
+of the direction along the node's split axis, and inside an instance that axis
+is an axis of the instance's frame: pbrt applies the rule after `ApplyInverse`,
+and a key left on the world ray would be the right rule on the wrong ray --
+never wrongly answered, since an argmin does not depend on the order, and so
+never visible. `pull-the-ray-back.bonsai` pins the inner key on `_pulled0.d`
+and the outer on `r.d`.
+
 `tests/bonsai/lower/pull-the-ray-back.bonsai` is the rewrite on its own;
 `tests/bonsai/backends/llvm/tree-traversal-instanced.bonsai` is what it
 compiles to; `blas-tlas{,-loopified,-sorted}` run it and print the same answers

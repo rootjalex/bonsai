@@ -35,8 +35,16 @@ namespace opt {
 // would look up; where it does not, the query stays as written, correct and
 // slow.
 //
-// Runs after LowerTrees, so the pruning conditions exist to be rewritten, and
-// before LowerGeometrics, so a motion is still a GeomOp rather than a call.
+// A schedule's sort keys follow the query too. pbrt's front-to-back rule reads
+// the sign of the ray's direction along the node's split axis, and inside an
+// instance that axis is an axis of the instance's frame: pbrt applies the rule
+// to the ray after `ApplyInverse`, and so must we, or a rotated instance is
+// walked in the wrong order. Not wrongly answered -- an argmin does not depend
+// on the order -- which is exactly why it would never have shown.
+//
+// Runs after LowerTrees, so the pruning conditions exist to be rewritten;
+// after LowerSorts, so the keys are on the recursion to be carried; and before
+// LowerGeometrics, so a motion is still a GeomOp rather than a call.
 class PullQueries : public lower::Pass {
   public:
     const std::string name() const override { return "pull-queries"; }

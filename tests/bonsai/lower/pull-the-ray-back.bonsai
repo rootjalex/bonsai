@@ -1,4 +1,4 @@
-//! flags: -p canonicalize -p lower-trees -p pull-queries
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p pull-queries
 
 // The ray pulled back into the instance, once, where pbrt does it.
 //
@@ -35,6 +35,15 @@
 //     alone, so the parameter is the same on both sides -- the same fact
 //     pbrt's `tMax` argument rests on. It is what the program declares by
 //     supplying an `untransform` for a ray at all.
+//
+//   - the inner `from` is `sorted by` keys over `_pulled0.d`, not `r.d`. The
+//     schedule below is pbrt's front-to-back rule written, as a schedule has
+//     to write it, over the query ray; the split axis it reads is an axis of
+//     the instance's frame, so the rule is only pbrt's when the ray is in that
+//     frame too. pbrt applies it after `ApplyInverse`. The keys are carried
+//     into the pulled frame with everything else -- which is why `lower-sorts`
+//     runs before this pass -- and the outer `from`'s keys stay on `r`, since
+//     the outer tree's axes are the world's.
 //
 // The outer walk is untouched: its tests were against `r` and the outer tree's
 // own boxes, and there was nothing to move. And the ordering predicates would
@@ -126,4 +135,15 @@ schedule {
 
     instances : TLAS;
     Instance.blas : BLAS from BlasNodes;
+
+    // pbrt's rule at both levels. Read for the inner key ending up over
+    // `_pulled0` and the outer one staying over `r`.
+    trace.sort(instances.Interior,
+               |i : u8, r : Ray, axis : u8|
+                   select((1 / r.d)[axis] < 0, 1.0 - cast[[f32]](i),
+                          cast[[f32]](i)))
+         .sort(Instance.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+                   select((1 / r.d)[axis] < 0, 1.0 - cast[[f32]](i),
+                          cast[[f32]](i)));
 }
