@@ -37,6 +37,7 @@ add_bonsai_tests(
     option-nested.bonsai
     option.bonsai
     parse-str.bonsai
+    pull-the-ray-back.bonsai
     rect_contains.bonsai
     struct_defaults.bonsai
     trace_aosoa.bonsai

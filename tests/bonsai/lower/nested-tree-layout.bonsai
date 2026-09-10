@@ -76,10 +76,19 @@ element Instance {
 
 extern instances : set[Instance];
 
-func place(i : Instance, tri : Triangle) -> Triangle {
-    out : Triangle = {apply(i.render_from_instance, tri.p0),
-                      apply(i.render_from_instance, tri.p1),
-                      apply(i.render_from_instance, tri.p2)};
+// The motion applied to a triangle, and undone on a ray. Supplying the second
+// is what lets `pull-queries` (Opt/PullQueries.h) move the transform off every
+// node's box and onto the ray, once per instance; pull-the-ray-back.bonsai is
+// that rewrite on its own, and here it is seen post-layout.
+func transform(t : Transform, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(t, tri.p0), apply(t, tri.p1), apply(t, tri.p2)};
+    return out;
+}
+
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
     return out;
 }
 
@@ -87,8 +96,10 @@ func trace(r : Ray) =
     argmin(|i : Instance, tri : Triangle| distmin(r, tri),
            filter(|i : Instance, tri : Triangle|
                       intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
-                                             i.blas),
+                  flatten(|i : Instance|
+                              map(|tri : Triangle|
+                                      transform(i.render_from_instance, tri),
+                                  i.blas),
                           instances)));
 
 schedule {

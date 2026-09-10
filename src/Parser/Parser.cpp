@@ -141,6 +141,7 @@ struct Parser {
             "intersects",
             "contains",
             "transform",
+            "untransform",
             // Vector reductions
             "sum",
             "all",
@@ -1891,6 +1892,7 @@ struct Parser {
             {"distmax", ir::GeomOp::distmax},
             {"distmin", ir::GeomOp::distmin},
             {"transform", ir::GeomOp::transform},
+            {"untransform", ir::GeomOp::untransform},
         });
 
         if (auto op = try_match_pattern<ir::GeomOp::OpType>(name, args.size(),

@@ -86,7 +86,7 @@ func transform(t : Transform, b : AABB) -> AABB {
 //     computes the enclosing tree's node boxes from it, and predicate
 //     analysis, which reads it symbolically to derive the pruning condition.
 //
-//   - the *ray* transform, `pull` above, which is PBRT's
+//   - the *ray* transform, `untransform` below, which is PBRT's
 //     `Transform::ApplyInverse(r, &tMax)` at primitive.cpp:115 and :128. That
 //     one is squarely inside the traversal and runs on every visit to every
 //     instance. It is the whole cost of instancing.
@@ -103,33 +103,44 @@ element Instance {
 
 extern instances : set[Instance];
 
-// PBRT: Primitive::Intersect over a scene with instances in it.
+// The same motion applied to a triangle: its three vertices moved. PBRT never
+// does this during a traversal -- it applies the transform to the *ray* and
+// leaves the triangle alone -- and neither, in the end, do we; but the query
+// below is written this way round, and that is the point of it.
 //
-// A triangle where its instance puts it. PBRT applies the transform to the
-// *ray* and leaves the triangle alone, which computes the same answers more
-// cheaply -- but only more cheaply, and that is the point of writing it this
-// way round.
+// Said as `transform(m, tri)`, the query has a uniform ray and one varying
+// geometric object, and the ordinary bounding rule applies to it: a varying
+// geometric argument is replaced by its bounding volume. The chain that
+// licenses it is three annotations and no new concept -- `tri` is inside the
+// inner tree's root box, `with extent` pushes that box forward, and the outer
+// node's box bounds the result.
 //
-// Said as `place`, the query has a uniform ray and one varying geometric
-// object, and the ordinary bounding rule applies to it: a varying geometric
-// argument is replaced by its bounding volume. The chain that licenses it is
-// three annotations and no new concept -- `tri` is inside the inner tree's
-// root box, `with extent` pushes that box forward, and the outer node's box
-// bounds the result.
-//
-// Said PBRT's way round, as `intersects(pull(i, r), tri)`, there is no such
-// rule: the frame change is hidden inside a function predicate analysis cannot
-// see into, `tri`'s box is in the instance's frame while the node's is in the
-// world's, and nothing relates them. Getting from here to PBRT is loop-invariant
-// code motion -- pulling the ray back once per instance rather than pushing
-// every triangle forward -- which is a lowering's business, justified by the
-// two transforms being inverse.
-func place(i : Instance, tri : Triangle) -> Triangle {
-    out : Triangle = {apply(i.render_from_instance, tri.p0),
-                      apply(i.render_from_instance, tri.p1),
-                      apply(i.render_from_instance, tri.p2)};
+// Said PBRT's way round, as `intersects(untransform(m, r), tri)`, there is no
+// such rule: the frame change is hidden inside a function predicate analysis
+// cannot see into, `tri`'s box is in the instance's frame while the node's is
+// in the world's, and nothing relates them. Getting from here to PBRT is the
+// lowering's business, justified by the two motions being inverse: once
+// predicate analysis has had the forward form, `pull-queries` moves the motion
+// onto the ray and hoists it. This test stops before that pass, so what it
+// shows is the form analysis works on; pull-the-ray-back.bonsai shows the form
+// that runs.
+func transform(t : Transform, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(t, tri.p0), apply(t, tri.p1), apply(t, tri.p2)};
     return out;
 }
+
+// PBRT: `Transform::ApplyInverse(const Ray &, Float *tMax)`, the direction
+// deliberately not renormalised so that a hit's `t` means the same thing on
+// both sides of the frame change. Unused at the stage this test stops at, and
+// what the whole rewrite hangs on one pass later.
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
+    return out;
+}
+
+// PBRT: Primitive::Intersect over a scene with instances in it.
 
 // The searched set is every triangle of every instance, each where its instance
 // puts it -- which `flatten` and `place` say between them.
@@ -137,8 +148,10 @@ func trace(r : Ray) =
     argmin(|i : Instance, tri : Triangle| distmin(r, tri),
            filter(|i : Instance, tri : Triangle|
                       intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
-                                             i.blas),
+                  flatten(|i : Instance|
+                              map(|tri : Triangle|
+                                      transform(i.render_from_instance, tri),
+                                  i.blas),
                           instances)));
 
 // PBRT: Primitive::IntersectP. The same set with the reduction weakened, which
@@ -149,7 +162,9 @@ func trace(r : Ray) =
 func trace_any(r : Ray) =
     any(|i : Instance, tri : Triangle|
             intersects(r, tri) && distmin(r, tri) > 0.001,
-        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+        flatten(|i : Instance|
+                    map(|tri : Triangle| transform(i.render_from_instance, tri),
+                        i.blas),
                 instances));
 
 schedule {

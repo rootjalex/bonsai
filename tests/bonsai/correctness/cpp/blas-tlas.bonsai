@@ -70,11 +70,29 @@ element Instance {
 
 extern instances : set[Instance];
 
-// A triangle where its instance puts it.
-func place(i : Instance, tri : Triangle) -> Triangle {
-    out : Triangle = {apply(i.render_from_instance, tri.p0),
-                      apply(i.render_from_instance, tri.p1),
-                      apply(i.render_from_instance, tri.p2)};
+// The same motion applied to a triangle: its three vertices moved. The query
+// says `transform(i.render_from_instance, tri)`, and this is what a traversal
+// would run per triangle if nothing pulled the ray back -- see `untransform`.
+func transform(t : Transform, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(t, tri.p0), apply(t, tri.p1), apply(t, tri.p2)};
+    return out;
+}
+
+// PBRT: `Transform::ApplyInverse(const Ray &, Float *tMax)`. The motion
+// undone, applied to the ray, which is what the traversal actually runs: once
+// per instance, ahead of the walk of that instance's tree, with every test
+// inside the walk then made against the pulled-back ray and the stored
+// geometry. Opt/PullQueries.cpp is what gets there from the query as written.
+//
+// The direction is not renormalised, on purpose and as in PBRT: an affine map
+// preserves the parameter along a line only when the direction is transformed
+// rather than rescaled, and it is that parameter -- the `t` of a hit -- that
+// `distmin` answers and that the running best is compared against. Renormalise
+// and an instance can no longer prune against a hit found in another one.
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
     return out;
 }
 
@@ -84,8 +102,10 @@ func [[export]] trace(r : Ray) =
     argmin(|i : Instance, tri : Triangle| distmin(r, tri),
            filter(|i : Instance, tri : Triangle|
                       intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
-                                             i.blas),
+                  flatten(|i : Instance|
+                              map(|tri : Triangle|
+                                      transform(i.render_from_instance, tri),
+                                  i.blas),
                           instances)));
 
 // PBRT: Primitive::IntersectP. The same set with the reduction weakened, so
@@ -94,7 +114,9 @@ func [[export]] trace(r : Ray) =
 func [[export]] trace_any(r : Ray) =
     any(|i : Instance, tri : Triangle|
             intersects(r, tri) && distmin(r, tri) > 0.001,
-        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+        flatten(|i : Instance|
+                    map(|tri : Triangle| transform(i.render_from_instance, tri),
+                        i.blas),
                 instances));
 
 schedule {

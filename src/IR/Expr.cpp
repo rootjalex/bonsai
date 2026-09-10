@@ -1125,7 +1125,7 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
             // TODO: do we need Real_t?
             // For now, just assume f32
             node->type = Float_t::make_f32();
-        } else if (op == GeomOp::transform) {
+        } else if (op == GeomOp::transform || op == GeomOp::untransform) {
             // A motion answers the extent it moved, not a fact about it.
             node->type = b.type();
         } else {
@@ -1146,7 +1146,7 @@ const char *const geometric_op_names[] = {
     "contains", "covers", "disjoint",  "equals",  "intersects",
     "touches",  "within", "lex",       "ley",     "lez",
     "ltx",      "lty",    "ltz",       "distmax", "distmin",
-    "transform",
+    "transform", "untransform",
 };
 
 static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) ==

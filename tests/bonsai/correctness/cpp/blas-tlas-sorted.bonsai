@@ -59,11 +59,19 @@ element Instance {
 
 extern instances : set[Instance];
 
-// A triangle where its instance puts it.
-func place(i : Instance, tri : Triangle) -> Triangle {
-    out : Triangle = {apply(i.render_from_instance, tri.p0),
-                      apply(i.render_from_instance, tri.p1),
-                      apply(i.render_from_instance, tri.p2)};
+// The same motion applied to a triangle; see blas-tlas.bonsai.
+func transform(t : Transform, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(t, tri.p0), apply(t, tri.p1), apply(t, tri.p2)};
+    return out;
+}
+
+// PBRT: `Transform::ApplyInverse`, the direction deliberately not
+// renormalised; see blas-tlas.bonsai for why that is what makes the running
+// best comparable across instances.
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
     return out;
 }
 
@@ -72,15 +80,19 @@ func [[export]] trace(r : Ray) =
     argmin(|i : Instance, tri : Triangle| distmin(r, tri),
            filter(|i : Instance, tri : Triangle|
                       intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
-                                             i.blas),
+                  flatten(|i : Instance|
+                              map(|tri : Triangle|
+                                      transform(i.render_from_instance, tri),
+                                  i.blas),
                           instances)));
 
 // PBRT: Primitive::IntersectP.
 func [[export]] trace_any(r : Ray) =
     any(|i : Instance, tri : Triangle|
             intersects(r, tri) && distmin(r, tri) > 0.001,
-        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+        flatten(|i : Instance|
+                    map(|tri : Triangle| transform(i.render_from_instance, tri),
+                        i.blas),
                 instances));
 
 schedule {

@@ -1,31 +1,37 @@
-//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/blas-tlas-loopified
-//! commands: clang++ -std=c++20 -O3 -DLOOPIFIED -c $<>/main_blas_tlas.cpp -I. -o $<>/main_blas_tlas_loopified.o, clang++ $<>/main_blas_tlas_loopified.o $<>/blas-tlas-loopified.o -o $<>/blas-tlas-loopified, ./$<>/blas-tlas-loopified, rm $<>/blas-tlas-loopified, rm $<>/main_blas_tlas_loopified.o, rm $<>/blas-tlas-loopified.h, rm $<>/blas-tlas-loopified.o
+//! flags: -p ssa -b llvm
 
-// blas-tlas.bonsai with `loopify()` on both traversals, run against the same
-// driver and the same answers.
+// The instanced traversal with the ray pulled back, compiled end to end.
 //
-// That last part is the test. `loopify()` replaces a recursion with an
-// explicit stack and changes nothing about what the query computes, so every
-// line this prints has to match blas-tlas.expect exactly.
+// tree-traversal-nested.bonsai has a tree inside a tree and no motion, so it
+// pins the two stacks. This one has the motion -- an instance places its
+// triangles with a `Transform` -- and pins what `pull-queries`
+// (Opt/PullQueries.h) makes of it.
 //
-// A tree held inside a tree is what makes it worth running: there are two
-// recursions here and each needs a stack of its own. Sharing one would leave
-// a walk of an instance's triangles pushing its node references where the walk
-// over instances pops them, which comes back with somebody else's geometry
-// rather than with an error. The Stmt-level pipeline has only the one stack
-// and refuses this schedule outright -- error/loopify-nested-needs-ssa.bonsai
-// pins that -- so this is compiled with `-p ssa`, where the rewrite gives
-// every recursion its own.
-import stdlib/aabb;
+// No `loopify()` here, on purpose. Loopified, both walks are inlined into
+// `_traverse_tree0` and the thing to read is spread across one function; left
+// as recursions they stay functions of their own, and the walk over one
+// instance's tree is `_recloop_func1`, whose signature is the evidence:
+//
+//   - it takes `%struct.Ray noundef %_pulled0` and not the world-space ray.
+//     The ray arrives already in the instance's frame, computed once per
+//     instance by the caller -- pbrt's `ApplyInverse(r, &tMax)` at the top of
+//     `TransformedPrimitive::Intersect`. Nothing inside the walk needs `r` any
+//     more, so it is not a parameter at all.
+//
+//   - the node test is a slab test and nothing else: no `v3f32` `minnum` or
+//     `maxnum` -- the eight-corner fold -- and no matrix columns read on the
+//     way to a node's box. Before the rewrite this function did an
+//     eight-corner box transform at every node, 17 vector multiplies, 29 adds
+//     and 14 min/max, against pbrt's handful. That difference was the whole
+//     cost of instancing.
+//
+// What remains of the matrix inside the walk is in the hit path only: the
+// value the query yields is the triangle *where the instance puts it*, and
+// that is built when a hit is recorded, not tested at every node.
 import stdlib/distance;
 import stdlib/intersects;
-import stdlib/numerics;
-import stdlib/ray;
-import stdlib/topology;
 import stdlib/triangle;
 
-// PBRT: Transform, which stores the matrix and its inverse rather than
-// inverting on use.
 element Transform {
     m0, m1, m2, m3 : vec3f;
     i0, i1, i2, i3 : vec3f;
@@ -34,8 +40,6 @@ element Transform {
 func apply(t : Transform, p : vec3f) -> vec3f =
     t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
 
-// PBRT: `Transform::operator()(const Bounds3f &)`, which unions the eight
-// transformed corners rather than transforming the two extreme points.
 func transform(t : Transform, b : AABB) -> AABB {
     c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
     c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
@@ -51,23 +55,12 @@ func transform(t : Transform, b : AABB) -> AABB {
     return out;
 }
 
-// PBRT: TransformedPrimitive. A transform and a whole acceleration structure.
-element Instance {
-    render_from_instance : Transform;
-    blas : set[Triangle];
-} with extent = transform(render_from_instance, blas.AABB);
-
-extern instances : set[Instance];
-
-// The same motion applied to a triangle; see blas-tlas.bonsai.
 func transform(t : Transform, tri : Triangle) -> Triangle {
     out : Triangle = {apply(t, tri.p0), apply(t, tri.p1), apply(t, tri.p2)};
     return out;
 }
 
-// PBRT: `Transform::ApplyInverse`, the direction deliberately not
-// renormalised; see blas-tlas.bonsai for why that is what makes the running
-// best comparable across instances.
+// Not renormalised; see blas-tlas.bonsai.
 func untransform(t : Transform, r : Ray) -> Ray {
     o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
     d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
@@ -75,7 +68,13 @@ func untransform(t : Transform, r : Ray) -> Ray {
     return out;
 }
 
-// PBRT: Primitive::Intersect over a scene with instances in it.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
 func [[export]] trace(r : Ray) =
     argmin(|i : Instance, tri : Triangle| distmin(r, tri),
            filter(|i : Instance, tri : Triangle|
@@ -85,15 +84,6 @@ func [[export]] trace(r : Ray) =
                                       transform(i.render_from_instance, tri),
                                   i.blas),
                           instances)));
-
-// PBRT: Primitive::IntersectP.
-func [[export]] trace_any(r : Ray) =
-    any(|i : Instance, tri : Triangle|
-            intersects(r, tri) && distmin(r, tri) > 0.001,
-        flatten(|i : Instance|
-                    map(|tri : Triangle| transform(i.render_from_instance, tri),
-                        i.blas),
-                instances));
 
 schedule {
     tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
@@ -144,10 +134,4 @@ schedule {
             };
         };
     };
-
-    // Both traversals, so the stack the weakened query walks with is exercised
-    // too: `any` stops as soon as its answer is settled, and stopping is a
-    // different thing to get right once the recursion is a loop.
-    trace.loopify(64);
-    trace_any.loopify(64);
 }

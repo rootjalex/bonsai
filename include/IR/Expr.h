@@ -501,6 +501,26 @@ struct GeomOp : ExprNode<GeomOp> {
         // same relation against a moved query -- transforming one ray per
         // instance rather than every triangle in it.
         transform,
+        // That inverse. `untransform(m, x)` is `x` moved by the motion undone,
+        // and pbrt's `Transform::ApplyInverse` where `transform` is its
+        // `operator()`. Dispatched on the type it moves exactly as `transform`
+        // is, so a program supplies `untransform(t : Transform, r : Ray)` the
+        // way it supplies `transform(t : Transform, b : AABB)`.
+        //
+        // Supplying one for a *query* type is a declaration, and it is worth
+        // knowing what is being declared. Opt/PullQueries.cpp rewrites
+        // `rel(q, transform(m, x))` to `rel(untransform(m, q), x)` for every
+        // relation and metric `rel`, which is what makes the transform a
+        // per-instance cost instead of a per-node one. Topological relations
+        // are unchanged by moving both operands by any bijection, so that half
+        // needs nothing from the program. The metrics do: writing an
+        // `untransform` for a query type asserts that its distances to an
+        // extent are unchanged by moving both -- which for a ray means the
+        // direction is *not* renormalised, so that the parametric `t` of a hit
+        // is the same on both sides of the frame change. That is the fact
+        // pbrt's `tMax` argument rests on, and it is the whole reason an
+        // instance can prune against a hit found in another one.
+        untransform,
 
         opcount, // sentinel, do not remove!
     };

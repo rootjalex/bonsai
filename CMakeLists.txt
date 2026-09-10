@@ -168,6 +168,7 @@ target_sources(
     src/Lower/ADTs.cpp
     src/Lower/Bindings.cpp
     src/Opt/Simplify.cpp
+    src/Opt/PullQueries.cpp
     src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
     src/Parser/Parser.cpp

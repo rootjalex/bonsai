@@ -185,11 +185,21 @@ inline bool is_geometric_metric(const std::string &name) {
     return (name == "distmin") || (name == "distmax");
 }
 
-// A motion: takes a motion and an extent, answers the extent moved. The only
-// geometric intrinsic that is not a relation, so the only one whose result is
-// geometry rather than a fact about geometry.
+// A motion: takes a motion and an extent, answers the extent moved -- or, for
+// `untransform`, moved by the motion undone. The only geometric intrinsics that
+// are not relations, so the only ones whose result is geometry rather than a
+// fact about geometry.
 inline bool is_geometric_motion(const std::string &name) {
-    return name == "transform";
+    return name == "transform" || name == "untransform";
+}
+
+// The ordering predicates: `a` lies at or before `b` along an axis. Unlike the
+// topological relations these ask about the *world's* axes, so they are not
+// preserved by moving both operands -- a rotation changes which way x is --
+// and no rewrite may carry a motion across them.
+inline bool is_ordering_predicate(const std::string &name) {
+    return name == "lex" || name == "ley" || name == "lez" || name == "ltx" ||
+           name == "lty" || name == "ltz";
 }
 
 // The topological and ordering predicates of Figure 1.

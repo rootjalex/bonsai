@@ -1,0 +1,129 @@
+//! flags: -p canonicalize -p lower-trees -p pull-queries
+
+// The ray pulled back into the instance, once, where pbrt does it.
+//
+// nested-trees.bonsai is this query one pass earlier, in the form predicate
+// analysis works on: every test inside an instance's tree is against
+// `transform(m, <something>)` -- the node's box or the triangle, moved into
+// render space -- because a uniform ray against one varying geometric object is
+// the only shape the bounding rule applies to. That form costs an eight-corner
+// box transform at every node, and pbrt's costs a slab test, because pbrt moves
+// the ray instead: `Transform::ApplyInverse(r, &tMax)` at the top of
+// `TransformedPrimitive::Intersect`, then everything against stored geometry.
+//
+// `pull-queries` gets from the first to the second. Three things to read for:
+//
+//   - `let _pulled0 = untransform(_iter0.render_from_instance, r) in`, between
+//     `let _subtree0 = _iter0.blas` and the inner `rec`. Inside the loop over
+//     the leaf's instances, ahead of the walk of the instance's tree: once per
+//     instance, which is pbrt's count exactly. It is there and not one level
+//     up because the outer recursion binds `_iter0`, and a term that mentions
+//     what a recursion binds cannot be moved ahead of it -- the hoist is a
+//     real invariance check, not a rule about where instances are.
+//
+//   - inside the inner walk, no `transform` is left on anything a relation
+//     tests. Every `intersects`, `distmin` and `distmax` there takes
+//     `_pulled0` and the *stored* box or triangle. The one `transform` that
+//     survives is in the value the query yields -- `(_iter0, transform(..,
+//     _iter1))` is the triangle where the instance puts it, which is what was
+//     asked for, and not a test.
+//
+//   - `distmin(_pulled0, _iter1) < _best0[0]` and `_best0 = (distmin(_pulled0,
+//     _iter1), ..)`. The running best is a `t` found in render space and it is
+//     compared against, and updated from, a `t` measured in instance space.
+//     That is sound only because `untransform` leaves the direction's length
+//     alone, so the parameter is the same on both sides -- the same fact
+//     pbrt's `tMax` argument rests on. It is what the program declares by
+//     supplying an `untransform` for a ray at all.
+//
+// The outer walk is untouched: its tests were against `r` and the outer tree's
+// own boxes, and there was nothing to move. And the ordering predicates would
+// not be moved even if one appeared -- `lex` asks about the world's x axis,
+// which a rotation changes -- so the rewrite is over the relations that are
+// invariant under a bijection and the metrics the program has vouched for.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+// PBRT: `Transform::operator()(const Bounds3f &)`.
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// The motion on a triangle. After this pass, called only for the yielded
+// value; the traversal never moves a triangle.
+func transform(t : Transform, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(t, tri.p0), apply(t, tri.p1), apply(t, tri.p2)};
+    return out;
+}
+
+// PBRT: `Transform::ApplyInverse(const Ray &, Float *tMax)`. Not renormalised.
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
+    return out;
+}
+
+// PBRT: TransformedPrimitive.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+func trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > 0.001,
+                  flatten(|i : Instance|
+                              map(|tri : Triangle|
+                                      transform(i.render_from_instance, tri),
+                                  i.blas),
+                          instances)));
+
+// The weakened query gets the same treatment; there is nothing about `any`
+// that changes which relations a motion commutes with.
+func trace_any(r : Ray) =
+    any(|i : Instance, tri : Triangle|
+            intersects(r, tri) && distmin(r, tri) > 0.001,
+        flatten(|i : Instance|
+                    map(|tri : Triangle| transform(i.render_from_instance, tri),
+                        i.blas),
+                instances));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+}

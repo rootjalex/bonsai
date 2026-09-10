@@ -34,6 +34,7 @@
 #include "Opt/Fusion.h"
 #include "Opt/Inline.h"
 #include "Opt/Simplify.h"
+#include "Opt/PullQueries.h"
 #include "Opt/Unswitch.h"
 #include "SSA/Convert.h"
 #include "SSA/DumpAnalysis.h"
@@ -112,6 +113,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<opt::Inline>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
+    manager.register_pass<opt::PullQueries>();
     manager.register_pass<ir::ssa::ConvertToSSA>();
     manager.register_pass<ir::ssa::DumpSSAAnalysis>();
 
@@ -125,6 +127,9 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<opt::Fusion>());
     core.push_back(std::make_unique<LowerMaps>());
     core.push_back(std::make_unique<LowerTrees>());
+    // Once the pruning conditions exist and while a motion is still a GeomOp:
+    // after LowerTrees, before LowerGeometrics. See Opt/PullQueries.h.
+    core.push_back(std::make_unique<opt::PullQueries>());
     // This must always run after LowerTrees and before LowerLayouts
     core.push_back(std::make_unique<LowerSorts>());
     core.push_back(std::make_unique<LowerDefers>());
@@ -184,6 +189,7 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<opt::Fusion>());
     ssa.push_back(std::make_unique<LowerMaps>());
     ssa.push_back(std::make_unique<LowerTrees>());
+    ssa.push_back(std::make_unique<opt::PullQueries>());
     // This must always run after LowerTrees and before LowerLayouts
     ssa.push_back(std::make_unique<LowerSorts>());
     ssa.push_back(std::make_unique<LowerDefers>());
@@ -247,6 +253,7 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<opt::Fusion>());
     ssa_analysis.push_back(std::make_unique<LowerMaps>());
     ssa_analysis.push_back(std::make_unique<LowerTrees>());
+    ssa_analysis.push_back(std::make_unique<opt::PullQueries>());
     ssa_analysis.push_back(std::make_unique<LowerSorts>());
     ssa_analysis.push_back(std::make_unique<LowerDefers>());
     // Geometrics before Externs; see the note in `core`.
@@ -286,6 +293,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<opt::Fusion>());
     d.push_back(std::make_unique<LowerMaps>());
     d.push_back(std::make_unique<LowerTrees>());
+    d.push_back(std::make_unique<opt::PullQueries>());
     // This must always run after LowerTrees and before LowerLayouts
     d.push_back(std::make_unique<LowerSorts>());
     d.push_back(std::make_unique<LowerDefers>());
