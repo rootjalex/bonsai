@@ -50,6 +50,7 @@ add_bonsai_tests(
     mut-array-param.bonsai
     mutability.bonsai
     struct.bonsai
+    unswitch-mutated-cond.bonsai
     vector-bitwise.bonsai
     void-fallthrough.bonsai
     while-loops.bonsai

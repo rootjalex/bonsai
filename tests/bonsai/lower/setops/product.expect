@@ -35,10 +35,10 @@ func _traverse_tree0(items : tree[[Item]] ItemTree, items2 : tree[[Item]] ItemTr
           from ((items, (items2 as Interior).left), (items, (items2 as Interior).right))
         }
       | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
-        if ((((items as Leaf).idl == (items as Leaf).idh) && ((items2 as Leaf).idl == (items2 as Leaf).idh)) && ((items as Leaf).idl == (items2 as Leaf).idl)) {
-          yield ((items as Leaf).data, (items2 as Leaf).data)
-        } else if (((items as Leaf).idl <= (items2 as Leaf).idh) && ((items2 as Leaf).idl <= (items as Leaf).idh)) {
-          if ((items as Leaf).data.id == (items2 as Leaf).data.id) {
+        if (((items as Leaf).idl <= (items2 as Leaf).idh) && ((items2 as Leaf).idl <= (items as Leaf).idh)) {
+          if ((((items as Leaf).idl == (items as Leaf).idh) && ((items2 as Leaf).idl == (items2 as Leaf).idh)) && ((items as Leaf).idl == (items2 as Leaf).idl)) {
+            yield ((items as Leaf).data, (items2 as Leaf).data)
+          } else if ((items as Leaf).data.id == (items2 as Leaf).data.id) {
             yield ((items as Leaf).data, (items2 as Leaf).data)
           }
         }

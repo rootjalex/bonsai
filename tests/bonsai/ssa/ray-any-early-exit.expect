@@ -83,15 +83,15 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         let @27 = build<AABB>(@23, @26) in
         let @28 = intersects_Ray_AABB(r, @27) in
         if (@28) {
-          let @29 = (*_holds0) in
-          let @30 = !@29 in
-          if (@30) {
-            let @31 = tris.group0_index in
-            let @32 = @31[tris_index!top] in
-            let @33 = @32.nPrims in
-            let @34 = cast<u32>(@33) in
-            _idx0 = 0u
-            while ((*_idx0) < @34) {
+          let @29 = tris.group0_index in
+          let @30 = @29[tris_index!top] in
+          let @31 = @30.nPrims in
+          let @32 = cast<u32>(@31) in
+          _idx0 = 0u
+          while ((*_idx0) < @32) {
+            let @34 = (*_holds0) in
+            let @35 = !@34 in
+            if (@35) {
               let @36 = (*_holds0) in
               let @37 = tris.prims in
               let @38 = tris.group0_index in
@@ -105,9 +105,9 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
               let @46 = @45.set in
               let @47 = @36 || @46 in
               _holds0 = @47
-              let @48 = (*_idx0) + 1u in
-              _idx0 = @48
             }
+            let @48 = (*_idx0) + 1u in
+            _idx0 = @48
           }
         }
       }

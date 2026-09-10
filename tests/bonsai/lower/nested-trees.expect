@@ -29,19 +29,21 @@ func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Inst
         from ((instances as Interior).left, (instances as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high) ->
-      foreach _iter0 in (instances as Leaf).data {
-        let _subtree0 = _iter0.blas in
-        rec(_subtree0 : tree[[Triangle]] BLAS) {
-          match _subtree0 {
-          | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
-            if ((intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmax(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) < _best0[0])) {
-              from ((_subtree0 as Interior).left, (_subtree0 as Interior).right)
-            }
-          | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
-            foreach _iter1 in (_subtree0 as Leaf).data {
+      if ((intersects(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) && (0.001f < distmax(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)))) && (distmin(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) < _best0[0])) {
+        foreach _iter0 in (instances as Leaf).data {
+          let _subtree0 = _iter0.blas in
+          rec(_subtree0 : tree[[Triangle]] BLAS) {
+            match _subtree0 {
+            | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
+              if ((intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmax(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) < _best0[0])) {
+                from ((_subtree0 as Interior).left, (_subtree0 as Interior).right)
+              }
+            | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
               if ((intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmax(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) < _best0[0])) {
-                if ((intersects(r, place(_iter0, _iter1)) && (0.001f < distmin(r, place(_iter0, _iter1)))) && (distmin(r, place(_iter0, _iter1)) < _best0[0])) {
-                  _best0 = (distmin(r, place(_iter0, _iter1)), (_iter0, place(_iter0, _iter1)))
+                foreach _iter1 in (_subtree0 as Leaf).data {
+                  if ((intersects(r, place(_iter0, _iter1)) && (0.001f < distmin(r, place(_iter0, _iter1)))) && (distmin(r, place(_iter0, _iter1)) < _best0[0])) {
+                    _best0 = (distmin(r, place(_iter0, _iter1)), (_iter0, place(_iter0, _iter1)))
+                  }
                 }
               }
             }
@@ -66,25 +68,35 @@ func _traverse_tree1(r : Ray, instances : tree[[Instance]] TLAS) -> bool {
         }
       }
     | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high) ->
-      foreach _iter2 in (instances as Leaf).data {
-        let _subtree0 = _iter2.blas in
-        rec(_subtree0 : tree[[Triangle]] BLAS) {
-          match _subtree0 {
-          | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
+      if (!_holds0) {
+        if (contains(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) && (0.001f < distmin(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)))) {
+          _holds0 = true
+        } else if (intersects(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) && (0.001f < distmax(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)))) {
+          foreach _iter2 in (instances as Leaf).data {
             if (!_holds0) {
-              if (contains(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmin(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) {
-                _holds0 = true
-              } else if (intersects(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmax(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) {
-                from ((_subtree0 as Interior).left, (_subtree0 as Interior).right)
-              }
-            }
-          | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
-            foreach _iter3 in (_subtree0 as Leaf).data {
-              if (!_holds0) {
-                if (contains(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmin(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) {
-                  _holds0 = true
-                } else if (intersects(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmax(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) {
-                  _holds0 = _holds0 || (intersects(r, place(_iter2, _iter3)) && (0.001f < distmin(r, place(_iter2, _iter3))))
+              let _subtree0 = _iter2.blas in
+              rec(_subtree0 : tree[[Triangle]] BLAS) {
+                match _subtree0 {
+                | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
+                  if (!_holds0) {
+                    if (contains(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmin(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) {
+                      _holds0 = true
+                    } else if (intersects(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))) && (0.001f < distmax(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high))))) {
+                      from ((_subtree0 as Interior).left, (_subtree0 as Interior).right)
+                    }
+                  }
+                | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
+                  if (!_holds0) {
+                    if (contains(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmin(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) {
+                      _holds0 = true
+                    } else if (intersects(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (0.001f < distmax(r, transform(_iter2.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))))) {
+                      foreach _iter3 in (_subtree0 as Leaf).data {
+                        if (!_holds0) {
+                          _holds0 = _holds0 || (intersects(r, place(_iter2, _iter3)) && (0.001f < distmin(r, place(_iter2, _iter3))))
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

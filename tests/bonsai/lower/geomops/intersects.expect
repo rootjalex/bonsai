@@ -18,10 +18,10 @@ func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (contains(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (intersects(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (intersects(r, (points as Leaf).data)) {
+      if (intersects(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (contains(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (intersects(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -39,10 +39,10 @@ func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (within(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        yield (points as Leaf).data
-      } else if (intersects(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (intersects((points as Leaf).data, r)) {
+      if (intersects(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (within(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+          yield (points as Leaf).data
+        } else if (intersects((points as Leaf).data, r)) {
           yield (points as Leaf).data
         }
       }

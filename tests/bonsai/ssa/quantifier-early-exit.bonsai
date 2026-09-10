@@ -24,6 +24,13 @@
 //
 // So `q` below should come out as `while (count != 0 && !acc)` and `r` as
 // `while (count != 0 && acc)` -- the two directions of the same fact.
+//
+// The loop over a leaf's elements stops the other way, by testing the
+// accumulator per element: that one is not a loop the queue rewrite built, so
+// its condition is not this pass's to change, and what the lowering can do is
+// make each iteration cheap once the answer is in. Both are needed and they
+// pay off at different scales -- the stack loop saves node reads, the leaf
+// loop saves the predicate on every element of the leaf the answer came from.
 
 element Item {
     id : i32;

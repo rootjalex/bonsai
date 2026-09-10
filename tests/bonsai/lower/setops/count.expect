@@ -16,10 +16,10 @@ func _traverse_tree0(lo : i32, hi : i32, items : tree[[Item]] ItemTree) -> u64 {
         from ((items as Interior).left, (items as Interior).right)
       }
     | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] ->
-      if ((lo <= (items as Leaf).idl) && ((items as Leaf).idh <= hi)) {
-        _acc0 += 1u
-      } else if ((lo <= (items as Leaf).idh) && ((items as Leaf).idl <= hi)) {
-        if ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi)) {
+      if ((lo <= (items as Leaf).idh) && ((items as Leaf).idl <= hi)) {
+        if ((lo <= (items as Leaf).idl) && ((items as Leaf).idh <= hi)) {
+          _acc0 += 1u
+        } else if ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi)) {
           _acc0 += 1u
         }
       }

@@ -1,12 +1,20 @@
 //! flags: -p ssa
 
-// A shadow ray: the query `any` exists for, and the two things that have to
+// A shadow ray: the query `any` exists for, and the three things that have to
 // happen to it on the way down.
 //
 // First, it stops. `while (count != 0 && !acc)` -- once something is in the
 // way, there is nothing left to learn and the traversal abandons its stack
 // rather than popping it to decide nothing. Shadow rays are most of the rays a
 // renderer traces, and each of those pops is a node read from memory.
+//
+// It stops inside a leaf too, and that is the more expensive half: the loop
+// over a leaf's primitives tests the accumulator per element, so the ray-
+// triangle intersections after the first hit do not happen. That test used to
+// be written and then lifted straight back out again by `opt::Unswitch`, which
+// hoisted a condition the loop body assigns -- see
+// correctness/llvm/unswitch-mutated-cond.bonsai, where the same shape gets the
+// wrong answer rather than merely doing too much work.
 //
 // Second, the `always` arm disappears. Lowering an `any` emits the sufficient
 // condition alongside the necessary one -- "if the predicate holds everywhere

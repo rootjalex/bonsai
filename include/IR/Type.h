@@ -441,6 +441,19 @@ struct BVH_t : TypeNode<BVH_t> {
             return false;
         }
 
+        // Whether this arm is where the elements are, which is what makes it
+        // the place a bound over the node's volume is worth testing: it is the
+        // same for every element the arm holds, and there is nothing below it
+        // to test it at instead.
+        bool has_data() const {
+            for (const auto &annot : annotations) {
+                if (annot.as<Annotation::Data>()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         const Annotation::Volume *get_volume() const {
             for (const auto &annot : annotations) {
                 if (const auto *vol = annot.as<Annotation::Volume>();

@@ -46,10 +46,10 @@ func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (contains_AABB_Point(r, (points as Leaf).data)) {
+      if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (contains_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -67,10 +67,10 @@ func _traverse_tree10(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (ltx_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!lex_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (ltx_AABB_Point(r, (points as Leaf).data)) {
+      if (!lex_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (ltx_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (ltx_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -88,10 +88,10 @@ func _traverse_tree11(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (lty_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        yield (points as Leaf).data
-      } else if (!ley_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (lty_Point_AABB((points as Leaf).data, r)) {
+      if (!ley_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (lty_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+          yield (points as Leaf).data
+        } else if (lty_Point_AABB((points as Leaf).data, r)) {
           yield (points as Leaf).data
         }
       }
@@ -109,10 +109,10 @@ func _traverse_tree12(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (ltz_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!lez_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (ltz_AABB_Point(r, (points as Leaf).data)) {
+      if (!lez_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (ltz_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (ltz_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -167,10 +167,10 @@ func _traverse_tree15(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (within_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        yield (points as Leaf).data
-      } else if (intersects_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (within_Point_AABB((points as Leaf).data, r)) {
+      if (intersects_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (within_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+          yield (points as Leaf).data
+        } else if (within_Point_AABB((points as Leaf).data, r)) {
           yield (points as Leaf).data
         }
       }
@@ -188,10 +188,10 @@ func _traverse_tree2(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (covers_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (covers_AABB_Point(r, (points as Leaf).data)) {
+      if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (covers_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (covers_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -209,10 +209,10 @@ func _traverse_tree3(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (disjoint_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (disjoint_AABB_Point(r, (points as Leaf).data)) {
+      if (!contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (disjoint_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (disjoint_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -267,10 +267,10 @@ func _traverse_tree6(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (intersects_AABB_Point(r, (points as Leaf).data)) {
+      if (intersects_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (contains_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (intersects_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -288,10 +288,10 @@ func _traverse_tree7(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (lex_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!ltx_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (lex_AABB_Point(r, (points as Leaf).data)) {
+      if (!ltx_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (lex_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (lex_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -309,10 +309,10 @@ func _traverse_tree8(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (ley_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        yield (points as Leaf).data
-      } else if (!lty_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (ley_Point_AABB((points as Leaf).data, r)) {
+      if (!lty_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (ley_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+          yield (points as Leaf).data
+        } else if (ley_Point_AABB((points as Leaf).data, r)) {
           yield (points as Leaf).data
         }
       }
@@ -330,10 +330,10 @@ func _traverse_tree9(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (lez_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!ltz_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (lez_AABB_Point(r, (points as Leaf).data)) {
+      if (!ltz_AABB_AABB(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (lez_AABB_AABB(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (lez_AABB_Point(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }

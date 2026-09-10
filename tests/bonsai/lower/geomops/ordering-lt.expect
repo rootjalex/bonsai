@@ -18,10 +18,10 @@ func _traverse_tree0(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (ltx(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!lex(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (ltx(r, (points as Leaf).data)) {
+      if (!lex(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (ltx(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (ltx(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }
@@ -39,10 +39,10 @@ func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (lty(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        yield (points as Leaf).data
-      } else if (!ley(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        if (lty((points as Leaf).data, r)) {
+      if (!ley(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+        if (lty(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+          yield (points as Leaf).data
+        } else if (lty((points as Leaf).data, r)) {
           yield (points as Leaf).data
         }
       }
@@ -60,10 +60,10 @@ func _traverse_tree2(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {
         from ((points as Interior).left, (points as Interior).right)
       }
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
-      if (ltz(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
-        yield (points as Leaf).data
-      } else if (!lez(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
-        if (ltz(r, (points as Leaf).data)) {
+      if (!lez(build<AABB>((points as Leaf).low, (points as Leaf).high), r)) {
+        if (ltz(r, build<AABB>((points as Leaf).low, (points as Leaf).high))) {
+          yield (points as Leaf).data
+        } else if (ltz(r, (points as Leaf).data)) {
           yield (points as Leaf).data
         }
       }

@@ -1,0 +1,63 @@
+//! flags: -b llvm -e
+
+// A loop whose body decides whether the next iteration does anything, run.
+//
+// `opt::Unswitch` lifts a test out of a `for` when the test does not read the
+// loop index. That is not enough on its own: a `for` is the sequential loop,
+// so an iteration sees what the ones before it wrote, and a test over
+// something the body assigns is a different test on each pass. Lifted, it is
+// evaluated once with the value the loop started at, and every iteration then
+// takes a branch that only the first one was entitled to.
+//
+// `capped` below is that in the smallest form there is: it counts to at most
+// three however long the array is. Unswitched, the guard is tested once, found
+// true, and the loop runs to the end -- so the answer is the array's length.
+// The two disagree for any array longer than three, which is what this checks.
+//
+// The reason it is worth a test of its own rather than being caught in a
+// golden is that the shape it breaks is how a quantifier stops. `any` lowers
+// to `if (!found) { found = found || p(x) }` over a leaf's elements, and there
+// the *answer* survives being unswitched -- `||` is monotone, so running the
+// rest of the loop reaches the same value -- while the early exit does not.
+// Nothing about the result of an `any` query would ever have shown it; what it
+// costs is a ray-triangle intersection per primitive of every leaf a shadow
+// ray already has its answer from. `steps` below is that cost, counted.
+func capped(n : i32, xs : array[i32, n]) -> i32 {
+    total : mut i32 = 0;
+    for i in 0:n {
+        if (total < 3) {
+            total = total + xs[i];
+        }
+    }
+    return total;
+}
+
+// The same shape a quantifier has: an accumulator the body only ever raises,
+// and a guard that reads it. Monotone, so the answer is right either way and
+// only the work differs -- so this returns the work.
+func steps_to_find(n : i32, xs : array[i32, n]) -> i32 {
+    found : mut bool = false;
+    steps : mut i32 = 0;
+    for i in 0:n {
+        if (!found) {
+            steps = steps + 1;
+            found = found || (xs[i] > 100);
+        }
+    }
+    return steps;
+}
+
+func main() -> i32 {
+    ones : array[i32, 8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    // Three, not eight.
+    print(capped(8, ones));
+
+    // A short array never reaches the cap, so both readings agree here.
+    short : array[i32, 2] = {1, 1};
+    print(capped(2, short));
+
+    haystack : array[i32, 8] = {1, 1, 200, 1, 1, 1, 1, 1};
+    // Three: it stops at the element it found, rather than testing all eight.
+    print(steps_to_find(8, haystack));
+    return 0;
+}

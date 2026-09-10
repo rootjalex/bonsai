@@ -213,10 +213,21 @@ struct UnswitchImpl : public Mutator {
 
         // TODO(ajr): partition condition into varying and unvarying conditions.
         if (const IfElse *if_else = node->body.as<IfElse>()) {
-            std::set<std::string> varying = {node->index};
-            // TODO(ajr): if ForAll is not guaranteed parallel, we need this.
-            // std::set<std::string> mutating = mutated_variables(node->body);
-            // varying.insert(mutating.begin(), mutating.end());
+            // The loop index, and everything the body writes. A ForAll is the
+            // *sequential* loop, so an iteration sees what the ones before it
+            // wrote: a condition over something the body assigns is a
+            // different condition on each pass, and testing it once at the top
+            // is a different program.
+            //
+            //     forall i in [0:n] { if (sum < 10) { sum += 1 } }
+            //
+            // stops at ten. Hoisted, it runs n times. The same shape is how a
+            // quantifier stops -- `if (!found) { found = found || p(x) }` --
+            // where the answer happens to survive because `||` is monotone,
+            // but the early exit does not, and `any` goes on testing
+            // primitives after it has found one.
+            std::set<std::string> varying = mutated_variables(node->body);
+            varying.insert(node->index);
 
             if (!reads(if_else->cond, varying)) {
                 // Perform loop unswitching.

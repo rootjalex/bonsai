@@ -166,6 +166,30 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
     return ir::ForEach::make(std::move(name), expr, std::move(body));
 }
 
+// Whether this arm still recurses at the level it belongs to.
+//
+// A leaf of one tree coiterated with another is exactly that: reaching it ends
+// nothing, because the other tree is still being descended, and the bound over
+// the pair of volumes is emitted by that recursion. Stating it again around the
+// arm would say the same thing twice, over the same two volumes.
+//
+// A recursion inside a *nested* match does not count. That is a traversal of
+// its own over a volume this one has not got, which is why the walk stops at a
+// Match: in a query over a tree held in an element, the outer leaf's bound is
+// the only place the outer tree's box is ever tested against the query.
+bool recurses_at_this_level(const ir::Stmt &body) {
+    struct Find : public ir::Visitor {
+        bool found = false;
+        using ir::Visitor::visit;
+        void visit(const ir::Scan *) override { found = true; }
+        void visit(const ir::YieldFrom *) override { found = true; }
+        void visit(const ir::Match *) override {} // a level of its own.
+    };
+    Find find;
+    body.accept(&find);
+    return find.found;
+}
+
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
@@ -185,6 +209,96 @@ struct Rewriter : public ir::Mutator {
     // The list of nodes for the current matches.
     std::vector<ir::Expr> locs;
 
+    // The `with extent` of every element type that has one, which is the
+    // promise that licenses bounding a level the traversal has not entered
+    // yet. Left null by the rewrites that never state a bound.
+    const std::map<std::string, ir::Expr> *extents = nullptr;
+
+    // Per matched level, whether that level's elements make the promise: one
+    // entry per entry in `volumes`.
+    std::vector<bool> bounds_below;
+
+    // Whether a bound may be stated here over the parameters of levels this
+    // traversal has not reached yet.
+    //
+    // This is the difference between the two ways a query names more than one
+    // tree. In `flatten` the deeper elements are reached *through* the ones
+    // this node bounds, and `with extent` says they lie within their element's
+    // extent, so the node's volume bounds them too -- which is the whole
+    // reason a two-level query can prune at its first level. In `product` the
+    // second tree has nothing to do with the first, and a bound written here
+    // would be over an element that does not exist yet: not merely imprecise,
+    // but a condition naming a variable nothing has bound.
+    bool bounds_deeper_levels() const {
+        return !bounds_below.empty() && bounds_below.back();
+    }
+
+    // Whether the arm being rewritten is the one holding the elements, which
+    // is where a bound over the node's volume is emitted and therefore where
+    // everything below it may take that bound as already tested.
+    bool in_leaf_arm = false;
+
+    // Whether the point being rewritten is inside a loop over a collection.
+    // What it tells the rewrites apart is a condition that has to be re-read
+    // as the loop runs from one that was settled before it started -- and it
+    // is tracked here, on the loop, because a leaf's element loop is built by
+    // whoever got there first: these rewrites for an ordinary query, and
+    // `build_flatten` for one that reaches a tree through an element.
+    bool in_loop = false;
+
+    // What this rewrite wants tested at the top of each iteration of a leaf's
+    // element loop: the one condition that can change as the loop runs, and so
+    // the one thing that cannot be hoisted out of it with the node's bound.
+    //
+    // For a quantifier that is the accumulator. It goes here rather than
+    // around the update, because with a tree held in an element an iteration
+    // is not an update -- it is a whole traversal of that element's tree, and
+    // a settled query that keeps opening them is doing the one thing `any`
+    // exists to avoid.
+    virtual ir::Stmt guard_iteration(ir::Stmt body) { return body; }
+
+    ir::Stmt visit(const ir::ForEach *node) override {
+        const bool outer = in_loop;
+        in_loop = true;
+        ir::Stmt out = ir::Mutator::visit(node);
+        in_loop = outer;
+        const ir::ForEach *loop = out.as<ir::ForEach>();
+        internal_assert(loop) << "Rewriting a ForEach gave: " << out;
+        ir::Stmt body = guard_iteration(loop->body);
+        if (body.same_as(loop->body)) {
+            return out;
+        }
+        return ir::ForEach::make(loop->name, loop->iter, std::move(body));
+    }
+
+    // A leaf arm's body, wrapped in whatever this rewrite makes of the bound
+    // on the predicate over the node's volume.
+    //
+    // The arm, and not the loop over the elements inside it, because the
+    // bound is a property of the *node*: it is the same for every element the
+    // leaf holds, and testing it per element is a leaf's own box intersected
+    // with the ray once for each of the four-odd primitives in it, to answer a
+    // question that cannot change between them.
+    //
+    // The arm is also the only place that works for a query over a tree held
+    // in an element of another. There, `build_flatten` has already turned each
+    // leaf's element loop into a concrete one by the time these rewrites run
+    // -- it has to, since the inner traversal is built per element and there
+    // is no element until the loop exists -- so a rewrite that hoisted at the
+    // loop found nothing to hoist at. That is why the outer leaf of such a
+    // query had no volume test at all: not that its bound was hard to state,
+    // but that nothing was looking for a leaf where it was.
+    //
+    // Hoisting is not merely code motion, because for a reduction the bound
+    // contains the running accumulator: `distmin(r, leafbox) < best`, and
+    // `best` tightens inside the loop. Evaluating it once at entry is still
+    // exact, and in the safe direction -- `best` only ever decreases, so the
+    // condition is at its weakest here and a leaf is never skipped that should
+    // have been entered. What is given up is abandoning the rest of a leaf
+    // part-way through, which for four primitives is not worth one box
+    // intersection each.
+    virtual ir::Stmt guard_leaf(ir::Stmt body) { return body; }
+
     ir::Stmt visit(const ir::Match *node) final override {
         // Keyed by how the tree was reached rather than by its name, because a
         // tree held in a field -- `i.blas` -- has no name. The key only has to
@@ -192,6 +306,20 @@ struct Rewriter : public ir::Mutator {
         // that reached the tree identifies that exactly.
         const std::string loc_key = ir::to_string(node->loc);
         locs.push_back(node->loc);
+
+        // Whether this tree's elements promise to bound whatever is reached
+        // through them; see `bounds_deeper_levels`.
+        const bool promises = [&] {
+            if (extents == nullptr) {
+                return false;
+            }
+            const ir::BVH_t *bvh = node->loc.type().as<ir::BVH_t>();
+            if (bvh == nullptr) {
+                return false;
+            }
+            const ir::Struct_t *elem = bvh->primitive.as<ir::Struct_t>();
+            return elem != nullptr && extents->contains(elem->name);
+        }();
 
         const size_t n = node->arms.size();
         ir::Match::Arms new_arms(n);
@@ -277,14 +405,26 @@ struct Rewriter : public ir::Mutator {
             }
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
+            bounds_below.push_back(promises);
             if (!built_child_volumes.empty()) {
                 child_volumes[loc_key] = built_child_volumes;
             }
 
+            // A leaf arm is where a bound over the node's volume belongs, and
+            // the flag says so to everything inside it, so that the elements
+            // do not each test it again on their own account.
+            const bool outer_leaf = in_leaf_arm;
+            in_leaf_arm = node->arms[i].first.has_data() &&
+                          !recurses_at_this_level(node->arms[i].second);
             ir::Stmt stmt = mutate(node->arms[i].second);
+            if (in_leaf_arm) {
+                stmt = guard_leaf(std::move(stmt));
+            }
+            in_leaf_arm = outer_leaf;
             volumes.pop_back();
             intervals.pop_back();
             aggregations.pop_back();
+            bounds_below.pop_back();
             if (!built_child_volumes.empty()) {
                 child_volumes.erase(loc_key);
             }
@@ -386,27 +526,39 @@ struct Rewriter : public ir::Mutator {
 };
 
 ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
+                      const std::map<std::string, ir::Expr> &extents,
                       const IntervalMap &intervals) {
     struct RewriteFilter : public Rewriter {
         ir::Expr predicate;
         const IntervalMap &intervals;
-        // Set while rewriting the body of a leaf's element loop, where the
-        // predicate's bound over the *node's* volume has already been emitted
-        // outside the loop. See `visit(Iterate)`.
-        bool bound_hoisted = false;
 
-        RewriteFilter(ir::Expr pred, const IntervalMap &intervals)
-            : predicate(std::move(pred)), intervals(intervals) {}
+        RewriteFilter(ir::Expr pred,
+                      const std::map<std::string, ir::Expr> &extents,
+                      const IntervalMap &intervals)
+            : predicate(std::move(pred)), intervals(intervals) {
+            this->extents = &extents;
+        }
 
         using ir::Mutator::visit;
 
         // The predicate's bound over the volume of the node currently being
         // matched. It is a property of the node, so it is the same for every
         // element a leaf holds.
+        //
+        // Fewer volumes than the predicate has parameters is the ordinary case
+        // for a flattened query above its innermost level -- at a node of the
+        // tree of instances the instances are bounded and their triangles have
+        // not been reached yet -- and there the elements' `with extent` is
+        // what bounds those parameters. Where nothing makes that promise there
+        // is no bound to state, which is `bounds_deeper_levels`.
         Interval node_bounds() const {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             if (lambda == nullptr || volumes.empty() ||
-                volumes.size() != lambda->args.size()) {
+                volumes.size() > lambda->args.size()) {
+                return Interval{};
+            }
+            if (volumes.size() < lambda->args.size() &&
+                !bounds_deeper_levels()) {
                 return Interval{};
             }
             VolumeMap vols = make_volume_map(lambda->args);
@@ -450,10 +602,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             IntervalMap ints = make_interval_map(lambda->args, intervals);
 
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
-            if (bounds.max.defined() && !bound_hoisted) {
-                // Maybe true. Skipped when this yield is the body of a leaf's
-                // element loop, because `visit(Iterate)` has already emitted it
-                // once outside the loop.
+            if (bounds.max.defined() && !in_leaf_arm) {
+                // Maybe true. Skipped inside a leaf arm, where `guard_leaf`
+                // emits it once around the whole arm instead.
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
             }
             if (bounds.min.defined() && !is_const_zero(bounds.min)) {
@@ -465,36 +616,17 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             return body;
         }
 
-        // A leaf's elements, and the one place the node-level bound belongs.
-        //
-        // The bound is a property of the node's *volume*, so it is the same for
-        // every element the leaf holds -- and it used to be emitted inside the
-        // loop, once per element. On a BVH that is the leaf's own box
-        // re-intersected with the ray for each of the four-odd primitives in
-        // it, to answer a question that cannot change between them.
-        //
-        // Hoisting is not merely code motion, because for a reduction the bound
-        // contains the running accumulator: `distmin(r, leafbox) < best`, and
-        // `best` tightens inside the loop. Evaluating it once at entry is still
-        // exact, and in the safe direction -- `best` only ever decreases, so
-        // the condition is at its weakest here and a leaf is never skipped that
-        // should have been entered. What is given up is abandoning the rest of
-        // a leaf part-way through, which for four primitives is not worth one
-        // box intersection each.
         ir::Stmt visit(const ir::Iterate *node) override {
+            return mutate(lower_iterate(node->value)); // a concrete loop.
+        }
+
+        // See Rewriter::guard_leaf.
+        ir::Stmt guard_leaf(ir::Stmt body) override {
             Interval bounds = node_bounds();
-            const bool hoist = bounds.max.defined();
-
-            const bool outer = bound_hoisted;
-            bound_hoisted = hoist;
-            ir::Stmt loop =
-                mutate(lower_iterate(node->value)); // a concrete loop.
-            bound_hoisted = outer;
-
-            if (hoist) {
-                loop = ir::IfElse::make(std::move(bounds.max), std::move(loop));
+            if (bounds.max.defined()) {
+                body = ir::IfElse::make(std::move(bounds.max), std::move(body));
             }
-            return loop;
+            return body;
         }
 
         ir::Stmt visit(const ir::Scan *node) override {
@@ -538,7 +670,7 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         }
     };
 
-    return RewriteFilter(std::move(predicate), intervals).mutate(body);
+    return RewriteFilter(std::move(predicate), extents, intervals).mutate(body);
 }
 
 // Which end of the metric an extremum operator seeks.
@@ -965,9 +1097,12 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
         const IntervalMap &intervals;
 
         RewriteQuantifier(bool is_any, ir::Expr p, ir::WriteLoc l,
+                          const std::map<std::string, ir::Expr> &extents,
                           const IntervalMap &intervals)
             : is_any(is_any), predicate(std::move(p)), loc(std::move(l)),
-              intervals(intervals) {}
+              intervals(intervals) {
+            this->extents = &extents;
+        }
 
         using ir::Mutator::visit;
 
@@ -1039,49 +1174,44 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             ir::Expr combined = is_any ? (acc || p) : (acc && p);
             ir::Stmt test = ir::Store::make(loc, std::move(combined));
 
-            if (bound_hoisted) {
-                // Inside a leaf's element loop: `visit(Iterate)` emitted the
-                // volume guards once before it, and what is left here is the
-                // early exit -- the one condition that changes as the loop
-                // runs, so the one that cannot be hoisted with them.
-                return ir::IfElse::make(still_undecided(), std::move(test));
+            if (in_leaf_arm) {
+                // `guard_leaf` emitted the volume guards once around the arm
+                // and the accumulator's test with them, and `guard_iteration`
+                // re-tests the accumulator once per element. Nothing is left
+                // to say here.
+                return test;
             }
             return guard_with_volume(std::move(test), subtree_bounds());
         }
 
-        // A leaf's elements, and the one place the node-level bound belongs.
-        //
-        // The volume guards are the same for every element the leaf holds, and
-        // were being emitted inside the loop, once per element: on a BVH that
-        // is the leaf's own box tested against the ray four-odd times over --
-        // `contains`, `intersects`, `distmin` and `distmax` apiece -- to answer
-        // a question that cannot change between them. `build_filter` has
-        // hoisted them for a while; a bare `any(p, tree)` never did.
-        //
-        // What stays inside is the accumulator's guard, which is the early
-        // exit and has to be re-read as the loop runs.
         ir::Stmt visit(const ir::Iterate *node) override {
-            Interval bounds = subtree_bounds();
-
-            const bool outer = bound_hoisted;
-            bound_hoisted = true;
-            ir::Stmt loop =
-                mutate(lower_iterate(node->value)); // a concrete loop.
-            bound_hoisted = outer;
-
-            return guard_with_volume(std::move(loop), bounds);
+            return mutate(lower_iterate(node->value)); // a concrete loop.
         }
 
-        // Whether the enclosing `visit(Iterate)` has already emitted the
-        // volume guards, so the yields inside its loop should not repeat them.
-        bool bound_hoisted = false;
+        // See Rewriter::guard_leaf.
+        ir::Stmt guard_leaf(ir::Stmt body) override {
+            return guard_with_volume(std::move(body), subtree_bounds());
+        }
+
+        // See Rewriter::guard_iteration.
+        ir::Stmt guard_iteration(ir::Stmt body) override {
+            return ir::IfElse::make(still_undecided(), std::move(body));
+        }
 
         // The bounds of the predicate over the subtree currently being matched.
+        //
+        // Nothing to say when a level the predicate names has not been reached
+        // and this one does not promise to bound it; see
+        // `Rewriter::bounds_deeper_levels`.
         Interval subtree_bounds() const {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
             internal_assert(volumes.size() <= lambda->args.size());
+            if (volumes.size() < lambda->args.size() &&
+                !bounds_deeper_levels()) {
+                return Interval{};
+            }
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
@@ -1149,7 +1279,7 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
 
     ir::Stmt body = build_traversal(inner, tree_types, extents, intervals);
     body = RewriteQuantifier(is_any, std::move(predicate), std::move(loc),
-                             intervals)
+                             extents, intervals)
                .mutate(body);
 
     return ir::Sequence::make(
@@ -1689,7 +1819,7 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     switch (as_set->op) {
     case ir::SetOp::filter: {
         ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
-        return build_filter(body, as_set->a, intervals);
+        return build_filter(body, as_set->a, extents, intervals);
     }
     case ir::SetOp::map: {
         ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);

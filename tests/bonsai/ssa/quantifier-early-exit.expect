@@ -90,15 +90,15 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
           let @47 = @46 <= hi in
           let @48 = @43 && @47 in
           if (@48) {
-            let @49 = (*_holds0) in
-            let @50 = !@49 in
-            if (@50) {
-              let @51 = items.group0_index in
-              let @52 = @51[items_index!top] in
-              let @53 = @52.nPrims in
-              let @54 = cast<u32>(@53) in
-              _idx0 = 0u
-              while ((*_idx0) < @54) {
+            let @49 = items.group0_index in
+            let @50 = @49[items_index!top] in
+            let @51 = @50.nPrims in
+            let @52 = cast<u32>(@51) in
+            _idx0 = 0u
+            while ((*_idx0) < @52) {
+              let @54 = (*_holds0) in
+              let @55 = !@54 in
+              if (@55) {
                 let @56 = (*_holds0) in
                 let @57 = items.prims in
                 let @58 = items.group0_index in
@@ -123,9 +123,9 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
                 let @77 = @66 & @76 in
                 let @78 = @56 || @77 in
                 _holds0 = @78
-                let @79 = (*_idx0) + 1u in
-                _idx0 = @79
               }
+              let @79 = (*_idx0) + 1u in
+              _idx0 = @79
             }
           }
         }
@@ -204,14 +204,14 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
           let @38 = @37 <= hi in
           let @39 = @34 && @38 in
           if (@39) {
-            let @40 = (*_holds1) in
-            if (@40) {
-              let @41 = items.group0_index in
-              let @42 = @41[items_index!top] in
-              let @43 = @42.nPrims in
-              let @44 = cast<u32>(@43) in
-              _idx1 = 0u
-              while ((*_idx1) < @44) {
+            let @40 = items.group0_index in
+            let @41 = @40[items_index!top] in
+            let @42 = @41.nPrims in
+            let @43 = cast<u32>(@42) in
+            _idx1 = 0u
+            while ((*_idx1) < @43) {
+              let @45 = (*_holds1) in
+              if (@45) {
                 let @46 = (*_holds1) in
                 let @47 = items.prims in
                 let @48 = items.group0_index in
@@ -236,9 +236,9 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
                 let @67 = @56 & @66 in
                 let @68 = @46 && @67 in
                 _holds1 = @68
-                let @69 = (*_idx1) + 1u in
-                _idx1 = @69
               }
+              let @69 = (*_idx1) + 1u in
+              _idx1 = @69
             }
           } else {
             _holds1 = false
