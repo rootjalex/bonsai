@@ -3317,13 +3317,13 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
     }
 
-    // if (builder.object_instances > 0) {
-    //     fail("the scene has " + std::to_string(builder.object_instances) +
-    //          " `ObjectInstance` uses, and this renderer has no instancing. "
-    //          "PBRT keeps instanced geometry in a separate list, so it would "
-    //          "not be missing loudly -- it would simply not be in the scene, "
-    //          "which renders as a plausible picture of somewhere else.");
-    // }
+    if (builder.object_instances > 0) {
+        fail("the scene has " + std::to_string(builder.object_instances) +
+             " `ObjectInstance` uses, and this converter does not yet emit "
+             "them. PBRT keeps instanced geometry in a separate list, so it "
+             "would not be missing loudly -- it would simply not be in the "
+             "scene, which renders as a plausible picture of somewhere else.");
+    }
 
     if (shapes.empty()) {
         fail("the scene has no shapes this renderer understands");

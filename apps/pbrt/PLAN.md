@@ -571,9 +571,84 @@ ninety thousand pixels lit that pbrt leaves dark, and the cause is item 7.
 pbrt keeps instanced geometry out of `BasicScene::shapes` entirely -- it is in
 `instanceDefinitions`, and `instances` names one with a transform. This
 converter reads only the first list, so every tree in pavilion was simply not in
-the scene, and nothing said so. That is a refusal now. Implementing it means
-flattening each instance's shapes through its transform, since a `Primitive`
-here is a concrete triangle and there is no instancing to hang the geometry off.
+the scene, and nothing said so. That is a refusal now.
+
+#### What pbrt does with the second list
+
+`BasicScene::CreateAggregate` (scene.cpp:1521-1580), and there is no flattening
+anywhere in it:
+
+- each **definition** becomes one `Primitive`. Its shapes are built into a
+  `BVHAggregate` of their own when there is more than one, and used directly
+  when there is exactly one; an empty definition becomes null and every
+  instance of it is skipped.
+- each **instance** becomes a `TransformedPrimitive` holding *that same*
+  definition and a `renderFromInstance`. Forty-three placements of a tree share
+  one tree; the geometry is stored once.
+- those go into the top-level `primitives` list beside the non-instanced ones,
+  and the scene's accelerator is built over the mixture. The top-level BVH does
+  not know a `TransformedPrimitive` is special -- it is a `Primitive` with
+  `Bounds()`, `Intersect()` and `IntersectP()` like any other, and the fact
+  that answering those runs a second traversal is entirely inside it.
+
+`TransformedPrimitive::Bounds()` is `renderFromPrimitive(primitive.Bounds())`,
+the eight-corner box transform. `Intersect(r, tMax)` (primitive.cpp:112-125)
+pulls the ray back with `renderFromPrimitive->ApplyInverse(r, &tMax)`,
+intersects the definition with it, and pushes the interaction it gets back
+forward again.
+
+The `tMax` argument is the part worth being careful about, because everything
+above it is only a container and this is where the pruning lives.
+`ApplyInverse` does *not* renormalise the direction (transform.h:416), so a hit
+at parametric `t` in instance space is at the same `t` in render space: `tMax`
+means the same thing on both sides of the frame change, and an instance
+therefore prunes against a hit already found in a *different* instance. Passing
+a fresh `Infinity` per instance would give the same image and lose most of what
+the top-level tree is for.
+
+#### What that is here
+
+A tree whose elements hold trees, which needed nothing new in the query
+language and two things in the ADT language -- a `set`-typed field, and reading
+a nested tree's root augmentation so an instance's extent is derived rather
+than asserted beside it:
+
+```
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+```
+
+The searched set is every triangle of every instance, each where its instance
+puts it, which `flatten` and `place` say between them. Note the direction:
+the query says `intersects(r, place(i, tri))` -- the triangle moved forward --
+where pbrt says `intersects(pull(i, r), tri)`. Said this way there is one
+uniform ray and one varying geometric object, and the ordinary bounding rule
+applies to it; said pbrt's way the frame change hides inside a function
+predicate analysis cannot see into, and the triangle's box and the node's box
+are in different spaces with nothing relating them. Getting from here to pbrt's
+arithmetic -- pulling the ray back once per instance rather than pushing every
+triangle forward -- is loop-invariant code motion, licensed by `place` and
+`pull` being inverse.
+
+Storage is Scion's: every instance's tree is rows of one shared `indirect group`
+in the enclosing layout, so two instances naming the same row share a subtree
+and the object is stored once however often it appears.
+
+    Instance.blas : BLAS from BlasNodes;
+
+**The compiler side of this is done**, with the two-level structure lowering,
+laying out, loopifying and sorting at both levels:
+`tests/bonsai/lower/nested-tree-layout.bonsai`,
+`tests/bonsai/ssa/{loopify,sort}-nested.bonsai`,
+`tests/bonsai/backends/llvm/tree-traversal-nested.bonsai` and
+`tests/bonsai/correctness/cpp/blas-tlas{,-loopified,-sorted}.bonsai`.
+
+What is left is the app: `scene_dump` has to emit `instanceDefinitions` as a
+pool of BLAS nodes with a shared triangle array, and `instances` as elements
+naming a row of it, and `render.bonsai` has to say the query above. Nothing in
+that list needs a compiler change.
 
 Behind it, on the leaves: `Material "diffusetransmission"`, and the shape
 `alpha` cutouts -- the second of which is **already implemented** (pbrt's
