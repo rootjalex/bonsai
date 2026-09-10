@@ -620,17 +620,30 @@ element Instance {
 } with extent = transform(render_from_instance, blas.AABB);
 ```
 
-The searched set is every triangle of every instance, each where its instance
-puts it, which `flatten` and `place` say between them. Note the direction:
-the query says `intersects(r, place(i, tri))` -- the triangle moved forward --
-where pbrt says `intersects(pull(i, r), tri)`. Said this way there is one
-uniform ray and one varying geometric object, and the ordinary bounding rule
-applies to it; said pbrt's way the frame change hides inside a function
-predicate analysis cannot see into, and the triangle's box and the node's box
-are in different spaces with nothing relating them. Getting from here to pbrt's
-arithmetic -- pulling the ray back once per instance rather than pushing every
-triangle forward -- is loop-invariant code motion, licensed by `place` and
-`pull` being inverse.
+The searched set is every triangle of every instance -- `flatten(|i| i.blas,
+instances)`, the triangles as each instance's tree holds them -- and the tests
+place them: `intersects(r, transform(i.render_from_instance, tri))`, the
+triangle where the instance puts it, against the world-space ray. Note the
+direction: pbrt says `intersects(untransform(m, r), tri)`, the ray moved back.
+Said our way there is one uniform ray and one varying geometric object, and the
+ordinary bounding rule applies to it; said pbrt's way the frame change hides
+inside a function predicate analysis cannot see into, and the triangle's box
+and the node's box are in different spaces with nothing relating them.
+
+Getting from here to pbrt's arithmetic is `pull-queries` (Opt/PullQueries.h).
+`transform` and `untransform` are inverse motions, so a relation against a
+moved extent is the same relation of the counter-moved query; once the motion
+is on the ray it has one value per instance, and it is hoisted there -- pbrt's
+`ApplyInverse` at the top of `TransformedPrimitive::Intersect`, with every test
+inside the instance's tree then against stored geometry and the sort keys
+carried into the same frame. The result is the pair `(instance, triangle)` in
+the instance's frame, which is what pbrt's inner `Intersect` hands back, and
+the one transform of the result is the caller's -- as it is pbrt's, in
+`TransformedPrimitive`. Writing the set as the *placed* triangles instead,
+`map(|tri| transform(m, tri), i.blas)`, asks for a placed triangle back, and a
+reduction has to store the element of the set it ranges over: a transform per
+recorded hit, for a result pbrt never computes. So the set is the raw
+triangles, and the motion lives in the tests.
 
 Storage is Scion's: every instance's tree is rows of one shared `indirect group`
 in the enclosing layout, so two instances naming the same row share a subtree
@@ -639,10 +652,11 @@ and the object is stored once however often it appears.
     Instance.blas : BLAS from BlasNodes;
 
 **The compiler side of this is done**, with the two-level structure lowering,
-laying out, loopifying and sorting at both levels:
-`tests/bonsai/lower/nested-tree-layout.bonsai`,
+laying out, loopifying and sorting at both levels and the ray pulled back once
+per instance: `tests/bonsai/lower/nested-tree-layout.bonsai`,
+`tests/bonsai/lower/pull-the-ray-back.bonsai`,
 `tests/bonsai/ssa/{loopify,sort}-nested.bonsai`,
-`tests/bonsai/backends/llvm/tree-traversal-nested.bonsai` and
+`tests/bonsai/backends/llvm/tree-traversal-{nested,instanced}.bonsai` and
 `tests/bonsai/correctness/cpp/blas-tlas{,-loopified,-sorted}.bonsai`.
 
 What is left is the app: `scene_dump` has to emit `instanceDefinitions` as a

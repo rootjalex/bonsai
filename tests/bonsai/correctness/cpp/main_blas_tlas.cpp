@@ -194,10 +194,16 @@ void report(const char *name, const Ray &r, const _tree_layout0 &scene) {
     if (hit.set) {
         const Instance &i = hit.value._field0;
         const Triangle &t = hit.value._field1;
+        // The query hands back the hit as the instance's tree holds it -- in
+        // the instance's frame -- which is what pbrt's inner Intersect returns
+        // to TransformedPrimitive. This is TransformedPrimitive's one
+        // transform of the result, done here so that the line printed is
+        // where the triangle actually is.
+        const float3 p0 = apply(i.render_from_instance, t.p0);
         std::cout << "hit blas=" << i.blas << " at (" << i.render_from_instance.m3[0]
                   << ", " << i.render_from_instance.m3[1] << ", "
                   << i.render_from_instance.m3[2] << ")"
-                  << " tri=(" << t.p0[0] << ", " << t.p0[1] << ", " << t.p0[2]
+                  << " tri=(" << p0[0] << ", " << p0[1] << ", " << p0[2]
                   << ")";
     } else {
         std::cout << "miss";

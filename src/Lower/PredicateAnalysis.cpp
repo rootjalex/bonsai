@@ -764,53 +764,126 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::Generator);
     RESTRICT_VISITOR(ir::Lambda);
 
-    void visit(const ir::GeomOp *node) override {
-        const ir::Var *a_var = node->a.as<ir::Var>();
-        const ir::Var *b_var = node->b.as<ir::Var>();
-        internal_assert(a_var && b_var)
-            << "TODO: support non-variable geometric ops in predicate analysis:"
-            << ir::Expr(node);
+    // How an operand of a relation varies over the subtree being bounded: not
+    // at all, or with a volume that bounds it, or with none.
+    struct Operand {
+        bool varying = false;
+        ir::Expr volume; // defined only when varying and bounded
+        ir::Expr value;  // when not varying: the operand, as the traversal
+                         // can evaluate it (VolumeMap::fixed applied)
+    };
 
-        const auto a_vol = bound(a_var->name);
-        const auto b_vol = bound(b_var->name);
+    // `e` with every fixed name replaced by the element it stands for.
+    ir::Expr fix(const ir::Expr &e) const {
+        return bounds.fixed.empty() ? e : replace(bounds.fixed, e);
+    }
+
+    // Whether `e` mentions anything that varies over the subtree.
+    bool varies(const ir::Expr &e) const {
+        struct Find : public ir::Visitor {
+            const std::map<std::string, ir::Expr> &names;
+            bool found = false;
+            Find(const std::map<std::string, ir::Expr> &names) : names(names) {}
+            using ir::Visitor::visit;
+            void visit(const ir::Var *v) override {
+                found = found || names.contains(v->name);
+            }
+        };
+        Find find(bounds.names);
+        e.accept(&find);
+        return find.found;
+    }
+
+    // What bounds an operand, or nothing when its shape is not one this
+    // analysis has a rule for.
+    //
+    // An expression a promise bounds as a whole is looked up first (see
+    // VolumeMap::exprs). Then a name. Then a motion applied to a bounded
+    // operand: a motion maps a bound to a bound, so `transform(m, x)` for `x`
+    // within `V` lies within `transform(m, V)` -- the same motion on the
+    // volume's type, which is what the type-dispatched `transform` is for --
+    // provided the motion itself holds still over the subtree. Inside an
+    // instance's tree it does: the instance is one element there, and its
+    // matrix has one value.
+    std::optional<Operand> operand_view(const ir::Expr &e) const {
+        if (const auto whole = bounds.exprs.find(e);
+            whole != bounds.exprs.cend()) {
+            return Operand{true, whole->second, ir::Expr()};
+        }
+        if (const ir::Var *var = e.as<ir::Var>()) {
+            const auto vol = bound(var->name);
+            if (!vol.has_value()) {
+                return Operand{false, ir::Expr(), fix(e)};
+            }
+            return Operand{true, *vol, ir::Expr()};
+        }
+        if (const ir::GeomOp *moved = e.as<ir::GeomOp>();
+            moved != nullptr && moved->op == ir::GeomOp::transform) {
+            if (varies(moved->a)) {
+                return std::nullopt;
+            }
+            const auto inner = operand_view(moved->b);
+            if (!inner.has_value()) {
+                return std::nullopt;
+            }
+            if (!inner->varying) {
+                return Operand{false, ir::Expr(), fix(e)};
+            }
+            if (!inner->volume.defined()) {
+                return Operand{true, ir::Expr(), ir::Expr()};
+            }
+            return Operand{true,
+                           ir::GeomOp::make(ir::GeomOp::transform,
+                                            fix(moved->a), inner->volume),
+                           ir::Expr()};
+        }
+        return std::nullopt;
+    }
+
+    void visit(const ir::GeomOp *node) override {
+        const auto a = operand_view(node->a);
+        const auto b = operand_view(node->b);
+        internal_assert(a.has_value() && b.has_value())
+            << "TODO: support this shape of geometric op in predicate "
+               "analysis: "
+            << ir::Expr(node);
 
         // A varying operand with no bounding volume simply cannot be bounded.
         // That is a legitimate outcome, not an error: the caller sees an
         // undefined interval and emits an unguarded recursion.
-        const bool a_unbounded = a_vol.has_value() && !a_vol->defined();
-        const bool b_unbounded = b_vol.has_value() && !b_vol->defined();
-        if (a_unbounded || b_unbounded) {
+        if ((a->varying && !a->volume.defined()) ||
+            (b->varying && !b->volume.defined())) {
             interval = Interval{};
             return;
         }
 
         // Neither operand varies, so the expression is its own value.
-        if (!a_vol.has_value() && !b_vol.has_value()) {
-            set(node);
+        if (!a->varying && !b->varying) {
+            set(fix(node));
             return;
         }
 
-        const ir::Expr va = a_vol.has_value() ? *a_vol : ir::Expr();
-        const ir::Expr vb = b_vol.has_value() ? *b_vol : ir::Expr();
+        // Each side as the bound will name it: the volume where it varies,
+        // and otherwise the operand as the traversal can evaluate it.
+        const ir::Expr sa = a->varying ? a->volume : a->value;
+        const ir::Expr sb = b->varying ? b->volume : b->value;
+        const ir::Expr va = a->varying ? a->volume : ir::Expr();
+        const ir::Expr vb = b->varying ? b->volume : ir::Expr();
 
         if (is_geometric_metric(ir::GeomOp::intrinsic_name(node->op))) {
             // Algorithm 6, lines 15-25. Both distances are bounded below by
             // distmin and above by distmax over the bounding volumes.
-            const ir::Expr a = va.defined() ? va : node->a;
-            const ir::Expr b = vb.defined() ? vb : node->b;
-            interval.min = ir::distmin(a, b);
-            interval.max = ir::distmax(a, b);
+            interval.min = ir::distmin(sa, sb);
+            interval.max = ir::distmax(sa, sb);
             return;
         }
 
         make_bool_bounds();
-        if (ir::Expr upper =
-                geom_upper_bound(node->op, node->a, node->b, va, vb);
+        if (ir::Expr upper = geom_upper_bound(node->op, sa, sb, va, vb);
             upper.defined()) {
             interval.max = std::move(upper);
         }
-        if (ir::Expr lower =
-                geom_lower_bound(node->op, node->a, node->b, va, vb);
+        if (ir::Expr lower = geom_lower_bound(node->op, sa, sb, va, vb);
             lower.defined()) {
             interval.min = std::move(lower);
         }

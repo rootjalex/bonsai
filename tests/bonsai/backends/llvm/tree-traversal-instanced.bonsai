@@ -25,9 +25,16 @@
 //     and 14 min/max, against pbrt's handful. That difference was the whole
 //     cost of instancing.
 //
-// What remains of the matrix inside the walk is in the hit path only: the
-// value the query yields is the triangle *where the instance puts it*, and
-// that is built when a hit is recorded, not tested at every node.
+// Nothing of the matrix is read inside the walk at all, hit path included. The
+// query is over the instance's triangles as its tree holds them -- the motion
+// is in the tests, `intersects(r, transform(m, tri))`, not in the set -- so
+// what it hands back is the pair (instance, triangle) in the instance's frame,
+// which is what pbrt's inner Intersect returns to TransformedPrimitive. The one
+// transform of the result is the caller's, as `(*renderFromPrimitive)(si->intr)`
+// is there. Writing the set as the *placed* triangles instead would ask for a
+// placed triangle back, and a reduction has to store the element of the set it
+// ranges over: that form pays a transform per recorded hit, for a result pbrt
+// never computes.
 import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;
@@ -76,14 +83,12 @@ element Instance {
 extern instances : set[Instance];
 
 func [[export]] trace(r : Ray) =
-    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+    argmin(|i : Instance, tri : Triangle|
+               distmin(r, transform(i.render_from_instance, tri)),
            filter(|i : Instance, tri : Triangle|
-                      intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance|
-                              map(|tri : Triangle|
-                                      transform(i.render_from_instance, tri),
-                                  i.blas),
-                          instances)));
+                      intersects(r, transform(i.render_from_instance, tri)) &&
+                      distmin(r, transform(i.render_from_instance, tri)) > 0.001,
+                  flatten(|i : Instance| i.blas, instances)));
 
 schedule {
     tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =

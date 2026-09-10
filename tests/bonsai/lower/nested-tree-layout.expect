@@ -70,7 +70,7 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, _pulled0 :
           if (intersects_Ray_Triangle(_pulled0, instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
             if (0.001f < distmin_Ray_Triangle(_pulled0, instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
               if (distmin_Ray_Triangle(_pulled0, instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]) < (*_best0)._field0) {
-                _best0 = build<__tuple_1>(distmin_Ray_Triangle(_pulled0, instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]), build<__tuple_0>(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], transform_Transform_Triangle(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])))
+                _best0 = build<__tuple_1>(distmin_Ray_Triangle(_pulled0, instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]), build<__tuple_0>(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]))
               }
             }
           }

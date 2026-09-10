@@ -93,14 +93,12 @@ func untransform(t : Transform, r : Ray) -> Ray {
 }
 
 func trace(r : Ray) =
-    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+    argmin(|i : Instance, tri : Triangle|
+               distmin(r, transform(i.render_from_instance, tri)),
            filter(|i : Instance, tri : Triangle|
-                      intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance|
-                              map(|tri : Triangle|
-                                      transform(i.render_from_instance, tri),
-                                  i.blas),
-                          instances)));
+                      intersects(r, transform(i.render_from_instance, tri)) &&
+                      distmin(r, transform(i.render_from_instance, tri)) > 0.001,
+                  flatten(|i : Instance| i.blas, instances)));
 
 schedule {
     tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =

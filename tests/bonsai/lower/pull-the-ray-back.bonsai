@@ -2,13 +2,17 @@
 
 // The ray pulled back into the instance, once, where pbrt does it.
 //
-// nested-trees.bonsai is this query one pass earlier, in the form predicate
-// analysis works on: every test inside an instance's tree is against
-// `transform(m, <something>)` -- the node's box or the triangle, moved into
-// render space -- because a uniform ray against one varying geometric object is
-// the only shape the bounding rule applies to. That form costs an eight-corner
-// box transform at every node, and pbrt's costs a slab test, because pbrt moves
-// the ray instead: `Transform::ApplyInverse(r, &tMax)` at the top of
+// The query is written pbrt's way: the set is an instance's triangles as its
+// tree holds them, and the motion is in the tests -- `intersects(r,
+// transform(i.render_from_instance, tri))`, the triangle where the instance
+// puts it, against the world-space ray. Before this pass that is also the form
+// predicate analysis bounds it in, and one pass earlier every test inside an
+// instance's tree is against `transform(m, <something>)` -- the node's box or
+// the triangle, moved into render space -- because a uniform ray against one
+// varying geometric object is the only shape the bounding rule applies to.
+// That form costs an eight-corner box transform at every node, and pbrt's
+// costs a slab test, because pbrt moves the ray instead:
+// `Transform::ApplyInverse(r, &tMax)` at the top of
 // `TransformedPrimitive::Intersect`, then everything against stored geometry.
 //
 // `pull-queries` gets from the first to the second. Three things to read for:
@@ -21,12 +25,17 @@
 //     what a recursion binds cannot be moved ahead of it -- the hoist is a
 //     real invariance check, not a rule about where instances are.
 //
-//   - inside the inner walk, no `transform` is left on anything a relation
-//     tests. Every `intersects`, `distmin` and `distmax` there takes
-//     `_pulled0` and the *stored* box or triangle. The one `transform` that
-//     survives is in the value the query yields -- `(_iter0, transform(..,
-//     _iter1))` is the triangle where the instance puts it, which is what was
-//     asked for, and not a test.
+//   - inside the inner walk, no `transform` is left at all. Every
+//     `intersects`, `distmin` and `distmax` there takes `_pulled0` and the
+//     *stored* box or triangle, and the value the query yields is the pair
+//     `(_iter0, _iter1)` as stored -- the hit in the instance's frame, which
+//     is what pbrt's inner Intersect hands back before TransformedPrimitive
+//     transforms the interaction once. Writing the set as the placed
+//     triangles, `map(|tri| transform(m, tri), i.blas)`, would ask for a
+//     placed triangle back instead, and a reduction stores the element of the
+//     set it ranges over: a transform per recorded hit, for a result pbrt does
+//     not compute. nested-trees.bonsai keeps that form, since it is what a
+//     tree's bounds have to be carried through when the elements are moved.
 //
 //   - `distmin(_pulled0, _iter1) < _best0[0]` and `_best0 = (distmin(_pulled0,
 //     _iter1), ..)`. The running best is a `t` found in render space and it is
@@ -105,24 +114,20 @@ element Instance {
 extern instances : set[Instance];
 
 func trace(r : Ray) =
-    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+    argmin(|i : Instance, tri : Triangle|
+               distmin(r, transform(i.render_from_instance, tri)),
            filter(|i : Instance, tri : Triangle|
-                      intersects(r, tri) && distmin(r, tri) > 0.001,
-                  flatten(|i : Instance|
-                              map(|tri : Triangle|
-                                      transform(i.render_from_instance, tri),
-                                  i.blas),
-                          instances)));
+                      intersects(r, transform(i.render_from_instance, tri)) &&
+                      distmin(r, transform(i.render_from_instance, tri)) > 0.001,
+                  flatten(|i : Instance| i.blas, instances)));
 
 // The weakened query gets the same treatment; there is nothing about `any`
 // that changes which relations a motion commutes with.
 func trace_any(r : Ray) =
     any(|i : Instance, tri : Triangle|
-            intersects(r, tri) && distmin(r, tri) > 0.001,
-        flatten(|i : Instance|
-                    map(|tri : Triangle| transform(i.render_from_instance, tri),
-                        i.blas),
-                instances));
+            intersects(r, transform(i.render_from_instance, tri)) &&
+            distmin(r, transform(i.render_from_instance, tri)) > 0.001,
+        flatten(|i : Instance| i.blas, instances));
 
 schedule {
     tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =

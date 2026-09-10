@@ -406,6 +406,7 @@ struct Rewriter : public ir::Mutator {
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
             bounds_below.push_back(promises);
+            levels.push_back(level_facts(node));
             if (!built_child_volumes.empty()) {
                 child_volumes[loc_key] = built_child_volumes;
             }
@@ -425,6 +426,7 @@ struct Rewriter : public ir::Mutator {
             intervals.pop_back();
             aggregations.pop_back();
             bounds_below.pop_back();
+            levels.pop_back();
             if (!built_child_volumes.empty()) {
                 child_volumes.erase(loc_key);
             }
@@ -436,28 +438,185 @@ struct Rewriter : public ir::Mutator {
                                node->volume_map);
     }
 
+    // What make_volume_map needs to know about a matched level beyond its
+    // volume: one entry per entry in `volumes`.
+    struct Level {
+        // The level's element type, for reading its `with extent`.
+        const ir::Struct_t *elem = nullptr;
+        // Whether this level's match sits inside the enclosing level's loop
+        // over a leaf's elements. That is what a `flatten` builds -- the inner
+        // traversal is opened per element -- and it means every enclosing
+        // level is at one fixed element while this one runs, not varying over
+        // a subtree.
+        bool entered_as_element = false;
+        // The field of this level's elements holding a nested tree, when the
+        // query reaches one, and whether the set it reaches is that tree's
+        // elements moved -- `map(|tri| transform(m, tri), i.blas)` -- or as
+        // they are -- `i.blas`.
+        std::string nested_field;
+        bool nested_mapped = false;
+        // The element this level's tree was reached through -- `_iter0` in
+        // `match _iter0.blas` -- when it was reached through one. It is what
+        // the enclosing level's parameter stands for while this level runs.
+        ir::Expr via;
+    };
+    std::vector<Level> levels;
+
+    Level level_facts(const ir::Match *node) const {
+        Level level;
+        if (const ir::BVH_t *bvh = node->loc.type().as<ir::BVH_t>()) {
+            level.elem = bvh->primitive.as<ir::Struct_t>();
+        }
+        level.entered_as_element = in_loop;
+        if (const ir::Access *access = node->loc.as<ir::Access>()) {
+            level.via = access->value;
+        }
+        // The first nested match in any arm: a tree reached through a field.
+        struct FindNested : public ir::Visitor {
+            std::string field;
+            bool mapped = false;
+            bool found = false;
+            using ir::Visitor::visit;
+            void visit(const ir::Match *m) override {
+                if (found) {
+                    return;
+                }
+                if (const ir::Access *access = m->loc.as<ir::Access>()) {
+                    field = access->field;
+                    mapped = m->volume_map.defined();
+                    found = true;
+                    return;
+                }
+                ir::Visitor::visit(m);
+            }
+        };
+        FindNested find;
+        for (const auto &arm : node->arms) {
+            arm.second.accept(&find);
+        }
+        level.nested_field = find.field;
+        level.nested_mapped = find.mapped;
+        return level;
+    }
+
+    // The extent of `through`'s elements, said about the element `elem` and
+    // about an element `deeper` of its nested set: `with extent =
+    // transform(render_from_instance, blas.AABB)` becomes
+    // `transform(i.render_from_instance, tri)`. That is the expression the
+    // promise bounds -- the nested element *placed* -- and the only one it
+    // bounds: `tri` on its own is in the instance's frame, and the node's box
+    // says nothing about it.
+    ir::Expr placed_shape(const Level &through, const ir::TypedVar &elem,
+                          const ir::TypedVar &deeper) const {
+        if (extents == nullptr || through.elem == nullptr ||
+            through.nested_field.empty()) {
+            return ir::Expr();
+        }
+        const auto extent = extents->find(through.elem->name);
+        if (extent == extents->cend()) {
+            return ir::Expr();
+        }
+        // The nested tree's root bound inside the extent, `blas.AABB`; see
+        // FindRootVolume below, which does the same for the volume map.
+        struct FindRoot : public ir::Visitor {
+            const std::string &field;
+            ir::Expr found;
+            FindRoot(const std::string &field) : field(field) {}
+            using ir::Visitor::visit;
+            void visit(const ir::Access *node) override {
+                if (!found.defined()) {
+                    if (const ir::Var *base = node->value.as<ir::Var>();
+                        base != nullptr && base->name == field) {
+                        found = node;
+                        return;
+                    }
+                }
+                ir::Visitor::visit(node);
+            }
+        };
+        FindRoot root(through.nested_field);
+        extent->second.accept(&root);
+        if (!root.found.defined()) {
+            return ir::Expr();
+        }
+        std::map<ir::Expr, ir::Expr, ir::ExprLessThan> abstraction;
+        abstraction[root.found] = ir::Var::make(deeper.type, deeper.name);
+        ir::Expr shape = replace(abstraction, extent->second);
+        std::map<std::string, ir::Expr> fields;
+        for (const auto &field : through.elem->fields) {
+            if (field.name == through.nested_field) {
+                continue;
+            }
+            fields[field.name] = ir::Access::make(
+                field.name, ir::Var::make(elem.type, elem.name));
+        }
+        return replace(fields, shape);
+    }
+
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
         VolumeMap vols;
         const size_t n = volumes.size();
-        // A flattened query has one parameter per level, and at a node above
-        // the innermost level there are fewer volumes than parameters: at a
-        // top-level node the instances are bounded but their triangles have
-        // not been reached yet. Those parameters take the innermost volume so
-        // far, which bounds them because the element that reaches them
-        // promised as much -- `with extent` says everything reachable through
-        // an element lies within its extent, and the node's volume bounds the
-        // extent. That promise is the entire reason a query over two levels
-        // can prune at the first one.
         internal_assert(n <= args.size())
             << "Making volume map with incorrect number of arguments: "
             << args.size() << " vs. " << n;
         internal_assert(n > 0 || args.empty())
             << "Making volume map with no volumes for " << args.size()
             << " arguments.";
-        for (size_t i = 0; i < args.size(); i++) {
-            // Even if a volume is undefined, needs to be added so
-            // predicate analysis knows it's non-varying.
-            vols[args[i].name] = volumes[std::min(i, n - 1)];
+        internal_assert(levels.size() == n);
+
+        // A level entered through the enclosing level's element loop holds
+        // every level above it at one element. Those parameters do not vary
+        // over this subtree, and are left out so that anything built from
+        // them -- an instance's matrix -- is its own value here.
+        size_t first_varying = 0;
+        for (size_t k = 0; k < n; k++) {
+            if (levels[k].entered_as_element) {
+                first_varying = k;
+            }
+        }
+
+        for (size_t j = 0; j < args.size(); j++) {
+            if (j < first_varying) {
+                // Fixed, at the element the next level in was reached through
+                // -- which is the name a bound has to use for it, since the
+                // lambda's is not in scope where the bound is tested. See
+                // VolumeMap::fixed.
+                if (levels[j + 1].via.defined()) {
+                    vols.fixed[args[j].name] = levels[j + 1].via;
+                }
+                continue;
+            }
+            if (j < n) {
+                vols[args[j].name] = volumes[j];
+                continue;
+            }
+            // A level the traversal has not reached: a flattened query has one
+            // parameter per level, and at a node of the tree of instances the
+            // instances are bounded but their triangles have not been reached
+            // yet. `with extent` is what says anything about them -- everything
+            // reachable through an element lies within its extent, and the
+            // node's volume bounds the extent -- and that promise is the
+            // entire reason a query over two levels can prune at the first.
+            //
+            // What it promises depends on what the query reaches. When the set
+            // reached is the tree's elements *moved* by the extent's motion,
+            // the parameter is the placed element and the node's volume bounds
+            // it directly. When it is the elements as they are, the parameter
+            // is in the instance's frame and nothing here bounds it; what the
+            // node's volume bounds is the placed expression, so that is what
+            // goes in, as an expression (VolumeMap::exprs).
+            const Level &through = levels[n - 1];
+            if (through.nested_mapped) {
+                vols[args[j].name] = volumes[n - 1];
+                continue;
+            }
+            vols[args[j].name] = ir::Expr(); // varying, unbounded as itself
+            if (j == n) {
+                ir::Expr placed = placed_shape(through, args[n - 1], args[j]);
+                if (placed.defined()) {
+                    vols.exprs[placed] = volumes[n - 1];
+                }
+            }
         }
         return vols;
     }
@@ -1729,11 +1888,29 @@ ir::Stmt build_flatten(ir::Stmt outer, ir::Expr func,
             ir::Expr root = apply_lambda(func, node->value);
             ir::Stmt inner =
                 build_traversal(root, tree_types, extents, intervals);
-            // Before anything reads a bound: the tree just built is in the
-            // element's frame, and its stored bounds only bound this query
-            // once the element's map has carried them into the query's frame.
-            inner = set_nested_volume_maps(std::move(inner), extents);
+            // Before anything reads a bound: when the set reached is the
+            // tree's elements *mapped* -- `map(|tri| transform(m, tri),
+            // i.blas)` -- the elements the query sees are not the ones the
+            // tree's boxes bound, and the boxes have to be carried through the
+            // same map. When the set is the tree's elements as they are, its
+            // boxes bound them as they are, and a motion the query applies in
+            // a predicate is predicate analysis's to carry (a motion maps a
+            // bound to a bound); mapping the boxes here as well would move
+            // them twice.
+            if (maps_elements(root)) {
+                inner = set_nested_volume_maps(std::move(inner), extents);
+            }
             return PairWith(node->value).mutate(inner);
+        }
+
+        // Whether `set` is a tree's elements with a function applied to each,
+        // looking through the filters a fused query may have left around it.
+        static bool maps_elements(const ir::Expr &set) {
+            const ir::SetOp *op = set.as<ir::SetOp>();
+            while (op != nullptr && op->op == ir::SetOp::filter) {
+                op = op->b.as<ir::SetOp>();
+            }
+            return op != nullptr && op->op == ir::SetOp::map;
         }
 
         // iter xs => foreach x in xs: the above.

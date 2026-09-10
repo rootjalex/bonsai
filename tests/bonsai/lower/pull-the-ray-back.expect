@@ -43,7 +43,7 @@ func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Inst
               if ((intersects(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) && (distmin(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) < _best0[0])) {
                 foreach _iter1 in (_subtree0 as Leaf).data {
                   if ((intersects(_pulled0, _iter1) && (0.001f < distmin(_pulled0, _iter1))) && (distmin(_pulled0, _iter1) < _best0[0])) {
-                    _best0 = (distmin(_pulled0, _iter1), (_iter0, transform(_iter0.render_from_instance, _iter1)))
+                    _best0 = (distmin(_pulled0, _iter1), (_iter0, _iter1))
                   }
                 }
               }
