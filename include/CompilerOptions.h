@@ -81,6 +81,24 @@ struct CompilerOptions {
     // Applied as an SSA rewrite; see include/SSA/Contract.h for why there.
     bool ffp_contract = false;
 
+    // Print the SSA form, which is otherwise not observable.
+    //
+    // Every scheduling transform is a rewrite of the block graph, and what
+    // `-p ssa` prints is the *relooper's* reading of the graph the rewrite
+    // left behind. Those are not the same artefact: the relooper reconstructs
+    // structured control flow, so a golden of its output pins what a schedule
+    // did only as far as the reconstruction happens to preserve it, and two
+    // different graphs can reloop to the same statements. A test of a rewrite
+    // wants the graph.
+    //
+    // `preschedule` is the form as built, ahead of every rewrite;
+    // `postschedule` is what the schedule left, immediately before the
+    // relooper runs. Asking for both is what makes a transform's golden say
+    // what it changed rather than only what it ended at. Both go to stdout,
+    // ahead of whatever else is printed.
+    bool dump_ssa_preschedule = false;
+    bool dump_ssa_postschedule = false;
+
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };
 

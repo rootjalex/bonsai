@@ -1,0 +1,69 @@
+//! flags: -p ssa --dump-ssa-preschedule --dump-ssa-postschedule
+
+// `sort()` as the block graph, which is where the reordering happens and the
+// one place it is legible.
+//
+// ssa/sort-recursion.bonsai is this schedule read through the relooper, and
+// there the sort arrives as a run of `lt` and `select` with nothing saying
+// what they are for. Here it is one line, twice:
+//
+//   pre:   multicall _recloop_func0(..) from { (@23), (@29) } at { 0 }
+//                                       sorted by (@38, @48) ..
+//   post:  multicall _recloop_func0(..) from { (@98), (@99) } at { 0 } ..
+//
+// A `from (a, b)` is one terminator with a branch per child, which is the
+// whole reason `ir::MultiRecurse` exists: a schedule that wants to *order*
+// those calls needs them to still be one thing. `sorted by` carries the keys
+// the schedule's lambda produced. The rewrite permutes the branches to match
+// and then clears the keys -- so a multicall reaching code generation with
+// keys still on it would be a sort that never happened, and the absence of
+// `sorted by` in the second dump is the test.
+//
+// The branches are indices, not subtrees. Sorting after the layout is what
+// makes the permutation a run of selects over numbers rather than over whole
+// subtree values, which is what it cost when Lower/Sorts.cpp did the
+// reordering itself.
+//
+// No `loopify()` here, deliberately: with one the multicall becomes stack
+// pushes and the thing being tested is gone from the output. That combination
+// is what ssa/sort-recursion.bonsai covers.
+//
+// The key is pbrt's rule -- if the ray points down the axis the node was split
+// on, visit the second child first -- written as `select(dir < 0, 1 - i, i)`,
+// so branch 0 gets the smaller key exactly when the ray reaches it first.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func [[export]] trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : TriangleBVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.sort(triangles.Interior,
+               |i : u8, ray : Ray, axis : u8|
+                   select((1 / ray.d)[axis] < 0, 1 - i, i));
+}

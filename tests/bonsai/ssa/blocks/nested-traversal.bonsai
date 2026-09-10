@@ -1,0 +1,104 @@
+//! flags: -p ssa --dump-ssa-preschedule --dump-ssa-postschedule
+
+// `loopify()` over a tree held in an element of another tree, as the block
+// graph -- which is where "each level gets its own stack" is a fact you can
+// read rather than infer.
+//
+// ssa/loopify-nested.bonsai is this schedule through the relooper. There the
+// two stacks show up as two `alloca` and two `while` in one relooped function,
+// and nothing in the output says which loop belongs to which walk or where
+// either one starts. Here it is structural:
+//
+//   preschedule   both `_recloop_func0` and `_recloop_func1` end a block with
+//                 `multicall <itself> from { .. } at { 0 }` -- the branching
+//                 recursion, one terminator per node, kept whole so that a
+//                 schedule still has something to reorder.
+//
+//   postschedule  neither calls itself. Each opens with its own
+//                 `!stack = alloca<u32[64]>()`, seeded from its own entry
+//                 parameter, and each multicall has become stores into *that*
+//                 function's stack. Two allocas in two functions, which is the
+//                 property that matters: one stack between them would have the
+//                 outer walk popping rows of the inner tree's pool and reading
+//                 them as nodes of its own.
+//
+// The other thing this pins is the edge between the levels, which stays an
+// ordinary call:
+//
+//     call _recloop_func1(_subtree0, instances, r, _best0, ..)
+//
+// inside the outer leaf's loop. It is not a multicall, and could not be: a
+// multicall is a statically-known run of calls to *one* callee, which is what
+// lets `sort()` build a network over it and `loopify()` fold it into a stack.
+// The descent into a leaf's instances is a runtime-many run into a different
+// function, so it is neither. What a schedule has to work with there is the
+// loop, not the call.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Instance {
+    blas : set[Triangle];
+} with extent = blas.AABB;
+
+extern instances : set[Instance];
+
+func [[export]] trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle| intersects(r, tri),
+                  flatten(|i : Instance| i.blas, instances)));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

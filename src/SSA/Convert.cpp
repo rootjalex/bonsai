@@ -1337,6 +1337,37 @@ LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
     return {start, wanted};
 }
 
+// The block graph itself, which nothing downstream can be asked about: the
+// relooper's reading of it is what `-p ssa` prints, and two different graphs
+// can reloop to the same statements. See
+// CompilerOptions::dump_ssa_preschedule.
+//
+// The program's own functions and not the library's, unless asked for all of
+// them -- the same rule, and the same meaning of verbose, that the program
+// printer applies. A golden of a schedule's work should not carry every
+// geometric predicate the query happened to reach.
+//
+// `std::map` iteration is ordered, so the dump is deterministic.
+void dump_ssa(std::ostream &os, const std::string &when, const FuncMap &fmap,
+              bool include_imported) {
+    const auto has = [](const std::shared_ptr<Function> &f,
+                        ir::Function::Attribute a) {
+        return std::find(f->attributes.begin(), f->attributes.end(), a) !=
+               f->attributes.end();
+    };
+    os << "; === ssa " << when << " ===\n";
+    for (const auto &[fname, f] : fmap) {
+        if (!include_imported && has(f, ir::Function::Attribute::imported)) {
+            continue;
+        }
+        const bool direct = has(f, ir::Function::Attribute::vectorized);
+        os << "; --- " << fname
+           << (direct ? " (lowered from here)" : " (lowered via statements)")
+           << " ---\n";
+        f->dump(os);
+    }
+}
+
 // Applies the SSA-level schedule `transforms` and builds/codegens `funcs`
 // through the SSA representation. A transform this pipeline cannot apply is
 // reported, not skipped -- see the visit below.
@@ -1351,6 +1382,12 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         func_type_map[name] = func->call_type();
         auto f = build(func);
         fmap[name] = std::move(f);
+    }
+
+    // Before any rewrite has touched it, so that a transform's golden can say
+    // what it changed and not only what it ended at.
+    if (options.dump_ssa_preschedule) {
+        dump_ssa(std::cout, "preschedule", fmap, options.is_verbose);
     }
 
     // Sort before anything else, and before loopify in particular: loopify
@@ -1519,18 +1556,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // statements. This is the only place it can be seen: what `-p ssa` prints
     // is the result of the relooper, by which point the block graph the
     // rewrites actually worked on is gone.
-    if (options.is_verbose) {
-        for (const auto &[fname, f] : fmap) {
-            const bool direct =
-                std::find(f->attributes.begin(), f->attributes.end(),
-                          ir::Function::Attribute::vectorized) !=
-                f->attributes.end();
-            std::cerr << "; --- ssa: " << fname
-                      << (direct ? " (lowered from here)"
-                                 : " (lowered via statements)")
-                      << " ---\n";
-            f->dump(std::cerr);
-        }
+    if (options.dump_ssa_postschedule) {
+        dump_ssa(std::cout, "postschedule", fmap, options.is_verbose);
+    }
+    if (options.is_verbose && !options.dump_ssa_postschedule) {
+        dump_ssa(std::cerr, "postschedule", fmap, /*include_imported=*/true);
     }
 
     ir::FuncMap new_funcs;

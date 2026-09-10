@@ -15,6 +15,28 @@ To update the golden outputs during a test run, set the environment variable
 $ BONSAI_UPDATE_EXPECT=1 ctest -L llvm
 ```
 
+### Goldens of the SSA block graph
+
+Most tests under `tests/bonsai/ssa/` diff the *relooper's* output: `-p ssa`
+converts to SSA, applies the schedule, and turns the result back into
+statements, and those statements are what gets printed. That is worth pinning,
+since it is what code generation consumes for any function that is not
+vectorized -- but it is a reconstruction. Two different block graphs can reloop
+to the same statements, so a golden of the statements is a lossy witness for
+what a schedule actually did to the graph.
+
+`tests/bonsai/ssa/blocks/` holds goldens of the graph itself, using two flags:
+
+- `--dump-ssa-preschedule`: the SSA as built, before any rewrite runs.
+- `--dump-ssa-postschedule`: what the schedule left, immediately before the
+  relooper.
+
+Both print to stdout, ahead of whatever else the compile prints, so a test can
+ask for either or both. Asking for both is usually what you want for a
+transform: the golden then says what the rewrite *changed*, not only what it
+ended at. Imported functions are left out unless `-v` is also given, matching
+what the program printer does.
+
 ### Architecture-specific goldens
 
 A test's expected output normally lives in `<name>.expect`. A few of the

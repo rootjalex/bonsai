@@ -27,6 +27,9 @@ std::string command_help() {
       << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
       << "     | --no-heap                   | reject heap allocation\n"
       << "     | --ffp-contract              | fuse `a * b + c` into one fma\n"
+      << "     | --dump-ssa-preschedule      | print the SSA a schedule acts "
+         "on\n"
+      << "     | --dump-ssa-postschedule     | print the SSA a schedule left\n"
       << "-h   | --help";
     return s.str();
 }
@@ -150,6 +153,14 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "--ffp-contract") {
             options.ffp_contract = true;
+            continue;
+        }
+        if (arg == "--dump-ssa-preschedule") {
+            options.dump_ssa_preschedule = true;
+            continue;
+        }
+        if (arg == "--dump-ssa-postschedule") {
+            options.dump_ssa_postschedule = true;
             continue;
         }
         if (arg == "--mcpu") {

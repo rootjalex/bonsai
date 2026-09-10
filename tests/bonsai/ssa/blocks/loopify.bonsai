@@ -1,0 +1,51 @@
+//! flags: -p ssa --dump-ssa-preschedule --dump-ssa-postschedule
+
+// `loopify()` as the block graph, which is the thing it actually rewrites.
+//
+// Everything in tests/bonsai/ssa/ above this directory is a golden of the
+// *relooper's* reading of that graph. That is worth pinning too -- it is what
+// code generation consumes for a function that is not vectorized -- but it is
+// a reconstruction, and a reconstruction is a lossy witness for a rewrite:
+// two different graphs can reloop to the same statements, and a `while` in
+// the output does not say which edge the transform added or where it went.
+// These goldens are the graph.
+//
+// Read the two dumps against each other. Preschedule, both functions end in a
+// call to themselves and a continuation:
+//
+//     callc countdown(@1, @2) !countdown_call_cont_2()
+//     !countdown_call_cont_2(@3 : i32): ret @3
+//
+// Postschedule, that call is gone. In its place the entry jumps into a loop
+// header carrying the parameters, and what was the recursive call is a jump
+// back to that header with the arguments it would have passed. The
+// continuation block is still printed and has no predecessors: a tail call's
+// continuation only returns what the call returned, so once the call is an
+// edge nothing reaches it. It is unreachable rather than removed, which is
+// visible here and is not visible anywhere else.
+//
+// The difference between the two functions is which parameters get carried.
+// `fill` passes `out` and `i` through unchanged, so they stay block arguments
+// of the entry and are not threaded round the loop; `n` and `acc` change every
+// time, so they are. Nothing in the relooped statements says which is which as
+// plainly as the block arguments do.
+func fill(n : i32, acc : i32, out : mut array[i32, 4], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  fill(n - 1, acc + n, out, i);
+  return;
+}
+
+func countdown(n : i32, acc : i32) -> i32 {
+  if (n <= 0) {
+    return acc;
+  }
+  return countdown(n - 1, acc + n);
+}
+
+schedule {
+  fill.loopify();
+  countdown.loopify();
+}

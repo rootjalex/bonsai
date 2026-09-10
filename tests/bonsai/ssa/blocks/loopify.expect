@@ -1,0 +1,111 @@
+; === ssa preschedule ===
+; --- countdown (lowered via statements) ---
+func countdown(n : i32, acc : i32): 
+  @0 = leq(n, (i32)0)
+  dispatch @0 [!merge_1(n, acc), !then_0(acc)]
+
+!then_0(acc : i32): // preds: countdown
+  ret acc
+
+!merge_1(n : i32, acc : i32): // preds: countdown
+  @1 = sub(n, (i32)1)
+  @2 = add(acc, n)
+  callc countdown(@1, @2) !countdown_call_cont_2()
+
+!countdown_call_cont_2(@3 : i32): // preds: !merge_1
+  ret @3
+
+; --- fill (lowered via statements) ---
+func fill(n : i32, acc : i32, out : i32[4], i : i32): 
+  @0 = leq(n, (i32)0)
+  dispatch @0 [!merge_1(n, acc, out, i), !then_0(acc, out, i)]
+
+!then_0(acc : i32, out : i32[4], i : i32): // preds: fill
+  @1 = gep(out, i)
+  store @1 acc
+  ret
+
+!merge_1(n : i32, acc : i32, out : i32[4], i : i32): // preds: fill
+  @2 = sub(n, (i32)1)
+  @3 = add(acc, n)
+  call fill(@2, @3, out, i) !fill_call_cont_2()
+
+!fill_call_cont_2(): // preds: !merge_1
+  ret
+
+; === ssa postschedule ===
+; --- countdown (lowered via statements) ---
+func countdown(n : i32, acc : i32): 
+  jmp countdown!loop(n, acc)
+
+countdown!loop(n!loop : i32, acc!loop : i32): // preds: !merge_1, countdown
+  @0 = leq(n!loop, (i32)0)
+  dispatch @0 [!merge_1(n!loop, acc!loop), !then_0(acc!loop)]
+
+!then_0(acc!loop : i32): // preds: countdown!loop
+  ret acc!loop
+
+!merge_1(n!loop : i32, acc!loop : i32): // preds: countdown!loop
+  @1 = sub(n!loop, (i32)1)
+  @2 = add(acc!loop, n!loop)
+  jmp countdown!loop(@1, @2)
+
+!countdown_call_cont_2(@3 : i32): 
+  ret @3
+
+; --- fill (lowered via statements) ---
+func fill(n : i32, acc : i32, out : i32[4], i : i32): 
+  jmp fill!loop(n, acc)
+
+fill!loop(n!loop : i32, acc!loop : i32): // preds: !merge_1, fill
+  @0 = leq(n!loop, (i32)0)
+  dispatch @0 [!merge_1(n!loop, acc!loop, out, i), !then_0(acc!loop, out, i)]
+
+!then_0(acc!loop : i32, out : i32[4], i : i32): // preds: fill!loop
+  @1 = gep(out, i)
+  store @1 acc!loop
+  ret
+
+!merge_1(n!loop : i32, acc!loop : i32, out : i32[4], i : i32): // preds: fill!loop
+  @2 = sub(n!loop, (i32)1)
+  @3 = add(acc!loop, n!loop)
+  jmp fill!loop(@2, @3)
+
+!fill_call_cont_2(): 
+  ret
+
+func countdown(n : i32, acc : i32) -> i32 {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @1 = (*n!loop) - 1 in
+    let @2 = (*acc!loop) + (*n!loop) in
+    n!loop = @1
+    acc!loop = @2
+  }
+  return (*acc!loop)
+}
+
+func fill(n : i32, acc : i32, out : mut i32[4], i : i32) -> void {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @2 = (*n!loop) - 1 in
+    let @3 = (*acc!loop) + (*n!loop) in
+    n!loop = @2
+    acc!loop = @3
+  }
+  out[i] = (*acc!loop)
+  return
+}
+
+
+schedule host {
+    countdown.loopify()
+    fill.loopify()
+
+}

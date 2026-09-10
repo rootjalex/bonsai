@@ -30,3 +30,5 @@ add_bonsai_tests(
     vectorize-soa.bonsai
     while-loops.bonsai
 )
+
+add_subdirectory(blocks)
