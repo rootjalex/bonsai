@@ -6,6 +6,9 @@ add_bonsai_tests(
     adt-bvh-sorted.bonsai
     adt-tagged-index.bonsai
     bind_cpu_thread.bonsai
+    blas-tlas.bonsai
+    blas-tlas-loopified.bonsai
+    blas-tlas-sorted.bonsai
     ffp-contract.bonsai
     mut-dynamic-array.bonsai
     setops.bonsai

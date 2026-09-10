@@ -1,0 +1,120 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BLAS = (const BLAS&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Instance = struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type TLAS = (const TLAS&)
+type Transform = struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } } }
+type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct __tuple_0{ _field0 : struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }; set : bool = false }
+type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[bCount]; iCount : u32; insts : struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type _tree_layout4 = [[packed]] struct _tree_layout4{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }
+type _tree_layout5 = [[packed]] struct _tree_layout5{ offset : u32 }
+type _tree_layout6 = [[packed]] struct _tree_layout6{ pOffset : u32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern instances : [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[bCount]; iCount : u32; insts : struct Instance{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : f32x3; high : f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[nCount] }
+
+func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
+  if (instances.group1_index[instances_index].nPrims == 0u) {
+    if (intersects_Ray_AABB(r, build<AABB>(instances.group1_index[instances_index].low, instances.group1_index[instances_index].high))) {
+      if (0.001f < distmax_Ray_AABB(r, build<AABB>(instances.group1_index[instances_index].low, instances.group1_index[instances_index].high))) {
+        if (distmin_Ray_AABB(r, build<AABB>(instances.group1_index[instances_index].low, instances.group1_index[instances_index].high)) < (*_best0)._field0) {
+          multirecurse _recloop_func0(<0>, instances, r, _best0) from { (instances_index + 1u), (instances_index + reinterpret_cast<_tree_layout5>(instances.group1_index[instances_index].split0on_nPrims).offset) }
+        }
+      }
+    }
+  } else if (intersects_Ray_AABB(r, build<AABB>(instances.group1_index[instances_index].low, instances.group1_index[instances_index].high))) {
+    if (0.001f < distmax_Ray_AABB(r, build<AABB>(instances.group1_index[instances_index].low, instances.group1_index[instances_index].high))) {
+      if (distmin_Ray_AABB(r, build<AABB>(instances.group1_index[instances_index].low, instances.group1_index[instances_index].high)) < (*_best0)._field0) {
+        forall _idx0 in [0u:cast<u32>(instances.group1_index[instances_index].nPrims):1u] {
+          let _subtree0 = instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].blas in
+          _recloop_func1(_subtree0, instances, r, instances_index, _idx0, _best0)
+        }
+      }
+    }
+  }
+  return
+}
+
+func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32, _best0 : mut (__tuple_1*)) -> void {
+  if (instances.group0_bnode[_subtree0_bnode].nPrims == 0u) {
+    if (intersects_Ray_AABB(r, transform_Transform_AABB(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, build<AABB>(instances.group0_bnode[_subtree0_bnode].low, instances.group0_bnode[_subtree0_bnode].high)))) {
+      if (0.001f < distmax_Ray_AABB(r, transform_Transform_AABB(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, build<AABB>(instances.group0_bnode[_subtree0_bnode].low, instances.group0_bnode[_subtree0_bnode].high)))) {
+        if (distmin_Ray_AABB(r, transform_Transform_AABB(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, build<AABB>(instances.group0_bnode[_subtree0_bnode].low, instances.group0_bnode[_subtree0_bnode].high))) < (*_best0)._field0) {
+          multirecurse _recloop_func1(<0>, instances, r, instances_index, _idx0, _best0) from { (_subtree0_bnode + 1u), (_subtree0_bnode + reinterpret_cast<_tree_layout2>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).offset) }
+        }
+      }
+    }
+  } else if (intersects_Ray_AABB(r, transform_Transform_AABB(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, build<AABB>(instances.group0_bnode[_subtree0_bnode].low, instances.group0_bnode[_subtree0_bnode].high)))) {
+    if (0.001f < distmax_Ray_AABB(r, transform_Transform_AABB(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, build<AABB>(instances.group0_bnode[_subtree0_bnode].low, instances.group0_bnode[_subtree0_bnode].high)))) {
+      if (distmin_Ray_AABB(r, transform_Transform_AABB(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0].render_from_instance, build<AABB>(instances.group0_bnode[_subtree0_bnode].low, instances.group0_bnode[_subtree0_bnode].high))) < (*_best0)._field0) {
+        forall _idx1 in [0u:cast<u32>(instances.group0_bnode[_subtree0_bnode].nPrims):1u] {
+          if (intersects_Ray_Triangle(r, place(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]))) {
+            if (0.001f < distmin_Ray_Triangle(r, place(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]))) {
+              if (distmin_Ray_Triangle(r, place(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) < (*_best0)._field0) {
+                _best0 = build<__tuple_1>(distmin_Ray_Triangle(r, place(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])), build<__tuple_0>(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], place(instances.insts[reinterpret_cast<_tree_layout6>(instances.group1_index[instances_index].split0on_nPrims).pOffset + _idx0], instances.tris[reinterpret_cast<_tree_layout3>(instances.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return
+}
+
+func _traverse_tree0(r : Ray, instances : _tree_layout0) -> _option0 {
+  _best0 : mut __tuple_1 := build<__tuple_1>((f32)inf, build<__tuple_0>())
+  _recloop_func0(0u, instances, r, _best0)
+  return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
+}
+
+func apply(t : Transform, p : f32x3) -> f32x3 {
+  return (((t.m0 * f32x3(p[0u])) + (t.m1 * f32x3(p[1u]))) + (t.m2 * f32x3(p[2u]))) + t.m3
+}
+
+func place(i : Instance, tri : Triangle) -> Triangle {
+  let out = build<Triangle>(apply(i.render_from_instance, tri.p0), apply(i.render_from_instance, tri.p1), apply(i.render_from_instance, tri.p2)) in
+  return out
+}
+
+func trace(r : Ray, instances : _tree_layout0) -> _option0 {
+  return _traverse_tree0(r, instances)
+}
+
+func transform_Transform_AABB(t : Transform, b : AABB) -> AABB {
+  let c0 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.low[2u])) in
+  let c1 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.low[2u])) in
+  let c2 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.low[2u])) in
+  let c3 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.low[2u])) in
+  let c4 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.high[2u])) in
+  let c5 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.high[2u])) in
+  let c6 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.high[2u])) in
+  let c7 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.high[2u])) in
+  let lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7))) in
+  let hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7))) in
+  let out = build<AABB>(lo, hi) in
+  return out
+}
+
+
+schedule host {
+
+}

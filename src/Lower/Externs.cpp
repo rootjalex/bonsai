@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -181,9 +182,27 @@ ir::Program LowerExterns::run(ir::Program program,
             ordered[counter] = *it;
             counter++;
         }
-        internal_assert(counter == free_vars.size())
-            << "Free vars: " << free_vars.size() << " but added: " << counter
-            << " args to: " << *func;
+        // Everything free in a function at this point should be an extern, so
+        // when one is not, the useful thing to say is which -- the function
+        // printed below is long, and a name that got loose in it is not easy
+        // to spot by reading.
+        if (counter != free_vars.size()) {
+            std::ostringstream missing;
+            for (const auto &var : free_vars) {
+                const bool declared =
+                    std::any_of(program.externs.cbegin(),
+                                program.externs.cend(), [&](const auto &ext) {
+                                    return ext.name == var.name;
+                                });
+                if (!declared) {
+                    missing << " " << var.name << " : " << var.type;
+                }
+            }
+            internal_error << "Free vars: " << free_vars.size()
+                           << " but added: " << counter
+                           << " args. Not declared as externs:" << missing.str()
+                           << "\nin: " << *func;
+        }
         // append new arguments to function call, and store this dependency for
         // calls to this func.
         func->args.insert(func->args.end(),

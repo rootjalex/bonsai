@@ -259,20 +259,34 @@ Stmt Label::make(std::string name, Stmt body) {
     return node;
 }
 
-Stmt RecLoop::make(std::vector<TypedVar> args, Stmt body) {
+Stmt RecLoop::make(std::vector<Arg> args, Stmt body) {
     internal_assert(body.defined()) << "RecLoop::make received undefined body";
 
     for (const auto &arg : args) {
-        internal_assert(!arg.name.empty())
+        internal_assert(!arg.var.name.empty())
             << "RecLoop::make received empty arg name";
-        internal_assert(arg.type.defined())
-            << "RecLoop::make received undefined arg type: " << arg.name;
+        internal_assert(arg.var.type.defined())
+            << "RecLoop::make received undefined arg type: " << arg.var.name;
+        internal_assert(arg.init.defined())
+            << "RecLoop::make received no starting value for: " << arg.var.name;
+        internal_assert(equals(arg.init.type(), arg.var.type))
+            << "RecLoop::make starts " << arg.var.name << " : " << arg.var.type
+            << " at " << arg.init << ", which is a " << arg.init.type();
     }
 
     RecLoop *node = new RecLoop;
     node->args = std::move(args);
     node->body = std::move(body);
     return node;
+}
+
+Stmt RecLoop::make(const std::vector<TypedVar> &vars, Stmt body) {
+    std::vector<Arg> args;
+    args.reserve(vars.size());
+    for (const TypedVar &var : vars) {
+        args.push_back(Arg{var, Expr(var)});
+    }
+    return make(std::move(args), std::move(body));
 }
 
 Stmt MatchVariant::make(Expr value, std::vector<Arm> arms) {

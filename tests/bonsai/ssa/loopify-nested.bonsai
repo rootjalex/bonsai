@@ -1,0 +1,98 @@
+//! flags: -p ssa
+
+// `loopify()` over a query that walks a tree held in an element of another
+// tree, which is two recursions and so two stacks.
+//
+// ssa/loopify.bonsai covers the one-stack case. What is new here is that
+// nothing may be shared between the levels. Each `_recloop_func` below
+// allocates its own `!stack` and seeds it with its own first node, and the two
+// seeds are not the same kind of thing:
+//
+//     !stack[0u] = instances_index    // the tree of instances, at its root
+//     !stack[0u] = _subtree0_bnode    // one instance's tree, wherever it is
+//
+// The second is the whole difference between a tree and a tree in a pool. Every
+// instance's nodes are rows of one shared group, so a walk of one begins at the
+// row its `blas` field names rather than at the first. A stack shared with the
+// enclosing walk would be worse than wrong-looking: the outer loop would pop a
+// row of the instances' group that happens to have the same number, traverse it
+// as if it were a node of the tree of instances, and answer with geometry
+// nobody asked about.
+//
+// The Stmt-level pipeline has one stack to give and refuses this schedule --
+// error/loopify-nested-needs-ssa.bonsai -- and
+// correctness/cpp/blas-tlas-loopified.bonsai runs it against the answers of the
+// unloopified program.
+//
+// Nothing is transformed on the way in, unlike the instanced scenes this is
+// for: an instance here is a tree and nothing else, so that what the golden
+// shows is the traversal rather than the arithmetic around it.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Instance {
+    blas : set[Triangle];
+} with extent = blas.AABB;
+
+extern instances : set[Instance];
+
+func [[export]] trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle| intersects(r, tri),
+                  flatten(|i : Instance| i.blas, instances)));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

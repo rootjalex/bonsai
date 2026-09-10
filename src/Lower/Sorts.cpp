@@ -40,6 +40,11 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
 
         std::map<std::string, Type> names_in_scope;
         Expr current_match_arg;
+        // Local names that stand for a tree held in an element's field, as the
+        // schedule spells it. A traversal of one matches on a name lowering
+        // invented -- `_subtree0` -- which the program cannot write, so what a
+        // schedule names is the field it came from: `Instance.blas.Interior`.
+        std::map<std::string, std::string> nested_paths;
 
         ApplySortImpl(const Location &loc, const Expr &cost_func,
                       FuncMap &funcs,
@@ -47,8 +52,26 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             : loc(loc), cost_func(cost_func), funcs(funcs),
               names_in_scope(std::move(names_in_scope)) {}
 
+        // Everything in the location but the arm, which is what a match on a
+        // tree has to be to be the one this sort names.
+        std::string wanted_object() const {
+            std::string out = loc.names[0];
+            for (size_t i = 1; i + 1 < loc.names.size(); i++) {
+                out += "." + loc.names[i];
+            }
+            return out;
+        }
+
+        const std::string &wanted_arm() const { return loc.names.back(); }
+
         Stmt visit(const LetStmt *node) override {
             names_in_scope.try_emplace(node->loc.base, node->loc.base_type);
+            if (const Access *access = node->value.as<Access>()) {
+                if (const auto *elem = access->value.type().as<Struct_t>()) {
+                    nested_paths.try_emplace(node->loc.base,
+                                             elem->name + "." + access->field);
+                }
+            }
             return Mutator::visit(node);
         }
 
@@ -94,7 +117,12 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
 
         // TODO(ajr): There should be a way to target only a single YieldFrom...
         Stmt visit(const YieldFrom *node) override {
-            if (!found_match) {
+            // The arm this sort names, rather than any `from` after it was
+            // found. With a tree inside a tree the two are different: sorting
+            // the inner traversal reaches the outer one's `from` as well, and
+            // reordering that would apply a schedule where it was not asked
+            // for.
+            if (!current_match_arg.defined()) {
                 return node;
             }
             internal_assert(!found_from)
@@ -130,7 +158,14 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             const Var *var = node->loc.as<Var>();
             internal_assert(var) << Stmt(node);
 
-            if (var->name != loc.names[0]) {
+            // What this match walks, by the name a schedule can write: the
+            // tree itself when the schedule named it, and the field it was
+            // reached through when it is held in an element.
+            const auto nested = nested_paths.find(var->name);
+            const std::string &object = nested == nested_paths.cend()
+                                            ? var->name
+                                            : nested->second;
+            if (object != wanted_object()) {
                 return Mutator::visit(node);
             }
 
@@ -143,7 +178,7 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             Match::Arms new_arms(n);
             for (size_t i = 0; i < n; i++) {
                 Stmt stmt = node->arms[i].second;
-                if (node->arms[i].first.name() == loc.names[1]) {
+                if (node->arms[i].first.name() == wanted_arm()) {
                     current_match_arg = Unwrap::make(i, node->loc);
                     stmt = mutate(stmt);
                     found = true;
@@ -153,7 +188,7 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             }
 
             internal_assert(found)
-                << "Failed to find match arm: " << loc.names[1]
+                << "Failed to find match arm: " << wanted_arm()
                 << " in match:\n"
                 << Stmt(node);
 
@@ -181,7 +216,15 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
     };
 
     // TODO(ajr): would be 1 if this is applied to a queue.
-    internal_assert(loc.names.size() == 2);
+    //
+    // Two names for a tree the schedule gave a layout to -- `instances` and
+    // the arm -- and three for one held in an element's field, which is named
+    // by the field rather than by the local lowering bound it to:
+    // `Instance.blas.Interior`.
+    internal_assert(loc.names.size() >= 2)
+        << "sort() names a match arm of a traversal, as `<tree>.<arm>`, but "
+           "was given: "
+        << loc.names.size() << " name(s)";
     ApplySortImpl mutator(loc, cost_func, funcs, std::move(names_in_scope));
     Stmt change = mutator.mutate(std::move(stmt));
     internal_assert(mutator.found_match && mutator.found_from)

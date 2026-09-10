@@ -38,6 +38,12 @@ struct LayoutTypeMap {
         // The struct the group is a field of -- what a walk of it is rooted
         // at.
         ir::Type owner;
+        // And what that struct is called where the program can name it: the
+        // tree the schedule gave this layout to. A tree held in an element is
+        // stored in the same object as the tree that reaches it, so a walk of
+        // it reads through that object's name and not through the element's
+        // field, which holds only where to start.
+        std::string owner_name;
     };
     std::map<std::string, Named> groups;
     // Element fields the schedule bound to a tree, and the type a reference
@@ -96,6 +102,98 @@ ir::Type stored_type(const ir::Type &type,
     return ir::Struct_t::make(as_struct->name, std::move(fields),
                               as_struct->attributes);
 }
+
+// Says the above about the whole program, and not only about the arrays a
+// layout stores elements in.
+//
+// It has to be the whole program because `stored_type` keeps the element's
+// name: after this there is one Instance -- the one holding an index where the
+// set used to be -- so anything still describing the other one would be a
+// second type of the same name. `place(i : Instance, ..)` is the case that
+// forces it, since a traversal reads an instance out of storage and hands it
+// straight to a function the program wrote.
+struct RewriteStoredElements : public ir::Mutator {
+    const std::map<std::string, ir::Type> &field_refs;
+
+    RewriteStoredElements(const std::map<std::string, ir::Type> &field_refs)
+        : field_refs(field_refs) {}
+
+    ir::Type mutate(const ir::Type &type) override {
+        // The contents first, so that an element holding an element holding a
+        // tree comes out with the index in it either way round.
+        return stored_type(ir::Mutator::mutate(type), field_refs);
+    }
+
+    using ir::Mutator::mutate;
+
+    // The base Mutator leaves the types inside an expression as it found them;
+    // these are the same four Lower/ADTs.cpp has to reach for the same reason.
+    ir::Expr visit(const ir::Var *node) override {
+        ir::Type type = mutate(node->type);
+        if (type.same_as(node->type)) {
+            return node;
+        }
+        return ir::Var::make(std::move(type), node->name);
+    }
+
+    std::pair<ir::WriteLoc, bool>
+    mutate_writeloc(const ir::WriteLoc &loc) override {
+        ir::Type base_type = mutate(loc.base_type);
+        bool not_changed = base_type.same_as(loc.base_type);
+        ir::WriteLoc new_loc(loc.base, std::move(base_type));
+        for (const auto &value : loc.accesses) {
+            if (const ir::Expr *expr = std::get_if<ir::Expr>(&value)) {
+                ir::Expr new_value = mutate(*expr);
+                not_changed = not_changed && new_value.same_as(*expr);
+                new_loc.add_index_access(std::move(new_value));
+            } else {
+                new_loc.add_struct_access(std::get<std::string>(value));
+            }
+        }
+        return {std::move(new_loc), not_changed};
+    }
+
+    ir::Expr visit(const ir::Build *node) override {
+        std::vector<ir::Expr> values;
+        values.reserve(node->values.size());
+        bool not_changed = true;
+        for (const ir::Expr &value : node->values) {
+            ir::Expr new_value = mutate(value);
+            not_changed = not_changed && new_value.same_as(value);
+            values.push_back(std::move(new_value));
+        }
+        ir::Type type = mutate(node->type);
+        if (not_changed && type.same_as(node->type)) {
+            return node;
+        }
+        return ir::Build::make(std::move(type), std::move(values));
+    }
+
+    ir::Expr visit(const ir::Cast *node) override {
+        ir::Expr value = mutate(node->value);
+        ir::Type type = mutate(node->type);
+        if (value.same_as(node->value) && type.same_as(node->type)) {
+            return node;
+        }
+        return ir::Cast::make(std::move(type), std::move(value), node->mode);
+    }
+
+    ir::Expr visit(const ir::Lambda *node) override {
+        std::vector<ir::TypedVar> args;
+        args.reserve(node->args.size());
+        bool not_changed = true;
+        for (const ir::TypedVar &arg : node->args) {
+            ir::Type type = mutate(arg.type);
+            not_changed = not_changed && type.same_as(arg.type);
+            args.push_back(ir::TypedVar{arg.name, std::move(type)});
+        }
+        ir::Expr value = mutate(node->value);
+        if (not_changed && value.same_as(node->value)) {
+            return node;
+        }
+        return ir::Lambda::make(std::move(args), std::move(value));
+    }
+};
 
 std::string pad_name(uint32_t count) { return "pad" + std::to_string(count); }
 
@@ -586,17 +684,19 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
 struct LowerUnwrapAccesses : public ir::Mutator {
     const std::string &tree_name;
     const ir::Expr &tree_idx;
-    const ir::Type &tree_layout;
+    // The storage this walk reads, which is the tree itself for one the
+    // schedule named and the enclosing object for a tree held in an element.
+    const ir::Expr &tree_storage;
     const std::string &node_type;
     const std::map<std::string, ir::Expr> &field_map;
 
     ir::MapStack<std::string, ir::Type> type_repls;
 
     LowerUnwrapAccesses(const std::string &tree_name, const ir::Expr &tree_idx,
-                        const ir::Type &tree_layout,
+                        const ir::Expr &tree_storage,
                         const std::string &node_type,
                         const std::map<std::string, ir::Expr> &field_map)
-        : tree_name(tree_name), tree_idx(tree_idx), tree_layout(tree_layout),
+        : tree_name(tree_name), tree_idx(tree_idx), tree_storage(tree_storage),
           node_type(node_type), field_map(field_map) {}
 
     ir::Expr visit(const ir::Var *node) override {
@@ -770,8 +870,7 @@ struct LowerUnwrapAccesses : public ir::Mutator {
                     << new_args[partition - 1];
                 new_args[partition - 1] = splits[0];
             }
-            ir::Expr new_arg = ir::Var::make(tree_layout, tree_name);
-            new_args.insert(new_args.begin() + partition, new_arg);
+            new_args.insert(new_args.begin() + partition, tree_storage);
             ir::Expr new_func = make_new_call(new_args, partition, node->func);
             return ir::CallStmt::make(std::move(new_func), std::move(new_args));
         }
@@ -925,6 +1024,8 @@ struct LowerMatches : public ir::Mutator {
 
     std::map<std::string, ir::Type> ref_types;
     IndexTList index_list;
+    // Where each of those indices starts, in the same order.
+    std::vector<ir::Expr> index_starts;
     std::set<std::string> matched_objects;
     std::map<std::string, ir::Expr> references;
     // Trees reached through an element rather than named by the schedule.
@@ -937,6 +1038,11 @@ struct LowerMatches : public ir::Mutator {
     // walked directly, over the same storage.
     std::map<std::string, ir::Layout> nested_layouts;
     std::map<std::string, ir::Type> nested_structs;
+    // And the name that storage goes by. A nested tree's nodes are rows of a
+    // group in the enclosing object's layout, so its walk reads through the
+    // enclosing object -- `instances.group0_bnode[i]`, not `_subtree0.…`.
+    // What `_subtree0` holds is only where in that group to start.
+    std::map<std::string, std::string> nested_bases;
 
     // The layout a match on `name` should be lowered against.
     const ir::Layout *layout_of(const std::string &name) const {
@@ -961,6 +1067,23 @@ struct LowerMatches : public ir::Mutator {
         return nullptr;
     }
 
+    // The name the storage a walk of `name` reads is bound under. For a tree
+    // the schedule named, that is the tree itself; for one held in an element,
+    // it is whatever holds the group its nodes are rows of.
+    const std::string &base_of(const std::string &name) const {
+        if (const auto iter = nested_bases.find(name);
+            iter != nested_bases.cend()) {
+            return iter->second;
+        }
+        return name;
+    }
+
+    // Whether a walk of `name` starts wherever it was told to rather than at
+    // the first row of its group.
+    bool is_nested(const std::string &name) const {
+        return nested_layouts.contains(name);
+    }
+
     // `let <tree> = <element>.<field> in ...` for a field the schedule bound
     // to a tree: remember which group that tree's nodes live in, so the match
     // that follows can be lowered against it.
@@ -977,12 +1100,17 @@ struct LowerMatches : public ir::Mutator {
                     internal_assert(named != ltmap.groups.cend())
                         << "No group named " << group->second << " for "
                         << path;
+                    internal_assert(!named->second.owner_name.empty())
+                        << path << " is stored in group " << group->second
+                        << ", which is not a field of anything the program can "
+                           "name, so a walk of it has nothing to read through.";
                     // Walked directly: the reference the recursion advances is
                     // an index into this group, which is what an indirect
                     // group is when something is walking it rather than
                     // looking one row up.
                     nested_layouts[node->loc.base] = named->second.walkable;
                     nested_structs[node->loc.base] = named->second.owner;
+                    nested_bases[node->loc.base] = named->second.owner_name;
                 }
             }
         }
@@ -1004,16 +1132,26 @@ struct LowerMatches : public ir::Mutator {
         // advances an index into a different pool.
         auto outer_references = std::move(references);
         auto outer_index_list = std::move(index_list);
+        auto outer_index_starts = std::move(index_starts);
         references.clear();
         index_list.clear();
+        index_starts.clear();
 
         ir::Stmt body = mutate(node->body);
         body = flatten_yield_froms(index_list, std::move(body), references);
-        ir::Stmt loop =
-            ir::RecLoop::make(std::move(index_list), std::move(body));
+
+        internal_assert(index_list.size() == index_starts.size());
+        std::vector<ir::RecLoop::Arg> args;
+        args.reserve(index_list.size());
+        for (size_t i = 0; i < index_list.size(); i++) {
+            args.push_back(
+                ir::RecLoop::Arg{index_list[i], std::move(index_starts[i])});
+        }
+        ir::Stmt loop = ir::RecLoop::make(std::move(args), std::move(body));
 
         references = std::move(outer_references);
         index_list = std::move(outer_index_list);
+        index_starts = std::move(outer_index_starts);
         return loop;
     }
 
@@ -1039,7 +1177,7 @@ struct LowerMatches : public ir::Mutator {
             return *found;
         }();
 
-        ir::Expr base_struct = ir::Var::make(struct_type, tree_name);
+        ir::Expr base_struct = ir::Var::make(struct_type, base_of(tree_name));
         ir::Stmt body =
             lower_switch_tree(layout, base_struct, tree_name, ltmap);
 
@@ -1048,8 +1186,21 @@ struct LowerMatches : public ir::Mutator {
             IndexTList node_index_list = get_index_type(layout);
             std::reverse(node_index_list.begin(), node_index_list.end());
             std::vector<ir::Expr> idxs;
+            std::vector<ir::Expr> starts;
             idxs.reserve(node_index_list.size());
+            starts.reserve(node_index_list.size());
+            const bool nested = is_nested(tree_name);
+            internal_assert(!nested || node_index_list.size() == 1)
+                << tree_name << " is reached through a field holding one "
+                << "index, but walking it advances " << node_index_list.size();
             for (auto &it : node_index_list) {
+                // A tree the schedule named is rooted at the first row of its
+                // group. A tree held in an element's field is rooted wherever
+                // that field says, which is the value already bound under this
+                // name -- the same walk over the same storage, begun somewhere
+                // else.
+                starts.push_back(nested ? ir::Var::make(it.type, tree_name)
+                                        : make_zero(it.type));
                 it.name = tree_name + "_" + it.name;
                 idxs.push_back(ir::Var::make(it.type, it.name));
             }
@@ -1057,6 +1208,9 @@ struct LowerMatches : public ir::Mutator {
             index_list.insert(index_list.end(),
                               std::make_move_iterator(node_index_list.begin()),
                               std::make_move_iterator(node_index_list.end()));
+            index_starts.insert(index_starts.end(),
+                                std::make_move_iterator(starts.begin()),
+                                std::make_move_iterator(starts.end()));
             matched_objects.insert(tree_name);
         }
 
@@ -1076,7 +1230,7 @@ struct LowerMatches : public ir::Mutator {
 
             // Lower these Unwraps.
             ir::Stmt branch_body =
-                LowerUnwrapAccesses(tree_name, tree_idx, struct_type,
+                LowerUnwrapAccesses(tree_name, tree_idx, base_struct,
                                     branch_name, field_map)
                     .mutate(arm.second);
 
@@ -1230,9 +1384,41 @@ ir::Program LowerLayouts::run(ir::Program program,
             << ", which no layout declares.";
         ltmap.field_refs[path] = std::move(index_t);
     }
+
+    // Now say that about the program, before anything is lowered against it,
+    // so that everything reading an element and everything written about one
+    // agree on what an element is.
+    if (!ltmap.field_refs.empty()) {
+        RewriteStoredElements rewriter(ltmap.field_refs);
+        for (auto &[_, type] : program.types) {
+            type = rewriter.mutate(type);
+        }
+        for (auto &[_, type] : program.externs) {
+            type = rewriter.mutate(type);
+        }
+        for (auto &[_, func] : program.funcs) {
+            for (auto &arg : func->args) {
+                arg.type = rewriter.mutate(arg.type);
+                arg.default_value = rewriter.mutate(arg.default_value);
+            }
+            func->ret_type = rewriter.mutate(func->ret_type);
+            func->body = rewriter.mutate(func->body);
+        }
+    }
+
     for (const auto &[name, layout] : tree_layouts) {
         ir::Type struct_t = layout_to_structs(layout, ltmap);
         types[name] = struct_t;
+
+        // A group declared at the top of this layout is a field of the object
+        // the program knows by this name, so that is the name a walk of it
+        // reads through. One declared further in is a field of something the
+        // program cannot name, and a walk of it would have nowhere to start.
+        for (auto &[_, named] : ltmap.groups) {
+            if (named.owner.defined() && named.owner.same_as(struct_t)) {
+                named.owner_name = name;
+            }
+        }
 
         bool found = false;
         for (auto &[ename, etype] : program.externs) {

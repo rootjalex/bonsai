@@ -9,6 +9,7 @@ add_bonsai_tests(
     known-limitation-two-parfors.bonsai
     linearize.bonsai
     loopify.bonsai
+    loopify-nested.bonsai
     loopify-queue.bonsai
     mut-local.bonsai
     paper_example.bonsai
@@ -18,6 +19,7 @@ add_bonsai_tests(
     simple.bonsai
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
+    sort-nested.bonsai
     sort-recursion.bonsai
     split.bonsai
     split-unsigned.bonsai

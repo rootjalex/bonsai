@@ -1,0 +1,154 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/blas-tlas
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_blas_tlas.cpp -I. -o $<>/main_blas_tlas.o, clang++ $<>/main_blas_tlas.o $<>/blas-tlas.o -o $<>/blas-tlas, ./$<>/blas-tlas, rm $<>/blas-tlas, rm $<>/main_blas_tlas.o, rm $<>/blas-tlas.h, rm $<>/blas-tlas.o
+
+// A two-level acceleration structure that runs: a tree of instances, each
+// holding a tree of triangles, over storage they all share.
+//
+// nested-tree-layout.bonsai is the same scene stopped at the IR. This is the
+// part that cannot be read off a golden -- whether the answers are right --
+// and there are four things it is here to catch:
+//
+//   - a nested walk that started at the wrong row. Every instance's tree is a
+//     range of one pool, so beginning at the first row rather than at the one
+//     `blas` names would traverse some other instance's geometry and still
+//     produce a plausible hit.
+//   - a transform applied in the wrong direction, or to the wrong thing. The
+//     scene below is arranged so that each instance's triangle sits in its own
+//     lane along z, and an instance whose transform was skipped or inverted
+//     lands in nobody's lane rather than slightly off in its own.
+//   - a hit found in one instance not pruning another. Two instances overlap
+//     in lane z=0, one behind the other, and the answer must be the nearer.
+//   - `any` reporting on the whole set rather than stopping. Weakening the
+//     reduction is a strictly easier query, and a nested `any` that lowered to
+//     a nested `argmin` with the result thrown away would agree with `trace`
+//     on every ray here and be worthless.
+//
+// The driver owns the scene: bonsai has no file I/O and tree construction is
+// not yet expressible in the language, so only the traversal is compiled.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+// PBRT: Transform, which stores the matrix and its inverse rather than
+// inverting on use.
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+// PBRT: `Transform::operator()(const Bounds3f &)`, which unions the eight
+// transformed corners rather than transforming the two extreme points -- the
+// short version is wrong for any rotation, and one of the instances below is
+// rotated.
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// PBRT: TransformedPrimitive. A transform and a whole acceleration structure.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+// A triangle where its instance puts it.
+func place(i : Instance, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(i.render_from_instance, tri.p0),
+                      apply(i.render_from_instance, tri.p1),
+                      apply(i.render_from_instance, tri.p2)};
+    return out;
+}
+
+// PBRT: Primitive::Intersect over a scene with instances in it. The searched
+// set is every triangle of every instance, each where its instance puts it.
+func [[export]] trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > 0.001,
+                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
+                                             i.blas),
+                          instances)));
+
+// PBRT: Primitive::IntersectP. The same set with the reduction weakened, so
+// the inner traversal may stop at its first answer and the outer one at its
+// first non-empty instance.
+func [[export]] trace_any(r : Ray) =
+    any(|i : Instance, tri : Triangle|
+            intersects(r, tri) && distmin(r, tri) > 0.001,
+        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+                instances));
+
+schedule {
+    // PBRT: the BVHAggregate an instanced object is built over.
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    // PBRT: the top-level BVHAggregate, whose primitives are
+    // TransformedPrimitives.
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        // One pool for every instance's tree. Two instances of one object name
+        // the same row, so the object is stored once however often it appears.
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

@@ -303,7 +303,14 @@ void Visitor::visit(const Label *node) {
     }
 }
 
-void Visitor::visit(const RecLoop *node) { node->body.accept(this); }
+void Visitor::visit(const RecLoop *node) {
+    // The starting values belong to the scope the recursion is written in, not
+    // to the recursion, so they are visited outside it.
+    for (const auto &arg : node->args) {
+        arg.init.accept(this);
+    }
+    node->body.accept(this);
+}
 
 void Visitor::visit(const Match *node) {
     node->loc.accept(this);

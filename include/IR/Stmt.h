@@ -305,10 +305,28 @@ struct Label : StmtNode<Label> {
 // A (currently inlined) recursive loop
 // Contains `From` nodes that match the args list.
 struct RecLoop : StmtNode<RecLoop> {
-    std::vector<TypedVar> args;
+    // A value the recursion carries, and where it starts.
+    //
+    // The start is written down rather than worked out later because only
+    // whoever built the walk knows it. A tree the schedule named is rooted at
+    // the first row of the group its nodes live in; a tree held in an
+    // element's field is rooted wherever that field says, in the same storage.
+    // Those are one recursion begun in two places, and no rule about the
+    // parameter's type can tell them apart.
+    struct Arg {
+        TypedVar var;
+        Expr init;
+    };
+
+    std::vector<Arg> args;
     Stmt body;
 
-    static Stmt make(std::vector<TypedVar> args, Stmt body);
+    static Stmt make(std::vector<Arg> args, Stmt body);
+
+    // A recursion over objects, each starting at the value already bound under
+    // its own name. This is what a traversal looks like before a layout turns
+    // the node it carries into an index into storage.
+    static Stmt make(const std::vector<TypedVar> &vars, Stmt body);
 
     static const IRStmtEnum node_type = IRStmtEnum::RecLoop;
 };

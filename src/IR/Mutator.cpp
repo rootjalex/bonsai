@@ -682,12 +682,24 @@ Stmt Mutator::visit(const Label *node) {
 }
 
 Stmt Mutator::visit(const RecLoop *node) {
-    // TODO: mutate arg types...?
+    // A parameter is a binding, so its type is mutated the way a lambda's is;
+    // and the starting values are evaluated where the recursion is written,
+    // not inside it, so they are mutated like anything else in that scope.
+    std::vector<RecLoop::Arg> args = node->args;
+    bool not_changed = true;
+    for (auto &arg : args) {
+        Type type = mutate(arg.var.type);
+        not_changed = not_changed && type.same_as(arg.var.type);
+        arg.var.type = std::move(type);
+        Expr init = mutate(arg.init);
+        not_changed = not_changed && init.same_as(arg.init);
+        arg.init = std::move(init);
+    }
     Stmt body = node->body.defined() ? mutate(node->body) : node->body;
-    if (body.same_as(node->body)) {
+    if (not_changed && body.same_as(node->body)) {
         return node;
     }
-    return RecLoop::make(node->args, std::move(body));
+    return RecLoop::make(std::move(args), std::move(body));
 }
 
 Stmt Mutator::visit(const MatchVariant *node) {

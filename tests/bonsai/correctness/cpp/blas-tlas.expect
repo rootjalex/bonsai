@@ -1,0 +1,12 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_blas_tlas.cpp -I. -o tests/bonsai/correctness/cpp/main_blas_tlas.o
+[test] clang++ tests/bonsai/correctness/cpp/main_blas_tlas.o tests/bonsai/correctness/cpp/blas-tlas.o -o tests/bonsai/correctness/cpp/blas-tlas
+[test] ./tests/bonsai/correctness/cpp/blas-tlas
+near lane -1: hit blas=0 at (0.00, 0.00, 0.00) tri=(0.00, -1.00, -1.50) any=yes
+near lane +1: hit blas=0 at (0.00, 0.00, 0.00) tri=(0.00, -1.00, 0.50) any=yes
+far lane -1 : hit blas=0 at (0.00, 0.00, 10.00) tri=(0.00, -1.00, 8.50) any=yes
+far lane +1 : hit blas=0 at (0.00, 0.00, 10.00) tri=(0.00, -1.00, 10.50) any=yes
+turned      : hit blas=3 at (0.00, 0.00, 20.00) tri=(0.00, 0.25, 19.75) any=yes
+unturned    : miss any=no
+wrong object: miss any=no
+empty lane  : miss any=no
+past the top: miss any=no

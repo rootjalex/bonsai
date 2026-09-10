@@ -49,19 +49,40 @@ struct LowerRecLoopsImpl : public Mutator {
 
     Stmt visit(const RecLoop *node) override {
         std::vector<Expr> call_args(node->args.size());
+        // The same arguments as a step of the recursion sees them: whatever
+        // this invocation is holding, which a `from` below then replaces at
+        // the positions it recurses on. Distinct from the values the first
+        // call passes, which are read in the enclosing scope and mean nothing
+        // inside the function.
+        std::vector<Expr> step_args(node->args.size());
         std::vector<Function::Argument> f_args(node->args.size());
+        std::set<std::string> carried;
         for (size_t i = 0; i < node->args.size(); i++) {
-            call_args[i] = node->args[i].type.is_numeric()
-                               ? make_zero(node->args[i].type)
-                               : node->args[i];
-            f_args[i].name = node->args[i].name;
-            f_args[i].type = node->args[i].type;
+            // Where the walk begins. Evaluated here, in the scope the
+            // recursion was written in, which is the only place the names it
+            // is built from are bound.
+            call_args[i] = mutate(node->args[i].init);
+            step_args[i] =
+                Var::make(node->args[i].var.type, node->args[i].var.name);
+            f_args[i].name = node->args[i].var.name;
+            f_args[i].type = node->args[i].var.type;
             f_args[i].mutating = false;
+            carried.insert(node->args[i].var.name);
         }
-        std::vector<TypedVar> vars = gather_free_vars(node);
+        // Everything else the body reads becomes a parameter too. Taken from
+        // the body rather than from the whole node: a starting value is read
+        // by the caller, so a name that only appears there is not something
+        // this function needs to be given.
+        std::vector<TypedVar> vars;
+        for (auto &var : gather_free_vars(node->body)) {
+            if (carried.insert(var.name).second) {
+                vars.push_back(std::move(var));
+            }
+        }
         auto mutables = mutated_variables(node->body);
         for (const auto &var : vars) {
             call_args.push_back(Var::make(var.type, var.name));
+            step_args.push_back(Var::make(var.type, var.name));
             // A free variable that lowering invented for this traversal --
             // the accumulator it folds into -- is passed in as its own
             // argument, and nothing else the traversal can reach refers to
@@ -79,12 +100,18 @@ struct LowerRecLoopsImpl : public Mutator {
             Function::InterfaceList{}, std::vector<Function::Attribute>{});
 
         Expr fexpr = Var::make(func->call_type(), func_name);
-        internal_assert(!current_func.defined());
+        // Recursions nest: a query over a tree held in an element walks the
+        // outer tree and, at each element, walks that element's own. Each
+        // becomes its own function, so the one being built is put aside while
+        // the inner one is extracted and picked up again after -- a `from` in
+        // the outer body after that point still means the outer function.
+        Expr outer_func = std::move(current_func);
+        std::vector<Expr> outer_args = std::move(current_args);
         current_func = fexpr;
-        current_args = call_args;
+        current_args = std::move(step_args);
         func->body = Sequence::make({mutate(node->body), Return::make()});
-        current_func = Expr();
-        current_args.clear();
+        current_func = std::move(outer_func);
+        current_args = std::move(outer_args);
 
         new_funcs[func_name] = func;
 

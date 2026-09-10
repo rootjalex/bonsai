@@ -1,0 +1,111 @@
+// A loopify() over a tree held in an element, on the pipeline that has one
+// stack to give.
+//
+// The Stmt-level lowering turns a branching recursion into writes to a queue,
+// and a query over a tree inside a tree is two recursions: the walk over
+// instances and, at each instance it reaches, the walk over that instance's
+// own triangles. Each needs a stack of its own. What matters is that this is
+// refused rather than compiled with one between them -- an inner walk pushing
+// its node references where the outer walk pops them reads an instance's tree
+// as if it were the tree of instances, which does not fail, it answers with
+// somebody else's geometry.
+//
+// correctness/cpp/blas-tlas-loopified.bonsai is the same schedule on `-p ssa`,
+// where every recursion gets a stack, run against the answers of the
+// unloopified one.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+func transform(t : Transform, b : AABB) -> AABB {
+    lo = min(apply(t, b.low), apply(t, b.high));
+    hi = max(apply(t, b.low), apply(t, b.high));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+func place(i : Instance, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(i.render_from_instance, tri.p0),
+                      apply(i.render_from_instance, tri.p1),
+                      apply(i.render_from_instance, tri.p2)};
+    return out;
+}
+
+func [[export]] trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle| intersects(r, tri),
+                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
+                                             i.blas),
+                          instances)));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

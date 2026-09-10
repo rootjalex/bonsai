@@ -1,0 +1,141 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/blas-tlas-loopified
+//! commands: clang++ -std=c++20 -O3 -DLOOPIFIED -c $<>/main_blas_tlas.cpp -I. -o $<>/main_blas_tlas_loopified.o, clang++ $<>/main_blas_tlas_loopified.o $<>/blas-tlas-loopified.o -o $<>/blas-tlas-loopified, ./$<>/blas-tlas-loopified, rm $<>/blas-tlas-loopified, rm $<>/main_blas_tlas_loopified.o, rm $<>/blas-tlas-loopified.h, rm $<>/blas-tlas-loopified.o
+
+// blas-tlas.bonsai with `loopify()` on both traversals, run against the same
+// driver and the same answers.
+//
+// That last part is the test. `loopify()` replaces a recursion with an
+// explicit stack and changes nothing about what the query computes, so every
+// line this prints has to match blas-tlas.expect exactly.
+//
+// A tree held inside a tree is what makes it worth running: there are two
+// recursions here and each needs a stack of its own. Sharing one would leave
+// a walk of an instance's triangles pushing its node references where the walk
+// over instances pops them, which comes back with somebody else's geometry
+// rather than with an error. The Stmt-level pipeline has only the one stack
+// and refuses this schedule outright -- error/loopify-nested-needs-ssa.bonsai
+// pins that -- so this is compiled with `-p ssa`, where the rewrite gives
+// every recursion its own.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+// PBRT: Transform, which stores the matrix and its inverse rather than
+// inverting on use.
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+// PBRT: `Transform::operator()(const Bounds3f &)`, which unions the eight
+// transformed corners rather than transforming the two extreme points.
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// PBRT: TransformedPrimitive. A transform and a whole acceleration structure.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+// A triangle where its instance puts it.
+func place(i : Instance, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(i.render_from_instance, tri.p0),
+                      apply(i.render_from_instance, tri.p1),
+                      apply(i.render_from_instance, tri.p2)};
+    return out;
+}
+
+// PBRT: Primitive::Intersect over a scene with instances in it.
+func [[export]] trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > 0.001,
+                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
+                                             i.blas),
+                          instances)));
+
+// PBRT: Primitive::IntersectP.
+func [[export]] trace_any(r : Ray) =
+    any(|i : Instance, tri : Triangle|
+            intersects(r, tri) && distmin(r, tri) > 0.001,
+        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+                instances));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    // Both traversals, so the stack the weakened query walks with is exercised
+    // too: `any` stops as soon as its answer is settled, and stopping is a
+    // different thing to get right once the recursion is a loop.
+    trace.loopify(64);
+    trace_any.loopify(64);
+}

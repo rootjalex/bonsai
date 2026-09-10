@@ -1,0 +1,150 @@
+//! flags: -p core
+
+// Where a tree held in an element's field is stored, and what a walk of it
+// reads.
+//
+// nested-trees.bonsai is this query stopped at lower-trees, where the answer is
+// still `rec(_subtree0 : tree[[Triangle]] BLAS) { match _subtree0 ... }`. This
+// is the same query taken the rest of the way, and the whole of what the
+// layout has to say is three things:
+//
+//   - the inner tree's nodes are rows of `BlasNodes`, a group of the *outer*
+//     tree's layout, so the walk reads `instances.group0_bnode[i]`. There is no
+//     second object: an instance's field holds an index, not storage.
+//   - so the recursion starts at that index rather than at the first row --
+//     `_recloop_func1(_subtree0, ..)` below -- which is the one thing a
+//     traversal over a shared pool needs and a traversal over a whole tree
+//     does not.
+//   - and the triangles a leaf of that group names are `instances.tris`,
+//     declared beside the group and shared by every instance, which is what
+//     makes storing one geometry and placing it twice cost one copy.
+//
+// The group is `indirect` because nothing reaches it by descending. The outer
+// tree's own nodes are walked into from the reference the recursion carries;
+// these are named. Two instances naming the same row share a subtree, and that
+// is the whole trick -- an instanced object is stored once however many times
+// it appears.
+//
+// Also here: the accumulator crosses into the nested walk. `_best0` is read by
+// the inner traversal's pruning test below, which is PBRT's `tMax` argument to
+// `Primitive::Intersect` -- without it an instance cannot prune against a hit
+// found in another one, and the top-level tree stops doing most of its job.
+//
+// And both leaves prune, once each. Every arm of both traversals tests its own
+// node's box before doing anything, including the two leaf arms: the outer one
+// before it opens a single instance's tree, the inner one before it reads a
+// single triangle. Neither test is inside the loop it guards, because the box
+// belongs to the node and cannot change between the elements the node holds.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+// PBRT: `Transform::operator()(const Bounds3f &)`, which unions the eight
+// transformed corners rather than transforming the two extreme points.
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// PBRT: TransformedPrimitive.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+func place(i : Instance, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(i.render_from_instance, tri.p0),
+                      apply(i.render_from_instance, tri.p1),
+                      apply(i.render_from_instance, tri.p2)};
+    return out;
+}
+
+func trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > 0.001,
+                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
+                                             i.blas),
+                          instances)));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        // Every instance's triangles, in one array. An instance's tree names a
+        // range of it, and two instances of one object name the same range.
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        // Every instance's tree, in one pool. Indirect, because a walk never
+        // arrives here -- an element's `blas` field says where to start, and
+        // the recursion advances from there.
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        // The top-level tree, walked into from the reference the recursion
+        // carries, in the ordinary way.
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

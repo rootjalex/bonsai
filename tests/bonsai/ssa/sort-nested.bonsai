@@ -1,0 +1,98 @@
+//! flags: -p ssa
+
+// `sort()` on both levels of a query that walks a tree held in an element of
+// another tree.
+//
+// ssa/sort-recursion.bonsai covers the one-level case and says what the
+// reordering looks like. What is new here is that a nested traversal can be
+// named at all. It matches on a local that lowering invented -- `_subtree0`,
+// bound to the element's field -- and no schedule can write that, so what a
+// schedule names is the field it came from:
+//
+//     trace.sort(instances.Interior, ..)         // the tree of instances
+//          .sort(Instance.blas.Interior, ..)     // one instance's own tree
+//
+// Both are pbrt's rule, and each reads the split axis of its own tree: the
+// golden shows one reordering keyed on `instances.group1_index[..].axis` and
+// the other on `instances.group0_bnode[..].axis`, which is the same rule
+// applied twice rather than once to two things.
+//
+// Sorting one level must leave the other alone, which is the mistake worth
+// having a golden for: a `sort` that reordered every `from` it reached after
+// finding its arm would silently apply the schedule where it was not asked
+// for.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+element Instance {
+    blas : set[Triangle];
+} with extent = blas.AABB;
+
+extern instances : set[Instance];
+
+func [[export]] trace(ray : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(ray, tri),
+           filter(|i : Instance, tri : Triangle| intersects(ray, tri),
+                  flatten(|i : Instance| i.blas, instances)));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nInsts : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nInsts {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nInsts)); };
+            };
+        };
+    };
+
+    trace.sort(instances.Interior,
+               |i : u8, ray : Ray, axis : u8|
+                   select((1 / ray.d)[axis] < 0, 1.0 - cast[[f32]](i),
+                          cast[[f32]](i)))
+         .sort(Instance.blas.Interior,
+               |i : u8, ray : Ray, axis : u8|
+                   select((1 / ray.d)[axis] < 0, 1.0 - cast[[f32]](i),
+                          cast[[f32]](i)))
+         .loopify(64);
+}

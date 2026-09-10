@@ -1,0 +1,154 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/blas-tlas-sorted
+//! commands: clang++ -std=c++20 -O3 -DSORTED -c $<>/main_blas_tlas.cpp -I. -o $<>/main_blas_tlas_sorted.o, clang++ $<>/main_blas_tlas_sorted.o $<>/blas-tlas-sorted.o -o $<>/blas-tlas-sorted, ./$<>/blas-tlas-sorted, rm $<>/blas-tlas-sorted, rm $<>/main_blas_tlas_sorted.o, rm $<>/blas-tlas-sorted.h, rm $<>/blas-tlas-sorted.o
+
+// blas-tlas.bonsai with a front-to-back `sort()` on both levels, run against
+// the same driver and the same answers.
+//
+// That last part is the test. A `sort()` decides which child a traversal
+// descends into first and nothing else, so every line this prints has to match
+// blas-tlas.expect exactly -- and there are two traversals here, so there are
+// two chances for a schedule to change the program rather than the plan.
+//
+// The second `sort` is the one worth running. The traversal it names matches
+// on a local lowering invented, so the schedule names the field that local was
+// bound to instead, and what has to hold is that each level reads *its own*
+// tree's split axis: an inner walk keyed on the outer tree's axis would still
+// visit both children and still find the right hit, and would be wrong in the
+// one way a correctness test cannot see. ssa/sort-nested.bonsai pins that; this
+// pins that neither reordering loses an answer.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+// PBRT: Transform, which stores the matrix and its inverse rather than
+// inverting on use.
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+// PBRT: `Transform::operator()(const Bounds3f &)`, which unions the eight
+// transformed corners rather than transforming the two extreme points.
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// PBRT: TransformedPrimitive. A transform and a whole acceleration structure.
+element Instance {
+    render_from_instance : Transform;
+    blas : set[Triangle];
+} with extent = transform(render_from_instance, blas.AABB);
+
+extern instances : set[Instance];
+
+// A triangle where its instance puts it.
+func place(i : Instance, tri : Triangle) -> Triangle {
+    out : Triangle = {apply(i.render_from_instance, tri.p0),
+                      apply(i.render_from_instance, tri.p1),
+                      apply(i.render_from_instance, tri.p2)};
+    return out;
+}
+
+// PBRT: Primitive::Intersect over a scene with instances in it.
+func [[export]] trace(r : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(r, tri),
+           filter(|i : Instance, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > 0.001,
+                  flatten(|i : Instance| map(|tri : Triangle| place(i, tri),
+                                             i.blas),
+                          instances)));
+
+// PBRT: Primitive::IntersectP.
+func [[export]] trace_any(r : Ray) =
+    any(|i : Instance, tri : Triangle|
+            intersects(r, tri) && distmin(r, tri) > 0.001,
+        flatten(|i : Instance| map(|tri : Triangle| place(i, tri), i.blas),
+                instances));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    // pbrt's rule, at both levels: if the ray points down the axis this node
+    // was split on, its second child is the nearer one, so give branch 1 the
+    // smaller key.
+    //
+    // The tree of instances is named by the schedule and so by its own name.
+    // An instance's tree has no name of its own -- it is a field, and the
+    // traversal walks a local lowering bound to it -- so it is named by the
+    // field: `Instance.blas`.
+    trace.sort(instances.Interior,
+               |i : u8, r : Ray, axis : u8|
+                   select((1 / r.d)[axis] < 0, 1.0 - cast[[f32]](i),
+                          cast[[f32]](i)))
+         .sort(Instance.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+                   select((1 / r.d)[axis] < 0, 1.0 - cast[[f32]](i),
+                          cast[[f32]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+}

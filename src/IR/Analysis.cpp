@@ -176,12 +176,18 @@ struct GatherFreeVars : public Visitor {
     }
 
     void visit(const ir::RecLoop *node) override {
+        // Where the walk starts is read where the recursion is written, so it
+        // is a use of the enclosing scope's names -- and it is read before the
+        // parameters exist, which is why it is visited first.
         for (const auto &arg : node->args) {
-            seen_vars.insert(arg.name);
+            arg.init.accept(this);
+        }
+        for (const auto &arg : node->args) {
+            seen_vars.insert(arg.var.name);
         }
         node->body.accept(this);
         for (const auto &arg : node->args) {
-            seen_vars.erase(arg.name);
+            seen_vars.erase(arg.var.name);
         }
     }
 };

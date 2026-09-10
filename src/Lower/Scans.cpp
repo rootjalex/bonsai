@@ -264,16 +264,19 @@ struct LowerScansImpl : public Mutator {
     }
 
     Stmt visit(const RecLoop *node) override {
-        internal_assert(args.empty()) << Stmt(node);
-        args = node->args;
-        std::vector<TypedVar> free_vars = gather_free_vars(node->body);
-        // Add non-duplicating free_vars.
+        // Recursions nest -- a traversal of a tree held in an element of
+        // another -- and a scan inside one belongs to the innermost, whose
+        // arguments are the ones in scope where it is written. So the outer
+        // recursion's are put aside and picked up again after.
+        std::vector<TypedVar> outer_args = std::move(args);
+        args.clear();
         std::unordered_set<std::string> arg_names;
-        for (const auto &arg : args) {
-            arg_names.insert(arg.name);
+        for (const auto &arg : node->args) {
+            args.push_back(arg.var);
+            arg_names.insert(arg.var.name);
         }
-
-        for (const auto &var : free_vars) {
+        // Add non-duplicating free_vars.
+        for (const auto &var : gather_free_vars(node->body)) {
             if (arg_names.insert(var.name).second) {
                 args.push_back(var);
             }
@@ -281,7 +284,7 @@ struct LowerScansImpl : public Mutator {
 
         Stmt body = mutate(node->body);
 
-        args.clear();
+        args = std::move(outer_args);
 
         if (body.same_as(node->body)) {
             return node;

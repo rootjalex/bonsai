@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/LoopTransforms.cpp:210
+loopify() is in the schedule, and this traversal walks a tree held in an element of another. Each level needs a stack of its own, and this pipeline has only the one it just made, at the Stmt level. Compile with `-p ssa`, where loopify gives every recursion its own stack.

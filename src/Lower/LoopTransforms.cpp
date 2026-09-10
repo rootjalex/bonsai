@@ -198,6 +198,24 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
               queue_loc(std::move(queue_loc)),
               queue_etype(std::move(queue_etype)) {}
 
+        // A `from` inside a nested recursion belongs to that recursion and to
+        // its stack, not to this one. Descending would send an inner tree's
+        // node references to the outer tree's queue, which pops them as if
+        // they named its own nodes -- wrong answers rather than slow ones.
+        // Giving the inner recursion a stack of its own is what the SSA
+        // rewriter does (see SSA/Rewrite.cpp); here it would mean threading a
+        // second queue through the extracted function, which is work this
+        // pass is being retired rather than taught.
+        Stmt visit(const RecLoop *node) override {
+            internal_error
+                << "loopify() is in the schedule, and this traversal walks a "
+                   "tree held in an element of another. Each level needs a "
+                   "stack of its own, and this pipeline has only the one it "
+                   "just made, at the Stmt level. Compile with `-p ssa`, "
+                   "where loopify gives every recursion its own stack.";
+            return node;
+        }
+
         Stmt visit(const YieldFrom *node) override {
             internal_assert(node->keys.empty())
                 << "sort() is in the schedule, but this pipeline turns the "
@@ -494,15 +512,24 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
         Stmt visit(const RecLoop *node) override {
             const size_t unique_id = get_unique_counter();
 
+            std::vector<TypedVar> arg_vars;
+            std::vector<Expr> arg_inits;
+            arg_vars.reserve(node->args.size());
+            arg_inits.reserve(node->args.size());
+            for (const auto &arg : node->args) {
+                arg_vars.push_back(arg.var);
+                arg_inits.push_back(arg.init);
+            }
+
             Type queue_etype;
             if (node->args.size() == 1) {
-                queue_etype = node->args[0].type;
+                queue_etype = arg_vars[0].type;
             } else {
                 // TODO: pack?
                 constexpr auto P = Struct_t::Attribute::packed;
                 // TODO: need to add this to program.types
                 const auto name = unique_struct_name(unique_id);
-                queue_etype = ir::Struct_t::make(name, node->args, {P});
+                queue_etype = ir::Struct_t::make(name, arg_vars, {P});
                 auto [_, inserted] = types.try_emplace(name, queue_etype);
                 internal_assert(inserted)
                     << name << " already exists in program types.";
@@ -528,7 +555,14 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
             Expr queue_var = Var::make(queue_type, queue_name);
             WriteLoc queue_top = queue_loc;
             queue_top.add_index_access(make_zero(count_type));
-            stmts.push_back(Store::make(queue_top, make_zero(queue_etype)));
+            // The stack starts holding where the walk starts, which the
+            // recursion says. A top-level tree's is the first row of its
+            // group; a tree held in an element's field starts wherever that
+            // field points.
+            Expr root = arg_inits.size() == 1
+                            ? arg_inits[0]
+                            : Build::make(queue_etype, arg_inits);
+            stmts.push_back(Store::make(queue_top, std::move(root)));
 
             std::vector<Stmt> loop_body;
             loop_body.reserve(node->args.size() + 3);
@@ -539,9 +573,9 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
 
             // Read the top element
             // args = extract from queue[count]
-            if (node->args.size() == 1) {
+            if (arg_vars.size() == 1) {
                 Expr top_expr = Extract::make(queue_var, count_var);
-                WriteLoc arg_loc(node->args[0].name, node->args[0].type);
+                WriteLoc arg_loc(arg_vars[0].name, arg_vars[0].type);
                 loop_body.push_back(
                     LetStmt::make(std::move(arg_loc), std::move(top_expr)));
             } else {
@@ -549,7 +583,7 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
                 loop_body.push_back(LetStmt::make(
                     top_loc, Extract::make(queue_var, count_var)));
                 Expr top_expr = Var::make(queue_etype, top_name);
-                for (const auto &arg : node->args) {
+                for (const auto &arg : arg_vars) {
                     WriteLoc arg_loc(arg.name, arg.type);
                     loop_body.push_back(LetStmt::make(
                         std::move(arg_loc), Access::make(arg.name, top_expr)));

@@ -28,6 +28,7 @@ add_bonsai_tests(
     multiple-options.bonsai
     negation.bonsai
     nested-exported-function.bonsai
+    nested-tree-layout.bonsai
     nested-trees.bonsai
     option-dereference-struct.bonsai
     option-dereference.bonsai

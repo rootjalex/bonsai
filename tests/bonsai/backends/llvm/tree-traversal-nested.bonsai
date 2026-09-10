@@ -1,0 +1,97 @@
+//! flags: -p ssa -b llvm
+
+// tree-traversal.bonsai with a tree inside the tree, compiled end to end.
+//
+// The query searches every triangle of every instance, so the traversal has
+// two levels: a walk of the tree of instances and, at each instance it
+// reaches, a walk of that instance's own tree of triangles. Both come out
+// inside `_traverse_tree0` -- the recursions lowering extracted are loops by
+// the time LLVM has finished with them, and neither is left standing as a
+// function of its own, for the reason tree-traversal.bonsai gives.
+//
+// Three things to look for in the golden, all of them about the two levels
+// staying separate:
+//
+//   - two `alloca [64 x i32]`, one stack each, with the inner one's lifetime
+//     opening and closing inside the outer loop. Sharing a stack would have
+//     the outer loop popping rows of the inner tree's pool and reading them as
+//     nodes of its own -- somebody else's geometry rather than a crash.
+//   - the inner stack is seeded with a value loaded out of an instance, not
+//     with zero, which the outer one is. Every instance's tree is a range of
+//     one shared pool, so where its walk starts is a number it was handed --
+//     that is the difference between a tree and a tree in a pool, and it is
+//     what lets one geometry be placed many times and stored once.
+//   - both loops index the one `%struct._tree_layout0`. There is no second
+//     object: an instance's field holds a row number, and the storage it
+//     numbers is the storage the outer walk was already reading.
+//
+// The accumulator crosses between them, and is worth checking has stayed in
+// registers: `_best0` reaches the golden as `phi` nodes in both loops rather
+// than as loads and stores. Reading it in the inner loop is PBRT's `tMax`
+// argument to `Primitive::Intersect`, without which an instance cannot prune
+// against a hit found in another one.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+element Instance {
+    blas : set[Triangle];
+} with extent = blas.AABB;
+
+extern instances : set[Instance];
+
+func [[export]] trace(ray : Ray) =
+    argmin(|i : Instance, tri : Triangle| distmin(ray, tri),
+           filter(|i : Instance, tri : Triangle| intersects(ray, tri),
+                  flatten(|i : Instance| i.blas, instances)));
+
+schedule {
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Instance]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS)
+    | Leaf(data : array[Instance]) with data = data;
+
+    instances : TLAS;
+    Instance.blas : BLAS from BlasNodes;
+
+    layout instances {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            16; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        iCount : u32;
+        insts : array[Instance, iCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nInsts : u16;
+            16; // pad bits.
+            switch nInsts {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(insts, pOffset, cast[[u32]](nInsts)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+}

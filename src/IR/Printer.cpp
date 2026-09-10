@@ -1509,9 +1509,16 @@ void Printer::visit(const RecLoop *node) {
 
     const size_t n = node->args.size();
     for (size_t i = 0; i < n; i++) {
-        os << node->args[i].name;
+        os << node->args[i].var.name;
         os << " : ";
-        print(node->args[i].type);
+        print(node->args[i].var.type);
+        // Where the walk begins, printed only when it is not simply the value
+        // already bound under that name.
+        const Var *self = node->args[i].init.as<Var>();
+        if (self == nullptr || self->name != node->args[i].var.name) {
+            os << " = ";
+            print(node->args[i].init);
+        }
         if (i < n - 1) {
             os << ", ";
         }
