@@ -46,6 +46,10 @@ enum MaterialTag : uint32_t {
     // A measured BRDF: no model at all, just a table of what the surface was
     // observed to do, in Dupuy and Jakob's parameterization.
     Measured = 4,
+    // A Lambertian lobe on each side of the surface -- a leaf. It reuses
+    // `reflectance` for the front and adds `transmittance` for what comes
+    // through, both scaled by `scale`.
+    DiffuseTransmission = 5,
 };
 
 // One of PBRT's PiecewiseLinear2D interpolants, as the renderer reads it.
@@ -185,6 +189,13 @@ struct Material {
     int32_t conductor_spectra = -1;
     // Measured only: which entry of `measured_brdfs`.
     int32_t measured = -1;
+    // DiffuseTransmission only: what comes through the surface, as an RGB or
+    // a texture like `reflectance` above, and PBRT's `scale` on both. PBRT's
+    // defaults are 0.25 for each, not `reflectance`'s 0.5, so the converter
+    // sets both before it reads the scene's.
+    float transmittance[3] = {0.25f, 0.25f, 0.25f};
+    int32_t transmittance_texture = -1;
+    float scale = 1.f;
     // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
     // remaps per intersection and `remaproughness` says whether it does at all.
     float u_roughness = 0.f;
@@ -787,6 +798,9 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::Measured:
             out << "  measured";
             break;
+        case MaterialTag::DiffuseTransmission:
+            out << "  diffusetransmission";
+            break;
         default:
             return false;
         }
@@ -794,6 +808,12 @@ inline bool write(const char *path, const Scene &scene) {
         detail::put(out, m.reflectance, 3);
         out << " reflectancetex " << m.reflectance_texture << " displacement "
             << m.displacement_texture << " measured " << m.measured;
+        if (m.tag == MaterialTag::DiffuseTransmission) {
+            out << " transmittance";
+            detail::put(out, m.transmittance, 3);
+            out << " transmittancetex " << m.transmittance_texture << " scale";
+            detail::put(out, &m.scale, 1);
+        }
         if (m.tag == MaterialTag::Dielectric) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
@@ -1241,6 +1261,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::Conductor;
         } else if (word == "measured") {
             m.tag = MaterialTag::Measured;
+        } else if (word == "diffusetransmission") {
+            m.tag = MaterialTag::DiffuseTransmission;
         } else {
             return false;
         }
@@ -1260,6 +1282,23 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> m.measured;
+        if (m.tag == MaterialTag::DiffuseTransmission) {
+            if (!tagged("transmittance")) {
+                return false;
+            }
+            floats(m.transmittance, 3);
+            if (!tagged("transmittancetex")) {
+                return false;
+            }
+            in >> m.transmittance_texture;
+            if (m.transmittance_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
+            if (!tagged("scale")) {
+                return false;
+            }
+            floats(&m.scale, 1);
+        }
         if (m.tag == MaterialTag::Dielectric) {
             if (!tagged("roughness")) {
                 return false;

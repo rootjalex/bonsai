@@ -1,0 +1,91 @@
+# A surface that lets light through: pbrt's `diffusetransmission`, which is
+# what every leaf in barcelona-pavilion is made of.
+#
+# A thin vertical quad stands between the camera and an area light, so most of
+# what the camera sees of it is light that came *through* it -- the transmitted
+# lobe -- while a second light in front of it lights the same quad by
+# reflection, and the floor shows both. The two lobes have different colours
+# on purpose: a lobe evaluated on the wrong side of the surface shows up as the
+# wrong tint rather than as a small error in brightness.
+#
+# `path` rather than `simplepath`, because the light-sampling integrator is the
+# one that asks the BSDF the awkward questions -- its density for a direction
+# it did not choose, and which side of the surface to nudge the light-sampling
+# point to, which for a surface that both reflects and transmits is neither.
+
+# Three lights, so the sampler has to be the uniform one -- the only one this
+# renderer has; pbrt's `path` would otherwise pick its BVH sampler.
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+    "string lightsampler" [ "uniform" ]
+
+LookAt 0 2.5 9   0 1.5 0   0 1 0
+Camera "perspective"
+    "float fov" [ 45 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "diffuse-transmission.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+LightSource "infinite"
+    "rgb L" [ 0.04 0.04 0.05 ]
+
+# The light behind the leaf.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 2.5 -5
+    AreaLightSource "diffuse"
+        "rgb L" [ 14 13 11 ]
+    Shape "sphere"
+        "float radius" [ 1.5 ]
+AttributeEnd
+
+# And a smaller one in front of it, off to the side.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 4 4 4
+    AreaLightSource "diffuse"
+        "rgb L" [ 6 6 6 ]
+    Shape "sphere"
+        "float radius" [ 0.8 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.5 0.5 0.55 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# The leaf: greenish in reflection, yellowish in transmission, scaled up a
+# little so the clamp in GetBxDF is on the path too.
+AttributeBegin
+    Material "diffusetransmission"
+        "rgb reflectance" [ 0.25 0.45 0.2 ]
+        "rgb transmittance" [ 0.55 0.5 0.15 ]
+        "float scale" [ 1.4 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -2.5 0.2 0   2.5 0.2 0   2.5 3.2 0   -2.5 3.2 0 ]
+AttributeEnd
+
+# A plain diffuse ball in front, for scale and for a shadow across the leaf.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.3 0.25 ]
+    Translate -1.5 0.7 2.5
+    Shape "sphere"
+        "float radius" [ 0.7 ]
+AttributeEnd

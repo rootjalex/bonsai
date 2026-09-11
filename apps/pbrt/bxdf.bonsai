@@ -456,6 +456,77 @@ func diffuse_sample_f(b : DiffuseBxDF, wo : vec3f, uc : Float, u : vec2f,
 func diffuse_flags(b : DiffuseBxDF) -> i32 =
     select(nonzero(b.r), flag_diffuse() | flag_reflection(), 0);
 
+// pbrt: DiffuseTransmissionBxDF -- a Lambertian lobe on each side of the
+// surface, one reflecting and one transmitting, which is what a leaf is: light
+// from behind comes through it diffused, light from in front comes back the
+// same way. pavilion's trees are made of these.
+element DiffuseTransmissionBxDF {
+    r : vec4f;
+    t : vec4f;
+}
+
+// pbrt: DiffuseTransmissionBxDF::f. Which lobe is which side of the surface
+// `wi` is on relative to `wo`; the transport mode is not read, since neither
+// lobe changes the medium.
+func diffuse_transmission_f(b : DiffuseTransmissionBxDF, wo : vec3f,
+                            wi : vec3f) -> vec4f =
+    select(same_hemisphere(wo, wi), b.r * inv_pi(), b.t * inv_pi());
+
+// pbrt: SampledSpectrum::MaxComponentValue.
+func max_component(s : vec4f) -> Float = max(max(s.x, s.y), max(s.z, s.w));
+
+// pbrt: DiffuseTransmissionBxDF::Sample_f. The lobe is chosen by `uc` in
+// proportion to the two lobes' largest components, and then a cosine-weighted
+// direction is drawn on the chosen side of the surface; the density is the
+// cosine density times the probability that lobe was chosen.
+func diffuse_transmission_sample_f(b : DiffuseTransmissionBxDF, wo : vec3f,
+                                   uc : Float, u : vec2f,
+                                   sample_flags : i32) -> option[BSDFSample] {
+    pr = select((sample_flags & sample_reflection()) != 0, max_component(b.r),
+                0.0);
+    pt = select((sample_flags & sample_transmission()) != 0,
+                max_component(b.t), 0.0);
+    if pr == 0.0 && pt == 0.0 {
+        return {};
+    }
+    wi0 = sample_cosine_hemisphere(u);
+    if uc < pr / (pr + pt) {
+        // Reflection: the same side as `wo`.
+        wi = select(wo.z < 0.0, vec3f{wi0.x, wi0.y, -wi0.z}, wi0);
+        s : BSDFSample = {diffuse_transmission_f(b, wo, wi), wi,
+                          cosine_hemisphere_pdf(abs_cos_theta(wi)) * pr /
+                              (pr + pt),
+                          flag_diffuse() | flag_reflection(), 1.0, false};
+        return s;
+    }
+    // Transmission: the other side.
+    wi = select(wo.z > 0.0, vec3f{wi0.x, wi0.y, -wi0.z}, wi0);
+    s : BSDFSample = {diffuse_transmission_f(b, wo, wi), wi,
+                      cosine_hemisphere_pdf(abs_cos_theta(wi)) * pt / (pr + pt),
+                      flag_diffuse() | flag_transmission(), 1.0, false};
+    return s;
+}
+
+// pbrt: DiffuseTransmissionBxDF::PDF.
+func diffuse_transmission_pdf(b : DiffuseTransmissionBxDF, wo : vec3f,
+                              wi : vec3f, sample_flags : i32) -> Float {
+    pr = select((sample_flags & sample_reflection()) != 0, max_component(b.r),
+                0.0);
+    pt = select((sample_flags & sample_transmission()) != 0,
+                max_component(b.t), 0.0);
+    if pr == 0.0 && pt == 0.0 {
+        return 0.0;
+    }
+    return select(same_hemisphere(wo, wi), pr, pt) / (pr + pt) *
+           cosine_hemisphere_pdf(abs_cos_theta(wi));
+}
+
+// pbrt: DiffuseTransmissionBxDF::Flags -- each lobe is there when its
+// spectrum is not exactly zero.
+func diffuse_transmission_flags(b : DiffuseTransmissionBxDF) -> i32 =
+    select(nonzero(b.r), flag_diffuse() | flag_reflection(), 0) |
+    select(nonzero(b.t), flag_diffuse() | flag_transmission(), 0);
+
 // pbrt: DielectricBxDF. Reflection and transmission at a boundary between two
 // dielectrics, either as a delta or spread over a microfacet distribution.
 element DielectricBxDF {
@@ -1892,6 +1963,15 @@ element DielectricMaterial {
     eta : Float;
 }
 
+// pbrt: DiffuseTransmissionMaterial. Two reflectances -- one for each side of
+// the leaf -- and pbrt's `scale`, applied to both before they are clamped to
+// [0, 1] in GetBxDF.
+element DiffuseTransmissionMaterial {
+    reflectance : Reflectance;
+    transmittance : Reflectance;
+    scale : Float;
+}
+
 // pbrt: ConductorMaterial. The index is spectral, so it ships as a pair of
 // densely-sampled tables and is read at the four wavelengths of the hit -- see
 // `conductor_spectra` below.
@@ -1947,6 +2027,7 @@ element Material =
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
     | Dielectric(g : DielectricMaterial)
     | Conductor(c : ConductorMaterial)
+    | DiffuseTransmission(dt : DiffuseTransmissionMaterial)
     // pbrt: MeasuredMaterial, which is nothing but the index of the table --
     // there is no parameter to it, since the measurement is the material.
     | Measured(index : u32);
@@ -2008,7 +2089,9 @@ element BxDF =
     // The same `DielectricBxDF` a Layered one has on top of it, on its own.
     | Boundary(g : DielectricBxDF)
     | Metal(c : ConductorBxDF)
-    | Table(t : MeasuredBxDF);
+    | Table(t : MeasuredBxDF)
+    // A Lambertian lobe on each side: a leaf.
+    | Translucent(dt : DiffuseTransmissionBxDF);
 
 // pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
 // evaluated once at the point the ray hit.
@@ -2028,6 +2111,22 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             d : DiffuseBxDF =
                 {reflectance_at(albedo, lambda, uv, dudx, dvdx, dudy, dvdy)};
             return Lambertian(d);
+        }
+        DiffuseTransmission(dt) => {
+            // pbrt: DiffuseTransmissionMaterial::GetBxDF -- each texture at
+            // the hit, scaled, and clamped to [0, 1] per wavelength.
+            zero = vec4f{0.0, 0.0, 0.0, 0.0};
+            one = vec4f{1.0, 1.0, 1.0, 1.0};
+            r = min(max(dt.scale * reflectance_at(dt.reflectance, lambda, uv,
+                                                  dudx, dvdx, dudy, dvdy),
+                        zero),
+                    one);
+            t = min(max(dt.scale * reflectance_at(dt.transmittance, lambda, uv,
+                                                  dudx, dvdx, dudy, dvdy),
+                        zero),
+                    one);
+            b : DiffuseTransmissionBxDF = {r, t};
+            return Translucent(b);
         }
         CoatedDiffuse(m) =>
             return Layered(coated_bxdf_at(m, lambda, regularize, uv, dudx,
@@ -2102,6 +2201,22 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             }
             return r / 16.0;
         }
+        // Both lobes, since `rho` asks for everything the surface scatters:
+        // pbrt's estimate sums transmitted samples in with reflected ones, so a
+        // leaf's albedo counts the light that came through it.
+        Translucent(dt) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = diffuse_transmission_sample_f(dt, wo, uc[i],
+                                                      vec2f{ux[i], uy[i]},
+                                                      sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
         Layered(l) => return coated_rho(l, wo, seed, uc, ux, uy);
         // The same sixteen samples again. A smooth dielectric answers `none` to
         // most of them -- a delta lobe returns a sample only where the sample
@@ -2159,6 +2274,7 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
 func bxdf_flags(b : BxDF) -> i32 {
     match b {
         Lambertian(d) => return diffuse_flags(d);
+        Translucent(dt) => return diffuse_transmission_flags(dt);
         Layered(l) => return coated_flags(l);
         Boundary(g) => return dielectric_flags(g);
         Metal(c) => return conductor_flags(c);
@@ -2179,6 +2295,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
     }
     match b {
         Lambertian(d) => return diffuse_f(d, wo, wi);
+        Translucent(dt) => return diffuse_transmission_f(dt, wo, wi);
         Layered(l) => return coated_f(l, wo, wi, seed);
         Boundary(g) => return dielectric_f(g, wo, wi, radiance_mode());
         Metal(c) => return conductor_f(c, wo, wi);
@@ -2200,6 +2317,8 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
     }
     match b {
         Lambertian(d) => return diffuse_pdf(wo, wi, sample_all());
+        Translucent(dt) =>
+            return diffuse_transmission_pdf(dt, wo, wi, sample_all());
         Layered(l) => return coated_pdf(l, wo, wi, seed);
         Boundary(g) => return dielectric_pdf(g, wo, wi, sample_all());
         Metal(c) => return conductor_pdf(c, wo, wi, sample_all());
@@ -2220,6 +2339,8 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
     }
     match b {
         Lambertian(d) => return diffuse_sample_f(d, wo, uc, u, sample_all());
+        Translucent(dt) =>
+            return diffuse_transmission_sample_f(dt, wo, uc, u, sample_all());
         Layered(l) => return coated_sample_f(l, wo, uc, u, seed);
         Boundary(g) =>
             return dielectric_sample_f(g, wo, uc, u, radiance_mode(),

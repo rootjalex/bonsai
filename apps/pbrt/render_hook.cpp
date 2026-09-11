@@ -878,6 +878,13 @@ int main(int argc, char **argv) {
             glass.remap = m.remap != 0;
             glass.eta = m.eta;
             Material_Dielectric(material, glass);
+        } else if (m.tag == bonsai_scene::MaterialTag::DiffuseTransmission) {
+            DiffuseTransmissionMaterial leaf;
+            leaf.reflectance = reflectance;
+            leaf.transmittance.albedo = albedo_of(m.transmittance);
+            leaf.transmittance.texture = m.transmittance_texture;
+            leaf.scale = m.scale;
+            Material_DiffuseTransmission(material, leaf);
         } else {
             Material_Diffuse(material, reflectance);
         }

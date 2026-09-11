@@ -1241,9 +1241,25 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
-    fail("only the diffuse, dielectric and coateddiffuse materials are "
-         "supported, scene "
-         "asks for \"" +
+    if (m.name == "diffusetransmission") {
+        out.tag = bonsai_scene::MaterialTag::DiffuseTransmission;
+        // PBRT: DiffuseTransmissionMaterial::Create. Both spectra default to
+        // a constant 0.25 -- not the 0.5 a `diffuse` gets -- and `scale`
+        // multiplies both before GetBxDF clamps them.
+        for (int i = 0; i < 3; i++) {
+            out.reflectance[i] = 0.25f;
+            out.transmittance[i] = 0.25f;
+        }
+        out.reflectance_texture =
+            material_rgb_or_texture(m, "reflectance", out.reflectance);
+        out.transmittance_texture =
+            material_rgb_or_texture(m, "transmittance", out.transmittance);
+        out.scale = material_float(m, "scale", 1.f);
+        return out;
+    }
+
+    fail("only the diffuse, coateddiffuse, dielectric, conductor, measured "
+         "and diffusetransmission materials are supported, scene asks for \"" +
          m.name + "\"");
 }
 
