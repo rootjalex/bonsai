@@ -1,0 +1,148 @@
+//! flags: -p ssa -b llvm
+
+// A tree of mixed primitives -- triangles on their own beside instances
+// holding trees of them -- compiled end to end, so that what each arm of the
+// dispatch costs can be read off the machine code rather than inferred from
+// the IR. The rule it pins: this does no more work than pbrt's
+// `Primitive::Intersect`, which tests the tag once per primitive and then
+// either intersects the shape or pulls the ray back and walks the held tree.
+//
+// In `_recloop_func0`, the walk over primitives:
+//
+//   - one tag test per element of a leaf, and nothing else in common between
+//     the arms.
+//   - the Solo arm calls `intersectsp_ray_tri` with `%r` -- the ray as it
+//     arrived. `untransform(p, r)` is written into every test of that arm by
+//     the source (the query says `transform(p, tri)` for both kinds of
+//     primitive, and pulling the ray back rewrites both), and it is a match on
+//     `p` that answers `r` in this arm. Inlined into a block that the tag test
+//     already put in the Solo case, LLVM folds the second test of the same tag
+//     and the arm ends up reading the ray it was given. No transform, no copy
+//     of the ray, no call.
+//   - the Inst arm calls `untransform_Transform_Ray` once and hands the result
+//     to `_recloop_func1`, the walk of the instance's tree, along with the
+//     running best.
+//
+// No `loopify()`, so that the two walks stay two functions and the call from
+// the one arm into the other walk is a line to look at.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
+    return out;
+}
+
+element Prim =
+    | Solo(tri : Triangle)
+    | Inst(render_from_instance : Transform, blas : set[Triangle]);
+
+func geometry(p : Prim) -> set[Triangle] =
+    match p { Solo(tri) => set[Triangle]{tri}, Inst(m, blas) => blas };
+
+element Prim with extent = |p| transform(p, geometry(p).AABB);
+
+func transform(p : Prim, b : AABB) -> AABB {
+    match p {
+        Solo(tri) => return b;
+        Inst(m, blas) => return transform(m, b);
+    }
+}
+
+func untransform(p : Prim, r : Ray) -> Ray {
+    match p {
+        Solo(tri) => return r;
+        Inst(m, blas) => return untransform(m, r);
+    }
+}
+
+extern prims : set[Prim];
+
+func [[export]] trace(r : Ray) =
+    argmin(|p : Prim, tri : Triangle| distmin(r, transform(p, tri)),
+           filter(|p : Prim, tri : Triangle|
+                      intersects(r, transform(p, tri)) &&
+                      distmin(r, transform(p, tri)) > 0.001,
+                  flatten(|p : Prim| geometry(p), prims)));
+
+schedule {
+    layout Prim = tagged_index;
+
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Prim]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Prim]) with data = data;
+
+    prims : TLAS;
+    Inst.blas : BLAS from BlasNodes;
+
+    layout prims {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        pCount : u32;
+        elems : array[Prim, pCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(elems, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

@@ -1043,6 +1043,18 @@ void Printer::visit(const Unwrap *node) {
     os << " as " << node->type.as<Struct_t>()->name << ")";
 }
 
+void Printer::visit(const MatchExpr *node) {
+    os << "match ";
+    print(node->value);
+    os << " {";
+    const size_t n = node->arms.size();
+    for (size_t i = 0; i < n; i++) {
+        os << (i == 0 ? " " : ", ") << node->arms[i].variant << " => ";
+        print_no_parens(node->arms[i].value);
+    }
+    os << " }";
+}
+
 std::string to_string(const Intrinsic::OpType &op) {
     switch (op) {
     case Intrinsic::abs:

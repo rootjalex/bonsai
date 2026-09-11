@@ -9,6 +9,7 @@ add_bonsai_tests(
     LABELS ssa blocks
     FILES
     loopify.bonsai
+    mixed-traversal.bonsai
     nested-traversal.bonsai
     sort.bonsai
 )

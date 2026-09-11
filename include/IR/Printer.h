@@ -138,6 +138,7 @@ struct Printer : public Visitor {
     void visit(const UnionOf *) override;
     void visit(const Access *) override;
     void visit(const Unwrap *) override;
+    void visit(const MatchExpr *) override;
     void visit(const Intrinsic *) override;
     void visit(const Generator *) override;
     void visit(const Lambda *) override;

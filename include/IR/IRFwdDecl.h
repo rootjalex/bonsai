@@ -59,6 +59,7 @@ struct Construct;
 struct UnionOf;
 struct Access;
 struct Unwrap;
+struct MatchExpr;
 struct Intrinsic;
 struct Generator;
 struct Lambda;

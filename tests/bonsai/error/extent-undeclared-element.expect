@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/extent-undeclared-element.bonsai:8:9: [parse error] `element Instance with ...` annotates an element, and no element Instance has been declared.
+
+element Instance with extent = |i| i.box;
+        ^^^^^^^^

@@ -57,6 +57,7 @@ struct Visitor {
     virtual void visit(const UnionOf *);
     virtual void visit(const Access *);
     virtual void visit(const Unwrap *);
+    virtual void visit(const MatchExpr *);
     virtual void visit(const Intrinsic *);
     virtual void visit(const Generator *);
     virtual void visit(const Lambda *);

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/SetFunctions.cpp:45
+
+--> body && body->value.defined()
+geometry returns a set and is called inside a query, so it names part of that query, and a query is one expression: write it as `func geometry(..) -> set[..] = <set>;`.

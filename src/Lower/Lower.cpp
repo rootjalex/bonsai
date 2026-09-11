@@ -24,6 +24,7 @@
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Scans.h"
 #include "Lower/Sorts.h"
+#include "Lower/SetFunctions.h"
 #include "Lower/Trees.h"
 #include "Lower/Tuples.h"
 #include "Lower/VerifyLayouts.h"
@@ -81,6 +82,7 @@ PassManager register_passes(const CompilerOptions &options) {
     PassManager manager;
     // Lowering pass registration.
     manager.register_pass<Canonicalize>();
+    manager.register_pass<LowerSetFunctions>();
     manager.register_pass<LowerLambdas>();
     manager.register_pass<LowerOptions>();
     manager.register_pass<VerifyOptions>();
@@ -121,6 +123,8 @@ PassManager register_passes(const CompilerOptions &options) {
     // (this should *not* include optimizations).
     std::vector<std::unique_ptr<Pass>> core;
     core.push_back(std::make_unique<Canonicalize>());
+    // Before anything reads a set expression; see Lower/SetFunctions.h.
+    core.push_back(std::make_unique<LowerSetFunctions>());
     core.push_back(std::make_unique<VerifyOptions>());
     core.push_back(std::make_unique<VerifyLayouts>());
     // Fusion must always run before Array or Tree lowering!
@@ -184,6 +188,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // Program's schedule.
     std::vector<std::unique_ptr<Pass>> ssa;
     ssa.push_back(std::make_unique<Canonicalize>());
+    ssa.push_back(std::make_unique<LowerSetFunctions>());
     ssa.push_back(std::make_unique<VerifyOptions>());
     ssa.push_back(std::make_unique<VerifyLayouts>());
     // Fusion must always run before Array or Tree lowering!
@@ -250,6 +255,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // of rewriting and generating code. Used to test those analyses directly.
     std::vector<std::unique_ptr<Pass>> ssa_analysis;
     ssa_analysis.push_back(std::make_unique<Canonicalize>());
+    ssa_analysis.push_back(std::make_unique<LowerSetFunctions>());
     ssa_analysis.push_back(std::make_unique<VerifyOptions>());
     ssa_analysis.push_back(std::make_unique<VerifyLayouts>());
     ssa_analysis.push_back(std::make_unique<opt::Fusion>());
@@ -289,6 +295,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // Default: the default work flow (with optimizations).
     std::vector<std::unique_ptr<Pass>> d;
     d.push_back(std::make_unique<Canonicalize>());
+    d.push_back(std::make_unique<LowerSetFunctions>());
     d.push_back(std::make_unique<VerifyOptions>());
     d.push_back(std::make_unique<VerifyLayouts>());
     // Fusion must always run before Array or Tree lowering!

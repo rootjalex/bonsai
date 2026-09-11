@@ -33,6 +33,7 @@ add_bonsai_tests(
     tail-call.bonsai
     tree-traversal.bonsai
     tree-traversal-instanced.bonsai
+    tree-traversal-mixed.bonsai
     tree-traversal-nested.bonsai
     tree-traversal-recursive.bonsai
     type_coercion_primitive.bonsai

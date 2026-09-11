@@ -166,6 +166,60 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
     return ir::ForEach::make(std::move(name), expr, std::move(body));
 }
 
+// The element a set held in a field is reached through: `i` in `i.blas`, and
+// `p` in `(p as Inst).blas` -- the value a match arm knows to be that variant,
+// not the arm. It is the element the enclosing level's parameter stands for
+// while the nested tree is walked, and the one an extent is said about.
+ir::Expr element_of_access(const ir::Access *access) {
+    ir::Expr element = access->value;
+    while (const ir::Unwrap *arm = element.as<ir::Unwrap>()) {
+        if (!arm->value.type().is<ir::ADT_t>()) {
+            break;
+        }
+        element = arm->value;
+    }
+    return element;
+}
+
+// The root bound of the set reached through `field`, inside an extent said
+// about an element: `i.blas.AABB` in `transform(i.render_from_instance,
+// i.blas.AABB)`, or `(match p {..}).AABB` where the set the query reaches is
+// one arm's `(p as Inst).blas`. A set has no fields, so an access off one is
+// the set's root augmentation and nothing else; which set it belongs to is
+// read off the set's own expression, which names the field somewhere in it.
+ir::Expr nested_root_volume(const ir::Expr &extent, const std::string &field) {
+    struct ReachesField : public ir::Visitor {
+        const std::string &field;
+        bool found = false;
+        ReachesField(const std::string &field) : field(field) {}
+        using ir::Visitor::visit;
+        void visit(const ir::Access *node) override {
+            found = found || node->field == field;
+            ir::Visitor::visit(node);
+        }
+    };
+    struct FindRoot : public ir::Visitor {
+        const std::string &field;
+        ir::Expr found;
+        FindRoot(const std::string &field) : field(field) {}
+        using ir::Visitor::visit;
+        void visit(const ir::Access *node) override {
+            if (!found.defined() && node->value.type().is<ir::Set_t>()) {
+                ReachesField reaches(field);
+                node->value.accept(&reaches);
+                if (reaches.found) {
+                    found = node;
+                    return;
+                }
+            }
+            ir::Visitor::visit(node);
+        }
+    };
+    FindRoot root(field);
+    extent.accept(&root);
+    return root.found;
+}
+
 // Whether this arm still recurses at the level it belongs to.
 //
 // A leaf of one tree coiterated with another is exactly that: reaching it ends
@@ -317,8 +371,8 @@ struct Rewriter : public ir::Mutator {
             if (bvh == nullptr) {
                 return false;
             }
-            const ir::Struct_t *elem = bvh->primitive.as<ir::Struct_t>();
-            return elem != nullptr && extents->contains(elem->name);
+            const std::string elem = ir::geometric_element_name(bvh->primitive);
+            return !elem.empty() && extents->contains(elem);
         }();
 
         const size_t n = node->arms.size();
@@ -441,8 +495,8 @@ struct Rewriter : public ir::Mutator {
     // What make_volume_map needs to know about a matched level beyond its
     // volume: one entry per entry in `volumes`.
     struct Level {
-        // The level's element type, for reading its `with extent`.
-        const ir::Struct_t *elem = nullptr;
+        // The level's element type, by name, for reading its `with extent`.
+        std::string elem;
         // Whether this level's match sits inside the enclosing level's loop
         // over a leaf's elements. That is what a `flatten` builds -- the inner
         // traversal is opened per element -- and it means every enclosing
@@ -465,11 +519,11 @@ struct Rewriter : public ir::Mutator {
     Level level_facts(const ir::Match *node) const {
         Level level;
         if (const ir::BVH_t *bvh = node->loc.type().as<ir::BVH_t>()) {
-            level.elem = bvh->primitive.as<ir::Struct_t>();
+            level.elem = ir::geometric_element_name(bvh->primitive);
         }
         level.entered_as_element = in_loop;
         if (const ir::Access *access = node->loc.as<ir::Access>()) {
-            level.via = access->value;
+            level.via = element_of_access(access);
         }
         // The first nested match in any arm: a tree reached through a field.
         struct FindNested : public ir::Visitor {
@@ -508,49 +562,23 @@ struct Rewriter : public ir::Mutator {
     // says nothing about it.
     ir::Expr placed_shape(const Level &through, const ir::TypedVar &elem,
                           const ir::TypedVar &deeper) const {
-        if (extents == nullptr || through.elem == nullptr ||
+        if (extents == nullptr || through.elem.empty() ||
             through.nested_field.empty()) {
             return ir::Expr();
         }
-        const auto extent = extents->find(through.elem->name);
+        const auto extent = extents->find(through.elem);
         if (extent == extents->cend()) {
             return ir::Expr();
         }
-        // The nested tree's root bound inside the extent, `blas.AABB`; see
-        // FindRootVolume below, which does the same for the volume map.
-        struct FindRoot : public ir::Visitor {
-            const std::string &field;
-            ir::Expr found;
-            FindRoot(const std::string &field) : field(field) {}
-            using ir::Visitor::visit;
-            void visit(const ir::Access *node) override {
-                if (!found.defined()) {
-                    if (const ir::Var *base = node->value.as<ir::Var>();
-                        base != nullptr && base->name == field) {
-                        found = node;
-                        return;
-                    }
-                }
-                ir::Visitor::visit(node);
-            }
-        };
-        FindRoot root(through.nested_field);
-        extent->second.accept(&root);
-        if (!root.found.defined()) {
+        ir::Expr said =
+            apply_lambda(extent->second, ir::Var::make(elem.type, elem.name));
+        ir::Expr root = nested_root_volume(said, through.nested_field);
+        if (!root.defined()) {
             return ir::Expr();
         }
         std::map<ir::Expr, ir::Expr, ir::ExprLessThan> abstraction;
-        abstraction[root.found] = ir::Var::make(deeper.type, deeper.name);
-        ir::Expr shape = replace(abstraction, extent->second);
-        std::map<std::string, ir::Expr> fields;
-        for (const auto &field : through.elem->fields) {
-            if (field.name == through.nested_field) {
-                continue;
-            }
-            fields[field.name] = ir::Access::make(
-                field.name, ir::Var::make(elem.type, elem.name));
-        }
-        return replace(fields, shape);
+        abstraction[root] = ir::Var::make(deeper.type, deeper.name);
+        return replace(abstraction, said);
     }
 
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args) const {
@@ -1978,6 +2006,42 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         return build_base_scan(as_var->name, bvh);
     }
 
+    // A set that depends on which variant an element is: `match p { Geom(g)
+    // => set[Geometric]{g}, Inst(m, blas) => blas }`, what a tree of mixed
+    // primitives reaches through each of its elements. The traversal is a
+    // match statement with the traversal of each arm's set inside it -- pbrt's
+    // `Primitive::Intersect` dispatching on the tag, with `GeometricPrimitive`
+    // testing its one shape and `TransformedPrimitive` walking its tree. An
+    // arm binds nothing (see ir::MatchExpr); its set already reads the fields
+    // it needs through `Unwrap`, and the walk of a nested tree starts from
+    // exactly that read.
+    if (const ir::MatchExpr *as_match = expr.as<ir::MatchExpr>()) {
+        std::vector<ir::MatchVariant::Arm> arms;
+        arms.reserve(as_match->arms.size());
+        for (const auto &arm : as_match->arms) {
+            arms.push_back(ir::MatchVariant::Arm{
+                arm.variant, {},
+                build_traversal(arm.value, tree_types, extents, intervals)});
+        }
+        return ir::MatchVariant::make(as_match->value, std::move(arms));
+    }
+
+    // A set written out: `set[Geometric]{g}`. Traversing it is yielding what
+    // it lists, and a fused filter or reduction wraps each yield as it would
+    // any other -- there is no node here, so nothing to prune against, and
+    // the element is simply tested.
+    if (const ir::Build *as_build = expr.as<ir::Build>();
+        as_build != nullptr && as_build->type.is<ir::Set_t>()) {
+        std::vector<ir::Stmt> yields;
+        yields.reserve(as_build->values.size());
+        for (const ir::Expr &element : as_build->values) {
+            yields.push_back(ir::Yield::make(element));
+        }
+        internal_assert(!yields.empty())
+            << "The parser admits no empty set literal: " << expr;
+        return ir::Sequence::make(std::move(yields));
+    }
+
     if (const ir::AggOp *as_agg = expr.as<ir::AggOp>()) {
         if (as_agg->op != ir::AggOp::reduce) {
             // count, sum and prod are sugar for a map followed by a reduce.
@@ -2111,28 +2175,6 @@ struct WrapMatchInRecLoop : public ir::Mutator {
     }
 };
 
-// Records the first access of the form `<anything>.<field of `elem`>` whose own
-// base is `elem` -- the nested tree's root augmentation, `i.blas.AABB`.
-struct FindRootVolume : public ir::Visitor {
-    const std::string &set_field;
-    ir::Expr found;
-
-    FindRootVolume(const std::string &set_field) : set_field(set_field) {}
-
-    using ir::Visitor::visit;
-
-    void visit(const ir::Access *node) override {
-        if (!found.defined()) {
-            if (const ir::Var *base = node->value.as<ir::Var>();
-                base != nullptr && base->name == set_field) {
-                found = node;
-                return;
-            }
-        }
-        ir::Visitor::visit(node);
-    }
-};
-
 // Gives a match over a tree reached from an element the function that carries
 // that tree's bounds into the element's frame.
 //
@@ -2164,11 +2206,9 @@ struct SetNestedVolumeMaps : public ir::Mutator {
         if (access == nullptr) {
             return mutated;
         }
-        const ir::Struct_t *element = access->value.type().as<ir::Struct_t>();
-        if (element == nullptr) {
-            return mutated;
-        }
-        const auto iter = extents.find(element->name);
+        const ir::Expr element = element_of_access(access);
+        const auto iter =
+            extents.find(ir::geometric_element_name(element.type()));
         if (iter == extents.cend()) {
             // No extent: nothing relates the two frames, so the tree's own
             // bounds are the only ones there are. Sound when the query does
@@ -2177,36 +2217,24 @@ struct SetNestedVolumeMaps : public ir::Mutator {
             return mutated;
         }
 
-        // Abstract the tree's root bound out of the extent *first*: it is the
-        // one subterm that cannot survive being rebuilt, since a set has no
-        // field to look a geometry up by -- only the annotation gave it one.
-        FindRootVolume finder(access->field);
-        iter->second.accept(&finder);
-        if (!finder.found.defined()) {
+        // The extent said about this element, with the tree's root bound
+        // abstracted out of it: that is the one subterm that cannot survive
+        // being rebuilt, since a set has no field to look a geometry up by --
+        // only the annotation gave it one.
+        ir::Expr said = apply_lambda(iter->second, element);
+        ir::Expr root = nested_root_volume(said, access->field);
+        if (!root.defined()) {
             // An extent that does not mention the tree's root bound says
             // nothing about the tree's frame.
             return mutated;
         }
 
         const std::string name = "_vol";
-        const ir::Type volume_type = finder.found.type();
+        const ir::Type volume_type = root.type();
         std::map<ir::Expr, ir::Expr, ir::ExprLessThan> abstraction;
-        abstraction[finder.found] = ir::Var::make(volume_type, name);
-        ir::Expr body = replace(abstraction, iter->second);
-
-        // What is left is over the element's other fields; bind them to this
-        // element.
-        std::map<std::string, ir::Expr> fields;
-        for (const auto &field : element->fields) {
-            if (field.name == access->field) {
-                continue; // abstracted away above
-            }
-            fields[field.name] = ir::Access::make(field.name, access->value);
-        }
-        body = replace(fields, body);
-
-        ir::Expr volume_map =
-            ir::Lambda::make({{name, volume_type}}, std::move(body));
+        abstraction[root] = ir::Var::make(volume_type, name);
+        ir::Expr volume_map = ir::Lambda::make({{name, volume_type}},
+                                               replace(abstraction, said));
 
         return ir::Match::make(match->loc, match->arms, std::move(volume_map));
     }

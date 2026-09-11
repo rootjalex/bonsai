@@ -10,6 +10,9 @@ add_bonsai_tests(
     blas-tlas-loopified.bonsai
     blas-tlas-sorted.bonsai
     ffp-contract.bonsai
+    mixed-tlas.bonsai
+    mixed-tlas-loopified.bonsai
+    mixed-tlas-sorted.bonsai
     mut-dynamic-array.bonsai
     setops.bonsai
     shading-frame.bonsai

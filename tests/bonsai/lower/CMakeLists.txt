@@ -10,6 +10,7 @@ add_bonsai_tests(
     defer-dbl-buffer.bonsai
     defer.bonsai
     exported-function.bonsai
+    extent-after-functions.bonsai
     externs-order.bonsai
     externs-into-recursion.bonsai
     externs-unsized.bonsai
@@ -25,6 +26,8 @@ add_bonsai_tests(
     lambda-simple.bonsai
     logical-operation.bonsai
     map-func.bonsai
+    match-expr.bonsai
+    mixed-tlas.bonsai
     multiple-options.bonsai
     negation.bonsai
     nested-exported-function.bonsai

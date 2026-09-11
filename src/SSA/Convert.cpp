@@ -1210,6 +1210,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(Build);
     // RESTRICT_VISITOR(Access);
     RESTRICT_VISITOR(Unwrap);
+    RESTRICT_VISITOR(MatchExpr);
     // RESTRICT_VISITOR(Intrinsic);
     RESTRICT_VISITOR(Generator);
     RESTRICT_VISITOR(Lambda);

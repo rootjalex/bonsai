@@ -101,6 +101,12 @@ bool storable(const Type &type) {
         }
         return true;
     }
+    // A variant is stored when each of its arms is: it becomes a tag beside
+    // them, or a handle naming one.
+    if (const auto *as_adt = type.as<ADT_t>()) {
+        return std::all_of(as_adt->variants.cbegin(), as_adt->variants.cend(),
+                           [](const Type &variant) { return storable(variant); });
+    }
     if (const auto *as_array = type.as<Array_t>()) {
         return storable(as_array->etype);
     }

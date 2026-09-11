@@ -1,0 +1,19 @@
+// A variant's arms have no fields in common, so its extent cannot be written
+// over fields the way a struct's is. It is a function of the value -- `with
+// extent = |p| ..` -- and dispatches inside.
+
+import stdlib/aabb;
+import stdlib/numerics;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+element Prim =
+    | Solo(tri : Triangle)
+    | Inst(render_from_instance : Transform, blas : set[Triangle])
+    with extent = transform(render_from_instance, blas.AABB);
+
+func [[export]] identity(x : Float) -> Float = x;

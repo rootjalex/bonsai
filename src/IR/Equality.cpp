@@ -644,6 +644,23 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_exprs(v0->value, v1->value);
     }
+    case IRExprEnum::MatchExpr: {
+        const MatchExpr *v0 = e0.as<MatchExpr>();
+        const MatchExpr *v1 = e1.as<MatchExpr>();
+        if (const Cmp value = compare_exprs(v0->value, v1->value);
+            value != Cmp::Equals) {
+            return value;
+        }
+        return compare_lists(v0->arms, v1->arms,
+                             [](const auto &a0, const auto &a1) {
+                                 if (const Cmp variant = compare_primitives(
+                                         a0.variant, a1.variant);
+                                     variant != Cmp::Equals) {
+                                     return variant;
+                                 }
+                                 return compare_exprs(a0.value, a1.value);
+                             });
+    }
     case IRExprEnum::Unwrap: {
         const Unwrap *v0 = e0.as<Unwrap>();
         const Unwrap *v1 = e1.as<Unwrap>();

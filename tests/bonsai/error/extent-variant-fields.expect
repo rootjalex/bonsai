@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/extent-variant-fields.bonsai:17:17: [parse error] Prim is a variant, and its arms have no fields in common to write an extent over. Write it as a function of the value: `with extent = |p| ...`, and match on p inside.
+
+    with extent = transform(render_from_instance, blas.AABB);
+                ^

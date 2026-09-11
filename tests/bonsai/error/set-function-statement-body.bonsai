@@ -1,0 +1,21 @@
+// A function that returns a set is one expression -- the part of a query it
+// names -- and is written `func f(..) -> set[..] = <set>;`. A statement body
+// has nowhere to be put back into.
+
+import stdlib/numerics;
+import stdlib/triangle;
+
+element Prim =
+    | Solo(tri : Triangle)
+    | Pair(a : Triangle, b : Triangle);
+
+func geometry(p : Prim) -> set[Triangle] {
+    match p {
+        Solo(tri) => return set[Triangle]{tri};
+        Pair(a, b) => return set[Triangle]{a, b};
+    }
+}
+
+extern prims : set[Prim];
+
+func [[export]] how_many(p : Prim) -> u32 = count(geometry(p));

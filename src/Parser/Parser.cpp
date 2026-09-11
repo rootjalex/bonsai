@@ -570,6 +570,31 @@ struct Parser {
         // TODO: for error handling, should we have beginLoc/endLoc like Simit?
         const std::string name = get_id();
 
+        // `element E with extent = |e| ...;` -- an element declared earlier,
+        // given its extent here. An extent may name functions over the element
+        // (`geometry(p)`, the set a primitive holds), and those cannot be
+        // written before the element they take; so the extent can be written
+        // after them, naming the element again.
+        if (peek().type == Token::Type::WITH) {
+            const auto declared = program.types.find(name);
+            if (declared == program.types.cend()) {
+                report_error() << "`element " << name
+                               << " with ...` annotates an element, and no "
+                                  "element " << name << " has been declared.";
+            }
+            if (!attributes.empty()) {
+                report_error() << "Attributes belong on the declaration of "
+                               << name << ", not on its annotation.";
+            }
+            const ir::Struct_t *fields = declared->second.as<ir::Struct_t>();
+            while (consume(Token::Type::WITH)) {
+                parse_extent(name, declared->second,
+                             fields ? &fields->fields : nullptr);
+            }
+            expect(Token::Type::SEMICOL);
+            return;
+        }
+
         if (program.types.contains(name)) {
             report_error() << "Redefinition of type: " << name;
         }
@@ -577,7 +602,13 @@ struct Parser {
         // Support inline aliasing, and a closed set of variants.
         if (consume(Token::Type::ASSIGN)) {
             if (peek().type == Token::Type::BAR) {
-                program.types[name] = parse_variants(name);
+                ir::Type variants = parse_variants(name);
+                program.types[name] = variants;
+                // A variant has no fields of its own to write an extent over,
+                // so its extent is a function of the value; see parse_extent.
+                while (consume(Token::Type::WITH)) {
+                    parse_extent(name, variants, /*fields=*/nullptr);
+                }
                 expect(Token::Type::SEMICOL);
                 return;
             }
@@ -654,38 +685,90 @@ struct Parser {
                                                        std::move(defaults),
                                                        std::move(attributes));
 
-        // `element E { ... } with extent = <expr>;`
-        //
-        // The element's spatial reach: everything reachable through a value of
-        // this type lies within it. It is what makes a compound element a
-        // geometric object, so a tree over such elements can carry a bounds
-        // augmentation -- and it is a promise, checked nowhere and owed by
-        // whoever builds the tree, exactly as a node's own volume is.
-        //
-        // The expression is over the element's own fields, so they go in scope
-        // for it and nothing else does.
         while (consume(Token::Type::WITH)) {
-            const std::string annotation = get_id();
-            if (annotation != "extent") {
-                report_error() << "Element " << name << " has a `with "
-                               << annotation
-                               << "` annotation. An element takes only `with "
-                                  "extent = <expr>`; the augmentations that "
-                                  "name stored fields belong on a tree's "
-                                  "nodes, which have fields to name.";
-            }
-            expect(Token::Type::ASSIGN);
-
-            push_frame();
-            for (const auto &field : scope_fields) {
-                add_type_to_frame(field.name, field.type, /* mut */ false);
-            }
-            ir::Expr value = parse_expr();
-            pop_frame();
-
-            program.extents[name] = std::move(value);
+            parse_extent(name, program.types.at(name), &scope_fields);
             expect(Token::Type::SEMICOL);
         }
+    }
+
+    // `element E { ... } with extent = <expr>;`
+    // `element E = | A(..) | B(..) with extent = |e| <expr>;`
+    //
+    // The element's spatial reach: everything reachable through a value of
+    // this type lies within it. It is what makes a compound element a
+    // geometric object, so a tree over such elements can carry a bounds
+    // augmentation -- and it is a promise, checked nowhere and owed by whoever
+    // builds the tree, exactly as a node's own volume is.
+    //
+    // Recorded as a function of the element either way, which is what every
+    // reader wants: an extent is only ever asked about a particular element,
+    // and applying the function is how it is asked. The first spelling puts
+    // the element's fields in scope and nothing else, and each field it names
+    // becomes that field of the parameter. A variant has no fields in common
+    // across its arms, so it takes only the second: `|p| transform(p,
+    // geometry(p).AABB)` -- pbrt's Primitive::Bounds, dispatching on what the
+    // primitive is, said once about the value rather than once per arm.
+    void parse_extent(const std::string &name, const ir::Type &type,
+                      const ir::Struct_t::Map *fields) {
+        const std::string annotation = get_id();
+        if (annotation != "extent") {
+            report_error() << "Element " << name << " has a `with "
+                           << annotation
+                           << "` annotation. An element takes only `with "
+                              "extent = <expr>`; the augmentations that "
+                              "name stored fields belong on a tree's "
+                              "nodes, which have fields to name.";
+        }
+        expect(Token::Type::ASSIGN);
+
+        if (consume(Token::Type::BAR)) {
+            std::vector<ir::TypedVar> args = parse_lambda_args();
+            if (args.size() != 1) {
+                report_error() << "The extent of " << name
+                               << " is a function of one " << name
+                               << ", but names " << args.size()
+                               << " parameters.";
+            }
+            if (args[0].type.defined() && !ir::equals(args[0].type, type)) {
+                report_error() << "The extent of " << name
+                               << " is a function of a " << name << ", not a "
+                               << args[0].type;
+            }
+            push_frame();
+            const std::string param =
+                declare(args[0].name, type, /* mutable */ false);
+            ir::Expr value = parse_expr();
+            pop_frame();
+            program.extents[name] =
+                ir::Lambda::make({{param, type}}, std::move(value));
+            return;
+        }
+
+        if (fields == nullptr) {
+            report_error()
+                << name << " is a variant, and its arms have no fields in "
+                << "common to write an extent over. Write it as a function of "
+                << "the value: `with extent = |" << "p| ...`, and match on p "
+                << "inside.";
+        }
+
+        push_frame();
+        for (const auto &field : *fields) {
+            add_type_to_frame(field.name, field.type, /* mut */ false);
+        }
+        ir::Expr value = parse_expr();
+        pop_frame();
+
+        // The parameter cannot collide with anything: only field names were in
+        // scope, and every one of them is replaced.
+        const std::string param = "_" + name;
+        std::map<std::string, ir::Expr> accesses;
+        for (const auto &field : *fields) {
+            accesses[field.name] = ir::Access::make(
+                field.name, ir::Var::make(type, param));
+        }
+        program.extents[name] = ir::Lambda::make(
+            {{param, type}}, replace(accesses, std::move(value)));
     }
 
     void parse_interface_def() {
@@ -1091,6 +1174,84 @@ struct Parser {
 
         expect(Token::Type::RSQUIGGLE);
         return ir::MatchVariant::make(std::move(value), std::move(arms));
+    }
+
+    // match value { Variant(a, b) => expr, ... }
+    //
+    // The statement above as a value: every variant exactly once, each arm an
+    // expression, all of one type. The names an arm gives its variant's
+    // fields stand for them inside it -- and only there, so they are resolved
+    // here, to reads of those fields off the value known to be that variant
+    // (`Unwrap`). The IR's arms then bind nothing; see ir::MatchExpr.
+    ir::Expr parse_match_expr() {
+        expect(Token::Type::MATCH);
+        ir::Expr value = parse_expr();
+        expect(Token::Type::LSQUIGGLE);
+
+        const ir::ADT_t *adt = value.type().as<ir::ADT_t>();
+        if (adt == nullptr) {
+            report_error() << "match expects a value of a variant type, "
+                              "received one of type: "
+                           << value.type();
+        }
+
+        std::vector<ir::MatchExpr::Arm> arms;
+        do {
+            ir::MatchExpr::Arm arm;
+            arm.variant = get_id();
+            std::vector<std::string> bindings;
+            if (consume(Token::Type::LPAREN)) {
+                if (!consume(Token::Type::RPAREN)) {
+                    do {
+                        bindings.push_back(get_id());
+                    } while (consume(Token::Type::COMMA));
+                    expect(Token::Type::RPAREN);
+                }
+            }
+            expect(Token::Type::ASSIGN);
+            expect(Token::Type::GT);
+
+            const auto index = adt->index_of(arm.variant);
+            if (!index.has_value()) {
+                report_error()
+                    << adt->name << " has no variant called " << arm.variant;
+            }
+            const ir::Struct_t::Map &fields = adt->fields(*index);
+            if (fields.size() != bindings.size()) {
+                report_error()
+                    << arm.variant << " has " << fields.size()
+                    << " fields but the arm names " << bindings.size();
+            }
+
+            push_frame();
+            std::map<std::string, ir::Expr> reads;
+            const ir::Expr as_variant = ir::Unwrap::make(*index, value);
+            for (size_t i = 0; i < bindings.size(); i++) {
+                const std::string bound =
+                    declare(bindings[i], fields[i].type, /*mutable=*/false);
+                reads[bound] = ir::Access::make(fields[i].name, as_variant);
+            }
+            ir::Expr body = parse_expr();
+            pop_frame();
+            // The whole is whichever arm the value selects, so the arms have
+            // to agree on what that is.
+            if (!arms.empty() &&
+                !ir::equals(arms.front().value.type(), body.type())) {
+                report_error()
+                    << "The arms of a match on " << adt->name
+                    << " disagree on their type: " << arms.front().variant
+                    << " is a " << arms.front().value.type() << " and "
+                    << arm.variant << " is a " << body.type()
+                    << ". A match that is a value has one type.";
+            }
+            arm.value = replace(reads, std::move(body));
+
+            arms.push_back(std::move(arm));
+        } while (consume(Token::Type::COMMA) &&
+                 peek().type != Token::Type::RSQUIGGLE);
+
+        expect(Token::Type::RSQUIGGLE);
+        return ir::MatchExpr::make(std::move(value), std::move(arms));
     }
 
     ir::Stmt parse_statement() {
@@ -1661,6 +1822,8 @@ struct Parser {
             return inner;
         } else if (peek().type == Token::Type::IDENTIFIER) {
             return parse_identifier();
+        } else if (peek().type == Token::Type::MATCH) {
+            return parse_match_expr();
             // Parse literals.
         } else if (consume(Token::Type::TRUE)) {
             return ir::BoolImm::make(true);
@@ -1946,6 +2109,40 @@ struct Parser {
 
         if (name == "inf") {
             return ir::Extrema::make(f32, ir::Extrema::inf);
+        }
+
+        // `set[T]{a, b, ..}`: a set from the elements listed, spelled the way
+        // a vector literal is -- the type, then its contents. A set is never a
+        // value at runtime; this one exists to be traversed, and a query that
+        // reaches one element through an arm of a variant and a whole tree
+        // through another is where it is needed.
+        if (name == "set" && !name_in_scope(name) &&
+            peek().type == Token::Type::LBRACKET) {
+            expect(Token::Type::LBRACKET);
+            ir::Type etype = parse_type();
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::LSQUIGGLE);
+            std::vector<ir::Expr> elements =
+                parse_expr_list_until(Token::Type::RSQUIGGLE);
+            if (elements.empty()) {
+                // Its traversal would be a statement that does nothing, and
+                // there is no such statement to build. Nothing has needed one:
+                // pbrt drops an instance with no shapes before it reaches the
+                // tree, and a query does the same by not listing it.
+                report_error() << "set[" << etype
+                               << "]{} lists no elements. A set literal "
+                                  "names at least one.";
+            }
+            for (const ir::Expr &element : elements) {
+                if (!ir::equals(element.type(), etype)) {
+                    report_error()
+                        << "set[" << etype << "] holds elements of type "
+                        << etype << ", not " << element << " of type "
+                        << element.type();
+                }
+            }
+            return ir::Build::make(ir::Set_t::make(std::move(etype)),
+                                   std::move(elements));
         }
 
         if (name == "eps") {
@@ -2573,13 +2770,7 @@ struct Parser {
                     expect(Token::Type::PERIOD);
                     const std::string field = get_id();
 
-                    const auto type_iter = program.types.find(name);
-                    if (type_iter == program.types.cend()) {
-                        report_error() << "Schedule name: " << name
-                                       << " is neither an extern, a function, "
-                                          "nor a type.";
-                    }
-                    const auto *element = type_iter->second.as<ir::Struct_t>();
+                    const ir::Struct_t *element = element_with_fields(name);
                     if (element == nullptr) {
                         report_error()
                             << "Schedule assigns a tree to " << name << "."
@@ -3004,11 +3195,22 @@ struct Parser {
             }
         }
 
-        while (consume(Token::Type::WITH)) {
+        // `with extent` is not a node's annotation but the element's, written
+        // after the last variant of a sum: it stays for parse_element to read.
+        while (peek().type == Token::Type::WITH && !at_extent()) {
+            consume(Token::Type::WITH);
             annotations.push_back(parse_annotation());
         }
 
         return {std::move(name), std::move(params), std::move(annotations)};
+    }
+
+    // Whether the next tokens are `with extent`.
+    bool at_extent() const {
+        const Token next = peek(1);
+        return peek().type == Token::Type::WITH &&
+               next.type == Token::Type::IDENTIFIER &&
+               std::get<std::string>(next.value) == "extent";
     }
 
     std::vector<ir::TypedVar> parse_tree_params() {
@@ -3044,6 +3246,24 @@ struct Parser {
         return layout;
     }
 
+    // The struct a name in a schedule stands for: an element, or one arm of a
+    // variant -- `Inst.blas : BLAS from BlasNodes` binds a field of the arm,
+    // and the arm is where the field is.
+    const ir::Struct_t *element_with_fields(const std::string &name) const {
+        if (const auto type_iter = program.types.find(name);
+            type_iter != program.types.cend()) {
+            return type_iter->second.as<ir::Struct_t>();
+        }
+        const auto owner = variant_owners.find(name);
+        if (owner == variant_owners.cend()) {
+            report_error() << "Schedule name: " << name
+                           << " is neither an extern, a function, nor a type.";
+        }
+        const ir::ADT_t *adt = program.types.at(owner->second).as<ir::ADT_t>();
+        internal_assert(adt) << owner->second;
+        return adt->variants[*adt->index_of(name)].as<ir::Struct_t>();
+    }
+
     // Whether a layout may store a value of this type.
     //
     // Everything `is_primitive` allows, plus an element holding a field the
@@ -3052,8 +3272,13 @@ struct Parser {
     // so the element as a whole can be stored even though a bare set could
     // not. `Instance` becomes storable because `Instance.blas : BLAS from
     // BlasNodes` was written; an element with an unbound set in it stays
-    // unstorable, and says so.
+    // unstorable, and says so. A variant is storable when each of its arms is.
     bool storable_in_layout(const ir::Type &type) const {
+        if (const auto *as_adt = type.as<ir::ADT_t>()) {
+            return std::all_of(
+                as_adt->variants.cbegin(), as_adt->variants.cend(),
+                [this](const ir::Type &v) { return storable_in_layout(v); });
+        }
         if (const auto *as_struct = type.as<ir::Struct_t>()) {
             for (const auto &field : as_struct->fields) {
                 if (field.type.is<ir::Set_t>()) {

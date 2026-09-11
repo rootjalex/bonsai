@@ -1,0 +1,40 @@
+//! flags: -p core
+
+// A match on a variant that is a value, and what it becomes.
+//
+//     match s { Sph(c, r) => 4 * pi * r * r, Tri(p0, p1, p2) => .. }
+//
+// is a branch -- an arm reads the fields of the variant the value is, so
+// neither arm may run unless the tag says so -- and a branch is a statement.
+// LowerADTs gives each one a function of its own, `_match0`, whose body is the
+// same match as a statement with a `return` in every arm; the value and
+// whatever else the arms mention become its parameters, and the expression
+// becomes a call. The backend inlines the call, and what is left is the tag
+// test and the arm, where the expression was.
+//
+// Two things to read for. The arms bind nothing: `r` in the source is
+// `(_matched as Sph).radius` in the IR, a read off the value known to be that
+// variant, which is why the lifted function needs no lets. And `scale` in the
+// second function reaches the arms from outside the match, so it is a second
+// parameter of `_match1`, after the value.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: Shape::Area(), as an expression.
+func area(s : Shape) -> Float =
+    match s {
+        Sph(c, r) => 4.0 * 3.14159265 * r * r,
+        Tri(p0, p1, p2) => 0.5 * norm(cross(p1 - p0, p2 - p0))
+    };
+
+// A match inside a larger expression, mentioning a name from outside it.
+func [[export]] scaled_extent(s : Shape, scale : Float) -> Float =
+    1.0 + scale * match s {
+        Sph(c, r) => 2.0 * r,
+        Tri(p0, p1, p2) => norm(p1 - p0)
+    };
+
+func [[export]] total(s : Shape, t : Shape) -> Float = area(s) + area(t);

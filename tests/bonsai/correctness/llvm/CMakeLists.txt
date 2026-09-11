@@ -46,6 +46,7 @@ add_bonsai_tests(
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
     map-func.bonsai
+    match-expr.bonsai
     map.bonsai
     mut-array-param.bonsai
     mutability.bonsai

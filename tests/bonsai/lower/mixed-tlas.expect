@@ -1,0 +1,170 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BLAS = (const BLAS&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Prim = | Solo(tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }) | Inst(render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }, blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>)
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type TLAS = (const TLAS&)
+type Transform = struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern prims : tree[[| Solo(tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }) | Inst(render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }, blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>)]] TLAS
+  | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Prim[]) with data = data with AABB(low, high)
+
+func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triangle)> {
+  _best0 : mut (f32, (Prim, Triangle)) := ((f32)inf, ())
+  rec(prims : tree[[Prim]] TLAS) {
+    match prims {
+    | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high) ->
+      if ((intersects(r, build<AABB>((prims as Interior).low, (prims as Interior).high)) && (0.001f < distmax(r, build<AABB>((prims as Interior).low, (prims as Interior).high)))) && (distmin(r, build<AABB>((prims as Interior).low, (prims as Interior).high)) < _best0[0])) {
+        from ((prims as Interior).left, (prims as Interior).right) sorted by (cast<f32>((f32x3(1f) / r.d)[(prims as Interior).axis] < 0f), select((f32x3(1f) / r.d)[(prims as Interior).axis] < 0f, 1f - 1f, 1f))
+      }
+    | Leaf(low : f32x3, high : f32x3, data : Prim[]) with data = data with AABB(low, high) ->
+      if ((intersects(r, build<AABB>((prims as Leaf).low, (prims as Leaf).high)) && (0.001f < distmax(r, build<AABB>((prims as Leaf).low, (prims as Leaf).high)))) && (distmin(r, build<AABB>((prims as Leaf).low, (prims as Leaf).high)) < _best0[0])) {
+        foreach _iter0 in (prims as Leaf).data {
+          match _iter0 {
+            Solo() =>
+              if ((intersects(untransform(_iter0, r), (_iter0 as Solo).tri) && (0.001f < distmin(untransform(_iter0, r), (_iter0 as Solo).tri))) && (distmin(untransform(_iter0, r), (_iter0 as Solo).tri) < _best0[0])) {
+                _best0 = (distmin(untransform(_iter0, r), (_iter0 as Solo).tri), (_iter0, (_iter0 as Solo).tri))
+              }
+            Inst() =>
+              let _subtree0 = (_iter0 as Inst).blas in
+              let _pulled0 = untransform(_iter0, r) in
+              rec(_subtree0 : tree[[Triangle]] BLAS) {
+                match _subtree0 {
+                | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
+                  if ((intersects(_pulled0, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) && (0.001f < distmax(_pulled0, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)))) && (distmin(_pulled0, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) < _best0[0])) {
+                    from ((_subtree0 as Interior).left, (_subtree0 as Interior).right) sorted by (cast<f32>((f32x3(1f) / _pulled0.d)[(_subtree0 as Interior).axis] < 0f), select((f32x3(1f) / _pulled0.d)[(_subtree0 as Interior).axis] < 0f, 1f - 1f, 1f))
+                  }
+                | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
+                  if ((intersects(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) && (distmin(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) < _best0[0])) {
+                    foreach _iter1 in (_subtree0 as Leaf).data {
+                      if ((intersects(_pulled0, _iter1) && (0.001f < distmin(_pulled0, _iter1))) && (distmin(_pulled0, _iter1) < _best0[0])) {
+                        _best0 = (distmin(_pulled0, _iter1), (_iter0, _iter1))
+                      }
+                    }
+                  }
+                }
+              }
+          }
+        }
+      }
+    }
+  }
+  yield select(_best0[0] != (f32)inf, build<option<(Prim, Triangle)>>(_best0[1]), build<option<(Prim, Triangle)>>())
+}
+
+func apply(t : Transform, p : f32x3) -> f32x3 {
+  return (((t.m0 * f32x3(p[0u])) + (t.m1 * f32x3(p[1u]))) + (t.m2 * f32x3(p[2u]))) + t.m3
+}
+
+func trace(r : Ray) -> option<(Prim, Triangle)> {
+  return _traverse_tree0(r, prims)
+}
+
+func transform_Prim_AABB(p : Prim, b : AABB) -> AABB {
+  match p {
+    Solo(tri) =>
+      return b
+    Inst(m, blas) =>
+      return transform(m, b)
+  }
+}
+
+func transform_Transform_AABB(t : Transform, b : AABB) -> AABB {
+  let c0 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.low[2u])) in
+  let c1 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.low[2u])) in
+  let c2 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.low[2u])) in
+  let c3 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.low[2u])) in
+  let c4 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.high[2u])) in
+  let c5 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.high[2u])) in
+  let c6 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.high[2u])) in
+  let c7 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.high[2u])) in
+  let lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7))) in
+  let hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7))) in
+  let out = build<AABB>(lo, hi) in
+  return out
+}
+
+func untransform_Prim_Ray(p : Prim, r : Ray) -> Ray {
+  match p {
+    Solo(tri) =>
+      return r
+    Inst(m, blas) =>
+      return untransform(m, r)
+  }
+}
+
+func untransform_Transform_Ray(t : Transform, r : Ray) -> Ray {
+  let o = (((t.i0 * f32x3(r.o[0u])) + (t.i1 * f32x3(r.o[1u]))) + (t.i2 * f32x3(r.o[2u]))) + t.i3 in
+  let d = ((t.i0 * f32x3(r.d[0u])) + (t.i1 * f32x3(r.d[1u]))) + (t.i2 * f32x3(r.d[2u])) in
+  let out = build<Ray>(o, d, r.tmax) in
+  return out
+}
+
+
+schedule host {
+    prims :       {
+        tCount : u32;
+        tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount];
+        bCount : u32;
+        group[bCount] bnode : u32
+        {
+          low : f32x3;
+          high : f32x3;
+          nPrims : u16;
+          axis : u8;
+          8;
+          switch nPrims {
+          0 => Interior
+            {
+              offset : u32;
+              left = bnode + (u32)1;
+              right = bnode + offset;
+            };
+          _ => Leaf
+            {
+              pOffset : u32;
+              data = range(tris, pOffset, cast<u32>(nPrims));
+            };
+          };
+        };
+        pCount : u32;
+        elems : | Solo(tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }) | Inst(render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }, blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }>)[pCount];
+        nCount : u32;
+        group[nCount] index : u32
+        {
+          low : f32x3;
+          high : f32x3;
+          nPrims : u16;
+          axis : u8;
+          8;
+          switch nPrims {
+          0 => Interior
+            {
+              offset : u32;
+              left = index + (u32)1;
+              right = index + offset;
+            };
+          _ => Leaf
+            {
+              pOffset : u32;
+              data = range(elems, pOffset, cast<u32>(nPrims));
+            };
+          };
+        };
+      };
+
+    trace.sort(prims.Interior, |i : u8, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, axis : u8| select((f32x3((f32)1) / r.d)[axis] < (f32)0, (f32)1 - cast<f32>(i), cast<f32>(i)))
+         .sort(Inst.blas.Interior, |i : u8, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, axis : u8| select((f32x3((f32)1) / r.d)[axis] < (f32)0, (f32)1 - cast<f32>(i), cast<f32>(i)))
+
+}

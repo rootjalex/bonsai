@@ -72,6 +72,22 @@ ir::Type stored_type(const ir::Type &type,
         }
         return ir::Array_t::make(std::move(etype), as_array->size);
     }
+    // A variant whose arm holds a tree -- `Inst(render_from_instance, blas)`
+    // beside `Solo(tri)` -- is stored with that arm holding the reference,
+    // and keeps its name for the same reason the struct below does.
+    if (const auto *as_adt = type.as<ir::ADT_t>()) {
+        ir::ADT_t::Variants variants;
+        variants.reserve(as_adt->variants.size());
+        bool changed = false;
+        for (const ir::Type &variant : as_adt->variants) {
+            variants.push_back(stored_type(variant, field_refs));
+            changed = changed || !variants.back().same_as(variant);
+        }
+        if (!changed) {
+            return type;
+        }
+        return ir::ADT_t::make(as_adt->name, std::move(variants));
+    }
     const auto *as_struct = type.as<ir::Struct_t>();
     if (as_struct == nullptr) {
         return type;

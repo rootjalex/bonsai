@@ -1,0 +1,14 @@
+// The arms of a match that is a value are all of one type: the whole is
+// whichever arm the value selects, and it has to have a type of its own.
+
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+func [[export]] size(s : Shape) -> Float =
+    match s {
+        Sph(c, r) => r,
+        Tri(p0, p1, p2) => p1 - p0
+    };

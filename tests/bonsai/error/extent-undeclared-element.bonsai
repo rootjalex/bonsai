@@ -1,0 +1,10 @@
+// `element E with extent = ..;` annotates an element declared earlier -- it is
+// how an extent gets to name functions over the element -- so the element has
+// to exist.
+
+import stdlib/aabb;
+import stdlib/numerics;
+
+element Instance with extent = |i| i.box;
+
+func [[export]] identity(x : Float) -> Float = x;

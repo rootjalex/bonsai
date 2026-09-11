@@ -418,6 +418,11 @@ Expr Mutator::visit(const Access *node) {
     if (value.same_as(node->value)) {
         return node;
     }
+    // A set's root augmentation, `blas.AABB`, has the type it was given and
+    // no other way to get it: a set has no fields to look one up by.
+    if (value.type().is<Set_t>()) {
+        return Access::make(node->field, std::move(value), node->type);
+    }
     return Access::make(node->field, std::move(value));
 }
 
@@ -427,6 +432,22 @@ Expr Mutator::visit(const Unwrap *node) {
         return node;
     }
     return Unwrap::make(node->index, std::move(value));
+}
+
+Expr Mutator::visit(const MatchExpr *node) {
+    Expr value = mutate(node->value);
+    bool not_changed = value.same_as(node->value);
+    std::vector<MatchExpr::Arm> arms;
+    arms.reserve(node->arms.size());
+    for (const auto &arm : node->arms) {
+        Expr body = mutate(arm.value);
+        not_changed = not_changed && body.same_as(arm.value);
+        arms.push_back(MatchExpr::Arm{arm.variant, std::move(body)});
+    }
+    if (not_changed) {
+        return node;
+    }
+    return MatchExpr::make(std::move(value), std::move(arms));
 }
 
 Expr Mutator::visit(const Intrinsic *node) {

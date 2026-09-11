@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/set-literal-empty.bonsai:17:74: [parse error] set[Triangle]{} lists no elements. A set literal names at least one.
+
+    match p { Solo(tri) => set[Triangle]{tri}, Nothing => set[Triangle]{} };
+                                                                         ^

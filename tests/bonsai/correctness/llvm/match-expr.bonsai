@@ -1,0 +1,39 @@
+//! flags: -b llvm -e
+
+// A match that is a value, run. lower/match-expr.bonsai is what it lowers to;
+// this checks that the arm the value is gets evaluated and the other does
+// not: the two arms read different fields at the same offsets, so an
+// expression that took the wrong arm -- or that evaluated both and selected,
+// reading a triangle's bytes as a radius -- prints a wrong number rather than
+// the right one twice.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+func area(s : Shape) -> Float =
+    match s {
+        Sph(c, r) => 4.0 * 3.14159265 * r * r,
+        Tri(p0, p1, p2) => 0.5 * norm(cross(p1 - p0, p2 - p0))
+    };
+
+func scaled_extent(s : Shape, scale : Float) -> Float =
+    1.0 + scale * match s {
+        Sph(c, r) => 2.0 * r,
+        Tri(p0, p1, p2) => norm(p1 - p0)
+    };
+
+func main() -> i32 {
+    // A unit sphere: 4*pi. Then radius 2, four times that.
+    print(area(Sph(vec3f{0.0, 0.0, 0.0}, 1.0)));
+    print(area(Sph(vec3f{1.0, 2.0, 3.0}, 2.0)));
+    // A right triangle with legs 3 and 4: area 6.
+    print(area(Tri(vec3f{0.0, 0.0, 0.0}, vec3f{3.0, 0.0, 0.0},
+                   vec3f{0.0, 4.0, 0.0})));
+    // 1 + 10 * (2 * 2) = 41, and 1 + 10 * 3 = 31.
+    print(scaled_extent(Sph(vec3f{1.0, 2.0, 3.0}, 2.0), 10.0));
+    print(scaled_extent(Tri(vec3f{0.0, 0.0, 0.0}, vec3f{3.0, 0.0, 0.0},
+                            vec3f{0.0, 4.0, 0.0}), 10.0));
+    return 0;
+}

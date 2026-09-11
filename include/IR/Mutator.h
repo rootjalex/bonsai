@@ -66,6 +66,7 @@ struct Mutator {
     virtual Expr visit(const UnionOf *);
     virtual Expr visit(const Access *);
     virtual Expr visit(const Unwrap *);
+    virtual Expr visit(const MatchExpr *);
     virtual Expr visit(const Intrinsic *);
     virtual Expr visit(const Generator *);
     virtual Expr visit(const Lambda *);

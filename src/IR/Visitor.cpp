@@ -177,6 +177,13 @@ void Visitor::visit(const Access *node) { node->value.accept(this); }
 
 void Visitor::visit(const Unwrap *node) { node->value.accept(this); }
 
+void Visitor::visit(const MatchExpr *node) {
+    node->value.accept(this);
+    for (const auto &arm : node->arms) {
+        arm.value.accept(this);
+    }
+}
+
 void Visitor::visit(const Intrinsic *node) { visit_list(this, node->args); }
 
 void Visitor::visit(const Generator *node) { visit_list(this, node->args); }

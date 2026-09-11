@@ -10,6 +10,11 @@ add_bonsai_tests(
     call-statement-arg-type.bonsai
     collapse-dependent-range.bonsai
     collapse-not-nested.bonsai
+    extent-undeclared-element.bonsai
+    extent-variant-fields.bonsai
+    match-expr-arm-types.bonsai
+    set-function-statement-body.bonsai
+    set-literal-empty.bonsai
     loopify-nested-needs-ssa.bonsai
     loopify-queue-not-tail.bonsai
     sort-needs-ssa.bonsai

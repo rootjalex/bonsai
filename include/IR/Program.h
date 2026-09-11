@@ -33,7 +33,11 @@ struct Program {
     // TODO: what is the right interface for this?
     ScheduleMap schedules;
 
-    // `with extent = <expr>` on an element, keyed by the element's type name.
+    // `with extent = <expr>` on an element, keyed by the element's type name,
+    // recorded as a function of the element: a Lambda of one argument of the
+    // element's type, whichever way the source spelled it (over the fields of
+    // a struct, or `|p| ..` for a variant). Readers apply it to the element
+    // they are asking about.
     //
     // What a node's bounds augmentation says about a subtree, said about a
     // single element: everything reachable through a value of this type lies

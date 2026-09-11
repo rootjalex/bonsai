@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -827,6 +828,18 @@ Expr Build::make(Type type, std::vector<Expr> values) {
                 << "Build a variant type only from nothing, which is its zero "
                    "value; naming a variant is Construct's job: "
                 << type;
+        } else if (const Set_t *as_set = type.as<Set_t>()) {
+            // A set from the elements listed: `set[Geometric]{g}`. A set is
+            // never a value the machine holds -- a query's set is traversed,
+            // and this one is traversed by yielding each element in turn --
+            // so all there is to check is that the elements are the set's.
+            for (const auto &expr : values) {
+                internal_assert(equals(as_set->etype, expr.type()))
+                    << "Build<Set_t> requires the set's element type, "
+                       "expected: "
+                    << as_set->etype << " but received " << expr
+                    << " of type " << expr.type();
+            }
         } else {
             internal_error << "Build::make with non-(vector, array, struct, "
                               "option, tuple) type: "
@@ -910,19 +923,72 @@ Expr Access::make(std::string field, Expr value, Type type) {
 }
 
 Expr Unwrap::make(size_t index, Expr value) {
-    internal_assert(value.defined() && value.type().is<BVH_t>())
+    internal_assert(value.defined() && (value.type().is<BVH_t, ADT_t>()))
         << "Bad Unwrap parameters: " << value << " has type: " << value.type();
-    internal_assert(index < value.type().as<BVH_t>()->nodes.size())
-        << "Bad Unwrap parameters: " << value << " unwrapped with " << index;
 
-    Unwrap *node = new Unwrap;
-
-    Type type = value.type().as<BVH_t>()->nodes[index].struct_type;
+    Type type;
+    if (const BVH_t *bvh = value.type().as<BVH_t>()) {
+        internal_assert(index < bvh->nodes.size())
+            << "Bad Unwrap parameters: " << value << " unwrapped with "
+            << index;
+        type = bvh->nodes[index].struct_type;
+    } else {
+        const ADT_t *adt = value.type().as<ADT_t>();
+        internal_assert(index < adt->variants.size())
+            << "Bad Unwrap parameters: " << value << " unwrapped with "
+            << index;
+        type = adt->variants[index];
+    }
     internal_assert(type.defined());
 
+    Unwrap *node = new Unwrap;
     node->type = std::move(type);
     node->index = index;
     node->value = std::move(value);
+    return node;
+}
+
+Expr MatchExpr::make(Expr value, std::vector<Arm> arms) {
+    internal_assert(value.defined())
+        << "MatchExpr::make received no value to match on";
+    const ADT_t *adt = value.type().as<ADT_t>();
+    internal_assert(adt) << "MatchExpr::make received a non-ADT value: "
+                         << value << " of type " << value.type();
+    internal_assert(!arms.empty())
+        << "MatchExpr::make received no arms for " << adt->name;
+
+    // Every variant once, and nothing else, as for a match statement; and
+    // every arm of one type, since the whole is one of them.
+    std::set<std::string> seen;
+    Type type;
+    for (const Arm &arm : arms) {
+        const auto index = adt->index_of(arm.variant);
+        internal_assert(index.has_value())
+            << adt->name << " has no variant called " << arm.variant;
+        internal_assert(seen.insert(arm.variant).second)
+            << "Variant " << arm.variant << " of " << adt->name
+            << " is matched twice";
+        internal_assert(arm.value.defined())
+            << "Arm for " << arm.variant << " has no value";
+        if (!type.defined()) {
+            type = arm.value.type();
+        } else if (type_enforcement_enabled() || arm.value.type().defined()) {
+            internal_assert(equals(type, arm.value.type()))
+                << "Arms of a match on " << adt->name
+                << " disagree on their type: " << type << " versus "
+                << arm.value.type() << " for " << arm.variant;
+        }
+    }
+    for (size_t i = 0; i < adt->variants.size(); i++) {
+        internal_assert(seen.count(adt->variant_name(i)))
+            << "Match on " << adt->name << " does not say what it is when "
+            << "the value is " << adt->variant_name(i);
+    }
+
+    MatchExpr *node = new MatchExpr;
+    node->type = std::move(type);
+    node->value = std::move(value);
+    node->arms = std::move(arms);
     return node;
 }
 

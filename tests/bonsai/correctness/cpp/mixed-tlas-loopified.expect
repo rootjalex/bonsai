@@ -1,0 +1,11 @@
+[test] clang++ -std=c++20 -O3 -DLOOPIFIED -c tests/bonsai/correctness/cpp/main_mixed_tlas.cpp -I. -o tests/bonsai/correctness/cpp/main_mixed_tlas_loopified.o
+[test] clang++ tests/bonsai/correctness/cpp/main_mixed_tlas_loopified.o tests/bonsai/correctness/cpp/mixed-tlas-loopified.o -o tests/bonsai/correctness/cpp/mixed-tlas-loopified
+[test] ./tests/bonsai/correctness/cpp/mixed-tlas-loopified
+solo in front : hit solo tri=(-3.00, -1.00, -1.50) any=yes
+inst in front : hit instance tri=(0.00, -1.00, 0.50) any=yes
+solo alone    : hit solo tri=(2.00, -1.00, 29.50) any=yes
+turned        : hit instance tri=(0.00, 0.25, 19.75) any=yes
+unturned      : miss any=no
+wrong object  : miss any=no
+empty lane    : miss any=no
+past the top  : miss any=no

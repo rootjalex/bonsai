@@ -2,6 +2,7 @@
 
 #include "Lower/ADTLayout.h"
 
+#include "IR/Analysis.h"
 #include "IR/Expr.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
@@ -247,6 +248,19 @@ struct RewriteADTs : public Mutator {
         return Build::make(mutate(layout.storage), std::move(whole));
     }
 
+    // A value read as one of its variants: the fields of that variant, at
+    // wherever the layout keeps them. Only ever inside the arm of a match that
+    // established which variant it is (see ir::Unwrap).
+    Expr visit(const Unwrap *node) override {
+        const ADT_t *adt = node->value.type().as<ADT_t>();
+        if (adt == nullptr) {
+            return Mutator::visit(node); // a tree node's arm, not ours.
+        }
+        const ADTLayout &layout = layout_of(node->value.type());
+        return as_variant(layout, mutate(node->value),
+                          adt->variant_name(node->index));
+    }
+
     // A match becomes a test per arm, in the order they were written.
     //
     // The last arm needs no test: MatchVariant::make has already checked that
@@ -292,6 +306,74 @@ struct RewriteADTs : public Mutator {
                                   std::move(result));
         }
         return result;
+    }
+};
+
+// A match that is a value becomes a call to a function whose body is the same
+// match as a statement, each arm returning its expression.
+//
+//     x = match p { Geom(g) => a, Inst(m, blas) => b }
+//
+// is a branch, and a branch is a statement: the arms read fields of the
+// variant the value is, so neither may be evaluated unless the tag says so,
+// which rules out a `Select`. Rather than teach every kind of statement to
+// have one hoisted out of its expressions, the branch is given a function of
+// its own -- the value and whatever else the arms mention are its parameters
+// -- and the match statement inside it is lowered by the same code as one the
+// program wrote. The call is inlined by the backend, so what remains is the
+// tag test and the arm, where the expression was.
+//
+// A set-typed match never gets here: it is part of a query, and LowerTrees
+// opened it into the traversal (see ir::MatchExpr).
+struct LiftMatchExprs : public Mutator {
+    FuncMap lifted;
+    size_t counter = 0;
+
+    using Mutator::visit;
+
+    Expr visit(const MatchExpr *node) override {
+        internal_assert(!node->type.is<Set_t>())
+            << "A set-valued match survived tree lowering: " << Expr(node);
+        const Expr value = mutate(node->value);
+
+        // The matched value is the function's first parameter, and the arms
+        // are rewritten to read it by that name.
+        const std::string name = "_match" + std::to_string(counter++);
+        const std::string matched = "_matched";
+        const Expr param = Var::make(value.type(), matched);
+        std::map<Expr, Expr, ExprLessThan> as_param;
+        as_param[value] = param;
+
+        std::vector<Function::Argument> args;
+        std::vector<Expr> call_args;
+        std::set<std::string> seen;
+        args.emplace_back(matched, value.type());
+        call_args.push_back(value);
+        seen.insert(matched);
+
+        std::vector<MatchVariant::Arm> arms;
+        arms.reserve(node->arms.size());
+        for (const auto &arm : node->arms) {
+            Expr body = replace(as_param, mutate(arm.value));
+            // Everything else an arm reads comes in as a parameter, in the
+            // order first seen, so the call site names it too.
+            for (const TypedVar &var : gather_free_vars(body)) {
+                if (seen.insert(var.name).second) {
+                    args.emplace_back(var.name, var.type);
+                    call_args.push_back(Var::make(var.type, var.name));
+                }
+            }
+            arms.push_back(
+                MatchVariant::Arm{arm.variant, {}, Return::make(body)});
+        }
+
+        auto func = std::make_shared<Function>(
+            name, std::move(args), node->type,
+            MatchVariant::make(param, std::move(arms)),
+            Function::InterfaceList{}, std::vector<Function::Attribute>{});
+        const Expr callee = Var::make(func->call_type(), name);
+        lifted[name] = std::move(func);
+        return Call::make(callee, std::move(call_args));
     }
 };
 
@@ -525,6 +607,22 @@ ir::Program LowerADTs::run(ir::Program program,
     }
     if (layouts.empty()) {
         return program;
+    }
+
+    // Matches that are values become functions first, so that the rewrite
+    // below lowers the match statement inside each exactly as it lowers one
+    // the program wrote.
+    {
+        LiftMatchExprs lift;
+        for (auto &[name, func] : program.funcs) {
+            func->body = lift.mutate(func->body);
+        }
+        for (auto &[name, func] : lift.lifted) {
+            internal_assert(!program.funcs.contains(name))
+                << "Cannot name the lifted match " << name
+                << ": something is already called that.";
+            program.funcs[name] = std::move(func);
+        }
     }
 
     add_variant_constructors(program);

@@ -1,0 +1,24 @@
+// A set literal names at least one element. Its traversal is a yield per
+// element, and there is no statement to build for none; nothing has needed
+// one -- pbrt drops an instance with no shapes before it reaches the tree.
+
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+element Prim =
+    | Solo(tri : Triangle)
+    | Nothing();
+
+func geometry(p : Prim) -> set[Triangle] =
+    match p { Solo(tri) => set[Triangle]{tri}, Nothing => set[Triangle]{} };
+
+extern prims : set[Prim];
+
+func [[export]] trace(r : Ray) =
+    argmin(|p : Prim, tri : Triangle| distmin(r, tri),
+           filter(|p : Prim, tri : Triangle| intersects(r, tri),
+                  flatten(|p : Prim| geometry(p), prims)));

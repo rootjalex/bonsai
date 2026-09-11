@@ -874,6 +874,12 @@ class BonsaiToCpp : ir::Printer {
         ss << "_" << node->type.as<Struct_t>()->name;
     }
 
+    void visit(const MatchExpr *node) override {
+        internal_error << "MatchExpr should have been lowered before code "
+                          "generation: "
+                       << Expr(node);
+    }
+
     void visit(const Intrinsic *node) override {
         if (node->op == Intrinsic::sqrt && node->type.is_float() &&
             node->type.bits() == 32) {

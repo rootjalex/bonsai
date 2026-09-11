@@ -42,6 +42,7 @@ enum class IRExprEnum {
     UnionOf,
     Access,
     Unwrap,
+    MatchExpr,
     // Calls
     Intrinsic,
     Generator,
@@ -378,7 +379,12 @@ struct Access : ExprNode<Access> {
     static const IRExprEnum node_type = IRExprEnum::Access;
 };
 
-// Reinterpret as a branch of a BVH_t
+// Reinterpret as one arm of a sum: a node of a BVH_t, or a variant of an
+// ADT_t. The type is that arm's struct, so its fields can be read off it.
+//
+// Meaningful only where the value is known to be that arm -- inside the
+// corresponding arm of a match. Reading a field of the variant a value is not
+// reads whatever those bytes happen to be.
 struct Unwrap : ExprNode<Unwrap> {
     size_t index;
     Expr value;
@@ -386,6 +392,35 @@ struct Unwrap : ExprNode<Unwrap> {
     static Expr make(size_t index, Expr value);
 
     static const IRExprEnum node_type = IRExprEnum::Unwrap;
+};
+
+// A match on a variant that is a value: one expression per arm, all of one
+// type, and the whole is whichever the value's variant selects.
+//
+//     match p { Geom(g) => set[Geometric]{g}, Inst(m, blas) => blas }
+//
+// The arms do not bind names. A field of the matched variant is read as
+// `Unwrap(k, value).field` -- what the surface syntax's bindings stand for --
+// so an arm is a plain expression over the enclosing scope, and every
+// analysis that walks expressions sees through it with nothing to scope.
+//
+// Where it goes depends on its type. A set-typed one is part of a query, and
+// the traversal built over the query opens it: a match statement whose arms
+// each traverse their own set, which is how a tree of mixed primitives puts
+// a plain element and a nested tree side by side. A value-typed one is a
+// branch, and LowerADTs makes it one.
+struct MatchExpr : ExprNode<MatchExpr> {
+    struct Arm {
+        std::string variant;
+        Expr value;
+    };
+
+    Expr value; // of an ADT type
+    std::vector<Arm> arms;
+
+    static Expr make(Expr value, std::vector<Arm> arms);
+
+    static const IRExprEnum node_type = IRExprEnum::MatchExpr;
 };
 
 struct Intrinsic : ExprNode<Intrinsic> {

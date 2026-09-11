@@ -309,7 +309,11 @@ Stmt MatchVariant::make(Expr value, std::vector<Arm> arms) {
         internal_assert(seen.insert(arm.variant).second)
             << "Variant " << arm.variant << " of " << adt->name
             << " is matched twice";
-        internal_assert(arm.bindings.size() == adt->fields(*index).size())
+        // An arm names every field of its variant, or none of them and reads
+        // what it needs through `Unwrap` -- which is how a match built by the
+        // compiler rather than written in the source reaches them.
+        internal_assert(arm.bindings.empty() ||
+                        arm.bindings.size() == adt->fields(*index).size())
             << arm.variant << " has " << adt->fields(*index).size()
             << " fields but the arm names " << arm.bindings.size();
         internal_assert(arm.body.defined())

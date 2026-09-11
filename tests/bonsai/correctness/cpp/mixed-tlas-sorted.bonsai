@@ -1,0 +1,171 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/mixed-tlas-sorted
+//! commands: clang++ -std=c++20 -O3 -DSORTED -c $<>/main_mixed_tlas.cpp -I. -o $<>/main_mixed_tlas_sorted.o, clang++ $<>/main_mixed_tlas_sorted.o $<>/mixed-tlas-sorted.o -o $<>/mixed-tlas-sorted, ./$<>/mixed-tlas-sorted, rm $<>/mixed-tlas-sorted, rm $<>/main_mixed_tlas_sorted.o, rm $<>/mixed-tlas-sorted.h, rm $<>/mixed-tlas-sorted.o
+
+// mixed-tlas.bonsai with a front-to-back `sort()` on both levels and a
+// `loopify()` on both, run against the same driver.
+//
+// The inner tree's key is written over the query ray and has to end up on the
+// pulled-back one -- pbrt applies `dirIsNeg` after `ApplyInverse` -- and here
+// the pull happens inside one arm of a match on the primitive. A key left on
+// the world ray would order the walk of a rotated instance by the wrong ray,
+// which an argmin survives; what it would not survive is the key's operands
+// being read from the wrong arm's fields. Same answers is the check.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
+    return out;
+}
+
+element Prim =
+    | Solo(tri : Triangle)
+    | Inst(render_from_instance : Transform, blas : set[Triangle]);
+
+func geometry(p : Prim) -> set[Triangle] =
+    match p { Solo(tri) => set[Triangle]{tri}, Inst(m, blas) => blas };
+
+element Prim with extent = |p| transform(p, geometry(p).AABB);
+
+func transform(p : Prim, b : AABB) -> AABB {
+    match p {
+        Solo(tri) => return b;
+        Inst(m, blas) => return transform(m, b);
+    }
+}
+
+func untransform(p : Prim, r : Ray) -> Ray {
+    match p {
+        Solo(tri) => return r;
+        Inst(m, blas) => return untransform(m, r);
+    }
+}
+
+func [[export]] transform(p : Prim, tri : Triangle) -> Triangle {
+    match p {
+        Solo(t) => return tri;
+        Inst(m, blas) => {
+            out : Triangle = {apply(m, tri.p0), apply(m, tri.p1),
+                              apply(m, tri.p2)};
+            return out;
+        }
+    }
+}
+
+func [[export]] is_instance(p : Prim) -> bool {
+    match p {
+        Solo(tri) => return false;
+        Inst(m, blas) => return true;
+    }
+}
+
+extern prims : set[Prim];
+
+func [[export]] trace(r : Ray) =
+    argmin(|p : Prim, tri : Triangle| distmin(r, transform(p, tri)),
+           filter(|p : Prim, tri : Triangle|
+                      intersects(r, transform(p, tri)) &&
+                      distmin(r, transform(p, tri)) > 0.001,
+                  flatten(|p : Prim| geometry(p), prims)));
+
+func [[export]] trace_any(r : Ray) =
+    any(|p : Prim, tri : Triangle|
+            intersects(r, transform(p, tri)) &&
+            distmin(r, transform(p, tri)) > 0.001,
+        flatten(|p : Prim| geometry(p), prims));
+
+schedule {
+    layout Prim = tagged_index;
+
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tree[[Prim]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Prim]) with data = data;
+
+    prims : TLAS;
+    Inst.blas : BLAS from BlasNodes;
+
+    // pbrt's `dirIsNeg[axis]` rule at both levels; the inner one is applied
+    // to the ray after `ApplyInverse`, which `pull-queries` arranges.
+    trace.sort(prims.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    layout prims {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        pCount : u32;
+        elems : array[Prim, pCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(elems, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

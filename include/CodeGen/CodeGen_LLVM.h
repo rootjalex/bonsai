@@ -163,6 +163,8 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::UnionOf *) override;
     virtual void visit(const ir::Access *) override;
     virtual void visit(const ir::Unwrap *) override;
+    // LowerADTs turns this into a branch per variant.
+    RESTRICT_VISITOR(ir::MatchExpr);
     virtual void visit(const ir::Intrinsic *) override;
     RESTRICT_VISITOR(ir::Generator);
     virtual void visit(const ir::Lambda *) override;
