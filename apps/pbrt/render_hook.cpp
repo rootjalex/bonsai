@@ -1142,37 +1142,33 @@ int main(int argc, char **argv) {
     }
 
     // pbrt: the Primitives the top-level BVHAggregate is built over, made
-    // last: a GeometricPrimitive copies its fields into the `Geom` pool, and the
-    // light index above had to be settled first. Made in the leaves' order, so
-    // the pool entries a leaf reaches are consecutive, as `compact_pools` did
-    // for the shapes. An instance is its two matrices and the row its object's
-    // tree starts at.
-    std::vector<Geom> geom_pool(shapes.size());
+    // last, since the light index above had to be settled first. The layout
+    // keeps a GeometricPrimitive's fields in the value -- a leaf holds them
+    // directly, in the leaves' order -- and an instance's behind a row of the
+    // `Inst` pool: its two matrices and the row its object's tree starts at.
+    // Only that pool is the driver's to size.
     std::vector<Inst> inst_pool(loaded.instances.size());
-    uint64_t geom_fill = 0;
     uint64_t inst_fill = 0;
-    std::vector<uint64_t> prims;
-    prims.reserve(top.size());
+    std::vector<Primitive> prims(top.size());
     {
         size_t next_shape = 0;
-        for (const TopLevel &t : top) {
+        for (size_t i = 0; i < top.size(); i++) {
+            const TopLevel &t = top[i];
             if (t.instance) {
                 const bonsai_scene::Instance &inst = loaded.instances[t.index];
-                prims.push_back(Primitive_Inst(
-                    to_bonsai(inst.render_from_instance),
-                    to_bonsai(inst.instance_from_render),
-                    roots[inst.definition], inst_pool.data(), &inst_fill));
+                Primitive_Inst(prims[i], to_bonsai(inst.render_from_instance),
+                               to_bonsai(inst.instance_from_render),
+                               roots[inst.definition], inst_pool.data(),
+                               &inst_fill);
             } else {
-                prims.push_back(Primitive_Geom(shapes[next_shape++],
-                                               geom_pool.data(), &geom_fill));
+                Primitive_Geom(prims[i], shapes[next_shape++]);
             }
         }
     }
-    if (geom_fill != geom_pool.size() || inst_fill != inst_pool.size()) {
-        fprintf(stderr, "primitive pool fill disagrees with the count: "
-                        "%zu/%zu shapes, %zu/%zu instances\n",
-                size_t(geom_fill), geom_pool.size(), size_t(inst_fill),
-                inst_pool.size());
+    if (inst_fill != inst_pool.size()) {
+        fprintf(stderr, "instance pool fill disagrees with the count: "
+                        "%zu/%zu instances\n",
+                size_t(inst_fill), inst_pool.size());
         return 1;
     }
 
@@ -1439,7 +1435,7 @@ int main(int argc, char **argv) {
                env_dist_marg_func.data(), env_dist_marg_cdf.data(),
                lights.data(),
                materials.data(), material_displacement.data(), rho_uc, rho_ux,
-               rho_uy, tree, geom_pool.data(), inst_pool.data(),
+               rho_uy, tree, inst_pool.data(),
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(

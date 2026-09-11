@@ -11,8 +11,11 @@ namespace opt {
 //
 //     rel(q, transform(m, x))   ==>   rel(untransform(m, q), x)
 //
-// and then hoists `untransform(m, q)` out of every recursion whose variables it
-// does not mention.
+// and then binds each distinct `untransform(m, q)` once: hoisted out of every
+// recursion whose variables it does not mention, and at the top of every arm
+// of a match that uses it -- the dispatch on a variant element inside a leaf's
+// element loop, whose arm without a tree has no recursion to hoist ahead of
+// and would otherwise test its shape once per copy of the term.
 //
 // A query over a tree held in an element writes `intersects(r, transform(m,
 // tri))` -- the triangle where its instance puts it -- because that is the form

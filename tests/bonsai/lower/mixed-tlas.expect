@@ -33,23 +33,24 @@ func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triang
         foreach _iter0 in (prims as Leaf).data {
           match _iter0 {
             Solo() =>
-              if ((intersects(untransform(_iter0, r), (_iter0 as Solo).tri) && (0.001f < distmin(untransform(_iter0, r), (_iter0 as Solo).tri))) && (distmin(untransform(_iter0, r), (_iter0 as Solo).tri) < _best0[0])) {
-                _best0 = (distmin(untransform(_iter0, r), (_iter0 as Solo).tri), (_iter0, (_iter0 as Solo).tri))
+              let _pulled0 = untransform(_iter0, r) in
+              if ((intersects(_pulled0, (_iter0 as Solo).tri) && (0.001f < distmin(_pulled0, (_iter0 as Solo).tri))) && (distmin(_pulled0, (_iter0 as Solo).tri) < _best0[0])) {
+                _best0 = (distmin(_pulled0, (_iter0 as Solo).tri), (_iter0, (_iter0 as Solo).tri))
               }
             Inst() =>
+              let _pulled1 = untransform(_iter0, r) in
               let _subtree0 = (_iter0 as Inst).blas in
-              let _pulled0 = untransform(_iter0, r) in
               rec(_subtree0 : tree[[Triangle]] BLAS) {
                 match _subtree0 {
                 | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
-                  if ((intersects(_pulled0, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) && (0.001f < distmax(_pulled0, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)))) && (distmin(_pulled0, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) < _best0[0])) {
-                    from ((_subtree0 as Interior).left, (_subtree0 as Interior).right) sorted by (cast<f32>((f32x3(1f) / _pulled0.d)[(_subtree0 as Interior).axis] < 0f), select((f32x3(1f) / _pulled0.d)[(_subtree0 as Interior).axis] < 0f, 1f - 1f, 1f))
+                  if ((intersects(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) && (0.001f < distmax(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)))) && (distmin(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) < _best0[0])) {
+                    from ((_subtree0 as Interior).left, (_subtree0 as Interior).right) sorted by (cast<f32>((f32x3(1f) / _pulled1.d)[(_subtree0 as Interior).axis] < 0f), select((f32x3(1f) / _pulled1.d)[(_subtree0 as Interior).axis] < 0f, 1f - 1f, 1f))
                   }
                 | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
-                  if ((intersects(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) && (distmin(_pulled0, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) < _best0[0])) {
+                  if ((intersects(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) && (distmin(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) < _best0[0])) {
                     foreach _iter1 in (_subtree0 as Leaf).data {
-                      if ((intersects(_pulled0, _iter1) && (0.001f < distmin(_pulled0, _iter1))) && (distmin(_pulled0, _iter1) < _best0[0])) {
-                        _best0 = (distmin(_pulled0, _iter1), (_iter0, _iter1))
+                      if ((intersects(_pulled1, _iter1) && (0.001f < distmin(_pulled1, _iter1))) && (distmin(_pulled1, _iter1) < _best0[0])) {
+                        _best0 = (distmin(_pulled1, _iter1), (_iter0, _iter1))
                       }
                     }
                   }

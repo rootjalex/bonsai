@@ -1754,14 +1754,23 @@ schedule {
     // no allocator. See render_hook.cpp.
     layout Shape = tagged_index;
 
-    // pbrt: Primitive is a TaggedPointer too, and for the same reason it gets
-    // the same layout. An instance is two matrices and a tree, a hundred and
-    // thirty bytes; a plain primitive is twenty. Stored as a tag beside a
-    // union, every one of the scene's triangles would carry an instance's
-    // worth of space through the top-level tree's leaves. Under this a leaf
-    // holds one word per primitive and each pool holds what it actually is,
-    // which is what pbrt's leaves hold: a pointer, to whichever object.
-    layout Primitive = tagged_index;
+    // pbrt: Primitive is a TaggedPointer too, but it does not get the same
+    // layout, because its arms are nothing alike: an instance is two matrices
+    // and a tree, a hundred and thirty bytes, and a plain primitive is twenty
+    // -- and almost every primitive in a scene is the plain kind. Stored as a
+    // tag beside a union, every triangle would carry an instance's worth of
+    // space through the top-level tree's leaves; stored `tagged_index`, every
+    // triangle would sit behind an indirection that pbrt's TaggedPointer also
+    // pays and that the inline `Primitive` struct here never did (+7.5% on a
+    // scene with no instances, measured). So the arms are laid out apart: a
+    // plain primitive is its own twenty bytes in the leaf, and an instance is
+    // a row number into a pool of them. pbrt cannot do this -- its
+    // TaggedPointer is one shape for every arm -- which is why this is the
+    // layout language's decision and not the query's.
+    layout Primitive {
+        Geom = inline;
+        Inst = tagged_index;
+    }
 
     // pbrt: the BVHAggregate an instance definition's shapes are built into,
     // shared by every instance of the object. Same node, same packing; a leaf

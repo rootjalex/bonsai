@@ -130,3 +130,39 @@ correctness/cpp/mixed-tlas.bonsai runs it with a standalone triangle in front
 of an instance's triangle in one lane and behind one in another, so the
 running best is checked crossing both ways between the arms; loopified and
 sorted schedules print the same lines.
+
+## Two things apps/pbrt found, once the whole renderer ran over it
+
+The scene `many-shapes`, which has no instances at all, came out 7.5% slower
+than the renderer before instancing. Neither cause was the dispatch.
+
+**The layout.** `layout Primitive = tagged_index` is pbrt's TaggedPointer: a
+word in the leaf, the fields in a pool per arm. For the instance arm that is
+right -- two matrices and a tree do not belong in a leaf -- but it puts an
+indirection in front of every plain primitive that the old inline struct did
+not have. The layout language now decides per arm:
+
+```
+layout Primitive { Geom = inline; Inst = tagged_index; }
+```
+
+a tag beside a union whose `Geom` member is the arm's twenty bytes and whose
+`Inst` member is a `u32` into `Primitive_Inst_pool`. `lower/adt-layout-per-arm`
+shows the storage; `correctness/cpp/mixed-tlas-per-arm` runs it. pbrt cannot
+do this, since its TaggedPointer is one shape for every arm.
+
+**The pull, in the arm with no tree.** The query's tests are each written
+over `transform(p, g)`, and the rewrite makes `untransform(p, r)` out of each:
+four copies of one term in the Geom arm. In the Inst arm the term is hoisted
+once ahead of the walk; the Geom arm has no walk, so the copies stayed, LLVM
+inlined each and folded each to `r` -- and then could not see that the four
+`r`s it had made were one value, so the shape test that used to be shared
+between `intersects` and `distmin` ran once per copy. `pull-queries` now binds
+each distinct pulled term once at the top of the match arm that uses it (see
+`HoistPulled::visit(MatchVariant)`): one ray on entry to the arm, every test
+over it, which is what each arm of pbrt's `Primitive::Intersect` has. Per arm
+rather than ahead of the match, so the arm that moves nothing computes
+nothing: inside the arm the term's own dispatch folds away.
+
+With both, `many-shapes` runs in the same time it did before instancing
+existed, to the millisecond, on alternating runs.

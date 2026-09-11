@@ -2,6 +2,8 @@ add_bonsai_tests(
     LABELS error
     FILES
     adt-duplicate-variant.bonsai
+    adt-layout-arm-missing.bonsai
+    adt-layout-arm-unknown.bonsai
     adt-layout-tagged-ptr-no-heap.bonsai
     adt-layout-unknown.bonsai
     indirect-group-unnamed.bonsai

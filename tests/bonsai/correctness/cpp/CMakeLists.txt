@@ -12,6 +12,7 @@ add_bonsai_tests(
     ffp-contract.bonsai
     mixed-tlas.bonsai
     mixed-tlas-loopified.bonsai
+    mixed-tlas-per-arm.bonsai
     mixed-tlas-sorted.bonsai
     mut-dynamic-array.bonsai
     setops.bonsai

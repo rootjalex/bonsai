@@ -2910,25 +2910,62 @@ struct Parser {
         program.schedules[ir::Target::Host] = schedule;
     }
 
-    // `layout <Adt> = <kind>;`
+    // `layout <Adt> = <kind>;` -- every arm stored the same way -- or
+    // `layout <Adt> { <Arm> = <kind>; ... }`, each arm its own way, every arm
+    // named exactly once. The record is the same either way: a kind per arm.
     void parse_adt_layout(ir::Schedule &schedule, const std::string &name) {
-        expect(Token::Type::ASSIGN);
-        const std::string kind = get_id();
-        expect(Token::Type::SEMICOL);
+        const ir::ADT_t *adt = program.types.at(name).as<ir::ADT_t>();
+        internal_assert(adt) << name;
 
-        ir::AdtLayout layout = ir::AdtLayout::Inline;
-        if (kind == "inline") {
-            layout = ir::AdtLayout::Inline;
-        } else if (kind == "tagged_index") {
-            layout = ir::AdtLayout::TaggedIndex;
-        } else if (kind == "tagged_ptr") {
-            layout = ir::AdtLayout::TaggedPtr;
-        } else {
+        const auto kind_named = [&](const std::string &kind) {
+            if (kind == "inline") {
+                return ir::AdtLayout::Inline;
+            } else if (kind == "tagged_index") {
+                return ir::AdtLayout::TaggedIndex;
+            } else if (kind == "tagged_ptr") {
+                return ir::AdtLayout::TaggedPtr;
+            }
             report_error() << "Unknown layout for " << name << ": " << kind
                            << ". Expected `inline`, `tagged_index` or "
                               "`tagged_ptr`.";
+            return ir::AdtLayout::Inline;
+        };
+
+        ir::AdtArmLayouts arms;
+        if (consume(Token::Type::LSQUIGGLE)) {
+            do {
+                const std::string arm = get_id();
+                if (!adt->index_of(arm).has_value()) {
+                    report_error() << name << " has no variant called " << arm
+                                   << " to lay out.";
+                }
+                expect(Token::Type::ASSIGN);
+                const std::string kind = get_id();
+                expect(Token::Type::SEMICOL);
+                if (!arms.emplace(arm, kind_named(kind)).second) {
+                    report_error() << "Variant " << arm << " of " << name
+                                   << " is laid out twice.";
+                }
+            } while (!consume(Token::Type::RSQUIGGLE));
+            for (size_t i = 0; i < adt->variants.size(); i++) {
+                if (!arms.contains(adt->variant_name(i))) {
+                    report_error()
+                        << "The layout of " << name << " does not say what "
+                        << "becomes of " << adt->variant_name(i)
+                        << ". Every variant is named, as in a match.";
+                }
+            }
+        } else {
+            expect(Token::Type::ASSIGN);
+            const ir::AdtLayout kind = kind_named(get_id());
+            expect(Token::Type::SEMICOL);
+            for (size_t i = 0; i < adt->variants.size(); i++) {
+                arms[adt->variant_name(i)] = kind;
+            }
         }
-        const auto [_, inserted] = schedule.adt_layouts.emplace(name, layout);
+
+        const auto [_, inserted] =
+            schedule.adt_layouts.emplace(name, std::move(arms));
         if (!inserted) {
             report_error() << "Layout for " << name << " already exists.";
         }

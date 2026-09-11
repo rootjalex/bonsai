@@ -136,15 +136,16 @@ struct ReplaceTerms : public Mutator {
     }
 };
 
-struct PullQueriesImpl : public Mutator {
+// The rewrite: rel(q, transform(m, x)) => rel(untransform(m, q), x), and its
+// mirror. Run over a whole body before anything is hoisted, so that the hoist
+// sees every term the rewrite made.
+struct RewriteRelations : public Mutator {
     const FuncMap &funcs;
-    size_t counter = 0;
 
-    PullQueriesImpl(const FuncMap &funcs) : funcs(funcs) {}
+    RewriteRelations(const FuncMap &funcs) : funcs(funcs) {}
 
     using Mutator::visit;
 
-    // rel(q, transform(m, x)) => rel(untransform(m, q), x), and its mirror.
     Expr visit(const GeomOp *node) override {
         Expr a = mutate(node->a);
         Expr b = mutate(node->b);
@@ -171,6 +172,61 @@ struct PullQueriesImpl : public Mutator {
         }
         return GeomOp::make(node->op, std::move(a), std::move(b));
     }
+};
+
+// The hoist: each distinct pulled term bound once, where its scope begins.
+struct HoistPulled : public Mutator {
+    size_t counter = 0;
+
+    using Mutator::visit;
+
+    // The distinct pulled terms of `body` that mention none of `fixed`, each
+    // given a name -- `let _pulledN = untransform(m, q)` -- with every
+    // occurrence in the body replaced by it and the sort keys inside pointed
+    // at it (see RepointKeys). The lets come back separately from the body, so
+    // that the caller can put them where the scope it is binding for begins.
+    struct Bound {
+        std::vector<Stmt> lets;
+        Stmt body;
+    };
+
+    Bound bind_pulled(const Stmt &body, const std::set<std::string> &fixed) {
+        FindPullable find(fixed);
+        body.accept(&find);
+        if (find.found.empty()) {
+            return Bound{{}, body};
+        }
+
+        Bound bound;
+        std::map<Expr, Expr, ExprLessThan> names;
+        // The query each pulled term stands in for, so that anything still
+        // written over the query inside can be pointed at the pulled one.
+        std::map<Expr, Expr, ExprLessThan> queries;
+        for (const Expr &term : find.found) {
+            const std::string name = "_pulled" + std::to_string(counter++);
+            const Expr var = Var::make(term.type(), name);
+            names[term] = var;
+            const GeomOp *pull = term.as<GeomOp>();
+            internal_assert(pull && pull->op == GeomOp::untransform) << term;
+            queries[pull->b] = var;
+            bound.lets.push_back(
+                LetStmt::make(WriteLoc(name, term.type()), term));
+        }
+        bound.body = ReplaceTerms(names).mutate(body);
+        bound.body = RepointKeys(queries).mutate(std::move(bound.body));
+        return bound;
+    }
+
+    // Everything a statement binds or writes: what a term mentioning any of
+    // it cannot be moved ahead of.
+    static std::set<std::string> bound_within(const Stmt &body) {
+        BoundNames bound;
+        body.accept(&bound);
+        std::set<std::string> fixed = std::move(bound.names);
+        const std::set<std::string> written = mutated_variables(body);
+        fixed.insert(written.begin(), written.end());
+        return fixed;
+    }
 
     // Hoist what the rewrite above produced out of the recursion, where that
     // is legal: a term may move ahead of the recursion when it mentions
@@ -185,42 +241,67 @@ struct PullQueriesImpl : public Mutator {
         const RecLoop *loop = rewritten.as<RecLoop>();
         internal_assert(loop) << "Rewriting a RecLoop gave: " << rewritten;
 
-        std::set<std::string> fixed;
+        std::set<std::string> fixed = bound_within(loop->body);
         for (const auto &arg : loop->args) {
             fixed.insert(arg.var.name);
         }
-        BoundNames bound;
-        loop->body.accept(&bound);
-        fixed.insert(bound.names.begin(), bound.names.end());
-        const std::set<std::string> written = mutated_variables(loop->body);
-        fixed.insert(written.begin(), written.end());
-
-        FindPullable find(fixed);
-        loop->body.accept(&find);
-        if (find.found.empty()) {
+        Bound bound = bind_pulled(loop->body, fixed);
+        if (bound.lets.empty()) {
             return rewritten;
         }
-
-        std::vector<Stmt> stmts;
-        std::map<Expr, Expr, ExprLessThan> names;
-        // The query each pulled term stands in for, so that anything still
-        // written over the query inside this recursion can be pointed at the
-        // pulled one.
-        std::map<Expr, Expr, ExprLessThan> queries;
-        for (const Expr &term : find.found) {
-            const std::string name = "_pulled" + std::to_string(counter++);
-            const Expr var = Var::make(term.type(), name);
-            names[term] = var;
-            const GeomOp *pull = term.as<GeomOp>();
-            internal_assert(pull && pull->op == GeomOp::untransform) << term;
-            queries[pull->b] = var;
-            stmts.push_back(
-                LetStmt::make(WriteLoc(name, term.type()), term));
-        }
-        Stmt body = ReplaceTerms(names).mutate(loop->body);
-        body = RepointKeys(queries).mutate(std::move(body));
-        stmts.push_back(RecLoop::make(loop->args, std::move(body)));
+        std::vector<Stmt> stmts = std::move(bound.lets);
+        stmts.push_back(RecLoop::make(loop->args, std::move(bound.body)));
         return Sequence::make(std::move(stmts));
+    }
+
+    // And bind it once at the top of each arm of a match that uses it.
+    //
+    // A tree of mixed primitives dispatches on the primitive inside the leaf's
+    // element loop, and an arm that holds no tree -- pbrt's
+    // GeometricPrimitive -- has no recursion for the rule above to hoist
+    // ahead of. Its tests are then each written over `untransform(p, r)`, the
+    // same term as many times as the query tests the element, and what that
+    // costs is not the pull -- for this arm the motion holds still, and the
+    // term is `r` -- but that the tests no longer share an operand: the shape
+    // test was run once for `intersects` and once for `distmin` and, written
+    // over four copies of a term the backend could not prove equal, ran once
+    // per copy. Bound once at the top of the arm, the term is what pbrt's
+    // `Primitive::Intersect` has in each of its arms: one ray, computed on
+    // entry, and every test over it. Inside the arm the match has settled
+    // which variant the value is, so the term's own dispatch folds to nothing
+    // for the arm that moves nothing.
+    //
+    // Per arm rather than once ahead of the match, on purpose: bound before
+    // the dispatch, the term would be evaluated on every path, and the arm
+    // that does nothing with a pulled ray would still compute one.
+    //
+    // Terms that mention something the arm binds or writes stay put; the
+    // recursion inside the arm, if there is one, hoists what it can. The
+    // arm's own bindings count as bound, since a match statement the program
+    // wrote names its fields that way.
+    Stmt visit(const MatchVariant *node) override {
+        const Expr value = mutate(node->value);
+        std::vector<MatchVariant::Arm> arms;
+        arms.reserve(node->arms.size());
+        bool not_changed = value.same_as(node->value);
+        for (const auto &arm : node->arms) {
+            std::set<std::string> fixed = bound_within(arm.body);
+            fixed.insert(arm.bindings.begin(), arm.bindings.end());
+            Bound bound = bind_pulled(arm.body, fixed);
+            Stmt body = mutate(bound.body);
+            if (!bound.lets.empty()) {
+                std::vector<Stmt> stmts = std::move(bound.lets);
+                stmts.push_back(std::move(body));
+                body = Sequence::make(std::move(stmts));
+            }
+            not_changed = not_changed && body.same_as(arm.body);
+            arms.push_back(
+                MatchVariant::Arm{arm.variant, arm.bindings, std::move(body)});
+        }
+        if (not_changed) {
+            return node;
+        }
+        return MatchVariant::make(value, std::move(arms));
     }
 
     // A schedule's sort keys, written over the query, follow it into the
@@ -268,9 +349,10 @@ struct PullQueriesImpl : public Mutator {
 } // namespace
 
 FuncMap PullQueries::run(FuncMap funcs, const CompilerOptions &options) const {
-    PullQueriesImpl pull(funcs);
+    RewriteRelations rewrite(funcs);
+    HoistPulled hoist;
     for (auto &[name, func] : funcs) {
-        func->body = pull.mutate(func->body);
+        func->body = hoist.mutate(rewrite.mutate(func->body));
     }
     return funcs;
 }

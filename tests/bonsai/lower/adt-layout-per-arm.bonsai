@@ -1,0 +1,51 @@
+//! flags: -p core
+
+// A variant type laid out arm by arm: the small arm inline, the large one by
+// index.
+//
+// pbrt's Primitive is the case: twenty bytes as a GeometricPrimitive and a
+// hundred and thirty as a TransformedPrimitive, and almost every primitive is
+// the first kind. Stored inline, every primitive is as large as an instance;
+// stored `tagged_index`, every primitive is a word and reaching the common one
+// costs an indirection pbrt also pays. This is the third thing, which pbrt's
+// TaggedPointer cannot be: a tag beside a union whose `Small` member is the
+// arm's own fields and whose `Large` member is a `u32` into `Item_Large_pool`.
+//
+// What to read for in the golden:
+//
+//   - `type Item` is a struct of a tag and a union, as under `inline`, but the
+//     union's `Large` member is a `u32` and not a `Big`.
+//   - `size` reads `Small`'s field straight off the payload, and `Large`'s
+//     through `Item_Large_pool[(i).payload.Large]`: one indirection, for the
+//     one arm that asked for it.
+//   - only `Item_Large_pool` and `Item_Large_fill` exist; there is no pool for
+//     `Small`, since nothing is stored outside the value for it.
+//   - `Item_Large_new` stores the fields and answers the *index*, a `u32`, and
+//     the Construct wraps it as the union member beside the tag; `Small(x)` is
+//     built in place, as it was under `inline`.
+import stdlib/numerics;
+
+element Big {
+    a, b, c, d : vec4f;
+}
+
+element Item =
+    | Small(x : Float)
+    | Large(big : Big);
+
+func [[export]] size(i : Item) -> Float {
+    match i {
+        Small(x) => return x;
+        Large(big) => return big.a.x + big.d.w;
+    }
+}
+
+func [[export]] small(x : Float) -> Item = Small(x);
+func [[export]] large(big : Big) -> Item = Large(big);
+
+schedule {
+    layout Item {
+        Small = inline;
+        Large = tagged_index;
+    }
+}

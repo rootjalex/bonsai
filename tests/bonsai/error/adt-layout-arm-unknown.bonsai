@@ -1,0 +1,21 @@
+// A layout given arm by arm names the arms the type has.
+
+import stdlib/numerics;
+
+element Item =
+    | Small(x : Float)
+    | Large(a : vec4f, b : vec4f, c : vec4f, d : vec4f);
+
+func [[export]] size(i : Item) -> Float {
+    match i {
+        Small(x) => return x;
+        Large(a, b, c, d) => return a.x + d.w;
+    }
+}
+
+schedule {
+    layout Item {
+        Small = inline;
+        Huge = tagged_index;
+    }
+}

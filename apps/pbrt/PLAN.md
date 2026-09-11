@@ -717,25 +717,35 @@ Three places where this and pbrt differ, all small and all deliberate:
 - AnimatedPrimitive -- an instance whose transform moves over the frame -- is
   refused, as are animated shapes inside a definition.
 
-**And one cost, not yet paid back.** `Primitive` is stored `tagged_index`, the
-layout pbrt's TaggedPointer is: a leaf holds one word per primitive and each
-arm's fields are in a pool. That is right for an instance, which is two matrices
-and a tree, but it puts one indirection in front of every *plain* primitive that
-the old inline `Primitive` struct did not have -- handle, then
-`Primitive_Geom_pool[i]`, then the shape -- which is pbrt's own chain
-(TaggedPointer, GeometricPrimitive, Shape) where the renderer used to have one
-hop fewer. On `many-shapes`, which has no instances, that is +7.5% render time
-against the previous build (0.326 s to 0.351 s, best of five, same scene file:
-+10.8% instructions, +36% L1 misses). The generated code is otherwise what it
-should be: the Geom arm tests the tag once and calls the shape test on the ray
-as it arrived, the `untransform` written into its tests folded away.
+**What it cost on a scene with no instances, and what paid it back.** The
+first build of this was +7.5% on `many-shapes` against the build before it
+(0.326 s to 0.351 s, best of five, same scene file: +10.8% instructions, +36% L1
+misses). Two things, found by reading the LLVM IR of the leaf loop rather than
+by guessing:
 
-The fix is a layout, and only a layout: an ADT layout that says per arm what
-becomes of it -- `Geom` inline, `Inst` by index -- so a plain primitive is a tag
-beside its twenty bytes and an instance is a tag beside a row number. pbrt
-cannot do this; its TaggedPointer is one shape for every arm. That is the next
-compiler item, and the rule that makes it one is the standing one: the generated
-code matches or beats pbrt, and it used to beat it here.
+- `Primitive` was stored `tagged_index`, the layout pbrt's TaggedPointer is: a
+  word per primitive in the leaf and each arm's fields in a pool. Right for an
+  instance, two matrices and a tree; but it put pbrt's own indirection --
+  handle, `Primitive_Geom_pool[i]`, shape -- in front of every *plain*
+  primitive, where the inline struct had one hop fewer. The layout language
+  now says per arm what becomes of it: `layout Primitive { Geom = inline; Inst
+  = tagged_index; }`, a plain primitive its own twenty bytes in the leaf and an
+  instance a row number. pbrt cannot do this; its TaggedPointer is one shape
+  for every arm.
+- The bigger half was not the indirection. The query's tests are each written
+  over `transform(p, g)`, and the pull rewrites each into
+  `intersects(untransform(p, r), g)`, `distmin(untransform(p, r), g)`, and so
+  on: four copies of the same term in the Geom arm. Inside an instance the
+  term is hoisted once ahead of the walk; the Geom arm has no walk to hoist
+  ahead of, so the four copies stayed, LLVM inlined each -- correctly folding
+  each to `r` -- and then could not prove the four `r`s it had made were one
+  value. `triangle_hit` ran three times per plain primitive instead of twice.
+  `pull-queries` now binds each distinct pulled term once at the top of the
+  match arm that uses it, which is what `Primitive::Intersect` has in each of
+  its arms: one ray on entry, every test over it.
+
+With both: 0.319 s and 0.319 s, the same scene, alternating runs. The generated
+Geom arm is one tag test, then the shape test once on the ray as it arrived.
 
 Behind it, on the leaves: `Material "diffusetransmission"`, and the shape
 `alpha` cutouts -- the second of which is **already implemented** (pbrt's

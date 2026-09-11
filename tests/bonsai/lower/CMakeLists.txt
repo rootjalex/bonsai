@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     adt.bonsai
     adt-layout-inline.bonsai
+    adt-layout-per-arm.bonsai
     adt-layout-tagged-index.bonsai
     adt-nested-tagged-index.bonsai
     array.bonsai

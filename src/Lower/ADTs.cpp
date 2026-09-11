@@ -117,8 +117,14 @@ struct RewriteADTs : public Mutator {
             UIntImm::make(layout.tag_type, ADTLayout::tag_shift));
     }
 
-    // The index part of a `TaggedIndex` handle: everything below the tag.
-    Expr index_of(const ADTLayout &layout, const Expr &value) const {
+    // Where in its pool an arm stored by index keeps `value`'s fields: the
+    // low bits of a handle, or the union member named for the arm.
+    Expr index_of(const ADTLayout &layout, const Expr &value,
+                  const std::string &variant) const {
+        if (layout.kind == ir::AdtLayout::Inline) {
+            return Access::make(variant,
+                                Access::make(layout.payload_field, value));
+        }
         const uint64_t mask = (1ull << ADTLayout::tag_shift) - 1ull;
         return BinOp::make(BinOp::OpType::BwAnd, value,
                            UIntImm::make(layout.tag_type, mask));
@@ -131,22 +137,22 @@ struct RewriteADTs : public Mutator {
     // already inside an arm that has tested the tag.
     Expr as_variant(const ADTLayout &layout, const Expr &value,
                     const std::string &variant) {
-        if (layout.kind == ir::AdtLayout::Inline) {
+        if (!layout.boxed(variant)) {
             // The union's members are named for their variants, so this is
             // just naming one.
             return Access::make(variant,
                                 Access::make(layout.payload_field, value));
         }
-        // The pool the tag names, at the index the rest of the handle is. The
-        // pool is an extern, so this Var is free here and the LowerExterns that
-        // runs after this pass turns it into a parameter of whichever functions
+        // The pool the tag names, at the index the value holds. The pool is an
+        // extern, so this Var is free here and the LowerExterns that runs
+        // after this pass turns it into a parameter of whichever functions
         // reach it. Its element is the variant as *stored* -- the layout
         // recorded the variant as found, and a field of it that is itself a
         // variant type has since become that type's storage.
         const Type pool_type =
             Array_t::make(mutate(layout.variant(variant)), Expr());
         return Extract::make(Var::make(pool_type, layout.pool(variant)),
-                             index_of(layout, value));
+                             index_of(layout, value, variant));
     }
 
     // A Build of something that holds a variant type -- an array of shapes,
@@ -219,14 +225,16 @@ struct RewriteADTs : public Mutator {
         }
         const ADTLayout &layout = layout_of(node->type);
 
-        if (layout.kind == ir::AdtLayout::TaggedIndex) {
-            // Building a handle means putting the fields somewhere and saying
-            // where, which is a store and a counter rather than an expression,
-            // so it becomes a call to a function that does both. Recorded so
-            // that only the variants a program actually builds get one -- an
-            // unused appender would still name its pool, and choosing this
-            // layout would then oblige the caller to supply storage for
-            // variants it never constructs.
+        // What goes in the value for this arm: its fields, or where they were
+        // put.
+        Expr member;
+        if (layout.boxed(node->variant)) {
+            // Putting the fields in a pool and saying where is a store and a
+            // counter rather than an expression, so it becomes a call to a
+            // function that does both. Recorded so that only the variants a
+            // program actually builds get one -- an unused appender would
+            // still name its pool, and choosing this layout would then oblige
+            // the caller to supply storage for variants it never constructs.
             const std::string &fname = appender_name(node->type, node->variant);
             needed.insert(fname);
             const auto found = appenders.find(fname);
@@ -235,23 +243,28 @@ struct RewriteADTs : public Mutator {
             // The appender was prepared from the variant as found; its
             // parameters are what those fields have become (see where the
             // appenders are added to the program, at the end of the pass).
-            return Call::make(
+            member = Call::make(
                 Var::make(mutate(found->second->call_type()), fname),
                 std::move(args));
+            if (layout.kind == ir::AdtLayout::TaggedIndex) {
+                return member; // the appender answers the whole handle.
+            }
+        } else {
+            // The layouts were chosen from the program's types before any of
+            // them were rewritten, so a variant that holds *another* variant
+            // type still names it. `Light::DiffuseArea` holds a `Shape`, and a
+            // `Shape` under `tagged_index` is a `u64`; building the one from
+            // the other without this is a struct whose field types disagree
+            // with its values.
+            member = Build::make(mutate(layout.variant(node->variant)),
+                                 std::move(args));
         }
 
-        // The layouts were chosen from the program's types before any of them
-        // were rewritten, so a variant that holds *another* variant type still
-        // names it. `Light::DiffuseArea` holds a `Shape`, and a `Shape` under
-        // `tagged_index` is a `u64`; building the one from the other without
-        // this is a struct whose field types disagree with its values.
         std::vector<Expr> whole;
         whole.push_back(
             UIntImm::make(layout.tag_type, layout.tag(node->variant)));
-        whole.push_back(UnionOf::make(
-            mutate(layout.payload), node->variant,
-            Build::make(mutate(layout.variant(node->variant)),
-                        std::move(args))));
+        whole.push_back(UnionOf::make(mutate(layout.payload), node->variant,
+                                      std::move(member)));
         return Build::make(mutate(layout.storage), std::move(whole));
     }
 
@@ -491,15 +504,18 @@ void add_variant_constructors(ir::Program &program) {
 // memory and the capacity are the caller's.
 FuncMap make_appenders(const LayoutMap &layouts) {
     FuncMap appenders;
+    // The counter is a `u64` whichever storage the value has; a pool can hold
+    // more than an index in a union names, and the count is what says whether
+    // it has.
+    const Type counter = UInt_t::make(64);
     for (const auto &[adt_name, layout] : layouts) {
-        if (layout.kind != ir::AdtLayout::TaggedIndex) {
-            continue;
-        }
-        const Type handle = layout.storage;
         for (const Type &variant : layout.variants) {
             const Struct_t *fields_of = variant.as<Struct_t>();
             internal_assert(fields_of) << "A variant is a struct: " << variant;
             const std::string &vname = fields_of->name;
+            if (!layout.boxed(vname)) {
+                continue;
+            }
 
             std::vector<ir::Function::Argument> args;
             std::vector<Expr> values;
@@ -510,7 +526,7 @@ FuncMap make_appenders(const LayoutMap &layouts) {
             }
 
             const Type pool_type = Array_t::make(variant, Expr());
-            const Type fill_type = Array_t::make(handle, Expr());
+            const Type fill_type = Array_t::make(counter, Expr());
             const std::string &pool = layout.pool(vname);
             const std::string &fill = layout.fill(vname);
             const std::string index = "_index";
@@ -519,31 +535,40 @@ FuncMap make_appenders(const LayoutMap &layouts) {
             // before the add, so this is the first free slot and the counter
             // now names the next one.
             WriteLoc fill_slot(fill, fill_type);
-            fill_slot.add_index_access(UIntImm::make(handle, 0));
+            fill_slot.add_index_access(UIntImm::make(counter, 0));
             const Expr claim =
                 AtomicAdd::make(PtrTo::make(fill_slot.to_expr()),
-                                UIntImm::make(handle, 1));
+                                UIntImm::make(counter, 1));
 
             WriteLoc slot(pool, pool_type);
-            slot.add_index_access(Var::make(handle, index));
+            slot.add_index_access(Var::make(counter, index));
 
-            const Expr tag = UIntImm::make(layout.tag_type, layout.tag(vname));
-            const Expr handle_value = BinOp::make(
-                BinOp::OpType::BwOr,
-                BinOp::make(BinOp::OpType::Shl, tag,
-                            UIntImm::make(layout.tag_type,
-                                          ADTLayout::tag_shift)),
-                Var::make(handle, index));
+            // What the caller gets back: the whole handle, tag and index, when
+            // the value is one; the index alone, as the union member it
+            // becomes, when the value is a tag beside a union.
+            Expr answer;
+            if (layout.kind == ir::AdtLayout::TaggedIndex) {
+                const Expr tag =
+                    UIntImm::make(layout.tag_type, layout.tag(vname));
+                answer = BinOp::make(
+                    BinOp::OpType::BwOr,
+                    BinOp::make(BinOp::OpType::Shl, tag,
+                                UIntImm::make(layout.tag_type,
+                                              ADTLayout::tag_shift)),
+                    Var::make(counter, index));
+            } else {
+                answer = Cast::make(layout.index_type, Var::make(counter, index));
+            }
 
             std::vector<Stmt> body;
-            body.push_back(LetStmt::make(WriteLoc(index, handle), claim));
+            body.push_back(LetStmt::make(WriteLoc(index, counter), claim));
             body.push_back(Store::make(
                 std::move(slot), Build::make(variant, std::move(values))));
-            body.push_back(Return::make(handle_value));
+            body.push_back(Return::make(std::move(answer)));
 
             const std::string fname = adt_name + "_" + vname + "_new";
             appenders[fname] = std::make_shared<ir::Function>(
-                fname, std::move(args), handle,
+                fname, std::move(args), layout.index_type,
                 Sequence::make(std::move(body)), ir::Function::InterfaceList{},
                 std::vector<ir::Function::Attribute>{});
         }
@@ -561,15 +586,15 @@ FuncMap make_appenders(const LayoutMap &layouts) {
 // which halves it owes.
 void declare_pools(ir::Program &program, const LayoutMap &layouts) {
     for (const auto &[adt_name, layout] : layouts) {
-        if (layout.kind != ir::AdtLayout::TaggedIndex) {
-            continue;
-        }
         for (const Type &variant : layout.variants) {
             const std::string &vname = variant.as<Struct_t>()->name;
+            if (!layout.boxed(vname)) {
+                continue;
+            }
             program.externs.push_back(
                 TypedVar{layout.pool(vname), Array_t::make(variant, Expr())});
             program.externs.push_back(TypedVar{
-                layout.fill(vname), Array_t::make(layout.storage, Expr())});
+                layout.fill(vname), Array_t::make(UInt_t::make(64), Expr())});
         }
     }
 }
@@ -598,17 +623,20 @@ ir::Program LowerADTs::run(ir::Program program,
             layouts[adt->name] = default_adt_layout(*adt);
             continue;
         }
-        // A boxed variant is allocated when it is constructed, so asking for
-        // one and forbidding the heap are contradictory instructions. Said
-        // here, where both are in view, rather than as a mallocs-are-forbidden
-        // error from inside code generation with nothing to point at.
-        if (options.no_heap && ask->second == ir::AdtLayout::TaggedPtr) {
-            internal_error
-                << "`layout " << adt->name
-                << " = tagged_ptr` stores each variant behind a pointer, so "
-                   "constructing one allocates it -- which --no-heap forbids. "
-                   "Pick `tagged_index`, which indexes arrays the caller owns, "
-                   "or drop --no-heap.";
+        // A variant behind a pointer is allocated when it is constructed, so
+        // asking for one and forbidding the heap are contradictory
+        // instructions. Said here, where both are in view, rather than as a
+        // mallocs-are-forbidden error from inside code generation with nothing
+        // to point at.
+        for (const auto &[arm, kind] : ask->second) {
+            if (options.no_heap && kind == ir::AdtLayout::TaggedPtr) {
+                internal_error
+                    << "`layout " << adt->name << "` stores " << arm
+                    << " behind a pointer (`tagged_ptr`), so constructing one "
+                       "allocates it -- which --no-heap forbids. Pick "
+                       "`tagged_index`, which indexes arrays the caller owns, "
+                       "or drop --no-heap.";
+            }
         }
         layouts[adt->name] = adt_layout(*adt, ask->second);
     }

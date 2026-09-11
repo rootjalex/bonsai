@@ -149,8 +149,17 @@ enum class AdtLayout {
     TaggedPtr,
 };
 
+// What becomes of each arm of a variant type, keyed by the arm's name. The
+// choice is per arm because the arms differ: pbrt's Primitive is twenty bytes
+// as a GeometricPrimitive and a hundred and thirty as a TransformedPrimitive,
+// and a tree's leaf that holds the first inline and the second by index is a
+// word or so per primitive with no indirection in front of the common one.
+// `layout Shape = tagged_index;` says the same thing of every arm; `layout
+// Primitive { Geom = inline; Inst = tagged_index; }` says it arm by arm.
+using AdtArmLayouts = std::map<std::string, AdtLayout>;
+
 // Keyed by the ADT's type name.
-using AdtLayoutMap = std::map<std::string, AdtLayout>;
+using AdtLayoutMap = std::map<std::string, AdtArmLayouts>;
 
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;

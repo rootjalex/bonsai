@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/adt-layout-arm-unknown.bonsai:19:9: [parse error] Item has no variant called Huge to lay out.
+
+        Huge = tagged_index;
+        ^^^^

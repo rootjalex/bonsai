@@ -1,0 +1,22 @@
+// A layout given arm by arm names every arm, as a match does: one it leaves
+// out has been said nothing about, and a layout that silently defaulted it
+// would be a schedule that chose something and said so nowhere.
+
+import stdlib/numerics;
+
+element Item =
+    | Small(x : Float)
+    | Large(a : vec4f, b : vec4f, c : vec4f, d : vec4f);
+
+func [[export]] size(i : Item) -> Float {
+    match i {
+        Small(x) => return x;
+        Large(a, b, c, d) => return a.x + d.w;
+    }
+}
+
+schedule {
+    layout Item {
+        Large = tagged_index;
+    }
+}
