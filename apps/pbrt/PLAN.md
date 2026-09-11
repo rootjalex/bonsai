@@ -83,7 +83,7 @@ at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
 within 1% and no block systematically off. That took three fixes described
 under "what the last round added": a light leak of this renderer's own, the
 last bits of a lens camera's rays, and the texture chain made bit-exact. It
-renders 1.52x slower than pbrt there, down from 1.59x after a round on the
+renders 1.41x slower than pbrt there, down from 1.59x after a round on the
 compiler, and that gap is the open item.
 
 **killeroo-simple renders.** It names no integrator, so it gets `path`; it is
@@ -197,8 +197,10 @@ Two more asymmetries, both checked and both fine:
 
 **The compiler, for the pavilion's speed.** Nothing in the renderer changed
 this round. The gap to pbrt on the pavilion was measured with `perf stat` and
-the compiler taken where the counts pointed, from 1.59x slower to 1.52x: 8.06 s
-against pbrt's 5.30 s at 16 samples per pixel, best of three on each side.
+`perf record` and the compiler taken where the counts pointed, from 1.59x
+slower to 1.41x: 7.42 s against pbrt's 5.27 s at 16 samples per pixel, best of
+three on each side, with the image unchanged. Four changes, each measured on
+its own, below in the order they were made.
 
 **Aggregates come back the way the platform returns them.** The LLVM backend
 returned every struct as a first-class aggregate, and LLVM's own convention for
@@ -222,35 +224,94 @@ stores stand between the fetches. One remains. Turning the pass on found that
 its renaming visited a loop's condition before the loop's body, which shares
 values with it, and stopped on meeting the body's copy (`opt/cse-loop.bonsai`).
 
-**The relooper binds what an edge hands a block, on every edge.** CSE leaves a
-value under two names -- a temporary and the name the source gave it -- and
-the SSA builder makes that one instruction and threads it into the blocks that
-want it under whichever name each asked for. The structured-code generator
-assumed a block argument always arrived under its own name: a branch into an
-arm bound nothing, a call continuation bound only addresses, and where the two
-names met at a merge the mutability analysis, which compares names, made the
-parameter storage that the arm carrying the name along never wrote. Three
-miscompiles -- in `bump_map`, `coated_f` and `full_path_step` -- and the last
-of them silent, a stack slot read before anything had stored to it. Every edge
-goes through one binding routine now, and a name that is storage anywhere is
-stored to on every edge that hands it a value (`ssa/alias-edges.bonsai`,
-`correctness/llvm/alias-edges.bonsai`). The stricter check at the edges also
-caught `collapse()` building a step block whose arguments its loop never
-passed. `BONSAI_DUMP_AFTER=<pass,...|all>` prints the program after any pass
-named, which is how each of these was found.
+**The relooper knows what is in scope.** CSE leaves a value under two names --
+a temporary and the name the source gave it -- and the SSA builder makes that
+one instruction and threads it into the blocks that want it under whichever
+name each asked for. The structured-code generator assumed a block argument
+always arrived under its own name: a branch into an arm bound nothing, a call
+continuation bound only addresses, and where the two names met at a merge the
+mutability analysis, which compares names, made the parameter storage that the
+arm carrying the name along never wrote. Three miscompiles -- in `bump_map`,
+`coated_f` and `full_path_step` -- and the last of them silent, a stack slot
+read before anything had stored to it. The rule now is the one a structured
+language has: a phi is a variable assigned at every edge into its block; any
+other argument is bound once, at the block's entry, and only if nothing
+enclosing has bound its name -- the relooper carries the set of names in scope
+through the regions it builds, and follows an argument back through the blocks
+that passed it on to the instruction it stands for, which is what a merge
+after two arms has to name. The LLVM backend scopes the arms of an `if` as the
+C++ one always did (`ssa/alias-edges.bonsai`,
+`correctness/llvm/alias-edges.bonsai`). The stricter edges also caught
+`collapse()` building a step block whose arguments its loop never passed, and
+a block's recorded predecessors going stale under `split()`.
+`BONSAI_DUMP_AFTER=<pass,...|all>` prints the program after any pass named,
+which is how each of these was found.
 
-**What the counters say is left.** Measured before CSE went in -- and CSE moved
-the render time by less than the run-to-run noise, so what it removed was
-small -- this renderer retires 1.78x pbrt's floating-point operations on the
-pavilion at an IPC of 1.10 against pbrt's 1.58, with the floating-point
-scheduler stalled seven times as often. Most of the excess is in traversal and
-the leaf tests: a candidate triangle is still tested twice, once by
-`intersects` for the filter and once by `distmin` for the key, because the two
-are separate functions on the `Shape` variant and each carries its own `match`,
-so no common-subexpression pass can see one test inside the other; pbrt tests
-once and reads `tHit` out of the same result. The rest is the dielectric and
-coated-diffuse path at 1.9x pbrt's operations, not yet explained. Those two are
-the next items, in that order.
+**`max` and `min` are `std::max` and `std::min`.** They lowered to
+`llvm.maxnum` and `llvm.minnum`, which are libm's `fmax` and `fmin`: a NaN in
+either position is dropped. pbrt means `std::max` -- `a < b ? b : a`, a NaN in
+front kept, one behind passed over -- in `SafeSqrt`, in every clamp, and in the
+slab test its BVH runs at every node. And x86 has no maxnum: LLVM emitted a
+compare for the NaN and a blend around every one, four to a node test, where
+`std::max` is the one `maxss` instruction. 8.06 s became 7.51 s and no pixel
+moved (`correctness/llvm/max-min-nan.bonsai`, which also found that -0.0 and
+0.0 were one constant to the IR's equality and CSE folded them together).
+
+**Small functions with statements are inlined, and CSE reaches through
+them.** The inliner copied only functions that were a single expression, so
+`intersects(r, box)` and `distmin(r, box)` stayed calls, and the traversal
+computed the same slab test twice for every node the ray hit: once for the
+filter, once for the key, with LLVM unable to merge the two inlined copies
+across the early exits inside them. A function of a few statements whose
+returns nest -- a `return` ending the body, or ending an arm of an `if` whose
+other arm never returns, in which case the rest of the body moves into that
+arm -- is copied to its call sites now, its returns becoming assignments to a
+result variable; a call in a loop's condition, or behind a select or a
+short-circuit, stays a call, since hoisting it would change when it runs. A
+body with mutable locals of its own is left as a call too: copied, its state
+is variables CSE cannot see through, while as a call it is one value two calls
+share -- which is exactly `aabb_span`, kept as the call that `intersects` and
+`distmin` both make and CSE then makes once. `[[noinline]]` says a function is
+never copied, for the tests that are about calls and for programs that want
+one copy. The pavilion went from 7.51 s to 7.42 s; the two `triangle_t` tests
+a hit candidate still pays are behind separate `match` arms, and CSE does not
+reach across those (`opt/inline-statements.bonsai`,
+`correctness/llvm/inline-statements.bonsai`).
+
+Turning that on found `loopify` mistaking an inlined bool for an `any`
+accumulator: it looked at stores value by value, and a variable is one
+instruction where it is made and a block argument everywhere else, so a `=
+false` seen alone in one block passed for `all`, and the loop tested a slot
+allocated inside its own body. It looks by name now, at variables that outlive
+an iteration, and sees the load behind a block argument, which `_holds0 ||
+hit` had always hidden from it (`ssa/ray-any-early-exit.bonsai` keeps its
+early exit).
+
+**Where the time goes now.** On the same tree as pbrt's, this renderer's
+profile is the traversal loop at 34% and the top-level `any` traversal at 6%,
+`triangle_hit` at 8%, `dielectric_sample_f` at 18% and the coated sampler at
+3%; pbrt's is `BVHAggregate::Intersect` at 24%, its leaf dispatch at 6%,
+its triangle tests at 12%, and its dielectric and microfacet code at 15%. In
+thread-seconds the traversal loop is still about twice pbrt's, and three
+things make it so, each measured in the generated code rather than guessed.
+A candidate triangle is tested twice on a hit, once by `intersects` and once
+by `distmin`, because each is a `match` on the `Shape` variant and the
+common test sits in separate arms of two `if`s; pbrt tests once and reads
+`tHit` from the result. The node struct is 40 bytes -- a `vec3f` in a layout
+takes 16 -- against pbrt's 32, so three nodes in eight straddle a cache line
+that pbrt's never do; that is the layout language's to decide, and is raised
+rather than changed here. And the traversal carries the whole running best --
+distance, primitive and geometry, four vector registers -- as loop state,
+where pbrt carries `tMax` and writes the interaction to memory on a hit. After
+the traversal, the dielectric path at 1.9x pbrt's floating-point operations
+is the open question.
+
+A note on `check_differentials.sh` on this scene: 982 of its 1083 rows are
+exact and the rest are the `texrgb` and `texsr` rows of two textures declared
+`float` over RGBA images, where pbrt's row filters the image's colour channels
+and the shipped texture holds the alpha channel three times; the same rows
+disagreed with the renderer built before this round, so they are the harness
+comparing two different things and not a regression.
 
 ### What the previous round added
 

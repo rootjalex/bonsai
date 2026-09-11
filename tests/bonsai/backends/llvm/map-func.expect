@@ -48,9 +48,9 @@ _i00_for:                                         ; preds = %_i00_for.preheader2
   %10 = zext nneg i32 %9 to i64
   %extract_ptr = getelementptr inbounds i32, ptr %a, i64 %10
   %extract = load i32, ptr %extract_ptr, align 4
-  %spec.select.i = tail call noundef i32 @llvm.abs.i32(i32 %extract, i1 false)
+  %"foo$r0.0" = tail call i32 @llvm.abs.i32(i32 %extract, i1 false)
   %_alloc0 = getelementptr inbounds i32, ptr %_alloc0_untyped, i64 %10
-  store i32 %spec.select.i, ptr %_alloc0, align 4, !tbaa !1
+  store i32 %"foo$r0.0", ptr %_alloc0, align 4, !tbaa !1
   %11 = add nuw nsw i32 %9, 1
   %.not = icmp slt i32 %11, %n
   br i1 %.not, label %_i00_for, label %_i00_for_end, !llvm.loop !7
@@ -106,9 +106,9 @@ _i01_for:                                         ; preds = %_i01_for.preheader2
   %10 = zext nneg i32 %9 to i64
   %extract_ptr = getelementptr inbounds i32, ptr %a, i64 %10
   %extract = load i32, ptr %extract_ptr, align 4
-  %common.ret.op.i = tail call noundef i32 @llvm.abs.i32(i32 %extract, i1 false)
+  %"bar$r1.0" = tail call i32 @llvm.abs.i32(i32 %extract, i1 false)
   %_alloc1 = getelementptr inbounds i32, ptr %_alloc1_untyped, i64 %10
-  store i32 %common.ret.op.i, ptr %_alloc1, align 4, !tbaa !1
+  store i32 %"bar$r1.0", ptr %_alloc1, align 4, !tbaa !1
   %11 = add nuw nsw i32 %9, 1
   %.not = icmp slt i32 %11, %n
   br i1 %.not, label %_i01_for, label %_i01_for_end, !llvm.loop !9
@@ -164,9 +164,9 @@ _i00_for.i:                                       ; preds = %_i00_for.i.preheade
   %10 = zext nneg i32 %9 to i64
   %extract_ptr.i = getelementptr inbounds i32, ptr %a, i64 %10
   %extract.i = load i32, ptr %extract_ptr.i, align 4
-  %spec.select.i.i = tail call noundef i32 @llvm.abs.i32(i32 %extract.i, i1 false)
+  %"foo$r0.0.i" = tail call i32 @llvm.abs.i32(i32 %extract.i, i1 false)
   %_alloc0.i = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %10
-  store i32 %spec.select.i.i, ptr %_alloc0.i, align 4, !tbaa !1
+  store i32 %"foo$r0.0.i", ptr %_alloc0.i, align 4, !tbaa !1
   %11 = add nuw nsw i32 %9, 1
   %.not.i = icmp slt i32 %11, %n
   br i1 %.not.i, label %_i00_for.i, label %_traverse_array0.exit, !llvm.loop !11
@@ -222,9 +222,9 @@ _i01_for.i:                                       ; preds = %_i01_for.i.preheade
   %10 = zext nneg i32 %9 to i64
   %extract_ptr.i = getelementptr inbounds i32, ptr %a, i64 %10
   %extract.i = load i32, ptr %extract_ptr.i, align 4
-  %common.ret.op.i.i = tail call noundef i32 @llvm.abs.i32(i32 %extract.i, i1 false)
+  %"bar$r1.0.i" = tail call i32 @llvm.abs.i32(i32 %extract.i, i1 false)
   %_alloc1.i = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %10
-  store i32 %common.ret.op.i.i, ptr %_alloc1.i, align 4, !tbaa !1
+  store i32 %"bar$r1.0.i", ptr %_alloc1.i, align 4, !tbaa !1
   %11 = add nuw nsw i32 %9, 1
   %.not.i = icmp slt i32 %11, %n
   br i1 %.not.i, label %_i01_for.i, label %_traverse_array1.exit, !llvm.loop !13

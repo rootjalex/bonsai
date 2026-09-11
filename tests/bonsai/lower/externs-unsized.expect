@@ -6,7 +6,13 @@ extern indices : u32[]
 extern meshes : struct Mesh{ first_index : u32; first_vertex : u32 }[]
 
 func [[export]] edge(mesh : u32, tri : u32, positions : f32[], indices : u32[], meshes : Mesh[]) -> f32 {
-  return vertex(mesh, tri, 1u, positions, indices, meshes) - vertex(mesh, tri, 0u, positions, indices, meshes)
+  vertex$r0 : mut f32
+  let m$i0 = meshes[mesh] in
+  vertex$r0 = positions[m$i0.first_vertex + indices[(m$i0.first_index + (3u * tri)) + 1u]]
+  vertex$r1 : mut f32
+  let m$i1 = meshes[mesh] in
+  vertex$r1 = positions[m$i1.first_vertex + indices[(m$i1.first_index + (3u * tri)) + 0u]]
+  return (*vertex$r0) - (*vertex$r1)
 }
 
 func vertex(mesh : u32, tri : u32, corner : u32, positions : f32[], indices : u32[], meshes : Mesh[]) -> f32 {

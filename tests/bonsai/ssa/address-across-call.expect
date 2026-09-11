@@ -56,7 +56,7 @@ func doubled(v : f32, n : i32) -> f32 {
   }
 }
 
-func pick(b : Blob, k : f32) -> f32 {
+func [[noinline]] pick(b : Blob, k : f32) -> f32 {
   let @0 = b.tag in
   let @1 = @0 == 0u in
   if (@1) {

@@ -168,12 +168,12 @@ linear_to_gamma_v_entry:
   %0 = extractelement <3 x float> %l, i64 0
   %1 = fcmp ogt float %0, 0.000000e+00
   %2 = tail call float @llvm.sqrt.f32(float %0)
-  %common.ret.op.i = select i1 %1, float %2, float 0.000000e+00
+  %"linear_to_gamma_f$r3.0" = select i1 %1, float %2, float 0.000000e+00
   %3 = shufflevector <3 x float> %l, <3 x float> poison, <2 x i32> <i32 1, i32 2>
   %4 = fcmp ogt <2 x float> %3, zeroinitializer
   %5 = tail call <2 x float> @llvm.sqrt.v2f32(<2 x float> %3)
   %6 = select <2 x i1> %4, <2 x float> %5, <2 x float> zeroinitializer
-  %7 = insertelement <3 x float> poison, float %common.ret.op.i, i64 0
+  %7 = insertelement <3 x float> poison, float %"linear_to_gamma_f$r3.0", i64 0
   %8 = shufflevector <2 x float> %6, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %9 = shufflevector <3 x float> %7, <3 x float> %8, <3 x i32> <i32 0, i32 3, i32 4>
   ret <3 x float> %9
@@ -354,7 +354,7 @@ unit_vector__entry:
   %2 = fmul <3 x float> %v, %v
   %3 = extractelement <3 x float> %2, i64 1
   %4 = tail call float @llvm.fma.f32(float %1, float %1, float %3)
-  %5 = tail call noundef float @llvm.fma.f32(float %0, float %0, float %4)
+  %5 = tail call float @llvm.fma.f32(float %0, float %0, float %4)
   %6 = tail call float @llvm.sqrt.f32(float %5)
   %.splatinsert = insertelement <3 x float> poison, float %6, i64 0
   %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer

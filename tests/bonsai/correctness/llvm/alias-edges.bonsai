@@ -16,7 +16,7 @@ element PS {
     pdf : f32;
 }
 
-func sample(x : f32) -> PS {
+func [[noinline]] sample(x : f32) -> PS {
     if x < 0.0 {
         return PS{0.0, vec3f{0.0, 0.0, 0.0}, 0.0};
     }
@@ -56,7 +56,7 @@ func through_storage(x : f32, n : i32) -> f32 {
     return acc;
 }
 
-func through_call(x : f32) -> f32 {
+func [[noinline]] through_call(x : f32) -> f32 {
     ps = sample(x * 2.0);
     d = ps.p * ps.pdf;
     q = sample(x + 1.0);

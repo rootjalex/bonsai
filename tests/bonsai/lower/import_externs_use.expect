@@ -9,7 +9,7 @@ func biased(i : u32, scale : f32[4], bias : f32[4]) -> f32 {
 }
 
 func [[export]] both(i : u32, scale : f32[4], offset : f32[4], bias : f32[4]) -> f32 {
-  return (offset[i] + (scale[i] * 10f)) + (bias[i] + amplify(i, scale))
+  return (offset[i] + (scale[i] * 10f)) + (bias[i] + (scale[i] * 100f))
 }
 
 

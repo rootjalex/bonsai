@@ -32,8 +32,10 @@ func both_ways(a : array[f32, 8], k : f32, out : mut array[f32, 8]) {
 
 // A callee that branches internally on a varying argument: the branch is
 // divergent inside the variant and gets folded there, independently of the
-// caller.
-func clip(x : f32, lo : f32) -> f32 {
+// caller. `[[noinline]]`, as are the other callees here, or the inliner would
+// copy them into their callers before the schedule ran and there would be no
+// call to specialize.
+func [[noinline]] clip(x : f32, lo : f32) -> f32 {
   if (x < lo) {
     return lo;
   }
@@ -49,7 +51,9 @@ func clip_all(a : array[f32, 8], lo : f32, out : mut array[f32, 8]) {
 
 // A callee that calls another function: specializing one has to specialize
 // what it calls too, or the variant would hand vectors to a scalar function.
-func inner(x : f32) -> f32 = x + 1.0;
+// `outer` is left to the inliner, which folds it into `chained`; `inner` is
+// the call that has to be specialized.
+func [[noinline]] inner(x : f32) -> f32 = x + 1.0;
 
 func outer(x : f32) -> f32 = inner(x) * 2.0;
 

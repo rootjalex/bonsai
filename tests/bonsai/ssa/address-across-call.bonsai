@@ -30,8 +30,10 @@ element Holder {
 extern blobs : array[Blob];
 
 // Takes the blob by value, so Lower/Mutability.cpp passes it by pointer and the
-// call site has to take its address.
-func pick(b : Blob, k : Float) -> Float {
+// call site has to take its address. `[[noinline]]` so that it is a call site:
+// the inliner would otherwise copy it in and the address would never be passed
+// anywhere.
+func [[noinline]] pick(b : Blob, k : Float) -> Float {
     match b {
         A(x) => return x * k;
         B(y, z) => return (y + z) * k;

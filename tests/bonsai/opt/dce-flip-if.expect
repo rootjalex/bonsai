@@ -1,6 +1,8 @@
 func bar(i : i32x8) -> u32x8 {
   if (0 < reduce<+>(i)) {
-    let j = foo(i) in
+    if (!(0 < reduce<+>(i))) {
+      print(i)
+    }
   } else {
     print(i)
   }
@@ -10,14 +12,16 @@ func bar(i : i32x8) -> u32x8 {
 func bazz(i : i32) -> i32 {
   j : mut i32 := i + 1
   if (0 < i) {
-    print_and_return((*j))
+    print((*j))
   }
   return cast<i32>(abs(i))
 }
 
 func fizz(i : i32) -> i32 {
   if (0 < i) {
-    foo(i32x8(-4))
+    if (!(0 < reduce<+>(i32x8(-4)))) {
+      print(i32x8(-4))
+    }
   } else {
     print(i)
   }
@@ -32,9 +36,30 @@ func foo(i : i32x8) -> u32x8 {
 }
 
 func main() -> i32 {
-  let j = fizz(-1) in
-  let k = fizz(12) in
-  return cast<i32>(reduce<+>(bar(i32x8(-1))))
+  if (0 < -1) {
+    if (!(0 < reduce<+>(i32x8(-4)))) {
+      print(i32x8(-4))
+    }
+  } else {
+    print(-1)
+  }
+  if (0 < 12) {
+    if (!(0 < reduce<+>(i32x8(-4)))) {
+      print(i32x8(-4))
+    }
+  } else {
+    print(12)
+  }
+  bar$r5 : mut u32x8
+  if (0 < reduce<+>(i32x8(-1))) {
+    if (!(0 < reduce<+>(i32x8(-1)))) {
+      print(i32x8(-1))
+    }
+  } else {
+    print(i32x8(-1))
+  }
+  bar$r5 = abs(i32x8(-1))
+  return cast<i32>(reduce<+>((*bar$r5)))
 }
 
 func print_and_return(i : i32) -> i32 {

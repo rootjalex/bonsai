@@ -1,0 +1,79 @@
+//! flags: -p ssa -b llvm -e
+
+// Small statement-bodied functions are inlined at their call sites, run.
+//
+// opt/inline-statements.bonsai shows the shapes; this checks the values, and
+// the two evaluation-order rules that matter: a call in a loop's condition
+// still runs on every trip, and a call behind a select or a short-circuit
+// still runs only when its condition holds -- which a print inside it shows.
+
+element Hit {
+    t : f32;
+    ok : bool;
+}
+
+func clamp_pos(x : f32) -> f32 {
+    if x < 0.0 {
+        return 0.0;
+    }
+    y = x * 2.0;
+    return y + 1.0;
+}
+
+func pick(c : bool, a : f32, b : f32) -> f32 {
+    if c {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+func hit_t(h : Hit) -> f32 {
+    if h.ok {
+        return h.t;
+    }
+    return 1.0e30;
+}
+
+func loud(x : f32) -> f32 {
+    print(x);
+    return x + 100.0;
+}
+
+func note(x : f32) -> void {
+    if x > 1.0 {
+        print(x);
+        return;
+    }
+    print(0.0 - x);
+}
+
+func main() -> i32 {
+    // clamp_pos: the early return and the fallthrough.
+    print(clamp_pos(-2.0), clamp_pos(3.0));
+    // pick: both arms.
+    print(pick(true, 1.0, 2.0), pick(false, 1.0, 2.0));
+    // hit_t: through a struct.
+    print(hit_t(Hit{4.5, true}), hit_t(Hit{4.5, false}) > 1.0e29);
+    // note: a function of no value, both ways through it.
+    note(5.0);
+    note(0.5);
+    // Nested: the inner call's body goes first.
+    print(clamp_pos(hit_t(Hit{2.0, true})));
+    // loud prints when it runs. Behind a select it runs only for the taken
+    // arm; behind && only when the left side holds.
+    a = select(false, loud(1.0), 7.0);
+    print(a);
+    b : mut f32 = 0.0;
+    if false && loud(2.0) > 0.0 {
+        b = 1.0;
+    }
+    print(b);
+    // In a while condition, once per trip: three trips, three prints.
+    n : mut i32 = 0;
+    while loud(cast[[f32]](n)) < 102.5 {
+        n = n + 1;
+    }
+    print(n);
+    return 0;
+}

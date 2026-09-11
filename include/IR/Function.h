@@ -80,6 +80,11 @@ struct Function {
         // lowered to the backend directly rather than through the relooper
         // (see Program::ssa_funcs). Set by SSA/Vectorize.cpp.
         vectorized,
+        // The user-facing `[[noinline]]`: this function is called, never
+        // copied to its call sites, whatever its size. What a test that is
+        // about calls says of the functions it calls, and what a program
+        // says of a function it wants one copy of.
+        noinline,
     };
 
     std::vector<Attribute> attributes;
@@ -175,6 +180,11 @@ struct Function {
     bool is_always_inlined() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::always_inlined) != attributes.cend();
+    }
+
+    bool is_noinline() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::noinline) != attributes.cend();
     }
 
     bool is_kernel() const {

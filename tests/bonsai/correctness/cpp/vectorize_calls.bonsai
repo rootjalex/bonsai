@@ -9,8 +9,10 @@
 // would get wrong in a way no amount of reading the IR proves.
 func scale(x : f32, k : f32) -> f32 = x * k;
 
-// A callee with its own divergent branch, folded inside the variant.
-func clip(x : f32, lo : f32) -> f32 {
+// A callee with its own divergent branch, folded inside the variant. Kept a
+// call, or the inliner would put the branch in the caller and there would be
+// no variant to fold anything inside of.
+func [[noinline]] clip(x : f32, lo : f32) -> f32 {
   if (x < lo) {
     return lo;
   }

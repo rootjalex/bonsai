@@ -14,7 +14,9 @@
 #include "Utils.h"
 
 #include <iostream>
+#include <optional>
 #include <queue>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1094,12 +1096,20 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
 // `is_loop_body` says this region *is* the body of the infinite loop headed by
 // `start`, so that arriving at that header does not wrap it again -- the outer
 // call has already done that, and re-wrapping would not terminate.
+// `in_scope` is every name bound by the scopes this region is inside of, and
+// grows with the names this region binds; a region entered from here gets a
+// copy, so that what it binds does not leak back. It is what decides whether
+// a block argument needs binding at the block's entry -- see entry_bindings.
+// `preds_of` is every block's predecessors, recomputed from the terminators:
+// the `preds` a block carries are what the builder recorded, and a rewrite
+// that retargets a jump does not always bring them up to date.
 Stmt structurize(const std::string &start, const std::string &exit,
                  const BlockMap &block_map, const DominatorMap &dom,
                  const BlockInfoMap &info, const ArgMutabilityMap &mut_map,
-                 const TypeMap &func_type_map,
+                 const TypeMap &func_type_map, const AdjacencyMap &preds_of,
                  const std::string &loop_header = "",
-                 bool is_loop_body = false) {
+                 bool is_loop_body = false,
+                 std::set<std::string> in_scope = {}) {
 
     std::vector<Stmt> stmts;
     std::string name = start;
@@ -1111,24 +1121,34 @@ Stmt structurize(const std::string &start, const std::string &exit,
         }
     };
 
-    // What an edge to `target` hands it, as the statements that carry it
-    // across: appended to `out`, which is wherever the edge is -- the
-    // statements so far when the edge falls through to the next block, or the
-    // start of an arm when the edge is a branch into it. `vals` are the edge's
-    // arguments, matched against the target's from `skip` on; the block
-    // arguments before that are ones the edge does not pass, a call's return
-    // value, bound by whoever emits the call.
+    // What a block's arguments are bound to, in two halves.
     //
-    // Most edges carry nothing at all: the SSA builder threads a value through
-    // the blocks that use it under the name it already has, so the edge passes
-    // the name straight back and the target finds the binding the source made.
-    // Two kinds of value do need carrying. One that never got a binding -- an
-    // address computed where it is used -- has to be given one at the edge,
-    // because past it there may be nothing in scope to rebuild it from. And
-    // one that arrives under some *other* name: `let b = a` makes the builder
-    // rename a's instruction to `b` (Block::make_instruction), and a block
-    // that still asks for `a` is then handed the instruction called `b` --
-    // one definition, two names, and the second has to be bound at the edge.
+    // Most block arguments are bound to nothing at all: the SSA builder
+    // threads a value through the blocks that use it under the name it
+    // already has, so every edge passes the name straight back and the block
+    // finds the binding its predecessor made. The rest are of two kinds.
+    //
+    // A phi -- an argument whose predecessors disagree about its value -- is
+    // a variable, and each edge into the block assigns it: `jump_args`, run
+    // at the edge, where the value that edge passes is in scope.
+    //
+    // An argument every predecessor agrees about, but hands over under some
+    // other name, is bound once, at the block's entry: `entry_bindings`. The
+    // case is `let b = a`, which makes the builder rename a's instruction to
+    // `b` (Block::make_instruction) -- a block that still asks for `a` is
+    // then handed the instruction called `b`, one definition under two names.
+    // The binding cannot go at the edges: two arms of an `if` that both ask
+    // for `a` would each bind it, in one scope as far as the LLVM backend is
+    // concerned, and the second binding is an error there. At the entry it
+    // is bound once, and since every predecessor passes the same value the
+    // value is in scope wherever the entry is. An address computed where it
+    // is used -- a GEP, which has no binding of its own -- is bound the same
+    // way, rebuilt from operands that are in scope for the same reason.
+    //
+    // `vals` are the edge's arguments, matched against the target's from
+    // `skip` on; the block arguments before that are ones the edge does not
+    // pass -- a call's return value, a parallel loop's index -- bound by
+    // whoever emits the call or the loop.
     auto jump_args = [&](const std::string &target,
                          const std::vector<std::shared_ptr<Value>> &vals,
                          std::vector<Stmt> &out, size_t skip = 0) {
@@ -1142,23 +1162,16 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
         for (size_t i = 0; i < vals.size(); i++) {
             const Argument &param = target_block->args[i + skip];
-            if (passes_itself(vals[i], param.name) &&
-                !has_no_binding(vals[i])) {
+            if (!muts[i + skip]) {
                 continue;
             }
-            if (muts[i + skip]) {
-                // The argument is a variable -- predecessors somewhere
-                // disagree about its value -- and the edge assigns it.
-                out.push_back(Store::make(WriteLoc(param.name, param.type),
-                                          codegen_value(vals[i])));
-            } else {
-                // One definition reaches the argument, under some other name:
-                // bind it here, where the jump is, so that the block below can
-                // refer to it. This is what a block argument means when it is
-                // not a phi.
-                out.push_back(LetStmt::make(WriteLoc(param.name, param.type),
-                                            codegen_value(vals[i])));
+            if (passes_itself(vals[i], param.name) &&
+                !has_no_binding(vals[i])) {
+                // The variable already holds it.
+                continue;
             }
+            out.push_back(Store::make(WriteLoc(param.name, param.type),
+                                      codegen_value(vals[i])));
         }
     };
     auto emit_jump_args = [&](const std::string &target,
@@ -1167,16 +1180,188 @@ Stmt structurize(const std::string &start, const std::string &exit,
         jump_args(target, vals, stmts, skip);
     };
 
-    // A region entered by a branch: what the edge hands the first block comes
-    // first, then the region itself. Nothing at all when the edge carries
-    // nothing and the region is empty.
+    // The arguments one predecessor's terminator passes to `target`, and how
+    // many of the target's arguments come before them.
+    auto incoming = [&](const Block &pred, const std::string &target)
+        -> std::optional<
+            std::pair<const std::vector<std::shared_ptr<Value>> *, size_t>> {
+        using Found = std::optional<
+            std::pair<const std::vector<std::shared_ptr<Value>> *, size_t>>;
+        return std::visit(
+            overloads{
+                [&](const Terminator::Jump &j) -> Found {
+                    if (j.name == target)
+                        return {{&j.args, 0}};
+                    return std::nullopt;
+                },
+                [&](const Terminator::Dispatch &d) -> Found {
+                    for (const Terminator::Jump &t : d.targets) {
+                        if (t.name == target)
+                            return {{&t.args, 0}};
+                    }
+                    return std::nullopt;
+                },
+                [&](const Terminator::Call &c) -> Found {
+                    if (c.cont.name == target)
+                        return {{&c.cont.args, c.drop ? 0u : 1u}};
+                    return std::nullopt;
+                },
+                [&](const Terminator::MultiCall &c) -> Found {
+                    if (c.cont.name == target)
+                        return {{&c.cont.args, 0}};
+                    return std::nullopt;
+                },
+                [&](const Terminator::ParFor &p) -> Found {
+                    if (p.body.name == target)
+                        return {{&p.body.args, 1}};
+                    if (p.cont.name == target)
+                        return {{&p.cont.args, 0}};
+                    return std::nullopt;
+                },
+                [&](const auto &) -> Found { return std::nullopt; }},
+            pred.terminator.data);
+    };
+
+    // What a value passed along an edge stands for, at the end of the chain
+    // of block arguments passing it on: an instruction, a constant, or an
+    // argument of the function. `at` is the block whose terminator passes
+    // `v`. A block argument is followed to what the block's own predecessor
+    // passed for it, and so on up; a loop that hands its header the header's
+    // own argument is a cycle, and stops the walk at that argument.
+    //
+    // This is what an entry binding has to name. The edge's value may be an
+    // argument of the predecessor that was itself bound at the predecessor's
+    // entry, inside an arm of an `if`, say -- and an arm is a scope, so that
+    // binding is not in scope where the arms meet. The instruction at the
+    // root is: it is defined where it dominates every block that passes it
+    // on, which in structured code is an enclosing or preceding scope.
+    auto preds_named = [&](const std::string &name)
+        -> const std::vector<std::string> & {
+        static const std::vector<std::string> none;
+        auto it = preds_of.find(name);
+        return it == preds_of.end() ? none : it->second;
+    };
+
+    auto root_of = [&](std::shared_ptr<Value> v,
+                       const Block *at) -> std::shared_ptr<Value> {
+        std::set<const Block *> seen;
+        while (true) {
+            const auto *a = std::get_if<Argument>(&v->data);
+            if (a == nullptr || preds_named(at->name).empty()) {
+                // An instruction, a constant, or a parameter of the function.
+                return v;
+            }
+            size_t idx = at->args.size();
+            for (size_t i = 0; i < at->args.size(); i++) {
+                if (at->args[i].name == a->name) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx == at->args.size() || !seen.insert(at).second) {
+                return v;
+            }
+            bool followed = false;
+            for (const std::string &pred_name : preds_named(at->name)) {
+                auto pred = block_map.at(pred_name);
+                auto found = incoming(*pred, at->name);
+                if (!found)
+                    continue;
+                const auto &[vals, skip] = *found;
+                if (idx < skip) {
+                    // A call's result or a loop's index: bound by the call
+                    // or the loop, under this name.
+                    return v;
+                }
+                v = (*vals)[idx - skip];
+                at = pred.get();
+                followed = true;
+                break;
+            }
+            if (!followed) {
+                return v;
+            }
+        }
+    };
+
+    // Binds, at the entry of `block`, the arguments that are not phis and
+    // are not in scope under the argument's name (see above). Most are: the
+    // name was bound where the value was made, or at the entry of an earlier
+    // block in an enclosing scope, and is still visible. The ones that are
+    // not were bound inside a scope that has since closed -- an arm of the
+    // `if` this block is the merge of -- or never bound under this name at
+    // all, and get bound here to the root value, which is in scope by
+    // dominance. Any one predecessor will do for finding the root, since
+    // they all pass the same value; a loop's latch is skipped, since it only
+    // hands the header back what the header already had.
+    auto entry_bindings = [&](const Block &block) {
+        const std::vector<std::string> &preds = preds_named(block.name);
+        if (block.args.empty() || preds.empty())
+            return;
+        auto &muts = mut_map.at(block.name);
+        for (size_t i = 0; i < block.args.size(); i++) {
+            if (muts[i]) {
+                continue;
+            }
+            const Argument &param = block.args[i];
+            if (in_scope.contains(param.name)) {
+                continue;
+            }
+            std::shared_ptr<Value> root;
+            for (const std::string &pred_name : preds) {
+                auto pred = block_map.at(pred_name);
+                auto found = incoming(*pred, block.name);
+                if (!found)
+                    continue;
+                const auto &[vals, skip] = *found;
+                internal_assert(vals->size() + skip == block.args.size())
+                    << "Edge from " << pred->name << " to " << block.name
+                    << " passes " << vals->size() << " arguments but it takes "
+                    << block.args.size() - skip;
+                if (i < skip) {
+                    break; // bound by the call or the loop
+                }
+                if (preds.size() > 1 &&
+                    dom.at(pred->name).count(block.name) > 0) {
+                    // A back edge: the latch hands the header what the
+                    // header already has. The entry edge says what that is.
+                    continue;
+                }
+                root = root_of((*vals)[i - skip], pred.get());
+                break;
+            }
+            if (!root) {
+                continue;
+            }
+            // A value computed by a while header is not bound anywhere: the
+            // header's instructions become the loop's condition. It is
+            // inlined as an expression instead; anything else is named.
+            Expr value = codegen_value(root);
+            if (const auto *in =
+                    std::get_if<std::shared_ptr<Instruction>>(&root->data)) {
+                auto owner = (*in)->owner.lock();
+                if (owner && info.at(owner->name).role ==
+                                 BlockInfo::Role::WhileHeader) {
+                    value = inline_expr(root, owner.get());
+                }
+            }
+            append(LetStmt::make(WriteLoc(param.name, param.type),
+                                 std::move(value)));
+            in_scope.insert(param.name);
+        }
+    };
+
+    // A region entered by a branch: what the edge assigns to the first
+    // block's variables comes first, then the region itself. Nothing at all
+    // when the edge assigns nothing and the region is empty.
     auto branch_region = [&](const Terminator::Jump &edge,
                              const std::string &region_exit,
                              const std::string &header) -> Stmt {
         std::vector<Stmt> body;
         jump_args(edge.name, edge.args, body);
         Stmt rest = structurize(edge.name, region_exit, block_map, dom, info,
-                                mut_map, func_type_map, header);
+                                mut_map, func_type_map, preds_of, header,
+                                /*is_loop_body=*/false, in_scope);
         if (rest.defined()) {
             body.push_back(std::move(rest));
         }
@@ -1206,7 +1391,8 @@ Stmt structurize(const std::string &start, const std::string &exit,
         if ((bi.role == BlockInfo::Role::DoWhileHeader || own_header) &&
             name != start) {
             append(structurize(name, bi.loop_exit, block_map, dom, info,
-                               mut_map, func_type_map, loop_header));
+                               mut_map, func_type_map, preds_of, loop_header,
+                               /*is_loop_body=*/false, in_scope));
             name = bi.loop_exit;
             continue;
         }
@@ -1221,12 +1407,16 @@ Stmt structurize(const std::string &start, const std::string &exit,
             !is_loop_body) {
             Stmt body =
                 structurize(name, /*exit=*/"", block_map, dom, info, mut_map,
-                            func_type_map, /*loop_header=*/name,
-                            /*is_loop_body=*/true);
+                            func_type_map, preds_of, /*loop_header=*/name,
+                            /*is_loop_body=*/true, in_scope);
             append(DoWhile::make(std::move(body), BoolImm::make(true)));
             name = exit;
             continue;
         }
+
+        // What this block's arguments are bound to, where they are not
+        // variables its predecessors assign.
+        entry_bindings(*block);
 
         // Emit this block's instructions. A while header's are not emitted as
         // statements at all: they compute the test, which is inlined into the
@@ -1249,6 +1439,9 @@ Stmt structurize(const std::string &start, const std::string &exit,
                 continue;
             }
             append(codegen_instruction(*instr));
+            if (!instr->name.empty()) {
+                in_scope.insert(instr->name);
+            }
         }
 
         std::visit(
@@ -1443,11 +1636,17 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     // Body is a genuinely separate sub-CFG, must recurse. Its
                     // first argument is the index, which the loop itself
                     // binds; the rest are what the edge into it hands it,
-                    // carried in at its start as on any other edge.
+                    // assigned at its start where they are variables and
+                    // bound at its entry otherwise, as on any other edge.
                     std::vector<Stmt> body_stmts;
                     jump_args(p.body.name, p.body.args, body_stmts, 1);
+                    std::set<std::string> body_scope = in_scope;
+                    body_scope.insert(p.index);
                     Stmt body = structurize(p.body.name, "", block_map, dom,
-                                            info, mut_map, func_type_map);
+                                            info, mut_map, func_type_map,
+                                            preds_of, /*loop_header=*/"",
+                                            /*is_loop_body=*/false,
+                                            std::move(body_scope));
                     internal_assert(body.defined())
                         << "ParFor body " << p.body.name << " is empty";
                     body_stmts.push_back(std::move(body));
@@ -1471,9 +1670,8 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
                     // The values that live across the call, which the
                     // continuation takes as block arguments after the return
-                    // value. Carried across before the call is made: a value
-                    // that has no binding of its own has to get one while
-                    // what it is built from is still in scope.
+                    // value. Those that are variables are assigned here; the
+                    // rest are bound where the continuation begins.
                     const size_t threaded =
                         cont_block->args.size() - c.cont.args.size();
                     internal_assert(threaded == (c.drop ? 0u : 1u))
@@ -1505,6 +1703,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                             LetStmt::make(WriteLoc(ret_arg.name, ret_arg.type),
                                           Call::make(std::move(call_func),
                                                      std::move(call_args))));
+                        in_scope.insert(ret_arg.name);
                     }
 
                     name = c.cont.name;
@@ -1662,8 +1861,21 @@ Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
         }
     }
 
+    // In scope from the start: the function's arguments, and the storage
+    // declared above, which every block may assign and read.
+    std::set<std::string> in_scope;
+    for (const auto &arg : func.blocks[0]->args) {
+        in_scope.insert(arg.name);
+    }
+    for (const auto &[name, _] : materialized) {
+        in_scope.insert(name);
+    }
+    const AdjacencyMap preds_of =
+        compute_predecessors(compute_successors(func));
     Stmt body = structurize(func.blocks[0]->name, "", block_map, dom, info,
-                            mut_map, func_type_map);
+                            mut_map, func_type_map, preds_of,
+                            /*loop_header=*/"", /*is_loop_body=*/false,
+                            std::move(in_scope));
     if (stmts.empty()) {
         return body;
     }

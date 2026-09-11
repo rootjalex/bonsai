@@ -2,10 +2,11 @@
 
 // Calls across functions survive the round trip through SSA form: each one
 // becomes a Call terminator plus a continuation block, and the relooper has
-// to rebuild the original structure from that.
-func foo(a : f32) = a + 1.0;
+// to rebuild the original structure from that. `[[noinline]]`, or the inliner
+// would fold both away and there would be no call to survive anything.
+func [[noinline]] foo(a : f32) = a + 1.0;
 
-func bar(a : f32) = a - 1.0;
+func [[noinline]] bar(a : f32) = a - 1.0;
 
 func color(a : f32, b : f32) {
     c : mut f32 = 0.0;

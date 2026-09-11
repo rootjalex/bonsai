@@ -28,7 +28,9 @@ element PS {
     pdf : f32;
 }
 
-func sample(x : f32) -> PS {
+// `[[noinline]]`: the shapes below need a call whose result gets two names,
+// and a copy of this body in its place would leave a variable instead.
+func [[noinline]] sample(x : f32) -> PS {
     if x < 0.0 {
         return PS{0.0, vec3f{0.0, 0.0, 0.0}, 0.0};
     }
@@ -79,7 +81,9 @@ func through_storage(x : f32, n : i32) -> f32 {
 
 // The sample and a value made from it, both live across a second call, so the
 // continuation takes them as arguments and the call site hands them over.
-func through_call(x : f32) -> f32 {
+// Kept its own function, as the two above are by their loops, so that each
+// shape is read on its own.
+func [[noinline]] through_call(x : f32) -> f32 {
     ps = sample(x * 2.0);
     d = ps.p * ps.pdf;
     q = sample(x + 1.0);

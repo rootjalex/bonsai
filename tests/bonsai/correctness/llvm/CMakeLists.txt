@@ -24,6 +24,7 @@ add_bonsai_tests(
     halton.bonsai
     hex-and-complement.bonsai
     if-else-returns.bonsai
+    inline-statements.bonsai
     int64.bonsai
     literal-widening.bonsai
     loop-transforms.bonsai

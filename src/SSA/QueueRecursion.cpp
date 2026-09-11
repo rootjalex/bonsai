@@ -100,17 +100,150 @@ struct Monotone {
     bool rising = false;
 };
 
-// Whether `v` loads exactly `ptr`.
-bool loads(const shared_ptr<Value> &v, const Value *ptr) {
+// The name a value goes by, if it has one: an argument's, or an
+// instruction's. A variable is one instruction where it is made -- or one
+// parameter -- and an argument of every block it is threaded through, all
+// under this name, which is what identifies it across blocks.
+std::optional<string> name_of(const shared_ptr<Value> &v) {
     if (!v) {
-        return false;
+        return std::nullopt;
     }
-    const auto *instr = std::get_if<shared_ptr<Instruction>>(&v->data);
+    if (std::optional<Argument> a = v->get_argument()) {
+        return a->name;
+    }
+    if (const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data);
+        in != nullptr && *in != nullptr) {
+        return (*in)->name;
+    }
+    return std::nullopt;
+}
+
+// The arguments `pred`'s terminator passes to `target`, and how many of the
+// target's arguments come before them -- a call's result, a loop's index.
+std::optional<std::pair<const vector<shared_ptr<Value>> *, size_t>>
+edge_into(const Block &pred, const string &target) {
+    using Found =
+        std::optional<std::pair<const vector<shared_ptr<Value>> *, size_t>>;
+    return std::visit(
+        overloads{
+            [&](const Terminator::Jump &j) -> Found {
+                if (j.name == target)
+                    return {{&j.args, 0}};
+                return std::nullopt;
+            },
+            [&](const Terminator::Dispatch &d) -> Found {
+                for (const Terminator::Jump &t : d.targets) {
+                    if (t.name == target)
+                        return {{&t.args, 0}};
+                }
+                return std::nullopt;
+            },
+            [&](const Terminator::Call &c) -> Found {
+                if (c.cont.name == target)
+                    return {{&c.cont.args, c.drop ? 0u : 1u}};
+                return std::nullopt;
+            },
+            [&](const Terminator::MultiCall &c) -> Found {
+                if (c.cont.name == target)
+                    return {{&c.cont.args, 0}};
+                return std::nullopt;
+            },
+            [&](const Terminator::ParFor &p) -> Found {
+                if (p.body.name == target)
+                    return {{&p.body.args, 1}};
+                if (p.cont.name == target)
+                    return {{&p.cont.args, 0}};
+                return std::nullopt;
+            },
+            [&](const auto &) -> Found { return std::nullopt; }},
+        pred.terminator.data);
+}
+
+// The value `v` stands for, following a block argument back through the
+// predecessors that pass it until it reaches an instruction, a constant, or
+// an argument of the function. `at` is the block `v` is used in. A value the
+// builder computed before a call arrives in the continuation as an argument,
+// and this is what sees the load behind it.
+struct Resolver {
+    explicit Resolver(const Function &func) : blocks(make_block_map(func)) {
+        // From the terminators that exist. This runs while the loop is being
+        // built, when the blocks it adds have no terminator yet.
+        for (const auto &block : func.blocks) {
+            if (!block->terminator.defined()) {
+                continue;
+            }
+            for (const string &target : successors(*block)) {
+                preds[target].push_back(block->name);
+            }
+        }
+    }
+
+    const BlockMap blocks;
+    AdjacencyMap preds;
+
+    shared_ptr<Value> operator()(shared_ptr<Value> v, const Block *at) const {
+        set<const Block *> seen;
+        while (v) {
+            std::optional<Argument> a = v->get_argument();
+            auto pit = preds.find(at->name);
+            if (!a || pit == preds.end() || pit->second.empty() ||
+                !seen.insert(at).second) {
+                return v;
+            }
+            size_t idx = at->args.size();
+            for (size_t i = 0; i < at->args.size(); i++) {
+                if (at->args[i].name == a->name) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx == at->args.size()) {
+                return v;
+            }
+            bool followed = false;
+            for (const string &pred_name : pit->second) {
+                const Block &pred = *blocks.at(pred_name);
+                auto found = edge_into(pred, at->name);
+                if (!found) {
+                    continue;
+                }
+                const auto &[vals, skip] = *found;
+                if (idx < skip) {
+                    return v;
+                }
+                v = (*vals)[idx - skip];
+                at = &pred;
+                followed = true;
+                break;
+            }
+            if (!followed) {
+                return v;
+            }
+        }
+        return v;
+    }
+
+    const Block *owner_of(const shared_ptr<Value> &v) const {
+        const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (in == nullptr || *in == nullptr) {
+            return nullptr;
+        }
+        auto block = (*in)->owner.lock();
+        return block.get();
+    }
+};
+
+// Whether `v`, used in `at`, is a load of the variable called `name`.
+bool loads(const shared_ptr<Value> &v, const Block *at, const string &name,
+           const Resolver &resolve) {
+    shared_ptr<Value> r = resolve(v, at);
+    const auto *instr = std::get_if<shared_ptr<Instruction>>(&r->data);
     if (instr == nullptr || *instr == nullptr) {
         return false;
     }
     return (*instr)->op == Instruction::Op::Load &&
-           (*instr)->operands.size() == 1 && (*instr)->operands[0].get() == ptr;
+           (*instr)->operands.size() == 1 &&
+           name_of((*instr)->operands[0]) == name;
 }
 
 // Whether `v` is the boolean constant `want`.
@@ -126,13 +259,13 @@ bool is_bool_const(const shared_ptr<Value> &v, bool want) {
     return b != nullptr && *b == want;
 }
 
-// Whether `v` is `acc <op> x` for a combining op, with `acc` a load of `ptr`.
-bool combines_with_self(const shared_ptr<Value> &v, const Value *ptr,
-                        Instruction::Op logical, Instruction::Op bitwise) {
-    if (!v) {
-        return false;
-    }
-    const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+// Whether `v`, used in `at`, is `acc <op> x` for a combining op, with `acc` a
+// load of the variable called `name`.
+bool combines_with_self(const shared_ptr<Value> &v, const Block *at,
+                        const string &name, Instruction::Op logical,
+                        Instruction::Op bitwise, const Resolver &resolve) {
+    shared_ptr<Value> r = resolve(v, at);
+    const auto *held = std::get_if<shared_ptr<Instruction>>(&r->data);
     if (held == nullptr || *held == nullptr) {
         return false;
     }
@@ -140,8 +273,9 @@ bool combines_with_self(const shared_ptr<Value> &v, const Value *ptr,
     if (instr.op != logical && instr.op != bitwise) {
         return false;
     }
+    const Block *owner = resolve.owner_of(r);
     for (const auto &operand : instr.operands) {
-        if (loads(operand, ptr)) {
+        if (loads(operand, owner ? owner : at, name, resolve)) {
             return true;
         }
     }
@@ -163,16 +297,40 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
         bool falling = false;
         bool disqualified = false;
     };
-    std::map<const Value *, Candidate> candidates;
+    // By name. A variable is one instruction where it is made -- or one
+    // parameter -- and an argument of every block it is threaded through,
+    // all under the same name. Looked at value by value, the stores to it
+    // would be counted in some blocks and missed in others, and one `= false`
+    // seen on its own passes for `all`; by name every store is seen, and a
+    // boolean that is also assigned something arbitrary is disqualified.
+    //
+    // It also has to outlive an iteration, or it is not accumulating
+    // anything: a parameter of the function, or storage allocated in the
+    // entry block, before the loop. A boolean a body allocates for itself on
+    // every trip -- the result of a small function inlined into it, say -- is
+    // fresh each time, and a load of it in the loop's condition would read
+    // storage that is not there.
+    std::set<std::string> outlives;
+    for (const Argument &arg : func.blocks.front()->args) {
+        outlives.insert(arg.name);
+    }
+    for (const auto &instr : func.blocks.front()->instrs) {
+        if (instr->op == Instruction::Op::Alloca ||
+            instr->op == Instruction::Op::Alloc) {
+            outlives.insert(instr->name);
+        }
+    }
+    const Resolver resolve(func);
+    std::map<std::string, Candidate> candidates;
 
     // A pointer that escapes into a call may be moved by the callee in a
     // direction this function cannot see, so it is no longer this function's
     // to reason about.
-    std::set<const Value *> escaped;
+    std::set<std::string> escaped;
     const auto note_escapes = [&](const std::vector<shared_ptr<Value>> &args) {
         for (const auto &arg : args) {
-            if (arg) {
-                escaped.insert(arg.get());
+            if (std::optional<std::string> name = name_of(arg)) {
+                escaped.insert(*name);
             }
         }
     };
@@ -196,23 +354,23 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
             if (ptr_type == nullptr || !ptr_type->etype.is<Bool_t>()) {
                 continue;
             }
-            // Has to outlive an iteration, so it cannot be something this
-            // function computed: a parameter, not an instruction's result.
-            if (!dest->get_argument().has_value()) {
+            std::optional<std::string> name = name_of(dest);
+            if (!name.has_value() || !outlives.contains(*name)) {
                 continue;
             }
 
-            Candidate &candidate = candidates[dest.get()];
+            Candidate &candidate = candidates[*name];
             candidate.stores++;
             const shared_ptr<Value> &value = instr->operands[1];
             if (is_bool_const(value, true) ||
-                combines_with_self(value, dest.get(), Instruction::Op::LOr,
-                                   Instruction::Op::BwOr)) {
+                combines_with_self(value, block.get(), *name,
+                                   Instruction::Op::LOr, Instruction::Op::BwOr,
+                                   resolve)) {
                 candidate.rising = true;
             } else if (is_bool_const(value, false) ||
-                       combines_with_self(value, dest.get(),
+                       combines_with_self(value, block.get(), *name,
                                           Instruction::Op::LAnd,
-                                          Instruction::Op::BwAnd)) {
+                                          Instruction::Op::BwAnd, resolve)) {
                 candidate.falling = true;
             } else {
                 candidate.disqualified = true;
@@ -223,18 +381,19 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
         }
     }
 
-    for (const auto &[ptr, candidate] : candidates) {
+    for (const auto &[name, candidate] : candidates) {
         if (candidate.disqualified || candidate.stores == 0 ||
-            candidate.rising == candidate.falling ||
-            escaped.contains(ptr)) {
+            candidate.rising == candidate.falling || escaped.contains(name)) {
             continue;
         }
         // Rebuild a handle to the value from the store that named it.
         for (const auto &block : func.blocks) {
             for (const auto &instr : block->instrs) {
-                if (instr->op == Instruction::Op::Store &&
-                    instr->operands.size() == 2 &&
-                    instr->operands[0].get() == ptr) {
+                if (instr->op != Instruction::Op::Store ||
+                    instr->operands.size() != 2) {
+                    continue;
+                }
+                if (name_of(instr->operands[0]) == name) {
                     return Monotone{instr->operands[0], candidate.rising};
                 }
             }

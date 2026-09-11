@@ -976,6 +976,8 @@ struct Parser {
                 attributes.push_back(ir::Function::Attribute::kernel);
             } else if (attribute == "inline") {
                 attributes.push_back(ir::Function::Attribute::always_inlined);
+            } else if (attribute == "noinline") {
+                attributes.push_back(ir::Function::Attribute::noinline);
             } else {
                 report_error() << "unexpected attribute: " << attribute;
             }

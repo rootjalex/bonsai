@@ -16,15 +16,15 @@ func both_ways(a : f32[8], k : f32, out : mut f32[8]) -> void {
 
 func chained(a : f32[8], out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
-  let i = ramp(0, 1, 8) in
   let @1 = inner$gang8_v0(@0) in
+  let i = ramp(0, 1, 8) in
   let @5 = f32x8(2f) in
   let @2 = @1 * @5 in
   out[ramp(0, 1, 8)] = @2
   return
 }
 
-func clip(x : f32, lo : f32) -> f32 {
+func [[noinline]] clip(x : f32, lo : f32) -> f32 {
   let @0 = x < lo in
   if (@0) {
     return lo
@@ -33,7 +33,7 @@ func clip(x : f32, lo : f32) -> f32 {
   }
 }
 
-func clip$gang8_v0(x : f32x8, lo : f32) -> f32x8 {
+func [[noinline]] clip$gang8_v0(x : f32x8, lo : f32) -> f32x8 {
   let @3 = f32x8(lo) in
   let @0 = x < @3 in
   let @4 = boolx8(false) in
@@ -46,8 +46,8 @@ func clip$gang8_v0(x : f32x8, lo : f32) -> f32x8 {
 
 func clip_all(a : f32[8], lo : f32, out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
-  let i = ramp(0, 1, 8) in
   let @1 = clip$gang8_v0(@0, lo) in
+  let i = ramp(0, 1, 8) in
   out[ramp(0, 1, 8)] = @1
   return
 }
@@ -57,19 +57,19 @@ func constant_of(k : f32) -> f32 {
   return @0
 }
 
-func inner(x : f32) -> f32 {
+func [[noinline]] inner(x : f32) -> f32 {
   let @0 = x + 1f in
   return @0
 }
 
-func inner$gang8_v0(x : f32x8) -> f32x8 {
+func [[noinline]] inner$gang8_v0(x : f32x8) -> f32x8 {
   let @1 = f32x8(1f) in
   let @0 = x + @1 in
   return @0
 }
 
 func outer(x : f32) -> f32 {
-  let @0 = x + 1f in
+  let @0 = inner(x) in
   let @1 = @0 * 2f in
   return @1
 }

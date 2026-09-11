@@ -2575,6 +2575,11 @@ void CodeGen_LLVM::visit(const IfElse *node) {
             ? llvm::BasicBlock::Create(*context, "after_bb", current_function)
             : nullptr;
 
+    // Each arm is a scope of its own: a name bound in one is not in scope in
+    // the other, nor after the branch. The relooper relies on this -- two
+    // arms that each bind the same name, because each was handed a value
+    // under a name of its own, are two bindings and not one redefined -- and
+    // it is what the braces of the C++ backend already say.
     for (const auto &p : blocks) {
         llvm::BasicBlock *then_bb =
             llvm::BasicBlock::Create(*context, "then_bb", current_function);
@@ -2582,7 +2587,9 @@ void CodeGen_LLVM::visit(const IfElse *node) {
             llvm::BasicBlock::Create(*context, "next_bb", current_function);
         codegen_short_circuit(p.expr, then_bb, next_bb);
         builder->SetInsertPoint(then_bb);
+        frames.push_frame();
         codegen_stmt(p.stmt);
+        frames.pop_frame();
         if (!p.returns) {
             codegen_branch(after_bb);
         }
@@ -2590,7 +2597,9 @@ void CodeGen_LLVM::visit(const IfElse *node) {
     }
 
     if (final_else.defined()) {
+        frames.push_frame();
         codegen_stmt(final_else);
+        frames.pop_frame();
     }
 
     if (needs_after_bb) {

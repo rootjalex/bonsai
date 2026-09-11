@@ -219,6 +219,11 @@ struct CodeGen_LLVM::SSALowering {
             internal_assert(n == 1) << "reinterpret takes one value";
             return Cast::make(instr.type, std::move(args[0]),
                               Cast::Mode::Reinterpret);
+        case Instruction::Op::Set:
+            // A copy: `let b = a` where `a` is not an instruction the builder
+            // could rename, an argument or a constant.
+            internal_assert(n == 1) << "set takes one value";
+            return std::move(args[0]);
         case Instruction::Op::Abs:
             return Intrinsic::make(Intrinsic::OpType::abs, std::move(args));
         case Instruction::Op::Intrinsic:

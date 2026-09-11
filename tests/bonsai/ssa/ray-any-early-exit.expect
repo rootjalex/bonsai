@@ -29,11 +29,11 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
   !stack[0u] = tris_index
   !count = 1u
   while (((*!count) != 0u) && !(*_holds0)) {
-    let @42 = (*!count) in
-    let @43 = @42 - 1u in
-    !count = @43
-    let @44 = !stack[@43] in
-    let tris_index!top = @44 in
+    let @60 = (*!count) in
+    let @61 = @60 - 1u in
+    !count = @61
+    let @62 = !stack[@61] in
+    let tris_index!top = @62 in
     let @0 = (*_holds0) in
     let @1 = !@0 in
     if (@1) {
@@ -45,56 +45,88 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         if (false) {
           _holds0 = true
         } else {
+          intersects_Ray_AABB$r9 : mut bool
           let @6 = _t33.low in
           let @7 = _t33.high in
           let @8 = build<AABB>(@6, @7) in
-          let @9 = intersects_Ray_AABB(r, @8) in
-          if (@9) {
-            let @10 = tris_index!top + 1u in
-            let @11 = _t33.split0on_nPrims in
-            let @12 = reinterpret_cast<_tree_layout2>(@11) in
-            let @13 = @12.offset in
-            let @14 = tris_index!top + @13 in
-            let @45 = (*!count) in
-            !stack[@45] = @14
-            let @47 = @45 + 1u in
-            !count = @47
-            let @48 = (*!count) in
-            !stack[@48] = @10
-            let @50 = @48 + 1u in
-            !count = @50
+          let @9 = intersectsp_ray_aabb(r, @8) in
+          let interval$i9 = @9 in
+          let @10 = interval$i9.set in
+          if (@10) {
+            let extract$i9 = interval$i9.value in
+            let @12 = extract$i9.low in
+            let @13 = r.tmax in
+            let @14 = @12 < @13 in
+            let @15 = extract$i9.high in
+            let @16 = 0f < @15 in
+            let @17 = @14 & @16 in
+            intersects_Ray_AABB$r9 = @17
+          } else {
+            intersects_Ray_AABB$r9 = false
+          }
+          let @18 = (*intersects_Ray_AABB$r9) in
+          if (@18) {
+            let @19 = tris_index!top + 1u in
+            let @20 = _t33.split0on_nPrims in
+            let @21 = reinterpret_cast<_tree_layout2>(@20) in
+            let @22 = @21.offset in
+            let @23 = tris_index!top + @22 in
+            let @63 = (*!count) in
+            !stack[@63] = @23
+            let @65 = @63 + 1u in
+            !count = @65
+            let @66 = (*!count) in
+            !stack[@66] = @19
+            let @68 = @66 + 1u in
+            !count = @68
           }
         }
       } else if (false) {
         _holds0 = true
       } else {
-        let @15 = _t33.low in
-        let @16 = _t33.high in
-        let @17 = build<AABB>(@15, @16) in
-        let @18 = intersects_Ray_AABB(r, @17) in
-        if (@18) {
-          let @19 = cast<u32>(_t34) in
+        intersects_Ray_AABB$r10 : mut bool
+        let @24 = _t33.low in
+        let @25 = _t33.high in
+        let @26 = build<AABB>(@24, @25) in
+        let @27 = intersectsp_ray_aabb(r, @26) in
+        let interval$i10 = @27 in
+        let @28 = interval$i10.set in
+        if (@28) {
+          let extract$i10 = interval$i10.value in
+          let @30 = extract$i10.low in
+          let @31 = r.tmax in
+          let @32 = @30 < @31 in
+          let @33 = extract$i10.high in
+          let @34 = 0f < @33 in
+          let @35 = @32 & @34 in
+          intersects_Ray_AABB$r10 = @35
+        } else {
+          intersects_Ray_AABB$r10 = false
+        }
+        let @36 = (*intersects_Ray_AABB$r10) in
+        if (@36) {
+          let @37 = cast<u32>(_t34) in
           _idx0 = 0u
-          while ((*_idx0) < @19) {
-            let @21 = (*_holds0) in
-            let @22 = !@21 in
-            if (@22) {
-              let @23 = (*_holds0) in
-              let @24 = tris.prims in
-              let @25 = tris.group0_index in
-              let @26 = @25[tris_index!top] in
-              let @27 = @26.split0on_nPrims in
-              let @28 = reinterpret_cast<_tree_layout3>(@27) in
-              let @29 = @28.pOffset in
-              let @30 = @29 + (*_idx0) in
-              let @31 = @24[@30] in
-              let @32 = intersectsp_ray_tri(r, @31) in
-              let @33 = @32.set in
-              let @34 = @23 || @33 in
-              _holds0 = @34
+          while ((*_idx0) < @37) {
+            let @39 = (*_holds0) in
+            let @40 = !@39 in
+            if (@40) {
+              let @41 = (*_holds0) in
+              let @42 = tris.prims in
+              let @43 = tris.group0_index in
+              let @44 = @43[tris_index!top] in
+              let @45 = @44.split0on_nPrims in
+              let @46 = reinterpret_cast<_tree_layout3>(@45) in
+              let @47 = @46.pOffset in
+              let @48 = @47 + (*_idx0) in
+              let @49 = @42[@48] in
+              let @50 = intersectsp_ray_tri(r, @49) in
+              let @51 = @50.set in
+              let @52 = @41 || @51 in
+              _holds0 = @52
             }
-            let @35 = (*_idx0) + 1u in
-            _idx0 = @35
+            let @53 = (*_idx0) + 1u in
+            _idx0 = @53
           }
         }
       }

@@ -10,7 +10,7 @@ func [[export]] run(x : f32, n : i32) -> f32 {
   return @4
 }
 
-func sample(x : f32) -> PS {
+func [[noinline]] sample(x : f32) -> PS {
   let @0 = x < 0f in
   if (@0) {
     let @1 = build<f32x3>(0f, 0f, 0f) in
@@ -72,7 +72,7 @@ func through_arm(x : f32, n : i32) -> f32 {
   return @26
 }
 
-func through_call(x : f32) -> f32 {
+func [[noinline]] through_call(x : f32) -> f32 {
   let @0 = x * 2f in
   let @1 = sample(@0) in
   let _t7 = @1 in

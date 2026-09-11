@@ -1,7 +1,14 @@
 func _traverse_array0(n : i32, a : i32[n]) -> i32[n] {
   alloc _alloc0 : mut i32[n]
   parfor _i0 in [0:n:1] {
-    _alloc0[_i0] = foo(a[_i0])
+    let x$i0 = a[_i0] in
+    foo$r0 : mut i32
+    if (x$i0 < 0) {
+      foo$r0 = -x$i0
+    } else {
+      foo$r0 = x$i0
+    }
+    _alloc0[_i0] = (*foo$r0)
   }
   return _alloc0
 }
@@ -9,7 +16,14 @@ func _traverse_array0(n : i32, a : i32[n]) -> i32[n] {
 func _traverse_array1(n : i32, a : i32[n]) -> i32[n] {
   alloc _alloc1 : mut i32[n]
   parfor _i0 in [0:n:1] {
-    _alloc1[_i0] = bar(a[_i0])
+    let x$i1 = a[_i0] in
+    bar$r1 : mut i32
+    if (x$i1 < 0) {
+      bar$r1 = -x$i1
+    } else {
+      bar$r1 = x$i1
+    }
+    _alloc1[_i0] = (*bar$r1)
   }
   return _alloc1
 }

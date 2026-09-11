@@ -237,6 +237,9 @@ void Printer::print(const Function &function) {
     if (function.is_kernel()) {
         os << "[[kernel]] ";
     }
+    if (function.is_noinline()) {
+        os << "[[noinline]] ";
+    }
     os << function.name;
 
     if (!function.interfaces.empty()) {

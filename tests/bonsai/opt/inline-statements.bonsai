@@ -1,0 +1,100 @@
+//! flags: -p inline
+
+// Functions of a few statements, inlined.
+//
+// A function that is one expression has always been replaced by that
+// expression. A function with statements in it is copied to the call site
+// now, when it is small, has no loop or mutating argument, and its returns
+// nest: a `return` may end the body, or end an arm of an `if` whose other arm
+// never returns, in which case what follows the `if` moves into that arm.
+// Each return becomes an assignment to a result variable the statement
+// then reads; the arguments are bound to fresh names first, and every name
+// the body binds is renamed so two copies can sit in one function.
+//
+// What is not touched: a call in a loop's condition (it runs every trip),
+// a call in an arm of a select or on the right of a short-circuit (it runs
+// on a condition), a function with a return inside a loop, and a function
+// that returns on some paths of an arm but not others.
+
+element Hit {
+    t : f32;
+    ok : bool;
+}
+
+// An early return, then a fallthrough: the tail moves into the else.
+func clamp_pos(x : f32) -> f32 {
+    if x < 0.0 {
+        return 0.0;
+    }
+    y = x * 2.0;
+    return y + 1.0;
+}
+
+// Both arms return.
+func pick(c : bool, a : f32, b : f32) -> f32 {
+    if c {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// A struct through an unwrap, the shape of a hit test.
+func hit_t(h : Hit) -> f32 {
+    if h.ok {
+        return h.t;
+    }
+    return 1.0e30;
+}
+
+// No value.
+func note(x : f32) -> void {
+    if x > 1.0 {
+        print(x);
+        return;
+    }
+    print(0.0 - x);
+}
+
+// A return inside a loop: left alone.
+func first_big(a : array[f32, 4]) -> f32 {
+    for i in 0:4 {
+        if a[i] > 2.0 {
+            return a[i];
+        }
+    }
+    return 0.0;
+}
+
+// An arm that returns on one path only: left alone.
+func half(x : f32) -> f32 {
+    if x > 0.0 {
+        if x > 10.0 {
+            return 10.0;
+        }
+        print(x);
+    }
+    return x * 0.5;
+}
+
+func use(x : f32, h : Hit, a : array[f32, 4]) -> f32 {
+    // In a let, in a condition, nested.
+    p = clamp_pos(x);
+    if hit_t(h) < p {
+        note(p);
+    }
+    q = pick(h.ok, clamp_pos(x + 1.0), hit_t(h));
+    // In a select arm and behind a short-circuit: evaluated on a condition,
+    // so not hoisted in front of it.
+    r = select(h.ok, clamp_pos(q), q);
+    s : mut f32 = 0.0;
+    if h.ok && hit_t(h) > 0.0 {
+        s = 1.0;
+    }
+    // In a loop's condition, run every trip.
+    n : mut i32 = 0;
+    while clamp_pos(cast[[f32]](n)) < 5.0 {
+        n = n + 1;
+    }
+    return p + q + r + s + cast[[f32]](n) + first_big(a) + half(x);
+}
