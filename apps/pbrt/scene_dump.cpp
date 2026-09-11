@@ -410,22 +410,6 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // in one pass.
     std::vector<std::string> texture_order;
 
-    // `ObjectInstance`, counted so that the conversion can refuse.
-    //
-    // PBRT keeps instanced geometry out of `BasicScene::shapes` entirely -- it
-    // lives in `instanceDefinitions`, and `instances` names one with a
-    // transform. This renderer has no instancing and reads only the first list,
-    // so a scene with instances converted *and rendered* with all of that
-    // geometry simply absent: on pavilion that is every tree, which showed up
-    // as an image half again too bright with ninety thousand pixels lit that
-    // pbrt leaves dark. Nothing said so, which is the point of counting them.
-    size_t object_instances = 0;
-
-    void ObjectInstance(const std::string &name, pbrt::FileLoc loc) override {
-        object_instances++;
-        pbrt::BasicSceneBuilder::ObjectInstance(name, loc);
-    }
-
     void Texture(const std::string &name, const std::string &type,
                  const std::string &texname, pbrt::ParsedParameterVector params,
                  pbrt::FileLoc loc) override {
@@ -3156,7 +3140,12 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         return at;
     };
 
-    for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
+    // One shape, converted into `into`. The same for a shape at the top level
+    // and for one inside an `ObjectBegin` block: PBRT's CreateAggregate runs
+    // both through one `CreatePrimitivesForShapes`, and the only difference it
+    // makes is where the primitive then goes.
+    const auto convert_shape = [&](const pbrt::ShapeSceneEntity &entity,
+                                   std::vector<bonsai_scene::Shape> &into) {
         const std::string name(entity.name);
         const pbrt::Transform &render_from_object = *entity.renderFromObject;
         // A shape under `NamedMaterial` names its material by string and PBRT
@@ -3227,7 +3216,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             shape.material = material;
             shape.light = light;
             shape.alpha = alpha;
-            shapes.push_back(shape);
+            into.push_back(shape);
 
         } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
             // Everything that is ultimately a mesh arrives here already
@@ -3309,23 +3298,83 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 shape.material = material;
                 shape.light = light;
                 shape.alpha = alpha;
-                shapes.push_back(shape);
+                into.push_back(shape);
             }
 
         } else {
             fail("unsupported shape \"" + name + "\"");
         }
+    };
+
+    for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
+        convert_shape(entity, shapes);
     }
 
-    if (builder.object_instances > 0) {
-        fail("the scene has " + std::to_string(builder.object_instances) +
-             " `ObjectInstance` uses, and this converter does not yet emit "
-             "them. PBRT keeps instanced geometry in a separate list, so it "
-             "would not be missing loudly -- it would simply not be in the "
-             "scene, which renders as a plausible picture of somewhere else.");
+    // PBRT: the second list. `BasicScene::CreateAggregate` (scene.cpp) turns
+    // each `instanceDefinitions` entry into one Primitive -- its shapes built
+    // into a BVHAggregate of their own -- and each `instances` entry into a
+    // TransformedPrimitive naming that Primitive and a `renderFromInstance`,
+    // and puts those beside the top-level shapes in the list the scene's
+    // accelerator is built over. Nothing is flattened: forty-three placements
+    // of a tree share one tree.
+    //
+    // The definitions go in the order PBRT keeps them, which is the map's,
+    // and their shapes go through the same conversion as everything else.
+    // PBRT gives a shape inside a definition no area light -- `Shape` in the
+    // builder warns and drops the light -- so `light` comes out -1 of its own
+    // accord.
+    std::map<pbrt::InternedString, uint32_t> definition_index;
+    for (const auto &[name, definition] : scene.instanceDefinitions) {
+        if (!definition->animatedShapes.empty()) {
+            // PBRT: an AnimatedPrimitive inside the definition, whose
+            // transform is interpolated per ray. A different kind of
+            // primitive, not yet here.
+            fail("instance definition \"" + std::string(name) +
+                 "\" holds animated shapes, which are not supported");
+        }
+        bonsai_scene::Definition d;
+        d.first_shape = uint32_t(out.instance_shapes.size());
+        for (const pbrt::ShapeSceneEntity &entity : definition->shapes) {
+            convert_shape(entity, out.instance_shapes);
+        }
+        d.shape_count = uint32_t(out.instance_shapes.size()) - d.first_shape;
+        definition_index.emplace(name, uint32_t(out.definitions.size()));
+        out.definitions.push_back(d);
+    }
+    for (const pbrt::InstanceSceneEntity &inst : scene.instances) {
+        if (inst.renderFromInstanceAnim != nullptr) {
+            // PBRT: AnimatedPrimitive, the instance placed by a transform that
+            // moves over the frame. Its Intersect interpolates the transform
+            // at the ray's time before pulling the ray back; a different
+            // primitive kind again, refused rather than frozen at one time.
+            fail("object instance \"" + std::string(inst.name) +
+                 "\" has an animated transform, which is not supported");
+        }
+        const auto found = definition_index.find(inst.name);
+        if (found == definition_index.cend()) {
+            fail("object instance \"" + std::string(inst.name) +
+                 "\" names no definition");
+        }
+        // PBRT: `if (!iter->second) continue;` -- an empty definition became
+        // a null primitive, and an instance of it is skipped.
+        if (out.definitions[found->second].shape_count == 0) {
+            continue;
+        }
+        bonsai_scene::Instance placed;
+        placed.definition = found->second;
+        const pbrt::SquareMatrix<4> &m = inst.renderFromInstance->GetMatrix();
+        const pbrt::SquareMatrix<4> &mi =
+            inst.renderFromInstance->GetInverseMatrix();
+        for (int r = 0; r < 4; r++) {
+            for (int c = 0; c < 4; c++) {
+                placed.render_from_instance[4 * r + c] = float(m[r][c]);
+                placed.instance_from_render[4 * r + c] = float(mi[r][c]);
+            }
+        }
+        out.instances.push_back(placed);
     }
 
-    if (shapes.empty()) {
+    if (shapes.empty() && out.instances.empty()) {
         fail("the scene has no shapes this renderer understands");
     }
     for (size_t i = 0; i < matrices.size(); i++) {
@@ -3337,27 +3386,52 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // what an infinite light is preprocessed with. The aggregate's bounds are
     // the union of its primitives', and a primitive's are Sphere::Bounds --
     // centre plus or minus the radius, since these are placed by a translation
-    // -- or Triangle::Bounds, the union of its three vertices. So the union is
+    // -- or Triangle::Bounds, the union of its three vertices; an instance's
+    // are `TransformedPrimitive::Bounds()`, its definition's bounds put
+    // through the transform, which is the eight-corner union PBRT's
+    // `Transform::operator()(const Bounds3f &)` takes. So the union is
     // computable here without building the tree first.
     if (!out.infinite_lights.empty()) {
-        pbrt::Bounds3f scene_bounds;
-        for (const bonsai_scene::Shape &s : shapes) {
+        const auto shape_bounds = [&](const bonsai_scene::Shape &s) {
             if (s.tag == bonsai_scene::ShapeTag::Sphere) {
                 const pbrt::Point3f c(s.center[0], s.center[1], s.center[2]);
                 const pbrt::Vector3f r(s.radius, s.radius, s.radius);
-                scene_bounds = pbrt::Union(scene_bounds, pbrt::Bounds3f(c - r,
-                                                                        c + r));
-            } else {
-                uint32_t corner[3];
-                out.corners(s, corner);
-                for (const uint32_t v : corner) {
-                    scene_bounds = pbrt::Union(
-                        scene_bounds,
-                        pbrt::Point3f(out.positions[3 * v + 0],
-                                      out.positions[3 * v + 1],
-                                      out.positions[3 * v + 2]));
+                return pbrt::Bounds3f(c - r, c + r);
+            }
+            pbrt::Bounds3f b;
+            uint32_t corner[3];
+            out.corners(s, corner);
+            for (const uint32_t v : corner) {
+                b = pbrt::Union(b, pbrt::Point3f(out.positions[3 * v + 0],
+                                                 out.positions[3 * v + 1],
+                                                 out.positions[3 * v + 2]));
+            }
+            return b;
+        };
+        pbrt::Bounds3f scene_bounds;
+        for (const bonsai_scene::Shape &s : shapes) {
+            scene_bounds = pbrt::Union(scene_bounds, shape_bounds(s));
+        }
+        std::vector<pbrt::Bounds3f> definition_bounds(out.definitions.size());
+        for (size_t d = 0; d < out.definitions.size(); d++) {
+            const bonsai_scene::Definition &def = out.definitions[d];
+            for (uint32_t i = 0; i < def.shape_count; i++) {
+                definition_bounds[d] = pbrt::Union(
+                    definition_bounds[d],
+                    shape_bounds(out.instance_shapes[def.first_shape + i]));
+            }
+        }
+        for (const bonsai_scene::Instance &inst : out.instances) {
+            pbrt::SquareMatrix<4> m;
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    m[r][c] = inst.render_from_instance[4 * r + c];
                 }
             }
+            const pbrt::Transform render_from_instance(m);
+            scene_bounds = pbrt::Union(
+                scene_bounds,
+                render_from_instance(definition_bounds[inst.definition]));
         }
         pbrt::Point3f centre;
         pbrt::Float radius = 0;
@@ -3400,25 +3474,19 @@ void load(const char *filename, bonsai_scene::Scene &out) {
 
 }
 
-// Build the tree with PBRT's own BVHAggregate, over the shapes this scene
-// produced, and read back what it built.
-//
-// The primitives go in in our order and each one's address is remembered, so
-// the permutation the build settled on can be recovered by identity rather
-// than by matching geometry. `shapes` comes back reordered to match, which is
-// what lets a leaf name a contiguous run.
-void build_pbrt_tree(bonsai_scene::Scene &scene) {
-    std::vector<bonsai_scene::Shape> &shapes = scene.shapes;
-    std::vector<bonsai_scene::Node> &nodes = scene.nodes;
-    pbrt::Allocator alloc;
-
-    // Every triangle in the scene as one mesh, because that is what PBRT's
-    // Triangle refers into. The vertices are already in render space, so the
-    // mesh's transform is the identity, and they are read back out of the
-    // scene's own pools rather than carried on the triangle.
+// PBRT's shapes for a list of this file's, as `Shape::Create` would have made
+// them: every triangle in the list as one mesh, because that is what PBRT's
+// Triangle refers into, and a sphere placed by its translation. The vertices
+// are already in render space, so the mesh's transform is the identity, and
+// they are read back out of the scene's own pools rather than carried on the
+// triangle.
+std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
+                                     const bonsai_scene::Shape *shapes,
+                                     size_t count, pbrt::Allocator alloc) {
     std::vector<int> indices;
     std::vector<pbrt::Point3f> points;
-    for (const bonsai_scene::Shape &s : shapes) {
+    for (size_t i = 0; i < count; i++) {
+        const bonsai_scene::Shape &s = shapes[i];
         if (s.tag == bonsai_scene::ShapeTag::Triangle) {
             uint32_t corner[3];
             scene.corners(s, corner);
@@ -3439,12 +3507,11 @@ void build_pbrt_tree(bonsai_scene::Scene &scene) {
         triangles = pbrt::Triangle::CreateTriangles(mesh, alloc);
     }
 
-    std::vector<pbrt::Primitive> primitives;
-    std::map<const void *, uint32_t> index_of;
+    std::vector<pbrt::Shape> out;
+    out.reserve(count);
     size_t next_triangle = 0;
-    for (uint32_t i = 0; i < shapes.size(); i++) {
+    for (size_t i = 0; i < count; i++) {
         const bonsai_scene::Shape &s = shapes[i];
-        pbrt::Shape shape;
         if (s.tag == bonsai_scene::ShapeTag::Sphere) {
             const pbrt::Transform *render_from_object =
                 alloc.new_object<pbrt::Transform>(pbrt::Translate(
@@ -3452,29 +3519,32 @@ void build_pbrt_tree(bonsai_scene::Scene &scene) {
             const pbrt::Transform *object_from_render =
                 alloc.new_object<pbrt::Transform>(
                     pbrt::Inverse(*render_from_object));
-            shape = alloc.new_object<pbrt::Sphere>(
+            out.push_back(alloc.new_object<pbrt::Sphere>(
                 render_from_object, object_from_render,
                 /*reverseOrientation=*/false, s.radius, -s.radius, s.radius,
-                360.f);
+                360.f));
         } else {
-            shape = triangles[next_triangle++];
+            out.push_back(triangles[next_triangle++]);
         }
-        pbrt::Primitive prim =
-            alloc.new_object<pbrt::SimplePrimitive>(shape, pbrt::Material());
-        index_of[prim.ptr()] = i;
-        primitives.push_back(prim);
     }
+    return out;
+}
 
-    // PBRT's default maxnodeprims, and the split method its `bvh` accelerator
-    // uses unless a scene says otherwise.
-    pbrt::BVHAggregate aggregate(primitives, 4,
-                                 pbrt::BVHAggregate::SplitMethod::SAH);
+// What a BVHAggregate PBRT built holds, read back through the mirror of its
+// private members: the flattened nodes, converted, and the primitives in the
+// order its leaves name them.
+struct ReadBackTree {
+    std::vector<bonsai_scene::Node> nodes;
+    std::vector<pbrt::Primitive> ordered;
+};
 
+ReadBackTree read_back(const pbrt::BVHAggregate &aggregate,
+                       size_t expected_primitives) {
     pbrt::LinearBVHNode *raw = aggregate.*get(NodesTag());
     const std::vector<pbrt::Primitive> &ordered =
         aggregate.*get(PrimitivesTag());
     const MirroredNode *built = reinterpret_cast<const MirroredNode *>(raw);
-    if (!built || ordered.size() != shapes.size()) {
+    if (!built || ordered.size() != expected_primitives) {
         fail("pbrt's bvh came back with the wrong number of primitives");
     }
 
@@ -3486,17 +3556,6 @@ void build_pbrt_tree(bonsai_scene::Scene &scene) {
         built[0].bounds.pMax != expected.pMax) {
         fail("pbrt's bvh root does not match Bounds(), so the node layout "
              "mirrored in this file no longer matches pbrt's");
-    }
-
-    // The shapes, in the order the tree wants them.
-    std::vector<bonsai_scene::Shape> reordered;
-    reordered.reserve(ordered.size());
-    for (const pbrt::Primitive &prim : ordered) {
-        auto it = index_of.find(prim.ptr());
-        if (it == index_of.end()) {
-            fail("pbrt's bvh holds a primitive this scene did not put in it");
-        }
-        reordered.push_back(shapes[it->second]);
     }
 
     // Walk the flattened array to find its length, and convert as we go. The
@@ -3515,32 +3574,146 @@ void build_pbrt_tree(bonsai_scene::Scene &scene) {
         walk(uint32_t(n.second_child_offset));
     };
     walk(0);
-    if (total_prims != shapes.size()) {
+    if (total_prims != expected_primitives) {
         fail("pbrt's bvh does not reach every primitive");
     }
 
-    nodes.clear();
-    nodes.reserve(count);
+    ReadBackTree out;
+    out.nodes.reserve(count);
     for (size_t i = 0; i < count; i++) {
         const MirroredNode &n = built[i];
-        bonsai_scene::Node out;
-        out.low[0] = float(n.bounds.pMin.x);
-        out.low[1] = float(n.bounds.pMin.y);
-        out.low[2] = float(n.bounds.pMin.z);
-        out.high[0] = float(n.bounds.pMax.x);
-        out.high[1] = float(n.bounds.pMax.y);
-        out.high[2] = float(n.bounds.pMax.z);
-        out.n_prims = n.n_primitives;
-        out.axis = n.n_primitives > 0 ? 0 : n.axis;
+        bonsai_scene::Node node;
+        node.low[0] = float(n.bounds.pMin.x);
+        node.low[1] = float(n.bounds.pMin.y);
+        node.low[2] = float(n.bounds.pMin.z);
+        node.high[0] = float(n.bounds.pMax.x);
+        node.high[1] = float(n.bounds.pMax.y);
+        node.high[2] = float(n.bounds.pMax.z);
+        node.n_prims = n.n_primitives;
+        node.axis = n.n_primitives > 0 ? 0 : n.axis;
         // PBRT stores the second child absolutely; the renderer's layout wants
         // it relative, because that is what its `right = index + offset` says.
-        out.offset = n.n_primitives > 0
-                         ? uint32_t(n.primitives_offset)
-                         : uint32_t(n.second_child_offset) - uint32_t(i);
-        nodes.push_back(out);
+        node.offset = n.n_primitives > 0
+                          ? uint32_t(n.primitives_offset)
+                          : uint32_t(n.second_child_offset) - uint32_t(i);
+        out.nodes.push_back(node);
+    }
+    out.ordered = ordered;
+    return out;
+}
+
+// Build the trees with PBRT's own BVHAggregate, over the shapes and instances
+// this scene produced, and read back what it built. `BasicScene::
+// CreateAggregate`'s arrangement exactly: a tree per instance definition over
+// its shapes, then the top-level tree over the top-level shapes and a
+// TransformedPrimitive per instance, mixed.
+//
+// The primitives go in in our order and each one's address is remembered, so
+// the permutation the build settled on can be recovered by identity rather
+// than by matching geometry. A definition's shapes come back reordered within
+// their run, which is what lets its leaves name contiguous runs; the top-level
+// order mixes shapes and instances and is written down as `prims` instead.
+//
+// PBRT builds no tree over a definition holding one shape -- the shape is the
+// definition's primitive -- where this always builds one, of a single leaf.
+// The renderer's layout wants a row to start an instance's walk at, and a
+// one-leaf tree costs that instance one box test more than PBRT spends on it.
+void build_pbrt_tree(bonsai_scene::Scene &scene) {
+    pbrt::Allocator alloc;
+
+    // Each definition's tree, into one pool, and the Primitive PBRT would hand
+    // its instances.
+    scene.instance_nodes.clear();
+    std::vector<pbrt::Primitive> definition_prims;
+    for (bonsai_scene::Definition &def : scene.definitions) {
+        if (def.shape_count == 0) {
+            definition_prims.push_back(pbrt::Primitive());
+            continue;
+        }
+        bonsai_scene::Shape *run = scene.instance_shapes.data() + def.first_shape;
+        const std::vector<pbrt::Shape> shapes =
+            pbrt_shapes(scene, run, def.shape_count, alloc);
+        std::vector<pbrt::Primitive> primitives;
+        std::map<const void *, uint32_t> index_of;
+        for (uint32_t i = 0; i < def.shape_count; i++) {
+            pbrt::Primitive prim = alloc.new_object<pbrt::SimplePrimitive>(
+                shapes[i], pbrt::Material());
+            index_of[prim.ptr()] = i;
+            primitives.push_back(prim);
+        }
+        pbrt::BVHAggregate *aggregate = alloc.new_object<pbrt::BVHAggregate>(
+            primitives, 4, pbrt::BVHAggregate::SplitMethod::SAH);
+        ReadBackTree tree = read_back(*aggregate, def.shape_count);
+
+        std::vector<bonsai_scene::Shape> reordered;
+        reordered.reserve(def.shape_count);
+        for (const pbrt::Primitive &prim : tree.ordered) {
+            const auto it = index_of.find(prim.ptr());
+            if (it == index_of.end()) {
+                fail("pbrt's bvh holds a primitive this scene did not put in "
+                     "it");
+            }
+            reordered.push_back(run[it->second]);
+        }
+        std::copy(reordered.begin(), reordered.end(), run);
+
+        // The definition's rows in the shared pool. A child offset is relative
+        // to its parent, so it survives the move; a leaf's first shape is an
+        // index into `instance_shapes`, so it gets the run's start added.
+        def.root_node = uint32_t(scene.instance_nodes.size());
+        for (bonsai_scene::Node node : tree.nodes) {
+            if (node.n_prims > 0) {
+                node.offset += def.first_shape;
+            }
+            scene.instance_nodes.push_back(node);
+        }
+        definition_prims.push_back(aggregate);
     }
 
-    shapes = std::move(reordered);
+    // The top-level tree, over the shapes and the instances together.
+    std::vector<bonsai_scene::Shape> &shapes = scene.shapes;
+    const std::vector<pbrt::Shape> top_shapes =
+        pbrt_shapes(scene, shapes.data(), shapes.size(), alloc);
+    std::vector<pbrt::Primitive> primitives;
+    std::map<const void *, bonsai_scene::Prim> prim_of;
+    for (uint32_t i = 0; i < shapes.size(); i++) {
+        pbrt::Primitive prim = alloc.new_object<pbrt::SimplePrimitive>(
+            top_shapes[i], pbrt::Material());
+        prim_of[prim.ptr()] = bonsai_scene::Prim{bonsai_scene::PrimShape, i};
+        primitives.push_back(prim);
+    }
+    for (uint32_t i = 0; i < scene.instances.size(); i++) {
+        const bonsai_scene::Instance &inst = scene.instances[i];
+        pbrt::SquareMatrix<4> m, mi;
+        for (int r = 0; r < 4; r++) {
+            for (int c = 0; c < 4; c++) {
+                m[r][c] = inst.render_from_instance[4 * r + c];
+                mi[r][c] = inst.instance_from_render[4 * r + c];
+            }
+        }
+        const pbrt::Transform *render_from_instance =
+            alloc.new_object<pbrt::Transform>(m, mi);
+        pbrt::Primitive prim = alloc.new_object<pbrt::TransformedPrimitive>(
+            definition_prims[inst.definition], render_from_instance);
+        prim_of[prim.ptr()] = bonsai_scene::Prim{bonsai_scene::PrimInstance, i};
+        primitives.push_back(prim);
+    }
+
+    // PBRT's default maxnodeprims, and the split method its `bvh` accelerator
+    // uses unless a scene says otherwise.
+    pbrt::BVHAggregate aggregate(primitives, 4,
+                                 pbrt::BVHAggregate::SplitMethod::SAH);
+    ReadBackTree tree = read_back(aggregate, primitives.size());
+    scene.nodes = std::move(tree.nodes);
+    scene.prims.clear();
+    scene.prims.reserve(tree.ordered.size());
+    for (const pbrt::Primitive &prim : tree.ordered) {
+        const auto it = prim_of.find(prim.ptr());
+        if (it == prim_of.end()) {
+            fail("pbrt's bvh holds a primitive this scene did not put in it");
+        }
+        scene.prims.push_back(it->second);
+    }
 }
 
 } // namespace
@@ -3706,8 +3879,17 @@ int main(int argc, char **argv) {
 
     printf("scene_dump: %s -> %s (%ux%u, %zu shapes", positional[0],
            positional[1], scene.width, scene.height, scene.shapes.size());
+    if (!scene.instances.empty()) {
+        printf(", %zu instances of %zu objects holding %zu shapes",
+               scene.instances.size(), scene.definitions.size(),
+               scene.instance_shapes.size());
+    }
     if (pbrt_tree) {
         printf(", %zu nodes from pbrt's bvh", scene.nodes.size());
+        if (!scene.instance_nodes.empty()) {
+            printf(" and %zu in the instances' trees",
+                   scene.instance_nodes.size());
+        }
     }
     printf(")\n");
     return 0;

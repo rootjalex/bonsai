@@ -1,0 +1,59 @@
+//! flags: -p core
+
+// A `tagged_index` variant whose arm holds a struct that holds another
+// `tagged_index` variant, built and matched on.
+//
+// pbrt's Primitive is this shape: a TaggedPointer to a GeometricPrimitive,
+// which holds a Shape, which is a TaggedPointer again. Under `tagged_index`
+// each variant type becomes a `u64` handle into a pool per arm, and the
+// rewrite from the one to the other runs over the program's types in one pass
+// -- so `Item` below is rewritten to hold a `u64` where its `Shape` was, and
+// everything that mentions an `Item` has to agree on which `Item` that is.
+//
+// Two places did not, and this pins both. The appender a Construct of a
+// `tagged_index` variant becomes -- `Holder_One_new` -- was prepared from the
+// variant as declared, so its parameter was the `Item` holding a `Shape` while
+// the call handed it the `Item` holding a `u64`. And reading a field of a
+// matched variant out of its pool typed the pool by the variant as declared,
+// so `(h as One).item` was the old `Item` while `describe(item : Item)`
+// expected the new. Both now read: `Holder_One_new(item : Item)` takes the
+// stored `Item`, and `Holder_One_pool : One[]` holds it.
+import stdlib/numerics;
+
+element Shape =
+    | Sph(center : vec3f, radius : Float)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+// pbrt: GeometricPrimitive -- a shape and what it is made of.
+element Item {
+    shape : Shape;
+    material : u32;
+}
+
+// pbrt: Primitive -- one item, or two of them.
+element Holder =
+    | One(item : Item)
+    | Two(a : Item, b : Item);
+
+func area(s : Shape) -> Float {
+    match s {
+        Sph(c, r) => return 4.0 * 3.14159265 * r * r;
+        Tri(p0, p1, p2) => return 0.5 * norm(cross(p1 - p0, p2 - p0));
+    }
+}
+
+func describe(item : Item) -> Float = area(item.shape) + cast[[Float]](item.material);
+
+func [[export]] total(h : Holder) -> Float {
+    match h {
+        One(item) => return describe(item);
+        Two(a, b) => return describe(a) + describe(b);
+    }
+}
+
+func [[export]] hold(item : Item) -> Holder = One(item);
+
+schedule {
+    layout Shape = tagged_index;
+    layout Holder = tagged_index;
+}

@@ -1,0 +1,87 @@
+# Object instancing: one object, defined once and placed several times, beside
+# geometry that is not instanced at all.
+#
+# What this is for is the top-level tree over a mixture of primitives. PBRT's
+# aggregate holds each `ObjectInstance` as a TransformedPrimitive -- a transform
+# and the object's own tree -- next to the plain shapes, and dispatches on which
+# it has; the renderer has to do the same, and get the same picture. The object
+# is a quad standing on a sphere, placed by a translation, by a rotation, and by
+# a scale, so each instance's transform has to be applied in full and inverted
+# correctly for the ray to find the right geometry. One instance sits in front
+# of a plain sphere and one behind, so the running best has to cross between
+# the two kinds of primitive both ways.
+#
+# The spheres in the object are placed by a translation inside the definition
+# and then by the instance's transform on top, which is exactly the case the
+# renderer cannot flatten: the instance may rotate and scale, and a sphere is
+# only representable here placed by a translation. Keeping the object's tree
+# separate and moving the ray is what makes it representable at all.
+
+LookAt 0 3 8   0 0.5 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "independent" "integer pixelsamples" [1]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [1280]
+    "integer yresolution" [960]
+    "string coordinatesystem" ["world"]
+    "bool savefp16" false
+
+WorldBegin
+
+Material "diffuse"
+
+# The object: a unit quad in x/y, standing on a small sphere.
+ObjectBegin "totem"
+  Shape "trianglemesh"
+      "integer indices" [0 1 2  0 2 3]
+      "point3 P" [ -0.5 0.6 0   0.5 0.6 0   0.5 1.6 0   -0.5 1.6 0 ]
+  AttributeBegin
+    Translate 0 0.3 0
+    Shape "sphere" "float radius" [0.3]
+  AttributeEnd
+ObjectEnd
+
+# Moved only.
+AttributeBegin
+  Translate -2.5 0 0
+  ObjectInstance "totem"
+AttributeEnd
+
+# Turned about y, so the quad faces sideways and the ray has to be pulled back
+# through a rotation to find it.
+AttributeBegin
+  Translate 0 0 -1
+  Rotate 40 0 1 0
+  ObjectInstance "totem"
+AttributeEnd
+
+# Scaled, so the sphere inside is no longer a sphere in render space and the
+# distances along the pulled-back ray are not the render-space distances --
+# which is what the direction not being renormalised is for.
+AttributeBegin
+  Translate 2.5 0 0
+  Scale 1.5 0.8 1.5
+  ObjectInstance "totem"
+AttributeEnd
+
+# In front of the middle instance: a plain sphere the instance must lose to.
+AttributeBegin
+  Translate 0 0.5 1.5
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# Behind the left instance: a plain quad the instance must beat.
+AttributeBegin
+  Translate -2.5 0 -2
+  Shape "trianglemesh"
+      "integer indices" [0 1 2  0 2 3]
+      "point3 P" [ -1 0 0   1 0 0   1 2 0   -1 2 0 ]
+AttributeEnd
+
+# The ground, for something to miss onto.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -10 0 -10   10 0 10   10 0 -10   -10 0 10 ]

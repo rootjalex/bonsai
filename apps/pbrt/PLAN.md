@@ -562,16 +562,18 @@ on now, in the order it stopped:
 4. ~~`conductor`~~ — **done**, with pbrt's named metal spectra
 5. ~~`measured`~~ — **done**, PiecewiseLinear2D and all
 6. ~~`iso` and `maxcomponentvalue`~~ — **done**; both were silently ignored
-7. **`ObjectInstance`** — where it stops today
+7. ~~`ObjectInstance`~~ — **done**, as pbrt's TransformedPrimitive beside its
+   GeometricPrimitives in one tree; see below
+8. **`Material "diffusetransmission"`** — where it stops today
 
-**All five material walls are down**, and the scene converts and renders end to
-end. It does not yet *match*: at that point it came out 1.49x too bright with
-ninety thousand pixels lit that pbrt leaves dark, and the cause is item 7.
+**All five material walls are down**, and so is instancing. The scene now stops
+at item 8, the material on the leaves.
 
 pbrt keeps instanced geometry out of `BasicScene::shapes` entirely -- it is in
 `instanceDefinitions`, and `instances` names one with a transform. This
-converter reads only the first list, so every tree in pavilion was simply not in
-the scene, and nothing said so. That is a refusal now.
+converter used to read only the first list, so every tree in pavilion was simply
+not in the scene, which rendered 1.49x too bright with ninety thousand pixels
+lit that pbrt leaves dark. It reads both now.
 
 #### What pbrt does with the second list
 
@@ -659,10 +661,81 @@ per instance: `tests/bonsai/lower/nested-tree-layout.bonsai`,
 `tests/bonsai/backends/llvm/tree-traversal-{nested,instanced}.bonsai` and
 `tests/bonsai/correctness/cpp/blas-tlas{,-loopified,-sorted}.bonsai`.
 
-What is left is the app: `scene_dump` has to emit `instanceDefinitions` as a
-pool of BLAS nodes with a shared triangle array, and `instances` as elements
-naming a row of it, and `render.bonsai` has to say the query above. Nothing in
-that list needs a compiler change.
+#### The app has it
+
+pbrt's top-level tree holds GeometricPrimitives *beside* TransformedPrimitives,
+and that needed one more thing from the language: a tree whose elements are of
+two kinds. `render.bonsai` now says exactly pbrt's structure:
+
+```
+element Geometric { shape; light; material; alpha }          // GeometricPrimitive
+element Primitive =                                          // Primitive
+    | Geom(g : Geometric)
+    | Inst(render_from_instance : Transform, instance_from_render : Transform,
+           blas : set[Geometric]);                           // TransformedPrimitive
+func geometry(p : Primitive) -> set[Geometric] =             // what Intersect dispatches to
+    match p { Geom(g) => set[Geometric]{g}, Inst(m, mi, blas) => blas };
+element Primitive with extent = |p| transform(p, geometry(p).AABB);  // Primitive::Bounds()
+```
+
+The primitive itself is the motion -- `transform(p, ..)` and `untransform(p,
+..)` are a match on `p` that moves for an instance and holds still for plain
+geometry, pbrt's `renderFromPrimitive->...` lines and GeometricPrimitive's
+nothing -- and `trace` is the query over `flatten(|p| geometry(p),
+primitives)` with the tests on `transform(p, g)`. The compiler opens the match
+into the leaf's element loop, so what runs is pbrt's dispatch: a tag test per
+primitive, then the shape test against the ray as it arrived, or `ApplyInverse`
+once and the walk of the instance's tree against the pulled ray. A hit is the
+pair as stored, and `transform(via, surface_geometry(prim.shape,
+untransform(via, ray)))` at each call site is TransformedPrimitive's transform
+of the interaction, pbrt's `Transform::operator()(SurfaceInteraction)` field
+for field. docs/trees-of-mixed-primitives.md is the compiler side of it;
+`tests/bonsai/correctness/cpp/mixed-tlas{,-loopified,-sorted}.bonsai` run it.
+
+`scene_dump` emits `instanceDefinitions` as runs of one `instance_shapes` list
+and `instances` naming a definition with both of pbrt's matrices; with
+`--pbrt-tree` it builds a BVHAggregate per definition and the top-level one over
+the mixture, exactly as `CreateAggregate` does, and writes the leaf order out
+as `prims`. `render_hook.cpp` builds or adopts both kinds of tree and fills the
+two `tagged_index` pools. `apps/pbrt/scenes/instances.pbrt` -- one object placed
+by a translation, a rotation and a scale, in front of and behind plain geometry
+-- matches pbrt on **0 pixels** (worst normal difference 9.8e-6), with the
+driver's trees and with pbrt's.
+
+Three places where this and pbrt differ, all small and all deliberate:
+
+- `ApplyInverse(Ray, tMax)` nudges the pulled ray's origin forward by its
+  rounding error and takes the same `dt` off `tMax`. Neither is done here:
+  `tMax` is the traversal's accumulator, which nothing in a query may alter,
+  and without the nudge the identity the rewrite rests on -- a distance along
+  the pulled ray is the distance along the original -- holds exactly. The hit
+  point differs from pbrt's by `dt`, a few units in the last place.
+- pbrt builds no tree over a definition of one shape; the shape is the
+  primitive. The layout wants a row to start an instance's walk at, so such a
+  definition gets a tree of one leaf: one box test more than pbrt per instance
+  of it.
+- AnimatedPrimitive -- an instance whose transform moves over the frame -- is
+  refused, as are animated shapes inside a definition.
+
+**And one cost, not yet paid back.** `Primitive` is stored `tagged_index`, the
+layout pbrt's TaggedPointer is: a leaf holds one word per primitive and each
+arm's fields are in a pool. That is right for an instance, which is two matrices
+and a tree, but it puts one indirection in front of every *plain* primitive that
+the old inline `Primitive` struct did not have -- handle, then
+`Primitive_Geom_pool[i]`, then the shape -- which is pbrt's own chain
+(TaggedPointer, GeometricPrimitive, Shape) where the renderer used to have one
+hop fewer. On `many-shapes`, which has no instances, that is +7.5% render time
+against the previous build (0.326 s to 0.351 s, best of five, same scene file:
++10.8% instructions, +36% L1 misses). The generated code is otherwise what it
+should be: the Geom arm tests the tag once and calls the shape test on the ray
+as it arrived, the `untransform` written into its tests folded away.
+
+The fix is a layout, and only a layout: an ADT layout that says per arm what
+becomes of it -- `Geom` inline, `Inst` by index -- so a plain primitive is a tag
+beside its twenty bytes and an instance is a tag beside a row number. pbrt
+cannot do this; its TaggedPointer is one shape for every arm. That is the next
+compiler item, and the rule that makes it one is the standing one: the generated
+code matches or beats pbrt, and it used to beat it here.
 
 Behind it, on the leaves: `Material "diffusetransmission"`, and the shape
 `alpha` cutouts -- the second of which is **already implemented** (pbrt's

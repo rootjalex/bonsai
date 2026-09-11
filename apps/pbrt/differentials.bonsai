@@ -103,21 +103,23 @@ func apply_rot_inverse(m : Rotation, v : vec3f) -> vec3f =
           fma(m.r2.y, v.z, fma(m.r1.y, v.y, m.r0.y * v.x)),
           fma(m.r2.z, v.z, fma(m.r1.z, v.y, m.r0.z * v.x))};
 
-// pbrt: RotateFromTo, the rotation taking `from` to `to`.
+// pbrt: RotateFromTo, the rotation taking `source` to `target` -- pbrt's
+// `from` and `to`, renamed because `from` is a keyword of the schedule
+// language here.
 //
 // Built as two reflections rather than from an axis and an angle, which is what
 // makes it stable when the two vectors are nearly parallel or nearly opposite:
 // there is no small cross product to normalize. `refl` is chosen so that
-// neither `refl - from` nor `refl - to` is near zero, which is what the 0.72
-// tests are for -- a unit vector cannot have two components that large.
-func rotate_from_to(from : vec3f, to : vec3f) -> Rotation {
-    refl = select(abs(from.x) < 0.72 && abs(to.x) < 0.72,
+// neither `refl - source` nor `refl - target` is near zero, which is what the
+// 0.72 tests are for -- a unit vector cannot have two components that large.
+func rotate_from_to(source : vec3f, target : vec3f) -> Rotation {
+    refl = select(abs(source.x) < 0.72 && abs(target.x) < 0.72,
                   vec3f{1.0, 0.0, 0.0},
-                  select(abs(from.y) < 0.72 && abs(to.y) < 0.72,
+                  select(abs(source.y) < 0.72 && abs(target.y) < 0.72,
                          vec3f{0.0, 1.0, 0.0},
                          vec3f{0.0, 0.0, 1.0}));
-    u = refl - from;
-    v = refl - to;
+    u = refl - source;
+    v = refl - target;
     uu = dot_(u, u);
     vv = dot_(v, v);
     uv = dot_(u, v);

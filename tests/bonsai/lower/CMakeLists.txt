@@ -4,6 +4,7 @@ add_bonsai_tests(
     adt.bonsai
     adt-layout-inline.bonsai
     adt-layout-tagged-index.bonsai
+    adt-nested-tagged-index.bonsai
     array.bonsai
     bvh.bonsai
     collision.bonsai

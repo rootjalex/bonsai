@@ -130,7 +130,7 @@ struct RewriteADTs : public Mutator {
     // happen to be, under either layout, which is why every caller of this is
     // already inside an arm that has tested the tag.
     Expr as_variant(const ADTLayout &layout, const Expr &value,
-                    const std::string &variant) const {
+                    const std::string &variant) {
         if (layout.kind == ir::AdtLayout::Inline) {
             // The union's members are named for their variants, so this is
             // just naming one.
@@ -140,8 +140,11 @@ struct RewriteADTs : public Mutator {
         // The pool the tag names, at the index the rest of the handle is. The
         // pool is an extern, so this Var is free here and the LowerExterns that
         // runs after this pass turns it into a parameter of whichever functions
-        // reach it.
-        const Type pool_type = Array_t::make(layout.variant(variant), Expr());
+        // reach it. Its element is the variant as *stored* -- the layout
+        // recorded the variant as found, and a field of it that is itself a
+        // variant type has since become that type's storage.
+        const Type pool_type =
+            Array_t::make(mutate(layout.variant(variant)), Expr());
         return Extract::make(Var::make(pool_type, layout.pool(variant)),
                              index_of(layout, value));
     }
@@ -229,8 +232,12 @@ struct RewriteADTs : public Mutator {
             const auto found = appenders.find(fname);
             internal_assert(found != appenders.end())
                 << "No appender prepared for " << fname;
+            // The appender was prepared from the variant as found; its
+            // parameters are what those fields have become (see where the
+            // appenders are added to the program, at the end of the pass).
             return Call::make(
-                Var::make(found->second->call_type(), fname), std::move(args));
+                Var::make(mutate(found->second->call_type()), fname),
+                std::move(args));
         }
 
         // The layouts were chosen from the program's types before any of them
@@ -666,13 +673,31 @@ ir::Program LowerADTs::run(ir::Program program,
         extern_var.type = rewriter.mutate(std::move(extern_var.type));
     }
 
-    // The appenders the rewrite above reached, added last so that rewriting
-    // does not walk over bodies that are already written in terms of storage.
+    // The appenders the rewrite above reached, added last. They were built
+    // from the variants as *found*, so a variant whose fields hold another
+    // variant type -- `Geom(g : Geometric)`, where a Geometric holds a `Shape`
+    // -- still names it, and the caller hands over the storage the Shape has
+    // become. Rewriting them the same way as everything else makes the two
+    // agree; on a handle or a payload that names no variant type it changes
+    // nothing, which is why it is safe to do to every one of them.
     for (const std::string &fname : rewriter.needed) {
         internal_assert(!program.funcs.contains(fname))
             << "Cannot name the appender " << fname
             << ": something is already called that.";
-        program.funcs[fname] = appenders.at(fname);
+        const std::shared_ptr<ir::Function> &appender = appenders.at(fname);
+        std::vector<ir::Function::Argument> args(appender->args.size());
+        for (size_t i = 0; i < args.size(); i++) {
+            const auto &arg = appender->args[i];
+            args[i] = ir::Function::Argument{
+                arg.name, rewriter.mutate(arg.type),
+                rewriter.mutate(arg.default_value), arg.mutating,
+                arg.unaliased};
+        }
+        program.funcs[fname] = std::make_shared<ir::Function>(
+            appender->name, std::move(args),
+            rewriter.mutate(appender->ret_type),
+            rewriter.mutate(appender->body), appender->interfaces,
+            appender->attributes);
     }
 
     return program;

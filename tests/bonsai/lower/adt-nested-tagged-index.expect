@@ -1,0 +1,99 @@
+type Float = f32
+type Half = f16
+type Holder = u64
+type Item = struct Item{ shape : u64; material : u32 }
+type One = struct One{ item : struct Item{ shape : u64; material : u32 } }
+type Shape = u64
+type Sph = struct Sph{ center : f32x3; radius : f32 }
+type Tri = struct Tri{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type Two = struct Two{ a : struct Item{ shape : u64; material : u32 }; b : struct Item{ shape : u64; material : u32 } }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern Holder_One_pool : struct One{ item : struct Item{ shape : u64; material : u32 } }[]
+extern Holder_One_fill : u64[]
+extern Holder_Two_pool : struct Two{ a : struct Item{ shape : u64; material : u32 }; b : struct Item{ shape : u64; material : u32 } }[]
+extern Holder_Two_fill : u64[]
+extern Shape_Sph_pool : struct Sph{ center : f32x3; radius : f32 }[]
+extern Shape_Sph_fill : u64[]
+extern Shape_Tri_pool : struct Tri{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[]
+extern Shape_Tri_fill : u64[]
+
+func [[export]] Holder_One(item : (Item*), Holder_One_pool : mut One[], Holder_One_fill : mut u64[]) -> u64 {
+  return Holder_One_new((*item), Holder_One_pool, Holder_One_fill)
+}
+
+func Holder_One_new(item : Item, Holder_One_pool : mut One[], Holder_One_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Holder_One_fill[0u]), 1u) in
+  Holder_One_pool[_index] = build<One>(item)
+  return (0u << 56u) | _index
+}
+
+func [[export]] Holder_Two(a : (Item*), b : (Item*), Holder_Two_pool : mut Two[], Holder_Two_fill : mut u64[]) -> u64 {
+  return Holder_Two_new((*a), (*b), Holder_Two_pool, Holder_Two_fill)
+}
+
+func Holder_Two_new(a : Item, b : Item, Holder_Two_pool : mut Two[], Holder_Two_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Holder_Two_fill[0u]), 1u) in
+  Holder_Two_pool[_index] = build<Two>(a, b)
+  return (1u << 56u) | _index
+}
+
+func [[export]] Shape_Sph(center : f32x3, radius : f32, Shape_Sph_pool : mut Sph[], Shape_Sph_fill : mut u64[]) -> u64 {
+  return Shape_Sph_new(center, radius, Shape_Sph_pool, Shape_Sph_fill)
+}
+
+func Shape_Sph_new(center : f32x3, radius : f32, Shape_Sph_pool : mut Sph[], Shape_Sph_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Shape_Sph_fill[0u]), 1u) in
+  Shape_Sph_pool[_index] = build<Sph>(center, radius)
+  return (0u << 56u) | _index
+}
+
+func [[export]] Shape_Tri(p0 : f32x3, p1 : f32x3, p2 : f32x3, Shape_Tri_pool : mut Tri[], Shape_Tri_fill : mut u64[]) -> u64 {
+  return Shape_Tri_new(p0, p1, p2, Shape_Tri_pool, Shape_Tri_fill)
+}
+
+func Shape_Tri_new(p0 : f32x3, p1 : f32x3, p2 : f32x3, Shape_Tri_pool : mut Tri[], Shape_Tri_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Shape_Tri_fill[0u]), 1u) in
+  Shape_Tri_pool[_index] = build<Tri>(p0, p1, p2)
+  return (1u << 56u) | _index
+}
+
+func area(s : u64, Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
+  if ((s >> 56u) == 0u) {
+    let c = Shape_Sph_pool[s & 72057594037927935u].center in
+    let r = Shape_Sph_pool[s & 72057594037927935u].radius in
+    return ((4f * 3.14159f) * r) * r
+  } else {
+    let p0 = Shape_Tri_pool[s & 72057594037927935u].p0 in
+    let p1 = Shape_Tri_pool[s & 72057594037927935u].p1 in
+    let p2 = Shape_Tri_pool[s & 72057594037927935u].p2 in
+    return 0.5f * norm(cross(p1 - p0, p2 - p0))
+  }
+}
+
+func describe(item : Item, Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
+  return area(item.shape, Shape_Sph_pool, Shape_Tri_pool) + cast<f32>(item.material)
+}
+
+func [[export]] hold(item : (Item*), Holder_One_pool : mut One[], Holder_One_fill : mut u64[]) -> u64 {
+  return Holder_One_new((*item), Holder_One_pool, Holder_One_fill)
+}
+
+func [[export]] total(h : u64, Holder_One_pool : One[], Holder_Two_pool : Two[], Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
+  if ((h >> 56u) == 0u) {
+    let item = Holder_One_pool[h & 72057594037927935u].item in
+    return describe(item, Shape_Sph_pool, Shape_Tri_pool)
+  } else {
+    let a = Holder_Two_pool[h & 72057594037927935u].a in
+    let b = Holder_Two_pool[h & 72057594037927935u].b in
+    return describe(a, Shape_Sph_pool, Shape_Tri_pool) + describe(b, Shape_Sph_pool, Shape_Tri_pool)
+  }
+}
+
+
+schedule host {
+
+}

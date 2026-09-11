@@ -40,9 +40,6 @@ import apps/pbrt/sampler;
 import apps/pbrt/shapes;
 import apps/pbrt/spectrum;
 
-// pbrt: GeometricPrimitive, which is what a BVH is actually built over -- a
-// shape paired with the material it is made of. The geometry answers where a
-// ray hits; the material answers what is there.
 // pbrt: DiffuseAreaLight, with no image and no alpha mask -- a shape that
 // emits the same radiance in every direction it faces.
 //
@@ -481,7 +478,9 @@ func light_sampler_pmf(ls : LightSampler, light : i32) -> Float {
     }
 }
 
-element Primitive {
+// pbrt: GeometricPrimitive -- a shape paired with what it is made of. The
+// geometry answers where a ray hits; the material answers what is there.
+element Geometric {
     shape : Shape;
     // Which of the scene's lights this primitive emits as, or -1 for one that
     // does not. Per primitive rather than per material because pbrt's
@@ -505,6 +504,172 @@ element Primitive {
     alpha : i32;
 }
 
+// pbrt: Primitive, the TaggedPointer the top-level BVHAggregate is built over.
+// Two of its kinds are here: a GeometricPrimitive standing on its own, and a
+// TransformedPrimitive -- an `ObjectInstance`, which is a transform and a whole
+// tree of GeometricPrimitives shared by every instance of the same object.
+// pbrt's `Primitive::Intersect` dispatches on which one it has, and the two arms
+// cost what they cost: a shape test for the first, `ApplyInverse` and a walk of
+// the held tree for the second. That dispatch is the `match` in `geometry`
+// below, and the compiler puts it where pbrt puts it: once per primitive a
+// leaf holds.
+//
+// pbrt's Transform carries its inverse beside it, and so does this: `render_
+// from_instance` places the object, `instance_from_render` pulls a ray back
+// into it, and both are pbrt's own matrices as scene_dump read them off it.
+// (pbrt's AnimatedPrimitive -- an instance whose transform moves over the
+// frame -- is not here; scene_dump refuses one.)
+element Primitive =
+    | Geom(g : Geometric)
+    | Inst(render_from_instance : Transform, instance_from_render : Transform,
+           blas : set[Geometric]);
+
+// pbrt: what Primitive::Intersect dispatches to -- the one shape a
+// GeometricPrimitive is, or everything a TransformedPrimitive's tree holds. A
+// set, because the two arms hold different numbers of things, and a function
+// so that the queries and the extent name it once.
+func geometry(p : Primitive) -> set[Geometric] =
+    match p {
+        Geom(g) => set[Geometric]{g},
+        Inst(render_from_instance, instance_from_render, blas) => blas
+    };
+
+// pbrt: Primitive::Bounds() -- Shape::Bounds() for a GeometricPrimitive, and
+// `renderFromPrimitive(primitive.Bounds())` for a TransformedPrimitive: the
+// geometry the primitive holds, placed by the primitive. It is what the
+// top-level tree's boxes are built from, so it is the promise every node of
+// that tree makes about what lies beneath it. After `geometry`, since it
+// names it.
+element Primitive with extent = |p| transform(p, geometry(p).AABB);
+
+// pbrt: Transform::operator()(const Bounds3f &), which unions the eight
+// transformed corners -- the short version, transforming the two extreme
+// points, is wrong for any rotation.
+func transform_bounds(t : Transform, b : AABB) -> AABB {
+    c0 = apply_point(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply_point(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply_point(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply_point(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply_point(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply_point(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply_point(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply_point(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+// pbrt: Transform::ApplyInverse(const Ray &, Float *tMax), the top of
+// TransformedPrimitive::Intersect: the ray moved into the instance's frame, so
+// that everything inside the instance's tree is tested against stored
+// geometry. `inv` is the inverse matrix, so applying it is `ApplyInverse`.
+//
+// The origin is a point and goes through the interval-point arithmetic pbrt
+// uses for it -- `(m00 x + m01 y) + (m02 z + m03)`, paired that way -- and the
+// direction is a vector, through the same rows without the translation. The
+// direction is *not* renormalised, on purpose and as in pbrt: an affine map
+// preserves the parameter along a line only when the direction is transformed
+// rather than rescaled, and it is that parameter -- the `t` of a hit -- that
+// `distmin` answers and that the running best is compared against. Renormalise
+// and an instance could no longer prune against a hit found in another one.
+//
+// pbrt then nudges the origin forward by its rounding error, `o += d * dt`, and
+// takes the same `dt` off `tMax` so that the two sides still agree about where
+// the best hit so far is. That is not done here. The nudge is against a ray
+// re-hitting the surface its origin was rounded onto, which this renderer
+// guards with `distmin > 0.001` and with pbrt's own SpawnRay offset applied in
+// render space before the ray reaches any instance; and `tMax` is not a field
+// of the query here but the traversal's accumulator, which nothing inside a
+// query may alter (see PLAN.md). Without the nudge the identity the whole
+// arrangement rests on -- a distance along the pulled ray *is* the distance
+// along the original -- holds exactly rather than up to `dt`, and the hit point
+// differs from pbrt's by that `dt`: a few units in the last place.
+func pull_ray(inv : Transform, r : Ray) -> Ray {
+    o = vec3f{fma(inv.r0.y, r.o.y, inv.r0.x * r.o.x) + fma(inv.r0.z, r.o.z, inv.r0.w),
+              fma(inv.r1.y, r.o.y, inv.r1.x * r.o.x) + fma(inv.r1.z, r.o.z, inv.r1.w),
+              fma(inv.r2.y, r.o.y, inv.r2.x * r.o.x) + fma(inv.r2.z, r.o.z, inv.r2.w)};
+    wp = fma(inv.r3.y, r.o.y, inv.r3.x * r.o.x) + fma(inv.r3.z, r.o.z, inv.r3.w);
+    out : Ray = {select(wp == 1.0, o, o / wp), apply_vector(inv, r.d), r.tmax};
+    return out;
+}
+
+// pbrt: Transform::operator()(const SurfaceInteraction &), the bottom of
+// TransformedPrimitive::Intersect: the interaction the instance's own geometry
+// computed, moved into render space once. Points by the matrix, vectors by its
+// upper three by three, normals by the inverse transposed -- pbrt's
+// `operator()(Normal3f)` reads the *columns* of the inverse -- and the two
+// normals renormalised afterwards, as pbrt's are. `shading.n` is then turned
+// to face the geometric normal, which is the last line of pbrt's version.
+//
+// The hit point is pbrt's Point3fi: the position, and the bound on how far the
+// arithmetic could have put it, which grows through the transform the way
+// pbrt's `Transform::operator()(const Point3fi &)` grows it -- the incoming
+// error scaled by the matrix's magnitudes, plus the transform's own rounding.
+func push_surface(m : Transform, inv : Transform,
+                  s : SurfaceGeometry) -> SurfaceGeometry {
+    p = vec3f{fma(m.r0.y, s.p.y, m.r0.x * s.p.x) + fma(m.r0.z, s.p.z, m.r0.w),
+              fma(m.r1.y, s.p.y, m.r1.x * s.p.x) + fma(m.r1.z, s.p.z, m.r1.w),
+              fma(m.r2.y, s.p.y, m.r2.x * s.p.x) + fma(m.r2.z, s.p.z, m.r2.w)};
+    wp = fma(m.r3.y, s.p.y, m.r3.x * s.p.x) + fma(m.r3.z, s.p.z, m.r3.w);
+    g3 = gamma(3);
+    e = s.p_error;
+    p_error = vec3f{
+        (g3 + 1.0) * (abs(m.r0.x) * e.x + abs(m.r0.y) * e.y + abs(m.r0.z) * e.z) +
+            g3 * (abs(m.r0.x * s.p.x) + abs(m.r0.y * s.p.y) + abs(m.r0.z * s.p.z) +
+                  abs(m.r0.w)),
+        (g3 + 1.0) * (abs(m.r1.x) * e.x + abs(m.r1.y) * e.y + abs(m.r1.z) * e.z) +
+            g3 * (abs(m.r1.x * s.p.x) + abs(m.r1.y * s.p.y) + abs(m.r1.z * s.p.z) +
+                  abs(m.r1.w)),
+        (g3 + 1.0) * (abs(m.r2.x) * e.x + abs(m.r2.y) * e.y + abs(m.r2.z) * e.z) +
+            g3 * (abs(m.r2.x * s.p.x) + abs(m.r2.y * s.p.y) + abs(m.r2.z * s.p.z) +
+                  abs(m.r2.w))};
+    n = unit_vector_(apply_normal_inverse(inv, s.n));
+    ns_raw = unit_vector_(apply_normal_inverse(inv, s.ns));
+    ns = select(dot(ns_raw, n) < 0.0, -ns_raw, ns_raw);
+    out : SurfaceGeometry = {n, ns,
+                             apply_vector(m, s.dpdus), apply_vector(m, s.dpdvs),
+                             s.uv,
+                             apply_vector(m, s.dpdu), apply_vector(m, s.dpdv),
+                             apply_normal_inverse(inv, s.dndu),
+                             apply_normal_inverse(inv, s.dndv),
+                             select(wp == 1.0, p, p / wp),
+                             select(wp == 1.0, p_error, p_error / abs(wp))};
+    return out;
+}
+
+// The primitive as a motion: pbrt's TransformedPrimitive moves what it holds
+// and its GeometricPrimitive holds it where it is. These three are the
+// `renderFromPrimitive->...` lines of TransformedPrimitive, each dispatched on
+// the primitive -- and, for a GeometricPrimitive, the nothing that
+// GeometricPrimitive does instead. Supplying `untransform` for a ray is what
+// lets the compiler rewrite `intersects(r, transform(p, g))` into
+// `intersects(untransform(p, r), g)` and pull the ray back once per primitive,
+// which is where pbrt's `ApplyInverse` is (see Opt/PullQueries.h).
+func transform(p : Primitive, b : AABB) -> AABB {
+    match p {
+        Geom(g) => return b;
+        Inst(render_from_instance, instance_from_render, blas) =>
+            return transform_bounds(render_from_instance, b);
+    }
+}
+
+func untransform(p : Primitive, r : Ray) -> Ray {
+    match p {
+        Geom(g) => return r;
+        Inst(render_from_instance, instance_from_render, blas) =>
+            return pull_ray(instance_from_render, r);
+    }
+}
+
+func transform(p : Primitive, s : SurfaceGeometry) -> SurfaceGeometry {
+    match p {
+        Geom(g) => return s;
+        Inst(render_from_instance, instance_from_render, blas) =>
+            return push_surface(render_from_instance, instance_from_render, s);
+    }
+}
+
 // pbrt: GeometricPrimitive::Intersect's alpha test.
 //
 // The test is stochastic and the draw is `HashFloat(ray.o, ray.d)` -- a hash of
@@ -517,7 +682,11 @@ element Primitive {
 // hit does not count. The BVH then goes on to the next candidate of its own
 // accord, which is what makes the whole thing expressible as a condition on
 // the set rather than as a loop around the query.
-func alpha_accepts(r : Ray, p : Primitive) -> bool {
+//
+// The ray is the one the geometry was tested against: inside an instance that
+// is the ray pulled back into the instance's frame, which is the ray pbrt's
+// GeometricPrimitive::Intersect sees there too, and `HashFloat` hashes it.
+func alpha_accepts(r : Ray, p : Geometric) -> bool {
     if p.alpha < 0 {
         return true;
     }
@@ -567,23 +736,38 @@ extern rho_uy : array[Float];
 
 // The ray queries pass straight through to the geometry: which primitive a ray
 // hits is a question about its shape alone.
-func distmin(r : Ray, p : Primitive) -> Float = distmin(r, p.shape);
-func distmax(r : Ray, p : Primitive) -> Float = distmax(r, p.shape);
-func intersects(r : Ray, p : Primitive) -> bool = intersects(r, p.shape);
+func distmin(r : Ray, p : Geometric) -> Float = distmin(r, p.shape);
+func distmax(r : Ray, p : Geometric) -> Float = distmax(r, p.shape);
+func intersects(r : Ray, p : Geometric) -> bool = intersects(r, p.shape);
 
 extern primitives : set[Primitive];
 
 // pbrt: Primitive::Intersect over the whole scene. Written as the question it
-// is -- of the primitives this ray hits, which is nearest -- rather than as a
+// is -- of the geometry this ray hits, which is nearest -- rather than as a
 // traversal. The schedule turns it into one.
+//
+// The searched set is every GeometricPrimitive the scene reaches: the ones
+// standing on their own, and every one held by every instance, each seen
+// through the primitive it was reached by. The tests place it --
+// `transform(p, g)`, the geometry where its primitive puts it, against the
+// ray as it arrived -- because that is one uniform ray against one varying
+// geometric object, which is the shape predicate analysis bounds. pbrt writes
+// the other side of the same identity, `ApplyInverse(r)` against stored
+// geometry, and so does the code this compiles to: the compiler moves the
+// motion onto the ray and hoists it to once per primitive (Opt/PullQueries.h).
+// The answer is the pair as stored, the hit in the instance's own frame, and
+// `transform(p, surf)` at the call sites is TransformedPrimitive's one
+// transform of the result.
 //
 // The epsilon is pbrt's shadow-epsilon in spirit: a hit at zero distance is
 // the surface the ray started on.
 func trace(r : Ray) =
-    argmin(|p : Primitive| distmin(r, p),
-           filter(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001 &&
-                                  alpha_accepts(r, p),
-                  primitives));
+    argmin(|p : Primitive, g : Geometric| distmin(r, transform(p, g)),
+           filter(|p : Primitive, g : Geometric|
+                      intersects(r, transform(p, g)) &&
+                      distmin(r, transform(p, g)) > 0.001 &&
+                      alpha_accepts(untransform(p, r), g),
+                  flatten(|p : Primitive| geometry(p), primitives)));
 
 // pbrt: Primitive::IntersectP -- is there *anything* along this ray?
 //
@@ -602,9 +786,11 @@ func trace(r : Ray) =
 // texture, rather than the shape's cheaper occlusion test. A leaf that a camera
 // ray passes through must not cast a shadow.
 func trace_any(r : Ray) =
-    any(|p : Primitive| intersects(r, p) && distmin(r, p) > 0.001 &&
-                        alpha_accepts(r, p),
-        primitives);
+    any(|p : Primitive, g : Geometric|
+            intersects(r, transform(p, g)) &&
+            distmin(r, transform(p, g)) > 0.001 &&
+            alpha_accepts(untransform(p, r), g),
+        flatten(|p : Primitive| geometry(p), primitives));
 
 // pbrt: VisibleSurface, what a camera ray leaves behind for the film to
 // record. pbrt fills one of these from a single intersection and the gbuffer
@@ -640,10 +826,14 @@ func visible_surface(r : Ray, dr : RayDifferential,
                      camera : PerspectiveCamera, spp_scale : Float,
                      lambda : SampledWavelengths,
                      seed : i32) -> option[VisibleSurface] {
-    isect : option[Primitive] = trace(r);
+    isect = trace(r);
     if isect {
-        prim = *isect;
-        surf = surface_geometry(prim.shape, r);
+        reached = *isect;
+        via = reached[0];
+        prim = reached[1];
+        // In the frame the geometry was tested in, then moved into render
+        // space once; see `walk_step`.
+        surf = transform(via, surface_geometry(prim.shape, untransform(via, r)));
         // pbrt: Interaction's constructor, which normalizes the outgoing
         // direction. The camera's is already very nearly a unit vector, so this
         // changes it in the last bit or two -- which is invisible in the normal
@@ -745,7 +935,7 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSet, seed : i32,
                depth : i32, max_depth : i32) -> vec4f {
-    isect : option[Primitive] = trace(ray);
+    isect = trace(ray);
     if !isect {
         // pbrt sums `light.Le(ray)` over the infinite lights. A random walk
         // never samples a light, so there is no weight to apply and nothing to
@@ -757,8 +947,15 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
         }
         return escaped;
     }
-    prim = *isect;
-    surf = surface_geometry(prim.shape, ray);
+    reached = *isect;
+    via = reached[0];
+    prim = reached[1];
+    // pbrt: the geometry computes its interaction in the frame it was tested
+    // in -- an instance's own, for a TransformedPrimitive -- and
+    // TransformedPrimitive::Intersect moves it into render space once. So the
+    // ray is the one the traversal tested with, pulled back where it was, and
+    // the transform is the one pbrt applies on the way out.
+    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
     // pbrt: `Vector3f wo = -ray.d`, and *not* `isect.wo`. The two differ:
     // Interaction's constructor normalizes the direction it is handed, and this
     // integrator never asks it for one -- it negates the ray directly. A camera
@@ -857,7 +1054,7 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
                seed : i32, depth : i32, max_depth : i32) -> vec4f {
-    isect : option[Primitive] = trace(ray);
+    isect = trace(ray);
     if !isect {
         // pbrt: `if (!sampleLights || specularBounce)` around the sum over the
         // infinite lights, and `sampleLights` is on here. The same
@@ -872,8 +1069,15 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
         }
         return escaped;
     }
-    prim = *isect;
-    surf = surface_geometry(prim.shape, ray);
+    reached = *isect;
+    via = reached[0];
+    prim = reached[1];
+    // pbrt: the geometry computes its interaction in the frame it was tested
+    // in -- an instance's own, for a TransformedPrimitive -- and
+    // TransformedPrimitive::Intersect moves it into render space once. So the
+    // ray is the one the traversal tested with, pulled back where it was, and
+    // the transform is the one pbrt applies on the way out.
+    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
     // Raw rather than normalized, as in `walk_step` above and for the same
     // reason: pbrt's SimplePathIntegrator writes `Vector3f wo = -ray.d`.
     wo = -ray.d;
@@ -1086,7 +1290,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
                     seed : i32, max_depth : i32, regularize : bool) -> vec4f {
-    isect : option[Primitive] = trace(ray);
+    isect = trace(ray);
     if !isect {
         // pbrt weighs each infinite light's emission exactly the way the
         // surface emission below is weighed, and for the same reason: a ray
@@ -1113,8 +1317,15 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
         }
         return escaped;
     }
-    prim = *isect;
-    surf = surface_geometry(prim.shape, ray);
+    reached = *isect;
+    via = reached[0];
+    prim = reached[1];
+    // pbrt: the geometry computes its interaction in the frame it was tested
+    // in -- an instance's own, for a TransformedPrimitive -- and
+    // TransformedPrimitive::Intersect moves it into render space once. So the
+    // ray is the one the traversal tested with, pulled back where it was, and
+    // the transform is the one pbrt applies on the way out.
+    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
     // Both of them, because pbrt uses both. `Li` writes
     // `Vector3f wo = -ray.d` and hands *that* to `Le` and to `Sample_f`;
     // `SampleLd` reads `intr.wo`, which Interaction's constructor normalized.
@@ -1531,7 +1742,7 @@ schedule {
     // variant in the rest -- rather than a tag beside a union as large as the
     // largest arm.
     //
-    // That is what a `Primitive` is mostly made of, and a `Primitive` is what
+    // That is what a `Geometric` is mostly made of, and a `Geometric` is what
     // the BVH's leaves hold, so this is a question about how much memory the
     // traversal streams. A Sphere is a centre, a radius and a flag, and a
     // Triangle is two indices; a tagged union has to be big enough for the
@@ -1543,6 +1754,22 @@ schedule {
     // no allocator. See render_hook.cpp.
     layout Shape = tagged_index;
 
+    // pbrt: Primitive is a TaggedPointer too, and for the same reason it gets
+    // the same layout. An instance is two matrices and a tree, a hundred and
+    // thirty bytes; a plain primitive is twenty. Stored as a tag beside a
+    // union, every one of the scene's triangles would carry an instance's
+    // worth of space through the top-level tree's leaves. Under this a leaf
+    // holds one word per primitive and each pool holds what it actually is,
+    // which is what pbrt's leaves hold: a pointer, to whichever object.
+    layout Primitive = tagged_index;
+
+    // pbrt: the BVHAggregate an instance definition's shapes are built into,
+    // shared by every instance of the object. Same node, same packing; a leaf
+    // names a run of `geoms` below.
+    tree[[Geometric]] InstanceBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : InstanceBVH, right : InstanceBVH, axis : u8)
+    | Leaf(data : array[Geometric]) with data = data;
+
     // pbrt: BVHAggregate. Everything about how the scene is searched lives
     // here -- that it is a BVH at all, that its nodes are bounded by boxes,
     // how a node is packed, and that traversal is a loop over a stack of 64
@@ -1552,12 +1779,37 @@ schedule {
     | Leaf(data : array[Primitive]) with data = data;
 
     primitives : PrimitiveBVH;
+    // An instance's tree has no layout of its own: its nodes are rows of the
+    // group below, in the layout of the object that holds every tree, and the
+    // instance stores which row it starts at. Two instances of one object name
+    // the same row, which is how the object is stored once however often it
+    // is placed -- pbrt's forty-three trees over one BVHAggregate.
+    Inst.blas : InstanceBVH from InstanceNodes;
 
     // pbrt: LinearBVHNode, field for field and 32 bytes like it. The offset
     // discriminated on nPrims is pbrt's union of primitivesOffset and
     // secondChildOffset; the left child is the next node, so only the right
-    // one needs saying.
+    // one needs saying. Twice: once for the pool every instance's tree is rows
+    // of, once for the top-level tree.
     layout primitives {
+        // Every instanced GeometricPrimitive in the scene, in the order the
+        // instance trees' leaves name them.
+        gCount : u32;
+        geoms : array[Geometric, gCount];
+
+        bCount : u32;
+        indirect group InstanceNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1; right = bnode + offset; };
+                _ => Leaf { pOffset : u32; data = range(geoms, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
         pCount : u32;
         prims : array[Primitive, pCount];
         nCount : u32;
@@ -1595,7 +1847,17 @@ schedule {
     // The key is the child index, flipped when the ray runs backwards along the
     // axis the node was split on. `axis` is a field of the Interior arm and was
     // carried by the layout from the beginning without anything reading it.
+    //
+    // The same rule inside an instance's tree, where pbrt applies it to the
+    // ray *after* `ApplyInverse`: the split axis is an axis of the instance's
+    // frame. The key is written over the query's ray here too, and the
+    // compiler carries it into the pulled-back one along with every other
+    // test in that walk (Opt/PullQueries.h).
     trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
                |i : u8, r : Ray, axis : u8|
                select((1.0 / r.d)[axis] < 0.0,
                       1.0 - cast[[Float]](i), cast[[Float]](i)))

@@ -169,7 +169,7 @@ struct Shapes {
 // pbrt: Sphere::Bounds and Triangle::Bounds. A sphere placed by a translation
 // bounds to its centre plus and minus the radius on each axis; a triangle to
 // the box around its three vertices.
-Bounds3f bounds_of(const Primitive &prim, const Meshes &pool,
+Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
                    const Shapes &shapes) {
     if (shapes.is_sphere(prim.shape)) {
         const Sphere &s = shapes.sphere(prim.shape);
@@ -179,6 +179,30 @@ Bounds3f bounds_of(const Primitive &prim, const Meshes &pool,
     pool.corners(shapes.triangle(prim.shape), c);
     return merge(Bounds3f{pool.positions[c[0]], pool.positions[c[1]]},
                  pool.positions[c[2]]);
+}
+
+// pbrt: Transform::operator()(Point3f) and Transform::operator()(const
+// Bounds3f &) -- the eight corners moved and the box around them, which is
+// TransformedPrimitive::Bounds(): what an instance occupies in render space,
+// and so what the top-level tree is built from for it.
+float3 apply_point(const Transform &t, const float3 &p) {
+    const auto row = [&](const float4 &r) {
+        return r.x * p.x + r.y * p.y + r.z * p.z + r.w;
+    };
+    const float w = row(t.r3);
+    const float3 v{row(t.r0), row(t.r1), row(t.r2)};
+    return w == 1.0f ? v : v / w;
+}
+
+Bounds3f transform_bounds(const Transform &t, const Bounds3f &b) {
+    Bounds3f out;
+    for (int corner = 0; corner < 8; corner++) {
+        const float3 p{(corner & 1) ? b.pMax.x : b.pMin.x,
+                       (corner & 2) ? b.pMax.y : b.pMin.y,
+                       (corner & 4) ? b.pMax.z : b.pMin.z};
+        out = merge(out, apply_point(t, p));
+    }
+    return out;
 }
 
 // pbrt: BVHPrimitive, a primitive reduced to what the build sorts on.
@@ -213,20 +237,28 @@ constexpr int MaxPrimsInNode = 4;
 // pbrt splits the build across threads above 128K primitives, which reorders
 // the primitive array and so builds a different (equally valid) tree. This is
 // the serial path, which is what pbrt itself takes at these sizes.
-_tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool,
-                        const Shapes &shape_pools) {
+//
+// One builder for every tree the scene has: the top-level one over its
+// primitives, and one per instance definition over that definition's shapes.
+// It appends to `nodes` -- an instance's tree is rows of a pool shared with
+// every other instance's -- and returns the row its root landed on. `items`
+// come back in the order the leaves name them (pbrt's orderedPrims), and a
+// leaf's first item is `base` plus its place in `items`, `base` being where
+// `items` sits in whatever array the layout's leaves index.
+template <typename Node, typename Item, typename BoundsOf>
+uint32_t build_bvh(Item *items, size_t count, uint32_t base,
+                   BoundsOf bounds_of_item, std::vector<Node> &nodes) {
     std::vector<BVHPrimitive> prims;
-    prims.reserve(shapes.size());
-    for (uint32_t i = 0; i < shapes.size(); i++) {
-        prims.push_back(BVHPrimitive{i, bounds_of(shapes[i], pool, shape_pools)});
+    prims.reserve(count);
+    for (uint32_t i = 0; i < count; i++) {
+        prims.push_back(BVHPrimitive{i, bounds_of_item(items[i])});
     }
 
     // pbrt: orderedPrims. A leaf names a run of primitives, so the primitives
     // it names have to be contiguous, which means the scene is rewritten into
     // the order the build discovered.
-    std::vector<Primitive> ordered;
-    ordered.reserve(shapes.size());
-    std::vector<_tree_layout1> nodes;
+    std::vector<Item> ordered;
+    ordered.reserve(count);
 
     std::function<uint32_t(BVHPrimitive *, size_t, uint32_t)> build =
         [&](BVHPrimitive *span, size_t n, uint32_t depth) -> uint32_t {
@@ -243,9 +275,9 @@ _tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool,
         // the vector reallocates, so a reference taken across a child build
         // would dangle.
         const auto make_leaf = [&]() {
-            const uint32_t first = uint32_t(ordered.size());
+            const uint32_t first = base + uint32_t(ordered.size());
             for (size_t i = 0; i < n; i++) {
-                ordered.push_back(shapes[span[i].index]);
+                ordered.push_back(items[span[i].index]);
             }
             nodes[self].low = bounds.pMin;
             nodes[self].high = bounds.pMax;
@@ -352,19 +384,10 @@ _tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool,
         return self;
     };
 
-    build(prims.data(), prims.size(), 0);
+    const uint32_t root = build(prims.data(), prims.size(), 0);
 
-    shapes = std::move(ordered);
-
-    _tree_layout0 tree;
-    tree.pCount = uint32_t(shapes.size());
-    tree.prims = shapes.data();
-    tree.nCount = uint32_t(nodes.size());
-    tree.group0_index =
-        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
-    std::memcpy(tree.group0_index, nodes.data(),
-                sizeof(_tree_layout1) * tree.nCount);
-    return tree;
+    std::copy(ordered.begin(), ordered.end(), items);
+    return root;
 }
 
 // Put the pools in the order the leaves read them, and rewrite the handles.
@@ -385,22 +408,28 @@ _tree_layout0 build_bvh(std::vector<Primitive> &shapes, const Meshes &pool,
 // pbrt does not do this. Its TaggedPointers point at objects allocated while
 // the scene was parsed, and its `orderedPrims` moves the pointers and not the
 // objects, so a pbrt leaf chases the same scattered addresses.
-void compact_pools(std::vector<Primitive> &shapes, std::vector<Sph> &spheres,
+//
+// Two lists of primitives, each already in its leaves' order: the top-level
+// tree's and, after them, every instance tree's.
+void compact_pools(std::vector<Geometric> &shapes,
+                   std::vector<Geometric> &instanced, std::vector<Sph> &spheres,
                    std::vector<Tri> &triangles) {
     std::vector<Sph> ordered_spheres;
     std::vector<Tri> ordered_triangles;
     ordered_spheres.reserve(spheres.size());
     ordered_triangles.reserve(triangles.size());
 
-    for (Primitive &prim : shapes) {
-        const uint64_t tag = Shapes::tag_of(prim.shape);
-        const uint64_t index = Shapes::index_of(prim.shape);
-        if (tag == Shapes::kSphere) {
-            prim.shape = Shapes::handle(tag, ordered_spheres.size());
-            ordered_spheres.push_back(spheres[index]);
-        } else {
-            prim.shape = Shapes::handle(tag, ordered_triangles.size());
-            ordered_triangles.push_back(triangles[index]);
+    for (std::vector<Geometric> *list : {&shapes, &instanced}) {
+        for (Geometric &prim : *list) {
+            const uint64_t tag = Shapes::tag_of(prim.shape);
+            const uint64_t index = Shapes::index_of(prim.shape);
+            if (tag == Shapes::kSphere) {
+                prim.shape = Shapes::handle(tag, ordered_spheres.size());
+                ordered_spheres.push_back(spheres[index]);
+            } else {
+                prim.shape = Shapes::handle(tag, ordered_triangles.size());
+                ordered_triangles.push_back(triangles[index]);
+            }
         }
     }
 
@@ -408,32 +437,38 @@ void compact_pools(std::vector<Primitive> &shapes, std::vector<Sph> &spheres,
     triangles = std::move(ordered_triangles);
 }
 
-// The tree PBRT built, packed into the layout the schedule declared.
+// The nodes of a tree PBRT built, packed into the layout the schedule
+// declared.
 //
 // No building happens here: the nodes arrive already flattened depth first,
-// with the shapes in the order its leaves expect, so this is only a change of
-// representation. That the two layouts line up field for field is not luck --
-// the `layout` block in render.bonsai was written to be LinearBVHNode.
-_tree_layout0 adopt_bvh(std::vector<Primitive> &shapes,
-                        const std::vector<bonsai_scene::Node> &nodes) {
-    _tree_layout0 tree;
-    tree.pCount = uint32_t(shapes.size());
-    tree.prims = shapes.data();
-    tree.nCount = uint32_t(nodes.size());
-    tree.group0_index =
-        (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
-
+// with the primitives in the order its leaves expect, so this is only a change
+// of representation. That the two layouts line up field for field is not luck
+// -- the `layout` block in render.bonsai was written to be LinearBVHNode.
+template <typename Node>
+std::vector<Node> adopt_nodes(const std::vector<bonsai_scene::Node> &nodes) {
+    std::vector<Node> out(nodes.size());
     for (size_t i = 0; i < nodes.size(); i++) {
         const bonsai_scene::Node &n = nodes[i];
-        tree.group0_index[i].low = float3{n.low[0], n.low[1], n.low[2]};
-        tree.group0_index[i].high = float3{n.high[0], n.high[1], n.high[2]};
-        tree.group0_index[i].nPrims = n.n_prims;
-        tree.group0_index[i].axis = uint8_t(n.axis);
-        std::memcpy(tree.group0_index[i].split0on_nPrims.data(), &n.offset,
+        out[i].low = float3{n.low[0], n.low[1], n.low[2]};
+        out[i].high = float3{n.high[0], n.high[1], n.high[2]};
+        out[i].nPrims = n.n_prims;
+        out[i].axis = uint8_t(n.axis);
+        std::memcpy(out[i].split0on_nPrims.data(), &n.offset,
                     sizeof(n.offset));
     }
-    return tree;
+    return out;
 }
+
+// pbrt: a Primitive of the top-level tree before it is one -- a
+// GeometricPrimitive by its index into the scene's shapes, or a
+// TransformedPrimitive by its index into the instances -- with the bounds the
+// tree is built from, which for an instance are its object's tree's root
+// bounds placed by its transform.
+struct TopLevel {
+    bool instance = false;
+    uint32_t index = 0;
+    Bounds3f bounds;
+};
 
 // Sixteen floats in row order, as scene_dump wrote them.
 Transform to_bonsai(const float *m) {
@@ -885,37 +920,53 @@ int main(int argc, char **argv) {
     // holds before anything is built. Sized exactly rather than generously:
     // there is no growing them, because the renderer's constructors write into
     // the memory handed to them and nothing tells this file when they have.
+    // Both lists of shapes, since an instanced shape is a Shape like any other.
     size_t nspheres = 0;
-    for (const bonsai_scene::Shape &s : loaded.shapes) {
-        nspheres += s.tag == bonsai_scene::ShapeTag::Sphere;
+    size_t nshapes = 0;
+    for (const std::vector<bonsai_scene::Shape> *list :
+         {&loaded.shapes, &loaded.instance_shapes}) {
+        for (const bonsai_scene::Shape &s : *list) {
+            nspheres += s.tag == bonsai_scene::ShapeTag::Sphere;
+            nshapes++;
+        }
     }
     std::vector<Sph> sphere_pool(nspheres);
-    std::vector<Tri> triangle_pool(loaded.shapes.size() - nspheres);
+    std::vector<Tri> triangle_pool(nshapes - nspheres);
     // What the constructors bump. Each ends up equal to its pool's size, which
     // is the check that the two passes counted the same thing.
     uint64_t sphere_fill = 0;
     uint64_t triangle_fill = 0;
 
-    std::vector<Primitive> shapes;
-    shapes.reserve(loaded.shapes.size());
-    for (const bonsai_scene::Shape &s : loaded.shapes) {
-        // The generated constructors rather than a handle assembled here: they
-        // put the fields in the pool and return the tag and index naming them,
-        // and they are generated from the same layout the renderer reads with,
-        // so the numbering cannot drift.
-        uint64_t shape;
-        if (s.tag == bonsai_scene::ShapeTag::Sphere) {
-            Sphere sphere;
-            sphere.center = float3{s.center[0], s.center[1], s.center[2]};
-            sphere.radius = s.radius;
-            sphere.flip = s.flip != 0;
-            shape = Shape_Sph(sphere, sphere_pool.data(), &sphere_fill);
-        } else {
-            shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
-                              &triangle_fill);
+    // pbrt: CreatePrimitivesForShapes, run over the top-level shapes and over
+    // each instance definition's -- the same conversion, into two lists.
+    // `shapes` is what the top-level tree holds directly; `instanced` is every
+    // instance definition's geometry, laid end to end in definition order, and
+    // each instance's tree names a run of it.
+    const auto convert = [&](const std::vector<bonsai_scene::Shape> &in) {
+        std::vector<Geometric> out;
+        out.reserve(in.size());
+        for (const bonsai_scene::Shape &s : in) {
+            // The generated constructors rather than a handle assembled here:
+            // they put the fields in the pool and return the tag and index
+            // naming them, and they are generated from the same layout the
+            // renderer reads with, so the numbering cannot drift.
+            uint64_t shape;
+            if (s.tag == bonsai_scene::ShapeTag::Sphere) {
+                Sphere sphere;
+                sphere.center = float3{s.center[0], s.center[1], s.center[2]};
+                sphere.radius = s.radius;
+                sphere.flip = s.flip != 0;
+                shape = Shape_Sph(sphere, sphere_pool.data(), &sphere_fill);
+            } else {
+                shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
+                                  &triangle_fill);
+            }
+            out.push_back(Geometric{shape, s.light, s.material, s.alpha});
         }
-        shapes.push_back(Primitive{shape, s.light, s.material, s.alpha});
-    }
+        return out;
+    };
+    std::vector<Geometric> shapes = convert(loaded.shapes);
+    std::vector<Geometric> instanced = convert(loaded.instance_shapes);
     if (sphere_fill != sphere_pool.size() ||
         triangle_fill != triangle_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
@@ -932,21 +983,95 @@ int main(int argc, char **argv) {
     // fallback but the general case: PBRT can only hand over a tree of the
     // shape PBRT builds, so any schedule asking for something else (a wider
     // arity, a different bounding volume) has to build it here.
+    //
+    // Two kinds of tree, as pbrt's CreateAggregate builds two: one per instance
+    // definition over its shapes, all of them rows of one pool, and the
+    // top-level one over the scene's own shapes and its instances together.
     setup.reset();
 
-    _tree_layout0 tree;
+    const bool pbrt_trees = !loaded.nodes.empty();
+    std::vector<_tree_layout1> instance_nodes;
+    // The row each definition's tree is rooted at.
+    std::vector<uint32_t> roots(loaded.definitions.size(), 0);
     {
-        Stage stage(loaded.nodes.empty() ? "build bvh" : "adopt pbrt's bvh");
-        tree = loaded.nodes.empty() ? build_bvh(shapes, pool, shape_pools)
-                                    : adopt_bvh(shapes, loaded.nodes);
+        Stage stage(pbrt_trees ? "adopt pbrt's instance trees"
+                               : "build instance trees");
+        if (pbrt_trees) {
+            instance_nodes = adopt_nodes<_tree_layout1>(loaded.instance_nodes);
+            for (size_t d = 0; d < roots.size(); d++) {
+                roots[d] = loaded.definitions[d].root_node;
+            }
+        } else {
+            for (size_t d = 0; d < roots.size(); d++) {
+                const bonsai_scene::Definition &def = loaded.definitions[d];
+                if (def.shape_count == 0) {
+                    continue; // pbrt: a null primitive, never instanced.
+                }
+                roots[d] = build_bvh(
+                    instanced.data() + def.first_shape, def.shape_count,
+                    def.first_shape,
+                    [&](const Geometric &g) {
+                        return bounds_of(g, pool, shape_pools);
+                    },
+                    instance_nodes);
+            }
+        }
     }
 
-    // After the tree, because it is the tree that decides the order. `shapes`
-    // is rewritten in place, so the `prims` the layout above points at is
-    // still the same array.
+    // The top-level tree's primitives, in the order its leaves name them.
+    std::vector<TopLevel> top;
+    top.reserve(shapes.size() + loaded.instances.size());
+    const auto instance_bounds = [&](const bonsai_scene::Instance &inst) {
+        const _tree_layout1 &root = instance_nodes[roots[inst.definition]];
+        return transform_bounds(to_bonsai(inst.render_from_instance),
+                                Bounds3f{root.low, root.high});
+    };
+    std::vector<_tree_layout4> nodes;
+    {
+        Stage stage(pbrt_trees ? "adopt pbrt's bvh" : "build bvh");
+        if (pbrt_trees) {
+            nodes = adopt_nodes<_tree_layout4>(loaded.nodes);
+            for (const bonsai_scene::Prim &p : loaded.prims) {
+                top.push_back(TopLevel{p.kind == bonsai_scene::PrimInstance,
+                                       p.index, Bounds3f{}});
+            }
+        } else {
+            for (uint32_t i = 0; i < shapes.size(); i++) {
+                top.push_back(
+                    TopLevel{false, i, bounds_of(shapes[i], pool, shape_pools)});
+            }
+            for (uint32_t i = 0; i < loaded.instances.size(); i++) {
+                top.push_back(
+                    TopLevel{true, i, instance_bounds(loaded.instances[i])});
+            }
+            build_bvh(
+                top.data(), top.size(), 0,
+                [](const TopLevel &t) { return t.bounds; }, nodes);
+        }
+    }
+
+    // The top-level shapes in the order the tree's leaves reach them, so that
+    // the pools below can be laid out to match. The instanced ones are already
+    // in their leaves' order: a definition's tree was built over its run in
+    // place.
+    std::vector<Geometric> ordered_shapes;
+    ordered_shapes.reserve(shapes.size());
+    for (const TopLevel &t : top) {
+        if (!t.instance) {
+            ordered_shapes.push_back(shapes[t.index]);
+        }
+    }
+    if (ordered_shapes.size() != shapes.size()) {
+        fprintf(stderr, "the top-level tree names %zu shapes of %zu\n",
+                ordered_shapes.size(), shapes.size());
+        return 1;
+    }
+    shapes = std::move(ordered_shapes);
+
+    // After the trees, because it is the trees that decide the order.
     {
         Stage stage("compact pools");
-        compact_pools(shapes, sphere_pool, triangle_pool);
+        compact_pools(shapes, instanced, sphere_pool, triangle_pool);
     }
 
     std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
@@ -1002,8 +1127,11 @@ int main(int argc, char **argv) {
     // correspond. And it happens after `compact_pools`, which rewrites every
     // shape handle: a Light holds one, and a stale one would name whatever
     // moved into that slot.
+    //
+    // Only the top-level shapes: pbrt gives a shape inside an instance
+    // definition no area light, and scene_dump wrote -1 for every one of them.
     std::vector<Light> lights;
-    for (Primitive &prim : shapes) {
+    for (Geometric &prim : shapes) {
         if (prim.light < 0) {
             continue;
         }
@@ -1012,6 +1140,51 @@ int main(int argc, char **argv) {
         prim.light = int32_t(lights.size());
         lights.push_back(light);
     }
+
+    // pbrt: the Primitives the top-level BVHAggregate is built over, made
+    // last: a GeometricPrimitive copies its fields into the `Geom` pool, and the
+    // light index above had to be settled first. Made in the leaves' order, so
+    // the pool entries a leaf reaches are consecutive, as `compact_pools` did
+    // for the shapes. An instance is its two matrices and the row its object's
+    // tree starts at.
+    std::vector<Geom> geom_pool(shapes.size());
+    std::vector<Inst> inst_pool(loaded.instances.size());
+    uint64_t geom_fill = 0;
+    uint64_t inst_fill = 0;
+    std::vector<uint64_t> prims;
+    prims.reserve(top.size());
+    {
+        size_t next_shape = 0;
+        for (const TopLevel &t : top) {
+            if (t.instance) {
+                const bonsai_scene::Instance &inst = loaded.instances[t.index];
+                prims.push_back(Primitive_Inst(
+                    to_bonsai(inst.render_from_instance),
+                    to_bonsai(inst.instance_from_render),
+                    roots[inst.definition], inst_pool.data(), &inst_fill));
+            } else {
+                prims.push_back(Primitive_Geom(shapes[next_shape++],
+                                               geom_pool.data(), &geom_fill));
+            }
+        }
+    }
+    if (geom_fill != geom_pool.size() || inst_fill != inst_pool.size()) {
+        fprintf(stderr, "primitive pool fill disagrees with the count: "
+                        "%zu/%zu shapes, %zu/%zu instances\n",
+                size_t(geom_fill), geom_pool.size(), size_t(inst_fill),
+                inst_pool.size());
+        return 1;
+    }
+
+    _tree_layout0 tree;
+    tree.gCount = uint32_t(instanced.size());
+    tree.geoms = instanced.data();
+    tree.bCount = uint32_t(instance_nodes.size());
+    tree.group0_bnode = instance_nodes.data();
+    tree.pCount = uint32_t(prims.size());
+    tree.prims = prims.data();
+    tree.nCount = uint32_t(nodes.size());
+    tree.group1_index = nodes.data();
 
     // And the lights that are not shapes, appended after the area ones --
     // which is the order pbrt builds its own list in, area lights from
@@ -1266,7 +1439,7 @@ int main(int argc, char **argv) {
                env_dist_marg_func.data(), env_dist_marg_cdf.data(),
                lights.data(),
                materials.data(), material_displacement.data(), rho_uc, rho_ux,
-               rho_uy, tree,
+               rho_uy, tree, geom_pool.data(), inst_pool.data(),
                sphere_pool.data(), triangle_pool.data());
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
@@ -1309,7 +1482,6 @@ int main(int argc, char **argv) {
     free(out);
     free(albedo);
     free(radiance);
-    free(tree.group0_index);
     if (!wrote) {
         return 1;
     }

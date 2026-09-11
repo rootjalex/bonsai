@@ -327,6 +327,47 @@ struct Node {
     uint16_t axis;
 };
 
+// PBRT: an `ObjectBegin`/`ObjectEnd` block -- an instance definition, the
+// shapes an instanced object is made of. They are a run of `instance_shapes`,
+// kept apart from `shapes` because PBRT keeps them apart: an instance's
+// geometry is in no top-level list, and the top-level tree holds the instances
+// rather than what they hold.
+//
+// `root_node` is the row of `instance_nodes` the object's own tree starts at,
+// when the tree is PBRT's (--pbrt-tree). Otherwise the driver builds one.
+struct Definition {
+    uint32_t first_shape = 0;
+    uint32_t shape_count = 0;
+    uint32_t root_node = 0;
+};
+
+// PBRT: an `ObjectInstance` -- a TransformedPrimitive, naming a definition and
+// placing it. Both matrices are PBRT's own, `renderFromInstance` and its
+// inverse as `Transform` stores the pair, because the renderer needs both: the
+// forward one places the object's bounds and the interaction it finds, and the
+// inverse pulls a ray back into the object.
+struct Instance {
+    uint32_t definition = 0;
+    float render_from_instance[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                      0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    float instance_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                      0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+};
+
+// What the top-level tree's leaves name, in the order they name it, when the
+// tree is PBRT's: PBRT's BVHAggregate is built over its shapes and its
+// instances together and reorders the mixture, so the order is a list of
+// (which kind, which one) rather than a permutation of either list.
+enum PrimKind : uint32_t {
+    PrimShape = 0,    // `index` into `shapes`
+    PrimInstance = 1, // `index` into `instances`
+};
+
+struct Prim {
+    uint32_t kind = PrimShape;
+    uint32_t index = 0;
+};
+
 enum SamplerTag : uint32_t {
     Independent = 0,
     Stratified = 1,
@@ -512,6 +553,17 @@ struct Scene {
     float scene_radius = 0.f;
     std::vector<Shape> shapes;
     std::vector<Node> nodes;
+
+    // PBRT's instancing: the definitions' shapes, the definitions as runs of
+    // them, and the instances placing them. `instance_nodes` and `prims` are
+    // filled only alongside `nodes`, when the trees are PBRT's own -- the
+    // former one pool of every definition's tree, the latter the top-level
+    // tree's leaf order over shapes and instances together.
+    std::vector<Shape> instance_shapes;
+    std::vector<Definition> definitions;
+    std::vector<Instance> instances;
+    std::vector<Node> instance_nodes;
+    std::vector<Prim> prims;
 
     // The three vertices of a triangle, as PBRT's
     // `&mesh->vertexIndices[3 * triIndex]` reads them, with the mesh's own
@@ -826,31 +878,60 @@ inline bool write(const char *path, const Scene &scene) {
         out << '\n';
     }
 
-    out << "shapes " << scene.shapes.size() << '\n';
-    for (const Shape &s : scene.shapes) {
-        if (s.tag == ShapeTag::Sphere) {
-            out << "  sphere";
-            detail::put(out, s.center, 3);
-            detail::put(out, &s.radius, 1);
-            out << " flip " << s.flip;
-        } else {
-            out << "  tri " << s.mesh << ' ' << s.tri;
+    const auto put_shapes = [&](const char *name,
+                                const std::vector<Shape> &shapes) {
+        out << name << ' ' << shapes.size() << '\n';
+        for (const Shape &s : shapes) {
+            if (s.tag == ShapeTag::Sphere) {
+                out << "  sphere";
+                detail::put(out, s.center, 3);
+                detail::put(out, &s.radius, 1);
+                out << " flip " << s.flip;
+            } else {
+                out << "  tri " << s.mesh << ' ' << s.tri;
+            }
+            out << " material " << s.material << " light " << s.light
+                << " alpha " << s.alpha << '\n';
         }
-        out << " material " << s.material << " light " << s.light << " alpha "
-            << s.alpha << '\n';
-    }
+    };
+    const auto put_nodes = [&](const char *name,
+                               const std::vector<Node> &nodes) {
+        out << name << ' ' << nodes.size() << '\n';
+        for (const Node &n : nodes) {
+            out << (n.n_prims == 0 ? "  interior" : "  leaf");
+            detail::put(out, n.low, 3);
+            detail::put(out, n.high, 3);
+            if (n.n_prims == 0) {
+                out << " axis " << n.axis << " right " << n.offset;
+            } else {
+                out << " first " << n.offset << " count " << n.n_prims;
+            }
+            out << '\n';
+        }
+    };
 
-    out << "nodes " << scene.nodes.size() << '\n';
-    for (const Node &n : scene.nodes) {
-        out << (n.n_prims == 0 ? "  interior" : "  leaf");
-        detail::put(out, n.low, 3);
-        detail::put(out, n.high, 3);
-        if (n.n_prims == 0) {
-            out << " axis " << n.axis << " right " << n.offset;
-        } else {
-            out << " first " << n.offset << " count " << n.n_prims;
-        }
+    put_shapes("shapes", scene.shapes);
+    put_nodes("nodes", scene.nodes);
+
+    put_shapes("instance_shapes", scene.instance_shapes);
+    out << "definitions " << scene.definitions.size() << '\n';
+    for (const Definition &d : scene.definitions) {
+        out << "  first " << d.first_shape << " count " << d.shape_count
+            << " root " << d.root_node << '\n';
+    }
+    out << "instances " << scene.instances.size() << '\n';
+    for (const Instance &i : scene.instances) {
+        out << "  definition " << i.definition << " render_from_instance";
+        detail::put(out, i.render_from_instance, 16);
+        out << " instance_from_render";
+        detail::put(out, i.instance_from_render, 16);
         out << '\n';
+    }
+    put_nodes("instance_nodes", scene.instance_nodes);
+    out << "prims " << scene.prims.size() << '\n';
+    for (const Prim &p : scene.prims) {
+        out << (p.kind == PrimShape ? "  shape " : "  instance ") << p.index
+            << '\n';
     }
     return bool(out);
 }
@@ -1364,91 +1445,195 @@ inline bool read(const char *path, Scene &scene) {
         scene.infinite_lights.push_back(l);
     }
 
-    if (!(in >> word) || word != "shapes") {
+    const auto get_shapes = [&](const char *name,
+                                std::vector<Shape> &shapes) {
+        if (!tagged(name)) {
+            return false;
+        }
+        in >> count;
+        shapes.clear();
+        for (size_t i = 0; i < count; i++) {
+            if (!(in >> word)) {
+                return false;
+            }
+            Shape s;
+            if (word == "sphere") {
+                s.tag = ShapeTag::Sphere;
+                floats(s.center, 3);
+                floats(&s.radius, 1);
+                if (!tagged("flip")) {
+                    return false;
+                }
+                in >> s.flip;
+            } else if (word == "tri") {
+                s.tag = ShapeTag::Triangle;
+                in >> s.mesh >> s.tri;
+                if (s.mesh >= scene.meshes.size()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+            if (!tagged("material")) {
+                return false;
+            }
+            in >> s.material;
+            if (s.material >= scene.materials.size()) {
+                return false;
+            }
+            if (!tagged("light")) {
+                return false;
+            }
+            in >> s.light;
+            if (s.light >= int32_t(scene.lights.size())) {
+                return false;
+            }
+            if (!tagged("alpha")) {
+                return false;
+            }
+            in >> s.alpha;
+            if (s.alpha >= int32_t(scene.textures.size())) {
+                return false;
+            }
+            shapes.push_back(s);
+        }
+        return bool(in);
+    };
+    const auto get_nodes = [&](const char *name, std::vector<Node> &nodes) {
+        if (!tagged(name)) {
+            return false;
+        }
+        in >> count;
+        nodes.clear();
+        for (size_t i = 0; i < count; i++) {
+            if (!(in >> word)) {
+                return false;
+            }
+            Node n = {};
+            const bool interior = word == "interior";
+            if (!interior && word != "leaf") {
+                return false;
+            }
+            floats(n.low, 3);
+            floats(n.high, 3);
+            std::string a, b;
+            uint32_t x = 0, y = 0;
+            in >> a >> x >> b >> y;
+            if (interior) {
+                if (a != "axis" || b != "right") {
+                    return false;
+                }
+                n.axis = uint16_t(x);
+                n.offset = y;
+                n.n_prims = 0;
+            } else {
+                if (a != "first" || b != "count") {
+                    return false;
+                }
+                n.offset = x;
+                n.n_prims = uint16_t(y);
+            }
+            nodes.push_back(n);
+        }
+        return bool(in);
+    };
+
+    if (!get_shapes("shapes", scene.shapes) ||
+        !get_nodes("nodes", scene.nodes) ||
+        !get_shapes("instance_shapes", scene.instance_shapes)) {
         return false;
-    }
-    in >> count;
-    scene.shapes.clear();
-    for (size_t i = 0; i < count; i++) {
-        if (!(in >> word)) {
-            return false;
-        }
-        Shape s;
-        if (word == "sphere") {
-            s.tag = ShapeTag::Sphere;
-            floats(s.center, 3);
-            floats(&s.radius, 1);
-            if (!tagged("flip")) {
-                return false;
-            }
-            in >> s.flip;
-        } else if (word == "tri") {
-            s.tag = ShapeTag::Triangle;
-            in >> s.mesh >> s.tri;
-            if (s.mesh >= scene.meshes.size()) {
-                return false;
-            }
-        } else {
-            return false;
-        }
-        if (!tagged("material")) {
-            return false;
-        }
-        in >> s.material;
-        if (s.material >= scene.materials.size()) {
-            return false;
-        }
-        if (!tagged("light")) {
-            return false;
-        }
-        in >> s.light;
-        if (s.light >= int32_t(scene.lights.size())) {
-            return false;
-        }
-        if (!tagged("alpha")) {
-            return false;
-        }
-        in >> s.alpha;
-        if (s.alpha >= int32_t(scene.textures.size())) {
-            return false;
-        }
-        scene.shapes.push_back(s);
     }
 
-    if (!(in >> word) || word != "nodes") {
+    if (!tagged("definitions")) {
         return false;
     }
     in >> count;
-    scene.nodes.clear();
+    scene.definitions.clear();
     for (size_t i = 0; i < count; i++) {
+        Definition d;
+        if (!tagged("first")) {
+            return false;
+        }
+        in >> d.first_shape;
+        if (!tagged("count")) {
+            return false;
+        }
+        in >> d.shape_count;
+        if (!tagged("root")) {
+            return false;
+        }
+        in >> d.root_node;
+        if (size_t(d.first_shape) + d.shape_count >
+            scene.instance_shapes.size()) {
+            return false;
+        }
+        scene.definitions.push_back(d);
+    }
+
+    if (!tagged("instances")) {
+        return false;
+    }
+    in >> count;
+    scene.instances.clear();
+    for (size_t i = 0; i < count; i++) {
+        Instance inst;
+        if (!tagged("definition")) {
+            return false;
+        }
+        in >> inst.definition;
+        if (inst.definition >= scene.definitions.size()) {
+            return false;
+        }
+        if (!tagged("render_from_instance")) {
+            return false;
+        }
+        floats(inst.render_from_instance, 16);
+        if (!tagged("instance_from_render")) {
+            return false;
+        }
+        floats(inst.instance_from_render, 16);
+        scene.instances.push_back(inst);
+    }
+
+    if (!get_nodes("instance_nodes", scene.instance_nodes)) {
+        return false;
+    }
+    for (const Definition &d : scene.definitions) {
+        if (!scene.instance_nodes.empty() &&
+            d.root_node >= scene.instance_nodes.size()) {
+            return false;
+        }
+    }
+
+    if (!tagged("prims")) {
+        return false;
+    }
+    in >> count;
+    scene.prims.clear();
+    for (size_t i = 0; i < count; i++) {
+        Prim p;
         if (!(in >> word)) {
             return false;
         }
-        Node n = {};
-        const bool interior = word == "interior";
-        if (!interior && word != "leaf") {
+        if (word == "shape") {
+            p.kind = PrimShape;
+        } else if (word == "instance") {
+            p.kind = PrimInstance;
+        } else {
             return false;
         }
-        floats(n.low, 3);
-        floats(n.high, 3);
-        std::string a, b;
-        uint32_t x = 0, y = 0;
-        in >> a >> x >> b >> y;
-        if (interior) {
-            if (a != "axis" || b != "right") {
-                return false;
-            }
-            n.axis = uint16_t(x);
-            n.offset = y;
-            n.n_prims = 0;
-        } else {
-            if (a != "first" || b != "count") {
-                return false;
-            }
-            n.offset = x;
-            n.n_prims = uint16_t(y);
+        in >> p.index;
+        const size_t limit = p.kind == PrimShape ? scene.shapes.size()
+                                                 : scene.instances.size();
+        if (p.index >= limit) {
+            return false;
         }
-        scene.nodes.push_back(n);
+        scene.prims.push_back(p);
+    }
+    // A tree of PBRT's names every shape and every instance exactly once.
+    if (!scene.nodes.empty() &&
+        scene.prims.size() != scene.shapes.size() + scene.instances.size()) {
+        return false;
     }
 
     if (!in) {
