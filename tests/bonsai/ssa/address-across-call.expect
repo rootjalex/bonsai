@@ -69,15 +69,12 @@ func pick(b : Blob, k : f32) -> f32 {
   } else {
     let @7 = b.payload in
     let @8 = (&@7) in
-    let @9 = (*@8) in
-    let y = @9.y in
-    let @11 = b.payload in
-    let @12 = (&@11) in
-    let @13 = (*@12) in
-    let z = @13.z in
-    let @15 = y + z in
-    let @16 = @15 * k in
-    return @16
+    let _t2 = (*@8) in
+    let y = _t2.y in
+    let z = _t2.z in
+    let @12 = y + z in
+    let @13 = @12 * k in
+    return @13
   }
 }
 

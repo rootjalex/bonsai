@@ -3,6 +3,7 @@ add_bonsai_tests(
     FILES
     collapse.bonsai
     constant-fold.bonsai
+    cse-loop.bonsai
     dce-flip-if.bonsai
     dce-hygiene.bonsai
     dce-mut.bonsai

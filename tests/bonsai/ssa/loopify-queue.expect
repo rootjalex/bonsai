@@ -6,31 +6,29 @@ func visit(node : i32, out : mut i32[16], depth : i32) -> void {
   !stack0[0u] = depth
   !count = 1u
   while ((*!count) != 0u) {
-    let @11 = (*!count) in
-    let @12 = @11 - 1u in
-    !count = @12
-    let @13 = !stack[@12] in
-    let @14 = !stack0[@12] in
-    let node!top = @13 in
-    let depth!top = @14 in
+    let @9 = (*!count) in
+    let @10 = @9 - 1u in
+    !count = @10
+    let @11 = !stack[@10] in
+    let @12 = !stack0[@10] in
+    let node!top = @11 in
+    let depth!top = @12 in
     let @0 = depth!top <= 0 in
     if (!@0) {
       out[node!top] = depth!top
-      let @2 = node!top << 1 in
-      let @3 = depth!top - 1 in
-      let @15 = (*!count) in
-      !stack[@15] = @2
-      !stack0[@15] = @3
-      let @18 = @15 + 1u in
-      !count = @18
-      let @4 = node!top << 1 in
-      let @5 = @4 + 1 in
-      let @6 = depth!top - 1 in
-      let @19 = (*!count) in
-      !stack[@19] = @5
-      !stack0[@19] = @6
-      let @22 = @19 + 1u in
-      !count = @22
+      let _t0 = node!top << 1 in
+      let _t1 = depth!top - 1 in
+      let @13 = (*!count) in
+      !stack[@13] = _t0
+      !stack0[@13] = _t1
+      let @16 = @13 + 1u in
+      !count = @16
+      let @4 = _t0 + 1 in
+      let @17 = (*!count) in
+      !stack[@17] = @4
+      !stack0[@17] = _t1
+      let @20 = @17 + 1u in
+      !count = @20
     }
   }
   return

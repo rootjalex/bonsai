@@ -210,6 +210,44 @@ struct CodeGen_LLVM : public ir::Visitor {
 
   private:
     llvm::FunctionType *get_function_type(const ir::Type &type);
+
+    // The aggregate a function returns through a hidden pointer argument
+    // instead of in registers, or null when it returns directly.
+    //
+    // A first-class aggregate return is legalised by handing each leaf its own
+    // register: on x86-64 that is XMM0 and XMM1 for floating-point and vector
+    // leaves and EAX, EDX and ECX for integer ones, and the third
+    // floating-point leaf goes on the *x87 stack* -- an `fstps` on the way out
+    // and an `flds` on the way in, four billion of them in a render of the
+    // pavilion, and the FP scheduler stalling around them. C++ never sees
+    // this because its ABI returns anything over two eightbytes through a
+    // pointer the caller provides. So does this, for exactly the aggregates
+    // the return registers cannot hold; the ones they can -- `option[i32]`, a
+    // pair of floats -- keep the register return, which is cheaper than a
+    // store and a load.
+    llvm::Type *indirect_return_type(const ir::Type &ret_type);
+
+    // An alloca at the top of the current function's entry block: where a
+    // callee returning through a hidden pointer puts its result. In the entry
+    // block so that it is one slot however often the call runs, and so that
+    // SROA can take it apart once the callee is inlined.
+    llvm::AllocaInst *create_entry_alloca(llvm::Type *type,
+                                          const std::string &name);
+
+    // A call, with the hidden return pointer threaded through when the
+    // callee returns through one; yields the returned value either way.
+    llvm::Value *emit_call(llvm::FunctionCallee callee, llvm::Type *sret_type,
+                           std::vector<llvm::Value *> args,
+                           const std::string &name = "");
+    // The same, reading whether there is a hidden pointer off the callee's
+    // own declaration.
+    llvm::Value *emit_call(llvm::Function *callee,
+                           std::vector<llvm::Value *> args,
+                           const std::string &name = "");
+
+    // The hidden return pointer of the function being compiled, or null when
+    // it returns in registers.
+    llvm::Value *current_sret = nullptr;
     // Recursively creates IR that will print the given expression. This
     // performs exactly one call to C's `printf` with the string `to_print` and
     // the arguments `args`.

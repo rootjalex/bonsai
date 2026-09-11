@@ -43,8 +43,10 @@ add_bonsai_tests(
     sampler.bonsai
     select-const-arms.bonsai
     shadowed-let.bonsai
+    sret.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
+    alias-edges.bonsai
     map-func.bonsai
     match-expr.bonsai
     map.bonsai

@@ -206,8 +206,12 @@ struct ComputeUseCounts : ir::Visitor {
     DepUseCountMap dependent_use_counts;
     // Name of the current variable whose definition is being traversed.
     std::string curr_var;
+    // Which function this is counting in, for the messages below.
+    std::string context;
 
-    ComputeUseCounts(const std::set<std::string> &mutable_func_args) {
+    ComputeUseCounts(const std::set<std::string> &mutable_func_args,
+                     std::string context = "")
+        : context(std::move(context)) {
         for (const auto &arg : mutable_func_args) {
             // Conservatively set to 1, so Store statements are not removed.
             use_counts[arg] = 1;
@@ -249,10 +253,13 @@ struct ComputeUseCounts : ir::Visitor {
         // TODO(ajr): Should LetStmts just contain a string name for writes? Can
         // never immutably write to an access.
         internal_assert(!use_counts.contains(node->loc.base))
-            << "ComputeUseCounts already active for var: " << node->loc;
+            << "ComputeUseCounts already active for var: " << node->loc
+            << " bound to " << node->value
+            << (context.empty() ? "" : " in " + context);
         internal_assert(!dependent_use_counts.contains(node->loc.base))
             << "ComputeUseCounts already active for var (dependent): "
-            << node->loc;
+            << node->loc << " bound to " << node->value
+            << (context.empty() ? "" : " in " + context);
 
         use_counts[node->loc.base] = 0;
         dependent_use_counts[node->loc.base] = {};
@@ -579,9 +586,10 @@ void delete_dead_functions(ir::FuncMap &funcs) {
 // TODO(ajr): for non-exported functions, we can remove mutable args that
 // are never used.
 ir::Stmt dce(ir::Stmt stmt, const std::set<std::string> &mutable_func_args,
-             const std::set<std::string> &se_functions) {
+             const std::set<std::string> &se_functions,
+             const std::string &context) {
     stmt = NameHygiene().mutate(std::move(stmt));
-    ComputeUseCounts analyzer(mutable_func_args);
+    ComputeUseCounts analyzer(mutable_func_args, context);
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts),
@@ -604,7 +612,7 @@ ir::FuncMap DCE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     for (auto &[name, func] : funcs) {
         std::set<std::string> mutable_func_args = func->mutable_args();
         func->body =
-            dce(std::move(func->body), mutable_func_args, se_functions);
+            dce(std::move(func->body), mutable_func_args, se_functions, name);
     }
     return funcs;
 }

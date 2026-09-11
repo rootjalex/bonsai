@@ -306,9 +306,25 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
     step->terminator.data = std::move(enter);
     std::vector<shared_ptr<Block>> added = {step};
 
+    // What the step reads from outside itself -- the inner trip count, and
+    // whichever bounds and strides are not constants -- make_instruction
+    // threaded in as arguments of the step, behind its index. It had no
+    // predecessor to hand them on to, since the step's one predecessor is the
+    // loop being made here: so the loop's edge into it passes them, each the
+    // header's value of the same name.
+    std::vector<shared_ptr<Value>> into_step;
+    for (size_t k = 1; k < step->args.size(); k++) {
+        into_step.push_back(
+            header->get_value(step->args[k].name, step->args[k].type));
+    }
+
     header->terminator.data = Terminator::ParFor{
-        collapsed,          constant(itype, 0),           total,
-        constant(itype, 1), Terminator::Jump{step->name}, outer_loop.cont};
+        collapsed,
+        constant(itype, 0),
+        total,
+        constant(itype, 1),
+        Terminator::Jump{step->name, std::move(into_step)},
+        outer_loop.cont};
 
     // The inner loop's continuation only existed to end the outer loop's body,
     // which the body's own yield now does.

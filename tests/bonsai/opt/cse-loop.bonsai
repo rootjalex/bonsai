@@ -1,0 +1,38 @@
+//! flags: -p core -p cse
+
+// Common subexpressions in and around a loop.
+//
+// CSE first renames every compound value to a temporary, and it has to visit
+// a loop's body before the loop's condition: the condition is re-evaluated on
+// every trip, so a value it shares with the body -- `b.n` here, read by the
+// test and again by the body -- is the body's to define, and the renaming has
+// to see the body's definition first for the two to be given one name. Doing
+// the condition first made the analysis meet the body's copy of the value
+// while its own bookkeeping for that value was still open, and it stopped
+// with "ComputeUseCounts already active". The `for` is the same shape with
+// the loop's own bounds standing in for the condition.
+
+element B {
+    n : i32;
+    x : f32;
+}
+
+func f(b : B) -> f32 {
+    s : mut i32 = 0;
+    acc : mut f32 = 0.0;
+    while s < b.n {
+        acc = acc + b.x * cast[[f32]](b.n);
+        s = s + 1;
+    }
+    return acc / cast[[f32]](b.n);
+}
+
+func h(b : B) -> f32 {
+    acc : mut f32 = 0.0;
+    for i in 0:b.n {
+        acc = acc + b.x * cast[[f32]](b.n) + cast[[f32]](i);
+    }
+    return acc / cast[[f32]](b.n);
+}
+
+func [[export]] g(b : B) -> f32 = f(b) + h(b);

@@ -1,6 +1,7 @@
 #include "Lower/Lower.h"
 
 #include "IR/Mutator.h"
+#include "IR/Printer.h"
 #include "Lower/ADTs.h"
 #include "Lower/Bindings.h"
 #include "Lower/Canonicalize.h"
@@ -44,6 +45,8 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -67,8 +70,54 @@ void lower(ir::Program &program, const CompilerOptions &options) {
     }
 
     // Run the passes.
+    //
+    // BONSAI_DUMP_AFTER names a pass, or `all`, after which the whole program
+    // is printed to stderr -- the equivalent of LLVM's -print-after, for
+    // finding which pass turned a program that was right into one that is
+    // not. Several names may be given, separated by commas.
+    const char *dump_after = std::getenv("BONSAI_DUMP_AFTER");
+    const std::string dump_list = dump_after ? dump_after : "";
+    const auto dumps = [&](const std::string &name) {
+        if (dump_list.empty()) {
+            return false;
+        }
+        if (dump_list == "all") {
+            return true;
+        }
+        size_t start = 0;
+        while (start <= dump_list.size()) {
+            const size_t comma = dump_list.find(',', start);
+            const std::string item = dump_list.substr(
+                start, comma == std::string::npos ? std::string::npos
+                                                  : comma - start);
+            if (item == name) {
+                return true;
+            }
+            if (comma == std::string::npos) {
+                break;
+            }
+            start = comma + 1;
+        }
+        return false;
+    };
     for (Pass *pass : passes) {
         program = pass->run(std::move(program), options);
+        if (dumps(pass->name())) {
+            // Verbosely, so that imported functions -- most of a program
+            // that spans files -- are printed too.
+            std::cerr << "=== after pass " << pass->name() << "\n";
+            ir::Printer(std::cerr, /*verbose=*/true).print(program);
+            std::cerr << "\n";
+            // Once the program is in SSA the printer above shows it relooped
+            // into statements; the blocks themselves, with their arguments
+            // and the jumps that feed them, are what a question about a name
+            // that went missing needs.
+            for (const auto &[name, f] : program.ssa_funcs) {
+                std::cerr << "--- ssa " << name << "\n";
+                f->dump(std::cerr);
+                std::cerr << "\n";
+            }
+        }
     }
 }
 
@@ -236,6 +285,16 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<opt::Simplify>());
     ssa.push_back(std::make_unique<opt::DCE>());
     ssa.push_back(std::make_unique<opt::Inline>());
+    // Common subexpressions, once inlining has put them in one function. A
+    // tree query asks `distmin(r, g)` twice per candidate -- once against the
+    // running best, once as the key -- and for a triangle each is a whole
+    // `triangle_hit(r, tri)` on the same ray and the same triangle. LLVM
+    // could not merge the two, because the triangle is fetched from its pool
+    // between them and the traversal's own stack stores stand between the
+    // fetches. (The query's `intersects(r, g)` is a third test of the same
+    // triangle, which this cannot reach: it is a different function on the
+    // Shape variant, with a `match` of its own around the test.)
+    ssa.push_back(std::make_unique<opt::CSE>());
     // Clean up any dead functions after inlining.
     ssa.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.

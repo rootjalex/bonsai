@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS ssa
     FILES
     address-across-call.bonsai
+    alias-edges.bonsai
     calls.bonsai
     collapse.bonsai
     divergence.bonsai

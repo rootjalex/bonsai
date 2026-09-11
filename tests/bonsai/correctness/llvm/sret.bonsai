@@ -1,0 +1,71 @@
+//! flags: -p ssa -b llvm -e
+
+// Aggregates returned through a hidden pointer, run.
+//
+// The LLVM backend returns a struct of more than two floating-point leaves,
+// or more than three integer ones, through an `sret` argument rather than as
+// a first-class aggregate (see backends/llvm/sret.bonsai for why). What is
+// checked is that every field comes back where it went in, across the three
+// shapes of return: a call consumed by its caller, a tail-recursive function
+// that hands its own slot on, and a struct small enough to stay in registers
+// beside one that is not.
+
+element vec3f = vector[f32, 3];
+
+element F2 {
+    a : f32;
+    b : f32;
+}
+
+element F4 {
+    a : f32;
+    b : f32;
+    c : f32;
+    d : f32;
+}
+
+element I4 {
+    a : i32;
+    b : i32;
+    c : i32;
+    d : i32;
+}
+
+element VN {
+    v : vec3f;
+    n : i32;
+}
+
+func make_f2(x : f32) -> F2 = F2{x, x * 2.0};
+
+func make_f4(x : f32) -> F4 = F4{x, x * 2.0, x * 3.0, x * 4.0};
+
+func make_i4(x : i32) -> I4 = I4{x, x + 1, x + 2, x + 3};
+
+func make_vn(x : f32, n : i32) -> VN = VN{vec3f{x, x * 2.0, x * 3.0}, n};
+
+func count_up(acc : F4, n : i32) -> F4 {
+    if n == 0 {
+        return acc;
+    }
+    return count_up(F4{acc.a + 1.0, acc.b + 2.0, acc.c, acc.d}, n - 1);
+}
+
+func main() -> i32 {
+    f2 = make_f2(1.5);
+    print(f2.a, f2.b);
+
+    f4 = make_f4(1.5);
+    print(f4.a, f4.b, f4.c, f4.d);
+
+    i4 = make_i4(10);
+    print(i4.a, i4.b, i4.c, i4.d);
+
+    vn = make_vn(0.5, 7);
+    print(vn.v.x, vn.v.y, vn.v.z, vn.n);
+
+    // Five steps: a up by 5, b up by 10, c and d carried through untouched.
+    c = count_up(F4{0.0, 0.0, 3.0, 4.0}, 5);
+    print(c.a, c.b, c.c, c.d);
+    return 0;
+}

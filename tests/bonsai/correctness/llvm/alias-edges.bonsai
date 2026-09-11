@@ -1,0 +1,78 @@
+//! flags: -p ssa -b llvm -e
+
+// One value under two names, crossing the edges of the block graph, run.
+//
+// The shapes are those of ssa/alias-edges.bonsai, which says what goes wrong
+// in each. Here they are executed: the arm that used to read a name nobody
+// bound, and the merge whose storage one path used to leave unwritten. The
+// second is the one that mattered most, since an unwritten stack slot reads
+// as whatever was there and would not fail loudly.
+
+element vec3f = vector[f32, 3];
+
+element PS {
+    p : f32;
+    wi : vec3f;
+    pdf : f32;
+}
+
+func sample(x : f32) -> PS {
+    if x < 0.0 {
+        return PS{0.0, vec3f{0.0, 0.0, 0.0}, 0.0};
+    }
+    return PS{x, vec3f{x, x, x * 2.0}, x - 1.0};
+}
+
+func through_arm(x : f32, n : i32) -> f32 {
+    beta : mut f32 = 1.0;
+    w : mut vec3f = vec3f{0.0, 0.0, 1.0};
+    depth : mut i32 = 0;
+    while depth < n {
+        ps = sample(x + cast[[f32]](depth));
+        if (ps.pdf == 0.0) || (ps.wi.z == 0.0) {
+            beta = 0.0;
+        } else {
+            beta = beta * ps.p / ps.pdf;
+            w = ps.wi;
+            beta = beta + ps.pdf;
+        }
+        depth = depth + 1;
+    }
+    return beta * w.z;
+}
+
+func through_storage(x : f32, n : i32) -> f32 {
+    acc : mut f32 = 0.0;
+    depth : mut i32 = 0;
+    while depth < n {
+        v = sample(x + cast[[f32]](depth));
+        u = v.wi / vec3f{v.pdf, v.pdf, v.pdf};
+        if v.p < 0.5 {
+            acc = acc + sample(u.x).p;
+        }
+        acc = acc + u.x * u.y + sample(u.z).pdf;
+        depth = depth + 1;
+    }
+    return acc;
+}
+
+func through_call(x : f32) -> f32 {
+    ps = sample(x * 2.0);
+    d = ps.p * ps.pdf;
+    q = sample(x + 1.0);
+    a = q.p * d + q.pdf;
+    b = (d + 1.0) * (d + 1.0);
+    return a + b + ps.wi.x;
+}
+
+func main() -> i32 {
+    // Three samples, none rejected: beta = ((1.5/0.5 + 0.5) * 2.5/1.5 + 1.5)
+    // * 3.5/2.5 + 2.5 and w.z the last sample's 7.
+    print(through_arm(1.5, 3));
+    // The first sample is rejected: pdf is 0.
+    print(through_arm(1.0, 2));
+    // p = 0.25 takes the branch on the first trip and not on the second.
+    print(through_storage(0.25, 2));
+    print(through_call(1.5));
+    return 0;
+}

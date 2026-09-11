@@ -1,0 +1,93 @@
+//! flags: -p ssa
+
+// One value under two names, crossing the edges of the block graph.
+//
+// CSE leaves a value with two names when it has given a compound expression
+// a temporary and some use of the original name survives: `let _t = e in let
+// v = _t in ...`, with `_t` wanted here and `v` there. The SSA builder makes
+// that one instruction and renames it (`Block::make_instruction`), and then
+// threads it into the blocks that use it under whichever name each asked
+// for. So an edge can hand a block the instruction called `v` for a
+// parameter called `_t`, and the structured code has to bind `_t` at that
+// edge -- exactly as it binds an argument that arrives as some other value.
+//
+// The relooper used to assume that never happened: a call continuation bound
+// only arguments with no binding of their own, and a branch into an arm bound
+// nothing at all, so the arm read a name nobody had defined. And where the two
+// names met at a merge, the mutability analysis, which compares names, saw a
+// phi and made the parameter storage -- which the arm that passed the name on
+// under its own name never wrote, so the merge read storage nothing had
+// stored to. This checks all three shapes: the arm, the merge that becomes
+// storage, and a call the value lives across.
+
+element vec3f = vector[f32, 3];
+
+element PS {
+    p : f32;
+    wi : vec3f;
+    pdf : f32;
+}
+
+func sample(x : f32) -> PS {
+    if x < 0.0 {
+        return PS{0.0, vec3f{0.0, 0.0, 0.0}, 0.0};
+    }
+    return PS{x, vec3f{x, x, x * 2.0}, x - 1.0};
+}
+
+// `ps` is the sample and `_t` its temporary; the condition asks for the
+// temporary, the else arm for both. The arm has to begin by binding the one
+// it is handed under the other's name.
+func through_arm(x : f32, n : i32) -> f32 {
+    beta : mut f32 = 1.0;
+    w : mut vec3f = vec3f{0.0, 0.0, 1.0};
+    depth : mut i32 = 0;
+    while depth < n {
+        ps = sample(x + cast[[f32]](depth));
+        if (ps.pdf == 0.0) || (ps.wi.z == 0.0) {
+            beta = 0.0;
+        } else {
+            beta = beta * ps.p / ps.pdf;
+            w = ps.wi;
+            beta = beta + ps.pdf;
+        }
+        depth = depth + 1;
+    }
+    return beta * w.z;
+}
+
+// `u` is wanted after the `if` under its temporary's name, so the merge takes
+// it as a parameter: the then arm threads it through under that name and the
+// else edge passes the instruction, called `u`. Two names, one value, and the
+// analysis makes the parameter storage. Both edges into the merge must store
+// to it -- the arm that carries the name on as much as the edge that passes
+// the instruction -- or the merge reads whatever was there before.
+func through_storage(x : f32, n : i32) -> f32 {
+    acc : mut f32 = 0.0;
+    depth : mut i32 = 0;
+    while depth < n {
+        v = sample(x + cast[[f32]](depth));
+        u = v.wi / vec3f{v.pdf, v.pdf, v.pdf};
+        if v.p < 0.5 {
+            acc = acc + sample(u.x).p;
+        }
+        acc = acc + u.x * u.y + sample(u.z).pdf;
+        depth = depth + 1;
+    }
+    return acc;
+}
+
+// The sample and a value made from it, both live across a second call, so the
+// continuation takes them as arguments and the call site hands them over.
+func through_call(x : f32) -> f32 {
+    ps = sample(x * 2.0);
+    d = ps.p * ps.pdf;
+    q = sample(x + 1.0);
+    a = q.p * d + q.pdf;
+    b = (d + 1.0) * (d + 1.0);
+    return a + b + ps.wi.x;
+}
+
+func [[export]] run(x : f32, n : i32) -> f32 {
+    return through_arm(x, n) + through_storage(x, n) + through_call(x);
+}

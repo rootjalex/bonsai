@@ -1,23 +1,22 @@
 func both_ways(a : f32[8], k : f32, out : mut f32[8]) -> void {
-  let @0 = a[ramp(0, 1, 8)] in
-  let @10 = f32x8(k) in
-  let @1 = @0 * @10 in
+  let _t0 = a[ramp(0, 1, 8)] in
+  let @8 = f32x8(k) in
+  let @1 = _t0 * @8 in
   out[ramp(0, 1, 8)] = @1
-  let @3 = a[ramp(0, 1, 8)] in
-  let @11 = f32x8(0f) in
-  let @4 = @11 < @3 in
-  let @12 = boolx8(false) in
-  let @13 = boolx8(true) in
-  let @8 = select(@4, @12, @13) in
-  let @5 = a[ramp(0, 1, 8)] in
-  let @14 = f32x8(100f) in
-  let @6 = @5 * @14 in
-  masked_store(out[ramp(0, 1, 8)], @6, @4)
+  let @9 = f32x8(0f) in
+  let @3 = @9 < _t0 in
+  let @10 = boolx8(false) in
+  let @11 = boolx8(true) in
+  let @6 = select(@3, @10, @11) in
+  let @12 = f32x8(100f) in
+  let @4 = _t0 * @12 in
+  masked_store(out[ramp(0, 1, 8)], @4, @3)
   return
 }
 
 func chained(a : f32[8], out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
+  let i = ramp(0, 1, 8) in
   let @1 = inner$gang8_v0(@0) in
   let @5 = f32x8(2f) in
   let @2 = @1 * @5 in
@@ -47,6 +46,7 @@ func clip$gang8_v0(x : f32x8, lo : f32) -> f32x8 {
 
 func clip_all(a : f32[8], lo : f32, out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
+  let i = ramp(0, 1, 8) in
   let @1 = clip$gang8_v0(@0, lo) in
   out[ramp(0, 1, 8)] = @1
   return

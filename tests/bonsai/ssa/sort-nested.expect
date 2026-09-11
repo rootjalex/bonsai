@@ -37,95 +37,67 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
   !stack[0u] = instances_index
   !count = 1u
   while ((*!count) != 0u) {
-    let @72 = (*!count) in
-    let @73 = @72 - 1u in
-    !count = @73
-    let @74 = !stack[@73] in
-    let instances_index!top = @74 in
+    let @44 = (*!count) in
+    let @45 = @44 - 1u in
+    !count = @45
+    let @46 = !stack[@45] in
+    let instances_index!top = @46 in
     let @0 = instances.group1_index in
-    let @1 = @0[instances_index!top] in
-    let @2 = @1.low in
-    let @3 = instances.group1_index in
-    let @4 = @3[instances_index!top] in
-    let @5 = @4.high in
-    let @6 = build<AABB>(@2, @5) in
-    let @7 = intersects_Ray_AABB(ray, @6) in
-    if (@7) {
-      let @8 = instances.group1_index in
-      let @9 = @8[instances_index!top] in
-      let @10 = @9.low in
-      let @11 = instances.group1_index in
-      let @12 = @11[instances_index!top] in
-      let @13 = @12.high in
-      let @14 = build<AABB>(@10, @13) in
-      let @15 = distmin_Ray_AABB(ray, @14) in
-      let @16 = (*_best0) in
-      let @17 = @16._field0 in
-      let @18 = @15 < @17 in
-      if (@18) {
-        let @19 = instances.group1_index in
-        let @20 = @19[instances_index!top] in
-        let @21 = @20.nInsts in
-        let @22 = @21 == 0u in
-        if (@22) {
-          let @23 = instances_index!top + 1u in
-          let @24 = instances.group1_index in
-          let @25 = @24[instances_index!top] in
-          let @26 = @25.split0on_nInsts in
-          let @27 = reinterpret_cast<_tree_layout5>(@26) in
-          let @28 = @27.offset in
-          let @29 = instances_index!top + @28 in
-          let @30 = f32x3(1f) in
-          let @31 = ray.d in
-          let @32 = @30 / @31 in
-          let @33 = instances.group1_index in
-          let @34 = @33[instances_index!top] in
-          let @35 = @34.axis in
-          let @36 = @32[@35] in
-          let @37 = @36 < 0f in
-          let @38 = cast<f32>(@37) in
-          let @39 = f32x3(1f) in
-          let @40 = ray.d in
-          let @41 = @39 / @40 in
-          let @42 = instances.group1_index in
-          let @43 = @42[instances_index!top] in
-          let @44 = @43.axis in
-          let @45 = @41[@44] in
-          let @46 = @45 < 0f in
-          let @47 = 1f - 1f in
-          let @48 = select(@46, @47, 1f) in
-          let @64 = @38 < @48 in
-          let @65 = select(@64, @38, @48) in
-          let @66 = select(@64, @48, @38) in
-          let @67 = select(@64, @23, @29) in
-          let @68 = select(@64, @29, @23) in
-          let @75 = (*!count) in
-          !stack[@75] = @68
-          let @77 = @75 + 1u in
-          !count = @77
-          let @78 = (*!count) in
-          !stack[@78] = @67
-          let @80 = @78 + 1u in
-          !count = @80
+    let _t44 = @0[instances_index!top] in
+    let @2 = _t44.low in
+    let @3 = _t44.high in
+    let _t49 = build<AABB>(@2, @3) in
+    let @5 = intersects_Ray_AABB(ray, _t49) in
+    if (@5) {
+      let @6 = distmin_Ray_AABB(ray, _t49) in
+      let @7 = (*_best0) in
+      let @8 = @7._field0 in
+      let @9 = @6 < @8 in
+      if (@9) {
+        let _t35 = _t44.nInsts in
+        let @11 = _t35 == 0u in
+        if (@11) {
+          let @12 = f32x3(1f) in
+          let @13 = ray.d in
+          let @14 = @12 / @13 in
+          let @15 = _t44.axis in
+          let @16 = @14[@15] in
+          let _t19 = @16 < 0f in
+          let @18 = instances_index!top + 1u in
+          let @19 = _t44.split0on_nInsts in
+          let @20 = reinterpret_cast<_tree_layout5>(@19) in
+          let @21 = @20.offset in
+          let @22 = instances_index!top + @21 in
+          let @23 = cast<f32>(_t19) in
+          let @24 = 1f - 1f in
+          let @25 = select(_t19, @24, 1f) in
+          let @36 = @23 < @25 in
+          let @37 = select(@36, @23, @25) in
+          let @38 = select(@36, @25, @23) in
+          let @39 = select(@36, @18, @22) in
+          let @40 = select(@36, @22, @18) in
+          let @47 = (*!count) in
+          !stack[@47] = @40
+          let @49 = @47 + 1u in
+          !count = @49
+          let @50 = (*!count) in
+          !stack[@50] = @39
+          let @52 = @50 + 1u in
+          !count = @52
         } else {
-          let @49 = instances.group1_index in
-          let @50 = @49[instances_index!top] in
-          let @51 = @50.nInsts in
-          let @52 = cast<u32>(@51) in
+          let @26 = cast<u32>(_t35) in
           _idx0 = 0u
-          while ((*_idx0) < @52) {
-            let @54 = instances.insts in
-            let @55 = instances.group1_index in
-            let @56 = @55[instances_index!top] in
-            let @57 = @56.split0on_nInsts in
-            let @58 = reinterpret_cast<_tree_layout6>(@57) in
-            let @59 = @58.pOffset in
-            let @60 = @59 + (*_idx0) in
-            let @61 = @54[@60] in
-            let _subtree0 = @61.blas in
+          while ((*_idx0) < @26) {
+            let @28 = instances.insts in
+            let @29 = _t44.split0on_nInsts in
+            let @30 = reinterpret_cast<_tree_layout6>(@29) in
+            let @31 = @30.pOffset in
+            let @32 = @31 + (*_idx0) in
+            let @33 = @28[@32] in
+            let _subtree0 = @33.blas in
             _recloop_func1(_subtree0, instances, ray, _best0, instances_index!top, (*_idx0))
-            let @63 = (*_idx0) + 1u in
-            _idx0 = @63
+            let @35 = (*_idx0) + 1u in
+            _idx0 = @35
           }
         }
       }
@@ -141,139 +113,87 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
   !stack[0u] = _subtree0_bnode
   !count = 1u
   while ((*!count) != 0u) {
-    let @112 = (*!count) in
-    let @113 = @112 - 1u in
-    !count = @113
-    let @114 = !stack[@113] in
-    let _subtree0_bnode!top = @114 in
+    let @59 = (*!count) in
+    let @60 = @59 - 1u in
+    !count = @60
+    let @61 = !stack[@60] in
+    let _subtree0_bnode!top = @61 in
     let @0 = instances.group0_bnode in
-    let @1 = @0[_subtree0_bnode!top] in
-    let @2 = @1.low in
-    let @3 = instances.group0_bnode in
-    let @4 = @3[_subtree0_bnode!top] in
-    let @5 = @4.high in
-    let @6 = build<AABB>(@2, @5) in
-    let @7 = intersects_Ray_AABB(ray, @6) in
-    if (@7) {
-      let @8 = instances.group0_bnode in
-      let @9 = @8[_subtree0_bnode!top] in
-      let @10 = @9.low in
-      let @11 = instances.group0_bnode in
-      let @12 = @11[_subtree0_bnode!top] in
-      let @13 = @12.high in
-      let @14 = build<AABB>(@10, @13) in
-      let @15 = distmin_Ray_AABB(ray, @14) in
-      let @16 = (*_best0) in
-      let @17 = @16._field0 in
-      let @18 = @15 < @17 in
-      if (@18) {
-        let @19 = instances.group0_bnode in
-        let @20 = @19[_subtree0_bnode!top] in
-        let @21 = @20.nPrims in
-        let @22 = @21 == 0u in
-        if (@22) {
-          let @23 = _subtree0_bnode!top + 1u in
-          let @24 = instances.group0_bnode in
-          let @25 = @24[_subtree0_bnode!top] in
-          let @26 = @25.split0on_nPrims in
-          let @27 = reinterpret_cast<_tree_layout2>(@26) in
-          let @28 = @27.offset in
-          let @29 = _subtree0_bnode!top + @28 in
-          let @30 = f32x3(1f) in
-          let @31 = ray.d in
-          let @32 = @30 / @31 in
-          let @33 = instances.group0_bnode in
-          let @34 = @33[_subtree0_bnode!top] in
-          let @35 = @34.axis in
-          let @36 = @32[@35] in
-          let @37 = @36 < 0f in
-          let @38 = cast<f32>(@37) in
-          let @39 = f32x3(1f) in
-          let @40 = ray.d in
-          let @41 = @39 / @40 in
-          let @42 = instances.group0_bnode in
-          let @43 = @42[_subtree0_bnode!top] in
-          let @44 = @43.axis in
-          let @45 = @41[@44] in
-          let @46 = @45 < 0f in
-          let @47 = 1f - 1f in
-          let @48 = select(@46, @47, 1f) in
-          let @104 = @38 < @48 in
-          let @105 = select(@104, @38, @48) in
-          let @106 = select(@104, @48, @38) in
-          let @107 = select(@104, @23, @29) in
-          let @108 = select(@104, @29, @23) in
-          let @115 = (*!count) in
-          !stack[@115] = @108
-          let @117 = @115 + 1u in
-          !count = @117
-          let @118 = (*!count) in
-          !stack[@118] = @107
-          let @120 = @118 + 1u in
-          !count = @120
+    let _t115 = @0[_subtree0_bnode!top] in
+    let @2 = _t115.low in
+    let @3 = _t115.high in
+    let _t120 = build<AABB>(@2, @3) in
+    let @5 = intersects_Ray_AABB(ray, _t120) in
+    if (@5) {
+      let @6 = distmin_Ray_AABB(ray, _t120) in
+      let @7 = (*_best0) in
+      let @8 = @7._field0 in
+      let @9 = @6 < @8 in
+      if (@9) {
+        let _t106 = _t115.nPrims in
+        let @11 = _t106 == 0u in
+        if (@11) {
+          let @12 = f32x3(1f) in
+          let @13 = ray.d in
+          let @14 = @12 / @13 in
+          let @15 = _t115.axis in
+          let @16 = @14[@15] in
+          let _t59 = @16 < 0f in
+          let @18 = _subtree0_bnode!top + 1u in
+          let @19 = _t115.split0on_nPrims in
+          let @20 = reinterpret_cast<_tree_layout2>(@19) in
+          let @21 = @20.offset in
+          let @22 = _subtree0_bnode!top + @21 in
+          let @23 = cast<f32>(_t59) in
+          let @24 = 1f - 1f in
+          let @25 = select(_t59, @24, 1f) in
+          let @51 = @23 < @25 in
+          let @52 = select(@51, @23, @25) in
+          let @53 = select(@51, @25, @23) in
+          let @54 = select(@51, @18, @22) in
+          let @55 = select(@51, @22, @18) in
+          let @62 = (*!count) in
+          !stack[@62] = @55
+          let @64 = @62 + 1u in
+          !count = @64
+          let @65 = (*!count) in
+          !stack[@65] = @54
+          let @67 = @65 + 1u in
+          !count = @67
         } else {
-          let @49 = instances.group0_bnode in
-          let @50 = @49[_subtree0_bnode!top] in
-          let @51 = @50.nPrims in
-          let @52 = cast<u32>(@51) in
+          let @26 = cast<u32>(_t106) in
           _idx1 = 0u
-          while ((*_idx1) < @52) {
-            let @54 = instances.prims in
-            let @55 = instances.group0_bnode in
-            let @56 = @55[_subtree0_bnode!top] in
-            let @57 = @56.split0on_nPrims in
-            let @58 = reinterpret_cast<_tree_layout3>(@57) in
-            let @59 = @58.pOffset in
-            let @60 = @59 + (*_idx1) in
-            let @61 = @54[@60] in
-            let @62 = intersectsp_ray_tri(ray, @61) in
-            let @63 = @62.set in
-            if (@63) {
-              let @64 = instances.prims in
-              let @65 = instances.group0_bnode in
-              let @66 = @65[_subtree0_bnode!top] in
-              let @67 = @66.split0on_nPrims in
-              let @68 = reinterpret_cast<_tree_layout3>(@67) in
-              let @69 = @68.pOffset in
-              let @70 = @69 + (*_idx1) in
-              let @71 = @64[@70] in
-              let @72 = distmin_Ray_Triangle(ray, @71) in
-              let @73 = (*_best0) in
-              let @74 = @73._field0 in
-              let @75 = @72 < @74 in
-              if (@75) {
-                let @76 = instances.prims in
-                let @77 = instances.group0_bnode in
-                let @78 = @77[_subtree0_bnode!top] in
-                let @79 = @78.split0on_nPrims in
-                let @80 = reinterpret_cast<_tree_layout3>(@79) in
-                let @81 = @80.pOffset in
-                let @82 = @81 + (*_idx1) in
-                let @83 = @76[@82] in
-                let @84 = distmin_Ray_Triangle(ray, @83) in
-                let @85 = instances.insts in
-                let @86 = instances.group1_index in
-                let @87 = @86[instances_index] in
-                let @88 = @87.split0on_nInsts in
-                let @89 = reinterpret_cast<_tree_layout6>(@88) in
-                let @90 = @89.pOffset in
-                let @91 = @90 + _idx0 in
-                let @92 = @85[@91] in
-                let @93 = instances.prims in
-                let @94 = instances.group0_bnode in
-                let @95 = @94[_subtree0_bnode!top] in
-                let @96 = @95.split0on_nPrims in
-                let @97 = reinterpret_cast<_tree_layout3>(@96) in
-                let @98 = @97.pOffset in
-                let @99 = @98 + (*_idx1) in
-                let @100 = @93[@99] in
-                let @101 = build<__tuple_0>(@92, @100) in
-                let @102 = build<__tuple_1>(@84, @101) in
-                _best0 = @102
+          while ((*_idx1) < @26) {
+            let @28 = instances.prims in
+            let @29 = _t115.split0on_nPrims in
+            let @30 = reinterpret_cast<_tree_layout3>(@29) in
+            let @31 = @30.pOffset in
+            let @32 = @31 + (*_idx1) in
+            let _t100 = @28[@32] in
+            let @34 = intersectsp_ray_tri(ray, _t100) in
+            let @35 = @34.set in
+            if (@35) {
+              let @36 = distmin_Ray_Triangle(ray, _t100) in
+              let _t92 = @36 in
+              let @37 = (*_best0) in
+              let @38 = @37._field0 in
+              let @39 = _t92 < @38 in
+              if (@39) {
+                let @40 = instances.insts in
+                let @41 = instances.group1_index in
+                let @42 = @41[instances_index] in
+                let @43 = @42.split0on_nInsts in
+                let @44 = reinterpret_cast<_tree_layout6>(@43) in
+                let @45 = @44.pOffset in
+                let @46 = @45 + _idx0 in
+                let @47 = @40[@46] in
+                let @48 = build<__tuple_0>(@47, _t100) in
+                let @49 = build<__tuple_1>(_t92, @48) in
+                _best0 = @49
               }
             }
-            let @103 = (*_idx1) + 1u in
-            _idx1 = @103
+            let @50 = (*_idx1) + 1u in
+            _idx1 = @50
           }
         }
       }

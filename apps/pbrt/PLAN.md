@@ -83,7 +83,8 @@ at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
 within 1% and no block systematically off. That took three fixes described
 under "what the last round added": a light leak of this renderer's own, the
 last bits of a lens camera's rays, and the texture chain made bit-exact. It
-renders 1.59x slower than pbrt there, which is the open item.
+renders 1.52x slower than pbrt there, down from 1.59x after a round on the
+compiler, and that gap is the open item.
 
 **killeroo-simple renders.** It names no integrator, so it gets `path`; it is
 lit by a sphere of radius 3 seen from four hundred units away, which a random
@@ -194,6 +195,65 @@ Two more asymmetries, both checked and both fine:
 
 ### What the last round added
 
+**The compiler, for the pavilion's speed.** Nothing in the renderer changed
+this round. The gap to pbrt on the pavilion was measured with `perf stat` and
+the compiler taken where the counts pointed, from 1.59x slower to 1.52x: 8.06 s
+against pbrt's 5.30 s at 16 samples per pixel, best of three on each side.
+
+**Aggregates come back the way the platform returns them.** The LLVM backend
+returned every struct as a first-class aggregate, and LLVM's own convention for
+one wider than two SSE registers is not the x86-64 ABI's: the third and fourth
+float leaves come back on the x87 stack. An `Interval`, a `SampledSpectrum`, a
+`PhaseSample` -- every such return was a store to memory and a load back
+through a unit nothing else in the program touches, and the counters showed 4.1
+billion x87 instructions in a render that should have had none. A struct of
+more than two floating-point leaves or three integer ones is now written
+through a hidden `sret` argument, on both the structured and the SSA paths, and
+a tail call passes its own slot straight on rather than copying
+(`CodeGen_LLVM::indirect_return_type`; `backends/llvm/sret.bonsai`).
+
+**Common subexpressions are eliminated after inlining.** `opt::CSE` existed
+and ran in no pipeline. It runs in `ssa` now, once `Inline` has put a tree
+query's tests in one function: the traversal asked `distmin(r, g)` twice per
+candidate, against the running best and again as the key, and for a triangle
+each is a whole `triangle_hit`. LLVM could not merge the two because the
+triangle is fetched from its pool between them and the traversal's own stack
+stores stand between the fetches. One remains. Turning the pass on found that
+its renaming visited a loop's condition before the loop's body, which shares
+values with it, and stopped on meeting the body's copy (`opt/cse-loop.bonsai`).
+
+**The relooper binds what an edge hands a block, on every edge.** CSE leaves a
+value under two names -- a temporary and the name the source gave it -- and
+the SSA builder makes that one instruction and threads it into the blocks that
+want it under whichever name each asked for. The structured-code generator
+assumed a block argument always arrived under its own name: a branch into an
+arm bound nothing, a call continuation bound only addresses, and where the two
+names met at a merge the mutability analysis, which compares names, made the
+parameter storage that the arm carrying the name along never wrote. Three
+miscompiles -- in `bump_map`, `coated_f` and `full_path_step` -- and the last
+of them silent, a stack slot read before anything had stored to it. Every edge
+goes through one binding routine now, and a name that is storage anywhere is
+stored to on every edge that hands it a value (`ssa/alias-edges.bonsai`,
+`correctness/llvm/alias-edges.bonsai`). The stricter check at the edges also
+caught `collapse()` building a step block whose arguments its loop never
+passed. `BONSAI_DUMP_AFTER=<pass,...|all>` prints the program after any pass
+named, which is how each of these was found.
+
+**What the counters say is left.** Measured before CSE went in -- and CSE moved
+the render time by less than the run-to-run noise, so what it removed was
+small -- this renderer retires 1.78x pbrt's floating-point operations on the
+pavilion at an IPC of 1.10 against pbrt's 1.58, with the floating-point
+scheduler stalled seven times as often. Most of the excess is in traversal and
+the leaf tests: a candidate triangle is still tested twice, once by
+`intersects` for the filter and once by `distmin` for the key, because the two
+are separate functions on the `Shape` variant and each carries its own `match`,
+so no common-subexpression pass can see one test inside the other; pbrt tests
+once and reads `tHit` out of the same result. The rest is the dielectric and
+coated-diffuse path at 1.9x pbrt's operations, not yet explained. Those two are
+the next items, in that order.
+
+### What the previous round added
+
 **The pavilion matches, and what was in the way.** With every material and
 instancing in, the whole scene rendered 1.036x too bright, with 37,000 more
 lit pixels than pbrt, and the excess was one strip: the wall along the pool's
@@ -278,10 +338,10 @@ deliberately does not do) and on the water's bump. A `coateddiffuse` under a
 texture or a bump still shows per-pixel albedo noise against pbrt (0.2% of
 pixels over 5e-3 without a bump, 6% with) for the reason the layered BSDF
 always has: its walk is seeded by hashing the local direction, and the mean
-converges. And it is 1.59x slower than pbrt on this scene, which the profile
-below is for.
+converges. And it was 1.59x slower than pbrt on this scene when this round
+ended, which is what the round after it, above, took up.
 
-### What the previous round added
+### What the round before that added
 
 **Named materials, and `dielectric`.** A shape under `NamedMaterial` names its
 material by string, and pbrt leaves `materialIndex` at -1 -- which is also what
@@ -461,7 +521,7 @@ reference render is handed the tag `load` decided rather than the name the scene
 wrote, because deciding it twice is how the two would come to run different
 algorithms and report it as a disagreement about transport.
 
-### What the round before that added
+### What the round before that one added
 
 **`path`, which is pbrt's own workhorse and what every scene here names.** It is
 `simplepath` plus four ways of not wasting a sample, and all four are in:

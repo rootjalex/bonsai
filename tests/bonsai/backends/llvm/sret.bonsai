@@ -1,0 +1,79 @@
+//! flags: -p ssa -b llvm
+
+// Aggregates returned the way the x86-64 ABI returns them.
+//
+// A struct of up to two floating-point leaves, or up to three integer ones,
+// comes back in registers as a first-class LLVM aggregate. Anything larger is
+// written through a hidden first argument instead -- `sret` -- because LLVM's
+// own calling convention for a larger aggregate return is not the platform's:
+// past two SSE registers it starts handing float leaves to the x87 stack, and
+// every such return costs a store to memory and a load back, through a unit
+// no compiler otherwise touches. The renderer's Interval- and spectrum-valued
+// functions were paying that on every call.
+//
+// One of each shape here, plus the two places a return is not a plain
+// `ret`: a call whose result is consumed in the caller, which has to read the
+// aggregate back out of the slot it passed, and a tail-recursive function,
+// which passes its own slot straight on rather than copying through a
+// second one.
+
+element vec3f = vector[f32, 3];
+
+element F2 {
+    a : f32;
+    b : f32;
+}
+
+element F4 {
+    a : f32;
+    b : f32;
+    c : f32;
+    d : f32;
+}
+
+element I3 {
+    a : i32;
+    b : i32;
+    c : i32;
+}
+
+element I4 {
+    a : i32;
+    b : i32;
+    c : i32;
+    d : i32;
+}
+
+// A vector is one leaf, so this is one SSE leaf beside one integer leaf and
+// comes back in registers even though it is wider than F4.
+element VN {
+    v : vec3f;
+    n : i32;
+}
+
+func [[export]] make_f2(x : f32) -> F2 = F2{x, x * 2.0};
+
+func [[export]] make_f4(x : f32) -> F4 = F4{x, x * 2.0, x * 3.0, x * 4.0};
+
+func [[export]] make_i3(x : i32) -> I3 = I3{x, x + 1, x + 2};
+
+func [[export]] make_i4(x : i32) -> I4 = I4{x, x + 1, x + 2, x + 3};
+
+func [[export]] make_vn(x : f32, n : i32) -> VN = VN{vec3f{x, x, x}, n};
+
+func [[export]] sum_f4(x : f32) -> f32 {
+    r = make_f4(x);
+    return r.a + r.b + r.c + r.d;
+}
+
+func [[export]] sum_i4(x : i32) -> i32 {
+    r = make_i4(x);
+    return r.a + r.b + r.c + r.d;
+}
+
+func [[export]] count_up(acc : F4, n : i32) -> F4 {
+    if n == 0 {
+        return acc;
+    }
+    return count_up(F4{acc.a + 1.0, acc.b + 2.0, acc.c, acc.d}, n - 1);
+}

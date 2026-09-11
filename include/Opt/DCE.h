@@ -19,8 +19,11 @@ class DCE : public lower::Pass {
                     const CompilerOptions &options) const override;
 };
 
+// `context` names the function the statement came from, for the messages an
+// internal assertion prints; it changes nothing else.
 ir::Stmt dce(ir::Stmt, const std::set<std::string> &mutable_func_args,
-             const std::set<std::string> &se_functions);
+             const std::set<std::string> &se_functions,
+             const std::string &context = "");
 
 } // namespace opt
 } // namespace bonsai

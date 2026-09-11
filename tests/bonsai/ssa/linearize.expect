@@ -1,50 +1,47 @@
 func divergent(a : f32[8], out : mut f32[8]) -> void {
-  let @0 = a[ramp(0, 1, 8)] in
-  let @7 = f32x8(0f) in
-  let @1 = @0 < @7 in
-  let @8 = boolx8(false) in
-  let @9 = boolx8(true) in
-  let @5 = select(@1, @8, @9) in
-  let @10 = f32x8(0f) in
-  masked_store(out[ramp(0, 1, 8)], @10, @1)
-  let @3 = a[ramp(0, 1, 8)] in
-  masked_store(out[ramp(0, 1, 8)], @3, @5)
+  let _t1 = a[ramp(0, 1, 8)] in
+  let @6 = f32x8(0f) in
+  let @1 = _t1 < @6 in
+  let @7 = boolx8(false) in
+  let @8 = boolx8(true) in
+  let @4 = select(@1, @7, @8) in
+  let @9 = f32x8(0f) in
+  masked_store(out[ramp(0, 1, 8)], @9, @1)
+  masked_store(out[ramp(0, 1, 8)], _t1, @4)
   return
 }
 
 func nested(a : f32[8], out : mut f32[8]) -> void {
-  let @0 = a[ramp(0, 1, 8)] in
-  let @11 = f32x8(0f) in
-  let @1 = @0 < @11 in
-  let @12 = boolx8(false) in
-  let @13 = boolx8(true) in
-  let @6 = select(@1, @12, @13) in
-  let @2 = a[ramp(0, 1, 8)] in
-  let @14 = f32x8(-5f) in
-  let @3 = @2 < @14 in
-  let @15 = boolx8(false) in
-  let @16 = boolx8(true) in
-  let @7 = select(@3, @15, @16) in
-  let @8 = @1 && @7 in
-  let @9 = @1 && @3 in
-  let @17 = f32x8(-2f) in
-  masked_store(out[ramp(0, 1, 8)], @17, @9)
-  let @18 = f32x8(-1f) in
-  masked_store(out[ramp(0, 1, 8)], @18, @8)
+  let _t3 = a[ramp(0, 1, 8)] in
+  let @10 = f32x8(0f) in
+  let @1 = _t3 < @10 in
+  let @11 = boolx8(false) in
+  let @12 = boolx8(true) in
+  let @5 = select(@1, @11, @12) in
+  let @13 = f32x8(-5f) in
+  let @2 = _t3 < @13 in
+  let @14 = boolx8(false) in
+  let @15 = boolx8(true) in
+  let @6 = select(@2, @14, @15) in
+  let @7 = @1 && @6 in
+  let @8 = @1 && @2 in
+  let @16 = f32x8(-2f) in
+  masked_store(out[ramp(0, 1, 8)], @16, @8)
+  let @17 = f32x8(-1f) in
+  masked_store(out[ramp(0, 1, 8)], @17, @7)
   return
 }
 
 func one_sided(a : f32[8], out : mut f32[8]) -> void {
-  let @0 = a[ramp(0, 1, 8)] in
-  let @7 = f32x8(0f) in
-  let @1 = @7 < @0 in
-  let @8 = boolx8(false) in
-  let @9 = boolx8(true) in
-  let @5 = select(@1, @8, @9) in
-  let @2 = a[ramp(0, 1, 8)] in
-  let @10 = f32x8(10f) in
-  let @3 = @2 * @10 in
-  masked_store(out[ramp(0, 1, 8)], @3, @1)
+  let _t5 = a[ramp(0, 1, 8)] in
+  let @6 = f32x8(0f) in
+  let @1 = @6 < _t5 in
+  let @7 = boolx8(false) in
+  let @8 = boolx8(true) in
+  let @4 = select(@1, @7, @8) in
+  let @9 = f32x8(10f) in
+  let @2 = _t5 * @9 in
+  masked_store(out[ramp(0, 1, 8)], @2, @1)
   return
 }
 

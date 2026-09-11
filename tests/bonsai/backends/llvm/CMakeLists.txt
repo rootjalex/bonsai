@@ -29,6 +29,7 @@ add_bonsai_tests(
     rand.bonsai
     short-circuit.bonsai
     simple.bonsai
+    sret.bonsai
     struct_defaults.bonsai
     tail-call.bonsai
     tree-traversal.bonsai

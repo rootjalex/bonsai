@@ -2,81 +2,55 @@
 ; --- _recloop_func0 (lowered via statements) ---
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : (__tuple_0*)): 
   @0 = load_field(triangles, (u32)3)
-  @1 = extract_idx(@0, triangles_index)
-  @2 = load_field(@1, (u32)0)
-  @3 = load_field(triangles, (u32)3)
-  @4 = extract_idx(@3, triangles_index)
-  @5 = load_field(@4, (u32)4)
-  @6 = make_struct<AABB>(@2, @5)
-  callc intersects_Ray_AABB(ray, @6) !intersects_Ray_AABB_call_cont_0(ray, triangles, triangles_index, _best0)
+  _t75 = extract_idx(@0, triangles_index)
+  @2 = load_field(_t75, (u32)0)
+  @3 = load_field(_t75, (u32)4)
+  _t80 = make_struct<AABB>(@2, @3)
+  callc intersects_Ray_AABB(ray, _t80) !intersects_Ray_AABB_call_cont_0(ray, _t80, _best0, _t75, triangles_index, triangles)
 
-!intersects_Ray_AABB_call_cont_0(@7 : bool, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: _recloop_func0
-  dispatch @7 [!merge_2(), !then_1(ray, triangles, triangles_index, _best0)]
+!intersects_Ray_AABB_call_cont_0(@5 : bool, ray : Ray, _t80 : AABB, _best0 : (__tuple_0*), _t75 : _tree_layout1, triangles_index : u32, triangles : _tree_layout0): // preds: _recloop_func0
+  dispatch @5 [!merge_2(), !then_1(ray, _t80, _best0, _t75, triangles_index, triangles)]
 
-!then_1(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !intersects_Ray_AABB_call_cont_0
-  @8 = load_field(triangles, (u32)3)
-  @9 = extract_idx(@8, triangles_index)
-  @10 = load_field(@9, (u32)0)
-  @11 = load_field(triangles, (u32)3)
-  @12 = extract_idx(@11, triangles_index)
-  @13 = load_field(@12, (u32)4)
-  @14 = make_struct<AABB>(@10, @13)
-  callc distmin_Ray_AABB(ray, @14) !distmin_Ray_AABB_call_cont_3(_best0, triangles, triangles_index, ray)
+!then_1(ray : Ray, _t80 : AABB, _best0 : (__tuple_0*), _t75 : _tree_layout1, triangles_index : u32, triangles : _tree_layout0): // preds: !intersects_Ray_AABB_call_cont_0
+  callc distmin_Ray_AABB(ray, _t80) !distmin_Ray_AABB_call_cont_3(_best0, _t75, ray, triangles_index, triangles)
 
 !merge_2(): // preds: !merge_5, !intersects_Ray_AABB_call_cont_0
   ret
 
-!distmin_Ray_AABB_call_cont_3(@15 : f32, _best0 : (__tuple_0*), triangles : _tree_layout0, triangles_index : u32, ray : Ray): // preds: !then_1
-  @16 = load(_best0)
-  @17 = load_field(@16, (u32)0)
-  @18 = lt(@15, @17)
-  dispatch @18 [!merge_5(), !then_4(triangles, triangles_index, ray, _best0)]
+!distmin_Ray_AABB_call_cont_3(@6 : f32, _best0 : (__tuple_0*), _t75 : _tree_layout1, ray : Ray, triangles_index : u32, triangles : _tree_layout0): // preds: !then_1
+  @7 = load(_best0)
+  @8 = load_field(@7, (u32)0)
+  @9 = lt(@6, @8)
+  dispatch @9 [!merge_5(), !then_4(_t75, ray, triangles_index, triangles, _best0)]
 
-!then_4(triangles : _tree_layout0, triangles_index : u32, ray : Ray, _best0 : (__tuple_0*)): // preds: !distmin_Ray_AABB_call_cont_3
-  @19 = load_field(triangles, (u32)3)
-  @20 = extract_idx(@19, triangles_index)
-  @21 = load_field(@20, (u32)1)
-  @22 = eq(@21, (u16)0)
-  dispatch @22 [!else_7(triangles, triangles_index, ray, _best0), !then_6(triangles_index, triangles, ray, _best0)]
+!then_4(_t75 : _tree_layout1, ray : Ray, triangles_index : u32, triangles : _tree_layout0, _best0 : (__tuple_0*)): // preds: !distmin_Ray_AABB_call_cont_3
+  _t66 = load_field(_t75, (u32)1)
+  @11 = eq(_t66, (u16)0)
+  dispatch @11 [!else_7(_t66, triangles, _t75, ray, _best0), !then_6(ray, _t75, triangles_index, triangles, _best0)]
 
 !merge_5(): // preds: !merge_8, !distmin_Ray_AABB_call_cont_3
   jmp !merge_2()
 
-!then_6(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_4
-  @23 = add(triangles_index, (u32)1)
-  @24 = load_field(triangles, (u32)3)
-  @25 = extract_idx(@24, triangles_index)
-  @26 = load_field(@25, (u32)5)
-  @27 = reinterpret<_tree_layout2>(@26)
-  @28 = load_field(@27, (u32)0)
-  @29 = add(triangles_index, @28)
-  @30 = bc((f32)1, (u32)3)
-  @31 = load_field(ray, (u32)1)
-  @32 = div(@30, @31)
-  @33 = load_field(triangles, (u32)3)
-  @34 = extract_idx(@33, triangles_index)
-  @35 = load_field(@34, (u32)2)
-  @36 = extract_idx(@32, @35)
-  @37 = lt(@36, (f32)0)
-  @38 = cast<u8>(@37)
-  @39 = bc((f32)1, (u32)3)
-  @40 = load_field(ray, (u32)1)
-  @41 = div(@39, @40)
-  @42 = load_field(triangles, (u32)3)
-  @43 = extract_idx(@42, triangles_index)
-  @44 = load_field(@43, (u32)2)
-  @45 = extract_idx(@41, @44)
-  @46 = lt(@45, (f32)0)
-  @47 = not(@46)
-  @48 = cast<u8>(@47)
-  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@23), (@29) } at { 0 } sorted by (@38, @48) !_recloop_func0_multicall_cont_9()
+!then_6(ray : Ray, _t75 : _tree_layout1, triangles_index : u32, triangles : _tree_layout0, _best0 : (__tuple_0*)): // preds: !then_4
+  @12 = bc((f32)1, (u32)3)
+  @13 = load_field(ray, (u32)1)
+  @14 = div(@12, @13)
+  @15 = load_field(_t75, (u32)2)
+  @16 = extract_idx(@14, @15)
+  _t19 = lt(@16, (f32)0)
+  @18 = add(triangles_index, (u32)1)
+  @19 = load_field(_t75, (u32)5)
+  @20 = reinterpret<_tree_layout2>(@19)
+  @21 = load_field(@20, (u32)0)
+  @22 = add(triangles_index, @21)
+  @23 = cast<u8>(_t19)
+  @24 = not(_t19)
+  @25 = cast<u8>(@24)
+  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@18), (@22) } at { 0 } sorted by (@23, @25) !_recloop_func0_multicall_cont_9()
 
-!else_7(triangles : _tree_layout0, triangles_index : u32, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_4
-  @49 = load_field(triangles, (u32)3)
-  @50 = extract_idx(@49, triangles_index)
-  @51 = load_field(@50, (u32)1)
-  @52 = cast<u32>(@51)
-  jmp !for__idx0_10((u32)0, @52, ray, triangles, triangles_index, _best0)
+!else_7(_t66 : u16, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_4
+  @26 = cast<u32>(_t66)
+  jmp !for__idx0_10((u32)0, @26, triangles, _t75, ray, _best0)
 
 !merge_8(): // preds: !_recloop_func0_multicall_cont_9, !for__idx0_end_12
   jmp !merge_5()
@@ -84,75 +58,47 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 !_recloop_func0_multicall_cont_9(): // preds: !then_6
   jmp !merge_8()
 
-!for__idx0_10(_idx0 : u32, @52 : u32, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !else_7, !merge_15
-  @53 = lt(_idx0, @52)
-  dispatch @53 [!for__idx0_end_12(), !for__idx0_body_11(ray, triangles, triangles_index, _idx0, _best0, @52)]
+!for__idx0_10(_idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !else_7, !merge_15
+  @27 = lt(_idx0, @26)
+  dispatch @27 [!for__idx0_end_12(), !for__idx0_body_11(triangles, _t75, _idx0, ray, _best0, @26)]
 
-!for__idx0_body_11(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !for__idx0_10
-  @54 = load_field(triangles, (u32)1)
-  @55 = load_field(triangles, (u32)3)
-  @56 = extract_idx(@55, triangles_index)
-  @57 = load_field(@56, (u32)5)
-  @58 = reinterpret<_tree_layout3>(@57)
-  @59 = load_field(@58, (u32)0)
-  @60 = add(@59, _idx0)
-  @61 = extract_idx(@54, @60)
-  callc intersectsp_ray_tri(ray, @61) !intersectsp_ray_tri_call_cont_13(ray, triangles, triangles_index, _idx0, _best0, @52)
+!for__idx0_body_11(triangles : _tree_layout0, _t75 : _tree_layout1, _idx0 : u32, ray : Ray, _best0 : (__tuple_0*), @26 : u32): // preds: !for__idx0_10
+  @28 = load_field(triangles, (u32)1)
+  @29 = load_field(_t75, (u32)5)
+  @30 = reinterpret<_tree_layout3>(@29)
+  @31 = load_field(@30, (u32)0)
+  @32 = add(@31, _idx0)
+  _t60 = extract_idx(@28, @32)
+  callc intersectsp_ray_tri(ray, _t60) !intersectsp_ray_tri_call_cont_13(ray, _t60, _best0, _idx0, @26, triangles, _t75)
 
 !for__idx0_end_12(): // preds: !for__idx0_10
   jmp !merge_8()
 
-!intersectsp_ray_tri_call_cont_13(@62 : _option2, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !for__idx0_body_11
-  @63 = load_field(@62, (u32)1)
-  dispatch @63 [!merge_15(_idx0, @52, ray, triangles, triangles_index, _best0), !then_14(ray, triangles, triangles_index, _idx0, _best0, @52)]
+!intersectsp_ray_tri_call_cont_13(@34 : _option2, ray : Ray, _t60 : Triangle, _best0 : (__tuple_0*), _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1): // preds: !for__idx0_body_11
+  @35 = load_field(@34, (u32)1)
+  dispatch @35 [!merge_15(_idx0, @26, triangles, _t75, ray, _best0), !then_14(ray, _t60, _best0, _idx0, @26, triangles, _t75)]
 
-!then_14(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !intersectsp_ray_tri_call_cont_13
-  @64 = load_field(triangles, (u32)1)
-  @65 = load_field(triangles, (u32)3)
-  @66 = extract_idx(@65, triangles_index)
-  @67 = load_field(@66, (u32)5)
-  @68 = reinterpret<_tree_layout3>(@67)
-  @69 = load_field(@68, (u32)0)
-  @70 = add(@69, _idx0)
-  @71 = extract_idx(@64, @70)
-  callc distmin_Ray_Triangle(ray, @71) !distmin_Ray_Triangle_call_cont_16(_best0, ray, triangles, triangles_index, _idx0, @52)
+!then_14(ray : Ray, _t60 : Triangle, _best0 : (__tuple_0*), _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1): // preds: !intersectsp_ray_tri_call_cont_13
+  callc distmin_Ray_Triangle(ray, _t60) !distmin_Ray_Triangle_call_cont_16(_best0, _t60, _idx0, @26, triangles, _t75, ray)
 
-!merge_15(_idx0 : u32, @52 : u32, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !merge_18, !intersectsp_ray_tri_call_cont_13
-  @94 = add(_idx0, (u32)1)
-  jmp !for__idx0_10(@94, @52, ray, triangles, triangles_index, _best0)
+!merge_15(_idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !merge_18, !intersectsp_ray_tri_call_cont_13
+  @41 = add(_idx0, (u32)1)
+  jmp !for__idx0_10(@41, @26, triangles, _t75, ray, _best0)
 
-!distmin_Ray_Triangle_call_cont_16(@72 : f32, _best0 : (__tuple_0*), ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, @52 : u32): // preds: !then_14
-  @73 = load(_best0)
-  @74 = load_field(@73, (u32)0)
-  @75 = lt(@72, @74)
-  dispatch @75 [!merge_18(_idx0, @52, ray, triangles, triangles_index, _best0), !then_17(ray, triangles, triangles_index, _idx0, _best0, @52)]
+!distmin_Ray_Triangle_call_cont_16(@36 : f32, _best0 : (__tuple_0*), _t60 : Triangle, _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray): // preds: !then_14
+  _t52 = set(@36)
+  @37 = load(_best0)
+  @38 = load_field(@37, (u32)0)
+  @39 = lt(_t52, @38)
+  dispatch @39 [!merge_18(_idx0, @26, triangles, _t75, ray, _best0), !then_17(_t52, _t60, _best0, _idx0, @26, triangles, _t75, ray)]
 
-!then_17(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !distmin_Ray_Triangle_call_cont_16
-  @76 = load_field(triangles, (u32)1)
-  @77 = load_field(triangles, (u32)3)
-  @78 = extract_idx(@77, triangles_index)
-  @79 = load_field(@78, (u32)5)
-  @80 = reinterpret<_tree_layout3>(@79)
-  @81 = load_field(@80, (u32)0)
-  @82 = add(@81, _idx0)
-  @83 = extract_idx(@76, @82)
-  callc distmin_Ray_Triangle(ray, @83) !distmin_Ray_Triangle_call_cont_19(triangles, triangles_index, _idx0, _best0, @52, ray)
+!then_17(_t52 : f32, _t60 : Triangle, _best0 : (__tuple_0*), _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray): // preds: !distmin_Ray_Triangle_call_cont_16
+  @40 = make_struct<__tuple_0>(_t52, _t60)
+  store _best0 @40
+  jmp !merge_18(_idx0, @26, triangles, _t75, ray, _best0)
 
-!merge_18(_idx0 : u32, @52 : u32, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !distmin_Ray_Triangle_call_cont_19, !distmin_Ray_Triangle_call_cont_16
-  jmp !merge_15(_idx0, @52, ray, triangles, triangles_index, _best0)
-
-!distmin_Ray_Triangle_call_cont_19(@84 : f32, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32, ray : Ray): // preds: !then_17
-  @85 = load_field(triangles, (u32)1)
-  @86 = load_field(triangles, (u32)3)
-  @87 = extract_idx(@86, triangles_index)
-  @88 = load_field(@87, (u32)5)
-  @89 = reinterpret<_tree_layout3>(@88)
-  @90 = load_field(@89, (u32)0)
-  @91 = add(@90, _idx0)
-  @92 = extract_idx(@85, @91)
-  @93 = make_struct<__tuple_0>(@84, @92)
-  store _best0 @93
-  jmp !merge_18(_idx0, @52, ray, triangles, triangles_index, _best0)
+!merge_18(_idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_17, !distmin_Ray_Triangle_call_cont_16
+  jmp !merge_15(_idx0, @26, triangles, _t75, ray, _best0)
 
 ; --- _traverse_tree0 (lowered via statements) ---
 func _traverse_tree0(ray : Ray, triangles : _tree_layout0): 
@@ -196,86 +142,60 @@ func trace(_ret0 : (_option0*), ray : (Ray*), triangles : (_tree_layout0*)):
 ; --- _recloop_func0 (lowered via statements) ---
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : (__tuple_0*)): 
   @0 = load_field(triangles, (u32)3)
-  @1 = extract_idx(@0, triangles_index)
-  @2 = load_field(@1, (u32)0)
-  @3 = load_field(triangles, (u32)3)
-  @4 = extract_idx(@3, triangles_index)
-  @5 = load_field(@4, (u32)4)
-  @6 = make_struct<AABB>(@2, @5)
-  callc intersects_Ray_AABB(ray, @6) !intersects_Ray_AABB_call_cont_0(ray, triangles, triangles_index, _best0)
+  _t75 = extract_idx(@0, triangles_index)
+  @2 = load_field(_t75, (u32)0)
+  @3 = load_field(_t75, (u32)4)
+  _t80 = make_struct<AABB>(@2, @3)
+  callc intersects_Ray_AABB(ray, _t80) !intersects_Ray_AABB_call_cont_0(ray, _t80, _best0, _t75, triangles_index, triangles)
 
-!intersects_Ray_AABB_call_cont_0(@7 : bool, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: _recloop_func0
-  dispatch @7 [!merge_2(), !then_1(ray, triangles, triangles_index, _best0)]
+!intersects_Ray_AABB_call_cont_0(@5 : bool, ray : Ray, _t80 : AABB, _best0 : (__tuple_0*), _t75 : _tree_layout1, triangles_index : u32, triangles : _tree_layout0): // preds: _recloop_func0
+  dispatch @5 [!merge_2(), !then_1(ray, _t80, _best0, _t75, triangles_index, triangles)]
 
-!then_1(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !intersects_Ray_AABB_call_cont_0
-  @8 = load_field(triangles, (u32)3)
-  @9 = extract_idx(@8, triangles_index)
-  @10 = load_field(@9, (u32)0)
-  @11 = load_field(triangles, (u32)3)
-  @12 = extract_idx(@11, triangles_index)
-  @13 = load_field(@12, (u32)4)
-  @14 = make_struct<AABB>(@10, @13)
-  callc distmin_Ray_AABB(ray, @14) !distmin_Ray_AABB_call_cont_3(_best0, triangles, triangles_index, ray)
+!then_1(ray : Ray, _t80 : AABB, _best0 : (__tuple_0*), _t75 : _tree_layout1, triangles_index : u32, triangles : _tree_layout0): // preds: !intersects_Ray_AABB_call_cont_0
+  callc distmin_Ray_AABB(ray, _t80) !distmin_Ray_AABB_call_cont_3(_best0, _t75, ray, triangles_index, triangles)
 
 !merge_2(): // preds: !merge_5, !intersects_Ray_AABB_call_cont_0
   ret
 
-!distmin_Ray_AABB_call_cont_3(@15 : f32, _best0 : (__tuple_0*), triangles : _tree_layout0, triangles_index : u32, ray : Ray): // preds: !then_1
-  @16 = load(_best0)
-  @17 = load_field(@16, (u32)0)
-  @18 = lt(@15, @17)
-  dispatch @18 [!merge_5(), !then_4(triangles, triangles_index, ray, _best0)]
+!distmin_Ray_AABB_call_cont_3(@6 : f32, _best0 : (__tuple_0*), _t75 : _tree_layout1, ray : Ray, triangles_index : u32, triangles : _tree_layout0): // preds: !then_1
+  @7 = load(_best0)
+  @8 = load_field(@7, (u32)0)
+  @9 = lt(@6, @8)
+  dispatch @9 [!merge_5(), !then_4(_t75, ray, triangles_index, triangles, _best0)]
 
-!then_4(triangles : _tree_layout0, triangles_index : u32, ray : Ray, _best0 : (__tuple_0*)): // preds: !distmin_Ray_AABB_call_cont_3
-  @19 = load_field(triangles, (u32)3)
-  @20 = extract_idx(@19, triangles_index)
-  @21 = load_field(@20, (u32)1)
-  @22 = eq(@21, (u16)0)
-  dispatch @22 [!else_7(triangles, triangles_index, ray, _best0), !then_6(triangles_index, triangles, ray, _best0)]
+!then_4(_t75 : _tree_layout1, ray : Ray, triangles_index : u32, triangles : _tree_layout0, _best0 : (__tuple_0*)): // preds: !distmin_Ray_AABB_call_cont_3
+  _t66 = load_field(_t75, (u32)1)
+  @11 = eq(_t66, (u16)0)
+  dispatch @11 [!else_7(_t66, triangles, _t75, ray, _best0), !then_6(ray, _t75, triangles_index, triangles, _best0)]
 
 !merge_5(): // preds: !merge_8, !distmin_Ray_AABB_call_cont_3
   jmp !merge_2()
 
-!then_6(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_4
-  @23 = add(triangles_index, (u32)1)
-  @24 = load_field(triangles, (u32)3)
-  @25 = extract_idx(@24, triangles_index)
-  @26 = load_field(@25, (u32)5)
-  @27 = reinterpret<_tree_layout2>(@26)
-  @28 = load_field(@27, (u32)0)
-  @29 = add(triangles_index, @28)
-  @30 = bc((f32)1, (u32)3)
-  @31 = load_field(ray, (u32)1)
-  @32 = div(@30, @31)
-  @33 = load_field(triangles, (u32)3)
-  @34 = extract_idx(@33, triangles_index)
-  @35 = load_field(@34, (u32)2)
-  @36 = extract_idx(@32, @35)
-  @37 = lt(@36, (f32)0)
-  @38 = cast<u8>(@37)
-  @39 = bc((f32)1, (u32)3)
-  @40 = load_field(ray, (u32)1)
-  @41 = div(@39, @40)
-  @42 = load_field(triangles, (u32)3)
-  @43 = extract_idx(@42, triangles_index)
-  @44 = load_field(@43, (u32)2)
-  @45 = extract_idx(@41, @44)
-  @46 = lt(@45, (f32)0)
-  @47 = not(@46)
-  @48 = cast<u8>(@47)
-  @95 = lt(@38, @48)
-  @96 = select(@95, @38, @48)
-  @97 = select(@95, @48, @38)
-  @98 = select(@95, @23, @29)
-  @99 = select(@95, @29, @23)
-  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@98), (@99) } at { 0 } !_recloop_func0_multicall_cont_9()
+!then_6(ray : Ray, _t75 : _tree_layout1, triangles_index : u32, triangles : _tree_layout0, _best0 : (__tuple_0*)): // preds: !then_4
+  @12 = bc((f32)1, (u32)3)
+  @13 = load_field(ray, (u32)1)
+  @14 = div(@12, @13)
+  @15 = load_field(_t75, (u32)2)
+  @16 = extract_idx(@14, @15)
+  _t19 = lt(@16, (f32)0)
+  @18 = add(triangles_index, (u32)1)
+  @19 = load_field(_t75, (u32)5)
+  @20 = reinterpret<_tree_layout2>(@19)
+  @21 = load_field(@20, (u32)0)
+  @22 = add(triangles_index, @21)
+  @23 = cast<u8>(_t19)
+  @24 = not(_t19)
+  @25 = cast<u8>(@24)
+  @42 = lt(@23, @25)
+  @43 = select(@42, @23, @25)
+  @44 = select(@42, @25, @23)
+  @45 = select(@42, @18, @22)
+  @46 = select(@42, @22, @18)
+  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@45), (@46) } at { 0 } !_recloop_func0_multicall_cont_9()
 
-!else_7(triangles : _tree_layout0, triangles_index : u32, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_4
-  @49 = load_field(triangles, (u32)3)
-  @50 = extract_idx(@49, triangles_index)
-  @51 = load_field(@50, (u32)1)
-  @52 = cast<u32>(@51)
-  jmp !for__idx0_10((u32)0, @52, ray, triangles, triangles_index, _best0)
+!else_7(_t66 : u16, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_4
+  @26 = cast<u32>(_t66)
+  jmp !for__idx0_10((u32)0, @26, triangles, _t75, ray, _best0)
 
 !merge_8(): // preds: !_recloop_func0_multicall_cont_9, !for__idx0_end_12
   jmp !merge_5()
@@ -283,75 +203,47 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 !_recloop_func0_multicall_cont_9(): // preds: !then_6
   jmp !merge_8()
 
-!for__idx0_10(_idx0 : u32, @52 : u32, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !else_7, !merge_15
-  @53 = lt(_idx0, @52)
-  dispatch @53 [!for__idx0_end_12(), !for__idx0_body_11(ray, triangles, triangles_index, _idx0, _best0, @52)]
+!for__idx0_10(_idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !else_7, !merge_15
+  @27 = lt(_idx0, @26)
+  dispatch @27 [!for__idx0_end_12(), !for__idx0_body_11(triangles, _t75, _idx0, ray, _best0, @26)]
 
-!for__idx0_body_11(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !for__idx0_10
-  @54 = load_field(triangles, (u32)1)
-  @55 = load_field(triangles, (u32)3)
-  @56 = extract_idx(@55, triangles_index)
-  @57 = load_field(@56, (u32)5)
-  @58 = reinterpret<_tree_layout3>(@57)
-  @59 = load_field(@58, (u32)0)
-  @60 = add(@59, _idx0)
-  @61 = extract_idx(@54, @60)
-  callc intersectsp_ray_tri(ray, @61) !intersectsp_ray_tri_call_cont_13(ray, triangles, triangles_index, _idx0, _best0, @52)
+!for__idx0_body_11(triangles : _tree_layout0, _t75 : _tree_layout1, _idx0 : u32, ray : Ray, _best0 : (__tuple_0*), @26 : u32): // preds: !for__idx0_10
+  @28 = load_field(triangles, (u32)1)
+  @29 = load_field(_t75, (u32)5)
+  @30 = reinterpret<_tree_layout3>(@29)
+  @31 = load_field(@30, (u32)0)
+  @32 = add(@31, _idx0)
+  _t60 = extract_idx(@28, @32)
+  callc intersectsp_ray_tri(ray, _t60) !intersectsp_ray_tri_call_cont_13(ray, _t60, _best0, _idx0, @26, triangles, _t75)
 
 !for__idx0_end_12(): // preds: !for__idx0_10
   jmp !merge_8()
 
-!intersectsp_ray_tri_call_cont_13(@62 : _option2, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !for__idx0_body_11
-  @63 = load_field(@62, (u32)1)
-  dispatch @63 [!merge_15(_idx0, @52, ray, triangles, triangles_index, _best0), !then_14(ray, triangles, triangles_index, _idx0, _best0, @52)]
+!intersectsp_ray_tri_call_cont_13(@34 : _option2, ray : Ray, _t60 : Triangle, _best0 : (__tuple_0*), _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1): // preds: !for__idx0_body_11
+  @35 = load_field(@34, (u32)1)
+  dispatch @35 [!merge_15(_idx0, @26, triangles, _t75, ray, _best0), !then_14(ray, _t60, _best0, _idx0, @26, triangles, _t75)]
 
-!then_14(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !intersectsp_ray_tri_call_cont_13
-  @64 = load_field(triangles, (u32)1)
-  @65 = load_field(triangles, (u32)3)
-  @66 = extract_idx(@65, triangles_index)
-  @67 = load_field(@66, (u32)5)
-  @68 = reinterpret<_tree_layout3>(@67)
-  @69 = load_field(@68, (u32)0)
-  @70 = add(@69, _idx0)
-  @71 = extract_idx(@64, @70)
-  callc distmin_Ray_Triangle(ray, @71) !distmin_Ray_Triangle_call_cont_16(_best0, ray, triangles, triangles_index, _idx0, @52)
+!then_14(ray : Ray, _t60 : Triangle, _best0 : (__tuple_0*), _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1): // preds: !intersectsp_ray_tri_call_cont_13
+  callc distmin_Ray_Triangle(ray, _t60) !distmin_Ray_Triangle_call_cont_16(_best0, _t60, _idx0, @26, triangles, _t75, ray)
 
-!merge_15(_idx0 : u32, @52 : u32, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !merge_18, !intersectsp_ray_tri_call_cont_13
-  @94 = add(_idx0, (u32)1)
-  jmp !for__idx0_10(@94, @52, ray, triangles, triangles_index, _best0)
+!merge_15(_idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !merge_18, !intersectsp_ray_tri_call_cont_13
+  @41 = add(_idx0, (u32)1)
+  jmp !for__idx0_10(@41, @26, triangles, _t75, ray, _best0)
 
-!distmin_Ray_Triangle_call_cont_16(@72 : f32, _best0 : (__tuple_0*), ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, @52 : u32): // preds: !then_14
-  @73 = load(_best0)
-  @74 = load_field(@73, (u32)0)
-  @75 = lt(@72, @74)
-  dispatch @75 [!merge_18(_idx0, @52, ray, triangles, triangles_index, _best0), !then_17(ray, triangles, triangles_index, _idx0, _best0, @52)]
+!distmin_Ray_Triangle_call_cont_16(@36 : f32, _best0 : (__tuple_0*), _t60 : Triangle, _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray): // preds: !then_14
+  _t52 = set(@36)
+  @37 = load(_best0)
+  @38 = load_field(@37, (u32)0)
+  @39 = lt(_t52, @38)
+  dispatch @39 [!merge_18(_idx0, @26, triangles, _t75, ray, _best0), !then_17(_t52, _t60, _best0, _idx0, @26, triangles, _t75, ray)]
 
-!then_17(ray : Ray, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32): // preds: !distmin_Ray_Triangle_call_cont_16
-  @76 = load_field(triangles, (u32)1)
-  @77 = load_field(triangles, (u32)3)
-  @78 = extract_idx(@77, triangles_index)
-  @79 = load_field(@78, (u32)5)
-  @80 = reinterpret<_tree_layout3>(@79)
-  @81 = load_field(@80, (u32)0)
-  @82 = add(@81, _idx0)
-  @83 = extract_idx(@76, @82)
-  callc distmin_Ray_Triangle(ray, @83) !distmin_Ray_Triangle_call_cont_19(triangles, triangles_index, _idx0, _best0, @52, ray)
+!then_17(_t52 : f32, _t60 : Triangle, _best0 : (__tuple_0*), _idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray): // preds: !distmin_Ray_Triangle_call_cont_16
+  @40 = make_struct<__tuple_0>(_t52, _t60)
+  store _best0 @40
+  jmp !merge_18(_idx0, @26, triangles, _t75, ray, _best0)
 
-!merge_18(_idx0 : u32, @52 : u32, ray : Ray, triangles : _tree_layout0, triangles_index : u32, _best0 : (__tuple_0*)): // preds: !distmin_Ray_Triangle_call_cont_19, !distmin_Ray_Triangle_call_cont_16
-  jmp !merge_15(_idx0, @52, ray, triangles, triangles_index, _best0)
-
-!distmin_Ray_Triangle_call_cont_19(@84 : f32, triangles : _tree_layout0, triangles_index : u32, _idx0 : u32, _best0 : (__tuple_0*), @52 : u32, ray : Ray): // preds: !then_17
-  @85 = load_field(triangles, (u32)1)
-  @86 = load_field(triangles, (u32)3)
-  @87 = extract_idx(@86, triangles_index)
-  @88 = load_field(@87, (u32)5)
-  @89 = reinterpret<_tree_layout3>(@88)
-  @90 = load_field(@89, (u32)0)
-  @91 = add(@90, _idx0)
-  @92 = extract_idx(@85, @91)
-  @93 = make_struct<__tuple_0>(@84, @92)
-  store _best0 @93
-  jmp !merge_18(_idx0, @52, ray, triangles, triangles_index, _best0)
+!merge_18(_idx0 : u32, @26 : u32, triangles : _tree_layout0, _t75 : _tree_layout1, ray : Ray, _best0 : (__tuple_0*)): // preds: !then_17, !distmin_Ray_Triangle_call_cont_16
+  jmp !merge_15(_idx0, @26, triangles, _t75, ray, _best0)
 
 ; --- _traverse_tree0 (lowered via statements) ---
 func _traverse_tree0(ray : Ray, triangles : _tree_layout0): 
@@ -420,118 +312,66 @@ extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : mut (__tuple_0*)) -> void {
   _idx0 : mut u32
   let @0 = triangles.group0_index in
-  let @1 = @0[triangles_index] in
-  let @2 = @1.low in
-  let @3 = triangles.group0_index in
-  let @4 = @3[triangles_index] in
-  let @5 = @4.high in
-  let @6 = build<AABB>(@2, @5) in
-  let @7 = intersects_Ray_AABB(ray, @6) in
-  if (@7) {
-    let @8 = triangles.group0_index in
-    let @9 = @8[triangles_index] in
-    let @10 = @9.low in
-    let @11 = triangles.group0_index in
-    let @12 = @11[triangles_index] in
-    let @13 = @12.high in
-    let @14 = build<AABB>(@10, @13) in
-    let @15 = distmin_Ray_AABB(ray, @14) in
-    let @16 = (*_best0) in
-    let @17 = @16._field0 in
-    let @18 = @15 < @17 in
-    if (@18) {
-      let @19 = triangles.group0_index in
-      let @20 = @19[triangles_index] in
-      let @21 = @20.nPrims in
-      let @22 = @21 == 0u in
-      if (@22) {
-        let @23 = triangles_index + 1u in
-        let @24 = triangles.group0_index in
-        let @25 = @24[triangles_index] in
-        let @26 = @25.split0on_nPrims in
-        let @27 = reinterpret_cast<_tree_layout2>(@26) in
-        let @28 = @27.offset in
-        let @29 = triangles_index + @28 in
-        let @30 = f32x3(1f) in
-        let @31 = ray.d in
-        let @32 = @30 / @31 in
-        let @33 = triangles.group0_index in
-        let @34 = @33[triangles_index] in
-        let @35 = @34.axis in
-        let @36 = @32[@35] in
-        let @37 = @36 < 0f in
-        let @38 = cast<u8>(@37) in
-        let @39 = f32x3(1f) in
-        let @40 = ray.d in
-        let @41 = @39 / @40 in
-        let @42 = triangles.group0_index in
-        let @43 = @42[triangles_index] in
-        let @44 = @43.axis in
-        let @45 = @41[@44] in
-        let @46 = @45 < 0f in
-        let @47 = !@46 in
-        let @48 = cast<u8>(@47) in
-        let @95 = @38 < @48 in
-        let @96 = select(@95, @38, @48) in
-        let @97 = select(@95, @48, @38) in
-        let @98 = select(@95, @23, @29) in
-        let @99 = select(@95, @29, @23) in
-        _recloop_func0(@98, triangles, ray, _best0)
-        _recloop_func0(@99, triangles, ray, _best0)
+  let _t75 = @0[triangles_index] in
+  let @2 = _t75.low in
+  let @3 = _t75.high in
+  let _t80 = build<AABB>(@2, @3) in
+  let @5 = intersects_Ray_AABB(ray, _t80) in
+  if (@5) {
+    let @6 = distmin_Ray_AABB(ray, _t80) in
+    let @7 = (*_best0) in
+    let @8 = @7._field0 in
+    let @9 = @6 < @8 in
+    if (@9) {
+      let _t66 = _t75.nPrims in
+      let @11 = _t66 == 0u in
+      if (@11) {
+        let @12 = f32x3(1f) in
+        let @13 = ray.d in
+        let @14 = @12 / @13 in
+        let @15 = _t75.axis in
+        let @16 = @14[@15] in
+        let _t19 = @16 < 0f in
+        let @18 = triangles_index + 1u in
+        let @19 = _t75.split0on_nPrims in
+        let @20 = reinterpret_cast<_tree_layout2>(@19) in
+        let @21 = @20.offset in
+        let @22 = triangles_index + @21 in
+        let @23 = cast<u8>(_t19) in
+        let @24 = !_t19 in
+        let @25 = cast<u8>(@24) in
+        let @42 = @23 < @25 in
+        let @43 = select(@42, @23, @25) in
+        let @44 = select(@42, @25, @23) in
+        let @45 = select(@42, @18, @22) in
+        let @46 = select(@42, @22, @18) in
+        _recloop_func0(@45, triangles, ray, _best0)
+        _recloop_func0(@46, triangles, ray, _best0)
       } else {
-        let @49 = triangles.group0_index in
-        let @50 = @49[triangles_index] in
-        let @51 = @50.nPrims in
-        let @52 = cast<u32>(@51) in
+        let @26 = cast<u32>(_t66) in
         _idx0 = 0u
-        while ((*_idx0) < @52) {
-          let @54 = triangles.prims in
-          let @55 = triangles.group0_index in
-          let @56 = @55[triangles_index] in
-          let @57 = @56.split0on_nPrims in
-          let @58 = reinterpret_cast<_tree_layout3>(@57) in
-          let @59 = @58.pOffset in
-          let @60 = @59 + (*_idx0) in
-          let @61 = @54[@60] in
-          let @62 = intersectsp_ray_tri(ray, @61) in
-          let @63 = @62.set in
-          if (@63) {
-            let @64 = triangles.prims in
-            let @65 = triangles.group0_index in
-            let @66 = @65[triangles_index] in
-            let @67 = @66.split0on_nPrims in
-            let @68 = reinterpret_cast<_tree_layout3>(@67) in
-            let @69 = @68.pOffset in
-            let @70 = @69 + (*_idx0) in
-            let @71 = @64[@70] in
-            let @72 = distmin_Ray_Triangle(ray, @71) in
-            let @73 = (*_best0) in
-            let @74 = @73._field0 in
-            let @75 = @72 < @74 in
-            if (@75) {
-              let @76 = triangles.prims in
-              let @77 = triangles.group0_index in
-              let @78 = @77[triangles_index] in
-              let @79 = @78.split0on_nPrims in
-              let @80 = reinterpret_cast<_tree_layout3>(@79) in
-              let @81 = @80.pOffset in
-              let @82 = @81 + (*_idx0) in
-              let @83 = @76[@82] in
-              let @84 = distmin_Ray_Triangle(ray, @83) in
-              let @85 = triangles.prims in
-              let @86 = triangles.group0_index in
-              let @87 = @86[triangles_index] in
-              let @88 = @87.split0on_nPrims in
-              let @89 = reinterpret_cast<_tree_layout3>(@88) in
-              let @90 = @89.pOffset in
-              let @91 = @90 + (*_idx0) in
-              let @92 = @85[@91] in
-              let @93 = build<__tuple_0>(@84, @92) in
-              _best0 = @93
+        while ((*_idx0) < @26) {
+          let @28 = triangles.prims in
+          let @29 = _t75.split0on_nPrims in
+          let @30 = reinterpret_cast<_tree_layout3>(@29) in
+          let @31 = @30.pOffset in
+          let @32 = @31 + (*_idx0) in
+          let _t60 = @28[@32] in
+          let @34 = intersectsp_ray_tri(ray, _t60) in
+          let @35 = @34.set in
+          if (@35) {
+            let @36 = distmin_Ray_Triangle(ray, _t60) in
+            let _t52 = @36 in
+            let @37 = (*_best0) in
+            let @38 = @37._field0 in
+            let @39 = _t52 < @38 in
+            if (@39) {
+              let @40 = build<__tuple_0>(_t52, _t60) in
+              _best0 = @40
             }
           }
-          let @94 = (*_idx0) + 1u in
-          _idx0 = @94
+          let @41 = (*_idx0) + 1u in
+          _idx0 = @41
         }
       }
     }

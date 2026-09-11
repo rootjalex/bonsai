@@ -9,9 +9,8 @@ both_ways:
   %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
   %0 = fmul <8 x float> %.splat, %extract
   store <8 x float> %0, ptr %out, align 4
-  %extract5 = load <8 x float>, ptr %a, align 4
-  %1 = fcmp ogt <8 x float> %extract5, zeroinitializer
-  %2 = fmul <8 x float> %extract5, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
+  %1 = fcmp ogt <8 x float> %extract, zeroinitializer
+  %2 = fmul <8 x float> %extract, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr %out, i32 4, <8 x i1> %1)
   ret void
 }

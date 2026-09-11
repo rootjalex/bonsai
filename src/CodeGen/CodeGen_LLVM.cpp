@@ -1,5 +1,6 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
+#include <functional>
 #include <limits>
 
 #include <llvm/IR/Constant.h>
@@ -277,14 +278,22 @@ void CodeGen_LLVM::init_module() {
 llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     // Make function type
     llvm::Type *ret_type = codegen_type(func.ret_type);
-    std::vector<llvm::Type *> arg_types(func.args.size());
+    // An aggregate the return registers cannot hold comes back through a
+    // pointer the caller passes first; see indirect_return_type.
+    llvm::Type *sret = indirect_return_type(func.ret_type);
+    const uint32_t hidden = sret ? 1 : 0;
+    std::vector<llvm::Type *> arg_types(func.args.size() + hidden);
+    if (sret) {
+        ret_type = llvm::Type::getVoidTy(*context);
+        arg_types[0] = llvm::PointerType::getUnqual(*context);
+    }
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];
         // A struct parameter is declared as the struct. Lower/Mutability.cpp
         // has already made it a pointer where the C ABI applies -- at an
         // exported boundary -- so anything still a struct here is internal and
         // is passed as the value it is.
-        arg_types[i] = codegen_type(arg_info.type);
+        arg_types[i + hidden] = codegen_type(arg_info.type);
     }
 
     llvm::FunctionType *ftype =
@@ -331,6 +340,20 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
         fn->addFnAttr(llvm::Attribute::AlwaysInline);
     }
 
+    if (sret) {
+        // What the C ABI says of the pointer: it is the return value's home
+        // and nothing else's, it is written and not read, and nobody keeps it.
+        llvm::AttrBuilder attrs(*context);
+        attrs.addStructRetAttr(sret);
+        attrs.addAttribute(llvm::Attribute::NoAlias);
+        attrs.addAttribute(llvm::Attribute::NoCapture);
+        attrs.addAttribute(llvm::Attribute::NoUndef);
+        attrs.addAttribute(llvm::Attribute::NonNull);
+        attrs.addAttribute(llvm::Attribute::WriteOnly);
+        attrs.addAlignmentAttr(module->getDataLayout().getABITypeAlign(sret));
+        fn->addParamAttrs(0, attrs);
+    }
+
     for (uint32_t i = 0; i < func.args.size(); i++) {
         const auto &arg_info = func.args[i];
         llvm::AttrBuilder attrs(*context);
@@ -356,7 +379,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
             // TODO: Add dereferenceable + alignment if we can figure that out.
         }
 
-        fn->addParamAttrs(i, attrs);
+        fn->addParamAttrs(i + hidden, attrs);
     }
     return fn;
 }
@@ -376,8 +399,19 @@ void CodeGen_LLVM::compile_function(const Function &func,
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     builder->SetInsertPoint(entry_bb);
 
+    // The hidden return pointer, when the aggregate this returns comes back
+    // through one, is the first argument and belongs to no parameter.
+    current_sret = nullptr;
+    if (function->hasParamAttribute(0, llvm::Attribute::StructRet)) {
+        current_sret = function->getArg(0);
+        current_sret->setName("_sret");
+    }
+
     uint32_t arg_idx = 0;
     for (auto &arg : function->args()) {
+        if (&arg == current_sret) {
+            continue;
+        }
         const auto &arg_info = func.args[arg_idx];
         std::string name = arg_info.name;
         arg.setName(name);
@@ -455,6 +489,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
     }
 
     current_function = nullptr;
+    current_sret = nullptr;
 
     // function->dump();
 }
@@ -759,12 +794,104 @@ llvm::FunctionType *CodeGen_LLVM::get_function_type(const ir::Type &type) {
     const Function_t *node = type.as<ir::Function_t>();
     internal_assert(node);
     std::vector<llvm::Type *> input_types;
+    // The same shape declare_function gives a function of this type, hidden
+    // return pointer included, so that a call through a function-typed value
+    // agrees with the function it reaches.
+    llvm::Type *return_type = codegen_type(node->ret_type);
+    if (indirect_return_type(node->ret_type)) {
+        return_type = llvm::Type::getVoidTy(*context);
+        input_types.push_back(llvm::PointerType::getUnqual(*context));
+    }
     for (const ir::Function_t::ArgSig &arg : node->arg_types) {
         input_types.push_back(codegen_type(arg.type));
     }
-    llvm::Type *return_type = codegen_type(node->ret_type);
     return llvm::FunctionType::get(return_type, std::move(input_types),
                                    /*isVariadic=*/false);
+}
+
+llvm::Type *CodeGen_LLVM::indirect_return_type(const ir::Type &ret_type) {
+    if (!ret_type.defined()) {
+        return nullptr;
+    }
+    llvm::Type *type = codegen_type(ret_type);
+    if (!type->isAggregateType()) {
+        return nullptr;
+    }
+    // The leaves of the aggregate, as the return convention classes them: a
+    // floating-point or vector leaf takes an SSE register, anything else an
+    // integer one. x86-64's RetCC gives two of the first kind and three of
+    // the second before it reaches for the x87 stack.
+    //
+    // That rule is x86-64's, and this is the wrong place for it in the long
+    // run: it belongs with the other target-specific decisions this backend
+    // makes inline -- the native vector width, the host CPU the target
+    // machine is built for, which libm calls exist, how a parallel loop is
+    // launched -- in a per-target subclass behind virtual methods, as Halide
+    // splits its CodeGen_LLVM from CodeGen_X86 and the rest. Until then, a
+    // second target would need its own count here.
+    struct Leaves {
+        unsigned sse = 0;
+        unsigned integer = 0;
+    };
+    const std::function<void(llvm::Type *, Leaves &)> count =
+        [&](llvm::Type *t, Leaves &leaves) {
+            if (auto *st = llvm::dyn_cast<llvm::StructType>(t)) {
+                for (llvm::Type *element : st->elements()) {
+                    count(element, leaves);
+                }
+            } else if (auto *at = llvm::dyn_cast<llvm::ArrayType>(t)) {
+                for (uint64_t i = 0; i < at->getNumElements(); i++) {
+                    count(at->getElementType(), leaves);
+                }
+            } else if (t->isFloatingPointTy() || t->isVectorTy()) {
+                leaves.sse++;
+            } else {
+                leaves.integer++;
+            }
+        };
+    Leaves leaves;
+    count(type, leaves);
+    if (leaves.sse <= 2 && leaves.integer <= 3) {
+        return nullptr;
+    }
+    return type;
+}
+
+llvm::AllocaInst *CodeGen_LLVM::create_entry_alloca(llvm::Type *type,
+                                                    const std::string &name) {
+    internal_assert(current_function);
+    llvm::BasicBlock &entry = current_function->getEntryBlock();
+    llvm::IRBuilder<> at_entry(&entry, entry.begin());
+    return at_entry.CreateAlloca(type, nullptr, name);
+}
+
+llvm::Value *CodeGen_LLVM::emit_call(llvm::FunctionCallee callee,
+                                     llvm::Type *sret_type,
+                                     std::vector<llvm::Value *> args,
+                                     const std::string &name) {
+    if (sret_type == nullptr) {
+        return builder->CreateCall(callee, args, name);
+    }
+    llvm::AllocaInst *slot =
+        create_entry_alloca(sret_type, name.empty() ? "_ret" : name + "_ret");
+    args.insert(args.begin(), slot);
+    llvm::CallInst *call = builder->CreateCall(callee, args);
+    // The call site carries the attribute as well as the declaration: the
+    // backend reads the convention off whichever it is looking at.
+    call->addParamAttr(0,
+                       llvm::Attribute::getWithStructRetType(*context, sret_type));
+    return builder->CreateAlignedLoad(sret_type, slot, slot->getAlign(), name);
+}
+
+llvm::Value *CodeGen_LLVM::emit_call(llvm::Function *callee,
+                                     std::vector<llvm::Value *> args,
+                                     const std::string &name) {
+    llvm::Type *sret_type =
+        callee->hasParamAttribute(0, llvm::Attribute::StructRet)
+            ? callee->getParamStructRetType(0)
+            : nullptr;
+    return emit_call(llvm::FunctionCallee(callee), sret_type, std::move(args),
+                     name);
 }
 
 void CodeGen_LLVM::visit(const Function_t *node) {
@@ -892,7 +1019,11 @@ void CodeGen_LLVM::visit(const Extrema *node) {
 
 void CodeGen_LLVM::visit(const Var *node) {
     auto frame_value = frames.from_frames(node->name);
-    internal_assert(frame_value.has_value()) << node->name;
+    internal_assert(frame_value.has_value())
+        << node->name << " is not bound"
+        << (current_function
+                ? " in " + current_function->getName().str()
+                : std::string());
     value = *frame_value;
 }
 
@@ -1978,13 +2109,14 @@ void CodeGen_LLVM::visit(const Call *node) {
         internal_assert(f) << ir::Expr(node);
         llvm::FunctionType *function_type = get_function_type(f->type);
         internal_assert(function_type) << ir::Expr(f) << " : " << f->type;
-        value =
-            builder->CreateCall(function_type, codegen_expr(node->func), args);
+        value = emit_call(
+            llvm::FunctionCallee(function_type, codegen_expr(node->func)),
+            indirect_return_type(function_t->ret_type), std::move(args));
         return;
     }
     // TODO: figure out how to make sure we have the right
     // number of arguments here for better error handling.
-    value = builder->CreateCall(func, args);
+    value = emit_call(func, std::move(args));
 }
 
 void CodeGen_LLVM::visit(const Instantiate *node) {
@@ -2362,6 +2494,12 @@ void CodeGen_LLVM::visit(const Return *node) {
                 llvm::Function *func = codegen_func_ptr(call->func);
                 internal_assert(func);
                 std::vector<llvm::Value *> args;
+                // A function returning through a hidden pointer hands its own
+                // pointer on: the callee writes where this call's caller is
+                // waiting to read, which is what keeps this a tail call.
+                if (current_sret) {
+                    args.push_back(current_sret);
+                }
                 for (const Expr &arg : call->args) {
                     args.push_back(codegen_expr(arg));
                 }
@@ -2373,13 +2511,25 @@ void CodeGen_LLVM::visit(const Return *node) {
                     current_function
                         ->getCallingConv()); // Ensure same convention
 
-                builder->CreateRet(tail);
+                if (current_sret) {
+                    tail->addParamAttr(
+                        0, llvm::Attribute::getWithStructRetType(
+                               *context, func->getParamStructRetType(0)));
+                    builder->CreateRetVoid();
+                } else {
+                    builder->CreateRet(tail);
+                }
                 return;
             }
         }
     }
 
     llvm::Value *val = codegen_expr(value);
+    if (current_sret) {
+        builder->CreateStore(val, current_sret);
+        builder->CreateRetVoid();
+        return;
+    }
     builder->CreateRet(val);
 }
 
@@ -3842,7 +3992,11 @@ llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
 llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
     std::string name = wloc.base;
     auto frame_value = frames.from_frames(name);
-    internal_assert(frame_value.has_value()) << name;
+    internal_assert(frame_value.has_value())
+        << name << " is not bound"
+        << (current_function
+                ? " in " + current_function->getName().str()
+                : std::string());
     llvm::Value *loc = *frame_value;
     Type bonsai_type = wloc.base_type;
 

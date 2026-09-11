@@ -359,9 +359,19 @@ struct CodeGen_LLVM::SSALowering {
         // already values rather than phis.
         cg.frames.push_frame();
         {
+            // The hidden return pointer, when there is one, comes first and
+            // is no parameter of the entry block's.
+            cg.current_sret = nullptr;
+            if (function->hasParamAttribute(0, llvm::Attribute::StructRet)) {
+                cg.current_sret = function->getArg(0);
+                cg.current_sret->setName("_sret");
+            }
             const Block &head = *func.blocks.front();
             uint32_t i = 0;
             for (auto &arg : function->args()) {
+                if (&arg == cg.current_sret) {
+                    continue;
+                }
                 internal_assert(i < head.args.size())
                     << function->getName().str() << " takes more arguments "
                     << "than its entry block declares";
@@ -425,11 +435,18 @@ struct CodeGen_LLVM::SSALowering {
                                              blocks.at(d.targets[0].name));
                 },
                 [&](const Terminator::Return &r) {
-                    if (r.value) {
-                        cg.builder->CreateRet(
-                            cg.codegen_expr(operand(r.value)));
-                    } else {
+                    if (!r.value) {
                         cg.builder->CreateRetVoid();
+                        return;
+                    }
+                    llvm::Value *value = cg.codegen_expr(operand(r.value));
+                    if (cg.current_sret) {
+                        // Returned through the hidden pointer; see
+                        // indirect_return_type.
+                        cg.builder->CreateStore(value, cg.current_sret);
+                        cg.builder->CreateRetVoid();
+                    } else {
+                        cg.builder->CreateRet(value);
                     }
                 },
                 [&](const Terminator::Call &c) {
@@ -441,7 +458,7 @@ struct CodeGen_LLVM::SSALowering {
                     for (const auto &a : c.call.args) {
                         args.push_back(cg.codegen_expr(operand(a)));
                     }
-                    llvm::Value *result = cg.builder->CreateCall(callee, args);
+                    llvm::Value *result = cg.emit_call(callee, std::move(args));
                     llvm::BasicBlock *after = cg.builder->GetInsertBlock();
                     supply(c.cont, after, c.drop ? 0 : 1,
                            c.drop ? nullptr : result);
@@ -468,7 +485,7 @@ struct CodeGen_LLVM::SSALowering {
                         for (const auto &a : c.call_args(i)) {
                             args.push_back(cg.codegen_expr(operand(a)));
                         }
-                        result = cg.builder->CreateCall(callee, args);
+                        result = cg.emit_call(callee, std::move(args));
                     }
                     llvm::BasicBlock *after = cg.builder->GetInsertBlock();
                     supply(c.cont, after, c.drop ? 0 : 1,
@@ -509,6 +526,7 @@ void CodeGen_LLVM::compile_function(const ir::ssa::Function &func,
         << ", lowered straight from SSA";
 
     current_function = nullptr;
+    current_sret = nullptr;
 }
 
 } // namespace bonsai

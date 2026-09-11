@@ -6,59 +6,66 @@ source_filename = "bonsai_module"
 %struct.Ray2 = type { <3 x float>, <3 x float>, float }
 %struct.Ray3 = type { <3 x float>, <3 x float>, float }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray @build_ray() local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray) align 16 %_sret) local_unnamed_addr #0 {
 build_ray_entry:
-  ret %struct.Ray zeroinitializer
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 16 dereferenceable(48) %_sret, i8 0, i64 48, i1 false)
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray1 @build_ray1() local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray1(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray1) align 16 %_sret) local_unnamed_addr #0 {
 build_ray1_entry:
-  ret %struct.Ray1 { <3 x float> zeroinitializer, <3 x float> zeroinitializer, float 1.000000e+00 }
+  store %struct.Ray1 { <3 x float> zeroinitializer, <3 x float> zeroinitializer, float 1.000000e+00 }, ptr %_sret, align 16
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray2 @build_ray2() local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray2(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray2) align 16 %_sret) local_unnamed_addr #0 {
 build_ray2_entry:
-  ret %struct.Ray2 { <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, float 1.000000e+00 }
+  store %struct.Ray2 { <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, float 1.000000e+00 }, ptr %_sret, align 16
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray3 @build_ray3() local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray3(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray3) align 16 %_sret) local_unnamed_addr #0 {
 build_ray3_entry:
-  ret %struct.Ray3 { <3 x float> zeroinitializer, <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, float 1.000000e+00 }
+  store %struct.Ray3 { <3 x float> zeroinitializer, <3 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, float 1.000000e+00 }, ptr %_sret, align 16
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray @build_ray_params(<3 x float> noundef %o, <3 x float> noundef %d, float noundef %t) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray_params(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray) align 16 %_sret, <3 x float> noundef %o, <3 x float> noundef %d, float noundef %t) local_unnamed_addr #0 {
 build_ray_params_entry:
   %0 = insertvalue %struct.Ray undef, <3 x float> %o, 0
   %1 = insertvalue %struct.Ray %0, <3 x float> %d, 1
   %2 = insertvalue %struct.Ray %1, float %t, 2
-  ret %struct.Ray %2
+  store %struct.Ray %2, ptr %_sret, align 16
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray @build_ray_params1(<3 x float> noundef %o, <3 x float> noundef %d) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray_params1(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray) align 16 %_sret, <3 x float> noundef %o, <3 x float> noundef %d) local_unnamed_addr #0 {
 build_ray_params1_entry:
   %0 = insertvalue %struct.Ray undef, <3 x float> %o, 0
   %1 = insertvalue %struct.Ray %0, <3 x float> %d, 1
   %2 = insertvalue %struct.Ray %1, float 0.000000e+00, 2
-  ret %struct.Ray %2
+  store %struct.Ray %2, ptr %_sret, align 16
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray @build_ray_params2(<3 x float> noundef %o, <3 x float> noundef %d) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray_params2(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray) align 16 %_sret, <3 x float> noundef %o, <3 x float> noundef %d) local_unnamed_addr #0 {
 build_ray_params2_entry:
   %0 = insertvalue %struct.Ray undef, <3 x float> %o, 0
   %1 = insertvalue %struct.Ray %0, <3 x float> %d, 1
   %2 = insertvalue %struct.Ray %1, float 0.000000e+00, 2
-  ret %struct.Ray %2
+  store %struct.Ray %2, ptr %_sret, align 16
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Ray @build_ray_params3(float noundef %oall, float noundef %dall) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_ray_params3(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Ray) align 16 %_sret, float noundef %oall, float noundef %dall) local_unnamed_addr #0 {
 build_ray_params3_entry:
   %.splatinsert = insertelement <3 x float> poison, float %oall, i64 0
   %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
@@ -67,7 +74,12 @@ build_ray_params3_entry:
   %0 = insertvalue %struct.Ray undef, <3 x float> %.splat, 0
   %1 = insertvalue %struct.Ray %0, <3 x float> %.splat2, 1
   %2 = insertvalue %struct.Ray %1, float 0.000000e+00, 2
-  ret %struct.Ray %2
+  store %struct.Ray %2, ptr %_sret, align 16
+  ret void
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
+declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg) #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { nocallback nofree nounwind willreturn memory(argmem: write) }

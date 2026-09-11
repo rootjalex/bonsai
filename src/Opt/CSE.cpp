@@ -475,8 +475,11 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
-        ir::Expr iter = mutate(node->iter);
+        // Body first, for the reason given at IfElse: a temporary the
+        // iterator needs has to be bound before the loop, and the body's
+        // statements would otherwise take it into the first of them.
         ir::Stmt body = mutate(node->body);
+        ir::Expr iter = mutate(node->iter);
         return make(
             ir::ForEach::make(node->name, std::move(iter), std::move(body)));
     }
@@ -501,8 +504,15 @@ struct Rename : public ir::Mutator {
     }
 
     ir::Stmt visit(const ir::While *node) override {
-        ir::Expr cond = mutate(node->cond);
+        // Body first, then the condition, so that what the condition's
+        // temporaries are bound to lands *before* the loop. The other way
+        // round, the first statement of the body wrapped them into itself,
+        // and the loop tested `s < _t0` with `_t0` bound only inside it: a use
+        // before its definition, which DCE's use counting refused. Hoisting
+        // them is also right: an expression is only renamed if it reads
+        // nothing mutable, so a condition's temporary is loop-invariant.
         ir::Stmt body = mutate(node->body);
+        ir::Expr cond = mutate(node->cond);
         return make(ir::While::make(std::move(cond), std::move(body)));
     }
 
@@ -1186,7 +1196,7 @@ ir::FuncMap CSE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
         // value. We perform dead code elimination first to get rid of unused
         // references to a temporary variable.
         func->body = opt::dce(std::move(func->body), mutable_arguments,
-                              side_effect_functions);
+                              side_effect_functions, name);
         func->body = substitute_temporaries(std::move(func->body));
     }
     return funcs;
