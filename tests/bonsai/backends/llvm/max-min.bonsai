@@ -1,0 +1,21 @@
+//! flags: -p ssa -b llvm
+
+// Floating-point max and min lower to a compare and a select -- C++'s
+// std::max and std::min -- rather than to llvm.maxnum and llvm.minnum. See
+// correctness/llvm/max-min-nan.bonsai for what the difference means; what
+// this checks is the shape, for scalars and for vectors, and that an integer
+// max is still the integer intrinsic.
+
+element vec3f = vector[f32, 3];
+
+func [[export]] fmax2(a : f32, b : f32) -> f32 = max(a, b);
+
+func [[export]] fmin2(a : f32, b : f32) -> f32 = min(a, b);
+
+func [[export]] vmax(a : vec3f, b : vec3f) -> vec3f = max(a, b);
+
+func [[export]] vmin(a : vec3f, b : vec3f) -> vec3f = min(a, b);
+
+func [[export]] imax(a : i32, b : i32) -> i32 = max(a, b);
+
+func [[export]] clamp01(x : f32) -> f32 = min(max(x, 0.0), 1.0);

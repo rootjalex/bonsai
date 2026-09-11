@@ -1,5 +1,8 @@
 #include "IR/Equality.h"
 
+#include <bit>
+#include <cstdint>
+
 #include "IR/Printer.h"
 
 namespace bonsai {
@@ -525,8 +528,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
                                   e1.as<IdxImm>()->value);
     }
     case IRExprEnum::FloatImm: {
-        return compare_primitives(e0.as<FloatImm>()->value,
-                                  e1.as<FloatImm>()->value);
+        // By bit pattern, not by value. As values -0.0 and 0.0 are equal,
+        // and they are different constants: max(0.0, -0.0) is 0.0 and
+        // max(-0.0, 0.0) is -0.0, and comparing by value let CSE fold the
+        // second into the first. And a NaN is neither less than, equal to,
+        // nor greater than itself as a value, which is no ordering at all
+        // for a map to be keyed on.
+        return compare_primitives(
+            std::bit_cast<uint64_t>(e0.as<FloatImm>()->value),
+            std::bit_cast<uint64_t>(e1.as<FloatImm>()->value));
     }
     case IRExprEnum::BoolImm: {
         return compare_primitives(e0.as<BoolImm>()->value,

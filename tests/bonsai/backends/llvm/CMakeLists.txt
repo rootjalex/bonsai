@@ -20,6 +20,7 @@ add_bonsai_tests(
     lambda.bonsai
     libm-call.bonsai
     map-func.bonsai
+    max-min.bonsai
     mut-basic.bonsai
     nested-exported-function.bonsai
     option.bonsai

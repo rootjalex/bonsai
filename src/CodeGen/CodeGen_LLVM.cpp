@@ -1841,39 +1841,36 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         intrin = llvm::Intrinsic::fma;
         break;
     }
-    case Intrinsic::max: {
-        if (node->args[0].type().is_int()) {
-            intrin = llvm::Intrinsic::smax;
-        } else if (node->args[0].type().is_uint()) {
-            intrin = llvm::Intrinsic::umax;
-        } else {
-            internal_assert(node->args[0].type().is_float())
-                << "Cannot lower max of type: " << node->args[0].type();
-            // Follows the IEEE-754 semantics for maxNum except for the handling
-            // of signaling NaNs. This matches the behavior of libm’s fmax.
-            // https://llvm.org/docs/LangRef.html#llvm-maxnum-intrinsic
-            intrin = llvm::Intrinsic::maxnum;
-            // internal_error << "TODO: figure out fmax codegen: " <<
-            // Expr(node);
-        }
-        break;
-    }
+    case Intrinsic::max:
     case Intrinsic::min: {
+        const bool is_max = node->op == Intrinsic::max;
         if (node->args[0].type().is_int()) {
-            intrin = llvm::Intrinsic::smin;
+            intrin = is_max ? llvm::Intrinsic::smax : llvm::Intrinsic::smin;
+            break;
         } else if (node->args[0].type().is_uint()) {
-            intrin = llvm::Intrinsic::umin;
-        } else {
-            internal_assert(node->args[0].type().is_float())
-                << "Cannot lower min of type: " << node->args[0].type();
-            // Follows the IEEE-754 semantics for minNum, except for handling of
-            // signaling NaNs. This match’s the behavior of libm’s fmin.
-            // https://llvm.org/docs/LangRef.html#llvm-minnum-intrinsic
-            intrin = llvm::Intrinsic::minnum;
-            // internal_error << "TODO: figure out fmin codegen: " <<
-            // Expr(node);
+            intrin = is_max ? llvm::Intrinsic::umax : llvm::Intrinsic::umin;
+            break;
         }
-        break;
+        internal_assert(node->args[0].type().is_float())
+            << "Cannot lower " << (is_max ? "max" : "min")
+            << " of type: " << node->args[0].type();
+        // C++'s std::max and std::min, exactly: `a < b ? b : a` and
+        // `b < a ? b : a`. A NaN makes the comparison false, so a NaN in the
+        // first argument comes back and a NaN in the second is passed over.
+        // That is what a program translated from C++ means by max and min,
+        // and it is also what one x86 instruction does -- maxss and minss
+        // return their second operand when the operands are unordered, and
+        // LLVM matches this compare-and-select to them. These used to be
+        // llvm.maxnum and llvm.minnum, which drop a NaN in either position
+        // instead; that is libm's fmax, not std::max, and on x86 it costs a
+        // compare for NaN and a blend around every one. A BVH node test has
+        // four of them, and a renderer does nothing more often.
+        llvm::Value *a = codegen_expr(node->args[0]);
+        llvm::Value *b = codegen_expr(node->args[1]);
+        llvm::Value *take_b = is_max ? builder->CreateFCmpOLT(a, b, "max_lt")
+                                     : builder->CreateFCmpOLT(b, a, "min_lt");
+        value = builder->CreateSelect(take_b, b, a, is_max ? "max" : "min");
+        return;
     }
     case Intrinsic::norm: {
         Expr expr = sqrt(dot(node->args[0], node->args[0]));

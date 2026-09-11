@@ -49,6 +49,7 @@ add_bonsai_tests(
     alias-edges.bonsai
     map-func.bonsai
     match-expr.bonsai
+    max-min-nan.bonsai
     map.bonsai
     mut-array-param.bonsai
     mutability.bonsai

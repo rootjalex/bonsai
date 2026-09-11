@@ -67,11 +67,13 @@ define <3 x float> @clamp(<3 x float> noundef %x, float noundef %low, float noun
 clamp_entry:
   %.splatinsert = insertelement <3 x float> poison, float %low, i64 0
   %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
-  %0 = tail call <3 x float> @llvm.maxnum.v3f32(<3 x float> %x, <3 x float> %.splat)
+  %max_lt = fcmp ogt <3 x float> %.splat, %x
+  %max = select <3 x i1> %max_lt, <3 x float> %.splat, <3 x float> %x
   %.splatinsert1 = insertelement <3 x float> poison, float %high, i64 0
   %.splat2 = shufflevector <3 x float> %.splatinsert1, <3 x float> poison, <3 x i32> zeroinitializer
-  %1 = tail call <3 x float> @llvm.minnum.v3f32(<3 x float> %0, <3 x float> %.splat2)
-  ret <3 x float> %1
+  %min_lt = fcmp olt <3 x float> %.splat2, %max
+  %min = select <3 x i1> %min_lt, <3 x float> %.splat2, <3 x float> %max
+  ret <3 x float> %min
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
@@ -255,25 +257,26 @@ refract_entry:
   %5 = fadd float %2, %4
   %6 = extractelement <3 x float> %3, i64 2
   %7 = fadd float %6, %5
-  %8 = tail call float @llvm.minnum.f32(float %7, float 1.000000e+00)
+  %min_lt = fcmp ogt float %7, 1.000000e+00
+  %min = select i1 %min_lt, float 1.000000e+00, float %7
   %.splatinsert = insertelement <3 x float> poison, float %etai_over_etat, i64 0
   %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
-  %.splatinsert1 = insertelement <3 x float> poison, float %8, i64 0
+  %.splatinsert1 = insertelement <3 x float> poison, float %min, i64 0
   %.splat2 = shufflevector <3 x float> %.splatinsert1, <3 x float> poison, <3 x i32> zeroinitializer
-  %9 = fmul <3 x float> %.splat2, %n
-  %10 = fadd <3 x float> %9, %uv
-  %11 = fmul <3 x float> %.splat, %10
-  %12 = fmul <3 x float> %11, %11
-  %13 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %12)
-  %14 = fsub float 1.000000e+00, %13
-  %15 = tail call float @llvm.fabs.f32(float %14)
-  %16 = tail call float @llvm.sqrt.f32(float %15)
-  %17 = fsub float 0.000000e+00, %16
-  %.splatinsert3 = insertelement <3 x float> poison, float %17, i64 0
+  %8 = fmul <3 x float> %.splat2, %n
+  %9 = fadd <3 x float> %8, %uv
+  %10 = fmul <3 x float> %.splat, %9
+  %11 = fmul <3 x float> %10, %10
+  %12 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %11)
+  %13 = fsub float 1.000000e+00, %12
+  %14 = tail call float @llvm.fabs.f32(float %13)
+  %15 = tail call float @llvm.sqrt.f32(float %14)
+  %16 = fsub float 0.000000e+00, %15
+  %.splatinsert3 = insertelement <3 x float> poison, float %16, i64 0
   %.splat4 = shufflevector <3 x float> %.splatinsert3, <3 x float> poison, <3 x i32> zeroinitializer
-  %18 = fmul <3 x float> %.splat4, %n
-  %19 = fadd <3 x float> %11, %18
-  ret <3 x float> %19
+  %17 = fmul <3 x float> %.splat4, %n
+  %18 = fadd <3 x float> %10, %17
+  ret <3 x float> %18
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
@@ -363,12 +366,6 @@ unit_vector__entry:
 declare float @llvm.fma.f32(float, float, float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.maxnum.v3f32(<3 x float>, <3 x float>) #3
-
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.minnum.v3f32(<3 x float>, <3 x float>) #3
-
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare <3 x float> @llvm.fma.v3f32(<3 x float>, <3 x float>, <3 x float>) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
@@ -382,9 +379,6 @@ declare float @llvm.fabs.f32(float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.pow.f32(float, float) #3
-
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.minnum.f32(float, float) #3
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #4

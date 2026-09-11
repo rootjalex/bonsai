@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm -e
+
+// max and min are C++'s std::max and std::min: `a < b ? b : a` and
+// `b < a ? b : a`. A NaN makes the comparison false, so a NaN in the first
+// argument is returned and a NaN in the second is passed over, and the same
+// goes for signed zeros -- equal operands return the first.
+//
+// They used to lower to llvm.maxnum and llvm.minnum, which return the
+// non-NaN operand from either position. That is libm's fmax and fmin, and a
+// program translated from C++ does not mean that by max: pbrt writes
+// `std::max<Float>(0, x)` in SafeSqrt and clamps everywhere, and its slab
+// test keeps a NaN it meets. It is also three instructions where std::max is
+// one, since x86 has no maxnum and has to test for the NaN itself.
+//
+// The signed-zero line also checks that -0.0 and 0.0 are different
+// constants to the compiler. They compare equal as values, and IR equality
+// used to compare float constants that way, so CSE folded max(0.0, -0.0)
+// into the max(-0.0, 0.0) before it and every one of the four printed -0.
+
+element vec3f = vector[f32, 3];
+
+func not_a_number(x : f32) -> f32 = sqrt(x);
+
+func main() -> i32 {
+    nan = not_a_number(-1.0);
+
+    // Scalars: the NaN in front stays, the NaN behind is skipped.
+    print(max(nan, 1.0), max(1.0, nan));
+    print(min(nan, 1.0), min(1.0, nan));
+
+    // Ordinary operands, both orders.
+    print(max(2.0, 3.0), max(3.0, 2.0), min(2.0, 3.0), min(3.0, 2.0));
+
+    // Equal operands return the first, which the sign of zero shows.
+    print(max(-0.0, 0.0), max(0.0, -0.0), min(-0.0, 0.0), min(0.0, -0.0));
+
+    // Vectors, lane by lane.
+    v = max(vec3f{1.0, nan, 3.0}, vec3f{2.0, 2.0, nan});
+    print(v.x, v.y, v.z);
+    w = min(vec3f{1.0, nan, 3.0}, vec3f{2.0, 2.0, nan});
+    print(w.x, w.y, w.z);
+    return 0;
+}
