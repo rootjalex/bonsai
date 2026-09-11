@@ -2,10 +2,11 @@
 """Compare the channels of pbrt's gbuffer against the ones this renderer writes.
 
     python3 apps/pbrt/compare_gbuffer.py <pbrt.pfm> <bonsai.pfm>
+        [--shading <pbrt-ns.pfm> <bonsai-ns.pfm>]
         [--albedo <pbrt-albedo.pfm> <bonsai-albedo.pfm>]
         [--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]
 
-Three things are reported, and they fail for different reasons:
+Four things are reported, and they fail for different reasons:
 
   the hit mask -- which pixels have a normal at all. A disagreement here is a
   disagreement about geometry: the camera is pointing somewhere slightly
@@ -16,6 +17,15 @@ Three things are reported, and they fail for different reasons:
   the normals themselves, where both renderers hit something. pbrt writes its
   gbuffer as half floats, so agreement is bounded by that: around 5e-4 near
   0.5, and there is no point asking for better.
+
+  the shading normals, when --shading names the pair. The geometric normal is
+  the shape's alone; the shading one is interpolated across a mesh's vertex
+  normals and tilted by the material's displacement, and it is the normal the
+  BSDF was built about. A bump map moves nothing the first channel can see, so
+  this is the channel that checks one. Compared exactly as the geometric
+  normals are, and a pixel is excused only where the *geometric* reference has
+  an edge: a bumped surface is discontinuous at every pixel by design, and
+  excusing its own edges would excuse everything.
 
   the albedo, when --albedo names the pair. This is the spectral pipeline end
   to end -- an RGB reflectance fitted to a sigmoid, evaluated at four sampled
@@ -63,6 +73,20 @@ ALBEDO_MEAN_TOLERANCE = 5e-4
 # wavelengths uniformly rather than by visible response -- the mistake this was
 # written to catch -- moves every pixel, not one in seventy thousand.
 ALBEDO_OUTLIER_FRACTION = 1e-4
+
+# How many pixels' shading normals may disagree away from any edge, as a
+# fraction of those both renderers hit. Zero would be the right number for a
+# mesh's interpolated normals, and it is what every scene without a bump map
+# gets. A bump map is different in kind: pbrt differences the displacement
+# texture over a footprint, at a pyramid level that is the *floor* of a log of
+# that footprint, and one sample of one pixel landing on the other side of
+# that floor reads a different level and gets a different normal -- a
+# discontinuity in the inputs, not an error in the arithmetic, which
+# check_differentials.sh checks bit for bit. Observed: one pixel in 130,000 on
+# the pool scene, at eight samples per pixel. An order of magnitude above
+# that, and four orders below what a wrong bump map does (8,278 of 128,798 on
+# the same scene, when the lens camera's differentials were an ulp off).
+SHADING_OUTLIER_FRACTION = 1e-4
 
 # See compare_radiance. What counts as two lit pixels agreeing, which most of
 # them do: the paths that took the same branches accumulate only last-bit
@@ -138,6 +162,43 @@ def on_a_silhouette(ref, width, height, x, y):
         if max(abs(centre[k] - neighbour[k]) for k in range(3)) > NORMAL_TOLERANCE:
             return True
     return False
+
+
+def compare_normals(ref, got, edges, width, height):
+    """Where two normal images disagree, and which of those pixels are excused.
+
+    `edges` is the image whose discontinuities excuse a disagreement -- the
+    geometric normals, whichever pair is being compared, since a silhouette is
+    a fact about the geometry and not about the channel.
+
+    Returns the count of pixels both hit, the worst difference and where it
+    was, every disagreeing pixel, the excused ones and the rest.
+    """
+    both = 0
+    worst = 0.0
+    worst_at = None
+    disagreements = []
+    for i in range(width * height):
+        a = ref[i * 3:i * 3 + 3]
+        b = got[i * 3:i * 3 + 3]
+        # A miss leaves the normal at zero in both renderers.
+        hit_a = any(a)
+        hit_b = any(b)
+        if hit_a and hit_b:
+            both += 1
+        error = (max(abs(a[k] - b[k]) for k in range(3))
+                 if hit_a and hit_b else (1.0 if hit_a != hit_b else 0.0))
+        if hit_a != hit_b or error > NORMAL_TOLERANCE:
+            disagreements.append((i % width, i // width))
+        if hit_a and hit_b and error > worst:
+            worst = error
+            worst_at = (i % width, i // width, a, b)
+
+    on_edge = [p for p in disagreements
+               if on_a_silhouette(edges, width, height, p[0], p[1])]
+    edge_set = set(on_edge)
+    interior = [p for p in disagreements if p not in edge_set]
+    return both, worst, worst_at, disagreements, on_edge, interior
 
 
 def take_option(args, name):
@@ -350,6 +411,7 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
 
 def main(argv):
     args = argv[1:]
+    shading_pair = take_pair(args, "--shading")
     albedo_pair = take_pair(args, "--albedo")
     radiance_pair = take_pair(args, "--radiance")
     pbrt_seconds = take_option(args, "--pbrt-seconds")
@@ -371,6 +433,7 @@ def main(argv):
     if len(args) != 2:
         raise SystemExit(
             f"usage: {argv[0]} <pbrt.pfm> <bonsai.pfm> "
+            f"[--shading <a.pfm> <b.pfm>] [--albedo <a.pfm> <b.pfm>] "
             f"[--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]\n"
             f"       {argv[0]} --radiance-only --radiance <a.pfm> <b.pfm>")
 
@@ -380,29 +443,8 @@ def main(argv):
         raise SystemExit(
             f"resolutions differ: {ref_w}x{ref_h} vs {got_w}x{got_h}")
 
-    both = 0
-    worst = 0.0
-    worst_at = None
-    disagreements = []
-    for i in range(ref_w * ref_h):
-        a = ref[i * 3:i * 3 + 3]
-        b = got[i * 3:i * 3 + 3]
-        # A miss leaves the normal at zero in both renderers.
-        hit_a = any(a)
-        hit_b = any(b)
-        if hit_a and hit_b:
-            both += 1
-        error = (max(abs(a[k] - b[k]) for k in range(3))
-                 if hit_a and hit_b else (1.0 if hit_a != hit_b else 0.0))
-        if hit_a != hit_b or error > NORMAL_TOLERANCE:
-            disagreements.append((i % ref_w, i // ref_w))
-        if hit_a and hit_b and error > worst:
-            worst = error
-            worst_at = (i % ref_w, i // ref_w, a, b)
-
-    on_edge = [p for p in disagreements
-               if on_a_silhouette(ref, ref_w, ref_h, p[0], p[1])]
-    interior = [p for p in disagreements if p not in set(on_edge)]
+    both, worst, worst_at, disagreements, on_edge, interior = compare_normals(
+        ref, got, ref, ref_w, ref_h)
 
     out_dir = os.path.dirname(os.path.abspath(args[1]))
     write_png(os.path.join(out_dir, "pbrt.png"), ref_w, ref_h,
@@ -423,6 +465,34 @@ def main(argv):
               f" bonsai ({b[0]:+.4f} {b[1]:+.4f} {b[2]:+.4f})")
     if interior:
         print(f"  first away from an edge: {interior[:5]}")
+
+    # The shading normals, excused only where the geometric image has an edge.
+    shading_interior = []
+    if shading_pair is not None:
+        s_w, s_h, s_ref = read_pfm(shading_pair[0])
+        g_w, g_h, s_got = read_pfm(shading_pair[1])
+        if (s_w, s_h) != (ref_w, ref_h) or (g_w, g_h) != (ref_w, ref_h):
+            raise SystemExit("shading normal images are not the size of the "
+                             "normals")
+        (s_both, s_worst, s_worst_at, s_disagreements, s_on_edge,
+         shading_interior) = compare_normals(s_ref, s_got, ref, ref_w, ref_h)
+        write_png(os.path.join(out_dir, "pbrt-ns.png"), ref_w, ref_h,
+                  encode_normals(ref_w, ref_h, s_ref))
+        write_png(os.path.join(out_dir, "bonsai-ns.png"), ref_w, ref_h,
+                  encode_normals(ref_w, ref_h, s_got))
+        diff_png(os.path.join(out_dir, "diff-ns.png"), ref_w, ref_h, s_ref,
+                 s_got)
+        print(f"shading normals: hit by both: {s_both}, disagreeing pixels: "
+              f"{len(s_disagreements)} -- {len(s_on_edge)} on a silhouette, "
+              f"{len(shading_interior)} elsewhere")
+        if s_worst_at:
+            x, y, a, b = s_worst_at
+            print(f"  worst shading normal difference where both hit: "
+                  f"{s_worst:.2e} at ({x}, {y})"
+                  f" pbrt ({a[0]:+.4f} {a[1]:+.4f} {a[2]:+.4f})"
+                  f" bonsai ({b[0]:+.4f} {b[1]:+.4f} {b[2]:+.4f})")
+        if shading_interior:
+            print(f"  first away from an edge: {shading_interior[:5]}")
 
     if pbrt_seconds is not None and bonsai_seconds is not None:
         # Render only, on both sides: pbrt's number comes from a timer started
@@ -488,16 +558,34 @@ def main(argv):
                   f"the {RADIANCE_MEAN_TOLERANCE:.0%} two estimates of one "
                   f"integral should agree to")
 
+    shading_failed = False
+    if shading_pair is not None:
+        allowed = SHADING_OUTLIER_FRACTION * max(s_both, 1)
+        if len(shading_interior) > allowed:
+            shading_failed = True
+        elif shading_interior:
+            print(f"  ({len(shading_interior)} shading normals disagree away "
+                  f"from any edge, within the {SHADING_OUTLIER_FRACTION:.0e} "
+                  f"a bump map's level choice accounts for)")
     if interior:
         print(f"FAILED: {len(interior)} pixels disagree away from any edge")
-    else:
+    if shading_failed:
+        print(f"FAILED: the shading normal disagrees on "
+              f"{len(shading_interior)} pixels away from any edge, over the "
+              f"{SHADING_OUTLIER_FRACTION:.0e} of {s_both} a bump map's level "
+              f"choice accounts for")
+    if not interior and not shading_failed:
         print(f"ok: matches pbrt except on {len(on_edge)} silhouette pixels")
     print(f"images: {out_dir}/pbrt.png, {out_dir}/bonsai.png, "
           f"{out_dir}/diff.png (difference brightened {DIFF_GAIN:.0f}x)")
+    if shading_pair is not None:
+        print(f"  the shading normals: {out_dir}/pbrt-ns.png, "
+              f"{out_dir}/bonsai-ns.png, {out_dir}/diff-ns.png")
     if radiance_pair is not None:
         print(f"  the render itself: {out_dir}/pbrt-radiance.png, "
               f"{out_dir}/bonsai-radiance.png")
-    return 1 if (interior or albedo_failed or radiance_failed) else 0
+    return 1 if (interior or shading_failed or albedo_failed or
+                 radiance_failed) else 0
 
 
 if __name__ == "__main__":

@@ -18,7 +18,12 @@ import apps/pbrt/spectrum;
 // pbrt: Lerp and Log2, with pbrt's own constant for the second -- it computes
 // a natural log and multiplies, which is not the same last bit as a log2
 // intrinsic would give.
-func lerp_(t : Float, a : Float, b : Float) -> Float = (1.0 - t) * a + t * b;
+// pbrt: Lerp, `(1 - t) * a + t * b`, with the fused multiply-add gcc makes of
+// it: the first product into the add, the second as its addend -- measured
+// by compiling the expression, standalone and nested three deep as the table
+// lookup nests it, with pbrt's own compiler and flags. Written as the fma so
+// that it is not left to this compiler's own rule, which happens to agree.
+func lerp_(t : Float, a : Float, b : Float) -> Float = fma(1.0 - t, a, t * b);
 func log2_(x : Float) -> Float =
     log(x) * 1.442695040888963387004650940071;
 
@@ -38,7 +43,12 @@ element TextureLevel {
 element ImageTexture {
     // pbrt: UVMapping, `st = (su * u + du, sv * v + dv)`.
     su, sv, du, dv : Float;
+    // pbrt's `scale`, with any constant `scale` texture over the image folded
+    // in, as pbrt folds it (see scene_io.h).
     scale : Float;
+    // pbrt: `MIPMap::Bilerp<Float>` on a three-channel image is the average
+    // of the three filtered channels; see scene_io.h.
+    average_channels : bool;
     invert : bool;
     wrap : u32;
     first_level : u32;
@@ -108,24 +118,59 @@ func texture_bilerp(level : TextureLevel, st : vec2f, wrap : u32) -> vec3f {
            (1.0 - dx) * dy * v01 + dx * dy * v11;
 }
 
-// pbrt: MIPMap::Filter, the non-EWA branch with a bilinear filter.
+// pbrt: MIPMap::Filter's choice of level, the non-EWA branch.
 //
 // The level comes from the footprint: `nLevels - 1 + log2(width)`, so a
 // footprint of one texel at the finest level lands on level 0 and each doubling
 // climbs one. A footprint wider than the whole image lands past the top of the
-// pyramid, where the answer is the single texel the top level has.
-func texture_filter(t : ImageTexture, st : vec2f, dstdx : vec2f,
-                    dstdy : vec2f) -> vec3f {
+// pyramid, where the answer is the single texel the top level has -- reported
+// as -1, because pbrt reads that texel differently from how it filters (see
+// texture_float).
+func filter_level(t : ImageTexture, dstdx : vec2f, dstdy : vec2f) -> i32 {
     width = 2.0 * max(max(abs(dstdx.x), abs(dstdx.y)),
                       max(abs(dstdy.x), abs(dstdy.y)));
     n_levels = cast[[Float]](t.n_levels);
     level = n_levels - 1.0 + log2_(max(width, 1e-8));
     if level >= n_levels - 1.0 {
+        return -1;
+    }
+    return cast[[i32]](max(0.0, floor_f(level)));
+}
+
+// pbrt: MIPMap::Filter<RGB> with a bilinear filter: the level's texel at the
+// top, the bilinear lookup below it. A one-channel image was shipped as three
+// equal channels, so `Bilerp<RGB>`'s widening to grey is already done.
+func texture_filter(t : ImageTexture, st : vec2f, dstdx : vec2f,
+                    dstdy : vec2f) -> vec3f {
+    level = filter_level(t, dstdx, dstdy);
+    if level < 0 {
         top = texture_levels[t.first_level + t.n_levels - 1u];
         return level_texel(top, 0, 0, t.wrap);
     }
-    i_level = cast[[u32]](max(0.0, floor_f(level)));
-    return texture_bilerp(texture_levels[t.first_level + i_level], st, t.wrap);
+    return texture_bilerp(texture_levels[t.first_level + cast[[u32]](level)],
+                          st, t.wrap);
+}
+
+// pbrt: MIPMap::Filter<Float> with a bilinear filter. The same level choice,
+// and two different reads of it: `Texel<Float>` at the top is channel 0 of
+// the one texel, whatever the image has; `Bilerp<Float>` below it is channel
+// 0 of a one-channel image, the *average* of the three filtered channels of a
+// three-channel one, and the alpha of a four-channel one. scene_dump shipped
+// a one-channel image and an alpha as that channel in all three places, so
+// `.x` is them; the three-channel case is the one that averages.
+func texture_filter_float(t : ImageTexture, st : vec2f, dstdx : vec2f,
+                          dstdy : vec2f) -> Float {
+    level = filter_level(t, dstdx, dstdy);
+    if level < 0 {
+        top = texture_levels[t.first_level + t.n_levels - 1u];
+        return level_texel(top, 0, 0, t.wrap).x;
+    }
+    filtered = texture_bilerp(
+        texture_levels[t.first_level + cast[[u32]](level)], st, t.wrap);
+    // pbrt: `ImageChannelValues::Average`, a running sum from zero divided by
+    // the count -- `((0 + r) + g) + b) / 3`.
+    average = ((0.0 + filtered.x) + filtered.y + filtered.z) / 3.0;
+    return select(t.average_channels, average, filtered.x);
 }
 
 // The filtered RGB, before it is made into a spectrum: pbrt's
@@ -147,14 +192,20 @@ func texture_rgb(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
                  max(inverted.z, 0.0)};
 }
 
-// pbrt: FloatImageTexture::Evaluate, which is the same lookup taking channel 0.
+// pbrt: FloatImageTexture::Evaluate, the same lookup read as one number.
+//
+// Which number is pbrt's `MIPMap::Bilerp<Float>`: a one-channel image's
+// channel, a three-channel image's *average*, a four-channel image's *alpha*
+// -- and it is decided per image, so scene_dump decides it, and ships a float
+// texture's value in all three components. `.x` here is therefore that value
+// after the same filter, and not the red channel of the picture.
 func texture_float(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
                    dudy : Float, dvdy : Float) -> Float {
     st_raw = vec2f{t.su * uv.x + t.du, t.sv * uv.y + t.dv};
     st = vec2f{st_raw.x, 1.0 - st_raw.y};
     dstdx = vec2f{t.su * dudx, t.sv * dvdx};
     dstdy = vec2f{t.su * dudy, t.sv * dvdy};
-    v = t.scale * texture_filter(t, st, dstdx, dstdy).x;
+    v = t.scale * texture_filter_float(t, st, dstdx, dstdy);
     // A float texture clamps only when inverted; pbrt's spectrum one clamps
     // always. Written the way each is written.
     return select(t.invert, max(0.0, 1.0 - v), v);
@@ -194,18 +245,18 @@ func rgb_coeff(base : u32, k : u32, dx : Float, dy : Float,
                              rgb_table[base + sz + sy + sx + k])));
 }
 
-func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
+// Where in pbrt's table a colour falls: which of the three slices (the largest
+// component's), the cell, and the offsets within it that the coefficients are
+// interpolated by. Its own function so that check_differentials.sh's `sig`
+// rows can print it beside the coefficients.
+element RgbCell {
+    maxc : u32;
+    xi, yi, zi : u32;
+    dx, dy, dz : Float;
+}
+
+func rgb_cell(rgb : vec3f) -> RgbCell {
     res = 64u;
-    rgb = clamp(rgb_in, 0.0, 1.0);
-
-    // A grey has no largest component and the fit is exact, so pbrt answers it
-    // directly rather than interpolating.
-    if (rgb.x == rgb.y) && (rgb.y == rgb.z) {
-        s = select(rgb.x * (1.0 - rgb.x) <= 0.0, 0.0,
-                   (rgb.x - 0.5) / sqrt(rgb.x * (1.0 - rgb.x)));
-        return SigmoidPolynomial{0.0, 0.0, s};
-    }
-
     maxc : mut u32 = 2u;
     if rgb.x > rgb.y {
         maxc = select(rgb.x > rgb.z, 0u, 2u);
@@ -216,9 +267,13 @@ func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
     // `(maxc + 1) % 3` and `(maxc + 2) % 3`, written out.
     c1 = select(maxc == 0u, rgb.y, select(maxc == 1u, rgb.z, rgb.x));
     c2 = select(maxc == 0u, rgb.z, select(maxc == 1u, rgb.x, rgb.y));
-    scale = cast[[Float]](res - 1u) / z;
-    x = c1 * scale;
-    y = c2 * scale;
+    // pbrt: `rgb[(maxc + 1) % 3] * (res - 1) / z` -- the product first, then
+    // the divide, as C++ reads it left to right. Scaling by `(res - 1) / z`
+    // instead rounds in the other order, and a near-grey colour sits where
+    // the table's coefficients change fastest, so the last bit of `x` is a
+    // visible difference in the spectrum.
+    x = (c1 * cast[[Float]](res - 1u)) / z;
+    y = (c2 * cast[[Float]](res - 1u)) / z;
 
     xi = min(cast[[u32]](x), res - 2u);
     yi = min(cast[[u32]](y), res - 2u);
@@ -236,14 +291,32 @@ func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
     z0 = rgb_table[zi];
     z1 = rgb_table[zi + 1u];
     dz = (z - z0) / (z1 - z0);
+    cell : RgbCell = {maxc, xi, yi, zi, dx, dy, dz};
+    return cell;
+}
+
+func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
+    res = 64u;
+    rgb = clamp(rgb_in, 0.0, 1.0);
+
+    // A grey has no largest component and the fit is exact, so pbrt answers it
+    // directly rather than interpolating.
+    if (rgb.x == rgb.y) && (rgb.y == rgb.z) {
+        s = select(rgb.x * (1.0 - rgb.x) <= 0.0, 0.0,
+                   (rgb.x - 0.5) / sqrt(rgb.x * (1.0 - rgb.x)));
+        return SigmoidPolynomial{0.0, 0.0, s};
+    }
+
+    cell = rgb_cell(rgb);
 
     // The coefficients start after the 64 z nodes, laid out as
     // [maxc][zi][yi][xi][coefficient].
-    base = 64u + ((maxc * res + zi) * res + yi) * res * 3u + xi * 3u;
+    base = 64u + ((cell.maxc * res + cell.zi) * res + cell.yi) * res * 3u +
+           cell.xi * 3u;
 
-    return SigmoidPolynomial{rgb_coeff(base, 0u, dx, dy, dz),
-                             rgb_coeff(base, 1u, dx, dy, dz),
-                             rgb_coeff(base, 2u, dx, dy, dz)};
+    return SigmoidPolynomial{rgb_coeff(base, 0u, cell.dx, cell.dy, cell.dz),
+                             rgb_coeff(base, 1u, cell.dx, cell.dy, cell.dz),
+                             rgb_coeff(base, 2u, cell.dx, cell.dy, cell.dz)};
 }
 
 // pbrt: `RGBAlbedoSpectrum(cs, Clamp(rgb, 0, 1)).Sample(lambda)`, which is what

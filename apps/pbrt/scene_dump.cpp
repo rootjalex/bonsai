@@ -568,6 +568,10 @@ const CapturingBuilder *g_builder = nullptr;
 bonsai_scene::Scene *g_scene = nullptr;
 std::string g_scene_dir;
 std::map<std::string, int32_t> g_texture_index;
+// The pyramid PBRT built for each converted texture, by the name the material
+// asked for, kept for `--print-differentials` to filter through PBRT's own
+// MIPMap beside this renderer's lookup.
+std::map<std::string, pbrt::MIPMap *> g_texture_mip;
 // Keyed by the pair of spectrum names, since a scene usually names the same
 // metal from several materials.
 std::map<std::string, int32_t> g_conductor_index;
@@ -984,6 +988,11 @@ int32_t convert_texture(const std::string &name) {
     t.sv = float_of("vscale", 1.f);
     t.du = float_of("udelta", 0.f);
     t.dv = float_of("vdelta", 0.f);
+    // The `scale` textures above the image, if any, folded into the image's
+    // own scale -- which is what PBRT does: a constant scale over an image
+    // texture copies the image texture and multiplies its scale, so the
+    // constant reaches the filtered colour before the invert and the spectrum
+    // fit. See ImageTexture::scale.
     t.scale = float_of("scale", 1.f) * chain.scale;
     const CapturingBuilder::MaterialInfo::Value *inv = p.find("invert");
     t.invert = (inv != nullptr && !inv->bools.empty() && inv->bools[0]) ? 1u
@@ -1007,6 +1016,7 @@ int32_t convert_texture(const std::string &name) {
     if (mip == nullptr) {
         fail("cannot read the texture image " + filename);
     }
+    g_texture_mip[name] = mip;
 
     t.first_level = uint32_t(g_scene->texture_levels.size());
     t.n_levels = uint32_t(mip->Levels());
@@ -1020,15 +1030,46 @@ int32_t convert_texture(const std::string &name) {
         // an array of three-vectors.
         level.first_texel = uint32_t(g_scene->texture_texels.size() / 3);
         g_scene->texture_levels.push_back(level);
-        // Three channels, whatever the image brought. PBRT's `Texel<RGB>`
-        // widens a one-channel image to grey at lookup time; doing it here
-        // instead means the renderer has one case and not two, and it is the
-        // same number.
+        // Three channels, whatever the image brought, and whatever the
+        // texture was declared as.
+        //
+        // A `spectrum` texture is PBRT's `Texel<RGB>`: the first three
+        // channels, or a one-channel image widened to grey. Doing the widening
+        // here means the renderer has one case and not two, and it is the same
+        // number.
+        //
+        // A `float` texture is PBRT's `MIPMap::Bilerp<Float>`, which is not
+        // the red channel: a one-channel image is that channel, a
+        // three-channel image is the *average* of the three, and a
+        // four-channel image is its *alpha* -- `CreateFromFile` keeps the
+        // alpha channel only where it is not one everywhere, and this is what
+        // an `alpha` cutout is: the same PNG named twice, once as the leaf's
+        // colour and once, as a float, for where the leaf is. The one-channel
+        // and alpha values are shipped in all three components, so that
+        // `texture_float`'s `.x` is it after the same bilinear filter; the
+        // three-channel case ships the three channels and is averaged *after*
+        // the filter, as PBRT averages the three filtered channels, because
+        // filtering the average is the same number only in exact arithmetic
+        // and a bump map is a finite difference of two of these. Reading `.x`
+        // of the colour instead tested every leaf texel against how red it
+        // was, which stripped the trees.
         const int nc = img.NChannels();
+        const bool as_float = it->second.declared_type == "float";
+        if (as_float && nc != 1 && nc != 3 && nc != 4) {
+            fail("the `imagemap` texture \"" + chain.image + "\" has " +
+                 std::to_string(nc) +
+                 " channels, which PBRT does not read as a float texture");
+        }
+        t.average_channels = (as_float && nc == 3) ? 1u : 0u;
         for (int y = 0; y < res.y; y++) {
             for (int x = 0; x < res.x; x++) {
                 const pbrt::Point2i px(x, y);
-                if (nc == 1) {
+                if (as_float && nc != 3) {
+                    const float v = float(img.GetChannel(px, nc == 1 ? 0 : 3));
+                    g_scene->texture_texels.push_back(v);
+                    g_scene->texture_texels.push_back(v);
+                    g_scene->texture_texels.push_back(v);
+                } else if (nc == 1) {
                     const float v = float(img.GetChannel(px, 0));
                     g_scene->texture_texels.push_back(v);
                     g_scene->texture_texels.push_back(v);
@@ -2463,6 +2504,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     g_builder = &builder;
     g_scene = &out;
     g_texture_index.clear();
+    g_texture_mip.clear();
     {
         const std::string path(filename);
         const size_t slash = path.find_last_of('/');
@@ -2964,7 +3006,9 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         for (const auto &px : pixels) {
             pbrt::CameraSample sample;
             sample.pFilm = pbrt::Point2f(px[0] + 0.5f, px[1] + 0.5f);
-            sample.pLens = pbrt::Point2f(0.5f, 0.5f);
+            // Off centre, so a camera with a lens takes its lens branch in
+            // earnest; the same point differentials_at uses.
+            sample.pLens = pbrt::Point2f(0.9f, 0.3f);
             sample.time = 0.f;
             sample.filterWeight = 1.f;
 
@@ -2972,6 +3016,25 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 camera.GenerateRayDifferential(sample, lambda);
             if (!crd) {
                 continue;
+            }
+            // The ray itself, before the differentials are scaled -- scaling
+            // leaves it alone.
+            printf("camray %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g\n", px[0],
+                   px[1], double(crd->ray.o.x), double(crd->ray.o.y),
+                   double(crd->ray.o.z), double(crd->ray.d.x),
+                   double(crd->ray.d.y), double(crd->ray.d.z));
+            // The camera transform the other way, on a point and on a vector:
+            // Transform::ApplyInverse, which this renderer does with a second
+            // matrix and the forward code, so its fusion has to be checked
+            // separately.
+            {
+                const pbrt::CameraTransform &ct = camera.GetCameraTransform();
+                const pbrt::Point3f ip = ct.CameraFromRender(hit_p, 0.f);
+                const pbrt::Vector3f iv = ct.CameraFromRender(crd->ray.d, 0.f);
+                printf("invpoint %d %d: %.9g %.9g %.9g\n", px[0], px[1],
+                       double(ip.x), double(ip.y), double(ip.z));
+                printf("invvec %d %d: %.9g %.9g %.9g\n", px[0], px[1],
+                       double(iv.x), double(iv.y), double(iv.z));
             }
             // RenderCPU scales before tracing; 16 samples per pixel, so the
             // scale is 1/4 and not the 0.125 floor.
@@ -3488,6 +3551,134 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
     }
 
+    // Every texture the scene converted, evaluated by PBRT's own texture
+    // objects at a few points and footprints: the mapping, the flip, the
+    // pyramid level the footprint picks, the bilinear filter, the scale chain,
+    // and -- for a spectrum texture -- the sigmoid fit at four wavelengths.
+    // This renderer reproduces all of it from the levels scene_dump shipped,
+    // and the check is that it reproduces it bit for bit: a bump map is a
+    // finite difference of two of these lookups, and a layered BSDF hashes the
+    // direction a bump map tilted, so the last bit of a texel is the first bit
+    // of a different image.
+    //
+    // After the materials, because that is what converts the textures and
+    // gives them their indices. `texf` rows are float textures and `texs` rows
+    // spectrum ones; the renderer, which does not know which a texture was
+    // declared as, prints both and the script keeps the one PBRT printed.
+    if (g_print_differentials) {
+        pbrt::NamedTextures textures = scene.CreateTextures();
+        const pbrt::SampledWavelengths lambda =
+            pbrt::SampledWavelengths::SampleVisible(0.5f);
+        printf("lambda: %.9g %.9g %.9g %.9g\n", double(lambda[0]),
+               double(lambda[1]), double(lambda[2]), double(lambda[3]));
+        const pbrt::Point2f uvs[] = {{0.3f, 0.7f}, {0.51f, 0.49f},
+                                     {1.7f, -0.2f}};
+        // (dudx, dudy, dvdx, dvdy): no footprint, one that lands on a fine
+        // level, and one that lands on a coarse one.
+        const float footprints[][4] = {{0.f, 0.f, 0.f, 0.f},
+                                       {0.0007f, 0.0002f, -0.0003f, 0.0009f},
+                                       {0.02f, 0.01f, 0.015f, 0.03f}};
+        for (const auto &[name, index] : g_texture_index) {
+            const auto declared = builder.named_textures.find(name);
+            if (declared == builder.named_textures.end()) {
+                continue;
+            }
+            const bool is_float = declared->second.declared_type == "float";
+            const bonsai_scene::ImageTexture &shipped =
+                out.textures[size_t(index)];
+            int k = 0;
+            for (const pbrt::Point2f &uv : uvs) {
+                for (const float *fp : footprints) {
+                    const pbrt::TextureEvalContext ctx(
+                        pbrt::Point3f(0, 0, 0), pbrt::Vector3f(0, 0, 0),
+                        pbrt::Vector3f(0, 0, 0), pbrt::Normal3f(0, 0, 1), uv,
+                        fp[0], fp[1], fp[2], fp[3], 0);
+                    // The image's filtered RGB through PBRT's own MIPMap,
+                    // before it is read as a number or fitted to a spectrum:
+                    // SpectrumImageTexture::Evaluate's first lines, with the
+                    // UV mapping and the flip written out. Splits a texture
+                    // row that differs into the filter and what follows it.
+                    {
+                        const auto mip = g_texture_mip.find(name);
+                        if (mip == g_texture_mip.end()) {
+                            fail("no pyramid was kept for texture \"" + name +
+                                 "\"");
+                        }
+                        pbrt::Point2f st(shipped.su * uv[0] + shipped.du,
+                                         shipped.sv * uv[1] + shipped.dv);
+                        st[1] = 1 - st[1];
+                        const pbrt::Vector2f dst0(shipped.su * fp[0],
+                                                  shipped.sv * fp[2]);
+                        const pbrt::Vector2f dst1(shipped.su * fp[1],
+                                                  shipped.sv * fp[3]);
+                        pbrt::RGB rgb = shipped.scale *
+                                        mip->second->Filter<pbrt::RGB>(
+                                            st, dst0, dst1);
+                        rgb = pbrt::ClampZero(shipped.invert != 0
+                                                  ? (pbrt::RGB(1, 1, 1) - rgb)
+                                                  : rgb);
+                        printf("texrgb %d %d: %.9g %.9g %.9g\n", index, k,
+                               double(rgb.r), double(rgb.g), double(rgb.b));
+                        // And that colour fitted and sampled by PBRT's
+                        // RGBAlbedoSpectrum: what a spectrum texture's
+                        // Evaluate is made of, taken apart. This is how the
+                        // folding of a constant scale was settled -- with the
+                        // scale applied to the spectrum instead, this row
+                        // agreed with the renderer and neither agreed with
+                        // PBRT's texture.
+                        const pbrt::SampledSpectrum s =
+                            pbrt::RGBAlbedoSpectrum(*pbrt::RGBColorSpace::sRGB,
+                                                    pbrt::Clamp(rgb, 0, 1))
+                                .Sample(lambda);
+                        printf("texsr %d %d: %.9g %.9g %.9g %.9g\n", index, k,
+                               double(s[0]), double(s[1]), double(s[2]),
+                               double(s[3]));
+                    }
+                    if (is_float) {
+                        const auto tex = textures.floatTextures.find(name);
+                        if (tex == textures.floatTextures.end()) {
+                            fail("PBRT has no float texture named \"" + name +
+                                 "\"");
+                        }
+                        printf("texf %d %d: %.9g\n", index, k,
+                               double(tex->second.Evaluate(ctx)));
+                    } else {
+                        const auto tex =
+                            textures.albedoSpectrumTextures.find(name);
+                        if (tex == textures.albedoSpectrumTextures.end()) {
+                            fail("PBRT has no spectrum texture named \"" +
+                                 name + "\"");
+                        }
+                        const pbrt::SampledSpectrum s =
+                            tex->second.Evaluate(ctx, lambda);
+                        printf("texs %d %d: %.9g %.9g %.9g %.9g\n", index, k,
+                               double(s[0]), double(s[1]), double(s[2]),
+                               double(s[3]));
+                    }
+                    k++;
+                }
+            }
+        }
+        // An RGB fitted to a spectrum and sampled at the four wavelengths, by
+        // PBRT's own RGBAlbedoSpectrum -- the table lookup and the sigmoid
+        // with nothing of this file's in between -- for the same colours the
+        // renderer puts through its per-lookup version. Near-greys on purpose:
+        // that is where the table's coefficients change fastest and the last
+        // bit of the lookup shows.
+        const float colours[][3] = {{0.3f, 0.5f, 0.7f},   {0.7f, 0.5f, 0.3f},
+                                    {0.5f, 0.7f, 0.3f},   {0.41f, 0.40f, 0.39f},
+                                    {0.2f, 0.2f, 0.21f},  {0.9f, 0.1f, 0.5f},
+                                    {0.05f, 0.6f, 0.6f},  {0.33f, 0.33f, 0.34f}};
+        int k = 0;
+        for (const float *rgb : colours) {
+            const pbrt::SampledSpectrum s =
+                pbrt::RGBAlbedoSpectrum(*pbrt::RGBColorSpace::sRGB,
+                                        pbrt::RGB(rgb[0], rgb[1], rgb[2]))
+                    .Sample(lambda);
+            printf("sig %d: %.9g %.9g %.9g %.9g\n", k++, double(s[0]),
+                   double(s[1]), double(s[2]), double(s[3]));
+        }
+    }
 }
 
 // PBRT's shapes for a list of this file's, as `Shape::Create` would have made

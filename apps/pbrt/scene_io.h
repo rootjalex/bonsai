@@ -157,12 +157,24 @@ struct ImageTexture {
     float du = 0.f;
     float dv = 0.f;
     // PBRT's `scale` and `invert`, applied to the filtered RGB. A `scale`
-    // texture over an image one folds into this, since PBRT's ImageTexture
-    // already has a scale of its own and multiplying them is the same thing --
-    // but only when the scale is a constant, and a scale by another *texture*
-    // is refused rather than flattened.
+    // texture over an image one, when its scale is a constant, folds into this:
+    // that is what PBRT itself does -- `SpectrumScaledTexture::Create` and its
+    // float twin copy the image texture and `MultiplyScale` it rather than
+    // wrap it -- so the constant multiplies the filtered colour *before* it is
+    // inverted, clamped and fitted to a spectrum, and not the spectrum after.
+    // The fit is not linear, so the two orders are different numbers, and
+    // check_differentials.sh's `texs` rows are what settles which PBRT takes.
+    // A scale by another *texture* is refused rather than flattened.
     float scale = 1.f;
     uint32_t invert = 0;
+    // Set for a float texture over a three-channel image, whose value PBRT's
+    // `MIPMap::Bilerp<Float>` takes as the *average of the three filtered
+    // channels*. The texels are shipped as the three channels and the renderer
+    // averages after it filters, because averaging first and filtering the
+    // average is the same number only in exact arithmetic. A one-channel image
+    // or an RGBA one's alpha is shipped as that channel in all three places
+    // and read from the first.
+    uint32_t average_channels = 0;
     uint32_t wrap = WrapMode::Repeat;
     // The pyramid, as a run of `texture_levels`, coarsest last.
     uint32_t first_level = 0;
@@ -734,8 +746,9 @@ inline bool write(const char *path, const Scene &scene) {
         detail::put(out, &t.dv, 1);
         out << " scale";
         detail::put(out, &t.scale, 1);
-        out << " invert " << t.invert << " wrap " << t.wrap << " levels "
-            << t.first_level << ' ' << t.n_levels << '\n';
+        out << " average " << t.average_channels << " invert " << t.invert
+            << " wrap " << t.wrap << " levels " << t.first_level << ' '
+            << t.n_levels << '\n';
     }
     out << "texturelevels " << scene.texture_levels.size() << '\n';
     for (const TextureLevel &l : scene.texture_levels) {
@@ -1111,6 +1124,10 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         floats(&t.scale, 1);
+        if (!tagged("average")) {
+            return false;
+        }
+        in >> t.average_channels;
         if (!tagged("invert")) {
             return false;
         }

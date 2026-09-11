@@ -591,10 +591,17 @@ int main(int argc, char **argv) {
 
         const int pixels[][2] = {{0, 0}, {17, 42}, {640, 360}, {1279, 719}};
         for (const auto &px : pixels) {
-            float out[35] = {};
+            float out[47] = {};
             differentials_at(camera, float(px[0]), float(px[1]), true, 16,
                              hit_p, dpdu, dpdv, wi, lobes[0].flags,
                              lobes[0].eta, out);
+            printf("camray %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g\n", px[0],
+                   px[1], double(out[35]), double(out[36]), double(out[37]),
+                   double(out[38]), double(out[39]), double(out[40]));
+            printf("invpoint %d %d: %.9g %.9g %.9g\n", px[0], px[1],
+                   double(out[41]), double(out[42]), double(out[43]));
+            printf("invvec %d %d: %.9g %.9g %.9g\n", px[0], px[1],
+                   double(out[44]), double(out[45]), double(out[46]));
             printf("camdiff %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                    "%.9g %.9g %.9g | %.9g %.9g %.9g\n",
                    px[0], px[1], double(out[0]), double(out[1]), double(out[2]),
@@ -625,7 +632,7 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        return 0;
+        // The texture rows follow once the texture tables are built below.
     }
 
     // Which sampler the scene asked for, built through the generated
@@ -775,6 +782,7 @@ int main(int argc, char **argv) {
         tex.du = t.du;
         tex.dv = t.dv;
         tex.scale = t.scale;
+        tex.average_channels = t.average_channels != 0;
         tex.invert = t.invert != 0;
         tex.wrap = t.wrap;
         tex.first_level = t.first_level;
@@ -796,6 +804,61 @@ int main(int argc, char **argv) {
         texture_texels.push_back(float3{loaded.texture_texels[i],
                                         loaded.texture_texels[i + 1],
                                         loaded.texture_texels[i + 2]});
+    }
+
+    if (print_differentials) {
+        // The same points and footprints `scene_dump --print-differentials`
+        // puts through PBRT's texture objects; see the `texf`/`texs` rows
+        // there. Both readings are printed for every texture, because the
+        // scene file does not say which a texture was declared as, and the
+        // script keeps the reading PBRT printed.
+        const float2 uvs[] = {{0.3f, 0.7f}, {0.51f, 0.49f}, {1.7f, -0.2f}};
+        const float footprints[][4] = {{0.f, 0.f, 0.f, 0.f},
+                                       {0.0007f, 0.0002f, -0.0003f, 0.0009f},
+                                       {0.02f, 0.01f, 0.015f, 0.03f}};
+        for (size_t index = 0; index < textures.size(); index++) {
+            int k = 0;
+            for (const float2 &uv : uvs) {
+                for (const float *fp : footprints) {
+                    float out[12] = {};
+                    texture_at(uint32_t(index), uv, fp[0], fp[1], fp[2], fp[3],
+                               0.5f, out, textures.data(),
+                               texture_levels.data(), texture_texels.data(),
+                               loaded.rgb_table.data());
+                    if (index == 0 && k == 0) {
+                        printf("lambda: %.9g %.9g %.9g %.9g\n", double(out[5]),
+                               double(out[6]), double(out[7]), double(out[8]));
+                    }
+                    printf("texrgb %zu %d: %.9g %.9g %.9g\n", index, k,
+                           double(out[9]), double(out[10]), double(out[11]));
+                    printf("texf %zu %d: %.9g\n", index, k, double(out[0]));
+                    printf("texs %zu %d: %.9g %.9g %.9g %.9g\n", index, k,
+                           double(out[1]), double(out[2]), double(out[3]),
+                           double(out[4]));
+                    // The same number again under the name scene_dump gives
+                    // its own recomposition of a spectrum texture from the
+                    // filtered colour, so that the two can be told apart.
+                    printf("texsr %zu %d: %.9g %.9g %.9g %.9g\n", index, k,
+                           double(out[1]), double(out[2]), double(out[3]),
+                           double(out[4]));
+                    k++;
+                }
+            }
+        }
+        // An RGB fitted and sampled on its own, for the same colours
+        // scene_dump puts through pbrt's RGBAlbedoSpectrum.
+        const float3 colours[] = {{0.3f, 0.5f, 0.7f},   {0.7f, 0.5f, 0.3f},
+                                  {0.5f, 0.7f, 0.3f},   {0.41f, 0.40f, 0.39f},
+                                  {0.2f, 0.2f, 0.21f},  {0.9f, 0.1f, 0.5f},
+                                  {0.05f, 0.6f, 0.6f},  {0.33f, 0.33f, 0.34f}};
+        int k = 0;
+        for (const float3 &rgb : colours) {
+            float out[4] = {};
+            sigmoid_at(rgb, 0.5f, out, loaded.rgb_table.data());
+            printf("sig %d: %.9g %.9g %.9g %.9g\n", k++, double(out[0]),
+                   double(out[1]), double(out[2]), double(out[3]));
+        }
+        return 0;
     }
 
     // The measured BRDFs and their interpolants. The pools they index into are
@@ -1030,8 +1093,14 @@ int main(int argc, char **argv) {
     top.reserve(shapes.size() + loaded.instances.size());
     const auto instance_bounds = [&](const bonsai_scene::Instance &inst) {
         const _tree_layout1 &root = instance_nodes[roots[inst.definition]];
+        // Copied out before anything takes a reference to them: the node is a
+        // packed struct, so `high` sits at byte 12, and a `const float3 &` to
+        // it would be read with the alignment a float3 normally has. Reading
+        // the member itself is emitted unaligned; a reference to it is not.
+        const float3 low = root.low;
+        const float3 high = root.high;
         return transform_bounds(to_bonsai(inst.render_from_instance),
-                                Bounds3f{root.low, root.high});
+                                Bounds3f{low, high});
     };
     std::vector<_tree_layout4> nodes;
     {
@@ -1085,6 +1154,9 @@ int main(int argc, char **argv) {
 
     const uint32_t npixels = uint32_t(width) * uint32_t(height);
     float3 *out = (float3 *)malloc(sizeof(float3) * npixels);
+    // pbrt's `Ns`: the shading normal beside the geometric one, which is the
+    // channel a displacement shows up in.
+    float3 *shading = (float3 *)malloc(sizeof(float3) * npixels);
     float3 *albedo = (float3 *)malloc(sizeof(float3) * npixels);
     float3 *radiance = (float3 *)malloc(sizeof(float3) * npixels);
     // pbrt: Pixel::weightSum. It is a film channel like the others -- the sum
@@ -1426,7 +1498,7 @@ int main(int argc, char **argv) {
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
                loaded.imaging_ratio, loaded.max_component_value, out,
-               albedo, radiance, weights, textures.data(),
+               shading, albedo, radiance, weights, textures.data(),
                texture_levels.data(), texture_texels.data(),
                loaded.rgb_table.data(), pl2d.data(), loaded.pl_data.data(),
                loaded.pl_marginal.data(), loaded.pl_conditional.data(),
@@ -1477,21 +1549,24 @@ int main(int argc, char **argv) {
 
     const std::string stem =
         std::string(output).substr(0, std::string(output).rfind('.'));
+    const std::string shading_output = stem + "-ns.pfm";
     const std::string albedo_output = stem + "-albedo.pfm";
     const std::string radiance_output = stem + "-radiance.pfm";
     const bool wrote = write_pfm(output, out) &&
+                       write_pfm(shading_output, shading) &&
                        write_pfm(albedo_output, albedo) &&
                        write_pfm(radiance_output, radiance);
     free(out);
+    free(shading);
     free(albedo);
     free(radiance);
     if (!wrote) {
         return 1;
     }
 
-    std::cout << "wrote " << output << ", " << albedo_output << " and "
-              << radiance_output << " (" << width << 'x' << height << ", "
-              << shapes.size() << " shapes)\n";
+    std::cout << "wrote " << output << ", " << shading_output << ", "
+              << albedo_output << " and " << radiance_output << " (" << width
+              << 'x' << height << ", " << shapes.size() << " shapes)\n";
     // Parsed by compare.sh. Kept to a line of its own so that it stays easy
     // to find without the script having to understand anything else here.
     std::cout << "render seconds: " << seconds << '\n';

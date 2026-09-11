@@ -1,15 +1,39 @@
 #!/usr/bin/env bash
-# The numbers a texture is filtered by, this renderer's against pbrt's.
+# The numbers a texture is filtered by, and the numbers it filters to, this
+# renderer's against pbrt's -- bit for bit where nothing cancels.
 #
 # Worth its own script because a wrong footprint is invisible in an image. It
 # moves no edge and changes no colour -- it only makes a texture slightly too
 # blurry or too sharp -- so no pixel comparison against pbrt would fail on it.
-# Nothing here renders anything.
+# Until it is differenced by a bump map: then an ulp in the footprint is a
+# different normal, which is how most of the rows below were earned. Nothing
+# here renders anything.
 #
-# Both sides print the same four camera rays and the same synthetic hit, and
-# both branches of ComputeDifferentials at it: the one that uses the ray's own
-# differentials, which only a first hit has, and the camera approximation, which
-# is what every hit after a diffuse bounce falls back on.
+# The rows, each printed by both sides in the same format so a plain diff is
+# the comparison:
+#
+#   camray, camdiff   the camera ray for four pixels, and its two companions,
+#                     through an off-centre lens sample so a camera with a
+#                     lens takes its lens branch in earnest
+#   invpoint, invvec  the camera transform applied backwards to a point and a
+#                     vector -- pbrt's ApplyInverse, which associates its sums
+#                     differently from the forward transform
+#   dudxy             both branches of ComputeDifferentials at a synthetic hit:
+#                     the ray's own differentials, which only a first hit has,
+#                     and the camera approximation every hit after a diffuse
+#                     bounce falls back on
+#   spawn             what a specular bounce leaves of the differentials, and
+#                     that a rough one drops them
+#   lambda            the four wavelengths the spectrum rows are sampled at
+#   texrgb            every texture the scene converted, filtered through
+#                     pbrt's own MIPMap at three points and three footprints
+#   texf, texs        the same lookups through pbrt's texture objects, read as
+#                     a float or as a spectrum according to how the scene
+#                     declared them; texsr is pbrt's spectrum recomposed from
+#                     texrgb, which is what told the fold of a constant `scale`
+#                     texture apart from a scale of the spectrum
+#   sig               an RGB fitted to a spectrum by table lookup and sampled,
+#                     for near-grey colours where the table changes fastest
 #
 # Usage: bash apps/pbrt/check_differentials.sh [scene.pbrt]
 set -euo pipefail
@@ -36,7 +60,8 @@ bash "$PREFIX/build_scene_dump.sh" "$WORK/scene_dump"
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"
 
 "$WORK/scene_dump" --print-differentials "$SCENE" "$WORK/diff-scene.txt" \
-    | grep -E '^(camdiff|dudxy|spawn) ' > "$WORK/pbrt-differentials.txt"
+    | grep -E '^(camray|camdiff|invpoint|invvec|dudxy|spawn|texrgb|texf|texs|texsr|sig) |^lambda:' \
+    > "$WORK/pbrt-differentials.txt"
 "$WORK/render.out" --print-differentials "$WORK/diff-scene.txt" \
     > "$WORK/bonsai-differentials.txt"
 
@@ -64,6 +89,11 @@ def read(path):
     return rows
 
 a, b = read(sys.argv[1]), read(sys.argv[2])
+# A texture is read as a float or as a spectrum according to how the scene
+# declared it, which pbrt knows and this renderer's scene file does not carry;
+# so this side prints both readings of every texture and pbrt's decides which
+# one is compared. Every other kind of row has to appear on both sides.
+b = {k: v for k, v in b.items() if not k.startswith('tex') or k in a}
 if a.keys() != b.keys():
     sys.exit('the two sides printed different rows')
 
@@ -81,10 +111,15 @@ for key in a:
         if rel > TOL:
             bad.append('%s field %d: pbrt %.9g, here %.9g (%.1e)'
                        % (key, i, x, y, rel))
-    # The camera's own differentials are not the output of a cancelling
-    # subtraction, so there is no reason for them to differ at all.
-    if key.startswith('camdiff') and a[key] != b[key]:
-        bad.append('%s differs, and a camera ray should be exact' % key)
+    # The camera's own rays and differentials, and its transform applied
+    # backwards, are not the output of a cancelling subtraction, so there is
+    # no reason for them to differ at all. Nor is a texture lookup: it is
+    # pbrt's arithmetic over pbrt's own pyramid, and a bump map differences
+    # two of them.
+    if (key.startswith(('camray', 'camdiff', 'invpoint', 'invvec', 'tex',
+                        'sig', 'lambda'))
+            and a[key] != b[key]):
+        bad.append('%s differs, and it should be exact' % key)
 
 print('%d of %d rows bit-exact; worst relative difference %.2e (%s)'
       % (exact, len(a), worst, worst_key))

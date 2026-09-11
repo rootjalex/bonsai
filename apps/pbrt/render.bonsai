@@ -578,8 +578,8 @@ func transform_bounds(t : Transform, b : AABB) -> AABB {
 // takes the same `dt` off `tMax` so that the two sides still agree about where
 // the best hit so far is. That is not done here. The nudge is against a ray
 // re-hitting the surface its origin was rounded onto, which this renderer
-// guards with `distmin > 0.001` and with pbrt's own SpawnRay offset applied in
-// render space before the ray reaches any instance; and `tMax` is not a field
+// guards with pbrt's own SpawnRay offset, applied in render space before the
+// ray reaches any instance; and `tMax` is not a field
 // of the query here but the traversal's accumulator, which nothing inside a
 // query may alter (see PLAN.md). Without the nudge the identity the whole
 // arrangement rests on -- a distance along the pulled ray *is* the distance
@@ -759,13 +759,19 @@ extern primitives : set[Primitive];
 // `transform(p, surf)` at the call sites is TransformedPrimitive's one
 // transform of the result.
 //
-// The epsilon is pbrt's shadow-epsilon in spirit: a hit at zero distance is
-// the surface the ray started on.
+// No minimum distance. pbrt has none: a shape's own test accepts any `t` in
+// (0, tMax), and what keeps a ray from finding the surface it left is that
+// `spawn_ray` starts it off that surface by the hit's rounding error. There
+// used to be a `distmin > 0.001` here, from before the error bounds were
+// carried, and it was a light leak: `t` is the parameter of the ray's own
+// direction, and a shadow ray's direction is the whole way to the light, so a
+// thousandth of it was six centimetres on the pavilion's pool -- through which
+// the wall a bump-mapped normal had aimed the shadow ray into was invisible,
+// and the wall came out several times as bright as pbrt's.
 func trace(r : Ray) =
     argmin(|p : Primitive, g : Geometric| distmin(r, transform(p, g)),
            filter(|p : Primitive, g : Geometric|
                       intersects(r, transform(p, g)) &&
-                      distmin(r, transform(p, g)) > 0.001 &&
                       alpha_accepts(untransform(p, r), g),
                   flatten(|p : Primitive| geometry(p), primitives)));
 
@@ -788,7 +794,6 @@ func trace(r : Ray) =
 func trace_any(r : Ray) =
     any(|p : Primitive, g : Geometric|
             intersects(r, transform(p, g)) &&
-            distmin(r, transform(p, g)) > 0.001 &&
             alpha_accepts(untransform(p, r), g),
         flatten(|p : Primitive| geometry(p), primitives));
 
@@ -800,8 +805,15 @@ func trace_any(r : Ray) =
 // one: asking separately meant tracing the same ray once per channel, and the
 // scene query is the expensive part of a render. Two channels doubled the
 // render time, which is what that costs.
+//
+// Both normals, as pbrt writes both: `n` is the shape's and `ns` is the one the
+// BSDF was built about -- interpolated across a mesh's vertex normals and then
+// tilted by a displacement, where the material has one. A displacement changes
+// nothing the geometric normal can see, so `ns` is the channel that checks a
+// bump map against pbrt's.
 element VisibleSurface {
     n : vec3f;
+    ns : vec3f;
     albedo : vec3f;
 }
 
@@ -840,6 +852,10 @@ func visible_surface(r : Ray, dr : RayDifferential,
         // it face-forwards and is not invisible at all in a layered BSDF, whose
         // walk is seeded by hashing the bytes of this vector.
         wo = unit_vector_(-r.d);
+        // pbrt: VisibleSurface's constructor, `n = FaceForward(si.n, wo)` and
+        // `ns = FaceForward(si.shading.n, wo)`. The film turns both normals to
+        // face the camera, so a comparison cannot see their sign -- only their
+        // line.
         facing = select(dot(surf.n, wo) < 0.0, -surf.n, surf.n);
 
         // pbrt: BSDF's constructor, which is where the shading frame is built,
@@ -866,7 +882,9 @@ func visible_surface(r : Ray, dr : RayDifferential,
         // space means by white.
         lit = rho * spectrum_at_dense(illuminant_d65, lambda);
 
-        surface : VisibleSurface = {facing, spectrum_to_rgb(lit, lambda)};
+        facing_ns = select(dot(hit.ns, wo) < 0.0, -hit.ns, hit.ns);
+        surface : VisibleSurface = {facing, facing_ns,
+                                    spectrum_to_rgb(lit, lambda)};
         return surface;
     }
     return {};
@@ -1539,8 +1557,29 @@ func [[export]] differentials_at(camera : PerspectiveCamera,
                                  p : vec3f, dpdu : vec3f, dpdv : vec3f,
                                  wi : vec3f, flags : i32, eta : Float,
                                  out : mut array[Float]) -> void {
-    sample = CameraSample{vec2f{px + 0.5, py + 0.5}, vec2f{0.5, 0.5}, 0.0, 1.0};
+    // An off-centre lens sample, so that a camera with a lens takes its
+    // lens branch in earnest: at the centre the lens point is the origin and
+    // the branch collapses to the pinhole one.
+    sample = CameraSample{vec2f{px + 0.5, py + 0.5}, vec2f{0.9, 0.3}, 0.0, 1.0};
     camera_ray = generate_ray_differential(camera, sample);
+    out[35u] = camera_ray.ray.o.x;
+    out[36u] = camera_ray.ray.o.y;
+    out[37u] = camera_ray.ray.o.z;
+    out[38u] = camera_ray.ray.d.x;
+    out[39u] = camera_ray.ray.d.y;
+    out[40u] = camera_ray.ray.d.z;
+    // pbrt: CameraTransform::CameraFromRender on a point and on a vector --
+    // Transform::ApplyInverse, which Approximate_dp_dxy and every light with a
+    // frame of its own go through. The inverse is a second matrix here, and
+    // these check that applying it fuses as pbrt's ApplyInverse does.
+    inv_p = apply_inverse_point(camera.camera_from_render, p);
+    inv_d = apply_vector(camera.camera_from_render, camera_ray.ray.d);
+    out[41u] = inv_p.x;
+    out[42u] = inv_p.y;
+    out[43u] = inv_p.z;
+    out[44u] = inv_d.x;
+    out[45u] = inv_d.y;
+    out[46u] = inv_d.z;
     dr_scaled = scale_differentials(camera_ray.ray, camera_ray.diff,
                                     ray_differential_scale(spp, false));
     dr = RayDifferential{dr_scaled.rx_origin, dr_scaled.ry_origin,
@@ -1602,6 +1641,49 @@ func [[export]] differentials_at(camera : PerspectiveCamera,
     out[34u] = sp.ry_direction.z;
 }
 
+// One texture, read both ways at one point with one footprint, for
+// check_differentials.sh's `texf` and `texs` rows: the number a float texture
+// gives, and the four spectral samples a spectrum texture gives at the
+// wavelengths `lambda_u` draws. pbrt's `TextureEvalContext` orders its
+// derivatives (dudx, dudy, dvdx, dvdy) and the lookups here take
+// (dudx, dvdx, dudy, dvdy); the arguments are in pbrt's order.
+func [[export]] texture_at(index : u32, uv : vec2f, dudx : Float, dudy : Float,
+                           dvdx : Float, dvdy : Float, lambda_u : Float,
+                           out : mut array[Float]) -> void {
+    t = textures[index];
+    lambda = sample_wavelengths_visible(lambda_u);
+    out[0u] = texture_float(t, uv, dudx, dvdx, dudy, dvdy);
+    s = texture_albedo(t, uv, dudx, dvdx, dudy, dvdy, lambda);
+    out[1u] = s.x;
+    out[2u] = s.y;
+    out[3u] = s.z;
+    out[4u] = s.w;
+    // The wavelengths themselves, so that a spectrum row that differs can be
+    // told apart from a wavelength that does.
+    out[5u] = lambda.lambda.x;
+    out[6u] = lambda.lambda.y;
+    out[7u] = lambda.lambda.z;
+    out[8u] = lambda.lambda.w;
+    // The filtered colour before it is read as a number or fitted, for the
+    // `texrgb` rows.
+    rgb = texture_rgb(t, uv, dudx, dvdx, dudy, dvdy);
+    out[9u] = rgb.x;
+    out[10u] = rgb.y;
+    out[11u] = rgb.z;
+}
+
+// An RGB fitted to a spectrum by table lookup and sampled at four
+// wavelengths, for check_differentials.sh's `sig` rows -- what a spectrum
+// texture does with its filtered colour, against pbrt's RGBAlbedoSpectrum.
+func [[export]] sigmoid_at(rgb : vec3f, lambda_u : Float,
+                           out : mut array[Float]) -> void {
+    s = spectrum_at(rgb_to_sigmoid(rgb), sample_wavelengths_visible(lambda_u));
+    out[0u] = s.x;
+    out[1u] = s.y;
+    out[2u] = s.z;
+    out[3u] = s.w;
+}
+
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                        sampler : Sampler, integrator : Integrator,
                        pixel_filter : Filter, seed : i32,
@@ -1611,6 +1693,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                        // unless the scene names one.
                        imaging_ratio : Float, max_component_value : Float,
                        normal_out : mut array[vec3f],
+                       shading_out : mut array[vec3f],
                        albedo_out : mut array[vec3f],
                        radiance_out : mut array[vec3f],
                        weight_out : mut array[Float]) -> void {
@@ -1620,6 +1703,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
         j = p / width;
 
         normal_out[p] = vec3f{0.0, 0.0, 0.0};
+        shading_out[p] = vec3f{0.0, 0.0, 0.0};
         albedo_out[p] = vec3f{0.0, 0.0, 0.0};
         radiance_out[p] = vec3f{0.0, 0.0, 0.0};
         weight_out[p] = 0.0;
@@ -1661,22 +1745,32 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             time_u = get_1d(sampler, state);
             lens_u = get_2d(sampler, state);
             // pbrt: `cs.pFilm = pPixel + Vector2f(0.5, 0.5) + fs.p`, and the
-            // time and lens as drawn. The two were fixed constants here while
-            // the jitter was off; they reach the camera now because pbrt hands
-            // them over, and a camera with a lens or a shutter would read them.
+            // time and lens as drawn -- except under the option, which
+            // overwrites all four after the draws: `cs.time = 0.5f; cs.pLens =
+            // Point2f(0.5f, 0.5f)`, the lens sample at its centre, which puts
+            // the ray's origin at the lens's. A camera with a lens is what
+            // makes this visible: with the lens point left as drawn, every
+            // pixel's one ray started somewhere else on the lens than pbrt's.
+            time = select(disable_pixel_jitter, 0.5, time_u);
+            lens = select(disable_pixel_jitter, vec2f{0.5, 0.5}, lens_u);
             sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
                                         cast[[Float]](j) + 0.5} + jitter,
-                                  lens_u, time_u, weight};
+                                  lens, time, weight};
             // pbrt: `camera.GenerateRayDifferential(cameraSample, lambda)`,
             // then `cameraRay->ray.ScaleDifferentials(rayDiffScale)` in
             // RenderCPU before anything is traced with it. The scale narrows
             // the one-pixel footprint the camera produced to the one a single
-            // sample of `spp` covers.
+            // sample of `spp` covers. Not applied at all under the option --
+            // pbrt's `if (!Options->disablePixelJitter)` -- rather than
+            // applied with a scale of one, because `o + (rx - o) * 1` is not
+            // `rx` in floating point.
             camera_ray = generate_ray_differential(camera, sample);
             ray = camera_ray.ray;
-            ray_diff = scale_differentials(
-                ray, camera_ray.diff,
-                ray_differential_scale(spp, disable_pixel_jitter));
+            ray_diff : mut RayDifferential = camera_ray.diff;
+            if !disable_pixel_jitter {
+                ray_diff = scale_differentials(
+                    ray, camera_ray.diff, ray_differential_scale(spp, false));
+            }
 
             found = visible_surface(ray, ray_diff, camera,
                                     ray_differential_scale(
@@ -1685,6 +1779,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             if found {
                 surface = *found;
                 atomic normal_out[p] += weight * surface.n;
+                atomic shading_out[p] += weight * surface.ns;
                 atomic albedo_out[p] += weight * surface.albedo;
             }
 
@@ -1726,6 +1821,11 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             normal_out[p] = unit_vector_(normal_out[p]);
         } else {
             normal_out[p] = vec3f{0.0, 0.0, 0.0};
+        }
+        if sqlen_(shading_out[p]) > 0.0 {
+            shading_out[p] = unit_vector_(shading_out[p]);
+        } else {
+            shading_out[p] = vec3f{0.0, 0.0, 0.0};
         }
         w = weight_out[p];
         if w != 0.0 {

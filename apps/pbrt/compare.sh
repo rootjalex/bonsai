@@ -229,6 +229,11 @@ if [[ "$FILM" == "gbuffer" ]]; then
   if [[ "$GBUFFER" == "1" ]]; then
     "$IMGTOOL" convert --channels N.X,N.Y,N.Z --outfile "$WORK/pbrt.pfm" \
         "$WORK/pbrt.exr" >/dev/null
+    # The shading normal as well as the geometric one. They differ across a
+    # mesh with vertex normals and wherever a material has a displacement, and
+    # the second is the only channel a bump map is visible in.
+    "$IMGTOOL" convert --channels Ns.X,Ns.Y,Ns.Z --outfile "$WORK/pbrt-ns.pfm" \
+        "$WORK/pbrt.exr" >/dev/null
     "$IMGTOOL" convert --channels Albedo.R,Albedo.G,Albedo.B \
         --outfile "$WORK/pbrt-albedo.pfm" "$WORK/pbrt.exr" >/dev/null
   fi
@@ -278,6 +283,7 @@ COMPARE_ARGS=(--radiance "$WORK/pbrt-radiance.pfm" "$WORK/bonsai-radiance.pfm"
               --bonsai-seconds "${BONSAI_SECONDS:-0}" --repeats "$REPEATS")
 if [[ "$GBUFFER" == "1" ]]; then
   python3 $PREFIX/compare_gbuffer.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
+      --shading "$WORK/pbrt-ns.pfm" "$WORK/bonsai-ns.pfm" \
       --albedo "$WORK/pbrt-albedo.pfm" "$WORK/bonsai-albedo.pfm" \
       "${COMPARE_ARGS[@]}"
 else

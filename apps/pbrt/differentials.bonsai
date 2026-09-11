@@ -153,7 +153,10 @@ func rotate_from_to(source : vec3f, target : vec3f) -> Rotation {
 // p.z`. That is the whole reason RotateFromTo is here.
 func approximate_dp_dxy(camera : PerspectiveCamera, p : vec3f, n : vec3f,
                         spp_scale : Float) -> Differentials {
-    p_camera = apply_point(camera.camera_from_render, p);
+    // pbrt: `CameraFromRender(p, time)`, which is Transform::ApplyInverse and
+    // not the forward transform by the inverse matrix -- see
+    // apply_inverse_point for the association that makes them differ.
+    p_camera = apply_inverse_point(camera.camera_from_render, p);
     down_z = rotate_from_to(unit_vector_(p_camera), vec3f{0.0, 0.0, 1.0});
     p_down_z = apply_rot(down_z, p_camera);
     // pbrt: `DownZFromCamera(CameraFromRender(n, time))`. The inner call is a

@@ -72,8 +72,18 @@ a hit test, converges the way an estimate should — see item 1.
 The renderer traces light. `randomwalk`, `simplepath` and `path` are all
 implemented, area lights and uniform infinite lights are sampled, camera samples
 are jittered within pbrt's Gaussian reconstruction filter, and the film records
-pbrt's gbuffer normals and albedo beside the radiance — so a comparison can ask
-three questions of the same render rather than one.
+pbrt's gbuffer normals -- the shape's and the shading one a bump map tilts --
+and albedo beside the radiance — so a comparison can ask four questions of the
+same render rather than one.
+
+**barcelona-pavilion renders, and matches.** `pavilion-day.pbrt` -- 133,575
+shapes, 43 instances holding 5.2 million triangles, a lens camera, a sky, bump
+maps on the pool and its walls -- agrees with pbrt to **0.99967x** in its mean
+at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
+within 1% and no block systematically off. That took three fixes described
+under "what the last round added": a light leak of this renderer's own, the
+last bits of a lens camera's rays, and the texture chain made bit-exact. It
+renders 1.59x slower than pbrt there, which is the open item.
 
 **killeroo-simple renders.** It names no integrator, so it gets `path`; it is
 lit by a sphere of radius 3 seen from four hundred units away, which a random
@@ -183,6 +193,95 @@ Two more asymmetries, both checked and both fine:
   of these scenes into an `rgb` film would trace once.
 
 ### What the last round added
+
+**The pavilion matches, and what was in the way.** With every material and
+instancing in, the whole scene rendered 1.036x too bright, with 37,000 more
+lit pixels than pbrt, and the excess was one strip: the wall along the pool's
+far edge, several times brighter than pbrt's. Cutting the pool out into a scene
+of its own (`scenes/bump-lens.pbrt`, the four meshes and the sky under the
+pavilion's own camera) and bisecting its features found three separate
+things, none of them in the material:
+
+- **A light leak.** `trace` and `trace_any` carried a `distmin > 0.001` guard
+  from the first BVH commit, before hit points had error bounds. `t` is the
+  parameter of the ray's own direction, and a shadow ray's direction is the
+  whole way to the light, so a thousandth of it was six centimetres on this
+  scene -- and the pool's walls are one-centimetre slabs. The wall's
+  displacement is an 8-bit stone texture with no scale, whose finite
+  differences tilt the shading normal nearly into the surface, so half its
+  light samples point into the slab; pbrt's shadow rays hit the far face and
+  stop, ours passed through and lit the wall from behind. pbrt has no such
+  guard -- the spawn offset keeps a ray off the surface it left, and a shape's
+  test takes any t in (0, tMax) -- and now neither does this. The wall went
+  from 3.8x pbrt to 1.004x, and the pavilion from 1.036x to 1.0002x.
+- **A lens camera's last bits.** The shading normals differed on 8,278
+  pixels of the pool with the lens and on none with a pinhole. Three causes,
+  each an ulp: pbrt puts a ray's origin through its interval point transform
+  and nudges it by the error bound (`Transform::operator()(Ray)`), which is
+  the exact zero for a pinhole in camera-world space and a point on the lens
+  otherwise; gcc fuses `Transform::operator()(Vector3f)` with the *first*
+  product in the fused add and `operator()(Point3f)` with the second, which
+  agree whenever a row has a zero among its first two entries -- every
+  axis-aligned camera, which is how it stayed hidden; and `ApplyInverse` on a
+  point associates `(m0 x + m1 y) + (m2 z + m3)`. A bump map differences a
+  texture over the footprint those rays give, on a wall seen at a grazing
+  angle, so an ulp there is a different normal. `check_differentials.sh`
+  checks all of it bit for bit now, through an off-centre lens sample.
+- **`--disable-pixel-jitter` with a lens.** pbrt's `GetCameraSample` fixes
+  the lens sample at the lens's centre under that option, after drawing it;
+  this left it as drawn, and every single-sample comparison of a lens scene
+  had each pixel's one ray start somewhere else on the lens than pbrt's.
+
+**The texture chain is bit-exact, and the check says so.** `check_differentials.sh`
+grew rows that put every texture the scene converted through pbrt's own
+MIPMap and texture objects at three points and three footprints, and an RGB
+through pbrt's own `RGBAlbedoSpectrum`, against this renderer's lookups. Four
+things came out of the rows, each of which had been a plausible-looking
+number before:
+
+- `MIPMap::Bilerp<Float>` on a three-channel image averages the three
+  *filtered* channels. The converter had averaged the texels and let the
+  renderer filter the average, which is the same number only in exact
+  arithmetic; the channels ship now and `texture_float` averages after the
+  filter. `Texel<Float>` at the top of the pyramid reads channel 0 whatever
+  the image has, and does now.
+- a constant `scale` texture over an image texture **folds into the image's
+  own scale**: `SpectrumScaledTexture::Create` copies the image texture and
+  `MultiplyScale`s it rather than wrapping it, so the constant reaches the
+  colour *before* the invert and the spectrum fit. This file's first reading
+  of pbrt had it the other way, and the `texsr` row -- pbrt's spectrum
+  recomposed from its own filtered colour -- is what caught it: it agreed with
+  the renderer, and neither agreed with pbrt's texture.
+- the table lookup's remapped coordinate is `rgb * (res - 1) / z`, product
+  then divide; scaling by `(res - 1) / z` rounds in the other order, and a
+  near-grey colour sits where the table's coefficients change fastest, so the
+  last bit of it was a 13% difference in the spectrum at 830 nm.
+- `Lerp` fuses its first product, standalone and nested three deep -- measured
+  by compiling the expression with pbrt's compiler and flags.
+
+**The gbuffer compares the shading normal too.** pbrt writes `N` and `Ns`;
+only `N` was being read, and a displacement moves nothing `N` can see, so the
+bump map had never been checked against pbrt at all. `compare_gbuffer.py`
+takes `--shading` now and excuses a disagreement only where the *geometric*
+image has an edge, since a bumped surface is discontinuous at every pixel by
+design. A pixel in 130,000 still flips at eight samples per pixel: the
+pyramid level is the floor of a log of the footprint, and one sample landing
+on the other side of that floor is a different normal. The check tolerates one
+in ten thousand, four orders below what the lens bug did.
+
+What is left on the pavilion, measured at 16 samples per pixel: 14.5% of
+touched pixels agree to 1e-3 and the lit-pixel counts differ by 0.47%, both of
+which are per-path divergence and not bias -- in the pool, 48,000 pixels are
+lit only in pbrt and 44,000 only here, over a mean that agrees to 1.0007x. The
+paths part on the instanced leaves (the `ApplyInverse` nudge this renderer
+deliberately does not do) and on the water's bump. A `coateddiffuse` under a
+texture or a bump still shows per-pixel albedo noise against pbrt (0.2% of
+pixels over 5e-3 without a bump, 6% with) for the reason the layered BSDF
+always has: its walk is seeded by hashing the local direction, and the mean
+converges. And it is 1.59x slower than pbrt on this scene, which the profile
+below is for.
+
+### What the previous round added
 
 **Named materials, and `dielectric`.** A shape under `NamedMaterial` names its
 material by string, and pbrt leaves `materialIndex` at -1 -- which is also what
@@ -564,10 +663,15 @@ on now, in the order it stopped:
 6. ~~`iso` and `maxcomponentvalue`~~ — **done**; both were silently ignored
 7. ~~`ObjectInstance`~~ — **done**, as pbrt's TransformedPrimitive beside its
    GeometricPrimitives in one tree; see below
-8. **`Material "diffusetransmission"`** — where it stops today
+8. ~~`Material "diffusetransmission"`~~ — **done**, pbrt's
+   DiffuseTransmissionBxDF; `scenes/diffuse-transmission.pbrt` matches
 
-**All five material walls are down**, and so is instancing. The scene now stops
-at item 8, the material on the leaves.
+**All five material walls are down**, and so are instancing and the leaves'
+material. `pavilion-day.pbrt` converts end to end: 133,575 top-level shapes and
+43 instances of 2 objects holding 5,178,144 triangles, in an 823 MB scene file
+(the format is text, and 5 million triangles in text is what that costs). It
+renders to 0.99967x of pbrt's mean; how it got there from 1.036x is under "what
+the last round added".
 
 pbrt keeps instanced geometry out of `BasicScene::shapes` entirely -- it is in
 `instanceDefinitions`, and `instances` names one with a transform. This
@@ -747,10 +851,10 @@ by guessing:
 With both: 0.319 s and 0.319 s, the same scene, alternating runs. The generated
 Geom arm is one tag test, then the shape test once on the ray as it arrived.
 
-Behind it, on the leaves: `Material "diffusetransmission"`, and the shape
-`alpha` cutouts -- the second of which is **already implemented** (pbrt's
-stochastic test, which for a triangle reduces to a condition on the set because
-its retry can only miss) and simply has no geometry to act on yet.
+Behind it, on the leaves: `Material "diffusetransmission"` -- **done** -- and
+the shape `alpha` cutouts, which were already implemented (pbrt's stochastic
+test, which for a triangle reduces to a condition on the set because its retry
+can only miss) and now have five million triangles to act on.
 
 The original list, in the order they block it:
 

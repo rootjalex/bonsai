@@ -9,6 +9,7 @@ import stdlib/numerics;
 // For `sample_uniform_disk_concentric`, which is where a lens point comes
 // from. bxdf.bonsai does not depend on the camera, so this is not a cycle.
 import apps/pbrt/bxdf;
+import apps/pbrt/interval;
 import apps/pbrt/shapes;
 import apps/pbrt/spectrum;
 
@@ -21,14 +22,28 @@ element Transform {
     r0, r1, r2, r3 : vec4f;
 }
 
-// One row of the matrix against a direction: `m0*x + m1*y + m2*z`, as fused
+// One row of the matrix against a point: `m0*x + m1*y + m2*z`, as fused
 // multiply-adds because pbrt's compiler fuses them. Not a four-element dot
 // product against a homogeneous vector, which is the same number in exact
 // arithmetic and a different one in floating point -- and a camera ray a bit
 // out lands a bit out, which a layered BSDF turns into different noise. See
 // dot_ in stdlib/numerics for which multiply pairs with which add.
+//
+// Two of these, because gcc fuses pbrt's two transforms differently and there
+// is no rule to it (include/SSA/Contract.h): in `Transform::operator()(Point3f)`
+// the *second* product goes into the fused add and the first is its addend,
+// and in `Transform::operator()(Vector3f)` -- the same expression, one term
+// shorter -- it is the *first*. The two agree wherever a row has a zero among
+// its first two entries, which is every camera that looks along an axis, and
+// that is how the difference stayed hidden until a camera with a roll and a
+// lens: the lens put a non-zero point through the point transform and a
+// general direction through the vector one, and pbrt's rays came out an ulp
+// away. Checked bit for bit by apps/pbrt/check_differentials.sh.
 func apply_row(row : vec4f, v : vec3f) -> Float =
     fma(row.z, v.z, fma(row.y, v.y, row.x * v.x));
+
+func apply_row_vector(row : vec4f, v : vec3f) -> Float =
+    fma(row.z, v.z, fma(row.x, v.x, row.y * v.y));
 
 // pbrt: Transform::operator()(Point3f), which divides through by w. The
 // perspective transform is the whole reason that divide is here: for an
@@ -45,12 +60,34 @@ func apply_point(t : Transform, p : vec3f) -> vec3f {
 // pbrt: Transform::operator()(Vector3f). A direction ignores the translation
 // column, so this is the upper-left 3x3 and no divide.
 func apply_vector(t : Transform, v : vec3f) -> vec3f {
-    return vec3f{apply_row(t.r0, v), apply_row(t.r1, v), apply_row(t.r2, v)};
+    return vec3f{apply_row_vector(t.r0, v), apply_row_vector(t.r1, v),
+                 apply_row_vector(t.r2, v)};
+}
+
+// pbrt: Transform::ApplyInverse(Point3f), applied here as a *forward* transform
+// by the inverse matrix, which the driver hands over. It is not `apply_point`
+// with a different matrix: pbrt writes the inverse as
+// `(m0 x + m1 y) + (m2 z + m3)` where the forward one is left to right, and the
+// two associations round differently. The first pair fuses as the interval
+// transform's does (row_point_interval), the second is one fused multiply-add
+// with the translation as its addend. Checked bit for bit by
+// check_differentials.sh's `invpoint` rows. `ApplyInverse(Vector3f)` needs no
+// twin: it is the vector transform's expression over the other matrix, and
+// fuses as the vector transform does.
+func apply_inverse_row(row : vec4f, p : vec3f) -> Float =
+    fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
+
+func apply_inverse_point(t : Transform, p : vec3f) -> vec3f {
+    v = vec3f{apply_inverse_row(t.r0, p), apply_inverse_row(t.r1, p),
+              apply_inverse_row(t.r2, p)};
+    wp = apply_inverse_row(t.r3, p);
+    return select(wp == 1.0, v, v / wp);
 }
 
 // pbrt: CameraSample. With --disable-pixel-jitter every sample sits at the
-// pixel's centre and weighs one, so p_lens and time are fixed and the film's
-// weighted sum is a plain average -- but they are here because GenerateRay's
+// pixel's centre and weighs one, and pbrt's GetCameraSample fixes p_lens at
+// the lens's centre and time at half as well, so the film's weighted sum is a
+// plain average of identical rays -- but they are here because GenerateRay's
 // signature is what a jittered sampler fills in.
 element CameraSample {
     p_film : vec2f;
@@ -109,6 +146,59 @@ element PerspectiveCamera {
     focal_distance : Float = 1.0e6;
 }
 
+// pbrt: one row of Transform::operator()(const Point3fi &), for a point known
+// exactly. The value is pbrt's `(m0 x + m1 y) + (m2 z + m3)` -- a different
+// association from the plain point transform's, and fused as gcc fuses it, the
+// second product into the first -- and the width is pbrt's gamma(3) bound over
+// the four terms of the row. See point_to_object in interval.bonsai for why the
+// width is the bound and not the arithmetic's own rounding.
+func row_point_interval(row : vec4f, p : vec3f) -> Interval {
+    v = fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
+    err = gamma(3) * (((abs(row.x * p.x) + abs(row.y * p.y)) +
+                       abs(row.z * p.z)) + abs(row.w));
+    return from_value_and_error(v, err);
+}
+
+// pbrt: Transform::operator()(const Ray &), which is how a camera ray reaches
+// render space. The origin goes through as an interval and comes out as one
+// point: pbrt takes the transformed origin's error bound, moves the origin
+// along the direction by as far as that bound could have left it short, and
+// reads the interval's midpoint. For a pinhole camera in pbrt's usual
+// camera-world render space the origin is the exact zero and none of this
+// moves anything; with a lens the origin is a point on the lens, and this is
+// where its last bits are decided -- and, through the differentials measured
+// against it, the footprint a displacement is differenced over. `Ray` carries
+// no tMax here for the nudge to come off.
+func transform_ray(t : Transform, o : vec3f, d : vec3f) -> Ray {
+    xi : mut Interval = row_point_interval(t.r0, o);
+    yi : mut Interval = row_point_interval(t.r1, o);
+    zi : mut Interval = row_point_interval(t.r2, o);
+    // pbrt keeps `wp` as a plain value and divides the intervals by it when it
+    // is not one. A camera's transform is rigid, so it is one.
+    wp = fma(t.r3.y, o.y, t.r3.x * o.x) + fma(t.r3.z, o.z, t.r3.w);
+    if wp != 1.0 {
+        w = exact(wp);
+        xi = idiv(xi, w);
+        yi = idiv(yi, w);
+        zi = idiv(zi, w);
+    }
+
+    dr = apply_vector(t, d);
+    len2 = sqlen_(dr);
+    if len2 > 0.0 {
+        // pbrt: `Dot(Abs(d), o.Error()) / LengthSquared(d)`, with the error
+        // half the interval's width, then `o += d * dt` on both bounds.
+        err = vec3f{0.5 * (xi.high - xi.low), 0.5 * (yi.high - yi.low),
+                    0.5 * (zi.high - zi.low)};
+        dt = dot_(abs(dr), err) / len2;
+        shift = dr * dt;
+        xi = iadd(xi, exact(shift.x));
+        yi = iadd(yi, exact(shift.y));
+        zi = iadd(zi, exact(shift.z));
+    }
+    return Ray{vec3f{mid(xi), mid(yi), mid(zi)}, dr};
+}
+
 // pbrt: PerspectiveCamera::GenerateRayDifferential, both branches.
 //
 // Every ray leaves the camera's origin and passes through the sample's point on
@@ -117,52 +207,57 @@ element PerspectiveCamera {
 // each ray is re-aimed through where the film is focused, which is what puts
 // everything but the focal plane out of focus.
 //
-// pbrt transforms the whole ray by `RenderFromCamera` at the end. That is done
-// per component here, which is the same thing: the transform is applied to the
-// origin as a point and to each direction as a vector, exactly as
-// `Transform::operator()(const RayDifferential &)` does.
+// Built in camera space first, as pbrt fills its RayDifferential in, and moved
+// to render space once at the end by `RenderFromCamera` -- which is
+// `Transform::operator()(const RayDifferential &)`: the ray itself through the
+// interval transform and its nudge, the companion origins and directions
+// through the plain point and vector transforms.
 func generate_ray_differential(camera : PerspectiveCamera,
                                sample : CameraSample) -> CameraRay {
     p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
     p_camera = apply_point(camera.camera_from_raster, p_film);
     d_camera = unit_vector_(p_camera);
+    zero = vec3f{0.0, 0.0, 0.0};
 
-    if camera.lens_radius <= 0.0 {
-        o = apply_point(camera.render_from_camera, vec3f{0.0, 0.0, 0.0});
-        d = apply_vector(camera.render_from_camera, d_camera);
-        rx_d = apply_vector(camera.render_from_camera,
-                            unit_vector_(p_camera + camera.dx_camera));
-        ry_d = apply_vector(camera.render_from_camera,
-                            unit_vector_(p_camera + camera.dy_camera));
-        return CameraRay{Ray{o, d}, RayDifferential{o, o, rx_d, ry_d, true}};
+    o : mut vec3f = zero;
+    d : mut vec3f = d_camera;
+    rx_d : mut vec3f = unit_vector_(p_camera + camera.dx_camera);
+    ry_d : mut vec3f = unit_vector_(p_camera + camera.dy_camera);
+    if camera.lens_radius > 0.0 {
+        // pbrt draws the lens point twice -- once for the ray and once, from
+        // the same `sample.pLens`, for the differentials -- so the two draws
+        // give the same point and the offset rays start where the main one
+        // does.
+        p_lens = camera.lens_radius *
+                 sample_uniform_disk_concentric(sample.p_lens);
+        o = vec3f{p_lens.x, p_lens.y, 0.0};
+
+        // pbrt: `pFocus = ray(ft)`, which is `o + d * ft` with `o` the zero
+        // the ray started at -- a product added to zero, which gcc fuses into
+        // one rounding of the product. Written as that fused form so that the
+        // subtraction after it is not fused with the product instead:
+        // `(0 + d*ft) - pLens` and `d*ft - pLens` are one rounding apart.
+        ft = camera.focal_distance / d_camera.z;
+        p_focus = fma3(ft, d_camera, zero);
+        d = unit_vector_(p_focus - o);
+
+        // pbrt: `Point3f(0, 0, 0) + (ft * dx)`, the same shape, for each
+        // companion. `dx` is the pinhole's companion direction.
+        dx = rx_d;
+        ftx = camera.focal_distance / dx.z;
+        rx_d = unit_vector_(fma3(ftx, dx, zero) - o);
+        dy = ry_d;
+        fty = camera.focal_distance / dy.z;
+        ry_d = unit_vector_(fma3(fty, dy, zero) - o);
     }
 
-    // pbrt draws the lens point twice -- once for the ray and once, from the
-    // same `sample.pLens`, for the differentials -- so the two draws give the
-    // same point and the offset rays start where the main one does.
-    p_lens = camera.lens_radius * sample_uniform_disk_concentric(sample.p_lens);
-    lens_o = vec3f{p_lens.x, p_lens.y, 0.0};
-
-    ft = camera.focal_distance / d_camera.z;
-    p_focus = ft * d_camera;
-    d_lens = unit_vector_(p_focus - lens_o);
-
-    dx = unit_vector_(p_camera + camera.dx_camera);
-    ftx = camera.focal_distance / dx.z;
-    p_focus_x = ftx * dx;
-    rx_lens_d = unit_vector_(p_focus_x - lens_o);
-
-    dy = unit_vector_(p_camera + camera.dy_camera);
-    fty = camera.focal_distance / dy.z;
-    p_focus_y = fty * dy;
-    ry_lens_d = unit_vector_(p_focus_y - lens_o);
-
-    o = apply_point(camera.render_from_camera, lens_o);
-    return CameraRay{Ray{o, apply_vector(camera.render_from_camera, d_lens)},
+    ray = transform_ray(camera.render_from_camera, o, d);
+    companion_o = apply_point(camera.render_from_camera, o);
+    return CameraRay{ray,
                      RayDifferential{
-                         o, o,
-                         apply_vector(camera.render_from_camera, rx_lens_d),
-                         apply_vector(camera.render_from_camera, ry_lens_d),
+                         companion_o, companion_o,
+                         apply_vector(camera.render_from_camera, rx_d),
+                         apply_vector(camera.render_from_camera, ry_d),
                          true}};
 }
 

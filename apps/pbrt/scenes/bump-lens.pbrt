@@ -1,0 +1,111 @@
+# The pavilion's pool on its own, under the pavilion's sky and through the
+# pavilion's camera -- a thin lens. Cut from barcelona-pavilion/pavilion-day
+# after the wall along the pool's far edge rendered nearly four times as bright
+# here as in pbrt, and three separate things were wrong in it. Each is what
+# this scene is for.
+#
+#   - **A bump-mapped wall one centimetre thick.** `pavet`'s displacement is an
+#     8-bit stone texture with no scale on it, so its finite differences tilt
+#     the shading normal almost into the surface, and half the light samples
+#     point *into* the slab. pbrt's shadow rays hit the slab's far face a
+#     centimetre on and are blocked. This renderer had a `distmin > 0.001`
+#     guard on its traversal, and `t` is the parameter of the ray's own
+#     direction -- a shadow ray's is the whole way to the light -- so anything
+#     within a thousandth of that was invisible, and the light leaked through.
+#     pbrt has no such guard: the spawn offset is what keeps a ray off the
+#     surface it left, and the shape's own test takes any t in (0, tMax).
+#
+#   - **A camera with a lens.** With `lensradius` set, the ray's origin is a
+#     point on the lens rather than the exact zero, and pbrt puts it through
+#     its interval transform and nudges it by the error bound; the companion
+#     rays' directions go through `Transform::operator()(Vector3f)`, which gcc
+#     fuses the other way round from `operator()(Point3f)`. Both were an ulp
+#     off here, and a bump map differenced over a footprint that is an ulp off
+#     -- on a wall seen at a grazing angle -- is a different normal.
+#     apps/pbrt/check_differentials.sh now checks the lens camera's rays bit
+#     for bit, and this scene checks the normals they lead to.
+#
+#   - **`--disable-pixel-jitter` with a lens.** pbrt fixes the lens sample at
+#     the lens's centre under that option, after drawing it; this renderer
+#     left it as drawn.
+#
+# The wall is `diffuse` rather than the pavilion's `coateddiffuse` so that the
+# gbuffer albedo is a number and not a sixteen-sample estimate: a layered BSDF
+# seeds its walk by hashing the local outgoing direction, and a bump map makes
+# that direction depend on the last bit of everything upstream. The radiance
+# matched pbrt on the coated version too, once the leak was closed.
+Film "gbuffer"
+    "string filename" [ "bump-lens.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer yresolution" [ 425 ]
+    "integer xresolution" [ 800 ]
+    "float maxcomponentvalue" 50
+Scale -1 1 1
+LookAt -10 2.25 10
+    7 1.75 -3
+    0 1 0
+Camera "perspective"
+    "float lensradius" [ 0.0125 ]
+    "float focaldistance" [ 15 ]
+    "float fov" [ 45 ]
+
+Sampler "halton"
+    "integer pixelsamples" [ 8 ]
+
+WorldBegin
+
+AttributeBegin
+    Rotate -10 0 0 1
+    Rotate -160 0 1 0
+    Rotate -90 1 0 0
+    LightSource "infinite"
+        "string filename" "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/sky.exr"
+AttributeEnd
+
+Texture "pavet-bump" "float" "imagemap"
+    "string filename" [ "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/Mies-BCN_M081bump.png" ]
+MakeNamedMaterial "pavet"
+    "string type" [ "diffuse" ]
+    "texture displacement" [ "pavet-bump" ]
+    "rgb reflectance" [ 0.3 0.3 0.25 ]
+Texture "water-bump-base" "float" "imagemap"
+    "string filename" [ "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/water-raindrop.png" ]
+Texture "water-bump" "float" "scale"
+    "float scale" [ 0.005 ]
+    "texture tex" [ "water-bump-base" ]
+MakeNamedMaterial "water"
+    "string type" [ "dielectric" ]
+    "texture displacement" [ "water-bump" ]
+
+# A floor under the water, so there is something for refracted light to reach.
+AttributeBegin
+    NamedMaterial "pavet"
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -30 0.5 -5   0 0.5 -5   0 0.5 15   -30 0.5 15 ]
+        "point2 uv" [ 0 0  10 0  10 10  0 10 ]
+AttributeEnd
+
+# The pool's walls: one-centimetre slabs, the one along x=-4.5 facing the
+# camera at a grazing angle.
+AttributeBegin
+    NamedMaterial "pavet"
+    Shape "plymesh"
+        "string filename" [ "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/geometry/mesh_00001.ply" ]
+AttributeEnd
+AttributeBegin
+    NamedMaterial "water"
+    Shape "plymesh"
+        "string filename" [ "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/geometry/mesh_00002.ply" ]
+AttributeEnd
+AttributeBegin
+    NamedMaterial "pavet"
+    Shape "plymesh"
+        "string filename" [ "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/geometry/mesh_00031.ply" ]
+AttributeEnd
+AttributeBegin
+    NamedMaterial "pavet"
+    Shape "plymesh"
+        "string filename" [ "/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/geometry/mesh_00032.ply" ]
+AttributeEnd
