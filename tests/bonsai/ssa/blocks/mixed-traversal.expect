@@ -1405,12 +1405,10 @@ func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : Solo[], Prim_Solo_fill : u64
 func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : (__tuple_1*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
-  @204 = gep(!stack, (u32)0)
-  store @204 prims_index
-  store !count (u32)1
-  jmp !visit()
+  store !count (u32)0
+  jmp !visit(prims_index, (bool)1)
 
-_recloop_func0!loop(prims_index!top : u32): // preds: !visit_pop
+_recloop_func0!loop(): // preds: !visit
   @0 = load_field(prims, (u32)7)
   _t924 = extract_idx(@0, prims_index!top)
   @2 = load_field(_t924, (u32)0)
@@ -1550,7 +1548,7 @@ _recloop_func0!loop(prims_index!top : u32): // preds: !visit_pop
   dispatch _t948 [!else_12(distmax_Ray_AABB$r17, _t948, intersectsp_ray_aabb$r1, _best0, _t924, prims_index!top, prims, r, Prim_Solo_pool, Prim_Inst_pool, _t278$i1, _t272$i1), !then_11(intersectsp_ray_aabb$r1, distmax_Ray_AABB$r17, _t948, _best0, _t924, prims_index!top, prims, r, Prim_Solo_pool, Prim_Inst_pool, _t278$i1, _t272$i1)]
 
 !merge_10(): // preds: !merge_15, !merge_8
-  jmp !visit()
+  jmp !visit_pop()
 
 !then_11(intersectsp_ray_aabb$r1 : (_option1*), distmax_Ray_AABB$r17 : (f32*), _t948 : bool, _best0 : (__tuple_1*), _t924 : _tree_layout4, prims_index!top : u32, prims : _tree_layout0, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[], _t278$i1 : f32x3, _t272$i1 : f32x3): // preds: !then_9
   @85 = load(intersectsp_ray_aabb$r1)
@@ -1610,17 +1608,12 @@ _recloop_func0!loop(prims_index!top : u32): // preds: !visit_pop
   @104 = reinterpret<_tree_layout5>(@103)
   @105 = load_field(@104, (u32)0)
   @106 = add(prims_index!top, @105)
-  @210 = load(!count)
-  @211 = gep(!stack, @210)
-  store @211 @106
-  @212 = add(@210, (u32)1)
-  store !count @212
-  @213 = load(!count)
-  @214 = gep(!stack, @213)
-  store @214 @102
-  @215 = add(@213, (u32)1)
-  store !count @215
-  jmp !_recloop_func0_multicall_cont_24()
+  @208 = load(!count)
+  @209 = gep(!stack, @208)
+  store @209 @106
+  @210 = add(@208, (u32)1)
+  store !count @210
+  jmp !visit(@102, (bool)1)
 
 !else_22(_t119 : u16, prims : _tree_layout0, _t924 : _tree_layout4, r : Ray, Prim_Inst_pool : Inst[], _t278$i1 : f32x3, _t272$i1 : f32x3, Prim_Solo_pool : Solo[], _best0 : (__tuple_1*), prims_index!top : u32): // preds: !then_19
   @107 = cast<u32>(_t119)
@@ -1629,7 +1622,7 @@ _recloop_func0!loop(prims_index!top : u32): // preds: !visit_pop
 !merge_23(): // preds: !_recloop_func0_multicall_cont_24, !for__idx0_end_27
   jmp !merge_20()
 
-!_recloop_func0_multicall_cont_24(): // preds: !then_21
+!_recloop_func0_multicall_cont_24(): 
   jmp !merge_23()
 
 !for__idx0_25(_idx0 : u32, @107 : u32, prims : _tree_layout0, _t924 : _tree_layout4, r : Ray, Prim_Inst_pool : Inst[], _t278$i1 : f32x3, _t272$i1 : f32x3, Prim_Solo_pool : Solo[], _best0 : (__tuple_1*), prims_index!top : u32): // preds: !else_22, !merge_30
@@ -1811,31 +1804,34 @@ _recloop_func0!loop(prims_index!top : u32): // preds: !visit_pop
 !_recloop_func1_call_cont_47(_idx0 : u32, @107 : u32, prims : _tree_layout0, _t924 : _tree_layout4, r : Ray, Prim_Inst_pool : Inst[], _t278$i1 : f32x3, _t272$i1 : f32x3, Prim_Solo_pool : Solo[], _best0 : (__tuple_1*), prims_index!top : u32): // preds: !merge_46
   jmp !merge_30(_idx0, @107, prims, _t924, r, Prim_Inst_pool, _t278$i1, _t272$i1, Prim_Solo_pool, _best0, prims_index!top)
 
-!visit(): // preds: !merge_10, _recloop_func0
-  @205 = load(!count)
-  @206 = ne(@205, (u32)0)
-  dispatch @206 [!visited(), !visit_pop()]
-
-!visit_pop(): // preds: !visit
-  @207 = load(!count)
-  @208 = sub(@207, (u32)1)
-  store !count @208
-  @209 = extract_idx(!stack, @208)
-  jmp _recloop_func0!loop(@209)
+!visit(prims_index!top : u32, !live : bool): // preds: !then_21, !visit_done, !visit_next, _recloop_func0
+  dispatch !live [!visited(), _recloop_func0!loop()]
 
 !visited(): // preds: !visit
   ret
+
+!visit_pop(): // preds: !merge_10
+  @204 = load(!count)
+  @205 = ne(@204, (u32)0)
+  dispatch @205 [!visit_done(), !visit_next()]
+
+!visit_next(): // preds: !visit_pop
+  @206 = sub(@204, (u32)1)
+  store !count @206
+  @207 = extract_idx(!stack, @206)
+  jmp !visit(@207, (bool)1)
+
+!visit_done(): // preds: !visit_pop
+  jmp !visit(prims_index!top, (bool)0)
 
 ; --- _recloop_func1 (lowered via statements) ---
 func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : (__tuple_1*), prims_index : u32, _idx0 : u32): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
-  @138 = gep(!stack, (u32)0)
-  store @138 _subtree0_bnode
-  store !count (u32)1
-  jmp !visit()
+  store !count (u32)0
+  jmp !visit(_subtree0_bnode, (bool)1)
 
-_recloop_func1!loop(_subtree0_bnode!top : u32): // preds: !visit_pop
+_recloop_func1!loop(): // preds: !visit
   @0 = load_field(prims, (u32)3)
   _t990 = extract_idx(@0, _subtree0_bnode!top)
   @2 = load_field(_t990, (u32)0)
@@ -1975,7 +1971,7 @@ _recloop_func1!loop(_subtree0_bnode!top : u32): // preds: !visit_pop
   dispatch _t1013 [!else_12(distmax_Ray_AABB$r12, _t1013, intersectsp_ray_aabb$r0, _best0, _t990, _subtree0_bnode!top, prims, _pulled1, prims_index, _idx0), !then_11(intersectsp_ray_aabb$r0, distmax_Ray_AABB$r12, _t1013, _best0, _t990, _subtree0_bnode!top, prims, _pulled1, prims_index, _idx0)]
 
 !merge_10(): // preds: !merge_15, !merge_8
-  jmp !visit()
+  jmp !visit_pop()
 
 !then_11(intersectsp_ray_aabb$r0 : (_option1*), distmax_Ray_AABB$r12 : (f32*), _t1013 : bool, _best0 : (__tuple_1*), _t990 : _tree_layout1, _subtree0_bnode!top : u32, prims : _tree_layout0, _pulled1 : Ray, prims_index : u32, _idx0 : u32): // preds: !then_9
   @85 = load(intersectsp_ray_aabb$r0)
@@ -2035,17 +2031,12 @@ _recloop_func1!loop(_subtree0_bnode!top : u32): // preds: !visit_pop
   @104 = reinterpret<_tree_layout2>(@103)
   @105 = load_field(@104, (u32)0)
   @106 = add(_subtree0_bnode!top, @105)
-  @144 = load(!count)
-  @145 = gep(!stack, @144)
-  store @145 @106
-  @146 = add(@144, (u32)1)
-  store !count @146
-  @147 = load(!count)
-  @148 = gep(!stack, @147)
-  store @148 @102
-  @149 = add(@147, (u32)1)
-  store !count @149
-  jmp !_recloop_func1_multicall_cont_24()
+  @142 = load(!count)
+  @143 = gep(!stack, @142)
+  store @143 @106
+  @144 = add(@142, (u32)1)
+  store !count @144
+  jmp !visit(@102, (bool)1)
 
 !else_22(_t198 : u16, prims : _tree_layout0, _t990 : _tree_layout1, _pulled1 : Ray, _best0 : (__tuple_1*), prims_index : u32, _idx0 : u32): // preds: !then_19
   @107 = cast<u32>(_t198)
@@ -2054,7 +2045,7 @@ _recloop_func1!loop(_subtree0_bnode!top : u32): // preds: !visit_pop
 !merge_23(): // preds: !_recloop_func1_multicall_cont_24, !for__idx1_end_27
   jmp !merge_20()
 
-!_recloop_func1_multicall_cont_24(): // preds: !then_21
+!_recloop_func1_multicall_cont_24(): 
   jmp !merge_23()
 
 !for__idx1_25(_idx1 : u32, @107 : u32, prims : _tree_layout0, _t990 : _tree_layout1, _pulled1 : Ray, _best0 : (__tuple_1*), prims_index : u32, _idx0 : u32): // preds: !else_22, !merge_30
@@ -2130,20 +2121,25 @@ _recloop_func1!loop(_subtree0_bnode!top : u32): // preds: !visit_pop
 !merge_37(_idx1 : u32, @107 : u32, prims : _tree_layout0, _t990 : _tree_layout1, _pulled1 : Ray, _best0 : (__tuple_1*), prims_index : u32, _idx0 : u32): // preds: !then_34, !then_36
   jmp !merge_35(_idx1, @107, prims, _t990, _pulled1, _best0, prims_index, _idx0)
 
-!visit(): // preds: !merge_10, _recloop_func1
-  @139 = load(!count)
-  @140 = ne(@139, (u32)0)
-  dispatch @140 [!visited(), !visit_pop()]
-
-!visit_pop(): // preds: !visit
-  @141 = load(!count)
-  @142 = sub(@141, (u32)1)
-  store !count @142
-  @143 = extract_idx(!stack, @142)
-  jmp _recloop_func1!loop(@143)
+!visit(_subtree0_bnode!top : u32, !live : bool): // preds: !then_21, !visit_done, !visit_next, _recloop_func1
+  dispatch !live [!visited(), _recloop_func1!loop()]
 
 !visited(): // preds: !visit
   ret
+
+!visit_pop(): // preds: !merge_10
+  @138 = load(!count)
+  @139 = ne(@138, (u32)0)
+  dispatch @139 [!visit_done(), !visit_next()]
+
+!visit_next(): // preds: !visit_pop
+  @140 = sub(@138, (u32)1)
+  store !count @140
+  @141 = extract_idx(!stack, @140)
+  jmp !visit(@141, (bool)1)
+
+!visit_done(): // preds: !visit_pop
+  jmp !visit(_subtree0_bnode!top, (bool)0)
 
 ; --- _traverse_tree0 (lowered via statements) ---
 func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
@@ -2863,18 +2859,16 @@ func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : mut Solo[], Prim_Solo_fill :
 
 func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> void {
   _idx0 : mut u32
+  prims_index!top : mut u32
+  !live : mut bool
   !stack : mut u32[64]
   !count : mut u32
-  !stack[0u] = prims_index
-  !count = 1u
-  while ((*!count) != 0u) {
-    let @207 = (*!count) in
-    let @208 = @207 - 1u in
-    !count = @208
-    let @209 = !stack[@208] in
-    let prims_index!top = @209 in
+  !count = 0u
+  prims_index!top = prims_index
+  !live = true
+  while ((*!live)) {
     let @0 = prims.group1_index in
-    let _t924 = @0[prims_index!top] in
+    let _t924 = @0[(*prims_index!top)] in
     let @2 = _t924.low in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t924.high in
@@ -3020,19 +3014,18 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
           let _t119 = _t924.nPrims in
           let @101 = _t119 == 0u in
           if (@101) {
-            let @102 = prims_index!top + 1u in
+            let @102 = (*prims_index!top) + 1u in
             let @103 = _t924.split0on_nPrims in
             let @104 = reinterpret_cast<_tree_layout5>(@103) in
             let @105 = @104.offset in
-            let @106 = prims_index!top + @105 in
-            let @210 = (*!count) in
-            !stack[@210] = @106
-            let @212 = @210 + 1u in
-            !count = @212
-            let @213 = (*!count) in
-            !stack[@213] = @102
-            let @215 = @213 + 1u in
-            !count = @215
+            let @106 = (*prims_index!top) + @105 in
+            let @208 = (*!count) in
+            !stack[@208] = @106
+            let @210 = @208 + 1u in
+            !count = @210
+            prims_index!top = @102
+            !live = true
+            continue
           } else {
             let @107 = cast<u32>(_t119) in
             _idx0 = 0u
@@ -3163,7 +3156,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
                   untransform_Prim_Ray$r22 = @201
                 }
                 let @202 = (*untransform_Prim_Ray$r22) in
-                _recloop_func1(_subtree0, prims, @202, _best0, prims_index!top, (*_idx0))
+                _recloop_func1(_subtree0, prims, @202, _best0, (*prims_index!top), (*_idx0))
               }
               let @203 = (*_idx0) + 1u in
               _idx0 = @203
@@ -3172,24 +3165,33 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
         }
       }
     }
+    let @204 = (*!count) in
+    let @205 = @204 != 0u in
+    if (@205) {
+      let @206 = @204 - 1u in
+      !count = @206
+      let @207 = !stack[@206] in
+      prims_index!top = @207
+      !live = true
+    } else {
+      !live = false
+    }
   }
   return
 }
 
 func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : mut (__tuple_1*), prims_index : u32, _idx0 : u32) -> void {
   _idx1 : mut u32
+  _subtree0_bnode!top : mut u32
+  !live : mut bool
   !stack : mut u32[64]
   !count : mut u32
-  !stack[0u] = _subtree0_bnode
-  !count = 1u
-  while ((*!count) != 0u) {
-    let @141 = (*!count) in
-    let @142 = @141 - 1u in
-    !count = @142
-    let @143 = !stack[@142] in
-    let _subtree0_bnode!top = @143 in
+  !count = 0u
+  _subtree0_bnode!top = _subtree0_bnode
+  !live = true
+  while ((*!live)) {
     let @0 = prims.group0_bnode in
-    let _t990 = @0[_subtree0_bnode!top] in
+    let _t990 = @0[(*_subtree0_bnode!top)] in
     let @2 = _t990.low in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t990.high in
@@ -3335,19 +3337,18 @@ func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray
           let _t198 = _t990.nPrims in
           let @101 = _t198 == 0u in
           if (@101) {
-            let @102 = _subtree0_bnode!top + 1u in
+            let @102 = (*_subtree0_bnode!top) + 1u in
             let @103 = _t990.split0on_nPrims in
             let @104 = reinterpret_cast<_tree_layout2>(@103) in
             let @105 = @104.offset in
-            let @106 = _subtree0_bnode!top + @105 in
-            let @144 = (*!count) in
-            !stack[@144] = @106
-            let @146 = @144 + 1u in
-            !count = @146
-            let @147 = (*!count) in
-            !stack[@147] = @102
-            let @149 = @147 + 1u in
-            !count = @149
+            let @106 = (*_subtree0_bnode!top) + @105 in
+            let @142 = (*!count) in
+            !stack[@142] = @106
+            let @144 = @142 + 1u in
+            !count = @144
+            _subtree0_bnode!top = @102
+            !live = true
+            continue
           } else {
             let @107 = cast<u32>(_t198) in
             _idx1 = 0u
@@ -3400,6 +3401,17 @@ func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray
           }
         }
       }
+    }
+    let @138 = (*!count) in
+    let @139 = @138 != 0u in
+    if (@139) {
+      let @140 = @138 - 1u in
+      !count = @140
+      let @141 = !stack[@140] in
+      _subtree0_bnode!top = @141
+      !live = true
+    } else {
+      !live = false
     }
   }
   return

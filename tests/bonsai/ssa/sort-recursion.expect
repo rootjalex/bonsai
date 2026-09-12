@@ -26,18 +26,16 @@ extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct
 
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : mut (__tuple_0*)) -> void {
   _idx0 : mut u32
+  triangles_index!top : mut u32
+  !live : mut bool
   !stack : mut u32[64]
   !count : mut u32
-  !stack[0u] = triangles_index
-  !count = 1u
-  while ((*!count) != 0u) {
-    let @137 = (*!count) in
-    let @138 = @137 - 1u in
-    !count = @138
-    let @139 = !stack[@138] in
-    let triangles_index!top = @139 in
+  !count = 0u
+  triangles_index!top = triangles_index
+  !live = true
+  while ((*!live)) {
     let @0 = triangles.group0_index in
-    let _t383 = @0[triangles_index!top] in
+    let _t383 = @0[(*triangles_index!top)] in
     let @2 = _t383.low in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t383.high in
@@ -174,22 +172,21 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
           let @97 = _t399 < @96 in
           let @98 = _t383.axis in
           let _t19 = @97[@98] in
-          let @100 = triangles_index!top + 1u in
+          let @100 = (*triangles_index!top) + 1u in
           let @101 = _t383.split0on_nPrims in
           let @102 = reinterpret_cast<_tree_layout2>(@101) in
           let @103 = @102.offset in
-          let @104 = triangles_index!top + @103 in
+          let @104 = (*triangles_index!top) + @103 in
           let @106 = !_t19 in
           let @131 = select(@106, @100, @104) in
           let @132 = select(@106, @104, @100) in
-          let @140 = (*!count) in
-          !stack[@140] = @132
-          let @142 = @140 + 1u in
-          !count = @142
-          let @143 = (*!count) in
-          !stack[@143] = @131
-          let @145 = @143 + 1u in
-          !count = @145
+          let @138 = (*!count) in
+          !stack[@138] = @132
+          let @140 = @138 + 1u in
+          !count = @140
+          triangles_index!top = @131
+          !live = true
+          continue
         } else {
           let @108 = cast<u32>(_t66) in
           _idx0 = 0u
@@ -228,6 +225,17 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
           }
         }
       }
+    }
+    let @134 = (*!count) in
+    let @135 = @134 != 0u in
+    if (@135) {
+      let @136 = @134 - 1u in
+      !count = @136
+      let @137 = !stack[@136] in
+      triangles_index!top = @137
+      !live = true
+    } else {
+      !live = false
     }
   }
   return

@@ -3,10 +3,13 @@
 // A shadow ray: the query `any` exists for, and the three things that have to
 // happen to it on the way down.
 //
-// First, it stops. `while (count != 0 && !acc)` -- once something is in the
-// way, there is nothing left to learn and the traversal abandons its stack
-// rather than popping it to decide nothing. Shadow rays are most of the rays a
-// renderer traces, and each of those pops is a node read from memory.
+// First, it stops. The next node comes off the stack only `if (count != 0 &&
+// !acc)` -- once something is in the way, there is nothing left to learn and
+// the traversal abandons its stack rather than popping it to decide nothing.
+// Shadow rays are most of the rays a renderer traces, and each of those pops
+// is a node read from memory. An interior node goes straight on to its first
+// child without that test, since nothing on its way there can have moved the
+// accumulator; the leaf that does move it returns through the pop.
 //
 // It stops inside a leaf too, and that is the more expensive half: the loop
 // over a leaf's primitives tests the accumulator per element, so the ray-

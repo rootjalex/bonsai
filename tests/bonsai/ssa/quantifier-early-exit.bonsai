@@ -22,8 +22,9 @@
 // the accumulator or it does not, and failing to recognise one only costs the
 // early exit. Nothing carries a claim that could go stale.
 //
-// So `q` below should come out as `while (count != 0 && !acc)` and `r` as
-// `while (count != 0 && acc)` -- the two directions of the same fact.
+// So `q` below should take its next node off the stack only `if (count != 0
+// && !acc)` and `r` only `if (count != 0 && acc)` -- the two directions of
+// the same fact -- and end the loop otherwise.
 //
 // The loop over a leaf's elements stops the other way, by testing the
 // accumulator per element: that one is not a loop the queue rewrite built, so

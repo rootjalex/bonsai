@@ -568,102 +568,230 @@ void queue_recursion(Function &func, size_t size) {
         append(func, entry, Ptr_t::make(count_type), Instruction::Op::Alloca,
                {}, new_storage_name(func, "!count"));
 
-    // The traversal starts at whatever the function was called with.
-    for (const Stack &stack : stacks) {
-        auto slot = append(func, entry, Ptr_t::make(params[stack.param].type),
-                           Instruction::Op::GEP, {stack.storage, count_of(0)});
-        append_store(entry, slot, std::make_shared<Value>(params[stack.param]));
-    }
-    append_store(entry, count, count_of(1));
+    // The traversal starts at whatever the function was called with, held as
+    // the current node rather than pushed: the stack is for what is waiting,
+    // and nothing is yet.
+    append_store(entry, count, count_of(0));
 
     //===----------------------------------------------------------------===//
     // The loop
     //===----------------------------------------------------------------===//
+    //
+    // The shape is pbrt's:
+    //
+    //     current = root; live = true
+    //     while (live):
+    //       body(current)
+    //         a run of calls:  push all but the first; current = the first
+    //         anything else:   if the stack is empty, live = false
+    //                          else current = pop
+    //
+    // The current node is an argument of the loop header, and so is `live`,
+    // which stands in for the `break` the statement form has no way to write:
+    // the header tests it, the edge that has run out of stack passes false,
+    // every other edge passes true, and LLVM's jump threading turns the
+    // constant edges into direct branches. What this buys over pushing every
+    // call and popping the next is a push and a pop fewer at every node with
+    // children -- the near child never touches the stack -- and on a
+    // traversal that is most of the nodes.
 
     // insert_preheader only carries what a loop changes, and this one has no
     // back edge yet, so the body takes no arguments: it names the entry's
-    // parameters directly. The varying ones have to come off the stack
-    // instead, which is what the arguments added here are for.
-    vector<Argument> popped;
-    for (const Stack &stack : stacks) {
-        const Argument &param = params[stack.param];
-        const Argument arg{param.type, param.name + "!top"};
-        rename_argument(func, body_name, param.name, arg.name);
-        body->args.push_back(arg);
-        body->lookups[arg.name] = std::make_shared<Value>(arg);
-        popped.push_back(arg);
-    }
-
+    // parameters directly. The varying ones are the header's arguments
+    // instead, under a new name, since the parameter is one value and the
+    // current node is a fresh one every trip.
     auto head = new_block(func, "!visit");
     func.blocks.push_back(head);
-    auto pop = new_block(func, "!visit_pop");
-    func.blocks.push_back(pop);
+    vector<shared_ptr<Value>> current;
+    for (const Stack &stack : stacks) {
+        const Argument &param = params[stack.param];
+        current.push_back(
+            head->add_argument(Argument{param.type, param.name + "!top"}));
+    }
+    auto live = head->add_argument(
+        Argument{Bool_t::make(), new_storage_name(func, "!live")});
     auto exit = new_block(func, "!visited");
     func.blocks.push_back(exit);
     exit->terminator.data = Terminator::Return{};
-
-    // The preheader falls into the loop rather than into the body.
-    entry->terminator.data = Terminator::Jump{head->name};
-
-    // Go round again as long as anything is left to visit -- and, if the
-    // traversal is accumulating a boolean it only ever moves one way, as long
-    // as that has not reached the end of its lattice. The second half is what
-    // makes `any` mean "stop when you find one" rather than "keep looking but
-    // ignore what you find", and `all` likewise.
-    auto left = append(func, head, count_type, Instruction::Op::Load, {count});
-    auto more = append(func, head, Bool_t::make(), Instruction::Op::Ne,
-                       {left, count_of(0)});
-    if (std::optional<Monotone> acc = find_monotone_accumulator(func)) {
-        auto now =
-            append(func, head, Bool_t::make(), Instruction::Op::Load, {acc->ptr});
-        auto undecided =
-            acc->rising ? append(func, head, Bool_t::make(),
-                                 Instruction::Op::Not, {now})
-                        : now;
-        more = append(func, head, Bool_t::make(), Instruction::Op::LAnd,
-                      {more, undecided});
-    }
     head->terminator.data = Terminator::Dispatch{
-        more, {Terminator::Jump{exit->name}, Terminator::Jump{pop->name}}};
-
-    // Take the top of the stack. Separate from the test above so that the
-    // count is only stepped when there is something to step it for.
-    auto height = append(func, pop, count_type, Instruction::Op::Load, {count});
-    auto next = append(func, pop, count_type, Instruction::Op::Sub,
-                       {height, count_of(1)});
-    append_store(pop, count, next);
-    Terminator::Jump into{body_name};
-    for (const Stack &stack : stacks) {
-        into.args.push_back(append(func, pop, params[stack.param].type,
-                                   Instruction::Op::ExtractIdx,
-                                   {stack.storage, next}));
+        live, {Terminator::Jump{exit->name}, Terminator::Jump{body_name}}};
+    // With the header whole, since the rename walks the graph.
+    for (size_t k = 0; k < stacks.size(); k++) {
+        rename_argument(func, body_name, params[stacks[k].param].name,
+                        head->args[k].name);
     }
-    pop->terminator.data = std::move(into);
+
+    auto pop = new_block(func, "!visit_pop");
+    func.blocks.push_back(pop);
+    auto pop_next = new_block(func, "!visit_next");
+    func.blocks.push_back(pop_next);
+    auto pop_done = new_block(func, "!visit_done");
+    func.blocks.push_back(pop_done);
+
+    auto bool_of = [](bool b) {
+        return std::make_shared<Value>(Constant{Bool_t::make(), b});
+    };
+    // Round again, with `nodes` as the current node.
+    auto visit = [&](vector<shared_ptr<Value>> nodes,
+                     shared_ptr<Value> alive) {
+        Terminator::Jump jump{head->name, std::move(nodes)};
+        jump.args.push_back(std::move(alive));
+        return jump;
+    };
+
+    // The preheader enters the loop at the root.
+    {
+        vector<shared_ptr<Value>> root;
+        for (const Stack &stack : stacks) {
+            root.push_back(std::make_shared<Value>(params[stack.param]));
+        }
+        entry->terminator.data = visit(std::move(root), bool_of(true));
+    }
+
+    // Take the top of the stack, if there is one -- and, if the traversal is
+    // accumulating a boolean it only ever moves one way, only while that has
+    // not reached the end of its lattice. The second half is what makes `any`
+    // mean "stop when you find one" rather than "keep looking but ignore what
+    // you find", and `all` likewise.
+    const std::optional<Monotone> acc = find_monotone_accumulator(func);
+    // Whether the accumulator has yet to settle, read in `block`.
+    auto undecided_in = [&](const shared_ptr<Block> &block) {
+        auto now = append(func, block, Bool_t::make(), Instruction::Op::Load,
+                          {acc->ptr});
+        return acc->rising ? append(func, block, Bool_t::make(),
+                                    Instruction::Op::Not, {now})
+                           : now;
+    };
+    auto height = append(func, pop, count_type, Instruction::Op::Load, {count});
+    auto more = append(func, pop, Bool_t::make(), Instruction::Op::Ne,
+                       {height, count_of(0)});
+    if (acc.has_value()) {
+        more = append(func, pop, Bool_t::make(), Instruction::Op::LAnd,
+                      {more, undecided_in(pop)});
+    }
+    pop->terminator.data = Terminator::Dispatch{
+        more,
+        {Terminator::Jump{pop_done->name}, Terminator::Jump{pop_next->name}}};
+
+    // Nothing left to visit: the current node stays what it was, and the loop
+    // ends at the header.
+    pop_done->terminator.data = visit(current, bool_of(false));
+
+    auto next = append(func, pop_next, count_type, Instruction::Op::Sub,
+                       {height, count_of(1)});
+    append_store(pop_next, count, next);
+    {
+        vector<shared_ptr<Value>> popped;
+        for (const Stack &stack : stacks) {
+            popped.push_back(append(func, pop_next, params[stack.param].type,
+                                    Instruction::Op::ExtractIdx,
+                                    {stack.storage, next}));
+        }
+        pop_next->terminator.data = visit(std::move(popped), bool_of(true));
+    }
 
     //===----------------------------------------------------------------===//
     // The calls that are no longer made
     //===----------------------------------------------------------------===//
 
     const BlockMap blocks = make_block_map(func);
+
+    // Whether anything on a path from the body to `block`, `block` included,
+    // stores to the accumulator. Walked before the returns become back edges,
+    // so the walk stops where the body begins.
+    const AdjacencyMap preds_of =
+        compute_predecessors(compute_successors(func));
+    const auto stores_accumulator = [&](const Block &block) {
+        internal_assert(acc.has_value());
+        const std::optional<string> target = name_of(acc->ptr);
+        for (const auto &instr : block.instrs) {
+            if (instr->op == Instruction::Op::Store &&
+                !instr->operands.empty() &&
+                name_of(instr->operands[0]) == target) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto may_settle_before = [&](const string &name) {
+        set<string> seen;
+        vector<string> work = {name};
+        while (!work.empty()) {
+            const string at = work.back();
+            work.pop_back();
+            if (!seen.insert(at).second) {
+                continue;
+            }
+            if (stores_accumulator(*blocks.at(at))) {
+                return true;
+            }
+            if (at == body_name) {
+                continue;
+            }
+            const auto preds = preds_of.find(at);
+            if (preds == preds_of.end()) {
+                continue;
+            }
+            for (const string &pred : preds->second) {
+                work.push_back(pred);
+            }
+        }
+        return false;
+    };
+
     for (const string &name : recursive) {
         auto block = blocks.at(name);
         const auto call = called_by(*block);
         internal_assert(call);
 
-        // Write down what each call would have been, on top of the stack.
+        // A run whose continuation only returns is the last thing this node
+        // does, so its first call can simply be made: the current node
+        // becomes that child, and only the rest wait on the stack. Anything
+        // else after the run has to happen before any of the calls, so then
+        // all of them wait.
+        //
+        // "Only returns" through the chain of empty merge blocks the arms of
+        // a match leave behind on their way to the function's one return.
+        const auto only_returns = [&](string at) {
+            set<string> seen;
+            for (;;) {
+                if (!seen.insert(at).second) {
+                    return false;
+                }
+                const Block &b = *blocks.at(at);
+                if (!b.instrs.empty() || !b.args.empty()) {
+                    return false;
+                }
+                if (std::holds_alternative<Terminator::Return>(
+                        b.terminator.data)) {
+                    return true;
+                }
+                const auto *j = std::get_if<Terminator::Jump>(&b.terminator.data);
+                if (j == nullptr || !j->args.empty()) {
+                    return false;
+                }
+                at = j->name;
+            }
+        };
+        const bool last =
+            call->cont.args.empty() && only_returns(call->cont.name);
+        const size_t waiting_from = last ? 1 : 0;
+
+        // Write down what each waiting call would have been, on top of the
+        // stack.
         //
         // In reverse, because the stack is last-in-first-out and `args` is in
-        // visit order: pushing the first call last leaves it on top, so it is
-        // the one the next pop takes. That is what makes `from (a, b)` mean
-        // "visit a, then b" -- and it is what a sort() before this is relying
-        // on, since a sort orders `args` by its key and expects the traversal
-        // to follow that order.
+        // visit order: pushing the earliest waiting call last leaves it on
+        // top, so it is the one the next pop takes. That is what makes
+        // `from (a, b)` mean "visit a, then b" -- and it is what a sort()
+        // before this is relying on, since a sort orders `args` by its key
+        // and expects the traversal to follow that order.
         //
         // The old lowering had no say in this. It made one Call per branch in
         // a chain of blocks, so each pushed in turn and the *last* branch came
         // off the stack first -- `from (a, b)` visited b before a, and there
         // was nothing at this level that could have said otherwise.
-        for (size_t i = call->args.size(); i-- > 0;) {
+        for (size_t i = call->args.size(); i-- > waiting_from;) {
             auto top =
                 append(func, block, count_type, Instruction::Op::Load, {count});
             for (const Stack &stack : stacks) {
@@ -677,20 +805,39 @@ void queue_recursion(Function &func, size_t size) {
                                 {top, count_of(1)}));
         }
 
-        // ...and carry straight on to what came after them.
-        block->terminator.data = call->cont;
+        if (!last) {
+            // ...and carry straight on to what came after them.
+            block->terminator.data = call->cont;
+            continue;
+        }
+
+        // Straight to the first child. This edge does not pass the pop, which
+        // is where a settled accumulator ends the traversal; if nothing on
+        // the way here could have moved it, its state is what the pop last
+        // found and the edge stays live, and otherwise it is asked here.
+        shared_ptr<Value> alive = bool_of(true);
+        if (acc.has_value() && may_settle_before(name)) {
+            alive = undecided_in(block);
+        }
+        vector<shared_ptr<Value>> child;
+        for (const Stack &stack : stacks) {
+            child.push_back(call->args[0][stack.param]);
+        }
+        block->terminator.data = visit(std::move(child), std::move(alive));
     }
 
-    // Returning from a visit is the end of that node, not of the traversal.
+    // Returning from a visit is the end of that node, not of the traversal:
+    // the next one comes off the stack. The exit's own return is the
+    // traversal's, and stays.
     for (const string &name :
          reachable_from(body_name, compute_successors(func))) {
         auto block = blocks.count(name) ? blocks.at(name) : nullptr;
-        if (block == nullptr) {
+        if (block == nullptr || block == exit) {
             continue;
         }
         if (std::holds_alternative<Terminator::Return>(
                 block->terminator.data)) {
-            block->terminator.data = Terminator::Jump{head->name};
+            block->terminator.data = Terminator::Jump{pop->name};
         }
     }
 

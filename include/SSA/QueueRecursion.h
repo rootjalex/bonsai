@@ -19,15 +19,20 @@ namespace ssa {
 // done instead is to stop making the calls at all and write down what they
 // would have been:
 //
-//     visit(node):                     count = 1; stack[0] = node
-//       body(node)                     while count != 0:
-//       visit(left)          ==>         count -= 1; n = stack[count]
-//       visit(right)                     body(n)
-//                                        stack[count] = left;  count += 1
-//                                        stack[count] = right; count += 1
+//     visit(node):                     n = node; count = 0; live = true
+//       body(node)                     while live:
+//       visit(left)          ==>         body(n)
+//       visit(right)                     if the calls are the last thing:
+//                                          stack[count] = right; count += 1
+//                                          n = left
+//                                        else if count == 0: live = false
+//                                        else: count -= 1; n = stack[count]
 //
-// which visits the same nodes, in a different order -- the stack is LIFO, so
-// the last child pushed is the first one visited.
+// which visits the same nodes in the same order: the first call is made at
+// once, and the rest wait on the stack, which is LIFO, so the last one pushed
+// is the first one taken. The first child never touches the stack, which is
+// pbrt's loop exactly -- the near child is the next node and the far one is
+// pushed -- and saves a push and a pop at every node with children.
 //
 // The recursion has to be *tail-modulo-recursion* for this to be sound: after
 // a recursive call returns, the only thing left to do is make more recursive

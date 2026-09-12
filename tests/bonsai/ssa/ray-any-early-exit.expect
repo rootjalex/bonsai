@@ -24,21 +24,19 @@ extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Tria
 
 func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*), r : Ray) -> void {
   _idx0 : mut u32
+  tris_index!top : mut u32
+  !live : mut bool
   !stack : mut u32[8]
   !count : mut u32
-  !stack[0u] = tris_index
-  !count = 1u
-  while (((*!count) != 0u) && !(*_holds0)) {
-    let @200 = (*!count) in
-    let @201 = @200 - 1u in
-    !count = @201
-    let @202 = !stack[@201] in
-    let tris_index!top = @202 in
+  !count = 0u
+  tris_index!top = tris_index
+  !live = true
+  while ((*!live)) {
     let @0 = (*_holds0) in
     let @1 = !@0 in
     if (@1) {
       let @2 = tris.group0_index in
-      let _t528 = @2[tris_index!top] in
+      let _t528 = @2[(*tris_index!top)] in
       let _t58 = _t528.nPrims in
       let @5 = _t58 == 0u in
       if (@5) {
@@ -158,19 +156,18 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           }
           let @88 = (*intersects_Ray_AABB$r12) in
           if (@88) {
-            let @89 = tris_index!top + 1u in
+            let @89 = (*tris_index!top) + 1u in
             let @90 = _t528.split0on_nPrims in
             let @91 = reinterpret_cast<_tree_layout2>(@90) in
             let @92 = @91.offset in
-            let @93 = tris_index!top + @92 in
-            let @203 = (*!count) in
-            !stack[@203] = @93
-            let @205 = @203 + 1u in
-            !count = @205
-            let @206 = (*!count) in
-            !stack[@206] = @89
-            let @208 = @206 + 1u in
-            !count = @208
+            let @93 = (*tris_index!top) + @92 in
+            let @201 = (*!count) in
+            !stack[@201] = @93
+            let @203 = @201 + 1u in
+            !count = @203
+            tris_index!top = @89
+            !live = true
+            continue
           }
         }
       } else {
@@ -299,7 +296,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
                 let @181 = (*_holds0) in
                 let @182 = tris.prims in
                 let @183 = tris.group0_index in
-                let @184 = @183[tris_index!top] in
+                let @184 = @183[(*tris_index!top)] in
                 let @185 = @184.split0on_nPrims in
                 let @186 = reinterpret_cast<_tree_layout3>(@185) in
                 let @187 = @186.pOffset in
@@ -316,6 +313,20 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           }
         }
       }
+    }
+    let @194 = (*!count) in
+    let @195 = @194 != 0u in
+    let @196 = (*_holds0) in
+    let @197 = !@196 in
+    let @198 = @195 && @197 in
+    if (@198) {
+      let @199 = @194 - 1u in
+      !count = @199
+      let @200 = !stack[@199] in
+      tris_index!top = @200
+      !live = true
+    } else {
+      !live = false
     }
   }
   return

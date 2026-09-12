@@ -32,18 +32,16 @@ extern instances : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct
 
 func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray, _best0 : mut (__tuple_1*)) -> void {
   _idx0 : mut u32
+  instances_index!top : mut u32
+  !live : mut bool
   !stack : mut u32[64]
   !count : mut u32
-  !stack[0u] = instances_index
-  !count = 1u
-  while ((*!count) != 0u) {
-    let @127 = (*!count) in
-    let @128 = @127 - 1u in
-    !count = @128
-    let @129 = !stack[@128] in
-    let instances_index!top = @129 in
+  !count = 0u
+  instances_index!top = instances_index
+  !live = true
+  while ((*!live)) {
     let @0 = instances.group1_index in
-    let _t440 = @0[instances_index!top] in
+    let _t440 = @0[(*instances_index!top)] in
     let @2 = _t440.low in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t440.high in
@@ -180,22 +178,21 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
           let @97 = _t456 < @96 in
           let @98 = _t440.axis in
           let _t19 = @97[@98] in
-          let @100 = instances_index!top + 1u in
+          let @100 = (*instances_index!top) + 1u in
           let @101 = _t440.split0on_nInsts in
           let @102 = reinterpret_cast<_tree_layout5>(@101) in
           let @103 = @102.offset in
-          let @104 = instances_index!top + @103 in
+          let @104 = (*instances_index!top) + @103 in
           let @106 = !_t19 in
           let @121 = select(@106, @100, @104) in
           let @122 = select(@106, @104, @100) in
-          let @130 = (*!count) in
-          !stack[@130] = @122
-          let @132 = @130 + 1u in
-          !count = @132
-          let @133 = (*!count) in
-          !stack[@133] = @121
-          let @135 = @133 + 1u in
-          !count = @135
+          let @128 = (*!count) in
+          !stack[@128] = @122
+          let @130 = @128 + 1u in
+          !count = @130
+          instances_index!top = @121
+          !live = true
+          continue
         } else {
           let @108 = cast<u32>(_t35) in
           _idx0 = 0u
@@ -207,12 +204,23 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
             let @114 = @113 + (*_idx0) in
             let @115 = @110[@114] in
             let _subtree0 = @115.blas in
-            _recloop_func1(_subtree0, instances, ray, _best0, instances_index!top, (*_idx0))
+            _recloop_func1(_subtree0, instances, ray, _best0, (*instances_index!top), (*_idx0))
             let @117 = (*_idx0) + 1u in
             _idx0 = @117
           }
         }
       }
+    }
+    let @124 = (*!count) in
+    let @125 = @124 != 0u in
+    if (@125) {
+      let @126 = @124 - 1u in
+      !count = @126
+      let @127 = !stack[@126] in
+      instances_index!top = @127
+      !live = true
+    } else {
+      !live = false
     }
   }
   return
@@ -220,18 +228,16 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
 
 func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray, _best0 : mut (__tuple_1*), instances_index : u32, _idx0 : u32) -> void {
   _idx1 : mut u32
+  _subtree0_bnode!top : mut u32
+  !live : mut bool
   !stack : mut u32[64]
   !count : mut u32
-  !stack[0u] = _subtree0_bnode
-  !count = 1u
-  while ((*!count) != 0u) {
-    let @146 = (*!count) in
-    let @147 = @146 - 1u in
-    !count = @147
-    let @148 = !stack[@147] in
-    let _subtree0_bnode!top = @148 in
+  !count = 0u
+  _subtree0_bnode!top = _subtree0_bnode
+  !live = true
+  while ((*!live)) {
     let @0 = instances.group0_bnode in
-    let _t470 = @0[_subtree0_bnode!top] in
+    let _t470 = @0[(*_subtree0_bnode!top)] in
     let @2 = _t470.low in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t470.high in
@@ -368,22 +374,21 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
           let @97 = _t486 < @96 in
           let @98 = _t470.axis in
           let _t63 = @97[@98] in
-          let @100 = _subtree0_bnode!top + 1u in
+          let @100 = (*_subtree0_bnode!top) + 1u in
           let @101 = _t470.split0on_nPrims in
           let @102 = reinterpret_cast<_tree_layout2>(@101) in
           let @103 = @102.offset in
-          let @104 = _subtree0_bnode!top + @103 in
+          let @104 = (*_subtree0_bnode!top) + @103 in
           let @106 = !_t63 in
           let @140 = select(@106, @100, @104) in
           let @141 = select(@106, @104, @100) in
-          let @149 = (*!count) in
-          !stack[@149] = @141
-          let @151 = @149 + 1u in
-          !count = @151
-          let @152 = (*!count) in
-          !stack[@152] = @140
-          let @154 = @152 + 1u in
-          !count = @154
+          let @147 = (*!count) in
+          !stack[@147] = @141
+          let @149 = @147 + 1u in
+          !count = @149
+          _subtree0_bnode!top = @140
+          !live = true
+          continue
         } else {
           let @108 = cast<u32>(_t110) in
           _idx1 = 0u
@@ -431,6 +436,17 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
           }
         }
       }
+    }
+    let @143 = (*!count) in
+    let @144 = @143 != 0u in
+    if (@144) {
+      let @145 = @143 - 1u in
+      !count = @145
+      let @146 = !stack[@145] in
+      _subtree0_bnode!top = @146
+      !live = true
+    } else {
+      !live = false
     }
   }
   return
