@@ -189,6 +189,7 @@ target_sources(
     src/SSA/Linearize.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
+    src/SSA/Simplify.cpp
     src/SSA/SortRecursion.cpp
     src/SSA/SplitAggregates.cpp
     src/SSA/Rewrite.cpp
@@ -293,6 +294,7 @@ target_sources(
     include/SSA/Linearize.h
     include/SSA/PromoteAllocas.h
     include/SSA/QueueRecursion.h
+    include/SSA/Simplify.h
     include/SSA/SplitAggregates.h
     include/SSA/Rewrite.h
     include/SSA/SSA.h

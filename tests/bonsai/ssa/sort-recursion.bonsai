@@ -8,12 +8,17 @@
 // visit the second child first -- written as `select(dir < 0, 1 - i, i)`, so
 // branch 0 gets the smaller key exactly when the ray reaches it first.
 //
-// Two things to look for in the golden. The reordering is a `lt` and a run of
+// Three things to look for in the golden. The reordering is a run of
 // `select`s over *node indices*, not over subtree values: it happens after the
 // layout has turned a branch into a number, which is the whole reason it is an
-// SSA rewrite and not part of Lower/Sorts.cpp. And the sorted branches are
-// pushed onto the stack in reverse, because the stack is last-in-first-out and
-// the branch with the smallest key has to be the one the next pop takes.
+// SSA rewrite and not part of Lower/Sorts.cpp. The selects are on `!c` and
+// nothing else: the network compared `cast(c)` with `cast(!c)`, and
+// SSA/Simplify.h knows that a number made from a bool is below another only
+// for false below true, so the whole comparison folds to the negated
+// condition -- pbrt's `if (dirIsNeg[node->axis])`, with no compare left. And
+// the sorted branches are pushed onto the stack in reverse, because the stack
+// is last-in-first-out and the branch with the smallest key has to be the one
+// the next pop takes.
 import stdlib/distance;
 import stdlib/intersects;
 import stdlib/triangle;

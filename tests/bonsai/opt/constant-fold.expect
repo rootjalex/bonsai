@@ -1,9 +1,15 @@
+type f32x3 = f32x3
+
 func bar(y : i32) -> i32 {
   return 0
 }
 
 func baz(z : i32) -> i32 {
   return z
+}
+
+func compares() -> bool {
+  return true
 }
 
 func fizz(x : i32, y : i32, c1 : bool, c2 : bool) -> i32 {
@@ -13,12 +19,21 @@ func fizz(x : i32, y : i32, c1 : bool, c2 : bool) -> i32 {
   return (c + d) + e
 }
 
+func floats(c : bool) -> f32 {
+  let e = cast<f32>(!c) in
+  return 5.5f + e
+}
+
 func foo(x : i32) -> i32 {
   return x
 }
 
 func fuzz() -> i32 {
   return 1
+}
+
+func lane(v : f32x3, i : u32) -> bool {
+  return (v < f32x3(0f))[i]
 }
 
 

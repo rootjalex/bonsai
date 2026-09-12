@@ -44,25 +44,25 @@ func length_squared(v : f32x3) -> f32 {
 }
 
 func through_a_call(inp : f32x3[8], out : mut f32[8]) -> void {
-  let @11 = reinterpret_cast<f32[]>(inp) in
-  let @12 = sizeof(f32x3) in
-  let @13 = sizeof(f32) in
-  let @14 = @12 / @13 in
-  let @22 = i32x8(@14) in
-  let @15 = ramp(0, 1, 8) * @22 in
-  let @23 = i32x8(0) in
-  let @16 = @15 + @23 in
-  let @17 = @11[@16] in
-  let @24 = i32x8(1) in
-  let @18 = @15 + @24 in
-  let @19 = @11[@18] in
-  let @25 = i32x8(2) in
-  let @20 = @15 + @25 in
-  let @21 = @11[@20] in
-  let @4 = @17 * @17 in
-  let @5 = @19 * @19 in
+  let @12 = reinterpret_cast<f32[]>(inp) in
+  let @13 = sizeof(f32x3) in
+  let @14 = sizeof(f32) in
+  let @15 = @13 / @14 in
+  let @23 = i32x8(@15) in
+  let @16 = ramp(0, 1, 8) * @23 in
+  let @24 = i32x8(0) in
+  let @17 = @16 + @24 in
+  let @18 = @12[@17] in
+  let @25 = i32x8(1) in
+  let @19 = @16 + @25 in
+  let @20 = @12[@19] in
+  let @26 = i32x8(2) in
+  let @21 = @16 + @26 in
+  let @22 = @12[@21] in
+  let @4 = @18 * @18 in
+  let @5 = @20 * @20 in
   let @6 = @4 + @5 in
-  let @7 = @21 * @21 in
+  let @7 = @22 * @22 in
   let @8 = @6 + @7 in
   out[ramp(0, 1, 8)] = @8
   return

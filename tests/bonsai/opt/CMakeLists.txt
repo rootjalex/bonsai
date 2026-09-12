@@ -11,6 +11,7 @@ add_bonsai_tests(
     dce-struct.bonsai
     dce.bonsai
     inline.bonsai
+    inline-locals.bonsai
     inline-statements.bonsai
     parallel.bonsai
     simplify-const-array.bonsai

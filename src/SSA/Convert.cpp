@@ -4,6 +4,7 @@
 #include "SSA/Contract.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/Rewrite.h"
+#include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
 #include "SSA/SSA.h"
 
@@ -1402,6 +1403,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // it.
     for (const auto &[name, f] : fmap) {
         sort_recursion(*f);
+        // What the network compared was built by rule; this is where it is
+        // looked at (see SSA/Simplify.h).
+        simplify(*f);
     }
 
     // Loopify next, whichever order the schedule names the functions in: it

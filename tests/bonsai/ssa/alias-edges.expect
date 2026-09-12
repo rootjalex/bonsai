@@ -48,14 +48,14 @@ func through_arm(x : f32, n : i32) -> f32 {
     if (@12) {
       beta = 0f
     } else {
-      let _t2 = ps in
-      let _t3 = _t2.pdf in
+      let _t53 = ps in
+      let _t3 = _t53.pdf in
       let @14 = (*beta) in
       let @15 = ps.p in
       let @16 = @14 * @15 in
       let @17 = @16 / _t3 in
       beta = @17
-      let @18 = _t2.wi in
+      let @18 = _t53.wi in
       w = @18
       let @19 = (*beta) in
       let @20 = @19 + _t3 in
@@ -75,28 +75,28 @@ func through_arm(x : f32, n : i32) -> f32 {
 func [[noinline]] through_call(x : f32) -> f32 {
   let @0 = x * 2f in
   let @1 = sample(@0) in
-  let _t7 = @1 in
-  let @2 = _t7.p in
-  let @3 = _t7.pdf in
-  let _t10 = @2 * @3 in
+  let _t56 = @1 in
+  let @2 = _t56.p in
+  let @3 = _t56.pdf in
+  let _t59 = @2 * @3 in
   let @5 = x + 1f in
   let @6 = sample(@5) in
-  let _t12 = @6 in
-  let @7 = _t12.p in
-  let @8 = @7 * _t10 in
-  let @9 = _t12.pdf in
+  let _t61 = @6 in
+  let @7 = _t61.p in
+  let @8 = @7 * _t59 in
+  let @9 = _t61.pdf in
   let a = @8 + @9 in
-  let _t13 = _t10 + 1f in
+  let _t13 = _t59 + 1f in
   let b = _t13 * _t13 in
   let @13 = a + b in
-  let @14 = _t7.wi in
+  let @14 = _t56.wi in
   let @15 = @14[0u] in
   let @16 = @13 + @15 in
   return @16
 }
 
 func through_storage(x : f32, n : i32) -> f32 {
-  _t23 : mut f32x3
+  _t69 : mut f32x3
   acc : mut f32
   acc = 0f
   depth : mut i32
@@ -106,26 +106,26 @@ func through_storage(x : f32, n : i32) -> f32 {
     let @3 = cast<f32>(@2) in
     let @4 = x + @3 in
     let @5 = sample(@4) in
-    let _t17 = @5 in
-    let _t19 = _t17.pdf in
-    let @7 = _t17.wi in
+    let _t66 = @5 in
+    let _t19 = _t66.pdf in
+    let @7 = _t66.wi in
     let @8 = build<f32x3>(_t19, _t19, _t19) in
     let u = @7 / @8 in
-    let @10 = _t17.p in
+    let @10 = _t66.p in
     let @11 = @10 < 0.5f in
     if (@11) {
-      _t23 = u
+      _t69 = u
       let @12 = (*acc) in
-      let @13 = (*_t23)[0u] in
+      let @13 = (*_t69)[0u] in
       let @14 = sample(@13) in
       let @15 = @14.p in
       let @16 = @12 + @15 in
       acc = @16
     } else {
-      _t23 = u
+      _t69 = u
     }
     let @17 = (*acc) in
-    let @18 = (*_t23)[0u] in
+    let @18 = (*_t69)[0u] in
     let @19 = u[1u] in
     let @20 = @18 * @19 in
     let @21 = @17 + @20 in

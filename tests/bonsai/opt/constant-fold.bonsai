@@ -36,3 +36,28 @@ func fuzz() -> i32 {
   if (false) { return 0; }
   return 1;
 }
+
+// Floats fold too, in their own precision, and a comparison of constants is
+// decided in the operands' type: `-1 < 1` used to be folded on the two's
+// complement bit patterns as unsigned integers, and so came out false.
+func floats(c : bool) -> f32 {
+  a : f32 = 1.0 - 1.0;
+  b : f32 = 0.5 * 4.0;
+  d : f32 = 7.0 / 2.0;
+  // select(c, 0.0, 1.0) is cast<f32>(!c), once the 1.0 - 1.0 has folded.
+  e : f32 = select(c, 1.0 - 1.0, 1.0);
+  return a + b + d + e;
+}
+
+func compares() -> bool {
+  return (-1 < 1) && (-1.0 < 1.0) && !(1 < -1) && !(1.0 < -1.0);
+}
+
+// A lane of a vector against a scalar constant becomes that lane of the
+// vector's comparison, so that the compare can be shared with, and hoisted
+// alongside, the same test written over the whole vector.
+element f32x3 = vector[f32, 3];
+
+func lane(v : f32x3, i : u32) -> bool {
+  return v[i] < 0.0;
+}

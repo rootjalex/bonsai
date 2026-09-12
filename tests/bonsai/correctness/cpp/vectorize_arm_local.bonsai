@@ -1,0 +1,40 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_arm_local
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_arm_local.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_arm_local.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_arm_local.o tests/bonsai/correctness/cpp/vectorize_arm_local.o -o tests/bonsai/correctness/cpp/vectorize_arm_local, ./tests/bonsai/correctness/cpp/vectorize_arm_local, rm tests/bonsai/correctness/cpp/vectorize_arm_local, rm tests/bonsai/correctness/cpp/main_vectorize_arm_local.o, rm tests/bonsai/correctness/cpp/vectorize_arm_local.h, rm tests/bonsai/correctness/cpp/vectorize_arm_local.o
+
+// A mutable local declared inside one arm of an `if`, in a gang, run.
+//
+// ssa/vectorize-arm-local.bonsai shows the shape and says why promotion used
+// to reject it; this checks the values. The local is declared after an early
+// return and reassigned under a further divergent branch, so its lanes
+// disagree twice over -- some never make it, some are clamped -- and every
+// lane has to come out as the scalar function would answer.
+//
+// The box read is the other half of what an inlined slab test needs: the
+// uniform struct is handed in by pointer and its fields read out per lane,
+// which the direct SSA-to-LLVM path had no `load_field` for.
+element Box {
+    lo : f32;
+    hi : f32;
+}
+
+func clip(x : f32, b : Box) -> f32 {
+    if x < b.lo {
+        return b.lo;
+    }
+    y : mut = x * 2.0;
+    if y > b.hi {
+        y = b.hi;
+    }
+    return y + 1.0;
+}
+
+func [[export]] clip_all(inp : array[f32, 8], b : Box, out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = clip(inp[i], b);
+    }
+    return;
+}
+
+schedule {
+    clip_all.vectorize(i);
+}

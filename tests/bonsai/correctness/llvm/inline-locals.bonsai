@@ -1,0 +1,42 @@
+//! flags: -p ssa -b llvm -e
+
+// A function with mutable locals of its own, inlined in the second round
+// (Opt/Inline.h), run.
+//
+// opt/inline-locals.bonsai shows the shape; this checks the values. The body
+// is copied twice into `main` -- once through `near` and `far`, whose calls
+// CSE merges into one copy, and once on its own with different arguments,
+// which stays a second copy -- and each copy's locals have to be its own:
+// the early return, the fallthrough, and the two multiplies of the locals all
+// have to come out as they did when `span` was a call.
+
+func span(a : f32, b : f32) -> f32 {
+    lo : mut = a;
+    hi : mut = b;
+    if lo > hi {
+        return 0.0;
+    }
+    lo = lo * 2.0;
+    hi = hi * 3.0;
+    return hi - lo;
+}
+
+func near(a : f32, b : f32) -> f32 {
+    s = span(a, b);
+    return s + 1.0;
+}
+
+func far(a : f32, b : f32) -> f32 {
+    s = span(a, b);
+    return s - 1.0;
+}
+
+func main() -> i32 {
+    // span(1, 2) = 6 - 2 = 4: near is 5, far is 3.
+    print(near(1.0, 2.0) * far(1.0, 2.0));
+    // The early return: 0 + 1 and 0 - 1.
+    print(near(3.0, 2.0), far(3.0, 2.0));
+    // A second copy beside the first, with its own locals.
+    print(span(2.0, 5.0), span(5.0, 2.0));
+    return 0;
+}

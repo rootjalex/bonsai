@@ -27,6 +27,7 @@ add_bonsai_tests(
     traverse.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
+    vectorize-arm-local.bonsai
     vectorize-loop.bonsai
     vectorize-soa.bonsai
     while-loops.bonsai

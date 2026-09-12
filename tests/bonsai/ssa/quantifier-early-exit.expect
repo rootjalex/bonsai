@@ -24,8 +24,8 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
     let @1 = !@0 in
     if (@1) {
       let @2 = items.group0_index in
-      let _t7 = @2[items_index!top] in
-      let _t8 = _t7.nPrims in
+      let _t101 = @2[items_index!top] in
+      let _t8 = _t101.nPrims in
       let @5 = _t8 == 0u in
       if (@5) {
         let @6 = items.group0_index in
@@ -51,7 +51,7 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
           let @23 = @18 && @22 in
           if (@23) {
             let @24 = items_index!top + 1u in
-            let @25 = _t7.split0on_nPrims in
+            let @25 = _t101.split0on_nPrims in
             let @26 = reinterpret_cast<_tree_layout2>(@25) in
             let @27 = @26.offset in
             let @28 = items_index!top + @27 in
@@ -156,8 +156,8 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
       let @10 = !@9 in
       if (@10) {
         let @11 = items.group0_index in
-        let _t16 = @11[items_index!top] in
-        let _t17 = _t16.nPrims in
+        let _t103 = @11[items_index!top] in
+        let _t17 = _t103.nPrims in
         let @14 = _t17 == 0u in
         if (@14) {
           let @15 = items.group0_index in
@@ -171,7 +171,7 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
           let @23 = @18 && @22 in
           if (@23) {
             let @24 = items_index!top + 1u in
-            let @25 = _t16.split0on_nPrims in
+            let @25 = _t103.split0on_nPrims in
             let @26 = reinterpret_cast<_tree_layout2>(@25) in
             let @27 = @26.offset in
             let @28 = items_index!top + @27 in
@@ -253,21 +253,21 @@ func _recloop_func2(items_index : u32, items : _tree_layout0, lo : i32, hi : i32
     let @35 = !stack[@34] in
     let items_index!top = @35 in
     let @0 = items.group0_index in
-    let _t70 = @0[items_index!top] in
-    let @2 = _t70.idh in
+    let _t105 = @0[items_index!top] in
+    let @2 = _t105.idh in
     let @3 = lo <= @2 in
     if (@3) {
-      let _t68 = _t70.idl in
+      let _t68 = _t105.idl in
       let @5 = _t68 <= hi in
       if (@5) {
         let @6 = (*_best0) in
         let @7 = _t68 < @6 in
         if (@7) {
-          let _t62 = _t70.nPrims in
+          let _t62 = _t105.nPrims in
           let @9 = _t62 == 0u in
           if (@9) {
             let @10 = items_index!top + 1u in
-            let @11 = _t70.split0on_nPrims in
+            let @11 = _t105.split0on_nPrims in
             let @12 = reinterpret_cast<_tree_layout2>(@11) in
             let @13 = @12.offset in
             let @14 = items_index!top + @13 in
@@ -284,20 +284,20 @@ func _recloop_func2(items_index : u32, items : _tree_layout0, lo : i32, hi : i32
             _idx2 = 0u
             while ((*_idx2) < @15) {
               let @17 = items.prims in
-              let @18 = _t70.split0on_nPrims in
+              let @18 = _t105.split0on_nPrims in
               let @19 = reinterpret_cast<_tree_layout3>(@18) in
               let @20 = @19.pOffset in
               let @21 = @20 + (*_idx2) in
               let @22 = @17[@21] in
-              let _t47 = @22.id in
-              let @24 = lo <= _t47 in
-              let @25 = _t47 <= hi in
+              let _t128 = @22.id in
+              let @24 = lo <= _t128 in
+              let @25 = _t128 <= hi in
               let @26 = @24 & @25 in
               if (@26) {
                 let @27 = (*_best0) in
-                let @28 = _t47 < @27 in
+                let @28 = _t128 < @27 in
                 if (@28) {
-                  _best0 min= _t47
+                  _best0 min= _t128
                 }
               }
               let @29 = (*_idx2) + 1u in
@@ -343,18 +343,43 @@ func _traverse_tree2(lo : i32, hi : i32, items : _tree_layout0) -> _option0 {
 }
 
 func q(lo : i32, hi : i32, items : _tree_layout0) -> bool {
-  let @0 = _traverse_tree0(lo, hi, items) in
-  return @0
+  _traverse_tree0$r0 : mut bool
+  _holds0$i0 : mut bool
+  _holds0$i0 = false
+  _recloop_func0(0u, items, _holds0$i0, lo, hi)
+  let @0 = (*_holds0$i0) in
+  _traverse_tree0$r0 = @0
+  let @1 = (*_traverse_tree0$r0) in
+  return @1
 }
 
 func r(lo : i32, hi : i32, items : _tree_layout0) -> bool {
-  let @0 = _traverse_tree1(lo, hi, items) in
-  return @0
+  _traverse_tree1$r1 : mut bool
+  _holds1$i1 : mut bool
+  _holds1$i1 = true
+  _recloop_func1(0u, items, _holds1$i1, lo, hi)
+  let @0 = (*_holds1$i1) in
+  _traverse_tree1$r1 = @0
+  let @1 = (*_traverse_tree1$r1) in
+  return @1
 }
 
 func s(lo : i32, hi : i32, items : _tree_layout0) -> _option0 {
-  let @0 = _traverse_tree2(lo, hi, items) in
-  return @0
+  _traverse_tree2$r2 : mut _option0
+  _best0$i2 : mut i32
+  let @0 = (i32)inf in
+  _best0$i2 = @0
+  _recloop_func2(0u, items, lo, hi, _best0$i2)
+  let @1 = (*_best0$i2) in
+  let @2 = (i32)inf in
+  let @3 = @1 != @2 in
+  let @4 = (*_best0$i2) in
+  let @5 = build<_option0>(@4, true) in
+  let @6 = build<_option0>() in
+  let @7 = select(@3, @5, @6) in
+  _traverse_tree2$r2 = @7
+  let @8 = (*_traverse_tree2$r2) in
+  return @8
 }
 
 

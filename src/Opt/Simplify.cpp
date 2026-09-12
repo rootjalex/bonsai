@@ -12,7 +12,9 @@
 
 #include <bit>
 #include <functional>
+#include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 
 namespace bonsai {
@@ -40,10 +42,62 @@ const T *is_op(ir::Expr e, C code) {
     return nullptr;
 }
 
+// The bits an immediate holds for a fold's result: a bool as 0 or 1, an
+// integer as its two's complement, a float as the double that holds it.
+template <typename T>
+uint64_t as_bits(T v) {
+    if constexpr (std::is_same_v<T, bool>) {
+        return v ? 1 : 0;
+    } else if constexpr (std::is_floating_point_v<T>) {
+        return std::bit_cast<uint64_t>(double(v));
+    } else {
+        return static_cast<uint64_t>(v);
+    }
+}
+
+// Applies `f` to two scalar constants in *their* type, and returns the bits
+// of the result, or nothing if either is not a constant.
+//
+// The operands' type rather than the result's, because the two differ for a
+// comparison -- its operands are numbers and its result is a bool -- and it
+// is the operands' type that says what the bits mean. A float is folded in
+// its own precision, so that the fold answers what the operation would have
+// at run time: `0.1f * 3.0f` is not the double product rounded. A half has no
+// host type to compute it in and is left alone.
+template <typename F>
+std::optional<uint64_t> fold_scalar(F f, const ir::Expr &a, const ir::Expr &b) {
+    const ir::Type type = a.type();
+    if (type.is_float()) {
+        if constexpr (std::is_invocable_v<F, double, double>) {
+            const auto *fa = a.as<ir::FloatImm>();
+            const auto *fb = b.as<ir::FloatImm>();
+            if (fa == nullptr || fb == nullptr) {
+                return std::nullopt;
+            }
+            if (type.bits() == 32) {
+                return as_bits(f(float(fa->value), float(fb->value)));
+            }
+            if (type.bits() == 64) {
+                return as_bits(f(fa->value, fb->value));
+            }
+        }
+        return std::nullopt;
+    }
+    std::optional<uint64_t> c_a = get_constant_value(a),
+                            c_b = get_constant_value(b);
+    if (!(c_a.has_value() && c_b.has_value())) {
+        return std::nullopt;
+    }
+    if (type.is_int()) {
+        return as_bits(apply<int64_t>(f, *c_a, *c_b));
+    }
+    return as_bits(apply<uint64_t>(f, *c_a, *c_b));
+}
+
 // Attempts to constant fold the binary operations. Returns an undefined
 // expression upon failure. A type parameter is optionally passed when
-// interpreting a vector's broadcasted value.
-// TODO(bonsai/issues/120): Add constant-fold floating point support.
+// interpreting a vector's broadcasted value, and when the result's type is
+// not the operands' -- a comparison's.
 // TODO(bonsai/issues/119): Support overflow arithmetic as Halide does:
 // https://github.com/halide/Halide/blob/main/src/IRMatch.h#L919
 template <typename F>
@@ -74,23 +128,67 @@ ir::Expr constant_fold_integral(F f, ir::Expr a, ir::Expr b,
         return ir::VecImm::make(std::move(values));
     }
 
-    // Scalar case.
+    // Scalar case. The operation is applied in the operands' type and the
+    // result made in `type`. Applying it in the result's type compared the
+    // operands' bit patterns instead, which put -1 above every positive
+    // integer and every negative float above every positive one.
     internal_assert(type->is_scalar()) << *type;
-    std::optional<uint64_t> c_a = get_constant_value(a),
-                            c_b = get_constant_value(b);
-    if (!(c_a.has_value() && c_b.has_value())) {
+    const std::optional<uint64_t> bits = fold_scalar(f, a, b);
+    if (!bits.has_value()) {
         return ir::Expr();
     }
+    if (type->is_float()) {
+        return ir::FloatImm::make(*type, std::bit_cast<double>(*bits));
+    }
     if (type->is_int()) {
-        return ir::IntImm::make(*type, apply<int64_t>(f, *c_a, *c_b));
+        return ir::IntImm::make(*type, std::bit_cast<int64_t>(*bits));
     }
     if (type->is_uint()) {
-        return ir::UIntImm::make(*type, apply<uint64_t>(f, *c_a, *c_b));
+        return ir::UIntImm::make(*type, *bits);
     }
     if (type->is_bool()) {
-        return ir::BoolImm::make(apply<uint64_t>(f, *c_a, *c_b));
+        return ir::BoolImm::make(*bits != 0);
     }
 
+    return ir::Expr();
+}
+
+// `v[i] < c`, for a vector `v` and a scalar constant `c`, as `(v < c)[i]`:
+// the same lane of the whole vector's comparison. Or nothing, when the
+// comparison is not of that shape.
+//
+// The compare then names the vector, which is the form the same test takes
+// wherever it is written over the vector rather than a lane of it -- pbrt's
+// slab test asks `1/d < 0` of all three axes and its traversal order asks it
+// of one -- so CSE can make the two one value, and hoisting the vector out of
+// a loop carries the compare out with it and leaves only the lane read
+// behind. On its own the vector compare costs what the scalar one did: the
+// backends' lowering scalarizes a single-use lane of one straight back.
+ir::Expr compare_lane(ir::BinOp::OpType op, const ir::Expr &a,
+                      const ir::Expr &b) {
+    const auto lane_of = [](const ir::Expr &e) -> const ir::Extract * {
+        const auto *extract = e.as<ir::Extract>();
+        if (extract == nullptr || !extract->vec.type().is<ir::Vector_t>() ||
+            is_const(extract->vec)) {
+            return nullptr;
+        }
+        return extract;
+    };
+    const auto splat = [](const ir::Expr &c, const ir::Type &vector) {
+        return ir::Broadcast::make(vector.lanes(), c);
+    };
+    if (const ir::Extract *lane = lane_of(a);
+        lane != nullptr && is_const(b) && b.type().is_scalar()) {
+        return ir::Extract::make(
+            ir::BinOp::make(op, lane->vec, splat(b, lane->vec.type())),
+            lane->idx);
+    }
+    if (const ir::Extract *lane = lane_of(b);
+        lane != nullptr && is_const(a) && a.type().is_scalar()) {
+        return ir::Extract::make(
+            ir::BinOp::make(op, splat(a, lane->vec.type()), lane->vec),
+            lane->idx);
+    }
     return ir::Expr();
 }
 
@@ -413,6 +511,9 @@ struct Simplifier : ir::Mutator {
                         return mutate(repl);
                     }
                 }
+            }
+            if (ir::Expr lane = compare_lane(node->op, a, b); lane.defined()) {
+                return mutate(lane);
             }
             return make(node, std::move(a), std::move(b));
         }

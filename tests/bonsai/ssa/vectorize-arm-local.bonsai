@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// A mutable local declared inside one arm of an `if`, in a gang.
+//
+// Promotion (SSA/PromoteAllocas.h) puts a block argument for a promoted local
+// at every join in the iterated dominance frontier of its stores. The join
+// below this `if` is in that frontier -- the arm's stores flow into it -- but
+// the local was only ever allocated in the arm, so the path through the other
+// arm has no value to hand the join, and promotion asserted that "no
+// definition reaches the jump". Only the joins the allocation's own block
+// dominates take an argument now; the value exists nowhere else and nothing
+// past the arm can read it.
+//
+// This is the shape a slab test inlined into a gang takes: `tmin` and `tmax`
+// are declared after the first early return, in the else that return leaves
+// behind. What to read for in the golden: a vectorized `clip$gang...` with no
+// alloca for `y` and no call to `clip`.
+func clip(x : f32) -> f32 {
+    if x < 0.0 {
+        return 0.0;
+    }
+    y : mut = x * 2.0;
+    if y > 10.0 {
+        y = 10.0;
+    }
+    return y + 1.0;
+}
+
+func [[export]] clip_all(inp : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = clip(inp[i]);
+    }
+    return;
+}
+
+schedule {
+    clip_all.vectorize(i);
+}

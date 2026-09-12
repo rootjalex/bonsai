@@ -312,7 +312,19 @@ size_t promote_allocas(Function &func, const string &entry) {
                 }
             }
         }
-        const set<string> phis = iterated_dominance_frontier(defs, frontier);
+        // Only the joins the allocation's own block dominates. The value
+        // exists nowhere else: a local declared in one arm of an `if` is
+        // stored to in that arm and read in that arm, and the join below the
+        // `if` is in the frontier of those stores all the same -- but a path
+        // reaching it through the other arm never made the allocation, so
+        // there is no value to hand the join and nothing past it that could
+        // read one.
+        set<string> phis;
+        for (const string &join : iterated_dominance_frontier(defs, frontier)) {
+            if (dom.dominates(c.block, join)) {
+                phis.insert(join);
+            }
+        }
 
         erase_threading(func, region, c.name);
 

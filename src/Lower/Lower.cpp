@@ -284,16 +284,26 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerGenerics>());
     ssa.push_back(std::make_unique<opt::Simplify>());
     ssa.push_back(std::make_unique<opt::DCE>());
+    // Common subexpressions before anything is copied. A tree query asks
+    // `distmin(r, g)` twice per candidate -- once against the running best,
+    // once as the key -- and for a triangle each is a whole
+    // `triangle_hit(r, tri)` on the same ray and the same triangle. As two
+    // calls they are one value here; copied first, they would be two bodies
+    // with a result variable each, which nothing downstream can merge. (The
+    // query's `intersects(r, g)` is a third test of the same triangle, which
+    // this cannot reach: it is a different function on the Shape variant,
+    // with a `match` of its own around the test.)
+    ssa.push_back(std::make_unique<opt::CSE>());
+    // Then inlining in two rounds, with a merge between them: the functions
+    // without mutable locals first, which is what makes the calls they hid
+    // visible to CSE -- `intersects` and `distmin` over an AABB each call
+    // `aabb_span`, and once both are copied into the traversal the two calls
+    // are one -- and then the functions with locals, so that the one call
+    // left is copied in too and the values it computes from the ray alone can
+    // be shared with the sort key and hoisted out of the traversal.
     ssa.push_back(std::make_unique<opt::Inline>());
-    // Common subexpressions, once inlining has put them in one function. A
-    // tree query asks `distmin(r, g)` twice per candidate -- once against the
-    // running best, once as the key -- and for a triangle each is a whole
-    // `triangle_hit(r, tri)` on the same ray and the same triangle. LLVM
-    // could not merge the two, because the triangle is fetched from its pool
-    // between them and the traversal's own stack stores stand between the
-    // fetches. (The query's `intersects(r, g)` is a third test of the same
-    // triangle, which this cannot reach: it is a different function on the
-    // Shape variant, with a `match` of its own around the test.)
+    ssa.push_back(std::make_unique<opt::CSE>());
+    ssa.push_back(std::make_unique<opt::Inline>(/*with_locals=*/true));
     ssa.push_back(std::make_unique<opt::CSE>());
     // Clean up any dead functions after inlining.
     ssa.push_back(std::make_unique<opt::DCE>());

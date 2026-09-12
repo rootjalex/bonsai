@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm -e
+
+// Comparisons and arithmetic the simplifier folds, run, so that what it folds
+// to is what the operation computes.
+//
+// Two of these were wrong. A comparison of two constants was folded in the
+// *result's* type -- a bool -- which compared the operands' bit patterns as
+// unsigned integers: `-1 < 1` came out false, since the two's complement of
+// -1 is above every positive number, and `-1.0 < 1.0` likewise, since a
+// negative float has its sign bit set. Both are folded in the operands' own
+// type now. Floats were not folded at all, so `1.0 - 1.0` stayed a
+// subtraction and the select it sat in never became the cast it is.
+//
+// The lane compare is the shape a front-to-back traversal's sort key has,
+// `(1 / d)[axis] < 0`, which is rewritten to a lane of the vector compare;
+// this runs it at every lane against the scalar form.
+
+element f32x3 = vector[f32, 3];
+
+func lane_below(v : f32x3, i : i32) -> bool {
+    return v[i] < 0.0;
+}
+
+func lane_above(v : f32x3, i : i32) -> bool {
+    return 0.0 < v[i];
+}
+
+func main() -> i32 {
+    // Signed and float constant comparisons.
+    print(-1 < 1, -1.0 < 1.0, 1 < -1, 1.0 < -1.0);
+    // Float arithmetic on constants, and the select it feeds.
+    c = -1.0 < 1.0;
+    print(1.0 - 1.0, 0.5 * 4.0, 7.0 / 2.0, select(c, 1.0 - 1.0, 1.0));
+    // A lane of a vector against a scalar, every lane, both ways round.
+    v = f32x3{-2.0, 0.0, 3.0};
+    print(lane_below(v, 0), lane_below(v, 1), lane_below(v, 2));
+    print(lane_above(v, 0), lane_above(v, 1), lane_above(v, 2));
+    return 0;
+}

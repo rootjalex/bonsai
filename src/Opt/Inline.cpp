@@ -672,17 +672,19 @@ ir::FuncMap Inline::run(ir::FuncMap funcs,
             continue;
         }
         // A body with mutable locals of its own is left as a call unless the
-        // program asks. Copied, its state is a set of variables at every call
-        // site, and CSE sees through none of them: two copies of the same
-        // call are two computations for good. As a call it is one value, and
-        // two calls with the same arguments are one -- which is the point of
-        // inlining the small functions that make the call. `aabb_span` stays
-        // a call for exactly this reason; `intersects` and `distmin` over an
-        // AABB, which each call it, are copied, and the traversal that asked
-        // both questions of a node then asks the box once.
+        // program asks, or this is the second round (see Opt/Inline.h).
+        // Copied, its state is a set of variables at every call site, and CSE
+        // sees through none of them: two copies of the same call are two
+        // computations for good. As a call it is one value, and two calls
+        // with the same arguments are one -- which is the point of inlining
+        // the small functions that make the call. `aabb_span` stays a call
+        // through the first round for exactly this reason; `intersects` and
+        // `distmin` over an AABB, which each call it, are copied, CSE leaves
+        // the traversal asking the box once, and the second round copies that
+        // one call in.
         // `[[inline]]` asks for a copy whatever the body looks like.
         const bool asked = func->is_inlined() || func->is_always_inlined();
-        if (!asked && shape.allocates) {
+        if (!asked && !with_locals && shape.allocates) {
             continue;
         }
         if (!asked && shape.statements > kMaxInlinedStatements) {

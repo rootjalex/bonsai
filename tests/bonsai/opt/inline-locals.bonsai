@@ -1,0 +1,39 @@
+//! flags: -p inline -p cse -p inline-locals -p cse
+
+// Inlining in two rounds, with a merge between them (Opt/Inline.h).
+//
+// `span` has mutable locals, so the first round leaves it as a call: copied,
+// its state would be a set of variables at each call site and CSE could not
+// see that two copies are the same computation. `near` and `far` have none
+// and are copied in the first round, which is what puts their two calls to
+// `span` side by side in `use`, where the CSE between the rounds merges them
+// into one. The second round then copies that one call in.
+//
+// What to read for in the golden: `use` holds exactly one copy of `span`'s
+// body -- one `lo$iN`, one `hi$iN`, one `span$rN` -- and no call to it, where
+// the source called it twice through two different functions.
+
+func span(a : f32, b : f32) -> f32 {
+    lo : mut = a;
+    hi : mut = b;
+    if lo > hi {
+        return 0.0;
+    }
+    lo = lo * 2.0;
+    hi = hi * 3.0;
+    return hi - lo;
+}
+
+func near(a : f32, b : f32) -> f32 {
+    s = span(a, b);
+    return s + 1.0;
+}
+
+func far(a : f32, b : f32) -> f32 {
+    s = span(a, b);
+    return s - 1.0;
+}
+
+func [[export]] use(x : f32, y : f32) -> f32 {
+    return near(x, y) * far(x, y);
+}

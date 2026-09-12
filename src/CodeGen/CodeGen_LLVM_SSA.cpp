@@ -209,6 +209,30 @@ struct CodeGen_LLVM::SSALowering {
         case Instruction::Op::ExtractIdx:
             internal_assert(n == 2) << "extract takes a value and an index";
             return Extract::make(std::move(args[0]), std::move(args[1]));
+        case Instruction::Op::LoadField: {
+            // A field of a struct value, by index -- the read an inlined body
+            // makes of a uniform aggregate it was handed, a box's corners say.
+            internal_assert(n == 2)
+                << "load_field takes a struct and a field index";
+            const Struct_t *struct_t = args[0].type().as<Struct_t>();
+            internal_assert(struct_t)
+                << "load_field of a non-struct " << args[0].type() << " in "
+                << instr.name;
+            const auto idx = get_constant_value<uint64_t>(args[1]);
+            internal_assert(idx.has_value() && *idx < struct_t->fields.size())
+                << "load_field of field " << args[1] << " of "
+                << args[0].type();
+            return Access::make(struct_t->fields[*idx].name,
+                                std::move(args[0]));
+        }
+        case Instruction::Op::MakeStruct:
+            return Build::make(instr.type, std::move(args));
+        case Instruction::Op::Eps:
+            internal_assert(args.empty()) << "eps takes no operands";
+            return Extrema::make(instr.type, Extrema::eps);
+        case Instruction::Op::Inf:
+            internal_assert(args.empty()) << "inf takes no operands";
+            return Extrema::make(instr.type, Extrema::inf);
         case Instruction::Op::Load:
             internal_assert(n == 1) << "load takes a pointer";
             return Deref::make(std::move(args[0]));

@@ -10,6 +10,7 @@ add_bonsai_tests(
     cast-bool.bonsai
     coated-diffuse.bonsai
     collapse.bonsai
+    compare-fold.bonsai
     dce.bonsai
     defer-sum.bonsai
     dynamic-array.bonsai
@@ -24,6 +25,7 @@ add_bonsai_tests(
     halton.bonsai
     hex-and-complement.bonsai
     if-else-returns.bonsai
+    inline-locals.bonsai
     inline-statements.bonsai
     int64.bonsai
     literal-widening.bonsai

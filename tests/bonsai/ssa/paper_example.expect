@@ -16,28 +16,32 @@ func brdf_eval(is : Intersection, ray : Ray) -> f32 {
 }
 
 func color(t : f32, ray : Ray, output : mut f32[], i : i32) -> void {
-  let _t0 = ray.data in
-  let @1 = t * _t0 in
-  let @2 = t < _t0 in
-  let _t4 = build<Intersection>(@1, @2) in
-  let @4 = _t4.miss in
-  if (@4) {
-    output[i] += _t0
+  isect$r0 : mut Intersection
+  let _t0$i0 = ray.data in
+  let @1 = t * _t0$i0 in
+  let @2 = t < _t0$i0 in
+  let @3 = build<Intersection>(@1, @2) in
+  isect$r0 = @3
+  let @4 = (*isect$r0) in
+  let @5 = @4.miss in
+  if (@5) {
+    output[i] += _t0$i0
     return
   } else {
-    let _t6 = _t4.value in
-    output[i] += _t6
-    let @8 = _t6 - _t0 in
-    let @9 = build<Ray>(@8) in
-    color(t, @9, output, i)
+    let @7 = (*isect$r0) in
+    let _t3 = @7.value in
+    output[i] += _t3
+    let @10 = _t3 - _t0$i0 in
+    let @11 = build<Ray>(@10) in
+    color(t, @11, output, i)
     return
   }
 }
 
 func isect(t : f32, ray : Ray) -> Intersection {
-  let _t9 = ray.data in
-  let @1 = t * _t9 in
-  let @2 = t < _t9 in
+  let _t0 = ray.data in
+  let @1 = t * _t0 in
+  let @2 = t < _t0 in
   let @3 = build<Intersection>(@1, @2) in
   return @3
 }

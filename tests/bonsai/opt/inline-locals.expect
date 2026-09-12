@@ -1,0 +1,59 @@
+func far(a : f32, b : f32) -> f32 {
+  span$r0 : mut f32
+  lo$i0 : mut f32 := a
+  hi$i0 : mut f32 := b
+  if (hi$i0 < lo$i0) {
+    span$r0 = 0f
+  } else {
+    lo$i0 = lo$i0 * 2f
+    hi$i0 = hi$i0 * 3f
+    span$r0 = hi$i0 - lo$i0
+  }
+  return span$r0 - 1f
+}
+
+func near(a : f32, b : f32) -> f32 {
+  span$r1 : mut f32
+  lo$i1 : mut f32 := a
+  hi$i1 : mut f32 := b
+  if (hi$i1 < lo$i1) {
+    span$r1 = 0f
+  } else {
+    lo$i1 = lo$i1 * 2f
+    hi$i1 = hi$i1 * 3f
+    span$r1 = hi$i1 - lo$i1
+  }
+  return span$r1 + 1f
+}
+
+func span(a : f32, b : f32) -> f32 {
+  lo : mut f32 := a
+  hi : mut f32 := b
+  if (hi < lo) {
+    return 0f
+  }
+  lo = lo * 2f
+  hi = hi * 3f
+  return hi - lo
+}
+
+func [[export]] use(x : f32, y : f32) -> f32 {
+  near$r0 : mut f32
+  span$r2 : mut f32
+  lo$i2 : mut f32 := x
+  hi$i2 : mut f32 := y
+  if (hi$i2 < lo$i2) {
+    span$r2 = 0f
+  } else {
+    lo$i2 = lo$i2 * 2f
+    hi$i2 = hi$i2 * 3f
+    span$r2 = hi$i2 - lo$i2
+  }
+  let s$i0 = span$r2 in
+  near$r0 = s$i0 + 1f
+  far$r1 : mut f32
+  far$r1 = s$i0 - 1f
+  return near$r0 * far$r1
+}
+
+
