@@ -106,6 +106,7 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
 
     void Film(const std::string &type, pbrt::ParsedParameterVector params,
               pbrt::FileLoc loc) override {
+        film_type = type;
         film_params = pbrt::ParameterDictionary(
             pbrt::ParsedParameterVector(params), pbrt::RGBColorSpace::sRGB);
         pbrt::BasicSceneBuilder::Film(type, std::move(params), loc);
@@ -349,6 +350,8 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
 
     std::string camera_name;
     pbrt::ParameterDictionary camera_params;
+    // PBRT's default film, from BasicSceneBuilder's own initialization.
+    std::string film_type = "rgb";
     pbrt::ParameterDictionary film_params;
     std::string sampler_name = "zsobol";
     pbrt::ParameterDictionary sampler_params;
@@ -2720,6 +2723,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // Read from PBRT rather than written down, so that scene_dump's flag and
     // the reference render below cannot mean different things by it.
     out.disable_pixel_jitter = pbrt::Options->disablePixelJitter ? 1u : 0u;
+    // PBRT: Film::UsesVisibleSurface(), which only GBufferFilm answers yes to.
+    out.film_visible_surface = builder.film_type == "gbuffer" ? 1u : 0u;
 
     // The three samplers the renderer reproduces. Sobol and zsobol are a
     // different construction again and are refused rather than approximated: a

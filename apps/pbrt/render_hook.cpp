@@ -1495,7 +1495,8 @@ int main(int argc, char **argv) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
-               loaded.imaging_ratio, loaded.max_component_value, out,
+               loaded.film_visible_surface != 0, loaded.imaging_ratio,
+               loaded.max_component_value, out,
                shading, albedo, radiance, weights, textures.data(),
                texture_levels.data(), texture_texels.data(),
                loaded.rgb_table.data(), pl2d.data(), loaded.pl_data.data(),

@@ -81,10 +81,14 @@ shapes, 43 instances holding 5.2 million triangles, a lens camera, a sky, bump
 maps on the pool and its walls -- agrees with pbrt to **0.99967x** in its mean
 at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
 within 1% and no block systematically off. That took three fixes described
-under "what the last round added": a light leak of this renderer's own, the
-last bits of a lens camera's rays, and the texture chain made bit-exact. It
-renders 1.43x slower than pbrt there (7.27 s against 5.10 s), down from 1.59x
-after a round on the compiler, and that gap is the open item.
+under "what the round before that added": a light leak of this renderer's own,
+the last bits of a lens camera's rays, and the texture chain made bit-exact.
+**It renders 1.27x faster than pbrt there** (4.01 s against 5.09 s at 16
+samples per pixel, best of three each side, on pbrt's own tree), where two
+rounds ago it was 1.59x slower and one round ago 1.43x. The last round is
+written up below: four compiler changes took it to 1.22x slower with the image
+unchanged to the bit, and one renderer change -- the visible surface filled
+where pbrt fills it, and only for a film that records it -- took it past pbrt.
 
 **killeroo-simple renders.** It names no integrator, so it gets `path`; it is
 lit by a sphere of radius 3 seen from four hundred units away, which a random
@@ -194,6 +198,140 @@ Two more asymmetries, both checked and both fine:
   of these scenes into an `rgb` film would trace once.
 
 ### What the last round added
+
+**The traversal's code is pbrt's now, and the pavilion is faster than pbrt.**
+The round began where the previous one ended: the per-node instruction count
+of the traversal loop, measured against pbrt's `BVHAggregate::Intersect`, with
+the query itself already saying exactly what pbrt's does. Each step below was
+measured on the pavilion at 16 samples per pixel on pbrt's own tree, and the
+image did not move by a bit through any of them -- checked by comparing the
+radiance image against the previous commit's, byte for byte, after every one.
+
+**CSE before the inliner, and the inliner in two rounds.** The sort key
+`(1 / r.d)[axis] < 0` was its own expression: `aabb_span` stayed a call at the
+bonsai level because it has mutable locals, so nothing shared its `inv_dir`,
+and by the time LLVM had inlined it InstCombine had already scalarized the
+single-use `extractelement(fdiv)` into a divide per node that depends on
+`axis` and cannot be hoisted. The `ssa` pipeline runs CSE before inlining now
+-- which also merges the two `distmin(r, g)` calls a candidate makes before
+the statement inliner can copy them apart -- and inlines in two rounds, bodies
+without mutable locals first, a merge, then the rest (`Inline(with_locals)`,
+named `inline-locals` because the pass manager keeps one pass per name). The
+simplifier rewrites a lane compared with a constant as that lane of the vector
+compare, `v[i] < c` to `(v < c)[i]`, so the key's test becomes the same
+`dir_is_neg` the slab test selects on; with two uses the compare stays a
+vector, LLVM's own LICM carries the divide and the compare to the entry block,
+and the node reads one lane of a mask -- pbrt's `dirIsNeg[node->axis]`. 1.39x
+(`opt/inline-locals.bonsai`, `correctness/llvm/inline-locals.bonsai`).
+
+**The sort network folds to `!c`.** The network compared `cast<f32>(c)` with
+`cast<f32>(1 - 1)`, and the second key never folded because the simplifier had
+no float constant folding at all; the `lt` that `sort_recursion` builds is made
+in SSA, where nothing had ever looked at it. Floats fold now, in their own
+precision. A comparison of two constants folds in the *operands'* type rather
+than the result's -- it had been comparing the operands' bit patterns as
+unsigned integers, which answered `-1 < 1` false. And a small SSA peephole
+(`SSA/Simplify.h`) runs after the network: `cast(a) < cast(b)` for bools is
+`!a & b`, `!!x` is `x`, `x & x` is `x`, and what that leaves unread goes. The
+interior node's IR became an `extractelement` of the hoisted mask, two adds,
+two selects and the pushes; 1.35x (`opt/constant-fold.bonsai`,
+`correctness/llvm/compare-fold.bonsai`).
+
+Turning the second inlining round on found two things. Alloca promotion placed
+a block argument at every join in the iterated dominance frontier of a local's
+stores, including joins the allocation's own block does not dominate -- a local
+declared in one arm of an `if`, where a path through the other arm has no value
+to hand the join -- and only dominated joins take one now. And the direct
+SSA-to-LLVM path had no `load_field`, `make_struct`, `eps` or `inf`, which an
+inlined slab test in a gang needs (`ssa/vectorize-arm-local.bonsai`,
+`correctness/cpp/vectorize_arm_local.bonsai`).
+
+**`loopify` continues with the first child.** It wrote every recursive call to
+the stack and took the next node off it at the top of the loop, so an interior
+node cost two pushes, a pop and two counter updates where pbrt pushes the far
+child once and carries on into the near one. The loop has pbrt's shape: the
+current node and a `live` flag are the header's arguments; a run of calls that
+is the last thing a node does -- a continuation that only returns, followed
+through the chain of empty merge blocks a match leaves behind -- pushes all but
+its first and makes that one the current node; a node with nothing left to do
+takes the top of the stack or, when there is none, clears the flag. The flag
+stands in for the `break` the statement form cannot write, and LLVM's jump
+threading turns its constant edges into direct branches. The early exit an
+`any` derives moves with the pop, and the direct edge to the first child asks
+the accumulator only if something on the way there could have moved it, which
+a leaf's store never is on an interior node's path. 1.27x
+(`ssa/loopify-queue.bonsai`, `ssa/ray-any-early-exit.bonsai`).
+
+**A branch is threaded through the code that tests it again.** `intersects`,
+`alpha_accepts` and `distmin` on a `Shape` are three `match`es over one tag,
+and behind two of them the same ray-triangle test. `Opt/JumpThreading` takes
+the statements that follow a branch and test its condition again into both of
+the branch's arms, where the second test is decided and folds; the CSE after it
+finds `triangle_hit` twice in one arm and makes it one, which is pbrt's single
+`Shape::Intersect`. This is jump threading in its code-replication form
+(Mueller and Whalley, PLDI 1995; Bodik, Gupta and Soffa, PLDI 1997) and, on a
+variant's tag, the splitting of the SELF compiler (Chambers and Ungar, PLDI
+1990); the header cites all three. A condition is threaded only if it is pure
+and nothing in the function can assign what it reads, the copied run has no
+loop in it (a schedule names loops), and the run's bindings are renamed per
+copy. A `select` on a known condition folds only when the arm not taken does
+nothing, because a select evaluates both arms and the arm not taken may be a
+draw from a sampler. 1.22x (`opt/jump-threading.bonsai`,
+`correctness/llvm/jump-threading.bonsai`).
+
+That pass found two defects that had been waiting for a shape to expose them.
+`Unswitch` merged two consecutive `if (c)` statements even when the first's
+arm always returns, leaving statements behind a return. And `has_side_effects`
+judged an `Intrinsic` or a `Call` without looking at its arguments, so
+`min(cast<f32>(next_uint(rng)) * k, 1)` passed for pure: once threading had
+decided the branch around a clamped sampler draw, the draw's binding was
+unread, DCE deleted it, and the random stream of everything after it moved by
+one. 661,200 of the pavilion's 1,360,000 pixels changed while the mean did not
+-- the signature of a shifted stream rather than a wrong value, and what the
+byte-for-byte check after every step was there to catch. The analysis descends
+into arguments now (`correctness/llvm/dce-effectful-argument.bonsai`).
+
+**The visible surface is filled where pbrt fills it, and only for a film that
+records it.** With the traversal at pbrt's instruction count, the profile
+moved: 1324 G instructions retired against pbrt's 1041 G at equal IPC, and the
+largest excess was `dielectric_sample_f` at 222 G against pbrt's
+`DielectricBxDF::Sample_f` and its Trowbridge-Reitz helpers at about 110 G --
+while `coated_f`, the same layered walk evaluated rather than sampled, matched
+pbrt's `LayeredBxDF::f` to 3%. That is a call count, not a code shape, and the
+calls were the albedo: this renderer computed `visible_surface` -- a trace of
+the camera ray, the surface geometry, the differentials, the material, and
+`bsdf.rho` with its sixteen BSDF samples, each a layered walk -- for every
+camera sample, whatever the film, and then the path integrator traced the same
+ray and built the same BSDF again. pbrt does neither. Its `Li` fills the
+`VisibleSurface` at the path's first vertex, from the intersection and the BSDF
+the path itself goes on to use, and only when `Film::UsesVisibleSurface()`,
+which is true of `gbuffer` and false of `rgb` -- the pavilion's film. The
+renderer does the same now: `full_path_step` takes a `want_visible` flag and a
+`visible : mut VisibleSurface` with pbrt's `set` member, fills it after
+`GetBSDF` and before the depth test as pbrt does, the random walk and simple
+path ignore it as pbrt's do, and `render` reads it after `Li` returns. The
+scene carries `Film::UsesVisibleSurface()` from `scene_dump`, which now
+records the film's type. The BSDF is also built at every vertex the path
+reaches, the last one included, which is where pbrt builds it. 4.01 s against
+5.09 s: **1.27x faster than pbrt**, radiance unchanged to the bit, and the
+gbuffer scenes unchanged against pbrt -- three-spheres and area-light-mis at 0
+disagreeing normals, albedo at 6.1e-05 and 4.3e-04 mean, radiance at 1.00012x.
+
+**What is left of the traversal, and what is next.** Of the six items the
+previous round listed against the traversal, the two still open are the
+running best carried as loop state -- LLVM keeps eleven phis for the tuple
+where pbrt keeps `tMax` in a register and writes the interaction to memory on
+a hit -- and `mesh_positions : array[vec3f]` at a 16-byte stride against
+pbrt's twelve-byte `Point3f`, which wants a layout-language declaration for an
+extern array's storage. Neither is a per-node instruction any more; both are
+memory. The `--stats` counters, deferred until the code generation matched
+pbrt, are the right next measurement now that it does, and the dielectric
+should be re-profiled with the albedo gone before anything is concluded about
+its code. The pre-existing failure of the two `backends/cuda` goldens
+(`parallel`, `rtiow-primer`) is LoopTransforms refusing a `bind` under the
+default pipeline, dates from before this branch, and is untouched.
+
+### What the previous round added
 
 **The compiler, for the pavilion's speed.** Nothing in the renderer changed
 this round. The gap to pbrt on the pavilion was measured with `perf stat` and
@@ -348,7 +486,7 @@ and the shipped texture holds the alpha channel three times; the same rows
 disagreed with the renderer built before this round, so they are the harness
 comparing two different things and not a regression.
 
-### What the previous round added
+### What the round before that added
 
 **The pavilion matches, and what was in the way.** With every material and
 instancing in, the whole scene rendered 1.036x too bright, with 37,000 more
@@ -437,7 +575,7 @@ always has: its walk is seeded by hashing the local direction, and the mean
 converges. And it was 1.59x slower than pbrt on this scene when this round
 ended, which is what the round after it, above, took up.
 
-### What the round before that added
+### What the round before that one added
 
 **Named materials, and `dielectric`.** A shape under `NamedMaterial` names its
 material by string, and pbrt leaves `materialIndex` at -1 -- which is also what
@@ -617,7 +755,7 @@ reference render is handed the tag `load` decided rather than the name the scene
 wrote, because deciding it twice is how the two would come to run different
 algorithms and report it as a disagreement about transport.
 
-### What the round before that one added
+### What the rounds before those added
 
 **`path`, which is pbrt's own workhorse and what every scene here names.** It is
 `simplepath` plus four ways of not wasting a sample, and all four are in:
@@ -681,8 +819,6 @@ and stratified factors it into a grid by walking down from its square root, so
 stratified scene at 4, 12 and 13, where a transposed grid would put the samplers
 in different strata and pull the streams apart. It is mostly for looking at
 pictures, and it immediately paid for itself as the measurement under item 2.
-
-### What the rounds before those added
 
 `coateddiffuse` works. That is pbrt's `LayeredBxDF<DielectricBxDF, DiffuseBxDF>`
 in `bxdf.bonsai`: a dielectric coating over a diffuse base whose reflectance has

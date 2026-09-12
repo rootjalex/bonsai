@@ -811,83 +811,15 @@ func trace_any(r : Ray) =
 // tilted by a displacement, where the material has one. A displacement changes
 // nothing the geometric normal can see, so `ns` is the channel that checks a
 // bump map against pbrt's.
+//
+// `set` is pbrt's: a VisibleSurface starts out empty and the integrator that
+// fills one marks it, so the film can tell a camera ray that found a surface
+// from one that escaped, and an integrator that fills none from one that does.
 element VisibleSurface {
     n : vec3f;
     ns : vec3f;
     albedo : vec3f;
-}
-
-// What the camera ray found, or nothing where it escaped.
-//
-// The normal here is `FaceForward(si.n, wo)` -- pbrt records the normal
-// pointing back towards where the ray came from, not the one the winding
-// says. That is the film's convention rather than the geometry's, which is why
-// it is here and not in surface_geometry.
-//
-// The albedo is pbrt's `bsdf.rho(wo, ...)`, the hemispherical reflectance of
-// the surface's BSDF, estimated with the sixteen fixed sample points pbrt's
-// path integrator carries. What makes it worth computing rather than copying
-// is the round trip afterwards: the reflectance is an RGB, and it becomes a
-// spectrum, is lit by the illuminant, and is integrated back to RGB, none of
-// which is the identity.
-//
-// `seed` is pbrt's `--seed` option, which reaches here because a layered BSDF
-// hashes it together with the direction to seed the walk that estimates its
-// reflectance.
-func visible_surface(r : Ray, dr : RayDifferential,
-                     camera : PerspectiveCamera, spp_scale : Float,
-                     lambda : SampledWavelengths,
-                     seed : i32) -> option[VisibleSurface] {
-    isect = trace(r);
-    if isect {
-        reached = *isect;
-        via = reached[0];
-        prim = reached[1];
-        // In the frame the geometry was tested in, then moved into render
-        // space once; see `walk_step`.
-        surf = transform(via, surface_geometry(prim.shape, untransform(via, r)));
-        // pbrt: Interaction's constructor, which normalizes the outgoing
-        // direction. The camera's is already very nearly a unit vector, so this
-        // changes it in the last bit or two -- which is invisible in the normal
-        // it face-forwards and is not invisible at all in a layered BSDF, whose
-        // walk is seeded by hashing the bytes of this vector.
-        wo = unit_vector_(-r.d);
-        // pbrt: VisibleSurface's constructor, `n = FaceForward(si.n, wo)` and
-        // `ns = FaceForward(si.shading.n, wo)`. The film turns both normals to
-        // face the camera, so a comparison cannot see their sign -- only their
-        // line.
-        facing = select(dot(surf.n, wo) < 0.0, -surf.n, surf.n);
-
-        // pbrt: BSDF's constructor, which is where the shading frame is built,
-        // and BSDF::rho, which asks the question in it. The tangent is
-        // normalized here and the normal is not, exactly as Frame::FromXZ
-        // takes them.
-        diffs = compute_differentials(surf, dr, camera, spp_scale);
-        hit = displaced(surf, material_displacement[prim.material], diffs);
-        shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-
-        // pbrt: GetBSDF, then rho on what it returned. Never regularized: pbrt
-        // fills its VisibleSurface at the first intersection, where no bounce
-        // has happened and so nothing has been regularized either.
-        //
-        // `reflectance` is Schlick's approximation in stdlib/numerics, so the
-        // name is taken.
-        bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
-                             diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
-        rho = bxdf_rho(bsdf, frame_to_local(shading, wo), seed, rho_uc, rho_ux,
-                       rho_uy);
-        // pbrt: GBufferFilm::AddSample, which lights the albedo by the film's
-        // illuminant before converting it. Without this an albedo would be a
-        // reflectance under an equal-energy light, which is not what a colour
-        // space means by white.
-        lit = rho * spectrum_at_dense(illuminant_d65, lambda);
-
-        facing_ns = select(dot(hit.ns, wo) < 0.0, -hit.ns, hit.ns);
-        surface : VisibleSurface = {facing, facing_ns,
-                                    spectrum_to_rgb(lit, lambda)};
-        return surface;
-    }
-    return {};
+    set : bool;
 }
 
 // pbrt: Integrator, which is a TaggedPointer over the eight ways pbrt knows to
@@ -980,8 +912,8 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
     // ray's direction is a unit vector transformed by a rigid motion, so it is
     // unit to within a bit or two and not exactly, which is enough to change
     // the last bit of everything downstream of the shading frame. `rho` in
-    // `visible_surface` does go through `isect.wo` and is normalized there, for
-    // the same reason: because pbrt does.
+    // `full_path_step`'s visible surface does go through `isect.wo` and is
+    // normalized there, for the same reason: because pbrt does.
     wo = -ray.d;
 
     // pbrt: SurfaceInteraction::Le. The emission of the surface the ray landed
@@ -1307,7 +1239,9 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
                     prev_ctx : ShapeSampleContext,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
-                    seed : i32, max_depth : i32, regularize : bool) -> vec4f {
+                    seed : i32, max_depth : i32, regularize : bool,
+                    want_visible : bool,
+                    visible : mut VisibleSurface) -> vec4f {
     isect = trace(ray);
     if !isect {
         // pbrt weighs each infinite light's emission exactly the way the
@@ -1376,17 +1310,16 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
         }
     }
 
-    // pbrt: GetBSDF, then Regularize, then the depth test. Both happen once --
-    // `bsdf` below is the value everything after this asks its questions of,
-    // exactly as pbrt asks them of the BSDF `GetBSDF` returned. Regularizing is
-    // an argument rather than a mutation because a bonsai BSDF is a value, and
-    // it is applied here rather than at each question for the same reason pbrt
-    // applies it here: it is a property of the surface at this vertex.
+    // pbrt: GetBSDF, then the visible surface, then Regularize, then the depth
+    // test, in that order -- the BSDF is built at every vertex the path
+    // reaches, the last one included, and the gbuffer is filled before the
+    // depth is looked at. `bsdf` below is the value everything after this asks
+    // its questions of, exactly as pbrt asks them of the BSDF `GetBSDF`
+    // returned. Regularizing is an argument rather than a mutation because a
+    // bonsai BSDF is a value, and it is applied here rather than at each
+    // question for the same reason pbrt applies it here: it is a property of
+    // the surface at this vertex.
     do_regularize = regularize && any_non_specular;
-    if depth == max_depth {
-        return found;
-    }
-    next_depth = depth + 1;
 
     // pbrt's `GetBSDF`, in its order: the differentials first, then the
     // displacement -- which tilts the shading frame and so has to happen before
@@ -1398,6 +1331,36 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
                          hit.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
                          diffs.dvdy);
     flags = bxdf_flags(bsdf);
+
+    // pbrt: `if (depth == 0 && visibleSurf)`, the one place the gbuffer is
+    // written. The albedo is `bsdf.rho(isect.wo, ...)`, the hemispherical
+    // reflectance estimated with the sixteen fixed sample points pbrt's path
+    // integrator carries; `isect.wo` is the normalized direction, and it is
+    // asked in the shading frame the BSDF was built about. What makes the
+    // albedo worth computing rather than copying is the round trip after it:
+    // the reflectance is an RGB, becomes a spectrum, is lit by the film's
+    // illuminant (GBufferFilm::AddSample), and is integrated back to RGB, none
+    // of which is the identity. The normals are pbrt's `FaceForward(si.n, wo)`
+    // and `FaceForward(si.shading.n, wo)` -- turned to face the camera, so a
+    // comparison cannot see their sign, only their line -- and the shading one
+    // is the bumped one, which is the channel that checks a bump map.
+    // Never regularized: nothing has bounced yet, so `do_regularize` is false
+    // here whatever the option says, as it is in pbrt.
+    if want_visible && (depth == 0) {
+        rho = bxdf_rho(bsdf, frame_to_local(shading, wo_unit), seed, rho_uc,
+                       rho_ux, rho_uy);
+        lit = rho * spectrum_at_dense(illuminant_d65, lambda);
+        facing = select(dot(surf.n, wo_unit) < 0.0, -surf.n, surf.n);
+        facing_ns = select(dot(hit.ns, wo_unit) < 0.0, -hit.ns, hit.ns);
+        seen : VisibleSurface = {facing, facing_ns, spectrum_to_rgb(lit, lambda),
+                                 true};
+        visible = seen;
+    }
+
+    if depth == max_depth {
+        return found;
+    }
+    next_depth = depth + 1;
 
     // Direct lighting, but only where there is a density to weigh it with. A
     // purely specular surface would return zero from every term of it, so pbrt
@@ -1475,7 +1438,8 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     return full_path_step(next_ray, next_diff, camera, spp_scale, survived,
                           found, next_depth, next_specular, next_any_ns,
                           next_eta_scale, next_p_b, next_ctx, lambda, sampler,
-                          state, ls, set, seed, max_depth, regularize);
+                          state, ls, set, seed, max_depth, regularize,
+                          want_visible, visible);
 }
 
 // The entry point, which names the state a path starts with: full throughput,
@@ -1485,13 +1449,14 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
 func li_path(r0 : Ray, d0 : RayDifferential, camera : PerspectiveCamera,
              spp_scale : Float, lambda : SampledWavelengths, sampler : Sampler,
              state : mut SamplerState, ls : LightSampler, set : LightSet,
-             seed : i32, max_depth : i32, regularize : bool) -> vec4f {
+             seed : i32, max_depth : i32, regularize : bool,
+             want_visible : bool, visible : mut VisibleSurface) -> vec4f {
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
     return full_path_step(r0, d0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
                           vec4f{0.0, 0.0, 0.0, 0.0}, 0, false, false, 1.0, 0.0,
                           origin, lambda, sampler, state, ls, set, seed,
-                          max_depth, regularize);
+                          max_depth, regularize, want_visible, visible);
 }
 
 // pbrt: Integrator::Li, the dispatch itself -- one arm per integrator, which is
@@ -1500,10 +1465,15 @@ func li_path(r0 : Ray, d0 : RayDifferential, camera : PerspectiveCamera,
 // takes them in pbrt either: RandomWalkIntegrator and SimplePathIntegrator
 // declare a `RayDifferential` parameter and never look at its differentials,
 // because neither has a texture to filter.
+// `want_visible` and `visible` are pbrt's `VisibleSurface *` argument, as a
+// flag and the place to write: the path integrator fills it at its first vertex
+// when the film asked, and the random walk and simple path never do -- pbrt's
+// take the pointer and ignore it, so a gbuffer rendered with either is empty.
 func integrator_li(integrator : Integrator, r : Ray, dr : RayDifferential,
                    camera : PerspectiveCamera, spp_scale : Float,
                    lambda : SampledWavelengths, sampler : Sampler,
-                   state : mut SamplerState, seed : i32) -> vec4f {
+                   state : mut SamplerState, seed : i32, want_visible : bool,
+                   visible : mut VisibleSurface) -> vec4f {
     match integrator {
         RandomWalk(max_depth, set) =>
             return li_random_walk(r, dr, camera, spp_scale, lambda, sampler,
@@ -1513,7 +1483,8 @@ func integrator_li(integrator : Integrator, r : Ray, dr : RayDifferential,
                                   state, ls, set, seed, max_depth);
         Path(max_depth, ls, set, regularize) =>
             return li_path(r, dr, camera, spp_scale, lambda, sampler, state, ls,
-                           set, seed, max_depth, regularize);
+                           set, seed, max_depth, regularize, want_visible,
+                           visible);
     }
 }
 
@@ -1688,6 +1659,12 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                        sampler : Sampler, integrator : Integrator,
                        pixel_filter : Filter, seed : i32,
                        disable_pixel_jitter : bool,
+                       // pbrt: Film::UsesVisibleSurface(). Only a gbuffer film
+                       // records the normals and the albedo, so only for one
+                       // does the integrator fill them in -- the albedo is
+                       // sixteen BSDF samples per camera ray, which pbrt does
+                       // not spend on an image that will not show them.
+                       film_visible_surface : bool,
                        // pbrt: PixelSensor's `exposureTime * ISO / 100`, and
                        // RGBFilm's `maxcomponentvalue`, which is infinity
                        // unless the scene names one.
@@ -1772,25 +1749,26 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                     ray, camera_ray.diff, ray_differential_scale(spp, false));
             }
 
-            found = visible_surface(ray, ray_diff, camera,
-                                    ray_differential_scale(
-                                        spp, disable_pixel_jitter),
-                                    lambda, seed);
-            if found {
-                surface = *found;
-                atomic normal_out[p] += weight * surface.n;
-                atomic shading_out[p] += weight * surface.ns;
-                atomic albedo_out[p] += weight * surface.albedo;
-            }
-
-            // The radiance, which is the render. Traced from the same ray as
-            // the gbuffer channels above and drawing from the same sampler
-            // afterwards, exactly as pbrt does: its `Li` runs after the camera
-            // sample and the visible surface is filled in along the way.
+            // The radiance, which is the render -- and, for a gbuffer film,
+            // the visible surface, which pbrt's `Li` fills at the path's first
+            // vertex from the intersection and the BSDF the path itself goes
+            // on to use. One trace of the camera ray and one BSDF, as pbrt
+            // has it; this used to trace and build both a second time for the
+            // gbuffer channels, and estimate the albedo whatever the film.
+            zero3 = vec3f{0.0, 0.0, 0.0};
+            visible : mut VisibleSurface = {zero3, zero3, zero3, false};
             radiance = integrator_li(integrator, ray, ray_diff, camera,
                                      ray_differential_scale(spp,
                                                             disable_pixel_jitter),
-                                     lambda, sampler, state, seed);
+                                     lambda, sampler, state, seed,
+                                     film_visible_surface, visible);
+            // pbrt: GBufferFilm::AddSample, which records the channels only
+            // when the integrator set them.
+            if visible.set {
+                atomic normal_out[p] += weight * visible.n;
+                atomic shading_out[p] += weight * visible.ns;
+                atomic albedo_out[p] += weight * visible.albedo;
+            }
             // pbrt: RGBFilm::AddSample, which clamps the sensor RGB of *each
             // sample* before accumulating it -- not the pixel afterwards. The
             // difference is the whole point: it is there to stop one lucky path

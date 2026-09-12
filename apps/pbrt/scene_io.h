@@ -462,6 +462,12 @@ struct Scene {
     // its centre. Not a property of the scene; carried here because it has to
     // reach the renderer and this is the channel that exists.
     uint32_t disable_pixel_jitter = 0;
+    // PBRT: Film::UsesVisibleSurface(), true for `Film "gbuffer"` and false
+    // for `rgb` and `spectral`. What decides whether the path integrator
+    // fills a VisibleSurface at its first vertex -- the reflectance estimate
+    // it costs is sixteen BSDF samples per camera ray, which pbrt spends only
+    // for a film that records them.
+    uint32_t film_visible_surface = 0;
     // camera_from_raster, render_from_camera then camera_from_render, each
     // 4x4 in row order. The third is not the second's inverse recomputed --
     // it is PBRT's own `CameraFromRender`, and the pair is carried in both
@@ -708,7 +714,8 @@ inline bool write(const char *path, const Scene &scene) {
         << scene.regularize << '\n';
     out << "filter gaussian " << scene.filter_radius[0] << ' '
         << scene.filter_radius[1] << ' ' << scene.filter_sigma << " jitter "
-        << (scene.disable_pixel_jitter ? 0 : 1) << '\n';
+        << (scene.disable_pixel_jitter ? 0 : 1) << " gbuffer "
+        << (scene.film_visible_surface ? 1 : 0) << '\n';
     out << "camera_from_raster";
     detail::put(out, scene.matrices, 16);
     out << "\nrender_from_camera";
@@ -1056,6 +1063,12 @@ inline bool read(const char *path, Scene &scene) {
     uint32_t jitter = 1;
     in >> jitter;
     scene.disable_pixel_jitter = jitter ? 0u : 1u;
+    if (!(in >> word) || word != "gbuffer") {
+        return false;
+    }
+    uint32_t gbuffer = 0;
+    in >> gbuffer;
+    scene.film_visible_surface = gbuffer ? 1u : 0u;
 
     if (!(in >> word) || word != "camera_from_raster") {
         return false;
