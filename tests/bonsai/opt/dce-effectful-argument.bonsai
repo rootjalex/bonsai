@@ -1,0 +1,41 @@
+//! flags: -p core -p dce
+
+// A binding nothing reads, whose value wraps a call with an effect.
+//
+// `has_side_effects` (IR/Analysis.cpp) decided a `min(...)` or a call by
+// looking at the node and not at its arguments, so `min(bump(c), 1.0)` passed
+// for pure and the dead `let` went, `bump` with it. This is the shape of a
+// sampler draw clamped below one -- `min(next_uint(rng) * k, 1)` -- and once a
+// branch around such a draw was decided, the binding was unread, the draw was
+// deleted, and the random stream of everything after it moved by one.
+//
+// What to read for in the golden: `unread_min` and `unread_wrapped` keep their
+// `let`s (or the call inside them), `unread_pure` loses its.
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter) -> f32 {
+    c.n = c.n + 1;
+    return cast[[f32]](c.n);
+}
+
+func halve(x : f32) -> f32 {
+    return x * 0.5;
+}
+
+func unread_min(c : mut Counter) -> i32 {
+    u = min(bump(c), 1.0);
+    return c.n;
+}
+
+func unread_wrapped(c : mut Counter) -> i32 {
+    u = halve(bump(c));
+    return c.n;
+}
+
+func unread_pure(c : mut Counter) -> i32 {
+    u = halve(cast[[f32]](c.n));
+    return c.n;
+}

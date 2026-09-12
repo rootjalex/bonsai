@@ -1,0 +1,44 @@
+//! flags: -p ssa -b llvm -e
+
+// A call with an effect, wrapped in something pure and never read, still
+// happens. opt/dce-effectful-argument.bonsai shows the shape; this counts.
+//
+// Each function bumps the counter once through a value it then ignores, so
+// the counter says whether the bump survived dead-code elimination: 1 each
+// here, 0 if the binding went with its call.
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter) -> f32 {
+    c.n = c.n + 1;
+    return cast[[f32]](c.n);
+}
+
+func halve(x : f32) -> f32 {
+    return x * 0.5;
+}
+
+func unread_min() -> i32 {
+    c : mut Counter = {0};
+    u = min(bump(c), 1.0);
+    return c.n;
+}
+
+func unread_wrapped() -> i32 {
+    c : mut Counter = {0};
+    u = halve(bump(c));
+    return c.n;
+}
+
+func unread_chain() -> i32 {
+    c : mut Counter = {0};
+    u = halve(min(bump(c) * 2.0, 1.0)) + 3.0;
+    return c.n;
+}
+
+func main() -> i32 {
+    print(unread_min(), unread_wrapped(), unread_chain());
+    return 0;
+}

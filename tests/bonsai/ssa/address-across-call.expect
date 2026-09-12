@@ -69,9 +69,9 @@ func [[noinline]] pick(b : Blob, k : f32) -> f32 {
   } else {
     let @7 = b.payload in
     let @8 = (&@7) in
-    let _t10 = (*@8) in
-    let y = _t10.y in
-    let z = _t10.z in
+    let _t13 = (*@8) in
+    let y = _t13.y in
+    let z = _t13.z in
     let @12 = y + z in
     let @13 = @12 * k in
     return @13

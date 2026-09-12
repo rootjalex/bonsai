@@ -182,17 +182,17 @@ while.body:                                       ; preds = %next_bb54, %while.b
   %42 = sext i32 %41 to i64
   %extract_ptr58 = getelementptr inbounds %struct.Instance, ptr %instances.insts, i64 %42
   %extract59 = load %struct.Instance, ptr %extract_ptr58, align 16
-  %_t522.blas = extractvalue %struct.Instance %extract59, 1
-  %_t522.render_from_instance = extractvalue %struct.Instance %extract59, 0
-  %"t$i18.i0" = extractvalue %struct.Transform %_t522.render_from_instance, 4
-  %"t$i18.i1" = extractvalue %struct.Transform %_t522.render_from_instance, 5
-  %"t$i18.i2" = extractvalue %struct.Transform %_t522.render_from_instance, 6
+  %_t760.blas = extractvalue %struct.Instance %extract59, 1
+  %_t760.render_from_instance = extractvalue %struct.Instance %extract59, 0
+  %"t$i18.i0" = extractvalue %struct.Transform %_t760.render_from_instance, 4
+  %"t$i18.i1" = extractvalue %struct.Transform %_t760.render_from_instance, 5
+  %"t$i18.i2" = extractvalue %struct.Transform %_t760.render_from_instance, 6
   %43 = fmul <3 x float> %.splat, %"t$i18.i0"
   %44 = fmul <3 x float> %.splat61, %"t$i18.i1"
   %45 = fadd <3 x float> %43, %44
   %46 = fmul <3 x float> %.splat63, %"t$i18.i2"
   %47 = fadd <3 x float> %46, %45
-  %"t$i18.i3" = extractvalue %struct.Transform %_t522.render_from_instance, 7
+  %"t$i18.i3" = extractvalue %struct.Transform %_t760.render_from_instance, 7
   %48 = fadd <3 x float> %"t$i18.i3", %47
   %49 = fmul <3 x float> %.splat65, %"t$i18.i0"
   %50 = fmul <3 x float> %.splat67, %"t$i18.i1"
@@ -202,7 +202,7 @@ while.body:                                       ; preds = %next_bb54, %while.b
   %deref_temp71.fca.0.insert = insertvalue %struct.Ray poison, <3 x float> %48, 0
   %deref_temp71.fca.1.insert = insertvalue %struct.Ray %deref_temp71.fca.0.insert, <3 x float> %53, 1
   %deref_temp71.fca.2.insert = insertvalue %struct.Ray %deref_temp71.fca.1.insert, float %r.tmax, 2
-  tail call void @_recloop_func1(i32 %_t522.blas, %struct._tree_layout0 %instances, %struct.Ray %deref_temp71.fca.2.insert, ptr %_best0, i32 %instances_index.tr, i32 %_idx0.0141)
+  tail call void @_recloop_func1(i32 %_t760.blas, %struct._tree_layout0 %instances, %struct.Ray %deref_temp71.fca.2.insert, ptr %_best0, i32 %instances_index.tr, i32 %_idx0.0141)
   %54 = add nuw nsw i32 %_idx0.0141, 1
   %55 = icmp ult i32 %54, %39
   br i1 %55, label %while.body, label %after_bb32
@@ -225,20 +225,20 @@ tailrecurse:                                      ; preds = %then_bb53, %_recloo
   %2 = sext i32 %_subtree0_bnode.tr to i64
   %extract_ptr = getelementptr inbounds %struct._tree_layout1, ptr %instances.group0_bnode, i64 %2
   %extract.unpack.unpack = load float, ptr %extract_ptr, align 1
-  %extract.unpack.elt117 = getelementptr inbounds i8, ptr %extract_ptr, i64 4
-  %3 = load <2 x float>, ptr %extract.unpack.elt117, align 1
-  %extract.elt106 = getelementptr inbounds i8, ptr %extract_ptr, i64 12
-  %extract.unpack107.unpack = load float, ptr %extract.elt106, align 1
-  %extract.unpack107.elt122 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
-  %4 = load <2 x float>, ptr %extract.unpack107.elt122, align 1
-  %extract.elt108 = getelementptr inbounds i8, ptr %extract_ptr, i64 24
-  %extract.unpack109 = load i16, ptr %extract.elt108, align 1
-  %extract.elt114 = getelementptr inbounds i8, ptr %extract_ptr, i64 28
-  %5 = load <4 x i8>, ptr %extract.elt114, align 1
+  %extract.unpack.elt114 = getelementptr inbounds i8, ptr %extract_ptr, i64 4
+  %3 = load <2 x float>, ptr %extract.unpack.elt114, align 1
+  %extract.elt103 = getelementptr inbounds i8, ptr %extract_ptr, i64 12
+  %extract.unpack104.unpack = load float, ptr %extract.elt103, align 1
+  %extract.unpack104.elt119 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
+  %4 = load <2 x float>, ptr %extract.unpack104.elt119, align 1
+  %extract.elt105 = getelementptr inbounds i8, ptr %extract_ptr, i64 24
+  %extract.unpack106 = load i16, ptr %extract.elt105, align 1
+  %extract.elt111 = getelementptr inbounds i8, ptr %extract_ptr, i64 28
+  %5 = load <4 x i8>, ptr %extract.elt111, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
-  %9 = insertelement <3 x float> poison, float %extract.unpack107.unpack, i64 0
+  %9 = insertelement <3 x float> poison, float %extract.unpack104.unpack, i64 0
   %10 = shufflevector <2 x float> %4, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %11 = shufflevector <3 x float> %9, <3 x float> %10, <3 x i32> <i32 0, i32 3, i32 4>
   %12 = select <3 x i1> %1, <3 x float> %11, <3 x float> %8
@@ -290,7 +290,7 @@ then_bb41:                                        ; preds = %then_bb28
   br i1 %34, label %then_bb50, label %after_bb32
 
 then_bb50:                                        ; preds = %then_bb41
-  %35 = icmp eq i16 %extract.unpack109, 0
+  %35 = icmp eq i16 %extract.unpack106, 0
   br i1 %35, label %then_bb53, label %next_bb54
 
 then_bb53:                                        ; preds = %then_bb50
@@ -301,7 +301,7 @@ then_bb53:                                        ; preds = %then_bb50
   br label %tailrecurse
 
 next_bb54:                                        ; preds = %then_bb50
-  %39 = zext i16 %extract.unpack109 to i32
+  %39 = zext i16 %extract.unpack106 to i32
   %instances.tris = extractvalue %struct._tree_layout0 %instances, 1
   %40 = bitcast <4 x i8> %5 to i32
   %.fca.1.gep = getelementptr inbounds i8, ptr %_ret, i64 16
@@ -309,49 +309,49 @@ next_bb54:                                        ; preds = %then_bb50
   %instances.insts = extractvalue %struct._tree_layout0 %instances, 5
   %instances.group1_index = extractvalue %struct._tree_layout0 %instances, 7
   %41 = sext i32 %instances_index to i64
-  %extract77.elt147 = getelementptr inbounds %struct._tree_layout4, ptr %instances.group1_index, i64 %41, i32 5
+  %extract74.elt144 = getelementptr inbounds %struct._tree_layout4, ptr %instances.group1_index, i64 %41, i32 5
   br label %while.body
 
 while.body:                                       ; preds = %next_bb54, %after_bb60
-  %_idx1.0176 = phi i32 [ 0, %next_bb54 ], [ %46, %after_bb60 ]
-  %42 = add i32 %_idx1.0176, %40
+  %_idx1.0173 = phi i32 [ 0, %next_bb54 ], [ %46, %after_bb60 ]
+  %42 = add i32 %_idx1.0173, %40
   %43 = sext i32 %42 to i64
   %extract_ptr58 = getelementptr inbounds %struct.Triangle, ptr %instances.tris, i64 %43
   %extract59.unpack = load <3 x float>, ptr %extract_ptr58, align 16
   %44 = insertvalue %struct.Triangle poison, <3 x float> %extract59.unpack, 0
-  %extract59.elt134 = getelementptr inbounds i8, ptr %extract_ptr58, i64 16
-  %extract59.unpack135 = load <3 x float>, ptr %extract59.elt134, align 16
-  %45 = insertvalue %struct.Triangle %44, <3 x float> %extract59.unpack135, 1
-  %extract59.elt136 = getelementptr inbounds i8, ptr %extract_ptr58, i64 32
-  %extract59.unpack137 = load <3 x float>, ptr %extract59.elt136, align 16
-  %extract59138 = insertvalue %struct.Triangle %45, <3 x float> %extract59.unpack137, 2
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret, %struct.Ray %_pulled0, %struct.Triangle %extract59138)
+  %extract59.elt131 = getelementptr inbounds i8, ptr %extract_ptr58, i64 16
+  %extract59.unpack132 = load <3 x float>, ptr %extract59.elt131, align 16
+  %45 = insertvalue %struct.Triangle %44, <3 x float> %extract59.unpack132, 1
+  %extract59.elt133 = getelementptr inbounds i8, ptr %extract_ptr58, i64 32
+  %extract59.unpack134 = load <3 x float>, ptr %extract59.elt133, align 16
+  %extract59135 = insertvalue %struct.Triangle %45, <3 x float> %extract59.unpack134, 2
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret, %struct.Ray %_pulled0, %struct.Triangle %extract59135)
   %.fca.1.load = load i1, ptr %.fca.1.gep, align 8
-  br i1 %.fca.1.load, label %then_bb64, label %after_bb60
+  br i1 %.fca.1.load, label %then_bb61, label %after_bb60
 
-after_bb60:                                       ; preds = %then_bb68, %then_bb73, %then_bb64, %while.body
-  %46 = add nuw nsw i32 %_idx1.0176, 1
+after_bb60:                                       ; preds = %then_bb65, %then_bb70, %then_bb61, %while.body
+  %46 = add nuw nsw i32 %_idx1.0173, 1
   %47 = icmp ult i32 %46, %39
   br i1 %47, label %while.body, label %after_bb32
 
-then_bb64:                                        ; preds = %while.body
+then_bb61:                                        ; preds = %while.body
   %.fca.0.3.load = load float, ptr %.fca.0.3.gep, align 4
   %48 = fcmp ogt float %.fca.0.3.load, 0x3F50624DE0000000
-  br i1 %48, label %then_bb68, label %after_bb60
+  br i1 %48, label %then_bb65, label %after_bb60
 
-then_bb68:                                        ; preds = %then_bb64
-  %"@123._field0" = load float, ptr %_best0, align 4
-  %49 = fcmp olt float %.fca.0.3.load, %"@123._field0"
-  br i1 %49, label %then_bb73, label %after_bb60
+then_bb65:                                        ; preds = %then_bb61
+  %"@122._field0" = load float, ptr %_best0, align 4
+  %49 = fcmp olt float %.fca.0.3.load, %"@122._field0"
+  br i1 %49, label %then_bb70, label %after_bb60
 
-then_bb73:                                        ; preds = %then_bb68
-  %50 = load i32, ptr %extract77.elt147, align 1
+then_bb70:                                        ; preds = %then_bb65
+  %50 = load i32, ptr %extract74.elt144, align 1
   %51 = add i32 %50, %_idx0
   %52 = sext i32 %51 to i64
-  %extract_ptr78 = getelementptr inbounds %struct.Instance, ptr %instances.insts, i64 %52
-  %extract79 = load %struct.Instance, ptr %extract_ptr78, align 16
-  %53 = insertvalue %struct.__tuple_0 undef, %struct.Instance %extract79, 0
-  %54 = insertvalue %struct.__tuple_0 %53, %struct.Triangle %extract59138, 1
+  %extract_ptr75 = getelementptr inbounds %struct.Instance, ptr %instances.insts, i64 %52
+  %extract76 = load %struct.Instance, ptr %extract_ptr75, align 16
+  %53 = insertvalue %struct.__tuple_0 undef, %struct.Instance %extract76, 0
+  %54 = insertvalue %struct.__tuple_0 %53, %struct.Triangle %extract59135, 1
   %55 = insertvalue %struct.__tuple_1 undef, float %.fca.0.3.load, 0
   %56 = insertvalue %struct.__tuple_1 %55, %struct.__tuple_0 %54, 1
   store %struct.__tuple_1 %56, ptr %_best0, align 16

@@ -113,6 +113,7 @@ target_sources(
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
     src/IR/Equality.cpp
+    src/IR/Rename.cpp
     src/IR/Expr.cpp
     src/IR/Float16.cpp
     src/IR/Interface.cpp
@@ -170,6 +171,7 @@ target_sources(
     src/Lower/Bindings.cpp
     src/Opt/Simplify.cpp
     src/Opt/PullQueries.cpp
+    src/Opt/JumpThreading.cpp
     src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
     src/Parser/Parser.cpp
@@ -216,6 +218,7 @@ target_sources(
     include/Error.h
     include/IR/Analysis.h
     include/IR/Equality.h
+    include/IR/Rename.h
     include/IR/Expr.h
     include/IR/Float16.h
     include/IR/Frame.h
@@ -280,6 +283,7 @@ target_sources(
     include/Lower/ADTs.h
     include/Lower/Bindings.h
     include/Opt/Simplify.h
+    include/Opt/JumpThreading.h
     include/Opt/Unswitch.h
     include/Parser/Lexer.h
     include/Parser/Parser.h

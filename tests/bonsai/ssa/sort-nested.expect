@@ -41,39 +41,39 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
   !live = true
   while ((*!live)) {
     let @0 = instances.group1_index in
-    let _t440 = @0[(*instances_index!top)] in
-    let @2 = _t440.low in
+    let _t674 = @0[(*instances_index!top)] in
+    let @2 = _t674.low in
     let @3 = cast<f32x3>(@2) in
-    let @4 = _t440.high in
+    let @4 = _t674.high in
     let @5 = cast<f32x3>(@4) in
-    let _t449 = build<AABB>(@3, @5) in
+    let _t683 = build<AABB>(@3, @5) in
     intersects_Ray_AABB$r14 : mut bool
     intersectsp_ray_aabb$r1 : mut _option1
     let @7 = f32x3(1f) in
     let @8 = ray.d in
-    let _t456 = @7 / @8 in
+    let _t685 = @7 / @8 in
     let @10 = f32x3(0f) in
-    let dirIsNeg$i1 = _t456 < @10 in
-    let _t177$i1 = _t449.high in
-    let _t178$i1 = _t449.low in
+    let dirIsNeg$i1 = _t685 < @10 in
+    let _t177$i1 = _t683.high in
+    let _t178$i1 = _t683.low in
     let low_parts$i1 = select(dirIsNeg$i1, _t177$i1, _t178$i1) in
     let high_parts$i1 = select(dirIsNeg$i1, _t178$i1, _t177$i1) in
     let _t181$i1 = ray.o in
     tMin$i1 : mut f32x3
     let @17 = low_parts$i1 - _t181$i1 in
-    let @18 = @17 * _t456 in
+    let @18 = @17 * _t685 in
     tMin$i1 = @18
     tMax$i1 : mut f32x3
     let @19 = high_parts$i1 - _t181$i1 in
-    let @20 = @19 * _t456 in
+    let @20 = @19 * _t685 in
     tMax$i1 = @20
     gamma$r0$i1 : mut f32
     let @21 = cast<f32>(3) in
     let @22 = (f32)eps in
     let @23 = 0.5f * @22 in
-    let _t459 = @21 * @23 in
-    let @25 = 1f - _t459 in
-    let @26 = _t459 / @25 in
+    let _t688 = @21 * @23 in
+    let @25 = 1f - _t688 in
+    let @26 = _t688 / @25 in
     gamma$r0$i1 = @26
     let @27 = (*gamma$r0$i1) in
     let @28 = 2f * @27 in
@@ -171,53 +171,51 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
       let @92 = @91._field0 in
       let @93 = @90 < @92 in
       if (@93) {
-        let _t35 = _t440.nInsts in
+        let _t35 = _t674.nInsts in
         let @95 = _t35 == 0u in
         if (@95) {
-          let @96 = f32x3(0f) in
-          let @97 = _t456 < @96 in
-          let @98 = _t440.axis in
-          let _t19 = @97[@98] in
-          let @100 = (*instances_index!top) + 1u in
-          let @101 = _t440.split0on_nInsts in
-          let @102 = reinterpret_cast<_tree_layout5>(@101) in
-          let @103 = @102.offset in
-          let @104 = (*instances_index!top) + @103 in
-          let @106 = !_t19 in
-          let @121 = select(@106, @100, @104) in
-          let @122 = select(@106, @104, @100) in
-          let @128 = (*!count) in
-          !stack[@128] = @122
-          let @130 = @128 + 1u in
-          !count = @130
-          instances_index!top = @121
+          let @96 = _t674.axis in
+          let _t19 = dirIsNeg$i1[@96] in
+          let @98 = (*instances_index!top) + 1u in
+          let @99 = _t674.split0on_nInsts in
+          let @100 = reinterpret_cast<_tree_layout5>(@99) in
+          let @101 = @100.offset in
+          let @102 = (*instances_index!top) + @101 in
+          let @104 = !_t19 in
+          let @119 = select(@104, @98, @102) in
+          let @120 = select(@104, @102, @98) in
+          let @126 = (*!count) in
+          !stack[@126] = @120
+          let @128 = @126 + 1u in
+          !count = @128
+          instances_index!top = @119
           !live = true
           continue
         } else {
-          let @108 = cast<u32>(_t35) in
+          let @106 = cast<u32>(_t35) in
           _idx0 = 0u
-          while ((*_idx0) < @108) {
-            let @110 = instances.insts in
-            let @111 = _t440.split0on_nInsts in
-            let @112 = reinterpret_cast<_tree_layout6>(@111) in
-            let @113 = @112.pOffset in
-            let @114 = @113 + (*_idx0) in
-            let @115 = @110[@114] in
-            let _subtree0 = @115.blas in
+          while ((*_idx0) < @106) {
+            let @108 = instances.insts in
+            let @109 = _t674.split0on_nInsts in
+            let @110 = reinterpret_cast<_tree_layout6>(@109) in
+            let @111 = @110.pOffset in
+            let @112 = @111 + (*_idx0) in
+            let @113 = @108[@112] in
+            let _subtree0 = @113.blas in
             _recloop_func1(_subtree0, instances, ray, _best0, (*instances_index!top), (*_idx0))
-            let @117 = (*_idx0) + 1u in
-            _idx0 = @117
+            let @115 = (*_idx0) + 1u in
+            _idx0 = @115
           }
         }
       }
     }
-    let @124 = (*!count) in
-    let @125 = @124 != 0u in
-    if (@125) {
-      let @126 = @124 - 1u in
-      !count = @126
-      let @127 = !stack[@126] in
-      instances_index!top = @127
+    let @122 = (*!count) in
+    let @123 = @122 != 0u in
+    if (@123) {
+      let @124 = @122 - 1u in
+      !count = @124
+      let @125 = !stack[@124] in
+      instances_index!top = @125
       !live = true
     } else {
       !live = false
@@ -237,39 +235,39 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
   !live = true
   while ((*!live)) {
     let @0 = instances.group0_bnode in
-    let _t470 = @0[(*_subtree0_bnode!top)] in
-    let @2 = _t470.low in
+    let _t696 = @0[(*_subtree0_bnode!top)] in
+    let @2 = _t696.low in
     let @3 = cast<f32x3>(@2) in
-    let @4 = _t470.high in
+    let @4 = _t696.high in
     let @5 = cast<f32x3>(@4) in
-    let _t479 = build<AABB>(@3, @5) in
+    let _t705 = build<AABB>(@3, @5) in
     intersects_Ray_AABB$r11 : mut bool
     intersectsp_ray_aabb$r0 : mut _option1
     let @7 = f32x3(1f) in
     let @8 = ray.d in
-    let _t486 = @7 / @8 in
+    let _t707 = @7 / @8 in
     let @10 = f32x3(0f) in
-    let dirIsNeg$i0 = _t486 < @10 in
-    let _t177$i0 = _t479.high in
-    let _t178$i0 = _t479.low in
+    let dirIsNeg$i0 = _t707 < @10 in
+    let _t177$i0 = _t705.high in
+    let _t178$i0 = _t705.low in
     let low_parts$i0 = select(dirIsNeg$i0, _t177$i0, _t178$i0) in
     let high_parts$i0 = select(dirIsNeg$i0, _t178$i0, _t177$i0) in
     let _t181$i0 = ray.o in
     tMin$i0 : mut f32x3
     let @17 = low_parts$i0 - _t181$i0 in
-    let @18 = @17 * _t486 in
+    let @18 = @17 * _t707 in
     tMin$i0 = @18
     tMax$i0 : mut f32x3
     let @19 = high_parts$i0 - _t181$i0 in
-    let @20 = @19 * _t486 in
+    let @20 = @19 * _t707 in
     tMax$i0 = @20
     gamma$r0$i0 : mut f32
     let @21 = cast<f32>(3) in
     let @22 = (f32)eps in
     let @23 = 0.5f * @22 in
-    let _t489 = @21 * @23 in
-    let @25 = 1f - _t489 in
-    let @26 = _t489 / @25 in
+    let _t710 = @21 * @23 in
+    let @25 = 1f - _t710 in
+    let @26 = _t710 / @25 in
     gamma$r0$i0 = @26
     let @27 = (*gamma$r0$i0) in
     let @28 = 2f * @27 in
@@ -367,83 +365,76 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
       let @92 = @91._field0 in
       let @93 = @90 < @92 in
       if (@93) {
-        let _t110 = _t470.nPrims in
+        let _t110 = _t696.nPrims in
         let @95 = _t110 == 0u in
         if (@95) {
-          let @96 = f32x3(0f) in
-          let @97 = _t486 < @96 in
-          let @98 = _t470.axis in
-          let _t63 = @97[@98] in
-          let @100 = (*_subtree0_bnode!top) + 1u in
-          let @101 = _t470.split0on_nPrims in
-          let @102 = reinterpret_cast<_tree_layout2>(@101) in
-          let @103 = @102.offset in
-          let @104 = (*_subtree0_bnode!top) + @103 in
-          let @106 = !_t63 in
-          let @140 = select(@106, @100, @104) in
-          let @141 = select(@106, @104, @100) in
-          let @147 = (*!count) in
-          !stack[@147] = @141
-          let @149 = @147 + 1u in
-          !count = @149
-          _subtree0_bnode!top = @140
+          let @96 = _t696.axis in
+          let _t63 = dirIsNeg$i0[@96] in
+          let @98 = (*_subtree0_bnode!top) + 1u in
+          let @99 = _t696.split0on_nPrims in
+          let @100 = reinterpret_cast<_tree_layout2>(@99) in
+          let @101 = @100.offset in
+          let @102 = (*_subtree0_bnode!top) + @101 in
+          let @104 = !_t63 in
+          let @137 = select(@104, @98, @102) in
+          let @138 = select(@104, @102, @98) in
+          let @144 = (*!count) in
+          !stack[@144] = @138
+          let @146 = @144 + 1u in
+          !count = @146
+          _subtree0_bnode!top = @137
           !live = true
           continue
         } else {
-          let @108 = cast<u32>(_t110) in
+          let @106 = cast<u32>(_t110) in
           _idx1 = 0u
-          while ((*_idx1) < @108) {
-            let @110 = instances.prims in
-            let @111 = _t470.split0on_nPrims in
-            let @112 = reinterpret_cast<_tree_layout3>(@111) in
-            let @113 = @112.pOffset in
-            let @114 = @113 + (*_idx1) in
-            let _t512 = @110[@114] in
-            let @116 = intersectsp_ray_tri(ray, _t512) in
-            let _t283 = @116 in
-            let _t514 = _t283.set in
-            if (_t514) {
+          while ((*_idx1) < @106) {
+            let @108 = instances.prims in
+            let @109 = _t696.split0on_nPrims in
+            let @110 = reinterpret_cast<_tree_layout3>(@109) in
+            let @111 = @110.pOffset in
+            let @112 = @111 + (*_idx1) in
+            let _t730 = @108[@112] in
+            let @114 = intersectsp_ray_tri(ray, _t730) in
+            let _t283 = @114 in
+            let @115 = _t283.set in
+            if (@115) {
               distmin_Ray_Triangle$r13 : mut f32
-              if (_t514) {
-                let isect_$i13 = _t283.value in
-                let @119 = isect_$i13.t in
-                distmin_Ray_Triangle$r13 = @119
-              } else {
-                let @120 = (f32)inf in
-                distmin_Ray_Triangle$r13 = @120
-              }
-              let @121 = (*distmin_Ray_Triangle$r13) in
-              let @122 = (*_best0) in
-              let @123 = @122._field0 in
-              let @124 = @121 < @123 in
-              if (@124) {
-                let @125 = (*distmin_Ray_Triangle$r13) in
-                let @126 = instances.insts in
-                let @127 = instances.group1_index in
-                let @128 = @127[instances_index] in
-                let @129 = @128.split0on_nInsts in
-                let @130 = reinterpret_cast<_tree_layout6>(@129) in
-                let @131 = @130.pOffset in
-                let @132 = @131 + _idx0 in
-                let @133 = @126[@132] in
-                let @134 = build<__tuple_0>(@133, _t512) in
-                let @135 = build<__tuple_1>(@125, @134) in
-                _best0 = @135
+              let isect_$i13 = _t283.value in
+              let @117 = isect_$i13.t in
+              distmin_Ray_Triangle$r13 = @117
+              let @118 = (*distmin_Ray_Triangle$r13) in
+              let @119 = (*_best0) in
+              let @120 = @119._field0 in
+              let @121 = @118 < @120 in
+              if (@121) {
+                let @122 = (*distmin_Ray_Triangle$r13) in
+                let @123 = instances.insts in
+                let @124 = instances.group1_index in
+                let @125 = @124[instances_index] in
+                let @126 = @125.split0on_nInsts in
+                let @127 = reinterpret_cast<_tree_layout6>(@126) in
+                let @128 = @127.pOffset in
+                let @129 = @128 + _idx0 in
+                let @130 = @123[@129] in
+                let @131 = build<__tuple_0>(@130, _t730) in
+                let @132 = build<__tuple_1>(@122, @131) in
+                _best0 = @132
               }
             }
-            let @136 = (*_idx1) + 1u in
-            _idx1 = @136
+            let @133 = (*_idx1) + 1u in
+            _idx1 = @133
           }
         }
       }
     }
-    let @143 = (*!count) in
-    let @144 = @143 != 0u in
-    if (@144) {
-      let @145 = @143 - 1u in
-      !count = @145
-      let @146 = !stack[@145] in
-      _subtree0_bnode!top = @146
+    let @140 = (*!count) in
+    let @141 = @140 != 0u in
+    if (@141) {
+      let @142 = @140 - 1u in
+      !count = @142
+      let @143 = !stack[@142] in
+      _subtree0_bnode!top = @143
       !live = true
     } else {
       !live = false

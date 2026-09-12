@@ -35,6 +35,7 @@
 #include "Opt/DCE.h"
 #include "Opt/Fusion.h"
 #include "Opt/Inline.h"
+#include "Opt/JumpThreading.h"
 #include "Opt/PullQueries.h"
 #include "Opt/Simplify.h"
 #include "Opt/Unswitch.h"
@@ -162,6 +163,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<opt::DCE>();
     manager.register_pass<opt::Fusion>();
     manager.register_pass<opt::Inline>();
+    manager.register_pass<opt::JumpThreading>();
     manager.register_pass<opt::Simplify>();
     manager.register_pass<opt::Unswitch>();
     manager.register_pass<opt::PullQueries>();
@@ -304,6 +306,12 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<opt::Inline>());
     ssa.push_back(std::make_unique<opt::CSE>());
     ssa.push_back(std::make_unique<opt::Inline>(/*with_locals=*/true));
+    ssa.push_back(std::make_unique<opt::CSE>());
+    // With everything a candidate is asked in one function, the `match`es
+    // on its variant are branches on one condition in a row; pulling the
+    // first over the rest puts the same test in the same arm twice, and the
+    // CSE after makes it one (see Opt/JumpThreading.h).
+    ssa.push_back(std::make_unique<opt::JumpThreading>());
     ssa.push_back(std::make_unique<opt::CSE>());
     // Clean up any dead functions after inlining.
     ssa.push_back(std::make_unique<opt::DCE>());

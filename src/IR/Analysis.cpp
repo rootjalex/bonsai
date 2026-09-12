@@ -362,11 +362,21 @@ struct HasSideEffects : ir::Visitor {
     }
 
     // TODO: use Halide's pure implementation
+    //
+    // Into the arguments as well: `min(f(x), 1)` has whatever effect `f`
+    // has. Not descending was how a dead binding of a clamped draw from a
+    // sampler -- `min(cast<f32>(next_uint(rng)) * k, 1)`, unread once a
+    // branch around it was decided -- came to be deleted with its draw, and
+    // the random stream of everything after it moved by one.
     void visit(const ir::Intrinsic *node) override {
         if (found) {
             return;
         }
-        found = node->op == ir::Intrinsic::rand;
+        if (node->op == ir::Intrinsic::rand) {
+            found = true;
+            return;
+        }
+        Visitor::visit(node);
     }
 
     void visit(const ir::Free *node) override {
@@ -383,6 +393,8 @@ struct HasSideEffects : ir::Visitor {
         found = true;
     }
 
+    // A call has the callee's effects and its arguments' -- a pure function
+    // called on an impure argument still made the argument happen.
     void visit(const ir::Call *node) override {
         if (found) {
             return;
@@ -392,7 +404,9 @@ struct HasSideEffects : ir::Visitor {
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;
+            return;
         }
+        Visitor::visit(node);
     }
 
     void visit(const ir::CallStmt *node) override {
@@ -404,7 +418,9 @@ struct HasSideEffects : ir::Visitor {
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;
+            return;
         }
+        Visitor::visit(node);
     }
 };
 

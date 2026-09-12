@@ -11,6 +11,7 @@ add_bonsai_tests(
     coated-diffuse.bonsai
     collapse.bonsai
     compare-fold.bonsai
+    dce-effectful-argument.bonsai
     dce.bonsai
     defer-sum.bonsai
     dynamic-array.bonsai
@@ -27,6 +28,7 @@ add_bonsai_tests(
     if-else-returns.bonsai
     inline-locals.bonsai
     inline-statements.bonsai
+    jump-threading.bonsai
     int64.bonsai
     literal-widening.bonsai
     loop-transforms.bonsai

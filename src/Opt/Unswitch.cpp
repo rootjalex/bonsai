@@ -136,10 +136,18 @@ struct UnswitchImpl : public Mutator {
                 // Can only merge if iff conditions are equal, and the body of
                 // the first does not mutate any variable read in the condition
                 // of the second.
+                // And not when an arm of the first always returns: the
+                // second's arm appended to it would sit behind the return,
+                // which no sequence may. (The program is the same either
+                // way -- that arm never reaches the second `if` -- but the
+                // IR would say something no pass can read.)
                 if (prev_if && curr_if &&
                     equals(prev_if->cond, curr_if->cond) &&
                     !reads(curr_if->cond,
-                           mutated_variables(new_stmts.back()))) {
+                           mutated_variables(new_stmts.back())) &&
+                    !always_returns(prev_if->then_body) &&
+                    !(prev_if->else_body.defined() &&
+                      always_returns(prev_if->else_body))) {
 
                     // Useful helper for merging flat sequences.
                     auto insert_sequence = [](std::vector<Stmt> &acc,

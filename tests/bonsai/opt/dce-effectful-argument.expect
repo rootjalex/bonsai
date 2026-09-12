@@ -1,0 +1,26 @@
+type Counter = struct Counter{ n : i32 }
+
+func bump(c : mut (Counter*)) -> f32 {
+  c.n = (*c).n + 1
+  return cast<f32>((*c).n)
+}
+
+func halve(x : f32) -> f32 {
+  return x * 0.5f
+}
+
+func unread_min(c : mut (Counter*)) -> i32 {
+  let u = min(bump(c), 1f) in
+  return (*c).n
+}
+
+func unread_pure(c : mut (Counter*)) -> i32 {
+  return (*c).n
+}
+
+func unread_wrapped(c : mut (Counter*)) -> i32 {
+  let u = halve(bump(c)) in
+  return (*c).n
+}
+
+

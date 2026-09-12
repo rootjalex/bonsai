@@ -342,15 +342,17 @@ struct FindSideEffects : ir::Visitor {
 
     FindSideEffects(const std::set<std::string> &side_effects_functions)
         : function_has_side_effects(side_effects_functions) {}
+    // A call with effects is kept whole, arguments included, so there is
+    // no looking inside it; a pure call may still have an impure argument,
+    // which is what has to be kept of it.
     void visit(const ir::Call *node) override {
         const auto *var = node->func.as<ir::Var>();
-        if (var == nullptr) {
-            return;
-        }
-        if (var->type.is<ir::Function_t>() &&
+        if (var != nullptr && var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             expressions.push_back(node);
+            return;
         }
+        Visitor::visit(node);
     }
 };
 

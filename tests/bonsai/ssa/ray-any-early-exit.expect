@@ -36,44 +36,44 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
     let @1 = !@0 in
     if (@1) {
       let @2 = tris.group0_index in
-      let _t528 = @2[(*tris_index!top)] in
-      let _t58 = _t528.nPrims in
+      let _t883 = @2[(*tris_index!top)] in
+      let _t58 = _t883.nPrims in
       let @5 = _t58 == 0u in
       if (@5) {
-        let @6 = _t528.low in
+        let @6 = _t883.low in
         let @7 = cast<f32x3>(@6) in
-        let @8 = _t528.high in
+        let @8 = _t883.high in
         let @9 = cast<f32x3>(@8) in
-        let _t537 = build<AABB>(@7, @9) in
+        let _t892 = build<AABB>(@7, @9) in
         if (false) {
           _holds0 = true
         } else {
           intersectsp_ray_aabb$r0 : mut _option0
           let @11 = f32x3(1f) in
           let @12 = r.d in
-          let _t544 = @11 / @12 in
+          let _t894 = @11 / @12 in
           let @14 = f32x3(0f) in
-          let dirIsNeg$i0 = _t544 < @14 in
-          let _t155$i0 = _t537.high in
-          let _t156$i0 = _t537.low in
+          let dirIsNeg$i0 = _t894 < @14 in
+          let _t155$i0 = _t892.high in
+          let _t156$i0 = _t892.low in
           let low_parts$i0 = select(dirIsNeg$i0, _t155$i0, _t156$i0) in
           let high_parts$i0 = select(dirIsNeg$i0, _t156$i0, _t155$i0) in
           let _t159$i0 = r.o in
           tMin$i0 : mut f32x3
           let @21 = low_parts$i0 - _t159$i0 in
-          let @22 = @21 * _t544 in
+          let @22 = @21 * _t894 in
           tMin$i0 = @22
           tMax$i0 : mut f32x3
           let @23 = high_parts$i0 - _t159$i0 in
-          let @24 = @23 * _t544 in
+          let @24 = @23 * _t894 in
           tMax$i0 = @24
           gamma$r0$i0 : mut f32
           let @25 = cast<f32>(3) in
           let @26 = (f32)eps in
           let @27 = 0.5f * @26 in
-          let _t547 = @25 * @27 in
-          let @29 = 1f - _t547 in
-          let @30 = _t547 / @29 in
+          let _t897 = @25 * @27 in
+          let @29 = 1f - _t897 in
+          let @30 = _t897 / @29 in
           gamma$r0$i0 = @30
           let @31 = (*gamma$r0$i0) in
           let @32 = 2f * @31 in
@@ -157,7 +157,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @88 = (*intersects_Ray_AABB$r12) in
           if (@88) {
             let @89 = (*tris_index!top) + 1u in
-            let @90 = _t528.split0on_nPrims in
+            let @90 = _t883.split0on_nPrims in
             let @91 = reinterpret_cast<_tree_layout2>(@90) in
             let @92 = @91.offset in
             let @93 = (*tris_index!top) + @92 in
@@ -171,40 +171,40 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           }
         }
       } else {
-        let @94 = _t528.low in
+        let @94 = _t883.low in
         let @95 = cast<f32x3>(@94) in
-        let @96 = _t528.high in
+        let @96 = _t883.high in
         let @97 = cast<f32x3>(@96) in
-        let _t562 = build<AABB>(@95, @97) in
+        let _t910 = build<AABB>(@95, @97) in
         if (false) {
           _holds0 = true
         } else {
           intersectsp_ray_aabb$r1 : mut _option0
           let @99 = f32x3(1f) in
           let @100 = r.d in
-          let _t569 = @99 / @100 in
+          let _t912 = @99 / @100 in
           let @102 = f32x3(0f) in
-          let dirIsNeg$i1 = _t569 < @102 in
-          let _t155$i1 = _t562.high in
-          let _t156$i1 = _t562.low in
+          let dirIsNeg$i1 = _t912 < @102 in
+          let _t155$i1 = _t910.high in
+          let _t156$i1 = _t910.low in
           let low_parts$i1 = select(dirIsNeg$i1, _t155$i1, _t156$i1) in
           let high_parts$i1 = select(dirIsNeg$i1, _t156$i1, _t155$i1) in
           let _t159$i1 = r.o in
           tMin$i1 : mut f32x3
           let @109 = low_parts$i1 - _t159$i1 in
-          let @110 = @109 * _t569 in
+          let @110 = @109 * _t912 in
           tMin$i1 = @110
           tMax$i1 : mut f32x3
           let @111 = high_parts$i1 - _t159$i1 in
-          let @112 = @111 * _t569 in
+          let @112 = @111 * _t912 in
           tMax$i1 = @112
           gamma$r0$i1 : mut f32
           let @113 = cast<f32>(3) in
           let @114 = (f32)eps in
           let @115 = 0.5f * @114 in
-          let _t572 = @113 * @115 in
-          let @117 = 1f - _t572 in
-          let @118 = _t572 / @117 in
+          let _t915 = @113 * @115 in
+          let @117 = 1f - _t915 in
+          let @118 = _t915 / @117 in
           gamma$r0$i1 = @118
           let @119 = (*gamma$r0$i1) in
           let @120 = 2f * @119 in

@@ -5,6 +5,7 @@
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
+#include "IR/Rename.h"
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
 #include "Lower/TopologicalOrder.h"
@@ -266,54 +267,6 @@ struct Nester {
             return ir::Stmt();
         }
         return ir::Sequence::make(std::move(stmts));
-    }
-};
-
-// Renames the variables a body binds, and its arguments, so that a copy of
-// it can sit beside anything. Both the uses and the bindings: a let, an
-// allocation, and the base of every store.
-struct Renamer : ir::Mutator {
-    explicit Renamer(const std::map<std::string, std::string> &renames)
-        : renames(renames) {}
-
-    const std::map<std::string, std::string> &renames;
-
-    std::string of(const std::string &name) const {
-        auto it = renames.find(name);
-        return it == renames.end() ? name : it->second;
-    }
-
-    ir::Expr visit(const ir::Var *node) override {
-        auto it = renames.find(node->name);
-        if (it == renames.end()) {
-            return node;
-        }
-        return ir::Var::make(node->type, it->second);
-    }
-
-    std::pair<ir::WriteLoc, bool>
-    mutate_writeloc(const ir::WriteLoc &loc) override {
-        auto [renamed, not_changed] = Mutator::mutate_writeloc(loc);
-        auto it = renames.find(renamed.base);
-        if (it == renames.end()) {
-            return {renamed, not_changed};
-        }
-        renamed.base = it->second;
-        return {renamed, false};
-    }
-
-    ir::Stmt visit(const ir::LetStmt *node) override {
-        auto [loc, _] = mutate_writeloc(node->loc);
-        return ir::LetStmt::make(std::move(loc), mutate(node->value));
-    }
-
-    ir::Stmt visit(const ir::Allocate *node) override {
-        auto [loc, _] = mutate_writeloc(node->loc);
-        if (node->value.defined()) {
-            return ir::Allocate::make(std::move(loc), mutate(node->value),
-                                      node->memory, node->unaliased);
-        }
-        return ir::Allocate::make(std::move(loc), node->memory);
     }
 };
 
@@ -613,8 +566,9 @@ class Inliner : public ir::Mutator {
                                              ir::Allocate::Memory::Stack));
         }
 
-        Renamer renamer(renames);
-        ir::Stmt body = renamer.mutate(f.body);
+        // The variables the body binds, and its arguments, renamed so that
+        // the copy can sit beside anything.
+        ir::Stmt body = ir::rename_bindings(f.body, renames);
         if (!substitutions.empty()) {
             body = replace(substitutions, body);
         }

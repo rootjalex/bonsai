@@ -75,7 +75,7 @@ __sqlen_f32_entry:
 define void @_traverse_tree0(ptr noalias nocapture noundef nonnull writeonly sret(%struct._option0) align 16 %_sret, %struct.Ray noundef %ray, %struct._tree_layout0 noundef %instances) local_unnamed_addr #1 {
 _traverse_tree0_entry:
   %_ret.i = alloca %struct._option2, align 8
-  %"!stack112.i" = alloca [64 x i32], align 4
+  %"!stack109.i" = alloca [64 x i32], align 4
   %"!stack100.i" = alloca [64 x i32], align 4
   call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack100.i")
   %instances.group1_index.i = extractvalue %struct._tree_layout0 %instances, 7
@@ -204,17 +204,17 @@ while.body54.i:                                   ; preds = %next_bb48.i, %_recl
   %extract_ptr59.i = getelementptr inbounds %struct.Instance, ptr %instances.insts.i, i64 %43
   %extract60.unpack.i = load i32, ptr %extract_ptr59.i, align 4
   call void @llvm.lifetime.start.p0(i64 20, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack112.i")
+  call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack109.i")
   br label %while.body.i5.lr.ph
 
-while.body.i5.lr.ph:                              ; preds = %after_bb79.i, %while.body54.i
-  %"_subtree0_bnode!top.0.i.ph119" = phi i32 [ %extract60.unpack.i, %while.body54.i ], [ %extract83.i, %after_bb79.i ]
-  %"!count.0.i3.ph118" = phi i32 [ 0, %while.body54.i ], [ %92, %after_bb79.i ]
-  %_best0.sroa.0.3.ph117 = phi float [ %_best0.sroa.0.2124, %while.body54.i ], [ %_best0.sroa.0.4, %after_bb79.i ]
-  %_best0.sroa.6.3.ph116 = phi i32 [ %_best0.sroa.6.2123, %while.body54.i ], [ %_best0.sroa.6.4, %after_bb79.i ]
-  %_best0.sroa.9.3.ph115 = phi <3 x float> [ %_best0.sroa.9.2122, %while.body54.i ], [ %_best0.sroa.9.4, %after_bb79.i ]
-  %_best0.sroa.12.3.ph114 = phi <3 x float> [ %_best0.sroa.12.2121, %while.body54.i ], [ %_best0.sroa.12.4, %after_bb79.i ]
-  %_best0.sroa.15.3.ph113 = phi <3 x float> [ %_best0.sroa.15.2120, %while.body54.i ], [ %_best0.sroa.15.4, %after_bb79.i ]
+while.body.i5.lr.ph:                              ; preds = %after_bb76.i, %while.body54.i
+  %"_subtree0_bnode!top.0.i.ph119" = phi i32 [ %extract60.unpack.i, %while.body54.i ], [ %extract80.i, %after_bb76.i ]
+  %"!count.0.i3.ph118" = phi i32 [ 0, %while.body54.i ], [ %92, %after_bb76.i ]
+  %_best0.sroa.0.3.ph117 = phi float [ %_best0.sroa.0.2124, %while.body54.i ], [ %_best0.sroa.0.4, %after_bb76.i ]
+  %_best0.sroa.6.3.ph116 = phi i32 [ %_best0.sroa.6.2123, %while.body54.i ], [ %_best0.sroa.6.4, %after_bb76.i ]
+  %_best0.sroa.9.3.ph115 = phi <3 x float> [ %_best0.sroa.9.2122, %while.body54.i ], [ %_best0.sroa.9.4, %after_bb76.i ]
+  %_best0.sroa.12.3.ph114 = phi <3 x float> [ %_best0.sroa.12.2121, %while.body54.i ], [ %_best0.sroa.12.4, %after_bb76.i ]
+  %_best0.sroa.15.3.ph113 = phi <3 x float> [ %_best0.sroa.15.2120, %while.body54.i ], [ %_best0.sroa.15.4, %after_bb76.i ]
   br label %while.body.i5
 
 while.body.i5:                                    ; preds = %then_bb47.i36, %while.body.i5.lr.ph
@@ -223,20 +223,20 @@ while.body.i5:                                    ; preds = %then_bb47.i36, %whi
   %44 = sext i32 %"_subtree0_bnode!top.0.i96" to i64
   %extract_ptr.i6 = getelementptr inbounds %struct._tree_layout1, ptr %instances.group0_bnode.i, i64 %44
   %extract.unpack.unpack.i7 = load float, ptr %extract_ptr.i6, align 1
-  %extract.unpack.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 4
-  %45 = load <2 x float>, ptr %extract.unpack.elt122.i, align 1
-  %extract.elt113.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 12
-  %extract.unpack114.unpack.i = load float, ptr %extract.elt113.i, align 1
-  %extract.unpack114.elt127.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 16
-  %46 = load <2 x float>, ptr %extract.unpack114.elt127.i, align 1
-  %extract.elt115.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 24
-  %extract.unpack116.i = load i16, ptr %extract.elt115.i, align 1
-  %extract.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 28
-  %47 = load i32, ptr %extract.elt119.i, align 1
+  %extract.unpack.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 4
+  %45 = load <2 x float>, ptr %extract.unpack.elt119.i, align 1
+  %extract.elt110.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 12
+  %extract.unpack111.unpack.i = load float, ptr %extract.elt110.i, align 1
+  %extract.unpack111.elt124.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 16
+  %46 = load <2 x float>, ptr %extract.unpack111.elt124.i, align 1
+  %extract.elt112.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 24
+  %extract.unpack113.i = load i16, ptr %extract.elt112.i, align 1
+  %extract.elt116.i = getelementptr inbounds i8, ptr %extract_ptr.i6, i64 28
+  %47 = load i32, ptr %extract.elt116.i, align 1
   %48 = insertelement <3 x float> poison, float %extract.unpack.unpack.i7, i64 0
   %49 = shufflevector <2 x float> %45, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %50 = shufflevector <3 x float> %48, <3 x float> %49, <3 x i32> <i32 0, i32 3, i32 4>
-  %51 = insertelement <3 x float> poison, float %extract.unpack114.unpack.i, i64 0
+  %51 = insertelement <3 x float> poison, float %extract.unpack111.unpack.i, i64 0
   %52 = shufflevector <2 x float> %46, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %53 = shufflevector <3 x float> %51, <3 x float> %52, <3 x i32> <i32 0, i32 3, i32 4>
   %54 = select <3 x i1> %1, <3 x float> %53, <3 x float> %50
@@ -286,23 +286,23 @@ after_bb34.i21:                                   ; preds = %next_bb.i10, %while
   %_best0.sroa.6.4 = phi i32 [ %_best0.sroa.6.6, %after_bb61.i ], [ %_best0.sroa.6.3.ph116, %then_bb30.i24 ], [ %_best0.sroa.6.3.ph116, %while.body.i5 ], [ %_best0.sroa.6.3.ph116, %next_bb.i10 ]
   %_best0.sroa.0.4 = phi float [ %_best0.sroa.0.6, %after_bb61.i ], [ %_best0.sroa.0.3.ph117, %then_bb30.i24 ], [ %_best0.sroa.0.3.ph117, %while.body.i5 ], [ %_best0.sroa.0.3.ph117, %next_bb.i10 ]
   %.not.i22.not = icmp eq i32 %"!count.0.i395", 0
-  br i1 %.not.i22.not, label %_recloop_func1.exit, label %after_bb79.i
+  br i1 %.not.i22.not, label %_recloop_func1.exit, label %after_bb76.i
 
 then_bb44.i28:                                    ; preds = %then_bb30.i24
-  %76 = icmp eq i16 %extract.unpack116.i, 0
+  %76 = icmp eq i16 %extract.unpack113.i, 0
   br i1 %76, label %then_bb47.i36, label %next_bb48.i29
 
 then_bb47.i36:                                    ; preds = %then_bb44.i28
   %77 = add i32 %"_subtree0_bnode!top.0.i96", 1
   %78 = add i32 %"_subtree0_bnode!top.0.i96", %47
   %79 = sext i32 %"!count.0.i395" to i64
-  %"!stack52.i37" = getelementptr inbounds i32, ptr %"!stack112.i", i64 %79
+  %"!stack52.i37" = getelementptr inbounds i32, ptr %"!stack109.i", i64 %79
   store i32 %78, ptr %"!stack52.i37", align 4, !tbaa !0
   %80 = add i32 %"!count.0.i395", 1
   br label %while.body.i5
 
 next_bb48.i29:                                    ; preds = %then_bb44.i28
-  %81 = zext i16 %extract.unpack116.i to i32
+  %81 = zext i16 %extract.unpack113.i to i32
   br label %while.body54.i31
 
 while.body54.i31:                                 ; preds = %next_bb48.i29, %after_bb61.i
@@ -317,49 +317,49 @@ while.body54.i31:                                 ; preds = %next_bb48.i29, %aft
   %extract_ptr59.i32 = getelementptr inbounds %struct.Triangle, ptr %instances.prims.i, i64 %83
   %extract60.unpack.i33 = load <3 x float>, ptr %extract_ptr59.i32, align 16
   %84 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i33, 0
-  %extract60.elt139.i = getelementptr inbounds i8, ptr %extract_ptr59.i32, i64 16
-  %extract60.unpack140.i = load <3 x float>, ptr %extract60.elt139.i, align 16
-  %85 = insertvalue %struct.Triangle %84, <3 x float> %extract60.unpack140.i, 1
-  %extract60.elt141.i = getelementptr inbounds i8, ptr %extract_ptr59.i32, i64 32
-  %extract60.unpack142.i = load <3 x float>, ptr %extract60.elt141.i, align 16
-  %extract60143.i = insertvalue %struct.Triangle %85, <3 x float> %extract60.unpack142.i, 2
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract60143.i)
+  %extract60.elt136.i = getelementptr inbounds i8, ptr %extract_ptr59.i32, i64 16
+  %extract60.unpack137.i = load <3 x float>, ptr %extract60.elt136.i, align 16
+  %85 = insertvalue %struct.Triangle %84, <3 x float> %extract60.unpack137.i, 1
+  %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i32, i64 32
+  %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
+  %extract60140.i = insertvalue %struct.Triangle %85, <3 x float> %extract60.unpack139.i, 2
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract60140.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
-  br i1 %.fca.1.load.i, label %then_bb65.i, label %after_bb61.i
+  br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
-after_bb61.i:                                     ; preds = %then_bb70.i, %then_bb65.i, %while.body54.i31
-  %_best0.sroa.15.6 = phi <3 x float> [ %extract60.unpack142.i, %then_bb70.i ], [ %_best0.sroa.15.5107, %then_bb65.i ], [ %_best0.sroa.15.5107, %while.body54.i31 ]
-  %_best0.sroa.12.6 = phi <3 x float> [ %extract60.unpack140.i, %then_bb70.i ], [ %_best0.sroa.12.5108, %then_bb65.i ], [ %_best0.sroa.12.5108, %while.body54.i31 ]
-  %_best0.sroa.9.6 = phi <3 x float> [ %extract60.unpack.i33, %then_bb70.i ], [ %_best0.sroa.9.5109, %then_bb65.i ], [ %_best0.sroa.9.5109, %while.body54.i31 ]
-  %_best0.sroa.6.6 = phi i32 [ %extract76.unpack.i, %then_bb70.i ], [ %_best0.sroa.6.5110, %then_bb65.i ], [ %_best0.sroa.6.5110, %while.body54.i31 ]
-  %_best0.sroa.0.6 = phi float [ %.fca.0.3.load.i, %then_bb70.i ], [ %_best0.sroa.0.5111, %then_bb65.i ], [ %_best0.sroa.0.5111, %while.body54.i31 ]
+after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i31
+  %_best0.sroa.15.6 = phi <3 x float> [ %extract60.unpack139.i, %then_bb67.i ], [ %_best0.sroa.15.5107, %then_bb62.i ], [ %_best0.sroa.15.5107, %while.body54.i31 ]
+  %_best0.sroa.12.6 = phi <3 x float> [ %extract60.unpack137.i, %then_bb67.i ], [ %_best0.sroa.12.5108, %then_bb62.i ], [ %_best0.sroa.12.5108, %while.body54.i31 ]
+  %_best0.sroa.9.6 = phi <3 x float> [ %extract60.unpack.i33, %then_bb67.i ], [ %_best0.sroa.9.5109, %then_bb62.i ], [ %_best0.sroa.9.5109, %while.body54.i31 ]
+  %_best0.sroa.6.6 = phi i32 [ %extract73.unpack.i, %then_bb67.i ], [ %_best0.sroa.6.5110, %then_bb62.i ], [ %_best0.sroa.6.5110, %while.body54.i31 ]
+  %_best0.sroa.0.6 = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %_best0.sroa.0.5111, %then_bb62.i ], [ %_best0.sroa.0.5111, %while.body54.i31 ]
   %86 = add nuw nsw i32 %_idx1.0.i112, 1
   %87 = icmp ult i32 %86, %81
   br i1 %87, label %while.body54.i31, label %after_bb34.i21
 
-then_bb65.i:                                      ; preds = %while.body54.i31
+then_bb62.i:                                      ; preds = %while.body54.i31
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
   %88 = fcmp olt float %.fca.0.3.load.i, %_best0.sroa.0.5111
-  br i1 %88, label %then_bb70.i, label %after_bb61.i
+  br i1 %88, label %then_bb67.i, label %after_bb61.i
 
-then_bb70.i:                                      ; preds = %then_bb65.i
+then_bb67.i:                                      ; preds = %then_bb62.i
   %89 = load i32, ptr %extract.elt107.i.le, align 1
   %90 = add i32 %_idx0.0.i125, %89
   %91 = sext i32 %90 to i64
-  %extract_ptr75.i = getelementptr inbounds %struct.Instance, ptr %instances.insts.i, i64 %91
-  %extract76.unpack.i = load i32, ptr %extract_ptr75.i, align 4
+  %extract_ptr72.i = getelementptr inbounds %struct.Instance, ptr %instances.insts.i, i64 %91
+  %extract73.unpack.i = load i32, ptr %extract_ptr72.i, align 4
   br label %after_bb61.i
 
-after_bb79.i:                                     ; preds = %after_bb34.i21
+after_bb76.i:                                     ; preds = %after_bb34.i21
   %92 = add i32 %"!count.0.i395", -1
   %93 = sext i32 %92 to i64
-  %extract_ptr82.i = getelementptr inbounds i32, ptr %"!stack112.i", i64 %93
-  %extract83.i = load i32, ptr %extract_ptr82.i, align 4
+  %extract_ptr79.i = getelementptr inbounds i32, ptr %"!stack109.i", i64 %93
+  %extract80.i = load i32, ptr %extract_ptr79.i, align 4
   br label %while.body.i5.lr.ph
 
 _recloop_func1.exit:                              ; preds = %after_bb34.i21
   call void @llvm.lifetime.end.p0(i64 20, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack112.i")
+  call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack109.i")
   %94 = add nuw nsw i32 %_idx0.0.i125, 1
   %95 = icmp ult i32 %94, %40
   br i1 %95, label %while.body54.i, label %after_bb34.i
@@ -389,7 +389,7 @@ _recloop_func0.exit:                              ; preds = %after_bb34.i
 define void @_unexported_trace(ptr noalias nocapture noundef nonnull writeonly sret(%struct._option0) align 16 %_sret, %struct.Ray noundef %ray, %struct._tree_layout0 noundef %instances) local_unnamed_addr #1 {
 _unexported_trace_entry:
   %_ret.i = alloca %struct._option2, align 8
-  %"!stack112.i" = alloca [64 x i32], align 4
+  %"!stack109.i" = alloca [64 x i32], align 4
   %"!stack100.i" = alloca [64 x i32], align 4
   call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack100.i")
   %instances.group1_index.i = extractvalue %struct._tree_layout0 %instances, 7
@@ -518,17 +518,17 @@ while.body54.i:                                   ; preds = %next_bb48.i, %_recl
   %extract_ptr59.i = getelementptr inbounds %struct.Instance, ptr %instances.insts.i, i64 %43
   %extract60.unpack.i = load i32, ptr %extract_ptr59.i, align 4
   call void @llvm.lifetime.start.p0(i64 20, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack112.i")
+  call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack109.i")
   br label %while.body.i6.lr.ph
 
-while.body.i6.lr.ph:                              ; preds = %after_bb79.i, %while.body54.i
-  %"_subtree0_bnode!top.0.i.ph120" = phi i32 [ %extract60.unpack.i, %while.body54.i ], [ %extract83.i, %after_bb79.i ]
-  %"!count.0.i4.ph119" = phi i32 [ 0, %while.body54.i ], [ %92, %after_bb79.i ]
-  %"_best0$i5.sroa.0.3.ph118" = phi float [ %"_best0$i5.sroa.0.2125", %while.body54.i ], [ %"_best0$i5.sroa.0.4", %after_bb79.i ]
-  %"_best0$i5.sroa.6.3.ph117" = phi i32 [ %"_best0$i5.sroa.6.2124", %while.body54.i ], [ %"_best0$i5.sroa.6.4", %after_bb79.i ]
-  %"_best0$i5.sroa.9.3.ph116" = phi <3 x float> [ %"_best0$i5.sroa.9.2123", %while.body54.i ], [ %"_best0$i5.sroa.9.4", %after_bb79.i ]
-  %"_best0$i5.sroa.12.3.ph115" = phi <3 x float> [ %"_best0$i5.sroa.12.2122", %while.body54.i ], [ %"_best0$i5.sroa.12.4", %after_bb79.i ]
-  %"_best0$i5.sroa.15.3.ph114" = phi <3 x float> [ %"_best0$i5.sroa.15.2121", %while.body54.i ], [ %"_best0$i5.sroa.15.4", %after_bb79.i ]
+while.body.i6.lr.ph:                              ; preds = %after_bb76.i, %while.body54.i
+  %"_subtree0_bnode!top.0.i.ph120" = phi i32 [ %extract60.unpack.i, %while.body54.i ], [ %extract80.i, %after_bb76.i ]
+  %"!count.0.i4.ph119" = phi i32 [ 0, %while.body54.i ], [ %92, %after_bb76.i ]
+  %"_best0$i5.sroa.0.3.ph118" = phi float [ %"_best0$i5.sroa.0.2125", %while.body54.i ], [ %"_best0$i5.sroa.0.4", %after_bb76.i ]
+  %"_best0$i5.sroa.6.3.ph117" = phi i32 [ %"_best0$i5.sroa.6.2124", %while.body54.i ], [ %"_best0$i5.sroa.6.4", %after_bb76.i ]
+  %"_best0$i5.sroa.9.3.ph116" = phi <3 x float> [ %"_best0$i5.sroa.9.2123", %while.body54.i ], [ %"_best0$i5.sroa.9.4", %after_bb76.i ]
+  %"_best0$i5.sroa.12.3.ph115" = phi <3 x float> [ %"_best0$i5.sroa.12.2122", %while.body54.i ], [ %"_best0$i5.sroa.12.4", %after_bb76.i ]
+  %"_best0$i5.sroa.15.3.ph114" = phi <3 x float> [ %"_best0$i5.sroa.15.2121", %while.body54.i ], [ %"_best0$i5.sroa.15.4", %after_bb76.i ]
   br label %while.body.i6
 
 while.body.i6:                                    ; preds = %then_bb47.i37, %while.body.i6.lr.ph
@@ -537,20 +537,20 @@ while.body.i6:                                    ; preds = %then_bb47.i37, %whi
   %44 = sext i32 %"_subtree0_bnode!top.0.i97" to i64
   %extract_ptr.i7 = getelementptr inbounds %struct._tree_layout1, ptr %instances.group0_bnode.i, i64 %44
   %extract.unpack.unpack.i8 = load float, ptr %extract_ptr.i7, align 1
-  %extract.unpack.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 4
-  %45 = load <2 x float>, ptr %extract.unpack.elt122.i, align 1
-  %extract.elt113.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 12
-  %extract.unpack114.unpack.i = load float, ptr %extract.elt113.i, align 1
-  %extract.unpack114.elt127.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 16
-  %46 = load <2 x float>, ptr %extract.unpack114.elt127.i, align 1
-  %extract.elt115.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 24
-  %extract.unpack116.i = load i16, ptr %extract.elt115.i, align 1
-  %extract.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 28
-  %47 = load i32, ptr %extract.elt119.i, align 1
+  %extract.unpack.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 4
+  %45 = load <2 x float>, ptr %extract.unpack.elt119.i, align 1
+  %extract.elt110.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 12
+  %extract.unpack111.unpack.i = load float, ptr %extract.elt110.i, align 1
+  %extract.unpack111.elt124.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 16
+  %46 = load <2 x float>, ptr %extract.unpack111.elt124.i, align 1
+  %extract.elt112.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 24
+  %extract.unpack113.i = load i16, ptr %extract.elt112.i, align 1
+  %extract.elt116.i = getelementptr inbounds i8, ptr %extract_ptr.i7, i64 28
+  %47 = load i32, ptr %extract.elt116.i, align 1
   %48 = insertelement <3 x float> poison, float %extract.unpack.unpack.i8, i64 0
   %49 = shufflevector <2 x float> %45, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %50 = shufflevector <3 x float> %48, <3 x float> %49, <3 x i32> <i32 0, i32 3, i32 4>
-  %51 = insertelement <3 x float> poison, float %extract.unpack114.unpack.i, i64 0
+  %51 = insertelement <3 x float> poison, float %extract.unpack111.unpack.i, i64 0
   %52 = shufflevector <2 x float> %46, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %53 = shufflevector <3 x float> %51, <3 x float> %52, <3 x i32> <i32 0, i32 3, i32 4>
   %54 = select <3 x i1> %1, <3 x float> %53, <3 x float> %50
@@ -600,23 +600,23 @@ after_bb34.i22:                                   ; preds = %next_bb.i11, %while
   %"_best0$i5.sroa.6.4" = phi i32 [ %"_best0$i5.sroa.6.6", %after_bb61.i ], [ %"_best0$i5.sroa.6.3.ph117", %then_bb30.i25 ], [ %"_best0$i5.sroa.6.3.ph117", %while.body.i6 ], [ %"_best0$i5.sroa.6.3.ph117", %next_bb.i11 ]
   %"_best0$i5.sroa.0.4" = phi float [ %"_best0$i5.sroa.0.6", %after_bb61.i ], [ %"_best0$i5.sroa.0.3.ph118", %then_bb30.i25 ], [ %"_best0$i5.sroa.0.3.ph118", %while.body.i6 ], [ %"_best0$i5.sroa.0.3.ph118", %next_bb.i11 ]
   %.not.i23.not = icmp eq i32 %"!count.0.i496", 0
-  br i1 %.not.i23.not, label %_recloop_func1.exit, label %after_bb79.i
+  br i1 %.not.i23.not, label %_recloop_func1.exit, label %after_bb76.i
 
 then_bb44.i29:                                    ; preds = %then_bb30.i25
-  %76 = icmp eq i16 %extract.unpack116.i, 0
+  %76 = icmp eq i16 %extract.unpack113.i, 0
   br i1 %76, label %then_bb47.i37, label %next_bb48.i30
 
 then_bb47.i37:                                    ; preds = %then_bb44.i29
   %77 = add i32 %"_subtree0_bnode!top.0.i97", 1
   %78 = add i32 %"_subtree0_bnode!top.0.i97", %47
   %79 = sext i32 %"!count.0.i496" to i64
-  %"!stack52.i38" = getelementptr inbounds i32, ptr %"!stack112.i", i64 %79
+  %"!stack52.i38" = getelementptr inbounds i32, ptr %"!stack109.i", i64 %79
   store i32 %78, ptr %"!stack52.i38", align 4, !tbaa !0
   %80 = add i32 %"!count.0.i496", 1
   br label %while.body.i6
 
 next_bb48.i30:                                    ; preds = %then_bb44.i29
-  %81 = zext i16 %extract.unpack116.i to i32
+  %81 = zext i16 %extract.unpack113.i to i32
   br label %while.body54.i32
 
 while.body54.i32:                                 ; preds = %next_bb48.i30, %after_bb61.i
@@ -631,49 +631,49 @@ while.body54.i32:                                 ; preds = %next_bb48.i30, %aft
   %extract_ptr59.i33 = getelementptr inbounds %struct.Triangle, ptr %instances.prims.i, i64 %83
   %extract60.unpack.i34 = load <3 x float>, ptr %extract_ptr59.i33, align 16
   %84 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i34, 0
-  %extract60.elt139.i = getelementptr inbounds i8, ptr %extract_ptr59.i33, i64 16
-  %extract60.unpack140.i = load <3 x float>, ptr %extract60.elt139.i, align 16
-  %85 = insertvalue %struct.Triangle %84, <3 x float> %extract60.unpack140.i, 1
-  %extract60.elt141.i = getelementptr inbounds i8, ptr %extract_ptr59.i33, i64 32
-  %extract60.unpack142.i = load <3 x float>, ptr %extract60.elt141.i, align 16
-  %extract60143.i = insertvalue %struct.Triangle %85, <3 x float> %extract60.unpack142.i, 2
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract60143.i)
+  %extract60.elt136.i = getelementptr inbounds i8, ptr %extract_ptr59.i33, i64 16
+  %extract60.unpack137.i = load <3 x float>, ptr %extract60.elt136.i, align 16
+  %85 = insertvalue %struct.Triangle %84, <3 x float> %extract60.unpack137.i, 1
+  %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i33, i64 32
+  %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
+  %extract60140.i = insertvalue %struct.Triangle %85, <3 x float> %extract60.unpack139.i, 2
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract60140.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
-  br i1 %.fca.1.load.i, label %then_bb65.i, label %after_bb61.i
+  br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
-after_bb61.i:                                     ; preds = %then_bb70.i, %then_bb65.i, %while.body54.i32
-  %"_best0$i5.sroa.15.6" = phi <3 x float> [ %extract60.unpack142.i, %then_bb70.i ], [ %"_best0$i5.sroa.15.5108", %then_bb65.i ], [ %"_best0$i5.sroa.15.5108", %while.body54.i32 ]
-  %"_best0$i5.sroa.12.6" = phi <3 x float> [ %extract60.unpack140.i, %then_bb70.i ], [ %"_best0$i5.sroa.12.5109", %then_bb65.i ], [ %"_best0$i5.sroa.12.5109", %while.body54.i32 ]
-  %"_best0$i5.sroa.9.6" = phi <3 x float> [ %extract60.unpack.i34, %then_bb70.i ], [ %"_best0$i5.sroa.9.5110", %then_bb65.i ], [ %"_best0$i5.sroa.9.5110", %while.body54.i32 ]
-  %"_best0$i5.sroa.6.6" = phi i32 [ %extract76.unpack.i, %then_bb70.i ], [ %"_best0$i5.sroa.6.5111", %then_bb65.i ], [ %"_best0$i5.sroa.6.5111", %while.body54.i32 ]
-  %"_best0$i5.sroa.0.6" = phi float [ %.fca.0.3.load.i, %then_bb70.i ], [ %"_best0$i5.sroa.0.5112", %then_bb65.i ], [ %"_best0$i5.sroa.0.5112", %while.body54.i32 ]
+after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i32
+  %"_best0$i5.sroa.15.6" = phi <3 x float> [ %extract60.unpack139.i, %then_bb67.i ], [ %"_best0$i5.sroa.15.5108", %then_bb62.i ], [ %"_best0$i5.sroa.15.5108", %while.body54.i32 ]
+  %"_best0$i5.sroa.12.6" = phi <3 x float> [ %extract60.unpack137.i, %then_bb67.i ], [ %"_best0$i5.sroa.12.5109", %then_bb62.i ], [ %"_best0$i5.sroa.12.5109", %while.body54.i32 ]
+  %"_best0$i5.sroa.9.6" = phi <3 x float> [ %extract60.unpack.i34, %then_bb67.i ], [ %"_best0$i5.sroa.9.5110", %then_bb62.i ], [ %"_best0$i5.sroa.9.5110", %while.body54.i32 ]
+  %"_best0$i5.sroa.6.6" = phi i32 [ %extract73.unpack.i, %then_bb67.i ], [ %"_best0$i5.sroa.6.5111", %then_bb62.i ], [ %"_best0$i5.sroa.6.5111", %while.body54.i32 ]
+  %"_best0$i5.sroa.0.6" = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %"_best0$i5.sroa.0.5112", %then_bb62.i ], [ %"_best0$i5.sroa.0.5112", %while.body54.i32 ]
   %86 = add nuw nsw i32 %_idx1.0.i113, 1
   %87 = icmp ult i32 %86, %81
   br i1 %87, label %while.body54.i32, label %after_bb34.i22
 
-then_bb65.i:                                      ; preds = %while.body54.i32
+then_bb62.i:                                      ; preds = %while.body54.i32
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
   %88 = fcmp olt float %.fca.0.3.load.i, %"_best0$i5.sroa.0.5112"
-  br i1 %88, label %then_bb70.i, label %after_bb61.i
+  br i1 %88, label %then_bb67.i, label %after_bb61.i
 
-then_bb70.i:                                      ; preds = %then_bb65.i
+then_bb67.i:                                      ; preds = %then_bb62.i
   %89 = load i32, ptr %extract.elt107.i.le, align 1
   %90 = add i32 %_idx0.0.i126, %89
   %91 = sext i32 %90 to i64
-  %extract_ptr75.i = getelementptr inbounds %struct.Instance, ptr %instances.insts.i, i64 %91
-  %extract76.unpack.i = load i32, ptr %extract_ptr75.i, align 4
+  %extract_ptr72.i = getelementptr inbounds %struct.Instance, ptr %instances.insts.i, i64 %91
+  %extract73.unpack.i = load i32, ptr %extract_ptr72.i, align 4
   br label %after_bb61.i
 
-after_bb79.i:                                     ; preds = %after_bb34.i22
+after_bb76.i:                                     ; preds = %after_bb34.i22
   %92 = add i32 %"!count.0.i496", -1
   %93 = sext i32 %92 to i64
-  %extract_ptr82.i = getelementptr inbounds i32, ptr %"!stack112.i", i64 %93
-  %extract83.i = load i32, ptr %extract_ptr82.i, align 4
+  %extract_ptr79.i = getelementptr inbounds i32, ptr %"!stack109.i", i64 %93
+  %extract80.i = load i32, ptr %extract_ptr79.i, align 4
   br label %while.body.i6.lr.ph
 
 _recloop_func1.exit:                              ; preds = %after_bb34.i22
   call void @llvm.lifetime.end.p0(i64 20, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack112.i")
+  call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack109.i")
   %94 = add nuw nsw i32 %_idx0.0.i126, 1
   %95 = icmp ult i32 %94, %40
   br i1 %95, label %while.body54.i, label %after_bb34.i
@@ -2097,7 +2097,7 @@ sqlen__entry:
 define void @trace(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %ray, ptr nocapture noundef nonnull readonly %instances) local_unnamed_addr #1 {
 trace_entry:
   %_ret.i = alloca %struct._option2, align 8
-  %"!stack112.i" = alloca [64 x i32], align 4
+  %"!stack109.i" = alloca [64 x i32], align 4
   %"!stack100.i" = alloca [64 x i32], align 4
   %deref_temp.elt5 = getelementptr inbounds i8, ptr %instances, i64 4
   %deref_temp.unpack6 = load ptr, ptr %deref_temp.elt5, align 1
@@ -2228,17 +2228,17 @@ while.body54.i:                                   ; preds = %next_bb48.i, %_recl
   %extract_ptr59.i = getelementptr inbounds %struct.Instance, ptr %deref_temp.unpack14, i64 %41
   %extract60.unpack.i = load i32, ptr %extract_ptr59.i, align 4
   call void @llvm.lifetime.start.p0(i64 20, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack112.i")
+  call void @llvm.lifetime.start.p0(i64 256, ptr nonnull %"!stack109.i")
   br label %while.body.i23.lr.ph
 
-while.body.i23.lr.ph:                             ; preds = %after_bb79.i, %while.body54.i
-  %"_subtree0_bnode!top.0.i.ph128" = phi i32 [ %extract60.unpack.i, %while.body54.i ], [ %extract83.i, %after_bb79.i ]
-  %"!count.0.i21.ph127" = phi i32 [ 0, %while.body54.i ], [ %87, %after_bb79.i ]
-  %"_best0$i5.sroa.0.3.ph126" = phi float [ %"_best0$i5.sroa.0.2133", %while.body54.i ], [ %"_best0$i5.sroa.0.4", %after_bb79.i ]
-  %"_best0$i5.sroa.6.3.ph125" = phi i32 [ %"_best0$i5.sroa.6.2132", %while.body54.i ], [ %"_best0$i5.sroa.6.4", %after_bb79.i ]
-  %"_best0$i5.sroa.9.3.ph124" = phi <3 x float> [ %"_best0$i5.sroa.9.2131", %while.body54.i ], [ %"_best0$i5.sroa.9.4", %after_bb79.i ]
-  %"_best0$i5.sroa.12.3.ph123" = phi <3 x float> [ %"_best0$i5.sroa.12.2130", %while.body54.i ], [ %"_best0$i5.sroa.12.4", %after_bb79.i ]
-  %"_best0$i5.sroa.15.3.ph122" = phi <3 x float> [ %"_best0$i5.sroa.15.2129", %while.body54.i ], [ %"_best0$i5.sroa.15.4", %after_bb79.i ]
+while.body.i23.lr.ph:                             ; preds = %after_bb76.i, %while.body54.i
+  %"_subtree0_bnode!top.0.i.ph128" = phi i32 [ %extract60.unpack.i, %while.body54.i ], [ %extract80.i, %after_bb76.i ]
+  %"!count.0.i21.ph127" = phi i32 [ 0, %while.body54.i ], [ %87, %after_bb76.i ]
+  %"_best0$i5.sroa.0.3.ph126" = phi float [ %"_best0$i5.sroa.0.2133", %while.body54.i ], [ %"_best0$i5.sroa.0.4", %after_bb76.i ]
+  %"_best0$i5.sroa.6.3.ph125" = phi i32 [ %"_best0$i5.sroa.6.2132", %while.body54.i ], [ %"_best0$i5.sroa.6.4", %after_bb76.i ]
+  %"_best0$i5.sroa.9.3.ph124" = phi <3 x float> [ %"_best0$i5.sroa.9.2131", %while.body54.i ], [ %"_best0$i5.sroa.9.4", %after_bb76.i ]
+  %"_best0$i5.sroa.12.3.ph123" = phi <3 x float> [ %"_best0$i5.sroa.12.2130", %while.body54.i ], [ %"_best0$i5.sroa.12.4", %after_bb76.i ]
+  %"_best0$i5.sroa.15.3.ph122" = phi <3 x float> [ %"_best0$i5.sroa.15.2129", %while.body54.i ], [ %"_best0$i5.sroa.15.4", %after_bb76.i ]
   br label %while.body.i23
 
 while.body.i23:                                   ; preds = %then_bb47.i52, %while.body.i23.lr.ph
@@ -2247,20 +2247,20 @@ while.body.i23:                                   ; preds = %then_bb47.i52, %whi
   %42 = sext i32 %"_subtree0_bnode!top.0.i105" to i64
   %extract_ptr.i24 = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack10, i64 %42
   %extract.unpack.unpack.i25 = load float, ptr %extract_ptr.i24, align 1
-  %extract.unpack.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 4
-  %43 = load <2 x float>, ptr %extract.unpack.elt122.i, align 1
-  %extract.elt113.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 12
-  %extract.unpack114.unpack.i = load float, ptr %extract.elt113.i, align 1
-  %extract.unpack114.elt127.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 16
-  %44 = load <2 x float>, ptr %extract.unpack114.elt127.i, align 1
-  %extract.elt115.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 24
-  %extract.unpack116.i = load i16, ptr %extract.elt115.i, align 1
-  %extract.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 28
-  %45 = load i32, ptr %extract.elt119.i, align 1
+  %extract.unpack.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 4
+  %43 = load <2 x float>, ptr %extract.unpack.elt119.i, align 1
+  %extract.elt110.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 12
+  %extract.unpack111.unpack.i = load float, ptr %extract.elt110.i, align 1
+  %extract.unpack111.elt124.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 16
+  %44 = load <2 x float>, ptr %extract.unpack111.elt124.i, align 1
+  %extract.elt112.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 24
+  %extract.unpack113.i = load i16, ptr %extract.elt112.i, align 1
+  %extract.elt116.i = getelementptr inbounds i8, ptr %extract_ptr.i24, i64 28
+  %45 = load i32, ptr %extract.elt116.i, align 1
   %46 = insertelement <3 x float> poison, float %extract.unpack.unpack.i25, i64 0
   %47 = shufflevector <2 x float> %43, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %48 = shufflevector <3 x float> %46, <3 x float> %47, <3 x i32> <i32 0, i32 3, i32 4>
-  %49 = insertelement <3 x float> poison, float %extract.unpack114.unpack.i, i64 0
+  %49 = insertelement <3 x float> poison, float %extract.unpack111.unpack.i, i64 0
   %50 = shufflevector <2 x float> %44, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %51 = shufflevector <3 x float> %49, <3 x float> %50, <3 x i32> <i32 0, i32 3, i32 4>
   %52 = select <3 x i1> %1, <3 x float> %51, <3 x float> %48
@@ -2310,23 +2310,23 @@ after_bb34.i39:                                   ; preds = %next_bb.i28, %while
   %"_best0$i5.sroa.6.4" = phi i32 [ %"_best0$i5.sroa.6.6", %after_bb61.i ], [ %"_best0$i5.sroa.6.3.ph125", %then_bb30.i42 ], [ %"_best0$i5.sroa.6.3.ph125", %while.body.i23 ], [ %"_best0$i5.sroa.6.3.ph125", %next_bb.i28 ]
   %"_best0$i5.sroa.0.4" = phi float [ %"_best0$i5.sroa.0.6", %after_bb61.i ], [ %"_best0$i5.sroa.0.3.ph126", %then_bb30.i42 ], [ %"_best0$i5.sroa.0.3.ph126", %while.body.i23 ], [ %"_best0$i5.sroa.0.3.ph126", %next_bb.i28 ]
   %.not.i40.not = icmp eq i32 %"!count.0.i21104", 0
-  br i1 %.not.i40.not, label %_recloop_func1.exit, label %after_bb79.i
+  br i1 %.not.i40.not, label %_recloop_func1.exit, label %after_bb76.i
 
 then_bb44.i46:                                    ; preds = %then_bb30.i42
-  %74 = icmp eq i16 %extract.unpack116.i, 0
+  %74 = icmp eq i16 %extract.unpack113.i, 0
   br i1 %74, label %then_bb47.i52, label %next_bb48.i47
 
 then_bb47.i52:                                    ; preds = %then_bb44.i46
   %75 = add i32 %"_subtree0_bnode!top.0.i105", 1
   %76 = add i32 %"_subtree0_bnode!top.0.i105", %45
   %77 = sext i32 %"!count.0.i21104" to i64
-  %"!stack52.i53" = getelementptr inbounds i32, ptr %"!stack112.i", i64 %77
+  %"!stack52.i53" = getelementptr inbounds i32, ptr %"!stack109.i", i64 %77
   store i32 %76, ptr %"!stack52.i53", align 4, !tbaa !0
   %78 = add i32 %"!count.0.i21104", 1
   br label %while.body.i23
 
 next_bb48.i47:                                    ; preds = %then_bb44.i46
-  %79 = zext i16 %extract.unpack116.i to i32
+  %79 = zext i16 %extract.unpack113.i to i32
   br label %while.body54.i49
 
 while.body54.i49:                                 ; preds = %next_bb48.i47, %after_bb61.i
@@ -2341,44 +2341,44 @@ while.body54.i49:                                 ; preds = %next_bb48.i47, %aft
   %extract_ptr59.i50 = getelementptr inbounds %struct.Triangle, ptr %deref_temp.unpack6, i64 %81
   %extract60.unpack.i51 = load <3 x float>, ptr %extract_ptr59.i50, align 16
   %82 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i51, 0
-  %extract60.elt139.i = getelementptr inbounds i8, ptr %extract_ptr59.i50, i64 16
-  %extract60.unpack140.i = load <3 x float>, ptr %extract60.elt139.i, align 16
-  %83 = insertvalue %struct.Triangle %82, <3 x float> %extract60.unpack140.i, 1
-  %extract60.elt141.i = getelementptr inbounds i8, ptr %extract_ptr59.i50, i64 32
-  %extract60.unpack142.i = load <3 x float>, ptr %extract60.elt141.i, align 16
-  %extract60143.i = insertvalue %struct.Triangle %83, <3 x float> %extract60.unpack142.i, 2
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %deref_temp1, %struct.Triangle %extract60143.i)
+  %extract60.elt136.i = getelementptr inbounds i8, ptr %extract_ptr59.i50, i64 16
+  %extract60.unpack137.i = load <3 x float>, ptr %extract60.elt136.i, align 16
+  %83 = insertvalue %struct.Triangle %82, <3 x float> %extract60.unpack137.i, 1
+  %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i50, i64 32
+  %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
+  %extract60140.i = insertvalue %struct.Triangle %83, <3 x float> %extract60.unpack139.i, 2
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %deref_temp1, %struct.Triangle %extract60140.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
-  br i1 %.fca.1.load.i, label %then_bb65.i, label %after_bb61.i
+  br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
-after_bb61.i:                                     ; preds = %then_bb70.i, %then_bb65.i, %while.body54.i49
-  %"_best0$i5.sroa.15.6" = phi <3 x float> [ %extract60.unpack142.i, %then_bb70.i ], [ %"_best0$i5.sroa.15.5116", %then_bb65.i ], [ %"_best0$i5.sroa.15.5116", %while.body54.i49 ]
-  %"_best0$i5.sroa.12.6" = phi <3 x float> [ %extract60.unpack140.i, %then_bb70.i ], [ %"_best0$i5.sroa.12.5117", %then_bb65.i ], [ %"_best0$i5.sroa.12.5117", %while.body54.i49 ]
-  %"_best0$i5.sroa.9.6" = phi <3 x float> [ %extract60.unpack.i51, %then_bb70.i ], [ %"_best0$i5.sroa.9.5118", %then_bb65.i ], [ %"_best0$i5.sroa.9.5118", %while.body54.i49 ]
-  %"_best0$i5.sroa.6.6" = phi i32 [ %extract60.unpack.i, %then_bb70.i ], [ %"_best0$i5.sroa.6.5119", %then_bb65.i ], [ %"_best0$i5.sroa.6.5119", %while.body54.i49 ]
-  %"_best0$i5.sroa.0.6" = phi float [ %.fca.0.3.load.i, %then_bb70.i ], [ %"_best0$i5.sroa.0.5120", %then_bb65.i ], [ %"_best0$i5.sroa.0.5120", %while.body54.i49 ]
+after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i49
+  %"_best0$i5.sroa.15.6" = phi <3 x float> [ %extract60.unpack139.i, %then_bb67.i ], [ %"_best0$i5.sroa.15.5116", %then_bb62.i ], [ %"_best0$i5.sroa.15.5116", %while.body54.i49 ]
+  %"_best0$i5.sroa.12.6" = phi <3 x float> [ %extract60.unpack137.i, %then_bb67.i ], [ %"_best0$i5.sroa.12.5117", %then_bb62.i ], [ %"_best0$i5.sroa.12.5117", %while.body54.i49 ]
+  %"_best0$i5.sroa.9.6" = phi <3 x float> [ %extract60.unpack.i51, %then_bb67.i ], [ %"_best0$i5.sroa.9.5118", %then_bb62.i ], [ %"_best0$i5.sroa.9.5118", %while.body54.i49 ]
+  %"_best0$i5.sroa.6.6" = phi i32 [ %extract60.unpack.i, %then_bb67.i ], [ %"_best0$i5.sroa.6.5119", %then_bb62.i ], [ %"_best0$i5.sroa.6.5119", %while.body54.i49 ]
+  %"_best0$i5.sroa.0.6" = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %"_best0$i5.sroa.0.5120", %then_bb62.i ], [ %"_best0$i5.sroa.0.5120", %while.body54.i49 ]
   %84 = add nuw nsw i32 %_idx1.0.i121, 1
   %85 = icmp ult i32 %84, %79
   br i1 %85, label %while.body54.i49, label %after_bb34.i39
 
-then_bb65.i:                                      ; preds = %while.body54.i49
+then_bb62.i:                                      ; preds = %while.body54.i49
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
   %86 = fcmp olt float %.fca.0.3.load.i, %"_best0$i5.sroa.0.5120"
-  br i1 %86, label %then_bb70.i, label %after_bb61.i
+  br i1 %86, label %then_bb67.i, label %after_bb61.i
 
-then_bb70.i:                                      ; preds = %then_bb65.i
+then_bb67.i:                                      ; preds = %then_bb62.i
   br label %after_bb61.i
 
-after_bb79.i:                                     ; preds = %after_bb34.i39
+after_bb76.i:                                     ; preds = %after_bb34.i39
   %87 = add i32 %"!count.0.i21104", -1
   %88 = sext i32 %87 to i64
-  %extract_ptr82.i = getelementptr inbounds i32, ptr %"!stack112.i", i64 %88
-  %extract83.i = load i32, ptr %extract_ptr82.i, align 4
+  %extract_ptr79.i = getelementptr inbounds i32, ptr %"!stack109.i", i64 %88
+  %extract80.i = load i32, ptr %extract_ptr79.i, align 4
   br label %while.body.i23.lr.ph
 
 _recloop_func1.exit:                              ; preds = %after_bb34.i39
   call void @llvm.lifetime.end.p0(i64 20, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack112.i")
+  call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack109.i")
   %89 = add nuw nsw i32 %_idx0.0.i134, 1
   %90 = icmp ult i32 %89, %39
   br i1 %90, label %while.body54.i, label %after_bb34.i

@@ -1,0 +1,111 @@
+//! flags: -p jump-threading -p cse
+
+// Jump threading (Opt/JumpThreading.h): a branch followed by statements that
+// test its condition again takes those statements into both of its arms,
+// where the second test is decided, and the CSE after it merges what the two
+// arms then compute twice.
+//
+// `dispatch` is the shape a tree query's leaf has after inlining -- two
+// functions that each `match` on the same variant, called one after the
+// other -- written with a bool for the tag. What to read for in the golden:
+// one `if (is_tri)` with no test of `is_tri` inside either arm, one
+// `tri_test` in the else arm where the source called it twice, and the names
+// the copied statements bind carrying a `$t` suffix, one per copy.
+//
+// `guarded` is the same shape with a condition nothing can know: `c` is a
+// mutable local the first arm assigns, so the second test stands.
+// `reassigned` assigns the variable the condition reads between the two
+// tests, and stays for the same reason. `returning` has an arm that returns,
+// into which nothing is copied. `strict` tests the condition through a
+// select whose other arm is a call: a select evaluates both arms, so the
+// call has to stay, and the select with it.
+
+func tri_test(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func sph_test(x : f32) -> f32 {
+    return x - 3.0;
+}
+
+func [[export]] dispatch(is_tri : bool, x : f32) -> f32 {
+    hit : mut f32 = 0.0;
+    if is_tri {
+        hit = tri_test(x);
+    } else {
+        hit = sph_test(x);
+    }
+    d : mut f32 = 0.0;
+    if hit > 0.0 {
+        if is_tri {
+            d = tri_test(x);
+        } else {
+            d = sph_test(x);
+        }
+    }
+    return hit + d;
+}
+
+func [[export]] guarded(flag : bool, x : f32) -> f32 {
+    c : mut bool = flag;
+    y : mut f32 = 0.0;
+    if c {
+        y = x;
+        c = false;
+    } else {
+        y = 0.0 - x;
+    }
+    if c {
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func [[export]] reassigned(n : i32, x : f32) -> f32 {
+    k : mut i32 = n;
+    y : mut f32 = 0.0;
+    if k > 0 {
+        y = x;
+    } else {
+        y = 0.0 - x;
+    }
+    k = k - 1;
+    if k > 0 {
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func [[export]] returning(k : i32, x : f32) -> f32 {
+    y : mut f32 = x;
+    if k > 0 {
+        return x;
+    } else {
+        y = y + 1.0;
+    }
+    if k > 0 {
+        return 0.0;
+    }
+    return y * 2.0;
+}
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter) -> f32 {
+    c.n = c.n + 1;
+    return cast[[f32]](c.n);
+}
+
+func [[export]] strict(k : i32, x : f32) -> f32 {
+    c : mut Counter = {0};
+    y : mut f32 = 0.0;
+    if k > 0 {
+        y = x;
+    } else {
+        y = 0.0 - x;
+    }
+    z = select(k > 0, bump(c), 0.0);
+    return y + z + cast[[f32]](c.n) * 100.0;
+}

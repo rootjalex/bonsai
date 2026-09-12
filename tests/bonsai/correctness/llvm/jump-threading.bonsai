@@ -1,0 +1,134 @@
+//! flags: -p ssa -b llvm -e
+
+// Jump threading, run: opt/jump-threading.bonsai shows the shapes, this
+// checks that every one of them answers what it did before the statements
+// after a branch were copied into its arms.
+//
+// `dispatch` is threaded and its two `tri_test` calls become one; the IR
+// golden shows the one call, and this shows the answer did not move.
+// `guarded` and `reassigned` must not be threaded: in the first the condition
+// is a mutable the first arm changes, in the second the variable it reads is
+// assigned between the two tests, and threading either would take the second
+// test's answer from the first. `returning` copies nothing into the arm that
+// returns. `chosen` tests the condition through a select rather than an if.
+// `strict` does too, with a call in the arm not taken: a select evaluates
+// both of its arms, so `bump` has to run whichever way `k` goes, and the
+// count it leaves behind says whether it did. This is the shape of a sampler
+// draw in a select, where dropping the arm shifts the random stream for the
+// rest of the path.
+
+func tri_test(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func sph_test(x : f32) -> f32 {
+    return x - 3.0;
+}
+
+func dispatch(is_tri : bool, x : f32) -> f32 {
+    hit : mut f32 = 0.0;
+    if is_tri {
+        hit = tri_test(x);
+    } else {
+        hit = sph_test(x);
+    }
+    d : mut f32 = 0.0;
+    if hit > 0.0 {
+        if is_tri {
+            d = tri_test(x);
+        } else {
+            d = sph_test(x);
+        }
+    }
+    return hit + d;
+}
+
+func guarded(flag : bool, x : f32) -> f32 {
+    c : mut bool = flag;
+    y : mut f32 = 0.0;
+    if c {
+        y = x;
+        c = false;
+    } else {
+        y = 0.0 - x;
+    }
+    if c {
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func reassigned(n : i32, x : f32) -> f32 {
+    k : mut i32 = n;
+    y : mut f32 = 0.0;
+    if k > 0 {
+        y = x;
+    } else {
+        y = 0.0 - x;
+    }
+    k = k - 1;
+    if k > 0 {
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func returning(k : i32, x : f32) -> f32 {
+    y : mut f32 = x;
+    if k > 0 {
+        return x;
+    } else {
+        y = y + 1.0;
+    }
+    if k > 0 {
+        return 0.0;
+    }
+    return y * 2.0;
+}
+
+func chosen(k : i32, x : f32) -> f32 {
+    y : mut f32 = 0.0;
+    if k > 0 {
+        y = x;
+    } else {
+        y = 0.0 - x;
+    }
+    return y + select(k > 0, 100.0, 200.0);
+}
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter) -> f32 {
+    c.n = c.n + 1;
+    return cast[[f32]](c.n);
+}
+
+func strict(k : i32, x : f32) -> f32 {
+    c : mut Counter = {0};
+    y : mut f32 = 0.0;
+    if k > 0 {
+        y = x;
+    } else {
+        y = 0.0 - x;
+    }
+    z = select(k > 0, bump(c), 0.0);
+    return y + z + cast[[f32]](c.n) * 100.0;
+}
+
+func main() -> i32 {
+    // Threaded: 5 + 5 for the triangle; -1 and no second test for the
+    // sphere.
+    print(dispatch(true, 2.0), dispatch(false, 2.0));
+    // Not threaded: 1 for c set then cleared, -1 the other way.
+    print(guarded(true, 1.0), guarded(false, 1.0));
+    // Not threaded: k = 1 passes the first test and fails the second.
+    print(reassigned(1, 5.0), reassigned(2, 5.0), reassigned(0, 5.0));
+    // The returning arm.
+    print(returning(1, 4.0), returning(0, 4.0));
+    print(chosen(1, 3.0), chosen(0, 3.0));
+    // bump runs both times: 3 + 1 + 100, and -3 + 0 + 100.
+    print(strict(1, 3.0), strict(0, 3.0));
+    return 0;
+}

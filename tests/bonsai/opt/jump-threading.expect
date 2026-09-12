@@ -1,0 +1,100 @@
+type Counter = struct Counter{ n : i32 }
+
+func bump(c : mut Counter) -> f32 {
+  c.n = c.n + 1
+  return cast<f32>(c.n)
+}
+
+func [[export]] dispatch(is_tri : bool, x : f32) -> f32 {
+  hit : mut f32 := 0f
+  if (is_tri) {
+    let _t0 = tri_test(x) in
+    hit = _t0
+    d$t0 : mut f32 := 0f
+    if (0f < hit) {
+      let _t1 = _t0 in
+      d$t0 = _t0
+    }
+    return hit + d$t0
+  } else {
+    let _t2 = sph_test(x) in
+    hit = _t2
+    d$t1 : mut f32 := 0f
+    if (0f < hit) {
+      let _t3 = _t2 in
+      d$t1 = _t2
+    }
+    return hit + d$t1
+  }
+}
+
+func [[export]] guarded(flag : bool, x : f32) -> f32 {
+  c : mut bool := flag
+  y : mut f32 := 0f
+  if (c) {
+    y = x
+    c = false
+  } else {
+    y = 0f - x
+  }
+  if (c) {
+    y = y + 1f
+  }
+  return y
+}
+
+func [[export]] reassigned(n : i32, x : f32) -> f32 {
+  k : mut i32 := n
+  y : mut f32 := 0f
+  if (0 < k) {
+    y = x
+  } else {
+    y = 0f - x
+  }
+  k = k - 1
+  if (0 < k) {
+    y = y + 1f
+  }
+  return y
+}
+
+func [[export]] returning(k : i32, x : f32) -> f32 {
+  y : mut f32 := x
+  if (0 < k) {
+    return x
+  } else {
+    y = y + 1f
+    return y * 2f
+  }
+}
+
+func sph_test(x : f32) -> f32 {
+  return x - 3f
+}
+
+func [[export]] strict(k : i32, x : f32) -> f32 {
+  alloc c : mut Counter := build<Counter>(0)
+  y : mut f32 := 0f
+  let _t11 = 0 < k in
+  if (_t11) {
+    y = x
+    let z$t3 = bump(c) in
+    let _t4 = c.n in
+    let _t5 = cast<f32>(c.n) in
+    let _t6 = cast<f32>(c.n) * 100f in
+    return (y + z$t3) + (cast<f32>(c.n) * 100f)
+  } else {
+    y = 0f - x
+    let z$t4 = select(_t11, bump(c), 0f) in
+    let _t8 = c.n in
+    let _t9 = cast<f32>(c.n) in
+    let _t10 = cast<f32>(c.n) * 100f in
+    return (y + z$t4) + (cast<f32>(c.n) * 100f)
+  }
+}
+
+func tri_test(x : f32) -> f32 {
+  return (x * 2f) + 1f
+}
+
+

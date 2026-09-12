@@ -4,6 +4,7 @@ add_bonsai_tests(
     collapse.bonsai
     constant-fold.bonsai
     cse-loop.bonsai
+    dce-effectful-argument.bonsai
     dce-flip-if.bonsai
     dce-hygiene.bonsai
     dce-mut.bonsai
@@ -13,6 +14,7 @@ add_bonsai_tests(
     inline.bonsai
     inline-locals.bonsai
     inline-statements.bonsai
+    jump-threading.bonsai
     parallel.bonsai
     simplify-const-array.bonsai
     split.bonsai
