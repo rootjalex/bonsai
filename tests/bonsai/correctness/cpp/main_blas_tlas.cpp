@@ -135,8 +135,8 @@ uint32_t build_tree(std::vector<Node> &nodes, std::vector<Item> &items,
     for (uint32_t i = low + 1; i < high; i++) {
         box = merge(box, bounds_of_item(items[i]));
     }
-    nodes[self].low = box.low;
-    nodes[self].high = box.high;
+    nodes[self].low = {box.low[0], box.low[1], box.low[2]};
+    nodes[self].high = {box.high[0], box.high[1], box.high[2]};
 
     if (high - low == 1) {
         nodes[self].nPrims = 1;
@@ -228,6 +228,11 @@ int main() {
                  float3{0.0f, 0.0f, 0.25f}},
     };
 
+    // The layout says three floats twice, a u16, a u8, a byte of padding and
+    // a u32: 32 bytes, and it lowers to exactly that. A vec3f in storage is
+    // twelve bytes, not the sixteen a float3 register is.
+    static_assert(sizeof(_tree_layout1) == 32,
+                  "a BLAS node is the 32 bytes its layout says");
     std::vector<_tree_layout1> blas_nodes;
     const uint32_t object_a = build_tree(blas_nodes, tris, 0, 2, bounds_of);
     const uint32_t object_b = build_tree(blas_nodes, tris, 2, 3, bounds_of);

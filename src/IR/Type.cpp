@@ -357,12 +357,13 @@ Type Ref_t::make(std::string name) {
     return node;
 }
 
-Type Vector_t::make(Type etype, uint32_t lanes) {
+Type Vector_t::make(Type etype, uint32_t lanes, bool packed) {
     internal_assert(etype.defined())
         << "Vector_t::make received undefined etype";
     Vector_t *node = new Vector_t;
     node->etype = std::move(etype);
     node->lanes = lanes;
+    node->packed = packed;
     return node;
 }
 

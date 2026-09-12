@@ -86,14 +86,14 @@ void emit_type(std::ostream &ss, Type type) {
 
         void visit(const Vector_t *node) override {
             internal_assert(!contains<Ptr_t>(node->etype));
-            // A vector of bytes is packed storage of an exact width, not a
-            // value -- the only thing that produces one is a layout's switch
-            // payload (see Lower/Layouts.cpp), and the layout arithmetic has
-            // already decided it occupies exactly this many bytes. A native
-            // vector cannot say that: clang rounds ext_vector_type up to a
-            // power of two, so a seven byte payload would take eight and move
-            // every field after it. std::array is exactly its length.
-            if (node->etype.is_uint() && node->etype.bits() == 8) {
+            // Packed storage of an exact width, not a value: a layout's vector
+            // field, and the bytes of a layout's switch payload (see
+            // Lower/Layouts.cpp and Vector_t::packed). A native vector cannot
+            // say that: clang rounds ext_vector_type up to a power of two, so
+            // three floats would take sixteen bytes and move every field after
+            // them. std::array is exactly its length.
+            if (node->packed ||
+                (node->etype.is_uint() && node->etype.bits() == 8)) {
                 ss << "std::array<";
                 node->etype.accept(this);
                 ss << ", " << node->lanes << ">";
@@ -319,9 +319,10 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
         ss << "};\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
-        // Byte vectors are spelled std::array at the point of use (see
-        // emit_type), which needs no declaration of its own.
-        if (vector_t->etype.is_uint() && vector_t->etype.bits() == 8) {
+        // Packed storage, and byte vectors, are spelled std::array at the
+        // point of use (see emit_type), which needs no declaration of its own.
+        if (vector_t->packed ||
+            (vector_t->etype.is_uint() && vector_t->etype.bits() == 8)) {
             return;
         }
         // A native vector rather than a struct of elements: this is the only
@@ -712,6 +713,27 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void visit(const Cast *node) override {
+        // Between a vector's packed storage and the vector itself, element by
+        // element: `float3{a[0], a[1], a[2]}` one way and
+        // `std::array<float, 3>{v[0], v[1], v[2]}` the other.
+        if (const auto *from = node->value.type().as<Vector_t>(),
+            *to = node->type.as<Vector_t>();
+            from != nullptr && to != nullptr && from->packed != to->packed &&
+            node->mode == Cast::Mode::Convert) {
+            internal_assert(from->lanes == to->lanes)
+                << "Packing a vector changes its lanes: " << Expr(node);
+            emit_type(ss, node->type);
+            ss << "{";
+            for (uint32_t i = 0; i < from->lanes; i++) {
+                if (i != 0) {
+                    ss << ", ";
+                }
+                print(node->value);
+                ss << "[" << i << "]";
+            }
+            ss << "}";
+            return;
+        }
         if (node->mode == Cast::Mode::Reinterpret) {
             ss << "reinterpret<";
             emit_type(ss, node->type);

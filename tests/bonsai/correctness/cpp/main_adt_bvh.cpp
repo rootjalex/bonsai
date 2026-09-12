@@ -78,6 +78,16 @@ Sphere merge(const Sphere &a, const Sphere &b) {
 // A median-split BVH in the layout the schedule declared, built the same way
 // apps/rtiow does it. One primitive per leaf, so the tree is as deep as the
 // traversal will ever have to go for this many shapes.
+// A node stores its centre as three floats -- the layout's twelve bytes, not
+// a float3's sixteen -- so the two are converted at the boundary.
+static float3 widen(const std::array<float, 3> &a) {
+    return float3{a[0], a[1], a[2]};
+}
+
+static std::array<float, 3> pack(const float3 &v) {
+    return {v[0], v[1], v[2]};
+}
+
 _tree_layout0 build_tree(std::vector<Shape> &shapes) {
     _tree_layout0 tree;
     tree.pCount = uint32_t(shapes.size());
@@ -100,7 +110,7 @@ _tree_layout0 build_tree(std::vector<Shape> &shapes) {
             *reinterpret_cast<uint16_t *>(
                 &tree.group0_index[self].split0on_nPrims) = uint16_t(low);
             const Sphere b = bounds_of(shapes[low]);
-            tree.group0_index[self].center = b.center;
+            tree.group0_index[self].center = pack(b.center);
             tree.group0_index[self].radius = b.radius;
             return self;
         }
@@ -136,11 +146,12 @@ _tree_layout0 build_tree(std::vector<Shape> &shapes) {
         *reinterpret_cast<uint16_t *>(
             &tree.group0_index[self].split0on_nPrims) = uint16_t(right - self);
 
-        const Sphere merged = merge(Sphere{tree.group0_index[left].center,
-                                           tree.group0_index[left].radius},
-                                    Sphere{tree.group0_index[right].center,
-                                           tree.group0_index[right].radius});
-        tree.group0_index[self].center = merged.center;
+        const Sphere merged =
+            merge(Sphere{widen(tree.group0_index[left].center),
+                         tree.group0_index[left].radius},
+                  Sphere{widen(tree.group0_index[right].center),
+                         tree.group0_index[right].radius});
+        tree.group0_index[self].center = pack(merged.center);
         tree.group0_index[self].radius = merged.radius;
         return self;
     };

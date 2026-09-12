@@ -83,8 +83,8 @@ at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
 within 1% and no block systematically off. That took three fixes described
 under "what the last round added": a light leak of this renderer's own, the
 last bits of a lens camera's rays, and the texture chain made bit-exact. It
-renders 1.41x slower than pbrt there, down from 1.59x after a round on the
-compiler, and that gap is the open item.
+renders 1.43x slower than pbrt there (7.27 s against 5.10 s), down from 1.59x
+after a round on the compiler, and that gap is the open item.
 
 **killeroo-simple renders.** It names no integrator, so it gets `path`; it is
 lit by a sphere of radius 3 seen from four hundred units away, which a random
@@ -287,24 +287,59 @@ an iteration, and sees the load behind a block argument, which `_holds0 ||
 hit` had always hidden from it (`ssa/ray-any-early-exit.bonsai` keeps its
 early exit).
 
-**Where the time goes now.** On the same tree as pbrt's, this renderer's
-profile is the traversal loop at 34% and the top-level `any` traversal at 6%,
-`triangle_hit` at 8%, `dielectric_sample_f` at 18% and the coated sampler at
-3%; pbrt's is `BVHAggregate::Intersect` at 24%, its leaf dispatch at 6%,
-its triangle tests at 12%, and its dielectric and microfacet code at 15%. In
-thread-seconds the traversal loop is still about twice pbrt's, and three
-things make it so, each measured in the generated code rather than guessed.
-A candidate triangle is tested twice on a hit, once by `intersects` and once
-by `distmin`, because each is a `match` on the `Shape` variant and the
-common test sits in separate arms of two `if`s; pbrt tests once and reads
-`tHit` from the result. The node struct is 40 bytes -- a `vec3f` in a layout
-takes 16 -- against pbrt's 32, so three nodes in eight straddle a cache line
-that pbrt's never do; that is the layout language's to decide, and is raised
-rather than changed here. And the traversal carries the whole running best --
-distance, primitive and geometry, four vector registers -- as loop state,
-where pbrt carries `tMax` and writes the interaction to memory on a hit. After
-the traversal, the dielectric path at 1.9x pbrt's floating-point operations
-is the open question.
+**A `vec3f` in a layout is twelve bytes.** A layout says how many bytes each
+field is and lowers to exactly that -- no padding the compiler finds
+convenient. It did not, for vectors: a `vec3f` field became LLVM's
+`<3 x float>`, whose allocation size is sixteen, so the node this app's layout
+spells out as 32 bytes -- `low`, `high`, `nPrims`, `axis`, a byte of padding
+and the `u32` the switch stores, pbrt's `LinearBVHNode` exactly -- came out at
+40, and three nodes in eight straddled a cache line where pbrt's never do. A
+vector in a layout is a different type from the vector the program computes
+with (`Vector_t::packed`): exactly its elements, aligned as one element is,
+an `[N x T]` to the LLVM backend and a `std::array` to the C++ one, converted
+to the compute vector where the field is read. The switch payload, which the
+backends had special-cased to its exact width, is the same kind now, and
+`Layout::bits()` counts every lane of a vector field, which is what the
+padding in the layout had always assumed it did. The drivers write three
+floats into a node. 7.42 s became 7.27 s against pbrt's 5.10.
+
+**The traversal, measured.** Retired instructions, sampled on the same tree
+as pbrt's: the closest-hit loop `_traverse_tree0` retires about 408 G and the
+`any` loop about 81 G, against pbrt's `BVHAggregate::Intersect` at about
+303 G plus 39 G of leaf dispatch -- and pbrt's `Intersect` also carries its
+shadow rays, which `volpath` traces as closest-hit queries where this
+renderer's are `any`. The triangle tests come out even: about 111 G here
+(`triangle_hit`, twice for a hit candidate) against 108 G there
+(`IntersectTriangle` and the interaction pbrt builds for every hit). In time
+the loop is about 95 thread-seconds against 53: more instructions, and fewer
+of them per cycle.
+
+The query is not where the extra work is written. It says pbrt's traversal
+and nothing more: the same tree (pbrt's own, under `PBRT_TREE=1`), the same
+near-child-first order (the sort key *is* pbrt's `dirIsNeg[axis]` test), the
+same pruning (`span.lo < best` is the `tMax` pbrt hands `IntersectP`), and
+shadow rays that stop at the first hit where pbrt's do not. The extra
+instructions are in what the lowering makes of it, node by node beside pbrt's
+loop. `loopify` pushes both children and pops the near one on the next trip
+-- two stores, two counter updates and a load per interior node -- where
+pbrt pushes the far child once and continues with the near one. `sort()`
+lowers to two float keys and a compare-and-swap of selects per node, where
+pbrt reads a per-ray byte and branches; and the key's `(1/r.d)[axis]` is a
+variable-lane extract at every node. A hit candidate is tested twice because
+`intersects` and `distmin` are two `match`es on `Shape` and their common test
+sits in separate arms. And the cycles per instruction: the node was 40 bytes
+(fixed above), `mesh_positions : array[vec3f]` still has a 16-byte stride
+against pbrt's twelve-byte `Point3f` -- the compute language's array of
+vectors is storage too -- and the running best is four vector registers of
+loop state where pbrt carries `tMax` and writes the interaction to memory on
+a hit.
+
+What is not yet known is the count: how many nodes this traversal visits and
+how many candidates it tests, against pbrt's 5.83 G and 307 M. That is the
+first thing to build -- a `--stats` the compiler emits for a traversal,
+printed at exit, pbrt's own counters -- so that "no more work than pbrt" is
+a number and not an inference. After the traversal, the dielectric path at
+about 1.6x pbrt's time is the open question.
 
 A note on `check_differentials.sh` on this scene: 982 of its 1083 rows are
 exact and the rest are the `texrgb` and `texsr` rows of two textures declared

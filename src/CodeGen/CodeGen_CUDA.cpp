@@ -305,6 +305,13 @@ void CodeGen_CUDA::visit(const Vector_t *node) {
     internal_assert(1 <= node->lanes && node->lanes <= 4)
         << "[unimplemented] vector size: " << node->lanes
         << " in CUDA codegen, " << Type(node);
+    // A layout's vector field is exactly its elements, which a CUDA built-in
+    // vector is not (float3 is twelve bytes, but float2 and float4 are
+    // aligned to their size); this needs an element array with the field's
+    // name after it, which the type visitor cannot write.
+    internal_assert(!node->packed)
+        << "[unimplemented] packed vector storage in CUDA codegen: "
+        << Type(node);
     os << vector_prefix(node->etype) << node->lanes;
 }
 

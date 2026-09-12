@@ -484,6 +484,9 @@ void Printer::visit(const Ref_t *node) {
 }
 
 void Printer::visit(const Vector_t *node) {
+    if (node->packed) {
+        os << "[[packed]] ";
+    }
     print(node->etype);
     os << "x" << node->lanes;
 }

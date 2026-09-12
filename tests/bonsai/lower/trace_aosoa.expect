@@ -14,9 +14,9 @@ type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : f32x3; high_32 : f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }[nCount] }
-type _tree_layout1 = [[packed]] struct _tree_layout1{ low_32 : f32x3; high_32 : f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }
-type _tree_layout2 = [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : [[packed]] f32x3; high_32 : [[packed]] f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : [[packed]] f16x3; high_16 : [[packed]] f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[2] }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low_32 : [[packed]] f32x3; high_32 : [[packed]] f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : [[packed]] f16x3; high_16 : [[packed]] f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[2] }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ low_16 : [[packed]] f16x3; high_16 : [[packed]] f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }
 type _tree_layout3 = [[packed]] struct _tree_layout3{ offset : u32 }
 type _tree_layout4 = [[packed]] struct _tree_layout4{ pOffset : u32 }
 type vec2f = f32x2
@@ -24,10 +24,10 @@ type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-extern ts : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : f32x3; high_32 : f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : f16x3; high_16 : f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : u8x4 }[2] }[nCount] }
+extern ts : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : [[packed]] f32x3; high_32 : [[packed]] f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : [[packed]] f16x3; high_16 : [[packed]] f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[2] }[nCount] }
 
 func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, _best0 : mut (__tuple_0*)) -> void {
-  let b$i9 = build<AABB>(ts.group0_index[ts_index].low_32 + cast<f32x3>(ts.group0_index[ts_index].group0_bit[ts_bit].low_16), ts.group0_index[ts_index].high_32 + cast<f32x3>(ts.group0_index[ts_index].group0_bit[ts_bit].high_16)) in
+  let b$i9 = build<AABB>(cast<f32x3>(ts.group0_index[ts_index].low_32) + cast<f32x3>(cast<f16x3>(ts.group0_index[ts_index].group0_bit[ts_bit].low_16)), cast<f32x3>(ts.group0_index[ts_index].high_32) + cast<f32x3>(cast<f16x3>(ts.group0_index[ts_index].group0_bit[ts_bit].high_16))) in
   intersects_Ray_AABB$r9 : mut bool
   let interval$i9 = intersectsp_ray_aabb(ray, b$i9) in
   if (interval$i9.set) {
@@ -37,7 +37,7 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, 
     intersects_Ray_AABB$r9 = false
   }
   if ((*intersects_Ray_AABB$r9)) {
-    let b$i10 = build<AABB>(ts.group0_index[ts_index].low_32 + cast<f32x3>(ts.group0_index[ts_index].group0_bit[ts_bit].low_16), ts.group0_index[ts_index].high_32 + cast<f32x3>(ts.group0_index[ts_index].group0_bit[ts_bit].high_16)) in
+    let b$i10 = build<AABB>(cast<f32x3>(ts.group0_index[ts_index].low_32) + cast<f32x3>(cast<f16x3>(ts.group0_index[ts_index].group0_bit[ts_bit].low_16)), cast<f32x3>(ts.group0_index[ts_index].high_32) + cast<f32x3>(cast<f16x3>(ts.group0_index[ts_index].group0_bit[ts_bit].high_16))) in
     distmin_Ray_AABB$r10 : mut f32
     let interval$i10 = intersectsp_ray_aabb(ray, b$i10) in
     if (interval$i10.set) {

@@ -279,8 +279,8 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
             for (size_t i = 0; i < n; i++) {
                 ordered.push_back(items[span[i].index]);
             }
-            nodes[self].low = bounds.pMin;
-            nodes[self].high = bounds.pMax;
+            nodes[self].low = {bounds.pMin[0], bounds.pMin[1], bounds.pMin[2]};
+            nodes[self].high = {bounds.pMax[0], bounds.pMax[1], bounds.pMax[2]};
             nodes[self].nPrims = uint16_t(n);
             const uint32_t offset = first;
             std::memcpy(nodes[self].split0on_nPrims.data(), &offset,
@@ -372,8 +372,8 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
             }
         }
 
-        nodes[self].low = bounds.pMin;
-        nodes[self].high = bounds.pMax;
+        nodes[self].low = {bounds.pMin[0], bounds.pMin[1], bounds.pMin[2]};
+        nodes[self].high = {bounds.pMax[0], bounds.pMax[1], bounds.pMax[2]};
         nodes[self].nPrims = 0;
         nodes[self].axis = uint8_t(dim);
         build(span, mid, depth + 1);
@@ -449,8 +449,8 @@ std::vector<Node> adopt_nodes(const std::vector<bonsai_scene::Node> &nodes) {
     std::vector<Node> out(nodes.size());
     for (size_t i = 0; i < nodes.size(); i++) {
         const bonsai_scene::Node &n = nodes[i];
-        out[i].low = float3{n.low[0], n.low[1], n.low[2]};
-        out[i].high = float3{n.high[0], n.high[1], n.high[2]};
+        out[i].low = {n.low[0], n.low[1], n.low[2]};
+        out[i].high = {n.high[0], n.high[1], n.high[2]};
         out[i].nPrims = n.n_prims;
         out[i].axis = uint8_t(n.axis);
         std::memcpy(out[i].split0on_nPrims.data(), &n.offset,
@@ -1093,12 +1093,10 @@ int main(int argc, char **argv) {
     top.reserve(shapes.size() + loaded.instances.size());
     const auto instance_bounds = [&](const bonsai_scene::Instance &inst) {
         const _tree_layout1 &root = instance_nodes[roots[inst.definition]];
-        // Copied out before anything takes a reference to them: the node is a
-        // packed struct, so `high` sits at byte 12, and a `const float3 &` to
-        // it would be read with the alignment a float3 normally has. Reading
-        // the member itself is emitted unaligned; a reference to it is not.
-        const float3 low = root.low;
-        const float3 high = root.high;
+        // A node stores its bounds as three floats each -- the layout's
+        // twelve bytes, not a float3's sixteen -- so they are widened here.
+        const float3 low{root.low[0], root.low[1], root.low[2]};
+        const float3 high{root.high[0], root.high[1], root.high[2]};
         return transform_bounds(to_bonsai(inst.render_from_instance),
                                 Bounds3f{low, high});
     };

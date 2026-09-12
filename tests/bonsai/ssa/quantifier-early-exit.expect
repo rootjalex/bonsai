@@ -1,12 +1,12 @@
 type Item = struct Item{ id : i32 }
 type ItemTree = (const ItemTree&)
 type _option0 = struct _option0{ value : i32; set : bool = false }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Item{ id : i32 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : u8x4 }[nCount] }
-type _tree_layout1 = [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : u8x4 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Item{ id : i32 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
 type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
 
-extern items : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Item{ id : i32 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : u8x4 }[nCount] }
+extern items : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Item{ id : i32 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
 func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (bool*), lo : i32, hi : i32) -> void {
   _idx0 : mut u32

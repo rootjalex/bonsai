@@ -119,6 +119,21 @@ ir::Type stored_type(const ir::Type &type,
                               as_struct->attributes);
 }
 
+// The type a layout's own field takes in storage. A layout says how many bytes
+// a field is, and lowers to exactly that: a `vec3f` in a layout is three
+// floats, twelve bytes, where the vector the program computes with is the
+// machine's sixteen. So a vector field is stored as the packed kind (see
+// Vector_t::packed), and a read of it is converted to the unpacked kind where
+// the field is read (field_in_layout).
+ir::Type packed_storage(const ir::Type &type) {
+    if (const auto *vector = type.as<ir::Vector_t>();
+        vector != nullptr && !vector->packed) {
+        return ir::Vector_t::make(vector->etype, vector->lanes,
+                                  /*packed=*/true);
+    }
+    return type;
+}
+
 // Says the above about the whole program, and not only about the arrays a
 // layout stores elements in.
 //
@@ -350,8 +365,9 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
             switch (l.node_type()) {
             case ir::IRLayoutEnum::Name: {
                 const ir::Name *node = l.as<ir::Name>();
-                fields.emplace_back(node->name,
-                                    stored_type(node->type, ltmap.field_refs));
+                fields.emplace_back(
+                    node->name,
+                    packed_storage(stored_type(node->type, ltmap.field_refs)));
                 break;
             }
             case ir::IRLayoutEnum::Pad: {
@@ -389,16 +405,16 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 // Store as vector of bytes, load and reinterpret to proper
                 // type.
                 //
-                // A vector of bytes here is packed storage of an exact width,
-                // not a value: it is the only thing that produces one, and the
-                // backends emit it as exactly `bits / 8` bytes rather than
-                // rounding its lane count up the way a real vector does.
+                // A packed vector of bytes: storage of an exact width, not a
+                // value, which is what `packed` says (see Vector_t). The arm
+                // that owns the bytes reinterprets them as its own struct.
                 const uint64_t bits = l.bits();
                 if (bits > 0) {
                     internal_assert(bits % 8 == 0)
                         << "Switch is not byte-aligned: " << l;
                     static const ir::Type u8 = ir::UInt_t::make(8);
-                    ir::Type byte_vec = ir::Vector_t::make(u8, bits / 8);
+                    ir::Type byte_vec =
+                        ir::Vector_t::make(u8, bits / 8, /*packed=*/true);
                     std::string name = split_name(split_count++, node->field);
                     fields.emplace_back(std::move(name), std::move(byte_vec));
                 }
@@ -491,6 +507,14 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             case ir::IRLayoutEnum::Name: {
                 const ir::Name *node = l.as<ir::Name>();
                 ir::Expr load = ir::Access::make(node->name, base);
+                // A vector is stored packed and computed with unpacked; what
+                // is read out of the layout is converted on the way.
+                if (const auto *vector = load.type().as<ir::Vector_t>();
+                    vector != nullptr && vector->packed) {
+                    load = ir::Cast::make(
+                        ir::Vector_t::make(vector->etype, vector->lanes),
+                        std::move(load), ir::Cast::Mode::Convert);
+                }
                 if (node->name == field) {
                     // Found it!
                     // Just return a read from the current path.

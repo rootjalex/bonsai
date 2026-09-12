@@ -227,6 +227,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // store and a load.
     llvm::Type *indirect_return_type(const ir::Type &ret_type);
 
+    // Between a vector's packed storage (an array aggregate) and the vector
+    // the program computes with; see ir::Vector_t::packed.
+    llvm::Value *unpack_vector(llvm::Value *packed, const ir::Vector_t *type);
+    llvm::Value *pack_vector(llvm::Value *vector, const ir::Vector_t *type);
+
     // An alloca at the top of the current function's entry block: where a
     // callee returning through a hidden pointer puts its result. In the entry
     // block so that it is one slot however often the call runs, and so that

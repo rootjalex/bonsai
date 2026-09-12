@@ -9,7 +9,7 @@ source_filename = "bonsai_module"
 %struct.Ray = type { <3 x float>, <3 x float>, float }
 %struct._option2 = type { %struct.TriangleIntersection, i1 }
 %struct.TriangleIntersection = type { float, float, float, float }
-%struct._tree_layout1 = type <{ <3 x float>, i16, i8, i8, <3 x float>, <4 x i8> }>
+%struct._tree_layout1 = type <{ [3 x float], i16, i8, i8, [3 x float], [4 x i8] }>
 %struct.FInterval = type { float, float }
 %struct._option1 = type { %struct.FInterval, i1 }
 %struct.__tuple_1 = type { %struct.Point, %struct.Point }
@@ -142,66 +142,76 @@ while.body.i:                                     ; preds = %_traverse_tree0_ent
   %extract.i = load i32, ptr %extract_ptr.i, align 4
   %4 = sext i32 %extract.i to i64
   %extract_ptr3.i = getelementptr inbounds %struct._tree_layout1, ptr %triangles.group0_index.i, i64 %4
-  %extract4.unpack.i = load <3 x float>, ptr %extract_ptr3.i, align 1
-  %extract4.elt74.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 16
+  %extract4.unpack.unpack.i = load float, ptr %extract_ptr3.i, align 1
+  %extract4.unpack.elt85.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 4
+  %5 = load <2 x float>, ptr %extract4.unpack.elt85.i, align 1
+  %extract4.elt74.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 12
   %extract4.unpack75.i = load i16, ptr %extract4.elt74.i, align 1
-  %extract4.elt80.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 20
-  %extract4.unpack81.i = load <3 x float>, ptr %extract4.elt80.i, align 1
-  %extract4.elt82.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 36
-  %extract4.unpack83.i15 = load i32, ptr %extract4.elt82.i, align 1
-  %5 = select <3 x i1> %1, <3 x float> %extract4.unpack81.i, <3 x float> %extract4.unpack.i
-  %6 = select <3 x i1> %1, <3 x float> %extract4.unpack.i, <3 x float> %extract4.unpack81.i
-  %7 = fsub <3 x float> %5, %r.o.i
-  %8 = fmul <3 x float> %0, %7
-  %9 = fsub <3 x float> %6, %r.o.i
-  %10 = fmul <3 x float> %0, %9
-  %tMax.0.vec.extract.i = extractelement <3 x float> %10, i64 0
-  %11 = fmul float %tMax.0.vec.extract.i, 0x3FF0000060000000
-  %12 = extractelement <3 x float> %10, i64 1
-  %13 = extractelement <3 x float> %8, i64 0
-  %14 = fcmp olt float %12, %13
-  %15 = extractelement <3 x float> %8, i64 1
-  %16 = fcmp olt float %11, %15
-  %17 = or i1 %14, %16
-  br i1 %17, label %intersectsp_ray_aabb.exit, label %next_bb.i
+  %extract4.elt80.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 16
+  %extract4.unpack81.unpack.i = load float, ptr %extract4.elt80.i, align 1
+  %extract4.unpack81.elt90.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 20
+  %6 = load <2 x float>, ptr %extract4.unpack81.elt90.i, align 1
+  %extract4.elt82.i = getelementptr inbounds i8, ptr %extract_ptr3.i, i64 28
+  %7 = load i32, ptr %extract4.elt82.i, align 1
+  %8 = insertelement <3 x float> poison, float %extract4.unpack.unpack.i, i64 0
+  %9 = shufflevector <2 x float> %5, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %10 = shufflevector <3 x float> %8, <3 x float> %9, <3 x i32> <i32 0, i32 3, i32 4>
+  %11 = insertelement <3 x float> poison, float %extract4.unpack81.unpack.i, i64 0
+  %12 = shufflevector <2 x float> %6, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %13 = shufflevector <3 x float> %11, <3 x float> %12, <3 x i32> <i32 0, i32 3, i32 4>
+  %14 = select <3 x i1> %1, <3 x float> %13, <3 x float> %10
+  %15 = select <3 x i1> %1, <3 x float> %10, <3 x float> %13
+  %16 = fsub <3 x float> %14, %r.o.i
+  %17 = fmul <3 x float> %0, %16
+  %18 = fsub <3 x float> %15, %r.o.i
+  %19 = fmul <3 x float> %0, %18
+  %tMax.0.vec.extract.i = extractelement <3 x float> %19, i64 0
+  %20 = fmul float %tMax.0.vec.extract.i, 0x3FF0000060000000
+  %21 = extractelement <3 x float> %19, i64 1
+  %22 = extractelement <3 x float> %17, i64 0
+  %23 = fcmp olt float %21, %22
+  %24 = extractelement <3 x float> %17, i64 1
+  %25 = fcmp olt float %20, %24
+  %26 = or i1 %23, %25
+  br i1 %26, label %intersectsp_ray_aabb.exit, label %next_bb.i
 
 next_bb.i:                                        ; preds = %while.body.i
-  %max_lt.i = fcmp olt float %13, %15
-  %max.i = select i1 %max_lt.i, float %15, float %13
-  %min_lt.i = fcmp olt float %12, %11
-  %min.i = select i1 %min_lt.i, float %12, float %11
-  %18 = extractelement <3 x float> %10, i64 2
-  %19 = fcmp olt float %18, %max.i
-  %20 = extractelement <3 x float> %8, i64 2
-  %21 = fcmp olt float %min.i, %20
-  %22 = or i1 %19, %21
-  br i1 %22, label %intersectsp_ray_aabb.exit, label %next_bb13.i
+  %max_lt.i = fcmp olt float %22, %24
+  %max.i = select i1 %max_lt.i, float %24, float %22
+  %min_lt.i = fcmp olt float %21, %20
+  %min.i = select i1 %min_lt.i, float %21, float %20
+  %27 = extractelement <3 x float> %19, i64 2
+  %28 = fcmp olt float %27, %max.i
+  %29 = extractelement <3 x float> %17, i64 2
+  %30 = fcmp olt float %min.i, %29
+  %31 = or i1 %28, %30
+  br i1 %31, label %intersectsp_ray_aabb.exit, label %next_bb13.i
 
 next_bb13.i:                                      ; preds = %next_bb.i
-  %max_lt16.i = fcmp olt float %max.i, %20
-  %max17.i = select i1 %max_lt16.i, float %20, float %max.i
-  %min_lt20.i = fcmp olt float %18, %min.i
-  %min21.i = select i1 %min_lt20.i, float %18, float %min.i
-  %23 = insertvalue %struct.FInterval undef, float %max17.i, 0
-  %24 = insertvalue %struct.FInterval %23, float %min21.i, 1
-  %25 = insertvalue %struct._option1 undef, %struct.FInterval %24, 0
-  %26 = insertvalue %struct._option1 %25, i1 true, 1
+  %max_lt16.i = fcmp olt float %max.i, %29
+  %max17.i = select i1 %max_lt16.i, float %29, float %max.i
+  %min_lt20.i = fcmp olt float %27, %min.i
+  %min21.i = select i1 %min_lt20.i, float %27, float %min.i
+  %32 = insertvalue %struct.FInterval undef, float %max17.i, 0
+  %33 = insertvalue %struct.FInterval %32, float %min21.i, 1
+  %34 = insertvalue %struct._option1 undef, %struct.FInterval %33, 0
+  %35 = insertvalue %struct._option1 %34, i1 true, 1
   br label %intersectsp_ray_aabb.exit
 
 intersectsp_ray_aabb.exit:                        ; preds = %while.body.i, %next_bb.i, %next_bb13.i
-  %common.ret.op.i = phi %struct._option1 [ %26, %next_bb13.i ], [ zeroinitializer, %while.body.i ], [ zeroinitializer, %next_bb.i ]
+  %common.ret.op.i = phi %struct._option1 [ %35, %next_bb13.i ], [ zeroinitializer, %while.body.i ], [ zeroinitializer, %next_bb.i ]
   %"interval$i9.set.i" = extractvalue %struct._option1 %common.ret.op.i, 1
   br i1 %"interval$i9.set.i", label %then_bb.i, label %after_bb6.i
 
 then_bb.i:                                        ; preds = %intersectsp_ray_aabb.exit
   %"interval$i9.value.i" = extractvalue %struct._option1 %common.ret.op.i, 0
   %"extract$i9.low.i" = extractvalue %struct.FInterval %"interval$i9.value.i", 0
-  %27 = fcmp olt float %"extract$i9.low.i", %ray.tmax.i
+  %36 = fcmp olt float %"extract$i9.low.i", %ray.tmax.i
   %"extract$i9.high.i" = extractvalue %struct.FInterval %"interval$i9.value.i", 1
-  %28 = fcmp ogt float %"extract$i9.high.i", 0.000000e+00
-  %29 = and i1 %27, %28
-  %30 = fcmp olt float %"extract$i9.low.i", %_best0.sroa.0.013
-  %or.cond = select i1 %29, i1 %30, i1 false
+  %37 = fcmp ogt float %"extract$i9.high.i", 0.000000e+00
+  %38 = and i1 %36, %37
+  %39 = fcmp olt float %"extract$i9.low.i", %_best0.sroa.0.013
+  %or.cond = select i1 %38, i1 %39, i1 false
   br i1 %or.cond, label %then_bb17.i, label %after_bb6.i
 
 after_bb6.i:                                      ; preds = %after_bb34.i, %then_bb20.i, %then_bb.i, %intersectsp_ray_aabb.exit
@@ -209,65 +219,65 @@ after_bb6.i:                                      ; preds = %after_bb34.i, %then
   %_best0.sroa.8.1 = phi <3 x float> [ %_best0.sroa.8.011, %then_bb20.i ], [ %_best0.sroa.8.011, %then_bb.i ], [ %_best0.sroa.8.011, %intersectsp_ray_aabb.exit ], [ %_best0.sroa.8.3, %after_bb34.i ]
   %_best0.sroa.5.1 = phi <3 x float> [ %_best0.sroa.5.012, %then_bb20.i ], [ %_best0.sroa.5.012, %then_bb.i ], [ %_best0.sroa.5.012, %intersectsp_ray_aabb.exit ], [ %_best0.sroa.5.3, %after_bb34.i ]
   %_best0.sroa.0.1 = phi float [ %_best0.sroa.0.013, %then_bb20.i ], [ %_best0.sroa.0.013, %then_bb.i ], [ %_best0.sroa.0.013, %intersectsp_ray_aabb.exit ], [ %_best0.sroa.0.3, %after_bb34.i ]
-  %"!count.1.i" = phi i32 [ %35, %then_bb20.i ], [ %2, %then_bb.i ], [ %2, %intersectsp_ray_aabb.exit ], [ %2, %after_bb34.i ]
+  %"!count.1.i" = phi i32 [ %44, %then_bb20.i ], [ %2, %then_bb.i ], [ %2, %intersectsp_ray_aabb.exit ], [ %2, %after_bb34.i ]
   %.not.i = icmp eq i32 %"!count.1.i", 0
   br i1 %.not.i, label %_recloop_func0.exit, label %while.body.i
 
 then_bb17.i:                                      ; preds = %then_bb.i
-  %31 = icmp eq i16 %extract4.unpack75.i, 0
-  br i1 %31, label %then_bb20.i, label %next_bb21.i
+  %40 = icmp eq i16 %extract4.unpack75.i, 0
+  br i1 %40, label %then_bb20.i, label %next_bb21.i
 
 then_bb20.i:                                      ; preds = %then_bb17.i
-  %32 = add i32 %extract.i, 1
-  %33 = add i32 %extract.i, %extract4.unpack83.i15
-  store i32 %33, ptr %extract_ptr.i, align 4, !tbaa !1
-  %34 = sext i32 %"!count.0.i14" to i64
-  %"!stack25.i" = getelementptr inbounds i32, ptr %"!stack73.i", i64 %34
-  store i32 %32, ptr %"!stack25.i", align 4, !tbaa !1
-  %35 = add i32 %"!count.0.i14", 1
+  %41 = add i32 %extract.i, 1
+  %42 = add i32 %extract.i, %7
+  store i32 %42, ptr %extract_ptr.i, align 4, !tbaa !1
+  %43 = sext i32 %"!count.0.i14" to i64
+  %"!stack25.i" = getelementptr inbounds i32, ptr %"!stack73.i", i64 %43
+  store i32 %41, ptr %"!stack25.i", align 4, !tbaa !1
+  %44 = add i32 %"!count.0.i14", 1
   br label %after_bb6.i
 
 next_bb21.i:                                      ; preds = %then_bb17.i
-  %36 = zext i16 %extract4.unpack75.i to i32
+  %45 = zext i16 %extract4.unpack75.i to i32
   br label %while.body27.i
 
 while.body27.i:                                   ; preds = %next_bb21.i, %after_bb34.i
-  %_idx0.0.i9 = phi i32 [ 0, %next_bb21.i ], [ %41, %after_bb34.i ]
+  %_idx0.0.i9 = phi i32 [ 0, %next_bb21.i ], [ %50, %after_bb34.i ]
   %_best0.sroa.0.28 = phi float [ %_best0.sroa.0.013, %next_bb21.i ], [ %_best0.sroa.0.3, %after_bb34.i ]
   %_best0.sroa.5.27 = phi <3 x float> [ %_best0.sroa.5.012, %next_bb21.i ], [ %_best0.sroa.5.3, %after_bb34.i ]
   %_best0.sroa.8.26 = phi <3 x float> [ %_best0.sroa.8.011, %next_bb21.i ], [ %_best0.sroa.8.3, %after_bb34.i ]
   %_best0.sroa.11.25 = phi <3 x float> [ %_best0.sroa.11.010, %next_bb21.i ], [ %_best0.sroa.11.3, %after_bb34.i ]
-  %37 = add i32 %_idx0.0.i9, %extract4.unpack83.i15
-  %38 = sext i32 %37 to i64
-  %extract_ptr32.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %38
+  %46 = add i32 %_idx0.0.i9, %7
+  %47 = sext i32 %46 to i64
+  %extract_ptr32.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %47
   %extract33.unpack.i = load <3 x float>, ptr %extract_ptr32.i, align 16
-  %39 = insertvalue %struct.Triangle poison, <3 x float> %extract33.unpack.i, 0
-  %extract33.elt85.i = getelementptr inbounds i8, ptr %extract_ptr32.i, i64 16
-  %extract33.unpack86.i = load <3 x float>, ptr %extract33.elt85.i, align 16
-  %40 = insertvalue %struct.Triangle %39, <3 x float> %extract33.unpack86.i, 1
-  %extract33.elt87.i = getelementptr inbounds i8, ptr %extract_ptr32.i, i64 32
-  %extract33.unpack88.i = load <3 x float>, ptr %extract33.elt87.i, align 16
-  %extract3389.i = insertvalue %struct.Triangle %40, <3 x float> %extract33.unpack88.i, 2
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract3389.i)
+  %48 = insertvalue %struct.Triangle poison, <3 x float> %extract33.unpack.i, 0
+  %extract33.elt102.i = getelementptr inbounds i8, ptr %extract_ptr32.i, i64 16
+  %extract33.unpack103.i = load <3 x float>, ptr %extract33.elt102.i, align 16
+  %49 = insertvalue %struct.Triangle %48, <3 x float> %extract33.unpack103.i, 1
+  %extract33.elt104.i = getelementptr inbounds i8, ptr %extract_ptr32.i, i64 32
+  %extract33.unpack105.i = load <3 x float>, ptr %extract33.elt104.i, align 16
+  %extract33106.i = insertvalue %struct.Triangle %49, <3 x float> %extract33.unpack105.i, 2
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract33106.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
   br i1 %.fca.1.load.i, label %then_bb35.i, label %after_bb34.i
 
 after_bb34.i:                                     ; preds = %then_bb44.i, %then_bb35.i, %while.body27.i
-  %_best0.sroa.11.3 = phi <3 x float> [ %extract33.unpack88.i, %then_bb44.i ], [ %_best0.sroa.11.25, %then_bb35.i ], [ %_best0.sroa.11.25, %while.body27.i ]
-  %_best0.sroa.8.3 = phi <3 x float> [ %extract33.unpack86.i, %then_bb44.i ], [ %_best0.sroa.8.26, %then_bb35.i ], [ %_best0.sroa.8.26, %while.body27.i ]
+  %_best0.sroa.11.3 = phi <3 x float> [ %extract33.unpack105.i, %then_bb44.i ], [ %_best0.sroa.11.25, %then_bb35.i ], [ %_best0.sroa.11.25, %while.body27.i ]
+  %_best0.sroa.8.3 = phi <3 x float> [ %extract33.unpack103.i, %then_bb44.i ], [ %_best0.sroa.8.26, %then_bb35.i ], [ %_best0.sroa.8.26, %while.body27.i ]
   %_best0.sroa.5.3 = phi <3 x float> [ %extract33.unpack.i, %then_bb44.i ], [ %_best0.sroa.5.27, %then_bb35.i ], [ %_best0.sroa.5.27, %while.body27.i ]
   %_best0.sroa.0.3 = phi float [ %.fca.0.3.load68..i, %then_bb44.i ], [ %_best0.sroa.0.28, %then_bb35.i ], [ %_best0.sroa.0.28, %while.body27.i ]
-  %41 = add nuw nsw i32 %_idx0.0.i9, 1
-  %42 = icmp ult i32 %41, %36
-  br i1 %42, label %while.body27.i, label %after_bb6.i
+  %50 = add nuw nsw i32 %_idx0.0.i9, 1
+  %51 = icmp ult i32 %50, %45
+  br i1 %51, label %while.body27.i, label %after_bb6.i
 
 then_bb35.i:                                      ; preds = %while.body27.i
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret37.i, %struct.Ray %ray, %struct.Triangle %extract3389.i)
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret37.i, %struct.Ray %ray, %struct.Triangle %extract33106.i)
   %.fca.0.3.load68.i = load float, ptr %.fca.0.3.gep67.i, align 4
   %.fca.1.load71.i = load i1, ptr %.fca.1.gep70.i, align 8
   %.fca.0.3.load68..i = select i1 %.fca.1.load71.i, float %.fca.0.3.load68.i, float 0x7FF0000000000000
-  %43 = fcmp olt float %.fca.0.3.load68..i, %_best0.sroa.0.28
-  br i1 %43, label %then_bb44.i, label %after_bb34.i
+  %52 = fcmp olt float %.fca.0.3.load68..i, %_best0.sroa.0.28
+  br i1 %52, label %then_bb44.i, label %after_bb34.i
 
 then_bb44.i:                                      ; preds = %then_bb35.i
   br label %after_bb34.i
@@ -276,14 +286,14 @@ _recloop_func0.exit:                              ; preds = %after_bb6.i
   call void @llvm.lifetime.end.p0(i64 20, ptr nonnull %_ret37.i)
   call void @llvm.lifetime.end.p0(i64 20, ptr nonnull %_ret.i)
   call void @llvm.lifetime.end.p0(i64 256, ptr nonnull %"!stack73.i")
-  %44 = fcmp one float %_best0.sroa.0.1, 0x7FF0000000000000
-  %45 = insertvalue %struct.Triangle poison, <3 x float> %_best0.sroa.5.1, 0
-  %46 = insertvalue %struct.Triangle %45, <3 x float> %_best0.sroa.8.1, 1
-  %"@7._field1" = insertvalue %struct.Triangle %46, <3 x float> %_best0.sroa.11.1, 2
-  %47 = insertvalue %struct._option0 undef, %struct.Triangle %"@7._field1", 0
-  %48 = insertvalue %struct._option0 %47, i1 true, 1
-  %49 = select i1 %44, %struct._option0 %48, %struct._option0 zeroinitializer
-  store %struct._option0 %49, ptr %_sret, align 16
+  %53 = fcmp one float %_best0.sroa.0.1, 0x7FF0000000000000
+  %54 = insertvalue %struct.Triangle poison, <3 x float> %_best0.sroa.5.1, 0
+  %55 = insertvalue %struct.Triangle %54, <3 x float> %_best0.sroa.8.1, 1
+  %"@7._field1" = insertvalue %struct.Triangle %55, <3 x float> %_best0.sroa.11.1, 2
+  %56 = insertvalue %struct._option0 undef, %struct.Triangle %"@7._field1", 0
+  %57 = insertvalue %struct._option0 %56, i1 true, 1
+  %58 = select i1 %53, %struct._option0 %57, %struct._option0 zeroinitializer
+  store %struct._option0 %58, ptr %_sret, align 16
   ret void
 }
 

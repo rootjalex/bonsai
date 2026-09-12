@@ -170,11 +170,13 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Vector_t: {
         const Vector_t *v0 = t0.as<Vector_t>();
         const Vector_t *v1 = t1.as<Vector_t>();
-        if (v0->lanes == v1->lanes) {
-            return compare_types(v0->etype, v1->etype);
-        } else {
+        if (v0->lanes != v1->lanes) {
             return compare_primitives(v0->lanes, v1->lanes);
         }
+        if (v0->packed != v1->packed) {
+            return compare_primitives(v0->packed, v1->packed);
+        }
+        return compare_types(v0->etype, v1->etype);
     }
     case IRTypeEnum::Struct_t: {
         const Struct_t *s0 = t0.as<Struct_t>();

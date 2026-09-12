@@ -774,8 +774,43 @@ void CodeGen_LLVM::visit(const Vector_t *node) {
     llvm::Type *etype = codegen_type(node->etype);
     internal_assert(!etype->isVoidTy())
         << "Cannot make a vector of type void: " << Type(node);
+    if (node->packed) {
+        // Storage: exactly `lanes` elements, aligned as one element is. An
+        // LLVM vector of three floats is allocated sixteen bytes and aligned
+        // to sixteen; an array of three is twelve and aligned to four, which
+        // is what a layout that says `vec3f` has promised. See Vector_t.
+        type = llvm::ArrayType::get(etype, node->lanes);
+        return;
+    }
     // TODO: do we ever want to support scalable vectors? probably not.
     type = llvm::VectorType::get(etype, node->lanes, /* Scalable */ false);
+}
+
+// Packed storage to the vector the program computes with, and back: the
+// elements of an `[N x T]` aggregate into an `<N x T>`, or out of one.
+llvm::Value *CodeGen_LLVM::unpack_vector(llvm::Value *packed,
+                                         const Vector_t *type) {
+    llvm::Type *etype = codegen_type(type->etype);
+    llvm::Type *vector_type =
+        llvm::VectorType::get(etype, type->lanes, /* Scalable */ false);
+    llvm::Value *vector = llvm::PoisonValue::get(vector_type);
+    for (uint32_t i = 0; i < type->lanes; i++) {
+        llvm::Value *element = builder->CreateExtractValue(packed, i);
+        vector = builder->CreateInsertElement(vector, element, uint64_t(i));
+    }
+    return vector;
+}
+
+llvm::Value *CodeGen_LLVM::pack_vector(llvm::Value *vector,
+                                       const Vector_t *type) {
+    llvm::Type *etype = codegen_type(type->etype);
+    llvm::Type *array_type = llvm::ArrayType::get(etype, type->lanes);
+    llvm::Value *packed = llvm::PoisonValue::get(array_type);
+    for (uint32_t i = 0; i < type->lanes; i++) {
+        llvm::Value *element = builder->CreateExtractElement(vector, uint64_t(i));
+        packed = builder->CreateInsertValue(packed, element, i);
+    }
+    return packed;
 }
 
 void CodeGen_LLVM::visit(const Struct_t *node) {
@@ -1477,8 +1512,8 @@ void CodeGen_LLVM::visit(const Print *node) {
 }
 
 void CodeGen_LLVM::visit(const Cast *node) {
-    const ir::Type &src = node->value.type();
-    const ir::Type &dst = node->type;
+    ir::Type src = node->value.type();
+    ir::Type dst = node->type;
 
     // TODO(ajr): we need a more general fix for these sorts of reinterprets.
     if (src.is<Vector_t>() && dst.is<Struct_t>() &&
@@ -1493,7 +1528,31 @@ void CodeGen_LLVM::visit(const Cast *node) {
     // TODO: upgrade_type_for_arithmetic?
     llvm::Value *inner = codegen_expr(node->value);
 
+    // A vector's packed storage is unpacked before anything below looks at
+    // it, and a packed destination is packed again after; in between a vector
+    // is the vector the machine computes with. A conversion between the two
+    // kinds of the same vector is then the identity in the middle.
+    if (const auto *packed = src.as<Vector_t>();
+        packed != nullptr && packed->packed) {
+        inner = unpack_vector(inner, packed);
+        src = Vector_t::make(packed->etype, packed->lanes);
+    }
+    const Vector_t *pack_to = nullptr;
+    if (const auto *packed = dst.as<Vector_t>();
+        packed != nullptr && packed->packed) {
+        pack_to = packed;
+        dst = Vector_t::make(packed->etype, packed->lanes);
+    }
+
     llvm::Type *llvm_dst = codegen_type(dst);
+
+    if (equals(src, dst)) {
+        value = pack_to ? pack_vector(inner, pack_to) : inner;
+        return;
+    }
+    internal_assert(pack_to == nullptr)
+        << "A conversion into packed storage from a different type: " << src
+        << " -> " << Type(pack_to);
 
     // An array is the address of its elements, so viewing one as an array of
     // a different element type is nothing at the machine level -- only the

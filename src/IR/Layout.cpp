@@ -11,7 +11,16 @@ namespace ir {
 uint64_t Layout::bits() const {
     switch (node_type()) {
     case IRLayoutEnum::Name: {
-        return as<Name>()->type.bits();
+        // The width of the storage, which for a vector is every lane:
+        // Type::bits() answers for one lane, being asked about arithmetic,
+        // and a layout is asking about bytes. A `vec3f` is 96 bits here, as
+        // the layout that pads it out to a 32-byte node has always taken it
+        // to be.
+        const Type &type = as<Name>()->type;
+        if (const auto *vector = type.as<Vector_t>()) {
+            return uint64_t(vector->lanes) * vector->etype.bits();
+        }
+        return type.bits();
     }
     case IRLayoutEnum::Pad: {
         return as<Pad>()->bits;

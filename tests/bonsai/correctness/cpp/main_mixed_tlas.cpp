@@ -127,8 +127,8 @@ uint32_t build_tree(std::vector<Node> &nodes, std::vector<Item> &items,
     for (uint32_t i = low + 1; i < high; i++) {
         box = merge(box, bounds_of_item(items[i]));
     }
-    nodes[self].low = box.low;
-    nodes[self].high = box.high;
+    nodes[self].low = {box.low[0], box.low[1], box.low[2]};
+    nodes[self].high = {box.high[0], box.high[1], box.high[2]};
 
     if (high - low == 1) {
         nodes[self].nPrims = 1;

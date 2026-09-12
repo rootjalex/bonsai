@@ -218,8 +218,17 @@ struct Ref_t : TypeNode<Ref_t> {
 struct Vector_t : TypeNode<Vector_t> {
     Type etype;
     uint32_t lanes;
+    // Storage rather than a value. A vector the program computes with is
+    // whatever the machine's vector register is -- three floats take sixteen
+    // bytes, and are aligned to sixteen -- while a vector a layout stores is
+    // exactly `lanes` elements, back to back, aligned as one element is: the
+    // twelve bytes a layout that says `vec3f` means. The two are different
+    // types with the same lanes; a layout's fields are the packed kind, what
+    // is read out of one is converted to the other (Cast, mode Convert), and
+    // nothing computes with the packed kind directly.
+    bool packed = false;
 
-    static Type make(Type etype, uint32_t lanes);
+    static Type make(Type etype, uint32_t lanes, bool packed = false);
 
     static const IRTypeEnum node_type = IRTypeEnum::Vector_t;
 };
