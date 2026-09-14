@@ -123,6 +123,13 @@ else
 fi
 
 mkdir -p "$WORK"
+# Absolute from here on. pbrt is run from the scene's own directory when the
+# scene names no integrator (see pbrt_render), so a relative --outfile would
+# resolve against that directory and pbrt would fail to write -- silently,
+# since a write failure is not a non-zero exit. That left every no-integrator
+# scene, the pavilion included, comparing against whatever stale pbrt image
+# was last written here.
+WORK="$(cd "$WORK" && pwd)"
 
 cmake --build build -j
 
@@ -229,16 +236,33 @@ if [[ "$FILM" == "gbuffer" ]]; then
   esac
 fi
 
+# `$out` must be absolute: the no-integrator branch runs pbrt from the scene's
+# directory (so the scene's own `Include`s resolve), and a relative path would
+# be written there. WORK was made absolute above; anything else is the
+# caller's to get right.
+#
+# The old output is removed first and its reappearance is checked, because a
+# write failure -- an unwritable path, a full disk -- is not a non-zero exit
+# from pbrt: it renders, then fails to save, and says so only on stderr. Left
+# unchecked, the stale file from a previous run was silently compared instead.
+# pbrt's own diagnostics are shown when it does not produce the file.
 pbrt_render() {
   local out="$1"
-  if [[ -z "$INTEGRATOR" ]]; then
-    (cd "$(dirname "$SCENE")" &&
-     { echo "Integrator \"$PBRT_INTEGRATOR\""; cat "$SCENE"; } |
-     "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} \
-         >/dev/null 2>&1)
-  else
-    "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} "$SCENE" \
-        >/dev/null 2>&1
+  rm -f "$out"
+  local log
+  log="$(
+    if [[ -z "$INTEGRATOR" ]]; then
+      cd "$(dirname "$SCENE")" &&
+        { echo "Integrator \"$PBRT_INTEGRATOR\""; cat "$SCENE"; } |
+        "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} 2>&1
+    else
+      "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} "$SCENE" 2>&1
+    fi
+  )"
+  if [[ ! -s "$out" ]]; then
+    echo "pbrt did not write $out. Its output:" >&2
+    echo "$log" >&2
+    exit 1
   fi
 }
 
