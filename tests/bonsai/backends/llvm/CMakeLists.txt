@@ -33,6 +33,7 @@ add_bonsai_tests(
     sret.bonsai
     struct_defaults.bonsai
     tail-call.bonsai
+    tight-array.bonsai
     tree-traversal.bonsai
     tree-traversal-instanced.bonsai
     tree-traversal-mixed.bonsai

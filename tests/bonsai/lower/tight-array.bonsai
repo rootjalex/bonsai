@@ -1,0 +1,35 @@
+//! flags: -p canonicalize -p lower-externs -p lower-layouts
+
+// `layout <array> { tight(root); };` -- how an extern array is stored
+// (ir::ArrayLayout). `root` is the element of the topmost array, and `tight`
+// stores it as exactly the bytes its fields state: a `vec3f` as three floats,
+// twelve bytes, where the vector the program computes with is the machine's
+// sixteen.
+//
+// What to read for in the golden: `positions` becomes an array of
+// `[[packed]] f32x3`, every parameter that carries it says the same, and
+// every element read is widened -- `cast<f32x3>(positions[i])` -- where it is
+// read, in `corner` as much as in the exported function. `weights` is an
+// array of scalars, which `tight` leaves as they are.
+
+element vec3f = vector[f32, 3];
+
+extern positions : array[vec3f];
+extern weights : array[f32];
+
+func corner(i : u32) -> vec3f {
+    return positions[i];
+}
+
+func [[export]] centroid(a : u32, b : u32, c : u32) -> vec3f {
+    return (corner(a) + corner(b) + corner(c)) / vec3f{3.0, 3.0, 3.0};
+}
+
+func [[export]] weighted(i : u32) -> f32 {
+    return weights[i] * 2.0;
+}
+
+schedule {
+    layout positions { tight(root); };
+    layout weights { tight(root); };
+}

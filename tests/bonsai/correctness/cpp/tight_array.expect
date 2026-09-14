@@ -1,0 +1,6 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_tight_array.cpp -I. -o tests/bonsai/correctness/cpp/main_tight_array.o
+[test] clang++ tests/bonsai/correctness/cpp/main_tight_array.o tests/bonsai/correctness/cpp/tight_array.o -o tests/bonsai/correctness/cpp/tight_array
+[test] ./tests/bonsai/correctness/cpp/tight_array
+1 2 3
+3
+-1 -2 -3

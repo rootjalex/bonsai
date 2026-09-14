@@ -1,0 +1,20 @@
+//! flags: -p ssa -b llvm
+
+// The LLVM a `tight(root)` array lowers to. lower/tight-array.bonsai shows
+// the IR; this is what the storage comes to. What to read for: the element
+// is loaded as `[3 x float]` from a pointer stepped by twelve bytes, and put
+// together into the `<3 x float>` the arithmetic runs on -- no sixteen-byte
+// stride and no padding lane anywhere in the fetch.
+
+element vec3f = vector[f32, 3];
+
+extern positions : array[vec3f];
+
+func [[export]] centroid(a : u32, b : u32, c : u32) -> vec3f {
+    return (positions[a] + positions[b] + positions[c]) /
+           vec3f{3.0, 3.0, 3.0};
+}
+
+schedule {
+    layout positions { tight(root); };
+}

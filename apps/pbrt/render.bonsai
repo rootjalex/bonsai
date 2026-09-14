@@ -1953,6 +1953,15 @@ schedule {
     // IntersectP uses.
     trace_any.loopify(64);
 
+    // pbrt's `Point3f *p` and `Normal3f *n` are three floats each, twelve
+    // bytes, and so are these: a vertex is stored as exactly its three
+    // components and widened to the vector the program computes with where it
+    // is read. Left to the compute type, a `vec3f` element is the machine's
+    // sixteen-byte vector, and every fetch of a triangle's corners reads a
+    // third more memory than pbrt's.
+    layout mesh_positions { tight(root); };
+    layout mesh_normals { tight(root); };
+
     // The random walk is a tail recursion, so this turns it into a loop. Said
     // here rather than written as one: what the source says is that a path's
     // next step depends on its last, and how that is run -- a loop per pixel

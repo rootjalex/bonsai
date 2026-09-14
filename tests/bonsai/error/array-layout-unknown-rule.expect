@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/array-layout-unknown-rule.bonsai:13:35: [parse error] Unknown array layout rule `loose` for positions. Expected `tight`.
+
+    layout positions { loose(root); };
+                                  ^

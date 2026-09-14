@@ -13,6 +13,7 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <algorithm>
 #include <functional>
 #include <ranges>
 
@@ -1375,6 +1376,189 @@ struct LowerMatches : public ir::Mutator {
 
 } // namespace
 
+namespace {
+
+// The type an element takes in storage under `tight(root)`: a vector as
+// exactly its lanes, a scalar as itself.
+ir::Type tight_element(const ir::Type &type, const std::string &name) {
+    if (type.is<ir::Vector_t>()) {
+        return packed_storage(type);
+    }
+    if (type.is_scalar()) {
+        return type;
+    }
+    internal_error << "[unimplemented] tight(root) on " << name
+                   << ", whose element is " << type
+                   << ": only a vector or a scalar element is stored tight "
+                      "so far.";
+    return type;
+}
+
+// Gives the extern array `name` the stored type `stored`, everywhere the
+// program names it: the extern itself, every parameter that carries it (they
+// bear its name -- see Lower/Externs.cpp), and every read of an element,
+// which is converted to the compute type where it is read, as a layout's
+// field is (field_in_layout). An extern is not assignable, so there is no
+// write to convert the other way; the arrays a program writes are its
+// parameters, and a layout does not name those yet.
+struct TightenExternArray : public ir::Mutator {
+    const std::string &name;
+    const ir::Type stored;  // the array, in storage
+    const ir::Type element; // the element the program computes with
+    const ir::Type packed;  // the element in storage
+    // The program's functions, their parameters already retyped, for the
+    // type a call names its callee by.
+    const ir::FuncMap &funcs;
+
+    TightenExternArray(const std::string &name, ir::Type stored,
+                       ir::Type element, ir::Type packed,
+                       const ir::FuncMap &funcs)
+        : name(name), stored(std::move(stored)), element(std::move(element)),
+          packed(std::move(packed)), funcs(funcs) {}
+
+    using ir::Mutator::mutate;
+    using ir::Mutator::visit;
+
+    ir::Expr visit(const ir::Var *node) override {
+        if (node->name != name) {
+            return node;
+        }
+        return ir::Var::make(stored, node->name);
+    }
+
+    // A call names its callee with the callee's type, which says what the
+    // parameters are; a callee that carries the array is named by its type
+    // as it now is. The three spellings of a call, as in Lower/Externs.cpp.
+    ir::Expr callee(const ir::Expr &func) const {
+        const ir::Var *var = func.as<ir::Var>();
+        if (var == nullptr) {
+            return func;
+        }
+        const auto it = funcs.find(var->name);
+        if (it == funcs.end()) {
+            return func;
+        }
+        for (const ir::Function::Argument &arg : it->second->args) {
+            if (arg.name == name) {
+                return ir::Var::make(it->second->call_type(), var->name);
+            }
+        }
+        return func;
+    }
+
+    // The arguments and the callee together, since a call is checked against
+    // its callee's type as it is made: an argument retyped against the old
+    // callee would fail that check.
+    std::pair<ir::Expr, std::vector<ir::Expr>>
+    call_parts(const ir::Expr &func, const std::vector<ir::Expr> &args,
+               bool &changed) {
+        ir::Expr new_func = callee(func);
+        changed = changed || !new_func.same_as(func);
+        std::vector<ir::Expr> new_args;
+        new_args.reserve(args.size());
+        for (const ir::Expr &arg : args) {
+            new_args.push_back(mutate(arg));
+            changed = changed || !new_args.back().same_as(arg);
+        }
+        return {std::move(new_func), std::move(new_args)};
+    }
+
+    ir::Expr visit(const ir::Call *node) override {
+        bool changed = false;
+        auto [func, args] = call_parts(node->func, node->args, changed);
+        if (!changed) {
+            return node;
+        }
+        return ir::Call::make(std::move(func), std::move(args));
+    }
+
+    ir::Stmt visit(const ir::CallStmt *node) override {
+        bool changed = false;
+        auto [func, args] = call_parts(node->func, node->args, changed);
+        if (!changed) {
+            return node;
+        }
+        return ir::CallStmt::make(std::move(func), std::move(args));
+    }
+
+    ir::Stmt visit(const ir::MultiRecurse *node) override {
+        bool changed = false;
+        auto [func, args] = call_parts(node->func, node->args, changed);
+        if (!changed) {
+            return node;
+        }
+        return ir::MultiRecurse::make(std::move(func), std::move(args),
+                                      node->varying_at, node->varying,
+                                      node->keys);
+    }
+
+    ir::Expr visit(const ir::Extract *node) override {
+        const ir::Var *var = node->vec.as<ir::Var>();
+        if (var == nullptr || var->name != name) {
+            return ir::Mutator::visit(node);
+        }
+        internal_assert(!node->idx.type().is_vector())
+            << "[unimplemented] a gather from the tight array " << name;
+        ir::Expr read = ir::Extract::make(mutate(node->vec), mutate(node->idx));
+        if (equals(packed, element)) {
+            return read;
+        }
+        return ir::Cast::make(element, std::move(read), ir::Cast::Mode::Convert);
+    }
+
+    std::pair<ir::WriteLoc, bool>
+    mutate_writeloc(const ir::WriteLoc &loc) override {
+        internal_assert(loc.base != name)
+            << "A write into the extern array " << name
+            << ", which the language does not let a program assign";
+        return ir::Mutator::mutate_writeloc(loc);
+    }
+};
+
+void apply_array_layouts(ir::Program &program,
+                         const ir::ArrayLayoutMap &layouts) {
+    for (const auto &[name, layout] : layouts) {
+        auto found = std::find_if(program.externs.begin(),
+                                  program.externs.end(),
+                                  [&](const auto &e) { return e.name == name; });
+        internal_assert(found != program.externs.end())
+            << "A layout for " << name << ", which is not an extern";
+        const ir::Array_t *array = found->type.as<ir::Array_t>();
+        internal_assert(array) << name << " has a layout for an array and is "
+                               << found->type;
+
+        ir::Type packed = array->etype;
+        for (const auto &rule : layout.rules) {
+            switch (rule.kind) {
+            case ir::ArrayLayout::Rule::Kind::Tight:
+                packed = tight_element(packed, name);
+                break;
+            }
+        }
+        if (packed.same_as(array->etype)) {
+            continue; // the rules change nothing about this element
+        }
+        const ir::Type stored = ir::Array_t::make(packed, array->size);
+        found->type = stored;
+        // Every parameter first, then every body: a call in one body names
+        // another function by its parameters' types.
+        for (auto &[_, func] : program.funcs) {
+            for (auto &arg : func->args) {
+                if (arg.name == name) {
+                    arg.type = stored;
+                }
+            }
+        }
+        TightenExternArray tighten(name, stored, array->etype, packed,
+                                   program.funcs);
+        for (auto &[_, func] : program.funcs) {
+            func->body = tighten.mutate(func->body);
+        }
+    }
+}
+
+} // namespace
+
 ir::Program LowerLayouts::run(ir::Program program,
                               const CompilerOptions &options) const {
     if (program.schedules.empty()) {
@@ -1382,6 +1566,11 @@ ir::Program LowerLayouts::run(ir::Program program,
     }
     internal_assert(program.schedules.size() == 1)
         << "TODO: support selecting a schedule target!\n";
+
+    // The arrays first: they say only how an element is stored, and nothing
+    // below reads them.
+    apply_array_layouts(program,
+                        program.schedules[ir::Target::Host].array_layouts);
 
     ir::LayoutMap tree_layouts =
         std::move(program.schedules[ir::Target::Host].tree_layouts);

@@ -1,0 +1,27 @@
+type vec3f = f32x3
+
+extern positions : [[packed]] f32x3[]
+extern weights : f32[]
+
+func [[export]] centroid(a : u32, b : u32, c : u32, positions : [[packed]] f32x3[]) -> f32x3 {
+  return ((corner(a, positions) + corner(b, positions)) + corner(c, positions)) / build<f32x3>(3f, 3f, 3f)
+}
+
+func corner(i : u32, positions : [[packed]] f32x3[]) -> f32x3 {
+  return cast<f32x3>(positions[i])
+}
+
+func [[export]] weighted(i : u32, weights : f32[]) -> f32 {
+  return weights[i] * 2f
+}
+
+
+schedule host {
+    layout positions {
+      tight(root);
+    };
+    layout weights {
+      tight(root);
+    };
+
+}

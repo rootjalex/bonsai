@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/array-layout-unknown-cursor.bonsai:14:35: [parse error] Unknown cursor `each` in the layout of positions. A rule applies to `root`, the element of the topmost array.
+
+    layout positions { tight(each); };
+                                  ^

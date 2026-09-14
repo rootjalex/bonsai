@@ -9,6 +9,9 @@ add_bonsai_tests(
     indirect-group-unnamed.bonsai
     adt-variant-shadows-type.bonsai
     aggregation-name-reserved.bonsai
+    array-layout-struct-unimplemented.bonsai
+    array-layout-unknown-cursor.bonsai
+    array-layout-unknown-rule.bonsai
     call-statement-arg-type.bonsai
     collapse-dependent-range.bonsai
     collapse-not-nested.bonsai

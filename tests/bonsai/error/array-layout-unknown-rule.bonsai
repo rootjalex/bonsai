@@ -1,0 +1,14 @@
+// An array layout rule the language does not have. `tight` is the only one
+// so far; the message names it.
+
+element vec3f = vector[f32, 3];
+
+extern positions : array[vec3f];
+
+func [[export]] first() -> vec3f {
+    return positions[0];
+}
+
+schedule {
+    layout positions { loose(root); };
+}

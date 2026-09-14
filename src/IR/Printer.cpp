@@ -303,6 +303,26 @@ void Printer::print(const Schedule &schedule) {
         os << '\n';
     }
 
+    for (const auto &[name, layout] : schedule.array_layouts) {
+        os << get_indent() << "layout " << name << " {\n";
+        indent++;
+        for (const auto &rule : layout.rules) {
+            os << get_indent();
+            switch (rule.kind) {
+            case ArrayLayout::Rule::Kind::Tight:
+                os << "tight";
+                break;
+            }
+            os << "(";
+            for (size_t i = 0; i < rule.cursor.size(); i++) {
+                os << (i > 0 ? "." : "") << rule.cursor[i];
+            }
+            os << ");\n";
+        }
+        indent--;
+        os << get_indent() << "};\n";
+    }
+
     for (const auto &[func, ts] : schedule.func_transforms) {
         os << get_indent() << func;
         std::string whitespace(func.size(), ' ');

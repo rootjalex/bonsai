@@ -2890,6 +2890,13 @@ struct Parser {
                                       "type.";
                 }
 
+                // An extern array is stored by rules over its element; a
+                // set the program traverses is stored by a tree layout.
+                if (extern_iter->type.is<ir::Array_t>()) {
+                    parse_array_layout(schedule, name);
+                    break;
+                }
+
                 ir::Layout layout = parse_top_level_layout();
                 const auto [_, inserted] =
                     schedule.tree_layouts.emplace(name, std::move(layout));
@@ -2910,6 +2917,51 @@ struct Parser {
         internal_assert(program.schedules.empty());
 
         program.schedules[ir::Target::Host] = schedule;
+    }
+
+    // `layout <array> { <rule>(<cursor>); ... };` -- how an extern array is
+    // stored (see ir::ArrayLayout). `root` is the element of the topmost
+    // array, and `tight` the one rule so far: the element as exactly the bytes
+    // its fields state.
+    void parse_array_layout(ir::Schedule &schedule, const std::string &name) {
+        expect(Token::Type::LSQUIGGLE);
+        ir::ArrayLayout layout;
+        do {
+            const std::string rule = get_id();
+            expect(Token::Type::LPAREN);
+            std::vector<std::string> cursor = {get_id()};
+            while (consume(Token::Type::PERIOD)) {
+                cursor.push_back(get_id());
+            }
+            expect(Token::Type::RPAREN);
+            expect(Token::Type::SEMICOL);
+
+            if (cursor.front() != "root") {
+                report_error() << "Unknown cursor `" << cursor.front()
+                               << "` in the layout of " << name
+                               << ". A rule applies to `root`, the element "
+                                  "of the topmost array.";
+            }
+            if (cursor.size() != 1) {
+                report_error() << "[unimplemented] a cursor below `root` in "
+                                  "the layout of "
+                               << name << ": a rule applies to the whole "
+                                          "element for now.";
+            }
+            if (rule != "tight") {
+                report_error() << "Unknown array layout rule `" << rule
+                               << "` for " << name << ". Expected `tight`.";
+            }
+            layout.rules.push_back(
+                {ir::ArrayLayout::Rule::Kind::Tight, std::move(cursor)});
+        } while (!consume(Token::Type::RSQUIGGLE));
+        expect(Token::Type::SEMICOL);
+
+        const auto [_, inserted] =
+            schedule.array_layouts.emplace(name, std::move(layout));
+        if (!inserted) {
+            report_error() << "Layout for " << name << " already exists.";
+        }
     }
 
     // `layout <Adt> = <kind>;` -- every arm stored the same way -- or

@@ -19,6 +19,7 @@ add_bonsai_tests(
     shading-frame.bonsai
     simple.bonsai
     struct.bonsai
+    tight_array.bonsai
     swap.bonsai
     vec.bonsai
     vector_ops.bonsai

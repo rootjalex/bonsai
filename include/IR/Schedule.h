@@ -176,6 +176,8 @@ struct Schedule {
     TypeMap tree_types;
     LayoutMap tree_layouts;
     AdtLayoutMap adt_layouts;
+    // How an extern array is stored; see ir::ArrayLayout.
+    ArrayLayoutMap array_layouts;
     TransformMap func_transforms;
     // Which group backs a tree held in a field, keyed the same way
     // `tree_types` is: `Instance.blas -> BlasNodes`.

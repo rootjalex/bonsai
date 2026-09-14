@@ -118,7 +118,14 @@ Bounds3f merge(const Bounds3f &a, const float3 &p) {
 struct Meshes {
     const TriangleMesh *meshes = nullptr;
     const uint32_t *indices = nullptr;
-    const float3 *positions = nullptr;
+    // Three floats a vertex, as the schedule's `layout mesh_positions {
+    // tight(root); }` stores them and as pbrt's Point3f is; widened to a
+    // float3 where a bound is computed from them.
+    const std::array<float, 3> *positions = nullptr;
+
+    static float3 widen(const std::array<float, 3> &p) {
+        return float3{p[0], p[1], p[2]};
+    }
 
     void corners(const Triangle &t, uint32_t out[3]) const {
         const TriangleMesh &m = meshes[t.mesh];
@@ -177,8 +184,9 @@ Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
     }
     uint32_t c[3];
     pool.corners(shapes.triangle(prim.shape), c);
-    return merge(Bounds3f{pool.positions[c[0]], pool.positions[c[1]]},
-                 pool.positions[c[2]]);
+    return merge(Bounds3f{Meshes::widen(pool.positions[c[0]]),
+                          Meshes::widen(pool.positions[c[1]])},
+                 Meshes::widen(pool.positions[c[2]]));
 }
 
 // pbrt: Transform::operator()(Point3f) and Transform::operator()(const
@@ -971,15 +979,22 @@ int main(int argc, char **argv) {
         out_mesh.flip = m.flip != 0;
         meshes.push_back(out_mesh);
     }
-    const auto to_float3 = [](const std::vector<float> &v) {
-        std::vector<float3> out(v.size() / 3);
+    // Three floats a vertex -- the layout the schedule gives these arrays
+    // (`tight(root)`), the same twelve bytes pbrt's Point3f and Normal3f are,
+    // and the shape the scene file already holds them in. Not a float3: that
+    // is the machine's sixteen-byte vector, which the layout language does
+    // not put into storage unless asked.
+    static_assert(sizeof(std::array<float, 3>) == 12);
+    const auto to_tight = [](const std::vector<float> &v) {
+        std::vector<std::array<float, 3>> out(v.size() / 3);
         for (size_t i = 0; i < out.size(); i++) {
-            out[i] = float3{v[3 * i + 0], v[3 * i + 1], v[3 * i + 2]};
+            out[i] = {v[3 * i + 0], v[3 * i + 1], v[3 * i + 2]};
         }
         return out;
     };
-    const std::vector<float3> positions = to_float3(loaded.positions);
-    const std::vector<float3> normals = to_float3(loaded.normals);
+    const std::vector<std::array<float, 3>> positions =
+        to_tight(loaded.positions);
+    const std::vector<std::array<float, 3>> normals = to_tight(loaded.normals);
     std::vector<float2> uvs(loaded.uvs.size() / 2);
     for (size_t i = 0; i < uvs.size(); i++) {
         uvs[i] = float2{loaded.uvs[2 * i + 0], loaded.uvs[2 * i + 1]};

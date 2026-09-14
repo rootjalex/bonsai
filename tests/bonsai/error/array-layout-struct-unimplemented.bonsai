@@ -1,0 +1,21 @@
+// `tight(root)` on an array of structs. What it should mean is clear -- the
+// struct's vector fields as exactly their lanes and no padding between the
+// fields -- and it is the next thing to build; until then it is refused
+// rather than stored as the compute type behind a layout that says otherwise.
+
+element vec3f = vector[f32, 3];
+
+element Vertex {
+    p : vec3f;
+    w : f32;
+}
+
+extern vertices : array[Vertex];
+
+func [[export]] first() -> vec3f {
+    return vertices[0].p;
+}
+
+schedule {
+    layout vertices { tight(root); };
+}

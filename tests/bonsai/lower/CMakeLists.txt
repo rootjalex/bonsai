@@ -45,6 +45,7 @@ add_bonsai_tests(
     pull-the-ray-back.bonsai
     rect_contains.bonsai
     struct_defaults.bonsai
+    tight-array.bonsai
     trace_aosoa.bonsai
     trace.bonsai
     trees.bonsai

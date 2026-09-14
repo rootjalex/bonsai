@@ -8,6 +8,7 @@
 #include "Mutator.h"
 #include "Visitor.h"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -167,6 +168,30 @@ struct Lookup : LayoutNode<Lookup> {
 };
 
 using LayoutMap = std::map<std::string, Layout>;
+
+// How an extern array is stored: rules applied to a cursor into its element.
+//
+//     layout positions { tight(root); };
+//
+// `root` is the element of the topmost array. A rule says something about
+// the bytes at its cursor and nothing about their meaning, which is what the
+// layout language is for. `tight` stores the element as exactly the bytes its
+// fields state -- a `vec3f` as three floats, twelve bytes, where the vector
+// the program computes with is the machine's sixteen -- and the element is
+// converted to the compute type where it is read. The rules to come, split,
+// interleave and deinterleave, will name cursors the same way.
+struct ArrayLayout {
+    struct Rule {
+        enum class Kind { Tight };
+        Kind kind;
+        // The path from the element down: `root`, and later `root.field`.
+        std::vector<std::string> cursor;
+    };
+    std::vector<Rule> rules;
+};
+
+// Keyed by the extern's name.
+using ArrayLayoutMap = std::map<std::string, ArrayLayout>;
 
 } // namespace ir
 

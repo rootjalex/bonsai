@@ -1,0 +1,15 @@
+// A cursor that is not `root`. An array layout's rules apply to the element
+// of the topmost array, and that is the only cursor there is until the rules
+// that name a field arrive.
+
+element vec3f = vector[f32, 3];
+
+extern positions : array[vec3f];
+
+func [[export]] first() -> vec3f {
+    return positions[0];
+}
+
+schedule {
+    layout positions { tight(each); };
+}

@@ -1,0 +1,32 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/tight_array
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_tight_array.cpp -I. -o tests/bonsai/correctness/cpp/main_tight_array.o, clang++ tests/bonsai/correctness/cpp/main_tight_array.o tests/bonsai/correctness/cpp/tight_array.o -o tests/bonsai/correctness/cpp/tight_array, ./tests/bonsai/correctness/cpp/tight_array, rm tests/bonsai/correctness/cpp/tight_array, rm tests/bonsai/correctness/cpp/main_tight_array.o, rm tests/bonsai/correctness/cpp/tight_array.h, rm tests/bonsai/correctness/cpp/tight_array.o
+
+// A `tight(root)` array, run. The driver hands the exported functions an
+// array of twelve-byte vertices -- `std::array<float, 3>`, which the header
+// declares, and whose size the driver asserts -- and reads back a centroid,
+// a weighted coordinate, and the last vertex on its own. Each of those
+// crosses from packed storage to the vector the program computes with, and a
+// stride wrong by even a float would show in every answer.
+
+element vec3f = vector[f32, 3];
+
+extern positions : array[vec3f];
+extern weights : array[f32];
+
+func [[export]] centroid(a : u32, b : u32, c : u32) -> vec3f {
+    return (positions[a] + positions[b] + positions[c]) /
+           vec3f{3.0, 3.0, 3.0};
+}
+
+func [[export]] weighted(i : u32) -> f32 {
+    return positions[i].y * weights[i];
+}
+
+func [[export]] vertex(i : u32) -> vec3f {
+    return positions[i];
+}
+
+schedule {
+    layout positions { tight(root); };
+    layout weights { tight(root); };
+}

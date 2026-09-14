@@ -199,9 +199,31 @@ FILM=$(sed -n 's/^[[:space:]]*Film[[:space:]]*"\([a-z]*\)".*/\1/p' "$SCENE" \
        | head -1)
 INTEGRATOR=$(sed -n 's/^[[:space:]]*Integrator[[:space:]]*"\([a-z]*\)".*/\1/p' \
              "$SCENE" | head -1)
+
+# Both sides on the same integrator, always. A comparison of two renderers
+# running two different integrators measures the integrators, not the
+# renderers: the numbers mean nothing.
+#
+# A scene that names none is where the two would otherwise part. pbrt's
+# default is `volpath`, and scene_dump resolves the same scene to `path` (see
+# scene_dump.cpp: a scene with no media asks `path` for the answer volpath
+# would give the same way, but volpath gets there by tracing every shadow ray
+# as a closest-hit transmittance loop where `path` asks an any-hit question,
+# and that is a different amount of work). So pbrt is told `path` too. There
+# is no flag for it; the directive is put in front of the scene, and pbrt
+# reads the result on standard input -- which it does when given no scene
+# file at all -- from the scene's own directory so that its `Include`s still
+# resolve. A scene that names its integrator is rendered as written, and one
+# that names an integrator this renderer lacks is refused by scene_dump
+# above, before pbrt is asked anything.
+PBRT_INTEGRATOR="${INTEGRATOR:-path}"
+if [[ -z "$INTEGRATOR" ]]; then
+  echo "the scene names no integrator; pbrt would take \`volpath\` and this"
+  echo "renderer takes \`path\`, so pbrt is told \`path\` as well."
+fi
 GBUFFER=0
 if [[ "$FILM" == "gbuffer" ]]; then
-  case "${INTEGRATOR:-volpath}" in
+  case "$PBRT_INTEGRATOR" in
     path|volpath) GBUFFER=1 ;;
     *) GBUFFER=0 ;;
   esac
@@ -209,8 +231,15 @@ fi
 
 pbrt_render() {
   local out="$1"
-  "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} "$SCENE" \
-      >/dev/null 2>&1
+  if [[ -z "$INTEGRATOR" ]]; then
+    (cd "$(dirname "$SCENE")" &&
+     { echo "Integrator \"$PBRT_INTEGRATOR\""; cat "$SCENE"; } |
+     "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} \
+         >/dev/null 2>&1)
+  else
+    "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} "$SCENE" \
+        >/dev/null 2>&1
+  fi
 }
 
 # What pbrt writes it to is decided by the *film* and not by what is going to
@@ -245,7 +274,8 @@ else
   PBRT_SECONDS=$("$IMGTOOL" info "$WORK/pbrt-time.exr" 2>/dev/null |
       sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1)
 fi
-echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\")"
+echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\"," \
+     "integrator \"$PBRT_INTEGRATOR\")"
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
 # inside one process, so there is no per-run startup to pay.
@@ -288,7 +318,7 @@ if [[ "$GBUFFER" == "1" ]]; then
       "${COMPARE_ARGS[@]}"
 else
   if [[ "$FILM" == "gbuffer" ]]; then
-    echo "pbrt's \"${INTEGRATOR}\" fills no VisibleSurface, so its gbuffer is"
+    echo "pbrt's \"${PBRT_INTEGRATOR}\" fills no VisibleSurface, so its gbuffer is"
     echo "empty and only the radiance is compared. Only \`path\` and \`volpath\`"
     echo "fill one; the geometry is checked by the scene that shares this one's"
     echo "and names \`path\`."

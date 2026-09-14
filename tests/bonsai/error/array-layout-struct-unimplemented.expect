@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/Layouts.cpp:1390
+[unimplemented] tight(root) on vertices, whose element is Vertex: only a vector or a scalar element is stored tight so far.
