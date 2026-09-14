@@ -96,6 +96,7 @@ struct Parser {
             // Intrinsics
             "abs",
             "acos",
+            "asin",
             "atanh",
             "atan2",
             "cos",
@@ -1948,6 +1949,7 @@ struct Parser {
         static constexpr auto IPATTERNS = std::to_array<IntrinsicPattern>({
             {"abs", 1, ir::Intrinsic::abs},
             {"acos", 1, ir::Intrinsic::acos},
+            {"asin", 1, ir::Intrinsic::asin},
             {"atanh", 1, ir::Intrinsic::atanh},
             {"atan2", 2, ir::Intrinsic::atan2},
             {"cos", 1, ir::Intrinsic::cos},

@@ -1,0 +1,74 @@
+# A light that is a triangle mesh rather than a sphere, so that the path
+# integrator has to sample a mesh emitter -- pbrt's Triangle::Sample, which is
+# spherical-triangle sampling with a cosine warp, not the sphere's cone.
+#
+# One triangle, deliberately: a single non-infinite light is where the uniform
+# light sampler and pbrt's default `bvh` are the same function (a one-node tree
+# whose PMF is 1), so `path` can be compared here without the BVH sampler that
+# a scene with several lights would need. The emitter is large and near so its
+# solid angle stays in the spherical-triangle regime rather than the tiny-angle
+# area-sampled fallback, and two-sided so its orientation cannot leave the
+# scene dark.
+#
+# `gbuffer` so the comparison sees the normals and albedo as well as the
+# radiance; `Integrator "path"` named so both sides run it.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "mesh-light.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The emitter: one triangle, facing the scene, two-sided so either winding
+# lights the floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+        "bool twosided" true
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 ]
+        "point3 P" [ -6 7 -4   6 7 -4   0 7 6 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A coateddiffuse sphere and a diffuse one, lit by the same triangle, so a
+# mistake in the mesh sampling shows against both materials at once.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

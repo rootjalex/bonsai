@@ -433,6 +433,11 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // recovered from a direction -- a sphere's parameterization, where the
         // polar angle is the arc cosine of a coordinate.
         acos,
+        // The inverse sine, the companion of acos and, like it, a call to
+        // libm's asinf since LLVM has no intrinsic for it. Needed wherever an
+        // angle is recovered from a chord -- AngleBetween, in the
+        // spherical-triangle sampling of a mesh area light.
+        asin,
         // The inverse hyperbolic tangent, which LLVM has no intrinsic for and
         // so becomes a call to libm's atanhf. Here rather than left to be
         // written as 0.5*log((1+x)/(1-x)) because the two differ in the last

@@ -707,6 +707,7 @@ struct PredicateAnalysis : public ir::Visitor {
         // of a bound outside (-1, 1). cosh is deliberately not here: it is even
         // rather than monotone, so an interval straddling zero has its minimum
         // in the middle rather than at an endpoint.
+        case ir::Intrinsic::asin:
         case ir::Intrinsic::atanh:
         case ir::Intrinsic::exp:
         case ir::Intrinsic::log:

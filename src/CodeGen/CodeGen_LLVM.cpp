@@ -1847,6 +1847,11 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_libm_call("acos", node);
         return;
     }
+    case Intrinsic::asin: {
+        // The companion of acos, and the same libm call std::asin makes.
+        value = codegen_libm_call("asin", node);
+        return;
+    }
     case Intrinsic::atanh: {
         // LLVM has intrinsics for the hyperbolic functions but not for their
         // inverses, so this is a call to libm -- which is what a C compiler

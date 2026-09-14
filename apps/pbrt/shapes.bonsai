@@ -988,27 +988,385 @@ func sphere_pdf(s : Sphere, ctx : ShapeSampleContext, wi : vec3f) -> Float {
     return 1.0 / (6.28318530717958647692 * one_minus_cos);
 }
 
+// pbrt: SafeASin, the mirror of safe_acos above.
+func safe_asin(x : Float) -> Float = asin(min(max(x, -1.0), 1.0));
+
+// pbrt: AngleBetween(v1, v2), the angle between two unit vectors, computed from
+// a chord rather than an arccosine so that it stays accurate near 0 and pi.
+func angle_between(a : vec3f, b : vec3f) -> Float {
+    if dot(a, b) < 0.0 {
+        return 3.14159265358979323846 - 2.0 * safe_asin(norm(a + b) / 2.0);
+    }
+    return 2.0 * safe_asin(norm(b - a) / 2.0);
+}
+
+// pbrt: GramSchmidt(v, w), the part of v orthogonal to the unit vector w.
+func gram_schmidt(v : vec3f, w : vec3f) -> vec3f = v - dot(v, w) * w;
+
+// pbrt: DifferenceOfProducts and SumOfProducts, the two-fma forms that carry
+// the rounding error of the discarded product back into the result. Defined
+// here rather than imported: differentials.bonsai has the first, but shapes
+// does not import it, and a symbol that resolves only through a third file's
+// imports is a dependency nothing declares.
+func diff_of_products(a : Float, b : Float, c : Float, d : Float) -> Float {
+    cd = c * d;
+    return fma(a, b, -cd) + fma(-c, d, cd);
+}
+func sum_of_products(a : Float, b : Float, c : Float, d : Float) -> Float {
+    cd = c * d;
+    return fma(a, b, cd) + fma(c, d, -cd);
+}
+
+// pbrt: SphericalTriangleArea, the solid angle three unit directions subtend.
+func spherical_triangle_area(a : vec3f, b : vec3f, c : vec3f) -> Float =
+    abs(2.0 * atan2(dot(a, cross_(b, c)),
+                    1.0 + dot(a, b) + dot(a, c) + dot(b, c)));
+
+// pbrt: Lerp, a linear blend written the way pbrt writes it so the endpoints
+// come back exactly.
+func lerp_st(t : Float, a : Float, b : Float) -> Float = (1.0 - t) * a + t * b;
+
+// pbrt: SampleLinear, the inverse CDF of a linear density on [0,1]. The
+// constant is pbrt's OneMinusEpsilon, the largest float below one, so a sample
+// never lands exactly on the far edge.
+func sample_linear(u : Float, a : Float, b : Float) -> Float {
+    if (u == 0.0) && (a == 0.0) {
+        return 0.0;
+    }
+    x = u * (a + b) / (a + sqrt(lerp_st(u, a * a, b * b)));
+    return min(x, 0.99999994);
+}
+
+// pbrt: BilinearPDF and SampleBilinear, the cosine-warp that biases the
+// spherical-triangle sample towards the corners the shading normal faces.
+func bilinear_pdf(p : vec2f, w0 : Float, w1 : Float, w2 : Float,
+                  w3 : Float) -> Float {
+    if (p.x < 0.0) || (p.x > 1.0) || (p.y < 0.0) || (p.y > 1.0) {
+        return 0.0;
+    }
+    if (w0 + w1 + w2 + w3) == 0.0 {
+        return 1.0;
+    }
+    return 4.0 *
+           ((1.0 - p.x) * (1.0 - p.y) * w0 + p.x * (1.0 - p.y) * w1 +
+            (1.0 - p.x) * p.y * w2 + p.x * p.y * w3) /
+           (w0 + w1 + w2 + w3);
+}
+
+func sample_bilinear(u : vec2f, w0 : Float, w1 : Float, w2 : Float,
+                     w3 : Float) -> vec2f {
+    py = sample_linear(u.y, w0 + w1, w2 + w3);
+    px = sample_linear(u.x, lerp_st(py, w0, w2), lerp_st(py, w1, w3));
+    return vec2f{px, py};
+}
+
+// pbrt: SampleUniformTriangle, uniform barycentrics over a triangle.
+func sample_uniform_triangle(u : vec2f) -> vec3f {
+    if u.x < u.y {
+        b0 = u.x / 2.0;
+        return vec3f{b0, u.y - b0, 1.0 - b0 - (u.y - b0)};
+    }
+    b1 = u.y / 2.0;
+    return vec3f{u.x - b1, b1, 1.0 - (u.x - b1) - b1};
+}
+
+// pbrt: Triangle::Area, half the parallelogram the two edges span.
+func triangle_area(t : Triangle) -> Float {
+    p0 = triangle_p(t, 0u);
+    return 0.5 * norm(cross_(triangle_p(t, 1u) - p0, triangle_p(t, 2u) - p0));
+}
+
+// pbrt: the geometric normal at a sampled point, face-forwarded to the
+// interpolated shading normal for a mesh that has them, and flipped by the
+// mesh's orientation otherwise -- exactly the block Triangle::Sample runs.
+func triangle_face_normal(t : Triangle, b : vec3f) -> vec3f {
+    m = meshes[t.mesh];
+    i0 = mesh_corner(m, t, 0u);
+    i1 = mesh_corner(m, t, 1u);
+    i2 = mesh_corner(m, t, 2u);
+    p0 = mesh_positions[i0];
+    p1 = mesh_positions[i1];
+    p2 = mesh_positions[i2];
+    n = unit_vector_(cross_(p1 - p0, p2 - p0));
+    if !m.has_normals {
+        return select(m.flip, -n, n);
+    }
+    n0 = mesh_normals[m.first_normal + i0 - m.first_vertex];
+    n1 = mesh_normals[m.first_normal + i1 - m.first_vertex];
+    n2 = mesh_normals[m.first_normal + i2 - m.first_vertex];
+    ns = b.x * n0 + b.y * n1 + b.z * n2;
+    return select(dot(n, ns) < 0.0, -n, n);
+}
+
+// The texture coordinates a mesh brings, or pbrt's per-triangle (0,0),(1,0),
+// (1,1) for one that has none, interpolated at the barycentrics.
+func triangle_uv_at(m : TriangleMesh, i0 : u32, i1 : u32, i2 : u32,
+                    b : vec3f) -> vec2f {
+    uv0 = select(m.has_uv, mesh_uvs[m.first_uv + i0 - m.first_vertex],
+                 vec2f{0.0, 0.0});
+    uv1 = select(m.has_uv, mesh_uvs[m.first_uv + i1 - m.first_vertex],
+                 vec2f{1.0, 0.0});
+    uv2 = select(m.has_uv, mesh_uvs[m.first_uv + i2 - m.first_vertex],
+                 vec2f{1.0, 1.0});
+    return b.x * uv0 + b.y * uv1 + b.z * uv2;
+}
+
+// pbrt: Triangle::Sample(u), a point chosen uniformly over the triangle's
+// area. The unstable-solid-angle fallback of the solid-angle sampler below.
+func triangle_sample_area(t : Triangle, u : vec2f) -> ShapeSample {
+    m = meshes[t.mesh];
+    i0 = mesh_corner(m, t, 0u);
+    i1 = mesh_corner(m, t, 1u);
+    i2 = mesh_corner(m, t, 2u);
+    p0 = mesh_positions[i0];
+    p1 = mesh_positions[i1];
+    p2 = mesh_positions[i2];
+    b = sample_uniform_triangle(u);
+    p = b.x * p0 + b.y * p1 + b.z * p2;
+    p_abs = abs(b.x * p0) + abs(b.y * p1) + abs((1.0 - b.x - b.y) * p2);
+    ss : ShapeSample = {p, gamma(6) * p_abs, triangle_face_normal(t, b),
+                        triangle_uv_at(m, i0, i1, i2, b), 1.0 / triangle_area(t)};
+    return ss;
+}
+
+// pbrt: SampleSphericalTriangle -- barycentrics for a direction drawn uniformly
+// in the solid angle the triangle subtends from `p`, plus that solid angle's
+// density. The whole of Arvo's spherical-triangle sampling, translated line for
+// line. `b` all zero with `pdf` zero is the degenerate answer the caller drops.
+element SphTri {
+    b : vec3f;
+    pdf : Float;
+}
+
+func sample_spherical_triangle(p0 : vec3f, p1 : vec3f, p2 : vec3f,
+                               p : vec3f, u : vec2f) -> SphTri {
+    a = unit_vector_(p0 - p);
+    b = unit_vector_(p1 - p);
+    c = unit_vector_(p2 - p);
+    n_ab0 = cross_(a, b);
+    n_bc0 = cross_(b, c);
+    n_ca0 = cross_(c, a);
+    if (sqlen[[Float]](n_ab0) == 0.0) || (sqlen[[Float]](n_bc0) == 0.0) ||
+       (sqlen[[Float]](n_ca0) == 0.0) {
+        degenerate : SphTri = {vec3f{0.0, 0.0, 0.0}, 0.0};
+        return degenerate;
+    }
+    n_ab = unit_vector_(n_ab0);
+    n_bc = unit_vector_(n_bc0);
+    n_ca = unit_vector_(n_ca0);
+
+    alpha = angle_between(n_ab, -n_ca);
+    beta = angle_between(n_bc, -n_ab);
+    gam = angle_between(n_ca, -n_bc);
+
+    a_pi = alpha + beta + gam;
+    ap_pi = lerp_st(u.x, 3.14159265358979323846, a_pi);
+    big_a = a_pi - 3.14159265358979323846;
+    pdf = select(big_a <= 0.0, 0.0, 1.0 / big_a);
+
+    cos_alpha = cos(alpha);
+    sin_alpha = sin(alpha);
+    sinp = sin(ap_pi) * cos_alpha - cos(ap_pi) * sin_alpha;
+    cosp = cos(ap_pi) * cos_alpha + sin(ap_pi) * sin_alpha;
+    k1 = cosp + cos_alpha;
+    k2 = sinp - sin_alpha * dot(a, b);
+    cos_bp0 = (k2 + diff_of_products(k2, cosp, k1, sinp) * cos_alpha) /
+              (sum_of_products(k2, sinp, k1, cosp) * sin_alpha);
+    cos_bp = min(max(cos_bp0, -1.0), 1.0);
+    sin_bp = safe_sqrt(1.0 - sqr(cos_bp));
+    cp = cos_bp * a + sin_bp * unit_vector_(gram_schmidt(c, a));
+
+    cost = 1.0 - u.y * (1.0 - dot(cp, b));
+    sint = safe_sqrt(1.0 - sqr(cost));
+    w = cost * b + sint * unit_vector_(gram_schmidt(cp, b));
+
+    e1 = p1 - p0;
+    e2 = p2 - p0;
+    s1 = cross_(w, e2);
+    divisor = dot(s1, e1);
+    if divisor == 0.0 {
+        third : SphTri = {vec3f{0.33333333333333333, 0.33333333333333333,
+                                0.33333333333333333}, pdf};
+        return third;
+    }
+    inv = 1.0 / divisor;
+    s = p - p0;
+    b1 : mut Float = min(max(dot(s, s1) * inv, 0.0), 1.0);
+    b2 : mut Float = min(max(dot(w, cross_(s, e1)) * inv, 0.0), 1.0);
+    // pbrt divides b1 by the old sum and then b2 by the sum with the new b1 --
+    // translated as written rather than corrected.
+    if b1 + b2 > 1.0 {
+        b1 = b1 / (b1 + b2);
+        b2 = b2 / (b1 + b2);
+    }
+    out : SphTri = {vec3f{1.0 - b1 - b2, b1, b2}, pdf};
+    return out;
+}
+
+// pbrt: InvertSphericalTriangleSample, the sample that would have produced the
+// direction `w`. Used to weight the cosine warp in the PDF.
+func invert_spherical_triangle_sample(p0 : vec3f, p1 : vec3f, p2 : vec3f,
+                                      p : vec3f, w : vec3f) -> vec2f {
+    a = unit_vector_(p0 - p);
+    b = unit_vector_(p1 - p);
+    c = unit_vector_(p2 - p);
+    n_ab0 = cross_(a, b);
+    n_bc0 = cross_(b, c);
+    n_ca0 = cross_(c, a);
+    if (sqlen[[Float]](n_ab0) == 0.0) || (sqlen[[Float]](n_bc0) == 0.0) ||
+       (sqlen[[Float]](n_ca0) == 0.0) {
+        return vec2f{0.0, 0.0};
+    }
+    n_ab = unit_vector_(n_ab0);
+    n_bc = unit_vector_(n_bc0);
+    n_ca = unit_vector_(n_ca0);
+
+    alpha = angle_between(n_ab, -n_ca);
+    beta = angle_between(n_bc, -n_ab);
+    gam = angle_between(n_ca, -n_bc);
+
+    cp0 = unit_vector_(cross_(cross_(b, w), cross_(c, a)));
+    cp = select(dot(cp0, a + c) < 0.0, -cp0, cp0);
+
+    u0 : mut Float = 0.0;
+    if dot(a, cp) > 0.99999847691 {
+        u0 = 0.0;
+    } else {
+        n_cpb0 = cross_(cp, b);
+        n_acp0 = cross_(a, cp);
+        if (sqlen[[Float]](n_cpb0) == 0.0) || (sqlen[[Float]](n_acp0) == 0.0) {
+            return vec2f{0.5, 0.5};
+        }
+        n_cpb = unit_vector_(n_cpb0);
+        n_acp = unit_vector_(n_acp0);
+        ap = alpha + angle_between(n_ab, n_cpb) + angle_between(n_acp, -n_cpb) -
+             3.14159265358979323846;
+        big_a = alpha + beta + gam - 3.14159265358979323846;
+        u0 = ap / big_a;
+    }
+
+    u1 = (1.0 - dot(w, b)) / (1.0 - dot(cp, b));
+    return vec2f{min(max(u0, 0.0), 1.0), min(max(u1, 0.0), 1.0)};
+}
+
+// pbrt: Triangle::Sample(ctx, u). A direction into the solid angle the triangle
+// subtends, warped so a corner the shading normal faces is chosen more often.
+// The unstable extremes fall back to area sampling, converted to solid angle.
+func triangle_sample(t : Triangle, ctx : ShapeSampleContext,
+                     u_in : vec2f) -> option[ShapeSample] {
+    p0 = triangle_p(t, 0u);
+    p1 = triangle_p(t, 1u);
+    p2 = triangle_p(t, 2u);
+    solid = spherical_triangle_area(unit_vector_(p0 - ctx.p),
+                                    unit_vector_(p1 - ctx.p),
+                                    unit_vector_(p2 - ctx.p));
+    if (solid < 0.0003) || (solid > 6.22) {
+        area = triangle_sample_area(t, u_in);
+        wi0 = area.p - ctx.p;
+        if sqlen[[Float]](wi0) == 0.0 {
+            return {};
+        }
+        wi = unit_vector_(wi0);
+        denom = abs(dot(area.n, -wi)) / sqlen[[Float]](ctx.p - area.p);
+        if denom == 0.0 {
+            return {};
+        }
+        conv : mut ShapeSample = area;
+        conv.pdf = area.pdf / denom;
+        if conv.pdf == inf {
+            return {};
+        }
+        return conv;
+    }
+
+    pdf_warp : mut Float = 1.0;
+    u : mut vec2f = u_in;
+    if sqlen[[Float]](ctx.ns) != 0.0 {
+        wa = unit_vector_(p0 - ctx.p);
+        wb = unit_vector_(p1 - ctx.p);
+        wc = unit_vector_(p2 - ctx.p);
+        // pbrt names wi[1] for both of the first two weights -- as written.
+        w0 = max(0.01, abs(dot(ctx.ns, wb)));
+        w1 = max(0.01, abs(dot(ctx.ns, wb)));
+        w2 = max(0.01, abs(dot(ctx.ns, wa)));
+        w3 = max(0.01, abs(dot(ctx.ns, wc)));
+        u = sample_bilinear(u_in, w0, w1, w2, w3);
+        pdf_warp = bilinear_pdf(u, w0, w1, w2, w3);
+    }
+
+    sph = sample_spherical_triangle(p0, p1, p2, ctx.p, u);
+    if sph.pdf == 0.0 {
+        return {};
+    }
+    bb = sph.b;
+    p = bb.x * p0 + bb.y * p1 + bb.z * p2;
+    p_abs = abs(bb.x * p0) + abs(bb.y * p1) + abs((1.0 - bb.x - bb.y) * p2);
+    m = meshes[t.mesh];
+    uv = triangle_uv_at(m, mesh_corner(m, t, 0u), mesh_corner(m, t, 1u),
+                        mesh_corner(m, t, 2u), bb);
+    ss : ShapeSample = {p, gamma(6) * p_abs, triangle_face_normal(t, bb), uv,
+                        pdf_warp * sph.pdf};
+    return ss;
+}
+
+// pbrt: Triangle::PDF(ctx, wi), the density triangle_sample draws `wi` with.
+func triangle_pdf(t : Triangle, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    p0 = triangle_p(t, 0u);
+    p1 = triangle_p(t, 1u);
+    p2 = triangle_p(t, 2u);
+    solid = spherical_triangle_area(unit_vector_(p0 - ctx.p),
+                                    unit_vector_(p1 - ctx.p),
+                                    unit_vector_(p2 - ctx.p));
+    if (solid < 0.0003) || (solid > 6.22) {
+        o = offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi);
+        ray : Ray = {o, wi, inf};
+        hit = triangle_hit(ray, t);
+        if !hit {
+            return 0.0;
+        }
+        h = *hit;
+        p_is = h.b.x * p0 + h.b.y * p1 + h.b.z * p2;
+        denom = abs(dot(triangle_face_normal(t, h.b), -wi)) /
+                sqlen[[Float]](ctx.p - p_is);
+        if denom == 0.0 {
+            return 0.0;
+        }
+        pdf = (1.0 / triangle_area(t)) / denom;
+        if pdf == inf {
+            return 0.0;
+        }
+        return pdf;
+    }
+
+    pdf : mut Float = 1.0 / solid;
+    if sqlen[[Float]](ctx.ns) != 0.0 {
+        u = invert_spherical_triangle_sample(p0, p1, p2, ctx.p, wi);
+        wa = unit_vector_(p0 - ctx.p);
+        wb = unit_vector_(p1 - ctx.p);
+        wc = unit_vector_(p2 - ctx.p);
+        w0 = max(0.01, abs(dot(ctx.ns, wb)));
+        w1 = max(0.01, abs(dot(ctx.ns, wb)));
+        w2 = max(0.01, abs(dot(ctx.ns, wa)));
+        w3 = max(0.01, abs(dot(ctx.ns, wc)));
+        pdf = pdf * bilinear_pdf(u, w0, w1, w2, w3);
+    }
+    return pdf;
+}
+
 // pbrt: Shape::Sample and Shape::PDF, dispatched over the variants -- which is
 // what pbrt's TaggedPointer does.
-//
-// The triangle arm samples nothing yet. pbrt's is spherical-triangle sampling
-// and its area-sampled fallback is a *different* estimator, so standing one in
-// for the other would produce an image that is unbiased, plausible, and not
-// pbrt's -- which no comparison could tell from a bug. A scene that puts an
-// area light on a mesh is refused by scene_dump instead, where there is
-// something to point at.
 func shape_sample(sh : Shape, ctx : ShapeSampleContext,
                   u : vec2f) -> option[ShapeSample] {
     match sh {
         Sph(s) => return sphere_sample(s, ctx, u);
-        Tri(t) => return {};
+        Tri(t) => return triangle_sample(t, ctx, u);
     }
 }
 
 func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
     match sh {
         Sph(s) => return sphere_pdf(s, ctx, wi);
-        Tri(t) => return 0.0;
+        Tri(t) => return triangle_pdf(t, ctx, wi);
     }
 }
 

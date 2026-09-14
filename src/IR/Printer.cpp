@@ -1087,6 +1087,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "abs";
     case Intrinsic::acos:
         return "acos";
+    case Intrinsic::asin:
+        return "asin";
     case Intrinsic::atanh:
         return "atanh";
     case Intrinsic::atan2:
