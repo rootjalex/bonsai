@@ -1494,9 +1494,14 @@ Read in dependency order rather than by count, the road is:
    `subsurface` are their own projects.
 4. **Shapes**: `bilinearmesh` alone is 20 scenes and is also what the PLY quad
    refusal is about, so the two close together. `disk` is an afternoon.
-5. **Triangle area lights**, which is `Triangle::Sample` towards a point and its
-   PDF -- 7 scenes, and the thing that makes an emissive quad work, which is how
-   most scenes are lit indoors.
+5. **Triangle area lights** -- *done*. `Triangle::Sample` towards a point and
+   its PDF are Arvo's spherical-triangle sampling with a cosine warp
+   (shapes.bonsai), and each triangle of an emissive mesh is one
+   DiffuseAreaLight as it is in pbrt. `scenes/mesh-light.pbrt`, a one-triangle
+   emitter, matches pbrt's `path` to 1.00002x of its mean. It took an `asin`
+   intrinsic, added beside `acos`. A mesh light with more than one emitting
+   triangle still needs the BVH light sampler (item 3), because pbrt's `path`
+   samples several lights by importance and the uniform sampler here does not.
 6. **`volpath`**, which is 51 scenes by name and rather fewer by need: it is
    pbrt's default, so a scene names it whether or not it has any medium in it.
    The ones that genuinely need media are the cloud and smoke scenes. Every
@@ -1716,7 +1721,10 @@ refusal for every scene where importance does not vary over the frame.
 
 Until then, no scene with two lights can be compared, which is the shape the
 `path` gap had before this round: the renderer refuses rather than substitutes,
-and the refusal names what is missing.
+and the refusal names what is missing. The *geometry* a mesh light sits on is
+sampled now -- `Triangle::Sample` is in (item 5) -- so a scene with a single
+mesh emitter compares like a single-sphere one does; what a scene like ganesha
+still waits on is only the sampler across its four lights.
 
 ### 4. Where the time goes in a path
 
