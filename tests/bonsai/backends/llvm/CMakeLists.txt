@@ -16,11 +16,12 @@ add_bonsai_tests(
     index.bonsai
     isel.bonsai
     ivector.bonsai
-    known-limitation-ssa-mut-array-local.bonsai
     lambda.bonsai
     libm-call.bonsai
     map-func.bonsai
     max-min.bonsai
+    mut-array-literal.bonsai
+    mut-element-field-argument.bonsai
     mut-basic.bonsai
     nested-exported-function.bonsai
     option.bonsai

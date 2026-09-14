@@ -39,6 +39,8 @@ add_bonsai_tests(
     parfor-sequential.bonsai
     print-str.bonsai
     loopify-early-returns.bonsai
+    mut-array-literal.bonsai
+    mut-element-field-argument.bonsai
     mut-field-argument.bonsai
     print-float.bonsai
     shadowed-mutable.bonsai

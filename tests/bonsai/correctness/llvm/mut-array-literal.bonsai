@@ -1,0 +1,35 @@
+//! flags: -p ssa -b llvm -e
+
+// A mutable array local initialized from a literal, read back.
+//
+// `ws : mut array[f32, 2] = {1.0, 5.0}` lowers to an allocation and a store
+// of the built array into it. Both are the address of their elements, and
+// the store wrote the built array's *pointer* over the destination's first
+// bytes: `ws[1]` came back as the upper half of a heap address, which is
+// zero, and `ws[0]` as its lower half. Writes through an index were fine,
+// which is why every test that built a mutable array from zeros and then
+// filled it passed. The store copies the elements now.
+//
+// `vs` is the same with a struct element.
+
+element vec3f = vector[f32, 3];
+
+element Vertex {
+    p : vec3f;
+    w : f32;
+}
+
+func main() -> i32 {
+    ws : mut array[f32, 2] = {1.0, 5.0};
+    // 5.
+    print(ws[1]);
+    ws[0] = 7.0;
+    // 7 and 5: the literal's second element survives the write to the first.
+    print(ws[0], ws[1]);
+
+    vs : mut array[Vertex, 2] = {Vertex{vec3f{0.0, 0.0, 0.0}, 1.0},
+                                 Vertex{vec3f{1.0, 2.0, 3.0}, 5.0}};
+    // 5, then 2.
+    print(vs[1].w, vs[1].p.y);
+    return 0;
+}

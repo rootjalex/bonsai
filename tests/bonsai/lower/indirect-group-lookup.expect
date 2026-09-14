@@ -8,8 +8,9 @@ type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type TriBVH = (const TriBVH&)
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type __tuple_0 = struct __tuple_0{ _field0 : f32; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
-type __tuple_1 = struct __tuple_1{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type __tuple_0 = struct __tuple_0{ _field0 : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }*) }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }*) } }
+type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
@@ -24,7 +25,7 @@ type vec4f = f32x4
 
 extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout2{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
-func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mut (__tuple_0*)) -> void {
+func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
   if (tris.group1_index[tris_index].nPrims == 0u) {
     if (intersects_Ray_AABB(r, build<AABB>(cast<f32x3>(tris.group1_index[tris_index].low), cast<f32x3>(tris.group1_index[tris_index].high)))) {
       if (distmin_Ray_AABB(r, build<AABB>(cast<f32x3>(tris.group1_index[tris_index].low), cast<f32x3>(tris.group1_index[tris_index].high))) < (*_best0)._field0) {
@@ -36,7 +37,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mu
       forall _idx0 in [0u:cast<u32>(tris.group1_index[tris_index].nPrims):1u] {
         if (intersects_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])) {
           if (distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]) < (*_best0)._field0) {
-            _best0 = build<__tuple_0>(distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]), tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])
+            _best0 = build<__tuple_1>(distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]), build<__tuple_0>((&tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])))
           }
         }
       }
@@ -46,9 +47,13 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mu
 }
 
 func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
-  _best0 : mut __tuple_0 := build<__tuple_0>((f32)inf, build<Triangle>())
+  _best0 : mut __tuple_1 := build<__tuple_1>((f32)inf, build<__tuple_0>())
   _recloop_func0(0u, tris, r, _best0)
-  return select((*_best0)._field0 != (f32)inf, build<_option0>((*_best0)._field1, true), build<_option0>())
+  _best0_result : mut _option0 := build<_option0>()
+  if ((*_best0)._field0 != (f32)inf) {
+    _best0_result = build<_option0>((*(*_best0)._field1._field0), true)
+  }
+  return (*_best0_result)
 }
 
 func trace(r : Ray, tris : _tree_layout0) -> _option0 {

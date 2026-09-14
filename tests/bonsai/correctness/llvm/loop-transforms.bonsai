@@ -12,11 +12,11 @@
 // indices, so a loop that visits the right number of points in the wrong order
 // -- or the right points with the indices swapped -- still fails.
 //
-// Every function writes every element of its output. That is not incidental:
-// a `mut` array local's initializer is dropped by this pipeline (see
-// backends/llvm/known-limitation-ssa-mut-array-local.bonsai), so an element
-// nothing writes holds whatever was on the stack, and comparing two of those
-// would compare garbage to garbage.
+// Every function writes every element of its output. That was not incidental
+// when it was written: a `mut` array local's initializer was dropped by this
+// pipeline (fixed; see correctness/llvm/mut-array-literal.bonsai), so an
+// element nothing wrote held whatever was on the stack, and comparing two of
+// those would have compared garbage to garbage.
 //
 // Both transforms apply only to `parfor`. A sequential loop has an order to
 // keep, and neither transform preserves one.

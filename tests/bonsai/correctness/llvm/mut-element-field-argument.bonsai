@@ -1,0 +1,69 @@
+//! flags: -p ssa -b llvm -e
+
+// A field of an array's element passed to a parameter taken by `mut`:
+// `bump(vs[i].w)`. The address handed over has to be the field's place in
+// the array, not the address of a copy of the field.
+//
+// It was a copy. The SSA conversion turned `vs[i]` into a load of the
+// element, `.w` into a field of that loaded value, and `&` into the address
+// of a temporary holding it; the callee wrote into the temporary and LLVM,
+// seeing nothing read it, deleted the whole function body. `touch` compiled
+// to `ret void`. The chain of accesses is walked to its root now -- the
+// array, which is already the address of its elements -- and composed into
+// an offset (SSA/Convert.cpp, address_of_place; the same walk in
+// CodeGen_LLVM's PtrTo for a chain the relooper hands back).
+//
+// `deeper` does the same through two levels, a field of a struct held in an
+// element, and `both` bumps two elements to show the offsets differ.
+
+element vec3f = vector[f32, 3];
+
+element Counter {
+    n : f32;
+}
+
+element Vertex {
+    p : vec3f;
+    w : f32;
+    c : Counter;
+}
+
+func bump(x : mut f32) -> void {
+    x = x + 1.0;
+    return;
+}
+
+func touch(vs : mut array[Vertex], i : u32) -> void {
+    bump(vs[i].w);
+    return;
+}
+
+func deeper(vs : mut array[Vertex], i : u32) -> void {
+    bump(vs[i].c.n);
+    return;
+}
+
+func both(vs : mut array[Vertex]) -> void {
+    bump(vs[0u].w);
+    bump(vs[1u].w);
+    bump(vs[1u].w);
+    return;
+}
+
+func main() -> i32 {
+    // Written through a mutable parameter rather than a literal: a mutable
+    // array local initialized from a literal is a separate, open defect.
+    vs : mut array[Vertex, 2] = {Vertex{vec3f{0.0, 0.0, 0.0}, 0.0, Counter{0.0}},
+                                 Vertex{vec3f{0.0, 0.0, 0.0}, 0.0, Counter{0.0}}};
+    touch(vs, 1u);
+    // 1: the second element's w, once.
+    print(vs[1].w);
+    deeper(vs, 0u);
+    deeper(vs, 0u);
+    // 2: the first element's counter, twice; and its w untouched.
+    print(vs[0].c.n, vs[0].w);
+    both(vs);
+    // 1 and 3.
+    print(vs[0].w, vs[1].w);
+    return 0;
+}

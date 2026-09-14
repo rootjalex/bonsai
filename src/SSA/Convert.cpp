@@ -1094,42 +1094,26 @@ struct FunctionBuilder : Visitor {
             return;
         }
 
-        // An element of an array: the address is an offset from the array,
-        // which is what GEP computes.
-        if (const Extract *extract = node->expr.as<Extract>();
-            extract != nullptr && extract->vec.type().is_reference()) {
-            auto base = get_value(extract->vec);
-            auto index = get_value(extract->idx);
-            value =
-                block->make_instruction(node->type, Instruction::Op::GEP,
-                                        {std::move(base), std::move(index)});
-            return;
-        }
-
-        // A field of a struct that is already in memory: the address is an
-        // offset into it, which is what FieldPtr computes. The mirror of the
-        // Extract case above, which does the same for an array's element.
+        // A place named by a chain of accesses -- `vs[i].w`, `(*h).c`,
+        // `prims[k].payload.Geom.g` -- has an address that is an offset from
+        // what the chain is rooted at: a dereferenced pointer, or an array,
+        // which is already the address of its elements (see
+        // Type::is_reference). The chain is walked in to its root and the
+        // address composed back out, an index as a GEP and a field as a
+        // FieldPtr, the way walk_accesses does for the destination of a
+        // store.
         //
-        // Without this the field was loaded and the address taken *of the
-        // loaded value*, so a callee taking it by `mut` wrote into a copy. That
-        // is `next_float(st.rng)` -- a mutable field of a mutable parameter --
-        // and what it produced was pbrt's independent sampler returning its
-        // first number forever. See tests/bonsai/correctness/llvm/
-        // mut-field-argument.bonsai.
-        if (const Access *access = node->expr.as<Access>()) {
-            if (const Deref *deref = access->value.as<Deref>()) {
-                const Struct_t *struct_t = access->value.type().as<Struct_t>();
-                internal_assert(struct_t)
-                    << "field access `" << access->field
-                    << "` on non-struct type " << access->value.type();
-                static const Type u32 = UInt_t::make(32);
-                const auto idx =
-                    find_struct_index(access->field, struct_t->fields);
-                value = block->make_instruction(
-                    node->type, Instruction::Op::FieldPtr,
-                    {get_value(deref->expr), make_constant(u32, (uint64_t)idx)});
-                return;
-            }
+        // Without this a field of an element was loaded and the address taken
+        // *of the loaded value*, so a callee taking it by `mut` wrote into a
+        // copy; `next_float(st.rng)`, a mutable field of a mutable parameter,
+        // was the first case (tests/bonsai/correctness/llvm/
+        // mut-field-argument.bonsai), and `bump(vs[i].w)`, a field of an
+        // array's element, the second (mut-element-field-argument.bonsai).
+        // An argmin that keeps a reference to its best element rather than a
+        // copy of it (Lower/Trees.cpp) is made of exactly these addresses.
+        if (auto place = address_of_place(node->expr)) {
+            value = std::move(place);
+            return;
         }
 
         // Anything else is carried as what it is -- the address of a value --
@@ -1149,6 +1133,81 @@ struct FunctionBuilder : Visitor {
         value =
             block->make_instruction(Ptr_t::make(node->expr.type()),
                                     Instruction::Op::AddressOf, {std::move(v)});
+    }
+
+    // The address of `expr` when it names a place, or null when it does not.
+    //
+    // From the outside in, the expression is peeled of its field and index
+    // accesses down to a root that is in memory: a `Deref`, whose pointer is
+    // the base, or an expression of array type, whose value is the address of
+    // its elements. Then from the inside out each access becomes an offset:
+    // FieldPtr for a field of the struct the pointer names, GEP for an index
+    // into an array. An index into a vector, or a chain rooted at a value
+    // that is nowhere in memory, names no place.
+    std::shared_ptr<Value> address_of_place(const Expr &expr) {
+        static const Type u32 = UInt_t::make(32);
+        std::vector<std::variant<std::string, Expr>> accesses; // outermost first
+        Expr root = expr;
+        std::shared_ptr<Value> base;
+        Type current; // what `base` points at
+        while (true) {
+            if (!accesses.empty() && root.type().is_reference()) {
+                base = get_value(root);
+                current = root.type();
+                break;
+            }
+            if (const Deref *deref = root.as<Deref>(); deref != nullptr &&
+                                                        !accesses.empty()) {
+                base = get_value(deref->expr);
+                current = deref->type;
+                break;
+            }
+            if (const Access *access = root.as<Access>()) {
+                accesses.emplace_back(access->field);
+                root = access->value;
+                continue;
+            }
+            if (const Extract *extract = root.as<Extract>()) {
+                accesses.emplace_back(extract->idx);
+                root = extract->vec;
+                continue;
+            }
+            return nullptr;
+        }
+        for (auto it = accesses.rbegin(); it != accesses.rend(); ++it) {
+            if (const auto *field = std::get_if<std::string>(&*it)) {
+                // A union's member is at its start, so its address is the
+                // union's; FieldPtr carries the member's position and the
+                // backends give it offset zero (see CodeGen_LLVM's PtrTo).
+                size_t idx = 0;
+                if (const Struct_t *struct_t = current.as<Struct_t>()) {
+                    idx = find_struct_index(*field, struct_t->fields);
+                    current = get_field_type(current, *field);
+                } else if (const Union_t *union_t = current.as<Union_t>()) {
+                    while (idx < union_t->members.size() &&
+                           union_t->members[idx].name != *field) {
+                        idx++;
+                    }
+                    internal_assert(idx < union_t->members.size())
+                        << "no member `" << *field << "` in " << current;
+                    current = union_t->members[idx].type;
+                } else {
+                    return nullptr;
+                }
+                base = block->make_instruction(
+                    Ptr_t::make(current), Instruction::Op::FieldPtr,
+                    {std::move(base), make_constant(u32, (uint64_t)idx)});
+            } else {
+                if (!current.is_reference()) {
+                    return nullptr; // a lane of a vector, which is a value
+                }
+                current = current.element_of();
+                base = block->make_instruction(
+                    Ptr_t::make(current), Instruction::Op::GEP,
+                    {std::move(base), get_value(std::get<Expr>(*it))});
+            }
+        }
+        return base;
     }
 
     void visit(const AtomicAdd *node) override {

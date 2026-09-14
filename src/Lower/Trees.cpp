@@ -959,6 +959,128 @@ std::pair<ir::Expr, bool> try_fuse_filter(Extremum dir,
 // Algorithm 3: argmin and argmax. These mirror Algorithm 2 but also track the
 // element achieving the extremum, so the accumulator is a (metric, element)
 // pair updated with an argmin/argmax accumulate.
+//
+// The element half of the pair is kept by reference where it can be. An
+// element a traversal yields is, in the common case, a place in a tree's
+// storage -- an element of a leaf, or a field of one reached through a
+// variant's arm -- and the accumulator then holds its address rather than a
+// copy: three loop-carried words for a `(t, (Primitive, Geometric))` where a
+// copy was eleven, and one store of a pointer on an improving hit where pbrt
+// stores nothing and this used to store the whole element. The element is
+// read back through the pointer once, where the result is built. A component
+// that is computed on the way -- an element under a `map` -- has no place and
+// is kept by value as before. What decides is `stored_components`, from the
+// shape of the set expression, so that the accumulator's type is known
+// before the traversal it threads through is built.
+//
+// This is the difference between an argmin that copies its argument and one
+// that remembers which argument: the second is what pbrt's `tMax` and
+// pointer to the interaction are, and the layout language's promise that a
+// tree's elements do not move while it is queried is what makes the address
+// stay good.
+
+// Whether `e` names a place in a tree's storage rather than a value computed
+// on the way: one of `elements` -- the names standing for the elements the
+// traversal is at -- or a field or element reached from one through accesses
+// alone. `Unwrap` counts as an access: it is how a match arm reads a
+// variant's fields, and Lower/ADTs.cpp makes it one.
+bool is_stored_place(const ir::Expr &e, const std::set<std::string> &elements) {
+    ir::Expr cur = e;
+    while (true) {
+        if (const auto *access = cur.as<ir::Access>()) {
+            cur = access->value;
+        } else if (const auto *unwrap = cur.as<ir::Unwrap>()) {
+            cur = unwrap->value;
+        } else if (const auto *extract = cur.as<ir::Extract>()) {
+            cur = extract->vec;
+        } else {
+            break;
+        }
+    }
+    const auto *var = cur.as<ir::Var>();
+    return var != nullptr && elements.contains(var->name);
+}
+
+size_t element_arity(const ir::Type &element) {
+    const auto *tuple = element.as<ir::Tuple_t>();
+    return tuple == nullptr ? 1 : tuple->etypes.size();
+}
+
+// Per component of the elements `set` yields, whether the component is a
+// place in a tree's storage at every element the set can yield (see
+// is_stored_place), so that an argmin over the set may keep a reference to
+// that component of its best element. `outer` names the elements of the
+// levels this set is reached through, which its own elements may be fields
+// of. The cases are build_traversal's.
+std::vector<bool> stored_components(const ir::Expr &set,
+                                    const std::set<std::string> &outer) {
+    const size_t arity = element_arity(set.type().element_of());
+    const std::vector<bool> none(arity, false);
+    if (set.is<ir::Var>()) {
+        return {true}; // a tree's own elements
+    }
+    if (const auto *access = set.as<ir::Access>();
+        access != nullptr && access->type.is<ir::Set_t>()) {
+        return {true}; // a tree held in a field of an element
+    }
+    if (const auto *match = set.as<ir::MatchExpr>()) {
+        std::vector<bool> all(arity, true);
+        for (const auto &arm : match->arms) {
+            const std::vector<bool> stored = stored_components(arm.value, outer);
+            if (stored.size() != arity) {
+                return none;
+            }
+            for (size_t i = 0; i < arity; i++) {
+                all[i] = all[i] && stored[i];
+            }
+        }
+        return all;
+    }
+    if (const auto *build = set.as<ir::Build>();
+        build != nullptr && build->type.is<ir::Set_t>()) {
+        // A set written out lists what it holds; each is a place if it is a
+        // field of an element the set is reached through.
+        bool every = true;
+        for (const ir::Expr &element : build->values) {
+            every = every && is_stored_place(element, outer);
+        }
+        return std::vector<bool>(arity, every);
+    }
+    const auto *op = set.as<ir::SetOp>();
+    if (op == nullptr) {
+        return none;
+    }
+    switch (op->op) {
+    case ir::SetOp::filter:
+        return stored_components(op->b, outer);
+    case ir::SetOp::flatten: {
+        // The pair of the outer element and the inner one reached through
+        // it: the inner set is reached from the outer element, which the
+        // function's parameter stands for.
+        std::vector<bool> stored = stored_components(op->b, outer);
+        const ir::Lambda *lambda = op->a.as<ir::Lambda>();
+        internal_assert(lambda != nullptr && lambda->args.size() == 1)
+            << "flatten over something other than a one-argument lambda: "
+            << op->a;
+        std::set<std::string> within = outer;
+        within.insert(lambda->args[0].name);
+        const std::vector<bool> inner = stored_components(lambda->value, within);
+        stored.insert(stored.end(), inner.begin(), inner.end());
+        return stored.size() == arity ? stored : none;
+    }
+    case ir::SetOp::product: {
+        std::vector<bool> stored = stored_components(op->a, outer);
+        const std::vector<bool> right = stored_components(op->b, outer);
+        stored.insert(stored.end(), right.begin(), right.end());
+        return stored.size() == arity ? stored : none;
+    }
+    default:
+        // A `map` yields what its function computes, which is nowhere; a
+        // nested reduction yields a value of its own.
+        return none;
+    }
+}
+
 ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                             const ir::TypeMap &tree_types,
                             const std::map<std::string, ir::Expr> &extents,
@@ -969,13 +1091,42 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         ir::Expr metric;
         ir::WriteLoc loc;
         ir::Type tuple_t;
+        // What the set yields, and how the accumulator holds it: a pointer
+        // for each component `by_ref` marks, the value of the others.
+        ir::Type element_t;
+        ir::Type held_t;
+        std::vector<bool> by_ref;
 
         RewriteArgExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
-                           ir::Type t)
+                           ir::Type t, ir::Type element_t, ir::Type held_t,
+                           std::vector<bool> by_ref)
             : dir(dir), metric(std::move(met)), loc(std::move(l)),
-              tuple_t(std::move(t)) {}
+              tuple_t(std::move(t)), element_t(std::move(element_t)),
+              held_t(std::move(held_t)), by_ref(std::move(by_ref)) {}
 
         using ir::Mutator::visit;
+
+        // The element as the accumulator keeps it.
+        ir::Expr hold(const ir::Expr &element) const {
+            if (ir::equals(held_t, element_t)) {
+                return element; // nothing by reference
+            }
+            std::vector<ir::Expr> parts;
+            if (element_t.is<ir::Tuple_t>()) {
+                for (size_t i = 0; i < by_ref.size(); i++) {
+                    parts.push_back(opt::Simplify::simplify(
+                        ir::Extract::make(element, static_cast<int>(i))));
+                }
+            } else {
+                parts.push_back(element);
+            }
+            for (size_t i = 0; i < parts.size(); i++) {
+                if (by_ref[i]) {
+                    parts[i] = ir::PtrTo::make(parts[i]);
+                }
+            }
+            return ir::Build::make(held_t, std::move(parts));
+        }
 
         // yield x => upd a arg(a, (M(x), x))
         ir::Stmt visit(const ir::Yield *node) override {
@@ -988,7 +1139,8 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             // them, which `apply_lambda` already takes apart.
             ir::Expr value = apply_lambda(metric, node->value);
 
-            std::vector<ir::Expr> values = {std::move(value), node->value};
+            std::vector<ir::Expr> values = {std::move(value),
+                                            hold(node->value)};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
 
             // A plain write, not an Accumulate::Arg{min,max}. Filter fusion
@@ -1018,7 +1170,32 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Type metric_t = lambda->value.type();
 
     ir::Type ret_type = inner.type().element_of();
-    ir::Type tuple_t = ir::Tuple_t::make({metric_t, ret_type});
+
+    // How the accumulator holds the element (see the note above): a pointer
+    // to each component that is a place in a tree's storage, the value of
+    // any other. Decided from the set expression, before the traversal is
+    // built, because the accumulator's type is threaded through it.
+    const std::vector<bool> by_ref = stored_components(inner, {});
+    std::vector<ir::Type> held;
+    if (const auto *tuple = ret_type.as<ir::Tuple_t>()) {
+        internal_assert(by_ref.size() == tuple->etypes.size());
+        for (size_t i = 0; i < by_ref.size(); i++) {
+            held.push_back(by_ref[i] ? ir::Ptr_t::make(tuple->etypes[i])
+                                     : tuple->etypes[i]);
+        }
+    } else {
+        internal_assert(by_ref.size() == 1);
+        held.push_back(by_ref[0] ? ir::Ptr_t::make(ret_type) : ret_type);
+    }
+    bool any_ref = false;
+    for (const bool r : by_ref) {
+        any_ref = any_ref || r;
+    }
+    // A tuple even for one component, so that the empty build that starts
+    // the accumulator has something to be empty of: there is no null pointer
+    // literal, and a struct of pointers built from nothing is all null.
+    const ir::Type held_t = any_ref ? ir::Tuple_t::make(held) : ret_type;
+    ir::Type tuple_t = ir::Tuple_t::make({metric_t, held_t});
 
     static size_t counter = 0;
     std::string name = "_best" + std::to_string(counter++);
@@ -1027,7 +1204,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     // WrapWithAccumulator(a, (worst, null))
     ir::Expr identity = extremum_identity(metric_t, dir);
     static const std::vector<ir::Expr> empty_list = {};
-    ir::Expr empty = ir::Build::make(ret_type, empty_list);
+    ir::Expr empty = ir::Build::make(held_t, empty_list);
     std::vector<ir::Expr> values = {identity, std::move(empty)};
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
@@ -1037,15 +1214,47 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
     ir::Expr best_metric = ir::Extract::make(ret_var, 0);
-    ir::Expr best_ref = ir::Extract::make(ret_var, 1);
+    ir::Expr best_held = ir::Extract::make(ret_var, 1);
+    // The best element back from what the accumulator holds: a component
+    // kept by reference is read through its pointer, once, here.
+    ir::Expr best_ref = best_held;
+    if (any_ref) {
+        std::vector<ir::Expr> parts;
+        for (size_t i = 0; i < by_ref.size(); i++) {
+            ir::Expr part = ir::Extract::make(best_held, static_cast<int>(i));
+            parts.push_back(by_ref[i] ? ir::Deref::make(part) : part);
+        }
+        best_ref = ret_type.is<ir::Tuple_t>()
+                       ? ir::Build::make(ret_type, std::move(parts))
+                       : parts[0];
+    }
     // TODO: should this be a Return?
     ir::Stmt footer;
     if (!ir::equals(ret_type, expect_type)) {
         // If nothing improved on the identity, the set was empty.
-        ir::Expr result = ir::Select::make(
-            best_metric != identity, ir::Build::make(expect_type, {best_ref}),
-            ir::Build::make(expect_type));
-        footer = ir::Yield::make(std::move(result));
+        if (any_ref) {
+            // A branch and not a select: a select evaluates both of its arms,
+            // and the arm for a set that yielded nothing would read through
+            // the null pointers the accumulator started with. One yield, of
+            // a result the branch fills in, since a traversal's result path
+            // is expected to yield once (see Lower/Yields.cpp).
+            const std::string result_name = ret_var.as<ir::Var>()->name + "_result";
+            ir::WriteLoc result_loc(result_name, expect_type);
+            footer = ir::Sequence::make(
+                {ir::Allocate::make(result_loc, ir::Build::make(expect_type),
+                                    ir::Allocate::Memory::Stack),
+                 ir::IfElse::make(best_metric != identity,
+                                  ir::Store::make(result_loc,
+                                                  ir::Build::make(expect_type,
+                                                                  {best_ref}))),
+                 ir::Yield::make(ir::Var::make(expect_type, result_name))});
+        } else {
+            ir::Expr result = ir::Select::make(
+                best_metric != identity,
+                ir::Build::make(expect_type, {best_ref}),
+                ir::Build::make(expect_type));
+            footer = ir::Yield::make(std::move(result));
+        }
     } else {
         footer = ir::Yield::make(best_ref);
     }
@@ -1060,7 +1269,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         build_traversal(fused_filter, tree_types, extents, local_intervals);
 
     body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
-                              std::move(tuple_t))
+                              std::move(tuple_t), ret_type, held_t, by_ref)
                .mutate(body);
 
     return ir::Sequence::make(

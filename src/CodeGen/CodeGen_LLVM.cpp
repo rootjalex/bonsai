@@ -2200,6 +2200,12 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
     // every draw. A field of scalar type took the correct path below, which is
     // why this survived so long. See
     // tests/bonsai/correctness/llvm/mut-field-argument.bonsai.
+    // The chain may also be rooted at an array, which is already the address
+    // of its elements (see Type::is_reference): `vs[i].w` for a `vs :
+    // mut Vertex[]`, or an element of a tree's leaf storage that an argmin
+    // keeps a reference to. The root is then the innermost expression of
+    // array type, and the accesses outside it are offsets from its value.
+    Expr array_root;
     const bool addressable_chain = [&] {
         if (!node->expr.is<Extract, Access>()) {
             return false;
@@ -2208,6 +2214,10 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
         while (root.is<Extract, Access>()) {
             root = root.is<Extract>() ? root.as<Extract>()->vec
                                       : root.as<Access>()->value;
+            if (root.type().is_reference()) {
+                array_root = root;
+                return true;
+            }
         }
         return root.is<Deref>();
     }();
@@ -2245,13 +2255,24 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
                 accesses.push_back(access->field);
                 expr = access->value;
             }
-        } while (expr.is<Extract, Access>());
-        const Deref *deref = expr.as<Deref>();
-        internal_assert(deref) << expr;
+        } while (expr.is<Extract, Access>() && !expr.same_as(array_root));
 
-        llvm::Value *ptr = codegen_expr(deref->expr);
-
-        Type bonsai_type = deref->type;
+        llvm::Value *ptr;
+        Type bonsai_type;
+        // An array's value is the address of its elements, so the first index
+        // below offsets it directly; a pointer to a struct holding an array
+        // field reaches the elements through a load of that field first.
+        bool elements_in_hand = false;
+        if (array_root.defined()) {
+            ptr = codegen_expr(array_root);
+            bonsai_type = array_root.type();
+            elements_in_hand = true;
+        } else {
+            const Deref *deref = expr.as<Deref>();
+            internal_assert(deref) << expr;
+            ptr = codegen_expr(deref->expr);
+            bonsai_type = deref->type;
+        }
         llvm::Type *llvm_t = codegen_type(bonsai_type);
 
         for (auto it = accesses.rbegin(); it != accesses.rend(); ++it) {
@@ -2260,8 +2281,11 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
                 Expr idx = std::get<Expr>(access);
                 llvm::Value *llvm_idx = codegen_expr(idx);
 
-                ptr = create_aligned_load(codegen_type(bonsai_type), ptr,
-                                          "ptr_array_ld");
+                if (!elements_in_hand) {
+                    ptr = create_aligned_load(codegen_type(bonsai_type), ptr,
+                                              "ptr_array_ld");
+                }
+                elements_in_hand = false;
 
                 bonsai_type = bonsai_type.element_of();
                 llvm_t = codegen_type(bonsai_type);
@@ -2274,6 +2298,16 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
             } else {
                 internal_assert(std::holds_alternative<std::string>(access));
                 const std::string &field_name = std::get<std::string>(access);
+
+                // A union's member starts where the union does, so its
+                // address is the same pointer read at the member's type.
+                if (const Union_t *union_t = bonsai_type.as<Union_t>()) {
+                    bonsai_type = union_t->member(field_name);
+                    internal_assert(bonsai_type.defined())
+                        << "no member `" << field_name << "` in " << union_t->name;
+                    llvm_t = codegen_type(bonsai_type);
+                    continue;
+                }
 
                 const Struct_t *struct_t = bonsai_type.as<Struct_t>();
                 internal_assert(struct_t)
@@ -2944,6 +2978,36 @@ void CodeGen_LLVM::visit(const Store *node) {
     internal_assert(dest->getType()->isPointerTy())
         << "Cannot store to " << loc.base
         << ": it is bound to a value, not to storage, in " << Stmt(node);
+
+    // A whole array assigned to a name of array type: `ws = {1.0, 5.0}` for a
+    // `ws : mut array[f32, 2]`. A name of array type is bound to its
+    // elements' storage (see codegen_write_loc), and so is the value (see
+    // Type::is_reference), so what moves is the elements, not the address.
+    // Storing the value would write the right-hand side's *pointer* over the
+    // first bytes of the destination's elements -- which is what happened: a
+    // mutable array local initialized from a literal read back the upper half
+    // of a heap address as its second element (see
+    // tests/bonsai/correctness/llvm/mut-array-literal.bonsai). A field or
+    // element of array type, by contrast, is a slot holding the handle, and
+    // assigning it stores the handle as before.
+    if (const Array_t *array_t = loc.type.as<Array_t>();
+        array_t != nullptr && loc.accesses.empty() &&
+        node->value.type().is<Array_t>()) {
+        internal_assert(array_t->size.defined())
+            << "[unimplemented] assigning an array of unknown size: "
+            << Stmt(node);
+        llvm::Type *etype = codegen_type(array_t->etype);
+        const llvm::DataLayout &dl = module->getDataLayout();
+        llvm::Value *count = codegen_expr(array_t->size);
+        llvm::Value *bytes = builder->CreateMul(
+            builder->CreateZExtOrTrunc(count, i64_t),
+            llvm::ConstantInt::get(i64_t, dl.getTypeAllocSize(etype)),
+            "array_bytes");
+        builder->CreateMemCpy(dest, llvm::MaybeAlign(), rhs, llvm::MaybeAlign(),
+                              bytes);
+        return;
+    }
+
     llvm::StoreInst *store =
         builder->CreateStore(rhs, dest, /*isVolatile=*/false);
     add_tbaa(store, node->value.type());

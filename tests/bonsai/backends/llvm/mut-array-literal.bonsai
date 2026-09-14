@@ -1,0 +1,13 @@
+//! flags: -p ssa -b llvm
+
+// The LLVM for a mutable array local initialized from a literal. What to
+// read for: the built array's elements are copied into the local's storage
+// (a memcpy, or the stores LLVM turns a small one into), and the reads are
+// loads from that storage -- no `ptrtoint`, which is what reading a pointer
+// stored over the elements looked like.
+
+func [[export]] second(x : f32) -> f32 {
+    ws : mut array[f32, 2] = {x, x * 5.0};
+    ws[0] = 7.0;
+    return ws[0] + ws[1];
+}

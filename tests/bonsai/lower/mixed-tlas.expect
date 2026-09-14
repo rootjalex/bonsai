@@ -21,7 +21,7 @@ extern prims : tree[[| Solo(tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : 
   | Leaf(low : f32x3, high : f32x3, data : Prim[]) with data = data with AABB(low, high)
 
 func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triangle)> {
-  _best0 : mut (f32, (Prim, Triangle)) := ((f32)inf, ())
+  _best0 : mut (f32, ((Prim*), (Triangle*))) := ((f32)inf, ())
   rec(prims : tree[[Prim]] TLAS) {
     match prims {
     | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high) ->
@@ -35,7 +35,7 @@ func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triang
             Solo() =>
               let _pulled0 = untransform(_iter0, r) in
               if ((intersects(_pulled0, (_iter0 as Solo).tri) && (0.001f < distmin(_pulled0, (_iter0 as Solo).tri))) && (distmin(_pulled0, (_iter0 as Solo).tri) < _best0[0])) {
-                _best0 = (distmin(_pulled0, (_iter0 as Solo).tri), (_iter0, (_iter0 as Solo).tri))
+                _best0 = (distmin(_pulled0, (_iter0 as Solo).tri), ((&_iter0), (&(_iter0 as Solo).tri)))
               }
             Inst() =>
               let _pulled1 = untransform(_iter0, r) in
@@ -50,7 +50,7 @@ func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triang
                   if ((intersects(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) && (distmin(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) < _best0[0])) {
                     foreach _iter1 in (_subtree0 as Leaf).data {
                       if ((intersects(_pulled1, _iter1) && (0.001f < distmin(_pulled1, _iter1))) && (distmin(_pulled1, _iter1) < _best0[0])) {
-                        _best0 = (distmin(_pulled1, _iter1), (_iter0, _iter1))
+                        _best0 = (distmin(_pulled1, _iter1), ((&_iter0), (&_iter1)))
                       }
                     }
                   }
@@ -61,7 +61,11 @@ func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triang
       }
     }
   }
-  yield select(_best0[0] != (f32)inf, build<option<(Prim, Triangle)>>(_best0[1]), build<option<(Prim, Triangle)>>())
+  _best0_result : mut option<(Prim, Triangle)> := build<option<(Prim, Triangle)>>()
+  if (_best0[0] != (f32)inf) {
+    _best0_result = build<option<(Prim, Triangle)>>(((*_best0[1][0]), (*_best0[1][1])))
+  }
+  yield _best0_result
 }
 
 func apply(t : Transform, p : f32x3) -> f32x3 {

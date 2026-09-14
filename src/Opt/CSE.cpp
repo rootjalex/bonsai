@@ -144,6 +144,12 @@ class RenameAnalysis : public ir::Visitor {
         }
     }
 
+    // The operand of an address-of names a place, not a value: `&vs[i].w` is
+    // where `w` sits in the array, and giving `vs[i]` a name would make it a
+    // copy whose address is somewhere else. Nothing under one is counted, so
+    // nothing under one is renamed.
+    void visit(const ir::PtrTo *) override {}
+
     void visit(const ir::IfElse *node) override {
         node->cond.accept(this);
         push_frame();
@@ -549,6 +555,9 @@ struct Rename : public ir::Mutator {
         }
     }
 
+    // A place, not a value (see RenameAnalysis): left exactly as written.
+    ir::Expr visit(const ir::PtrTo *node) override { return node; }
+
     ir::Expr visit(const ir::Intrinsic *node) override {
         const bool rename = should_rename(node);
         std::vector<ir::Expr> args;
@@ -869,6 +878,10 @@ class LVN : public ir::Mutator {
 
     // TODO(cgyurgyik): Add LVN for bodies of lambda expressions.
     ir::Expr visit(const ir::Lambda *node) override { return node; }
+
+    // A place, not a value (see RenameAnalysis): numbering what is under an
+    // address-of would replace the place with a name for a copy of it.
+    ir::Expr visit(const ir::PtrTo *node) override { return node; }
 
   private:
     // A list of functions that may have side effects. This is "whole program

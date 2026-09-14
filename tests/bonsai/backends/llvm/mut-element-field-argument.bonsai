@@ -1,0 +1,35 @@
+//! flags: -p ssa -b llvm
+
+// The LLVM for a field of an array's element passed by `mut`
+// (correctness/llvm/mut-element-field-argument.bonsai runs it). What to read
+// for: `touch` and `deeper` each compute one `getelementptr` into the
+// array's storage -- indexed by `i`, then the field -- and the callee's
+// increment is a load and a store through that pointer. Before, each
+// compiled to `ret void`: the increment went into a copy nothing read.
+
+element vec3f = vector[f32, 3];
+
+element Counter {
+    n : f32;
+}
+
+element Vertex {
+    p : vec3f;
+    w : f32;
+    c : Counter;
+}
+
+func bump(x : mut f32) -> void {
+    x = x + 1.0;
+    return;
+}
+
+func [[export]] touch(vs : mut array[Vertex], i : u32) -> void {
+    bump(vs[i].w);
+    return;
+}
+
+func [[export]] deeper(vs : mut array[Vertex], i : u32) -> void {
+    bump(vs[i].c.n);
+    return;
+}

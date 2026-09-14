@@ -313,18 +313,45 @@ own round.
 So the two-copies-of-`Geometric` question has its answer: it is the type of
 what `flatten` yields, the outer element and the inner one it was reached
 through, and in the `Geom` arm the inner *is* the outer's payload, so those
-twenty bytes are there twice; in the `Inst` arm they are not. It is not a
-mistake in the query or the lowering, and it costs nothing measurable: the
-accumulator lives in registers outside the loop and is written only on a
-hit, where pbrt writes a whole `SurfaceInteraction`. If it is ever worth
-tightening, the principled form is the type itself: `flatten` over a variant
-whose arm yields a field of its own payload has the dependent sum `Geom(g) |
-Inst(i, g)` as its element, twenty-five bytes rather than forty-one, with
-the outer and inner as projections the simplifier folds once the arm is
-known. Destination-passing style -- the element half of the accumulator
-written straight into the query's result slot, the metric alone carried --
-is the alternative and matches pbrt's shape exactly, but it trades register
-pressure that has not shown up for stores that would.
+twenty bytes were there twice; in the `Inst` arm they are not. The type is
+right. What was wrong was copying the element into the accumulator at all.
+
+**An argmin keeps a reference to its best element, not a copy.** Every
+improving hit used to copy the whole element into the accumulator -- the
+41-byte pair here, and a 36-byte `Triangle` in a plain single-tree query --
+where pbrt keeps `tMax` in a register and a pointer to where the hit goes.
+`build_arg_extremum` (`Lower/Trees.cpp`) now holds a pointer to each
+component of the element that is a place in a tree's storage, and the value
+of any other; `stored_components` decides from the shape of the set
+expression, before the traversal is built, since the accumulator's type is
+threaded through it: a tree's elements are places, a tree held in a field is,
+a `match` arm's set literal is when what it lists are fields of the matched
+element, a `filter` is what its set is, and a `map` is not. The element is
+read back through the pointers once, where the option is built, behind a
+branch rather than the strict `select` that would have read through the null
+the accumulator starts with. The pavilion's accumulator is a float and two
+pointers -- three loop-carried values where there were eleven -- and the
+render is unchanged to the bit, contraction on, at 4.05 s against pbrt's
+4.66 s on `path`.
+
+The addresses it needs did not exist yet. `PtrTo` of a chain of accesses
+rooted at an array -- `vs[i].w`, `prims[k].payload.Geom.g` -- was lowered by
+the SSA conversion as the address of a *copy* of the loaded value, and that
+was already a bug: `bump(vs[i].w)` with `bump` taking its argument by `mut`
+compiled to `ret void`, the increment written into a temporary nothing read.
+`address_of_place` (`SSA/Convert.cpp`) walks the chain to its root, a
+dereferenced pointer or an array, and composes the offsets, GEP for an index
+and FieldPtr for a field; a union's member is at offset zero and its address
+is the union's, read at the member's type, which is what the per-arm layout
+of a mixed tree stores an inline arm's fields behind. The relooper and
+`CodeGen_LLVM`'s `PtrTo` know the same chains. CSE leaves the operand of an
+address-of alone, since naming `vs[i]` would make it a copy again. Along the
+way a second dormant bug: `ws : mut array[f32, 2] = {1.0, 5.0}` stored the
+built array's *pointer* over the elements of `ws`, so `ws[1]` read back the
+upper half of a heap address; the golden that documented it as a known
+limitation is gone, and a whole-array assignment to a name copies the
+elements (`correctness/llvm/mut-element-field-argument.bonsai`,
+`correctness/llvm/mut-array-literal.bonsai`, and the traversal goldens).
 
 ### What the previous round added
 
@@ -465,10 +492,9 @@ it so. Positions and normals are twelve bytes apart now, pbrt's `Point3f` and
 `correctness/cpp/tight_array.bonsai`, `error/array-layout-*.bonsai`).
 
 **What is left of the traversal, and what is next.** Of the six items the
-previous round listed against the traversal, the one still open is the
-running best carried as loop state -- LLVM keeps eleven phis for the
-`(metric, (Primitive, Geometric))` tuple where pbrt keeps `tMax` in a register
-and writes the interaction to memory on a hit. The `--stats` counters,
+previous round listed against the traversal, none is open: the last, the
+running best carried as a copy, is closed under "What the last round added"
+above -- the accumulator holds a reference now. The `--stats` counters,
 deferred until the code generation matched pbrt, are the right next
 measurement now that it does, and the dielectric should be re-profiled with
 the albedo gone before anything is concluded about its code. The pre-existing

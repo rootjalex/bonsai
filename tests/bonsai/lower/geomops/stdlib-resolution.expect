@@ -18,7 +18,7 @@ extern points : tree[[struct Point{ vec : f32x3 }]] PointBVH
   | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
 
 func _traverse_tree0(q : Point, points : tree[[Point]] PointBVH) -> Point {
-  _best0 : mut (f32, Point) := ((f32)inf, build<Point>())
+  _best0 : mut (f32, ((Point*))) := ((f32)inf, ())
   rec(points : tree[[Point]] PointBVH) {
     match points {
     | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high) ->
@@ -28,12 +28,12 @@ func _traverse_tree0(q : Point, points : tree[[Point]] PointBVH) -> Point {
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
       if (distmin_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best0[0]) {
         if (distmin_Point_Point(q, (points as Leaf).data) < _best0[0]) {
-          _best0 = (distmin_Point_Point(q, (points as Leaf).data), (points as Leaf).data)
+          _best0 = (distmin_Point_Point(q, (points as Leaf).data), ((&(points as Leaf).data)))
         }
       }
     }
   }
-  yield _best0[1]
+  yield (*_best0[1][0])
 }
 
 func _traverse_tree1(r : AABB, points : tree[[Point]] PointBVH) -> set<Point> {

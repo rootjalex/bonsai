@@ -1,0 +1,42 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Vertex = type { <3 x float>, float, %struct.Counter }
+%struct.Counter = type { float }
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @bump(ptr nocapture noundef nonnull %x) local_unnamed_addr #0 {
+bump_entry:
+  %deref_temp = load float, ptr %x, align 4, !tbaa !0
+  %0 = fadd float %deref_temp, 1.000000e+00
+  store float %0, ptr %x, align 4, !tbaa !0
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @deeper(ptr nocapture noundef %vs, i32 noundef %i) local_unnamed_addr #0 {
+deeper_entry:
+  %0 = sext i32 %i to i64
+  %c_gep = getelementptr inbounds %struct.Vertex, ptr %vs, i64 %0, i32 2
+  %deref_temp.i = load float, ptr %c_gep, align 4, !tbaa !0
+  %1 = fadd float %deref_temp.i, 1.000000e+00
+  store float %1, ptr %c_gep, align 4, !tbaa !0
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @touch(ptr nocapture noundef %vs, i32 noundef %i) local_unnamed_addr #0 {
+touch_entry:
+  %0 = sext i32 %i to i64
+  %w_gep = getelementptr inbounds %struct.Vertex, ptr %vs, i64 %0, i32 1
+  %deref_temp.i = load float, ptr %w_gep, align 4, !tbaa !0
+  %1 = fadd float %deref_temp.i, 1.000000e+00
+  store float %1, ptr %w_gep, align 4, !tbaa !0
+  ret void
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}

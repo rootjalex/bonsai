@@ -38,9 +38,10 @@ func count_visits(node : i32, total : mut i32, depth : i32) -> void {
 }
 
 func main() -> i32 {
-  // Index 0 is not printed: it is never written, and a `mut` array local's
-  // initializer is miscompiled through this pipeline (see the known
-  // limitation in backends/llvm/known-limitation-ssa-mut-array-local).
+  // Index 0 is not printed: it is never written. (A `mut` array local's
+  // initializer used to be miscompiled through this pipeline, which is why
+  // this test was written not to depend on one; see
+  // correctness/llvm/mut-array-literal.bonsai for the fix.)
   o : mut array[i32, 16] = {0, 0, 0, 0, 0, 0, 0, 0,
                             0, 0, 0, 0, 0, 0, 0, 0};
   visit(1, o, 4);

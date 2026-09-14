@@ -71,10 +71,6 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                     const Type pointee = base.type().is<Ptr_t>()
                                              ? base.type().as<Ptr_t>()->etype
                                              : base.type();
-                    const Struct_t *struct_t = pointee.as<Struct_t>();
-                    internal_assert(struct_t)
-                        << "[unimplemented] the address of a field of " << base
-                        << ", which is not a struct";
                     // Read off the Value rather than through codegen_value:
                     // the index is a constant by construction, and this runs
                     // before the helper that unwraps one is declared.
@@ -84,11 +80,25 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                                              c->data))
                         << "FieldPtr index is not a constant";
                     const uint64_t idx = std::get<uint64_t>(c->data);
-                    internal_assert(idx < struct_t->fields.size())
-                        << "FieldPtr index " << idx << " past the end of "
-                        << pointee;
-                    return PtrTo::make(Access::make(struct_t->fields[idx].name,
-                                                    Deref::make(base)));
+                    // A struct's field, or a union's member (see
+                    // address_of_place in SSA/Convert.cpp), by position.
+                    std::string field;
+                    if (const Struct_t *struct_t = pointee.as<Struct_t>()) {
+                        internal_assert(idx < struct_t->fields.size())
+                            << "FieldPtr index " << idx << " past the end of "
+                            << pointee;
+                        field = struct_t->fields[idx].name;
+                    } else if (const Union_t *union_t = pointee.as<Union_t>()) {
+                        internal_assert(idx < union_t->members.size())
+                            << "FieldPtr index " << idx << " past the end of "
+                            << pointee;
+                        field = union_t->members[idx].name;
+                    } else {
+                        internal_error
+                            << "[unimplemented] the address of a field of "
+                            << base << ", which is neither a struct nor a union";
+                    }
+                    return PtrTo::make(Access::make(field, Deref::make(base)));
                 }
                 return Var::make(i->type, i->name);
             },
