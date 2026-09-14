@@ -83,13 +83,16 @@ at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
 within 1% and no block systematically off. That took three fixes described
 under "what the round before that added": a light leak of this renderer's own,
 the last bits of a lens camera's rays, and the texture chain made bit-exact.
-**It renders 1.15x faster than pbrt there, on the same integrator** (4.05 s
-against pbrt's 4.66 s running `path`, at 16 samples per pixel, best of three
+**It renders 1.13x faster than pbrt there, on the same integrator** (4.90 s
+against pbrt's 5.55 s running `path`, at 16 samples per pixel, best of three
 each side, on pbrt's own tree), where two rounds ago it was 1.59x slower and
-one round ago 1.43x. The scene names no integrator; pbrt's default for that is
-`volpath` and this renderer's is `path`, and the 1.27x the last round first
-reported was against volpath, whose closest-hit shadow rays cost pbrt more
-than `path`'s any-hit ones -- a comparison of two integrators, not two
+one round ago 1.43x. The ratio is the figure to hold onto; the seconds move
+with the machine's load, so only a pbrt and a bonsai run taken back to back
+compare, which is what `compare.sh` does. The scene names no integrator;
+pbrt's default for that is `volpath` and this renderer's is `path`, and the
+1.27x the last round first reported was against volpath, whose closest-hit
+shadow rays cost pbrt more than `path`'s any-hit ones -- a comparison of two
+integrators, not two
 renderers. `compare.sh` now tells pbrt the integrator this renderer resolves
 the scene to, and every figure here is like for like. The last round is
 written up below: four compiler changes took it to 1.22x slower with the image
@@ -214,9 +217,21 @@ running the heavier integrator. `compare.sh` reads the integrator scene_dump
 resolves the scene to and, when the scene named none, puts `Integrator
 "path"` in front of it and hands the result to pbrt on standard input from the
 scene's directory (pbrt has no flag for it, and reads standard input when
-given no file). Like for like: pbrt 4.66 s, this renderer 4.05 s, **1.15x**,
+given no file). Like for like: pbrt 5.55 s, this renderer 4.90 s, **1.13x**,
 mean 1.00009x, lit pixels within 0.03%. The rule is standing: a number against
 a different integrator is not a number.
+
+A second harness bug hid behind the first and is fixed in the same place. The
+`cd` into the scene's directory was paired with a relative `--outfile`, so
+after the change of directory pbrt could not create the file and -- exiting
+zero on a failed write, having rendered first -- left the previous run's image
+in place. Every no-integrator scene, the pavilion included, was compared
+against whatever pbrt wrote last: the pixels still matched, since the stale
+image was a `path` render of the same scene, but pbrt's *time* was read from
+that stale image's metadata rather than measured. The output path is absolute
+now and a render that writes nothing stops the run. The figures above are from
+a pbrt actually re-run this round, which is why pbrt's second is 5.55 and not
+the 4.66 the stale metadata reported.
 
 **The layout language names an extern array's storage** -- `layout
 mesh_positions { tight(root); };` -- described under "Where it is" above.
@@ -281,10 +296,9 @@ pixels differ from the previous round's render in the last bit (max relative
 2.3e-05, sums equal to the digit): CSE now shares multiplies that were fused
 into an fma before and are not when they have two uses. Without contraction,
 the previous compiler and this one render the pavilion **bit for bit the
-same**, which is the check that nothing about what is computed moved. 4.10 s
-against pbrt's 4.66 s at `path`, 1.14x, the same within noise as before the
-round -- the pass changes were about principle and generality, not this
-scene.
+same**, which is the check that nothing about what is computed moved. The
+speed is the same within noise as before the round -- the pass changes were
+about principle and generality, not this scene.
 
 **The running best, measured in the assembly.** The question left open was
 whether the eleven scalars LLVM keeps for the `(metric, (Primitive,
@@ -331,8 +345,8 @@ read back through the pointers once, where the option is built, behind a
 branch rather than the strict `select` that would have read through the null
 the accumulator starts with. The pavilion's accumulator is a float and two
 pointers -- three loop-carried values where there were eleven -- and the
-render is unchanged to the bit, contraction on, at 4.05 s against pbrt's
-4.66 s on `path`.
+render is unchanged to the bit, contraction on, still 1.13x faster than
+pbrt on `path`.
 
 The addresses it needs did not exist yet. `PtrTo` of a chain of accesses
 rooted at an array -- `vs[i].w`, `prims[k].payload.Geom.g` -- was lowered by
