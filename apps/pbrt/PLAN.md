@@ -286,6 +286,46 @@ against pbrt's 4.66 s at `path`, 1.14x, the same within noise as before the
 round -- the pass changes were about principle and generality, not this
 scene.
 
+**The running best, measured in the assembly.** The question left open was
+whether the eleven scalars LLVM keeps for the `(metric, (Primitive,
+Geometric))` accumulator cost the traversal anything. Retired instructions,
+sampled on the same tree, `path` on both sides: this renderer's interior-node
+loop (the slab test, the child order, the push) retires about 135 G against
+pbrt's `BVHAggregate::Intersect` loop at about 210 G; a node is about 45
+instructions here -- the slab test is three lanes wide, `vmulps` on the box
+minus the origin times the inverse direction, then the per-axis compares --
+against about 55 in pbrt's scalar loop with its per-axis early exits. Of the
+accumulator, only the metric is in the loop at all, a register compared once
+per node (`vucomiss %xmm0, %xmm17`); the other ten scalars are touched at a
+leaf's store and at the exit and never spill into the loop. What the loop
+does reload from the stack is three loop invariants -- the ray origin, the
+inverse direction and the bound -- three loads a node, about 7% of its
+instructions; pbrt's loop reloads its `invDir` from the stack five or six
+times a node, so it is behind on the same count. The one thing worth
+noting is that `dirIsNeg[axis]` re-stores the mask to the stack every node
+(`vpmovm2d`, `vmovdqa`, 0.4% of `full_path_step`): a dynamic
+`extractelement` is lowered through memory by LLVM at the use, inside the
+loop, where pbrt writes its `int dirIsNeg[3]` once before it. About 1 G in
+850; an SSA rewrite that binds a loop-invariant vector once to memory when
+it is only ever indexed dynamically would remove it, and is not worth its
+own round.
+
+So the two-copies-of-`Geometric` question has its answer: it is the type of
+what `flatten` yields, the outer element and the inner one it was reached
+through, and in the `Geom` arm the inner *is* the outer's payload, so those
+twenty bytes are there twice; in the `Inst` arm they are not. It is not a
+mistake in the query or the lowering, and it costs nothing measurable: the
+accumulator lives in registers outside the loop and is written only on a
+hit, where pbrt writes a whole `SurfaceInteraction`. If it is ever worth
+tightening, the principled form is the type itself: `flatten` over a variant
+whose arm yields a field of its own payload has the dependent sum `Geom(g) |
+Inst(i, g)` as its element, twenty-five bytes rather than forty-one, with
+the outer and inner as projections the simplifier folds once the arm is
+known. Destination-passing style -- the element half of the accumulator
+written straight into the query's result slot, the metric alone carried --
+is the alternative and matches pbrt's shape exactly, but it trades register
+pressure that has not shown up for stores that would.
+
 ### What the previous round added
 
 **The traversal's code is pbrt's now, and the pavilion is faster than pbrt.**
