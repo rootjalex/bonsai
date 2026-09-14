@@ -1,0 +1,36 @@
+//! flags: -p cse
+
+// A temporary CSE gave a name to and then put back where it was used must
+// not be left behind.
+//
+// CSE counts an expression once for each place it is read, and a `let`
+// variable's reads count as reads of what it binds: `ns` is read twice, so
+// every subexpression of the select it binds is counted twice and given a
+// temporary, although each occurs once. The last step of the pass puts a
+// temporary that is used once back in place -- and used to keep its `let`
+// too, so the pass left `let _t0 = sqlen_(raw)` and its two siblings behind,
+// dead, computing the calls a second time. That was only wasted work while
+// nothing ran CSE twice; once inlining ran CSE between its rounds, a dead
+// `let` with a call in it was inlined every round and the rounds never
+// ended.
+//
+// What to read for in the golden: `g` binds `ns` and nothing else -- no
+// `_t` temporaries at all.
+
+element vec3f = vector[f32, 3];
+
+func dot_(a : vec3f, b : vec3f) -> f32 {
+    z = a.z * b.z;
+    x = a.x * b.x;
+    y = a.y * b.y;
+    return fma(x, 1.0, fma(y, 1.0, z));
+}
+
+func sqlen_(v : vec3f) -> f32 = dot_(v, v);
+
+func unit_vector_(v : vec3f) -> vec3f = v / sqrt(sqlen_(v));
+
+func [[export]] g(raw : vec3f, n : vec3f) -> f32 {
+    ns = select(sqlen_(raw) > 0.0, unit_vector_(raw), n);
+    return ns.x + ns.y * 2.0;
+}

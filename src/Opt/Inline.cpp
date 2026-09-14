@@ -9,6 +9,8 @@
 #include "IR/Visitor.h"
 #include "IR/WriteLoc.h"
 #include "Lower/TopologicalOrder.h"
+#include "Opt/CSE.h"
+#include "Opt/Simplify.h"
 #include "Utils.h"
 
 #include <map>
@@ -46,16 +48,10 @@ bool mentions_return(const ir::Stmt &stmt) {
 }
 
 // Counts the statements of a body, collects the names it binds, and notes
-// what would rule it out: a loop or a construct the query lowering owns, or a
-// call to the function itself.
+// what would rule it out: a loop or a construct the query lowering owns.
 struct BodyShape : ir::Visitor {
-    explicit BodyShape(std::string self) : self(std::move(self)) {}
-
-    const std::string self;
     size_t statements = 0;
     bool plain = true;
-    bool recursive = false;
-    bool allocates = false;
     std::set<std::string> bound;
 
     void visit(const ir::LetStmt *node) override {
@@ -65,7 +61,6 @@ struct BodyShape : ir::Visitor {
     }
     void visit(const ir::Allocate *node) override {
         statements++;
-        allocates = true;
         bound.insert(node->loc.base);
         Visitor::visit(node);
     }
@@ -91,12 +86,6 @@ struct BodyShape : ir::Visitor {
     }
     void visit(const ir::Print *node) override {
         statements++;
-        Visitor::visit(node);
-    }
-    void visit(const ir::Call *node) override {
-        if (const auto *v = node->func.as<ir::Var>(); v && v->name == self) {
-            recursive = true;
-        }
         Visitor::visit(node);
     }
 
@@ -281,11 +270,12 @@ class Inliner : public ir::Mutator {
   public:
     Inliner(const ir::FuncMap &functions,
             const std::unordered_map<std::string, ir::Expr> &function_to_expr,
-            const StatementFunctions &statement_functions, std::string self,
-            size_t &counter)
+            const StatementFunctions &statement_functions, size_t &counter)
         : functions(functions), function_to_expr(function_to_expr),
-          statement_functions(statement_functions), self(std::move(self)),
-          counter(counter) {}
+          statement_functions(statement_functions), counter(counter) {}
+
+    // How many calls were replaced by a body or an expression.
+    size_t inlined = 0;
 
     ir::Expr visit(const ir::Call *node) override {
         // Arguments first, so that a call inside an argument is inlined --
@@ -304,7 +294,8 @@ class Inliner : public ir::Mutator {
         if (auto it = function_to_expr.find(function_name);
             it != function_to_expr.end()) {
             // A function that is one expression: the call is the expression,
-            // with the arguments put in for the parameters.
+            // with the arguments put in for the parameters. Whatever the
+            // expression calls in turn is the next round's.
             auto f = functions.find(function_name);
             internal_assert(f != functions.end());
             const std::vector<ir::Function::Argument> &params = f->second->args;
@@ -316,22 +307,12 @@ class Inliner : public ir::Mutator {
             for (size_t i = 0; i < params.size(); ++i) {
                 repls[params[i].name] = args[i];
             }
-            ir::Expr body = replace(repls, it->second);
-            // The expression may itself call something inlinable. Bounded,
-            // since a chain of expression functions that call each other
-            // round in a circle would otherwise never end.
-            if (depth < kMaxDepth) {
-                depth++;
-                body = mutate(body);
-                depth--;
-            }
-            return body;
+            inlined++;
+            return replace(repls, it->second);
         }
 
         if (auto it = statement_functions.find(function_name);
-            it != statement_functions.end() && hoistable &&
-            function_name != self && depth < kMaxDepth &&
-            still_small(*it->second)) {
+            it != statement_functions.end() && hoistable) {
             return inline_statements(*it->second, std::move(args));
         }
         return ir::Call::make(node->func, std::move(args));
@@ -347,8 +328,7 @@ class Inliner : public ir::Mutator {
         const ir::Var *v = node->func.as<ir::Var>();
         if (v != nullptr) {
             if (auto it = statement_functions.find(v->name);
-                it != statement_functions.end() && v->name != self &&
-                depth < kMaxDepth && still_small(*it->second)) {
+                it != statement_functions.end()) {
                 std::vector<ir::Stmt> *saved = prelude;
                 prelude = &pre;
                 inline_statements(*it->second, std::move(args));
@@ -471,14 +451,11 @@ class Inliner : public ir::Mutator {
     }
 
   private:
-    static constexpr size_t kMaxDepth = 8;
-
     const ir::FuncMap &functions;
     const std::unordered_map<std::string, ir::Expr> &function_to_expr;
     const StatementFunctions &statement_functions;
-    const std::string self;
-    // Shared across the functions of a program, so that the names made here
-    // are unique in every one of them.
+    // Shared across the functions of a program and across rounds, so that
+    // the names made here are unique in every one of them.
     size_t &counter;
 
     // Where the statements of an inlined body go, while an expression that
@@ -497,20 +474,6 @@ class Inliner : public ir::Mutator {
         prelude = saved_prelude;
         hoistable = saved_hoistable;
         return result;
-    }
-
-    // Whether `f` is still worth copying. It was small when the candidates
-    // were chosen, but its callees have been inlined into it since -- it is
-    // processed before its callers -- and a body that has grown past the
-    // bound is a call again, or every copy would carry the whole chain
-    // beneath it and the program would grow with the depth of its calls.
-    static bool still_small(const ir::Function &f) {
-        if (f.is_inlined() || f.is_always_inlined()) {
-            return true;
-        }
-        BodyShape shape(f.name);
-        f.body.accept(&shape);
-        return shape.statements <= kMaxInlinedStatements;
     }
 
     static ir::Stmt with(std::vector<ir::Stmt> pre, ir::Stmt stmt) {
@@ -532,9 +495,10 @@ class Inliner : public ir::Mutator {
             << "mismatch in function argument size: " << f.args.size()
             << " and call argument size: " << args.size()
             << " for function: " << f.name;
+        inlined++;
         const std::string tag = "$i" + std::to_string(counter++);
 
-        BodyShape shape(f.name);
+        BodyShape shape;
         f.body.accept(&shape);
         std::map<std::string, std::string> renames;
         for (const ir::Function::Argument &arg : f.args) {
@@ -567,15 +531,13 @@ class Inliner : public ir::Mutator {
         }
 
         // The variables the body binds, and its arguments, renamed so that
-        // the copy can sit beside anything.
+        // the copy can sit beside anything. Whatever the copy calls stays a
+        // call until the next round, which is what lets the merge between
+        // rounds see it (see Opt/Inline.h).
         ir::Stmt body = ir::rename_bindings(f.body, renames);
         if (!substitutions.empty()) {
             body = replace(substitutions, body);
         }
-        // Whatever the copy calls is inlined in turn, where it can be.
-        depth++;
-        body = mutate(body);
-        depth--;
         Nester nester{result, f.ret_type};
         ir::Stmt nested = nester.rewrite(flatten(body));
         if (nested.defined()) {
@@ -594,76 +556,87 @@ class Inliner : public ir::Mutator {
 
 ir::FuncMap Inline::run(ir::FuncMap funcs,
                         const CompilerOptions &options) const {
-    // A function that is one expression is replaced by that expression at
-    // every call, whatever its size.
-    std::unordered_map<std::string, ir::Expr> function_to_expr;
-    // A function of a few statements with returns that nest is copied to its
-    // call sites, its returns becoming assignments to a result variable.
-    StatementFunctions statement_functions;
-    for (const auto &[name, func] : funcs) {
-        if (func->is_kernel() || func->is_vectorized() || func->is_noinline()) {
-            continue;
-        }
-        if (!func->ret_type.is<ir::Void_t>()) {
-            if (const auto *body = func->body.as<ir::Return>()) {
-                internal_assert(body->value.defined());
-                function_to_expr[name] = body->value;
+    // A function on a cycle of the call graph is never inlined: a copy of
+    // its body holds the call that leads back to it, and the rounds below
+    // would never run out of calls to copy.
+    const std::set<std::string> recursive = lower::recursive_functions(funcs);
+
+    size_t counter = 0;
+    for (size_t round = 0;; round++) {
+        // One level a round, callers first: a body is copied as the round
+        // found it, its own calls left as calls for the next round. The
+        // inlinable functions form a DAG, so the rounds end after as many
+        // as it has levels.
+        internal_assert(round <= funcs.size())
+            << "inlining did not settle after " << round << " rounds";
+
+        // A function that is one expression is replaced by that expression
+        // at every call, whatever its size.
+        std::unordered_map<std::string, ir::Expr> function_to_expr;
+        // A function of a few statements with returns that nest is copied to
+        // its call sites, its returns becoming assignments to a result
+        // variable. Copies of the functions: the round inlines into these
+        // functions too, and what it copies out of one has to be the body as
+        // the round found it.
+        StatementFunctions statement_functions;
+        for (const auto &[name, func] : funcs) {
+            if (recursive.contains(name) || func->is_kernel() ||
+                func->is_vectorized() || func->is_noinline()) {
                 continue;
             }
+            if (!func->ret_type.is<ir::Void_t>()) {
+                if (const auto *body = func->body.as<ir::Return>()) {
+                    internal_assert(body->value.defined());
+                    function_to_expr[name] = body->value;
+                    continue;
+                }
+            }
+            // A mutating argument is a reference to the caller's variable,
+            // and binding it to a fresh name would copy it instead.
+            bool mutating = false;
+            for (const ir::Function::Argument &arg : func->args) {
+                mutating = mutating || arg.mutating;
+            }
+            if (mutating) {
+                continue;
+            }
+            BodyShape shape;
+            func->body.accept(&shape);
+            if (!shape.plain) {
+                continue;
+            }
+            // `[[inline]]` asks for a copy whatever the size.
+            const bool asked = func->is_inlined() || func->is_always_inlined();
+            if (!asked && shape.statements > kMaxInlinedStatements) {
+                continue;
+            }
+            if (!nestable(flatten(func->body))) {
+                continue;
+            }
+            statement_functions[name] = std::make_shared<ir::Function>(*func);
         }
-        // A mutating argument is a reference to the caller's variable, and
-        // binding it to a fresh name would copy it instead.
-        bool mutating = false;
-        for (const ir::Function::Argument &arg : func->args) {
-            mutating = mutating || arg.mutating;
-        }
-        if (mutating) {
-            continue;
-        }
-        BodyShape shape(name);
-        func->body.accept(&shape);
-        if (!shape.plain || shape.recursive) {
-            continue;
-        }
-        // A body with mutable locals of its own is left as a call unless the
-        // program asks, or this is the second round (see Opt/Inline.h).
-        // Copied, its state is a set of variables at every call site, and CSE
-        // sees through none of them: two copies of the same call are two
-        // computations for good. As a call it is one value, and two calls
-        // with the same arguments are one -- which is the point of inlining
-        // the small functions that make the call. `aabb_span` stays a call
-        // through the first round for exactly this reason; `intersects` and
-        // `distmin` over an AABB, which each call it, are copied, CSE leaves
-        // the traversal asking the box once, and the second round copies that
-        // one call in.
-        // `[[inline]]` asks for a copy whatever the body looks like.
-        const bool asked = func->is_inlined() || func->is_always_inlined();
-        if (!asked && !with_locals && shape.allocates) {
-            continue;
-        }
-        if (!asked && shape.statements > kMaxInlinedStatements) {
-            continue;
-        }
-        if (!nestable(flatten(func->body))) {
-            continue;
-        }
-        statement_functions[name] = func;
-    }
 
-    // Callees before callers, so that a body copied into a caller has
-    // already had its own calls inlined. A cycle gets some order; nothing in
-    // one is inlinable anyway.
-    const std::vector<std::string> order =
-        lower::func_topological_order(funcs);
-    size_t counter = 0;
-    for (const std::string &name : order) {
-        auto it = funcs.find(name);
-        if (it == funcs.end()) {
-            continue;
+        // Whether the round copied anything, counted rather than read off
+        // the bodies: the mutator rebuilds a statement it hoisted nothing
+        // into, and two bodies that mean the same are not the same node.
+        size_t inlined = 0;
+        for (auto &[name, func] : funcs) {
+            if (!func->body.defined()) {
+                continue;
+            }
+            Inliner inliner(funcs, function_to_expr, statement_functions,
+                            counter);
+            func->body = inliner.mutate(func->body);
+            inlined += inliner.inlined;
         }
-        Inliner inliner(funcs, function_to_expr, statement_functions, name,
-                        counter);
-        it->second->body = inliner.mutate(it->second->body);
+        if (inlined == 0) {
+            break;
+        }
+
+        // The merge between levels: two copies that now make the same call
+        // make it once before the next round copies that call in.
+        funcs = Simplify().run(std::move(funcs), options);
+        funcs = CSE().run(std::move(funcs), options);
     }
 
     return funcs;

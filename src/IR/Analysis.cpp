@@ -400,7 +400,14 @@ struct HasSideEffects : ir::Visitor {
             return;
         }
         const auto *var = node->func.as<ir::Var>();
-        internal_assert(var) << ir::Expr(node);
+        if (var == nullptr) {
+            // A call through an instantiation of a generic, before
+            // LowerGenerics has named the function it becomes: nothing is
+            // known about it yet, so it is taken to have effects.
+            internal_assert(node->func.is<ir::Instantiate>()) << ir::Expr(node);
+            found = true;
+            return;
+        }
         if (var->type.is<ir::Function_t>() &&
             function_has_side_effects.contains(var->name)) {
             found = true;
@@ -462,6 +469,84 @@ bool always_returns(const Stmt &stmt) {
     AlwaysReturns check;
     stmt.accept(&check);
     return check.returns;
+}
+
+namespace {
+
+struct IsPureValue : Visitor {
+    bool pure = true;
+
+    void visit(const Call *) override { pure = false; }
+    void visit(const CallStmt *) override { pure = false; }
+    void visit(const Intrinsic *) override { pure = false; }
+    void visit(const MatchExpr *) override { pure = false; }
+    void visit(const Generator *) override { pure = false; }
+    void visit(const Lambda *) override { pure = false; }
+    void visit(const GeomOp *) override { pure = false; }
+    void visit(const SetOp *) override { pure = false; }
+    void visit(const AggOp *) override { pure = false; }
+    void visit(const Deref *) override { pure = false; }
+    void visit(const PtrTo *) override { pure = false; }
+    void visit(const Construct *) override { pure = false; }
+    void visit(const UnionOf *) override { pure = false; }
+    void visit(const Unwrap *) override { pure = false; }
+    void visit(const VectorReduce *) override { pure = false; }
+    void visit(const VectorShuffle *) override { pure = false; }
+    void visit(const Ramp *) override { pure = false; }
+};
+
+} // namespace
+
+bool is_pure_value(const Expr &expr) {
+    IsPureValue check;
+    expr.accept(&check);
+    return check.pure;
+}
+
+std::set<std::string> assignable_names(const Function &func) {
+    struct Allocations : Visitor {
+        std::set<std::string> names;
+        void visit(const Allocate *node) override {
+            names.insert(node->loc.base);
+            Visitor::visit(node);
+        }
+    };
+    Allocations allocations;
+    if (func.body.defined()) {
+        func.body.accept(&allocations);
+    }
+    for (const Function::Argument &arg : func.args) {
+        if (arg.mutating) {
+            allocations.names.insert(arg.name);
+        }
+    }
+    return allocations.names;
+}
+
+std::optional<bool> truth_under(const Expr &cond, const Expr &fact) {
+    if (equals(cond, fact)) {
+        return true;
+    }
+    if (const auto *n = cond.as<UnOp>();
+        n && n->op == UnOp::OpType::Not && equals(n->a, fact)) {
+        return false;
+    }
+    if (const auto *n = fact.as<UnOp>();
+        n && n->op == UnOp::OpType::Not && equals(cond, n->a)) {
+        return false;
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> decided(const Facts &facts, const Expr &cond) {
+    for (auto it = facts.rbegin(); it != facts.rend(); ++it) {
+        if (std::optional<bool> truth = truth_under(cond, it->first)) {
+            // `truth` is the condition's value when the fact holds; when the
+            // fact is known not to hold, the condition takes the other one.
+            return *truth == it->second;
+        }
+    }
+    return std::nullopt;
 }
 
 Type get_return_type(const Stmt &stmt) {

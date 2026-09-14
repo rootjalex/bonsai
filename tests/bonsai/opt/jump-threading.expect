@@ -5,26 +5,50 @@ func bump(c : mut Counter) -> f32 {
   return cast<f32>(c.n)
 }
 
+func [[export]] chain(tag : u8, x : f32) -> f32 {
+  v : mut f32 := 0f
+  if (tag == 0u) {
+    v = x
+    w$t0 : mut f32 := 0f
+    if (0f < v) {
+      w$t0 = 1f
+    }
+    return v + w$t0
+  } else if (tag == 1u) {
+    v = x * 2f
+    w$t1 : mut f32 := 0f
+    if (0f < v) {
+      w$t1 = 2f
+    }
+    return v + w$t1
+  } else {
+    v = x * 3f
+    w$t2 : mut f32 := 0f
+    if (0f < v) {
+      w$t2 = 3f
+    }
+    return v + w$t2
+  }
+}
+
 func [[export]] dispatch(is_tri : bool, x : f32) -> f32 {
   hit : mut f32 := 0f
   if (is_tri) {
     let _t0 = tri_test(x) in
     hit = _t0
-    d$t0 : mut f32 := 0f
+    d$t3 : mut f32 := 0f
     if (0f < hit) {
-      let _t1 = _t0 in
-      d$t0 = _t0
+      d$t3 = _t0
     }
-    return hit + d$t0
+    return hit + d$t3
   } else {
     let _t2 = sph_test(x) in
     hit = _t2
-    d$t1 : mut f32 := 0f
+    d$t4 : mut f32 := 0f
     if (0f < hit) {
-      let _t3 = _t2 in
-      d$t1 = _t2
+      d$t4 = _t2
     }
-    return hit + d$t1
+    return hit + d$t4
   }
 }
 
@@ -35,12 +59,51 @@ func [[export]] guarded(flag : bool, x : f32) -> f32 {
     y = x
     c = false
   } else {
-    y = 0f - x
+    y = -x
   }
   if (c) {
     y = y + 1f
   }
   return y
+}
+
+func [[export]] independent(a : bool, b : bool, x : f32) -> f32 {
+  p : mut f32 := 0f
+  if (a) {
+    p = x
+    q$t5 : mut f32 := 0f
+    if (b) {
+      q$t5 = 1f
+    } else {
+      q$t5 = 2f
+    }
+    r$t5 : mut f32 := 0f
+    r$t5 = p + q$t5
+    s$t5 : mut f32 := 0f
+    if (b) {
+      s$t5 = r$t5 * 2f
+    } else {
+      s$t5 = r$t5 * 3f
+    }
+    return s$t5
+  } else {
+    p = -x
+    q$t6 : mut f32 := 0f
+    if (b) {
+      q$t6 = 1f
+    } else {
+      q$t6 = 2f
+    }
+    r$t6 : mut f32 := 0f
+    r$t6 = p - q$t6
+    s$t6 : mut f32 := 0f
+    if (b) {
+      s$t6 = r$t6 * 2f
+    } else {
+      s$t6 = r$t6 * 3f
+    }
+    return s$t6
+  }
 }
 
 func [[export]] reassigned(n : i32, x : f32) -> f32 {
@@ -49,7 +112,7 @@ func [[export]] reassigned(n : i32, x : f32) -> f32 {
   if (0 < k) {
     y = x
   } else {
-    y = 0f - x
+    y = -x
   }
   k = k - 1
   if (0 < k) {
@@ -64,8 +127,8 @@ func [[export]] returning(k : i32, x : f32) -> f32 {
     return x
   } else {
     y = y + 1f
-    return y * 2f
   }
+  return y * 2f
 }
 
 func sph_test(x : f32) -> f32 {
@@ -78,23 +141,53 @@ func [[export]] strict(k : i32, x : f32) -> f32 {
   let _t11 = 0 < k in
   if (_t11) {
     y = x
-    let z$t3 = bump(c) in
-    let _t4 = c.n in
-    let _t5 = cast<f32>(c.n) in
-    let _t6 = cast<f32>(c.n) * 100f in
-    return (y + z$t3) + (cast<f32>(c.n) * 100f)
+    let z$t7 = bump(c) in
+    return (y + z$t7) + (cast<f32>(c.n) * 100f)
   } else {
-    y = 0f - x
-    let z$t4 = select(_t11, bump(c), 0f) in
-    let _t8 = c.n in
-    let _t9 = cast<f32>(c.n) in
-    let _t10 = cast<f32>(c.n) * 100f in
-    return (y + z$t4) + (cast<f32>(c.n) * 100f)
+    y = -x
+    let z$t8 = select(_t11, bump(c), 0f) in
+    return (y + z$t8) + (cast<f32>(c.n) * 100f)
   }
 }
 
 func tri_test(x : f32) -> f32 {
   return (x * 2f) + 1f
+}
+
+func [[export]] wide(is_tri : bool, x : f32) -> f32 {
+  hit : mut f32 := 0f
+  if (is_tri) {
+    hit = tri_test(x)
+  } else {
+    hit = sph_test(x)
+  }
+  let a1 = hit + 1f in
+  let a2 = a1 + 1f in
+  let a3 = a2 + 1f in
+  let a4 = a3 + 1f in
+  let a5 = a4 + 1f in
+  let a6 = a5 + 1f in
+  let a7 = a6 + 1f in
+  let a8 = a7 + 1f in
+  let a9 = a8 + 1f in
+  let a10 = a9 + 1f in
+  let a11 = a10 + 1f in
+  let a12 = a11 + 1f in
+  let a13 = a12 + 1f in
+  let a14 = a13 + 1f in
+  let a15 = a14 + 1f in
+  let a16 = a15 + 1f in
+  let a17 = a16 + 1f in
+  let a18 = a17 + 1f in
+  let a19 = a18 + 1f in
+  let a20 = a19 + 1f in
+  d : mut f32 := 0f
+  if (is_tri) {
+    d = a20
+  } else {
+    d = -a20
+  }
+  return d
 }
 
 

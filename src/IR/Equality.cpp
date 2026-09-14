@@ -647,6 +647,24 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         const Build *v1 = e1.as<Build>();
         return compare_lists(v0->values, v1->values, compare_exprs);
     }
+    case IRExprEnum::Construct: {
+        const Construct *v0 = e0.as<Construct>();
+        const Construct *v1 = e1.as<Construct>();
+        if (const Cmp variant = compare_primitives(v0->variant, v1->variant);
+            variant != Cmp::Equals) {
+            return variant;
+        }
+        return compare_lists(v0->args, v1->args, compare_exprs);
+    }
+    case IRExprEnum::UnionOf: {
+        const UnionOf *v0 = e0.as<UnionOf>();
+        const UnionOf *v1 = e1.as<UnionOf>();
+        if (const Cmp member = compare_primitives(v0->member, v1->member);
+            member != Cmp::Equals) {
+            return member;
+        }
+        return compare_exprs(v0->value, v1->value);
+    }
     case IRExprEnum::Access: {
         const Access *v0 = e0.as<Access>();
         const Access *v1 = e1.as<Access>();

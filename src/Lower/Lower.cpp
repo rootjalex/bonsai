@@ -296,22 +296,19 @@ PassManager register_passes(const CompilerOptions &options) {
     // this cannot reach: it is a different function on the Shape variant,
     // with a `match` of its own around the test.)
     ssa.push_back(std::make_unique<opt::CSE>());
-    // Then inlining in two rounds, with a merge between them: the functions
-    // without mutable locals first, which is what makes the calls they hid
-    // visible to CSE -- `intersects` and `distmin` over an AABB each call
-    // `aabb_span`, and once both are copied into the traversal the two calls
-    // are one -- and then the functions with locals, so that the one call
-    // left is copied in too and the values it computes from the ray alone can
-    // be shared with the sort key and hoisted out of the traversal.
+    // Then inlining, one call level a round with a simplification and a
+    // merge between rounds, until nothing is left to copy (see
+    // Opt/Inline.h). The merge is what makes `intersects` and `distmin` over
+    // an AABB, which each call `aabb_span`, come to one slab test in the
+    // traversal: after a round the two calls sit side by side, CSE makes
+    // them one, and the next round copies that one in.
     ssa.push_back(std::make_unique<opt::Inline>());
-    ssa.push_back(std::make_unique<opt::CSE>());
-    ssa.push_back(std::make_unique<opt::Inline>(/*with_locals=*/true));
-    ssa.push_back(std::make_unique<opt::CSE>());
     // With everything a candidate is asked in one function, the `match`es
     // on its variant are branches on one condition in a row; pulling the
     // first over the rest puts the same test in the same arm twice, and the
     // CSE after makes it one (see Opt/JumpThreading.h).
     ssa.push_back(std::make_unique<opt::JumpThreading>());
+    ssa.push_back(std::make_unique<opt::Simplify>());
     ssa.push_back(std::make_unique<opt::CSE>());
     // Clean up any dead functions after inlining.
     ssa.push_back(std::make_unique<opt::DCE>());

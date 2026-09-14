@@ -1,29 +1,103 @@
-func far(a : f32, b : f32) -> f32 {
-  span$r0 : mut f32
-  lo$i0 : mut f32 := a
-  hi$i0 : mut f32 := b
-  if (hi$i0 < lo$i0) {
-    span$r0 = 0f
-  } else {
-    lo$i0 = lo$i0 * 2f
-    hi$i0 = hi$i0 * 3f
-    span$r0 = hi$i0 - lo$i0
+func [[export]] deep(x : f32) -> f32 {
+  p$r0 : mut f32
+  leaf$r8 : mut f32
+  acc$i8 : mut f32 := x
+  if (acc$i8 < 0f) {
+    acc$i8 = -acc$i8
   }
-  return span$r0 - 1f
+  acc$i8 = acc$i8 + 1f
+  leaf$r8 = acc$i8
+  let _t0 = leaf$r8 in
+  v$i0 : mut f32 := _t0
+  if (10f < v$i0) {
+    v$i0 = 10f
+  }
+  p$r0 = v$i0 * 2f
+  q$r1 : mut f32
+  w$i1 : mut f32 := _t0
+  if (5f < w$i1) {
+    w$i1 = 5f
+  }
+  q$r1 = w$i1 + 3f
+  return p$r0 - q$r1
+}
+
+func fact(n : i32) -> i32 {
+  if (n <= 1) {
+    return 1
+  }
+  return n * fact(n - 1)
+}
+
+func [[export]] factorial(n : i32) -> i32 {
+  return fact(n)
+}
+
+func far(a : f32, b : f32) -> f32 {
+  span$r2 : mut f32
+  lo$i2 : mut f32 := a
+  hi$i2 : mut f32 := b
+  if (hi$i2 < lo$i2) {
+    span$r2 = 0f
+  } else {
+    lo$i2 = lo$i2 * 2f
+    hi$i2 = hi$i2 * 3f
+    span$r2 = hi$i2 - lo$i2
+  }
+  return span$r2 - 1f
+}
+
+func leaf(x : f32) -> f32 {
+  acc : mut f32 := x
+  if (acc < 0f) {
+    acc = -acc
+  }
+  acc = acc + 1f
+  return acc
 }
 
 func near(a : f32, b : f32) -> f32 {
-  span$r1 : mut f32
-  lo$i1 : mut f32 := a
-  hi$i1 : mut f32 := b
-  if (hi$i1 < lo$i1) {
-    span$r1 = 0f
+  span$r3 : mut f32
+  lo$i3 : mut f32 := a
+  hi$i3 : mut f32 := b
+  if (hi$i3 < lo$i3) {
+    span$r3 = 0f
   } else {
-    lo$i1 = lo$i1 * 2f
-    hi$i1 = hi$i1 * 3f
-    span$r1 = hi$i1 - lo$i1
+    lo$i3 = lo$i3 * 2f
+    hi$i3 = hi$i3 * 3f
+    span$r3 = hi$i3 - lo$i3
   }
-  return span$r1 + 1f
+  return span$r3 + 1f
+}
+
+func p(x : f32) -> f32 {
+  leaf$r4 : mut f32
+  acc$i4 : mut f32 := x
+  if (acc$i4 < 0f) {
+    acc$i4 = -acc$i4
+  }
+  acc$i4 = acc$i4 + 1f
+  leaf$r4 = acc$i4
+  v : mut f32 := leaf$r4
+  if (10f < v) {
+    v = 10f
+  }
+  return v * 2f
+}
+
+func q(x : f32) -> f32 {
+  leaf$r5 : mut f32
+  acc$i5 : mut f32 := x
+  if (acc$i5 < 0f) {
+    acc$i5 = -acc$i5
+  }
+  acc$i5 = acc$i5 + 1f
+  leaf$r5 = acc$i5
+  w : mut f32 := leaf$r5
+  if (5f < w) {
+    w = 5f
+  }
+  return w + 3f
 }
 
 func span(a : f32, b : f32) -> f32 {
@@ -38,22 +112,22 @@ func span(a : f32, b : f32) -> f32 {
 }
 
 func [[export]] use(x : f32, y : f32) -> f32 {
-  near$r0 : mut f32
-  span$r2 : mut f32
-  lo$i2 : mut f32 := x
-  hi$i2 : mut f32 := y
-  if (hi$i2 < lo$i2) {
-    span$r2 = 0f
+  near$r6 : mut f32
+  span$r9 : mut f32
+  lo$i9 : mut f32 := x
+  hi$i9 : mut f32 := y
+  if (hi$i9 < lo$i9) {
+    span$r9 = 0f
   } else {
-    lo$i2 = lo$i2 * 2f
-    hi$i2 = hi$i2 * 3f
-    span$r2 = hi$i2 - lo$i2
+    lo$i9 = lo$i9 * 2f
+    hi$i9 = hi$i9 * 3f
+    span$r9 = hi$i9 - lo$i9
   }
-  let s$i0 = span$r2 in
-  near$r0 = s$i0 + 1f
-  far$r1 : mut f32
-  far$r1 = s$i0 - 1f
-  return near$r0 * far$r1
+  let s$i6 = span$r9 in
+  near$r6 = s$i6 + 1f
+  far$r7 : mut f32
+  far$r7 = s$i6 - 1f
+  return near$r6 * far$r7
 }
 
 

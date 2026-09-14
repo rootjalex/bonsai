@@ -44,14 +44,41 @@ namespace opt {
 //   Message Splitting: Optimizing Dynamically-Typed Object-Oriented
 //   Programs." PLDI 1990.
 //
-// What is threaded: a branch on a pure condition -- no call in it, and no
-// free variable of it that anything in the function can assign -- followed in
-// its sequence by statements that test the same condition, contain no loop,
-// and are not too many to copy. A loop is left alone because a schedule
-// names loops and two copies of one would answer to the same name. The
-// variables the copied statements bind are renamed in each copy. A condition
-// known inside an arm also folds the tests nested in that arm, which is the
-// same fact without the copy.
+// What the copies decide is left to the simplifier: a condition known in an
+// arm folds every test of it in that arm (Opt/Simplify.h), with no copy, and
+// this pass only makes the copies that put a later test inside an arm.
+//
+// What is threaded: a branch on a condition the simplifier could learn -- a
+// pure value over names the function cannot assign -- followed in its
+// sequence by statements that test the same condition and contain no loop
+// (a schedule names loops, and two copies of one would answer to the same
+// name). When an arm is itself such a branch and the run tests its condition
+// too, the copies go into that branch's arms in turn: a `match` over a tag
+// lowers to a chain of these, and the run is copied once per case rather
+// than once per test. The names the copied statements bind are renamed in
+// each copy.
+//
+// Two rules keep the replication linear, in time and in space:
+//
+//  * A copy is final. The statements copied into an arm are simplified under
+//    what the arm knows and never threaded again; only the arm they were
+//    appended to is. So a statement is copied by at most one threading, and
+//    two independent conditions tested in a row do not multiply -- the
+//    exponential that code replication is capable of (Mueller and Whalley
+//    discuss it) cannot happen.
+//
+//  * A threading may add at most kMaxGrowth statements: the statements of
+//    the run that survive in each copy once its arm's facts are applied,
+//    summed over the copies, less the run as it stood. The arms of the
+//    decided tests are distributed, not duplicated; what is duplicated is
+//    the code between them, and that is what is counted. GCC bounds the
+//    same thing at 15 statements (its `max-jump-thread-duplication-stmts`),
+//    LLVM at 6 instructions (`jump-threading-threshold`).
+//
+// A function therefore grows by at most kMaxGrowth per branch it contains,
+// and the pass visits each statement a bounded number of times: once to
+// look for a run to thread, once per candidate branch in its sequence to
+// measure it, and once to copy it.
 class JumpThreading : public lower::Pass {
   public:
     const std::string name() const override { return "jump-threading"; }

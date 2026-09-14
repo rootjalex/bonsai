@@ -108,8 +108,8 @@ tailrecurse:                                      ; preds = %then_bb45, %_recloo
   %15 = fmul <3 x float> %0, %14
   %16 = fsub <3 x float> %13, %ray.o
   %17 = fmul <3 x float> %0, %16
-  %"tMax$i0.0.vec.extract" = extractelement <3 x float> %17, i64 0
-  %18 = fmul float %"tMax$i0.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i26.0.vec.extract" = extractelement <3 x float> %17, i64 0
+  %18 = fmul float %"tMax$i26.0.vec.extract", 0x3FF0000060000000
   %19 = extractelement <3 x float> %17, i64 1
   %20 = extractelement <3 x float> %15, i64 0
   %21 = fcmp olt float %19, %20
@@ -144,8 +144,8 @@ after_bb32:                                       ; preds = %next_bb, %tailrecur
   ret void
 
 then_bb33:                                        ; preds = %after_bb
-  %"@91._field0" = load float, ptr %_best0, align 4
-  %33 = fcmp olt float %max19, %"@91._field0"
+  %"@90._field0" = load float, ptr %_best0, align 4
+  %33 = fcmp olt float %max19, %"@90._field0"
   br i1 %33, label %then_bb42, label %after_bb32
 
 then_bb42:                                        ; preds = %then_bb33
@@ -191,8 +191,8 @@ after_bb52:                                       ; preds = %then_bb53, %then_bb
 
 then_bb53:                                        ; preds = %while.body
   %.fca.0.3.load = load float, ptr %.fca.0.3.gep, align 4
-  %"@114._field0" = load float, ptr %_best0, align 4
-  %46 = fcmp olt float %.fca.0.3.load, %"@114._field0"
+  %"@113._field0" = load float, ptr %_best0, align 4
+  %46 = fcmp olt float %.fca.0.3.load, %"@113._field0"
   br i1 %46, label %then_bb58, label %after_bb52
 
 then_bb58:                                        ; preds = %then_bb53
@@ -232,16 +232,16 @@ _traverse_tree0_entry:
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @_unexported_trace(ptr noalias nocapture noundef nonnull writeonly sret(%struct._option0) align 16 %_sret, %struct.Ray noundef %ray, %struct._tree_layout0 noundef %triangles) local_unnamed_addr #1 {
 _unexported_trace_entry:
-  %"_best0$i4" = alloca %struct.__tuple_0, align 16
-  store float 0x7FF0000000000000, ptr %"_best0$i4", align 16
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i4", i64 16
+  %"_best0$i25" = alloca %struct.__tuple_0, align 16
+  store float 0x7FF0000000000000, ptr %"_best0$i25", align 16
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 16
   store <3 x float> zeroinitializer, ptr %.fca.1.0.gep, align 16
-  %.fca.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i4", i64 32
+  %.fca.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 32
   store <3 x float> zeroinitializer, ptr %.fca.1.1.gep, align 16
-  %.fca.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i4", i64 48
+  %.fca.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 48
   store <3 x float> zeroinitializer, ptr %.fca.1.2.gep, align 16
-  call void @_recloop_func0(i32 0, %struct._tree_layout0 %triangles, %struct.Ray %ray, ptr %"_best0$i4")
-  %deref_temp.fca.0.load = load float, ptr %"_best0$i4", align 16
+  call void @_recloop_func0(i32 0, %struct._tree_layout0 %triangles, %struct.Ray %ray, ptr %"_best0$i25")
+  %deref_temp.fca.0.load = load float, ptr %"_best0$i25", align 16
   %deref_temp.fca.1.0.load = load <3 x float>, ptr %.fca.1.0.gep, align 16
   %deref_temp.fca.1.1.load = load <3 x float>, ptr %.fca.1.1.gep, align 16
   %deref_temp.fca.1.2.load = load <3 x float>, ptr %.fca.1.2.gep, align 16
@@ -643,8 +643,8 @@ distmax_Ray_AABB_entry:
   %5 = fmul <3 x float> %0, %4
   %6 = fsub <3 x float> %3, %r.o
   %7 = fmul <3 x float> %0, %6
-  %"tMax$i1.0.vec.extract" = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %"tMax$i1.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i7.0.vec.extract" = extractelement <3 x float> %7, i64 0
+  %8 = fmul float %"tMax$i7.0.vec.extract", 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -654,8 +654,8 @@ distmax_Ray_AABB_entry:
   br i1 %14, label %after_bb, label %next_bb
 
 after_bb:                                         ; preds = %next_bb, %distmax_Ray_AABB_entry, %next_bb15
-  %"intersectsp_ray_aabb$r1.sroa.10.0" = phi float [ %min23, %next_bb15 ], [ 0x7FF0000000000000, %distmax_Ray_AABB_entry ], [ 0x7FF0000000000000, %next_bb ]
-  ret float %"intersectsp_ray_aabb$r1.sroa.10.0"
+  %"intersectsp_ray_aabb$r7.sroa.10.0" = phi float [ %min23, %next_bb15 ], [ 0x7FF0000000000000, %distmax_Ray_AABB_entry ], [ 0x7FF0000000000000, %next_bb ]
+  ret float %"intersectsp_ray_aabb$r7.sroa.10.0"
 
 next_bb:                                          ; preds = %distmax_Ray_AABB_entry
   %max_lt = fcmp olt float %10, %12
@@ -871,8 +871,8 @@ distmin_Ray_AABB_entry:
   %5 = fmul <3 x float> %0, %4
   %6 = fsub <3 x float> %3, %r.o
   %7 = fmul <3 x float> %0, %6
-  %"tMax$i2.0.vec.extract" = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %"tMax$i2.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i10.0.vec.extract" = extractelement <3 x float> %7, i64 0
+  %8 = fmul float %"tMax$i10.0.vec.extract", 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -882,8 +882,8 @@ distmin_Ray_AABB_entry:
   br i1 %14, label %after_bb, label %next_bb
 
 after_bb:                                         ; preds = %next_bb, %distmin_Ray_AABB_entry, %next_bb15
-  %"intersectsp_ray_aabb$r2.sroa.10.0" = phi float [ %max19, %next_bb15 ], [ 0xFFF0000000000000, %distmin_Ray_AABB_entry ], [ 0xFFF0000000000000, %next_bb ]
-  ret float %"intersectsp_ray_aabb$r2.sroa.10.0"
+  %"intersectsp_ray_aabb$r10.sroa.10.0" = phi float [ %max19, %next_bb15 ], [ 0xFFF0000000000000, %distmin_Ray_AABB_entry ], [ 0xFFF0000000000000, %next_bb ]
+  ret float %"intersectsp_ray_aabb$r10.sroa.10.0"
 
 next_bb:                                          ; preds = %distmin_Ray_AABB_entry
   %max_lt = fcmp olt float %10, %12
@@ -1011,8 +1011,8 @@ intersects_Ray_AABB_entry:
   %5 = fmul <3 x float> %0, %4
   %6 = fsub <3 x float> %3, %r.o
   %7 = fmul <3 x float> %0, %6
-  %"tMax$i3.0.vec.extract" = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %"tMax$i3.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i12.0.vec.extract" = extractelement <3 x float> %7, i64 0
+  %8 = fmul float %"tMax$i12.0.vec.extract", 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -1527,12 +1527,12 @@ linear_to_gamma_v_entry:
   %0 = extractelement <3 x float> %l, i64 0
   %1 = fcmp ogt float %0, 0.000000e+00
   %2 = tail call float @llvm.sqrt.f32(float %0)
-  %"linear_to_gamma_f$r20.0" = select i1 %1, float %2, float 0.000000e+00
+  %"linear_to_gamma_f$r22.0" = select i1 %1, float %2, float 0.000000e+00
   %3 = shufflevector <3 x float> %l, <3 x float> poison, <2 x i32> <i32 1, i32 2>
   %4 = fcmp ogt <2 x float> %3, zeroinitializer
   %5 = tail call <2 x float> @llvm.sqrt.v2f32(<2 x float> %3)
   %6 = select <2 x i1> %4, <2 x float> %5, <2 x float> zeroinitializer
-  %7 = insertelement <3 x float> poison, float %"linear_to_gamma_f$r20.0", i64 0
+  %7 = insertelement <3 x float> poison, float %"linear_to_gamma_f$r22.0", i64 0
   %8 = shufflevector <2 x float> %6, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %9 = shufflevector <3 x float> %7, <3 x float> %8, <3 x i32> <i32 0, i32 3, i32 4>
   ret <3 x float> %9
@@ -1653,13 +1653,13 @@ sqlen__entry:
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @trace(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %ray, ptr nocapture noundef nonnull readonly %triangles) local_unnamed_addr #1 {
 trace_entry:
-  %"_best0$i4" = alloca %struct.__tuple_0, align 16
-  store float 0x7FF0000000000000, ptr %"_best0$i4", align 16
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i4", i64 16
+  %"_best0$i25" = alloca %struct.__tuple_0, align 16
+  store float 0x7FF0000000000000, ptr %"_best0$i25", align 16
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 16
   store <3 x float> zeroinitializer, ptr %.fca.1.0.gep, align 16
-  %.fca.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i4", i64 32
+  %.fca.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 32
   store <3 x float> zeroinitializer, ptr %.fca.1.1.gep, align 16
-  %.fca.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i4", i64 48
+  %.fca.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 48
   store <3 x float> zeroinitializer, ptr %.fca.1.2.gep, align 16
   %deref_temp.unpack = load i32, ptr %triangles, align 1
   %0 = insertvalue %struct._tree_layout0 poison, i32 %deref_temp.unpack, 0
@@ -1673,8 +1673,8 @@ trace_entry:
   %deref_temp.unpack10 = load ptr, ptr %deref_temp.elt9, align 1
   %deref_temp11 = insertvalue %struct._tree_layout0 %2, ptr %deref_temp.unpack10, 3
   %deref_temp1 = load %struct.Ray, ptr %ray, align 16
-  call void @_recloop_func0(i32 0, %struct._tree_layout0 %deref_temp11, %struct.Ray %deref_temp1, ptr %"_best0$i4")
-  %deref_temp2.fca.0.load = load float, ptr %"_best0$i4", align 16
+  call void @_recloop_func0(i32 0, %struct._tree_layout0 %deref_temp11, %struct.Ray %deref_temp1, ptr %"_best0$i25")
+  %deref_temp2.fca.0.load = load float, ptr %"_best0$i25", align 16
   %deref_temp2.fca.1.0.load = load <3 x float>, ptr %.fca.1.0.gep, align 16
   %deref_temp2.fca.1.1.load = load <3 x float>, ptr %.fca.1.1.gep, align 16
   %deref_temp2.fca.1.2.load = load <3 x float>, ptr %.fca.1.2.gep, align 16

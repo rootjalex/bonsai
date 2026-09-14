@@ -1,17 +1,29 @@
-//! flags: -p inline -p cse -p inline-locals -p cse
+//! flags: -p inline
 
-// Inlining in two rounds, with a merge between them (Opt/Inline.h).
+// Inlining one level a round, callers first, with a merge between rounds
+// (Opt/Inline.h).
 //
-// `span` has mutable locals, so the first round leaves it as a call: copied,
-// its state would be a set of variables at each call site and CSE could not
-// see that two copies are the same computation. `near` and `far` have none
-// and are copied in the first round, which is what puts their two calls to
-// `span` side by side in `use`, where the CSE between the rounds merges them
-// into one. The second round then copies that one call in.
+// `span` has mutable locals: copied, its state is a set of variables at
+// each call site and CSE cannot see that two copies are the same
+// computation, where two *calls* with the same arguments are one value it
+// merges. Round one copies `near` and `far` into `use` with their calls to
+// `span` intact, which puts the two calls side by side; the merge between
+// rounds makes them one; round two copies that one call in.
+//
+// `deep` is the case a fixed two rounds could not reach, and the case
+// callee-first inlining never can: `p` and `q` have locals of their own and
+// each calls `leaf`, which has locals too. Callee-first, `leaf` would be
+// copied into `p` and into `q` before either reached `deep`, and `deep` would
+// hold two copies for good. Here round one copies `p` and `q` in with their
+// calls to `leaf` intact, the merge makes the two calls one, and round two
+// copies `leaf` once.
+//
+// `fact` calls itself and is on a cycle of the call graph, of one, so it is
+// never inlined and the rounds end; `factorial` keeps its call.
 //
 // What to read for in the golden: `use` holds exactly one copy of `span`'s
-// body -- one `lo$iN`, one `hi$iN`, one `span$rN` -- and no call to it, where
-// the source called it twice through two different functions.
+// body -- one `lo$iN`, one `hi$iN`, one `span$rN` -- and no call to it;
+// `deep` holds one `acc$iN` and no call to `leaf`; `factorial` calls `fact`.
 
 func span(a : f32, b : f32) -> f32 {
     lo : mut = a;
@@ -36,4 +48,44 @@ func far(a : f32, b : f32) -> f32 {
 
 func [[export]] use(x : f32, y : f32) -> f32 {
     return near(x, y) * far(x, y);
+}
+
+func leaf(x : f32) -> f32 {
+    acc : mut f32 = x;
+    if acc < 0.0 {
+        acc = 0.0 - acc;
+    }
+    acc = acc + 1.0;
+    return acc;
+}
+
+func p(x : f32) -> f32 {
+    v : mut f32 = leaf(x);
+    if v > 10.0 {
+        v = 10.0;
+    }
+    return v * 2.0;
+}
+
+func q(x : f32) -> f32 {
+    w : mut f32 = leaf(x);
+    if w > 5.0 {
+        w = 5.0;
+    }
+    return w + 3.0;
+}
+
+func [[export]] deep(x : f32) -> f32 {
+    return p(x) - q(x);
+}
+
+func fact(n : i32) -> i32 {
+    if n <= 1 {
+        return 1;
+    }
+    return n * fact(n - 1);
+}
+
+func [[export]] factorial(n : i32) -> i32 {
+    return fact(n);
 }

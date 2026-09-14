@@ -1,0 +1,53 @@
+type Counter = struct Counter{ n : i32 }
+
+func bump(c : mut Counter) -> f32 {
+  c.n = c.n + 1
+  return cast<f32>(c.n)
+}
+
+func [[export]] mutable(flag : bool, x : f32) -> f32 {
+  c : mut bool := flag
+  y : mut f32 := 0f
+  if (c) {
+    c = false
+    if (c) {
+      y = x
+    } else {
+      y = 1f
+    }
+  }
+  return y
+}
+
+func [[export]] nested(is_tri : bool, x : f32) -> f32 {
+  d : mut f32 := 0f
+  if (is_tri) {
+    d = x
+  }
+  return d
+}
+
+func [[export]] returned(k : i32, x : f32) -> f32 {
+  if (0 < k) {
+    return x
+  }
+  y : mut f32 := x
+  let z = 2f in
+  return y * 2f
+}
+
+func [[export]] strict(k : i32, x : f32) -> f32 {
+  alloc c : mut Counter := build<Counter>(0)
+  y : mut f32 := 0f
+  if (0 < k) {
+    y = select(0 < k, x, bump(c))
+    y = y + 5f
+  }
+  return y + (cast<f32>(c.n) * 100f)
+}
+
+func tri_test(x : f32) -> f32 {
+  return (x * 2f) + 1f
+}
+
+

@@ -31,6 +31,11 @@ std::ostream &operator<<(std::ostream &, const CallGraph &);
 CallGraph build_call_graph(const ir::FuncMap &funcs,
                            const bool undef_calls = false);
 
+// The functions on a cycle of the call graph: every member of a strongly
+// connected component of more than one function, and every function that
+// calls itself.
+std::set<std::string> recursive_functions(const ir::FuncMap &funcs);
+
 // Returns a list of functions that need the __device__ attribute in CUDA.
 // Kernels being launched are not included since they will be annotated with
 // __global__.

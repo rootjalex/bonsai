@@ -16,11 +16,7 @@ func safe_idx(v : f32x3, i : i32) -> f32 {
 
 func safe_oob(v : f32x3) -> f32 {
   safe_idx$r0 : mut f32
-  if ((0 <= 4) && (4 < 3)) {
-    safe_idx$r0 = v[4]
-  } else {
-    safe_idx$r0 = 0f
-  }
+  safe_idx$r0 = 0f
   return (*safe_idx$r0)
 }
 

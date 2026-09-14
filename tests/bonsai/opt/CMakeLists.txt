@@ -3,6 +3,8 @@ add_bonsai_tests(
     FILES
     collapse.bonsai
     constant-fold.bonsai
+    cse-adt.bonsai
+    cse-dead-temporary.bonsai
     cse-loop.bonsai
     dce-effectful-argument.bonsai
     dce-flip-if.bonsai
@@ -12,10 +14,11 @@ add_bonsai_tests(
     dce-struct.bonsai
     dce.bonsai
     inline.bonsai
-    inline-locals.bonsai
+    inline-rounds.bonsai
     inline-statements.bonsai
     jump-threading.bonsai
     parallel.bonsai
     simplify-const-array.bonsai
+    simplify-facts.bonsai
     split.bonsai
 )

@@ -1,6 +1,7 @@
 #include "Opt/Simplify.h"
 
 #include "Error.h"
+#include "IR/Analysis.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
@@ -208,6 +209,10 @@ ir::Expr make(const ir::UnOp *node, ir::Expr a) {
 }
 
 struct Simplifier : ir::Mutator {
+    Simplifier() = default;
+    explicit Simplifier(const Simplify::Knowledge &knowledge)
+        : knowledge(&knowledge), facts(knowledge.known) {}
+
     ir::Expr visit(const ir::Var *node) override {
         auto it = name_to_immediate.find(node->name);
         if (it == name_to_immediate.end()) {
@@ -523,8 +528,17 @@ struct Simplifier : ir::Mutator {
     }
 
     ir::Expr visit(const ir::Select *node) override {
-        ir::Expr cond = mutate(node->cond), tvalue = mutate(node->tvalue),
-                 fvalue = mutate(node->fvalue);
+        ir::Expr cond = mutate(node->cond);
+        if (std::optional<bool> value = ir::decided(facts, cond)) {
+            // A select evaluates both of its arms, so the one not taken can
+            // go only if nothing happens in it: a draw from a sampler there
+            // still advanced the sampler.
+            const ir::Expr &dropped = *value ? node->fvalue : node->tvalue;
+            if (!effectful(dropped)) {
+                return mutate(*value ? node->tvalue : node->fvalue);
+            }
+        }
+        ir::Expr tvalue = mutate(node->tvalue), fvalue = mutate(node->fvalue);
         if (is_const_one(cond)) {
             // select(true, a, b) = a
             return tvalue;
@@ -675,13 +689,19 @@ struct Simplifier : ir::Mutator {
         std::vector<ir::Stmt> stmts;
         stmts.reserve(node->stmts.size());
 
+        // What a statement decides for the ones after it: past
+        // `if (c) { ...; return }` the rest of the sequence runs only with
+        // `c` false. Learned as the statements go by, forgotten at the end.
+        const size_t facts_before = facts.size();
         auto flatten = [&](const ir::Stmt &stmt) {
             ir::Stmt mut = mutate(stmt);
             changed = changed || !mut.same_as(stmt);
             if (!mut.defined()) {
                 changed = true;
                 return;
-            } else if (const ir::Sequence *seq = mut.as<ir::Sequence>()) {
+            }
+            learn_after(mut);
+            if (const ir::Sequence *seq = mut.as<ir::Sequence>()) {
                 stmts.insert(stmts.end(), seq->stmts.begin(), seq->stmts.end());
                 changed = true;
             } else {
@@ -692,6 +712,7 @@ struct Simplifier : ir::Mutator {
         for (const auto &stmt : node->stmts) {
             flatten(stmt);
         }
+        facts.resize(facts_before);
 
         if (!changed) {
             return node;
@@ -704,8 +725,14 @@ struct Simplifier : ir::Mutator {
 
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Expr cond = mutate(node->cond);
-        ir::Stmt then_body = mutate(node->then_body);
-        ir::Stmt else_body = mutate(node->else_body);
+        if (std::optional<bool> value = ir::decided(facts, cond)) {
+            // Decided by a branch this one sits inside, or by one before it
+            // whose other arm returned.
+            return mutate(*value ? node->then_body : node->else_body);
+        }
+        const bool learn = learnable(cond);
+        ir::Stmt then_body = with_fact(cond, true, learn, node->then_body);
+        ir::Stmt else_body = with_fact(cond, false, learn, node->else_body);
 
         if (auto x = get_constant_value(cond); x.has_value()) {
             if (*x == 0) {
@@ -754,6 +781,64 @@ struct Simplifier : ir::Mutator {
     // variable shadowing is illegal; if this were to change, we'd need to
     // introduce a frame stack.
     std::unordered_map<std::string, ir::Expr> name_to_immediate;
+
+    // What may be learned about the function, or nothing, when the
+    // simplification is of a fragment with no function around it.
+    const Simplify::Knowledge *knowledge = nullptr;
+    // The conditions decided where the mutation is, most recent last.
+    ir::Facts facts;
+
+    // Whether `cond` means the same thing throughout the code it guards: a
+    // pure value, over names the function cannot assign.
+    bool learnable(const ir::Expr &cond) const {
+        if (knowledge == nullptr || !ir::is_pure_value(cond)) {
+            return false;
+        }
+        for (const ir::TypedVar &v : ir::gather_free_vars(cond)) {
+            if (knowledge->assignable.count(v.name)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool effectful(const ir::Expr &e) const {
+        return knowledge == nullptr ||
+               ir::has_side_effects(e, knowledge->effectful);
+    }
+
+    ir::Stmt with_fact(const ir::Expr &cond, bool value, bool learn,
+                       const ir::Stmt &arm) {
+        if (!arm.defined() || !learn) {
+            return mutate(arm);
+        }
+        facts.emplace_back(cond, value);
+        ir::Stmt out = mutate(arm);
+        facts.pop_back();
+        return out;
+    }
+
+    // What `stmt`, just mutated, decides for the statements after it in its
+    // sequence: a branch with one arm that always returns leaves the other
+    // arm's condition holding for everything that follows.
+    void learn_after(const ir::Stmt &stmt) {
+        const ir::IfElse *branch = stmt.as<ir::IfElse>();
+        if (const auto *seq = stmt.as<ir::Sequence>();
+            seq != nullptr && !seq->stmts.empty()) {
+            branch = seq->stmts.back().as<ir::IfElse>();
+        }
+        if (branch == nullptr || !learnable(branch->cond)) {
+            return;
+        }
+        const bool then_returns = ir::always_returns(branch->then_body);
+        const bool else_returns = branch->else_body.defined() &&
+                                  ir::always_returns(branch->else_body);
+        if (then_returns && !else_returns) {
+            facts.emplace_back(branch->cond, false);
+        } else if (else_returns && !then_returns) {
+            facts.emplace_back(branch->cond, true);
+        }
+    }
 };
 
 } // namespace
@@ -766,13 +851,25 @@ struct Simplifier : ir::Mutator {
     return Simplifier().mutate(std::move(s));
 }
 
+/* static */ ir::Stmt Simplify::simplify(ir::Stmt s,
+                                         const Knowledge &knowledge) {
+    return Simplifier(knowledge).mutate(std::move(s));
+}
+
 ir::FuncMap Simplify::run(ir::FuncMap funcs,
                           const CompilerOptions &options) const {
-    for (auto &[name, func] : funcs) {
-        // Don't try to simplify templated functions.
+    // Templated functions are not simplified, and not analysed either: a
+    // call in one names its callee by an instantiation, not a function.
+    ir::FuncMap concrete;
+    for (const auto &[name, func] : funcs) {
         if (func->interfaces.empty()) {
-            func->body = Simplify::simplify(std::move(func->body));
+            concrete[name] = func;
         }
+    }
+    const std::set<std::string> effectful = ir::find_side_effects(concrete);
+    for (auto &[name, func] : concrete) {
+        const Knowledge knowledge{ir::assignable_names(*func), effectful, {}};
+        func->body = Simplifier(knowledge).mutate(std::move(func->body));
     }
     return funcs;
 }

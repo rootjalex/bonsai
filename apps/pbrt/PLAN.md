@@ -83,9 +83,15 @@ at 16 samples per pixel (1.00017x at 2), with every one of 48 image blocks
 within 1% and no block systematically off. That took three fixes described
 under "what the round before that added": a light leak of this renderer's own,
 the last bits of a lens camera's rays, and the texture chain made bit-exact.
-**It renders 1.27x faster than pbrt there** (4.01 s against 5.09 s at 16
-samples per pixel, best of three each side, on pbrt's own tree), where two
-rounds ago it was 1.59x slower and one round ago 1.43x. The last round is
+**It renders 1.15x faster than pbrt there, on the same integrator** (4.05 s
+against pbrt's 4.66 s running `path`, at 16 samples per pixel, best of three
+each side, on pbrt's own tree), where two rounds ago it was 1.59x slower and
+one round ago 1.43x. The scene names no integrator; pbrt's default for that is
+`volpath` and this renderer's is `path`, and the 1.27x the last round first
+reported was against volpath, whose closest-hit shadow rays cost pbrt more
+than `path`'s any-hit ones -- a comparison of two integrators, not two
+renderers. `compare.sh` now tells pbrt the integrator this renderer resolves
+the scene to, and every figure here is like for like. The last round is
 written up below: four compiler changes took it to 1.22x slower with the image
 unchanged to the bit, and one renderer change -- the visible surface filled
 where pbrt fills it, and only for a film that records it -- took it past pbrt.
@@ -198,6 +204,89 @@ Two more asymmetries, both checked and both fine:
   of these scenes into an `rgb` film would trace once.
 
 ### What the last round added
+
+**The comparison runs both sides on one integrator.** The pavilion names no
+integrator; pbrt's default for that is `volpath` and this renderer's is
+`path`, and every pavilion figure before this round compared the two. volpath
+traces a shadow ray as a closest-hit transmittance loop where `path` asks an
+any-hit question, so the 1.27x the previous round reported was partly pbrt
+running the heavier integrator. `compare.sh` reads the integrator scene_dump
+resolves the scene to and, when the scene named none, puts `Integrator
+"path"` in front of it and hands the result to pbrt on standard input from the
+scene's directory (pbrt has no flag for it, and reads standard input when
+given no file). Like for like: pbrt 4.66 s, this renderer 4.05 s, **1.15x**,
+mean 1.00009x, lit pixels within 0.03%. The rule is standing: a number against
+a different integrator is not a number.
+
+**The layout language names an extern array's storage** -- `layout
+mesh_positions { tight(root); };` -- described under "Where it is" above.
+
+**The inliner runs one level a round, callers first, with a merge between
+rounds** (`Opt/Inline.h`). The two fixed rounds of the previous round -- bodies
+without mutable locals, a merge, bodies with -- were a heuristic cut to the
+depth the app happened to have; a chain one level deeper would have left two
+copies of the same slab test for good. A round now replaces every inlinable
+call with the callee's body as the round found it, calls inside intact, and
+is followed by simplification and CSE over the result; rounds run until one
+copies nothing, which is after as many as the call graph is deep -- the
+inlinable functions form a DAG once the strongly connected components of the
+call graph (Tarjan, SIAM J. Comput. 1972) are excluded. The `allocates`
+distinction is gone: the merge sees two calls side by side whatever their
+bodies hold, and the next round copies the one call left. The app compiles
+in 7.6 s where it took 5.2 (`opt/inline-rounds.bonsai`,
+`correctness/llvm/inline-rounds.bonsai`).
+
+**Jump threading is bounded by structure, not by tunables.** The first version
+capped a copied run at 256 statements and threadings at three deep, numbers
+chosen so the pavilion's leaf would thread. Now (`Opt/JumpThreading.h`): a
+copy is final -- the statements copied into an arm are never threaded again,
+so two independent conditions tested in a row cannot multiply and the
+exponential code replication is capable of cannot happen; a `match`'s chain
+of branches is followed link by link, so the run is copied once per case
+rather than once per test; and a threading may add at most 15 statements,
+counted as what survives in each copy once its arm's facts are applied,
+summed over the copies, less the run as it stood -- GCC's bound for the same
+quantity (`max-jump-thread-duplication-stmts`), where LLVM's is 6
+instructions. What the copies decide is no longer the pass's business
+(`opt/jump-threading.bonsai`: `chain`, `independent`, `wide`).
+
+**The simplifier learns what a branch decides** (`Opt/Simplify.h`). Inside
+`if (c) { A } else { B }` the condition is true throughout A and false
+throughout B; after `if (c) { ...; return }` it is false for the rest of the
+sequence; a branch or select on a known condition folds to the arm taken, a
+select only when the arm not taken has no effect. A condition is learned only
+when it is a pure value over names the function cannot assign. This is the
+strict-reduction half of what jump threading used to do inside its copies,
+and it now applies everywhere the simplifier runs, including between
+inlining rounds -- which is where the nested `match` on a primitive's tag
+folds, and where a traversal's `if (false) { holds = true }` from a pruning
+condition predicate analysis decided goes, before SSA ever sees it
+(`opt/simplify-facts.bonsai`, `correctness/llvm/simplify-facts.bonsai`).
+
+Running CSE between rounds found two defects that had been dormant. CSE
+counts an expression once per place it is read and a `let` variable's reads
+as reads of what it binds, so a select bound to a variable read twice had
+every subexpression given a temporary; the pass's last step put a temporary
+used once back where it was read and *kept the `let`*, dead, with the call
+still in it -- the next round inlined that call, the next CSE made the `let`
+again, and the rounds never ended. The `let` goes now
+(`opt/cse-dead-temporary.bonsai`). And the expression ordering CSE keeps its
+map by had no case for `Construct` or `UnionOf`: it fell off the end of its
+switch and answered whatever was in the register, which corrupted the map
+and crashed the compiler on the first program that compared two variant
+constructions (`opt/cse-adt.bonsai`).
+
+**The image.** With `--ffp-contract`, 20,188 of the pavilion's 1,360,000
+pixels differ from the previous round's render in the last bit (max relative
+2.3e-05, sums equal to the digit): CSE now shares multiplies that were fused
+into an fma before and are not when they have two uses. Without contraction,
+the previous compiler and this one render the pavilion **bit for bit the
+same**, which is the check that nothing about what is computed moved. 4.10 s
+against pbrt's 4.66 s at `path`, 1.14x, the same within noise as before the
+round -- the pass changes were about principle and generality, not this
+scene.
+
+### What the previous round added
 
 **The traversal's code is pbrt's now, and the pavilion is faster than pbrt.**
 The round began where the previous one ended: the per-node instruction count
@@ -317,21 +406,37 @@ reaches, the last one included, which is where pbrt builds it. 4.01 s against
 gbuffer scenes unchanged against pbrt -- three-spheres and area-light-mis at 0
 disagreeing normals, albedo at 6.1e-05 and 4.3e-04 mean, radiance at 1.00012x.
 
-**What is left of the traversal, and what is next.** Of the six items the
-previous round listed against the traversal, the two still open are the
-running best carried as loop state -- LLVM keeps eleven phis for the tuple
-where pbrt keeps `tMax` in a register and writes the interaction to memory on
-a hit -- and `mesh_positions : array[vec3f]` at a 16-byte stride against
-pbrt's twelve-byte `Point3f`, which wants a layout-language declaration for an
-extern array's storage. Neither is a per-node instruction any more; both are
-memory. The `--stats` counters, deferred until the code generation matched
-pbrt, are the right next measurement now that it does, and the dielectric
-should be re-profiled with the albedo gone before anything is concluded about
-its code. The pre-existing failure of the two `backends/cuda` goldens
-(`parallel`, `rtiow-primer`) is LoopTransforms refusing a `bind` under the
-default pipeline, dates from before this branch, and is untouched.
+**The layout language names an extern array's storage.** `layout
+mesh_positions { tight(root); };` in the schedule stores the array's element
+as exactly the bytes its fields state: a `vec3f` as three floats, twelve
+bytes, where the vector the program computes with is the machine's sixteen.
+`root` is the element of the topmost array -- the cursor the rewrite rules to
+come (`split`, `interleave`, `deinterleave`) will refine -- and `tight` is the
+first rule. The lowering (`Lower/Layouts.cpp`, `apply_array_layouts`) retypes
+the extern, every parameter that carries it and every call that names such a
+parameter, and widens each element read where it is read, the way a tree
+layout's vector field already was; an extern is not assignable, so there is no
+store to convert, and a `tight` array of structs is refused as unimplemented
+rather than stored as the compute type behind a layout that says otherwise.
+The driver hands over `std::array<float, 3>` and the generated header declares
+it so. Positions and normals are twelve bytes apart now, pbrt's `Point3f` and
+`Normal3f` stride, and the radiance is unchanged to the bit
+(`lower/tight-array.bonsai`, `backends/llvm/tight-array.bonsai`,
+`correctness/cpp/tight_array.bonsai`, `error/array-layout-*.bonsai`).
 
-### What the previous round added
+**What is left of the traversal, and what is next.** Of the six items the
+previous round listed against the traversal, the one still open is the
+running best carried as loop state -- LLVM keeps eleven phis for the
+`(metric, (Primitive, Geometric))` tuple where pbrt keeps `tMax` in a register
+and writes the interaction to memory on a hit. The `--stats` counters,
+deferred until the code generation matched pbrt, are the right next
+measurement now that it does, and the dielectric should be re-profiled with
+the albedo gone before anything is concluded about its code. The pre-existing
+failure of the two `backends/cuda` goldens (`parallel`, `rtiow-primer`) is
+LoopTransforms refusing a `bind` under the default pipeline, dates from before
+this branch, and is untouched.
+
+### What the round before that added
 
 **The compiler, for the pavilion's speed.** Nothing in the renderer changed
 this round. The gap to pbrt on the pavilion was measured with `perf stat` and
@@ -486,7 +591,7 @@ and the shipped texture holds the alpha channel three times; the same rows
 disagreed with the renderer built before this round, so they are the harness
 comparing two different things and not a regression.
 
-### What the round before that added
+### What the round before that one added
 
 **The pavilion matches, and what was in the way.** With every material and
 instancing in, the whole scene rendered 1.036x too bright, with 37,000 more
@@ -575,7 +680,7 @@ always has: its walk is seeded by hashing the local direction, and the mean
 converges. And it was 1.59x slower than pbrt on this scene when this round
 ended, which is what the round after it, above, took up.
 
-### What the round before that one added
+### What the rounds before those added
 
 **Named materials, and `dielectric`.** A shape under `NamedMaterial` names its
 material by string, and pbrt leaves `materialIndex` at -1 -- which is also what
@@ -754,8 +859,6 @@ a photograph. Both sides resolve the fallback from the same value now — the
 reference render is handed the tag `load` decided rather than the name the scene
 wrote, because deciding it twice is how the two would come to run different
 algorithms and report it as a disagreement about transport.
-
-### What the rounds before those added
 
 **`path`, which is pbrt's own workhorse and what every scene here names.** It is
 `simplepath` plus four ways of not wasting a sample, and all four are in:

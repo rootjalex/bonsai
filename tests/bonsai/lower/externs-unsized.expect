@@ -8,10 +8,11 @@ extern meshes : struct Mesh{ first_index : u32; first_vertex : u32 }[]
 func [[export]] edge(mesh : u32, tri : u32, positions : f32[], indices : u32[], meshes : Mesh[]) -> f32 {
   vertex$r0 : mut f32
   let m$i0 = meshes[mesh] in
-  vertex$r0 = positions[m$i0.first_vertex + indices[(m$i0.first_index + (3u * tri)) + 1u]]
+  let _t0 = 3u * tri in
+  vertex$r0 = positions[m$i0.first_vertex + indices[(m$i0.first_index + _t0) + 1u]]
   vertex$r1 : mut f32
-  let m$i1 = meshes[mesh] in
-  vertex$r1 = positions[m$i1.first_vertex + indices[(m$i1.first_index + (3u * tri)) + 0u]]
+  let m$i1 = m$i0 in
+  vertex$r1 = positions[m$i1.first_vertex + indices[m$i1.first_index + _t0]]
   return (*vertex$r0) - (*vertex$r1)
 }
 

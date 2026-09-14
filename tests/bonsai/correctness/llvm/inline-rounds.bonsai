@@ -1,14 +1,16 @@
 //! flags: -p ssa -b llvm -e
 
-// A function with mutable locals of its own, inlined in the second round
-// (Opt/Inline.h), run.
+// Inlining in rounds (Opt/Inline.h), run. opt/inline-rounds.bonsai shows the
+// shapes; this checks the values.
 //
-// opt/inline-locals.bonsai shows the shape; this checks the values. The body
-// is copied twice into `main` -- once through `near` and `far`, whose calls
-// CSE merges into one copy, and once on its own with different arguments,
-// which stays a second copy -- and each copy's locals have to be its own:
-// the early return, the fallthrough, and the two multiplies of the locals all
-// have to come out as they did when `span` was a call.
+// `span`'s body is copied twice into `main` -- once through `near` and
+// `far`, whose two calls the merge between rounds makes one copy, and once
+// on its own with different arguments, which stays a second copy -- and each
+// copy's locals have to be its own: the early return, the fallthrough, and
+// the two multiplies of the locals all have to come out as they did when
+// `span` was a call. `deep` reaches `leaf` through two functions with locals
+// of their own and ends up with one copy of it. `fact` calls itself and is
+// never inlined.
 
 func span(a : f32, b : f32) -> f32 {
     lo : mut = a;
@@ -31,6 +33,42 @@ func far(a : f32, b : f32) -> f32 {
     return s - 1.0;
 }
 
+func leaf(x : f32) -> f32 {
+    acc : mut f32 = x;
+    if acc < 0.0 {
+        acc = 0.0 - acc;
+    }
+    acc = acc + 1.0;
+    return acc;
+}
+
+func p(x : f32) -> f32 {
+    v : mut f32 = leaf(x);
+    if v > 10.0 {
+        v = 10.0;
+    }
+    return v * 2.0;
+}
+
+func q(x : f32) -> f32 {
+    w : mut f32 = leaf(x);
+    if w > 5.0 {
+        w = 5.0;
+    }
+    return w + 3.0;
+}
+
+func deep(x : f32) -> f32 {
+    return p(x) - q(x);
+}
+
+func fact(n : i32) -> i32 {
+    if n <= 1 {
+        return 1;
+    }
+    return n * fact(n - 1);
+}
+
 func main() -> i32 {
     // span(1, 2) = 6 - 2 = 4: near is 5, far is 3.
     print(near(1.0, 2.0) * far(1.0, 2.0));
@@ -38,5 +76,10 @@ func main() -> i32 {
     print(near(3.0, 2.0), far(3.0, 2.0));
     // A second copy beside the first, with its own locals.
     print(span(2.0, 5.0), span(5.0, 2.0));
+    // leaf(4) = 5: p = 5 * 2, q = 5 + 3, so 2. leaf(-20) = 21: p clamps to
+    // 10 and doubles, q clamps to 5 and adds 3, so 20 - 8.
+    print(deep(4.0), deep(-20.0));
+    // 5 * 4 * 3 * 2 * 1.
+    print(fact(5));
     return 0;
 }

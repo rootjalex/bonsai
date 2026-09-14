@@ -19,6 +19,17 @@
 // into which nothing is copied. `strict` tests the condition through a
 // select whose other arm is a call: a select evaluates both arms, so the
 // call has to stay, and the select with it.
+//
+// `chain` is a three-way dispatch as the nested branches a `match` lowers
+// to, followed by a second chain over the same tag: the run is copied into
+// the three leaves -- once per case, not once per test -- and in each the
+// second chain folds to its case's arm. `independent` has two branches on
+// unrelated conditions, each tested again later: the first is threaded and
+// takes everything after it into its arms, and those copies are final, so
+// `b` is not threaded inside them and its second test stands in each copy.
+// The pass at most doubles a run; it never squares it. `wide` has twenty
+// statements between its two tests, so copying the run twice to save one
+// test would add more than the bound allows, and it is left alone.
 
 func tri_test(x : f32) -> f32 {
     return x * 2.0 + 1.0;
@@ -108,4 +119,94 @@ func [[export]] strict(k : i32, x : f32) -> f32 {
     }
     z = select(k > 0, bump(c), 0.0);
     return y + z + cast[[f32]](c.n) * 100.0;
+}
+
+func [[export]] chain(tag : u8, x : f32) -> f32 {
+    v : mut f32 = 0.0;
+    if tag == 0 {
+        v = x;
+    } else {
+        if tag == 1 {
+            v = x * 2.0;
+        } else {
+            v = x * 3.0;
+        }
+    }
+    w : mut f32 = 0.0;
+    if v > 0.0 {
+        if tag == 0 {
+            w = 1.0;
+        } else {
+            if tag == 1 {
+                w = 2.0;
+            } else {
+                w = 3.0;
+            }
+        }
+    }
+    return v + w;
+}
+
+func [[export]] independent(a : bool, b : bool, x : f32) -> f32 {
+    p : mut f32 = 0.0;
+    if a {
+        p = x;
+    } else {
+        p = 0.0 - x;
+    }
+    q : mut f32 = 0.0;
+    if b {
+        q = 1.0;
+    } else {
+        q = 2.0;
+    }
+    r : mut f32 = 0.0;
+    if a {
+        r = p + q;
+    } else {
+        r = p - q;
+    }
+    s : mut f32 = 0.0;
+    if b {
+        s = r * 2.0;
+    } else {
+        s = r * 3.0;
+    }
+    return s;
+}
+
+func [[export]] wide(is_tri : bool, x : f32) -> f32 {
+    hit : mut f32 = 0.0;
+    if is_tri {
+        hit = tri_test(x);
+    } else {
+        hit = sph_test(x);
+    }
+    a1 = hit + 1.0;
+    a2 = a1 + 1.0;
+    a3 = a2 + 1.0;
+    a4 = a3 + 1.0;
+    a5 = a4 + 1.0;
+    a6 = a5 + 1.0;
+    a7 = a6 + 1.0;
+    a8 = a7 + 1.0;
+    a9 = a8 + 1.0;
+    a10 = a9 + 1.0;
+    a11 = a10 + 1.0;
+    a12 = a11 + 1.0;
+    a13 = a12 + 1.0;
+    a14 = a13 + 1.0;
+    a15 = a14 + 1.0;
+    a16 = a15 + 1.0;
+    a17 = a16 + 1.0;
+    a18 = a17 + 1.0;
+    a19 = a18 + 1.0;
+    a20 = a19 + 1.0;
+    d : mut f32 = 0.0;
+    if is_tri {
+        d = a20;
+    } else {
+        d = 0.0 - a20;
+    }
+    return d;
 }

@@ -10,8 +10,9 @@ func clamp_pos(x : f32) -> f32 {
 
 func first_big(a : f32[4]) -> f32 {
   forall i in [0:4:1] {
-    if (2f < a[i]) {
-      return a[i]
+    let _t1 = a[i] in
+    if (2f < _t1) {
+      return _t1
     }
   }
   return 0f
@@ -39,7 +40,7 @@ func note(x : f32) -> void {
     print(x)
     return
   }
-  print(0f - x)
+  print(-x)
 }
 
 func pick(c : bool, a : f32, b : f32) -> f32 {
@@ -58,18 +59,18 @@ func use(x : f32, h : Hit, a : f32[4]) -> f32 {
     let y$i0 = x * 2f in
     clamp_pos$r0 = y$i0 + 1f
   }
-  let p = clamp_pos$r0 in
   hit_t$r1 : mut f32
-  if (h.ok) {
+  let _t3 = h.ok in
+  if (_t3) {
     hit_t$r1 = h.t
   } else {
     hit_t$r1 = 1e+30f
   }
-  if (hit_t$r1 < p) {
-    if (1f < p) {
-      print(p)
+  if (hit_t$r1 < clamp_pos$r0) {
+    if (1f < clamp_pos$r0) {
+      print(clamp_pos$r0)
     } else {
-      print(0f - p)
+      print(-clamp_pos$r0)
     }
   }
   let x$i3 = x + 1f in
@@ -81,29 +82,27 @@ func use(x : f32, h : Hit, a : f32[4]) -> f32 {
     clamp_pos$r3 = y$i3 + 1f
   }
   hit_t$r4 : mut f32
-  if (h.ok) {
+  if (_t3) {
     hit_t$r4 = h.t
   } else {
     hit_t$r4 = 1e+30f
   }
-  let c$i5 = h.ok in
   pick$r5 : mut f32
-  if (c$i5) {
+  if (_t3) {
     pick$r5 = clamp_pos$r3
   } else {
     pick$r5 = hit_t$r4
   }
-  let q = pick$r5 in
-  let r = select(h.ok, clamp_pos(q), q) in
+  let r = select(_t3, clamp_pos(pick$r5), pick$r5) in
   s : mut f32 := 0f
-  if (h.ok && (0f < hit_t(h))) {
+  if (_t3 && (0f < hit_t(h))) {
     s = 1f
   }
   n : mut i32 := 0
   while (clamp_pos(cast<f32>(n)) < 5f) {
     n = n + 1
   }
-  return (((((p + q) + r) + s) + cast<f32>(n)) + first_big(a)) + half(x)
+  return (((((clamp_pos$r0 + pick$r5) + r) + s) + cast<f32>(n)) + first_big(a)) + half(x)
 }
 
 

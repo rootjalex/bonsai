@@ -40,53 +40,77 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
   do {
     _queue_count0 -= 1
     let triangles_index = _queue0[(*_queue_count0)] in
-    let b$i9 = build<AABB>(cast<f32x3>(triangles.group0_index[triangles_index].low), cast<f32x3>(triangles.group0_index[triangles_index].high)) in
-    intersects_Ray_AABB$r9 : mut bool
-    let interval$i9 = intersectsp_ray_aabb(ray, b$i9) in
-    if (interval$i9.set) {
-      let extract$i9 = interval$i9.value in
-      intersects_Ray_AABB$r9 = (extract$i9.low < ray.tmax) & (0f < extract$i9.high)
+    let _t565 = triangles.group0_index[triangles_index] in
+    intersects_Ray_AABB$r0 : mut bool
+    let _t570 = build<AABB>(cast<f32x3>(_t565.low), cast<f32x3>(_t565.high)) in
+    intersectsp_ray_aabb$r21 : mut _option1
+    let _t572 = f32x3(1f) / ray.d in
+    let dirIsNeg$i21 = _t572 < f32x3(0f) in
+    let _t213$i21 = _t570.high in
+    let _t214$i21 = _t570.low in
+    let low_parts$i21 = select(dirIsNeg$i21, _t213$i21, _t214$i21) in
+    let high_parts$i21 = select(dirIsNeg$i21, _t214$i21, _t213$i21) in
+    let _t217$i21 = ray.o in
+    tMin$i21 : mut f32x3 := (low_parts$i21 - _t217$i21) * _t572
+    tMax$i21 : mut f32x3 := (high_parts$i21 - _t217$i21) * _t572
+    let _t220$i21 = 3f * (0.5f * (f32)eps) in
+    tMax$i21 *= 1f + (2f * (_t220$i21 / (1f - _t220$i21)))
+    if (((*tMax$i21)[1u] < (*tMin$i21)[0u]) || ((*tMax$i21)[0u] < (*tMin$i21)[1u])) {
+      intersectsp_ray_aabb$r21 = build<_option1>()
     } else {
-      intersects_Ray_AABB$r9 = false
-    }
-    if ((*intersects_Ray_AABB$r9)) {
-      let b$i10 = build<AABB>(cast<f32x3>(triangles.group0_index[triangles_index].low), cast<f32x3>(triangles.group0_index[triangles_index].high)) in
-      distmin_Ray_AABB$r10 : mut f32
-      let interval$i10 = intersectsp_ray_aabb(ray, b$i10) in
-      if (interval$i10.set) {
-        let extract$i10 = interval$i10.value in
-        distmin_Ray_AABB$r10 = extract$i10.low
+      tmin$i21 : mut f32 := max((*tMin$i21)[0u], (*tMin$i21)[1u])
+      tmax$i21 : mut f32 := min((*tMax$i21)[0u], (*tMax$i21)[1u])
+      if (((*tMax$i21)[2u] < (*tmin$i21)) || ((*tmax$i21) < (*tMin$i21)[2u])) {
+        intersectsp_ray_aabb$r21 = build<_option1>()
       } else {
-        distmin_Ray_AABB$r10 = -(f32)inf
+        tmin$i21 = max((*tmin$i21), (*tMin$i21)[2u])
+        tmax$i21 = min((*tmax$i21), (*tMax$i21)[2u])
+        intersectsp_ray_aabb$r21 = build<_option1>(build<FInterval>((*tmin$i21), (*tmax$i21)), true)
       }
-      if ((*distmin_Ray_AABB$r10) < (*_best0)._field0) {
-        if (triangles.group0_index[triangles_index].nPrims == 0u) {
+    }
+    let _t424 = (*intersectsp_ray_aabb$r21).set in
+    if (_t424) {
+      let extract$i0 = (*intersectsp_ray_aabb$r21).value in
+      intersects_Ray_AABB$r0 = (extract$i0.low < ray.tmax) & (0f < extract$i0.high)
+    } else {
+      intersects_Ray_AABB$r0 = false
+    }
+    if ((*intersects_Ray_AABB$r0)) {
+      distmin_Ray_AABB$r1 : mut f32
+      if (_t424) {
+        let extract$i1 = (*intersectsp_ray_aabb$r21).value in
+        distmin_Ray_AABB$r1 = extract$i1.low
+      } else {
+        distmin_Ray_AABB$r1 = -(f32)inf
+      }
+      if ((*distmin_Ray_AABB$r1) < (*_best0)._field0) {
+        let _t69 = _t565.nPrims in
+        if (_t69 == 0u) {
           _queue0[(*_queue_count0)] = triangles_index + 1u
-          _queue0[(*_queue_count0) + 1] = triangles_index + reinterpret_cast<_tree_layout2>(triangles.group0_index[triangles_index].split0on_nPrims).offset
+          _queue0[(*_queue_count0) + 1] = triangles_index + reinterpret_cast<_tree_layout2>(_t565.split0on_nPrims).offset
           _queue_count0 += 2
         } else {
-          forall _idx0 in [0u:cast<u32>(triangles.group0_index[triangles_index].nPrims):1u] {
-            if (intersectsp_ray_tri(ray, triangles.prims[reinterpret_cast<_tree_layout3>(triangles.group0_index[triangles_index].split0on_nPrims).pOffset + _idx0]).set) {
-              let tri$i11 = triangles.prims[reinterpret_cast<_tree_layout3>(triangles.group0_index[triangles_index].split0on_nPrims).pOffset + _idx0] in
-              distmin_Ray_Triangle$r11 : mut f32
-              let isect$i11 = intersectsp_ray_tri(ray, tri$i11) in
-              if (isect$i11.set) {
-                let isect_$i11 = isect$i11.value in
-                distmin_Ray_Triangle$r11 = isect_$i11.t
+          forall _idx0 in [0u:cast<u32>(_t69):1u] {
+            let _t584 = triangles.prims[reinterpret_cast<_tree_layout3>(_t565.split0on_nPrims).pOffset + _idx0] in
+            let _t436 = intersectsp_ray_tri(ray, _t584) in
+            if (_t436.set) {
+              distmin_Ray_Triangle$r2 : mut f32
+              let _t433 = _t436.set in
+              if (_t433) {
+                let isect_$i2 = _t436.value in
+                distmin_Ray_Triangle$r2 = isect_$i2.t
               } else {
-                distmin_Ray_Triangle$r11 = (f32)inf
+                distmin_Ray_Triangle$r2 = (f32)inf
               }
-              if ((*distmin_Ray_Triangle$r11) < (*_best0)._field0) {
-                let tri$i12 = triangles.prims[reinterpret_cast<_tree_layout3>(triangles.group0_index[triangles_index].split0on_nPrims).pOffset + _idx0] in
-                distmin_Ray_Triangle$r12 : mut f32
-                let isect$i12 = intersectsp_ray_tri(ray, tri$i12) in
-                if (isect$i12.set) {
-                  let isect_$i12 = isect$i12.value in
-                  distmin_Ray_Triangle$r12 = isect_$i12.t
+              if ((*distmin_Ray_Triangle$r2) < (*_best0)._field0) {
+                distmin_Ray_Triangle$r3 : mut f32
+                if (_t433) {
+                  let isect_$i3 = _t436.value in
+                  distmin_Ray_Triangle$r3 = isect_$i3.t
                 } else {
-                  distmin_Ray_Triangle$r12 = (f32)inf
+                  distmin_Ray_Triangle$r3 = (f32)inf
                 }
-                _best0 = build<__tuple_0>((*distmin_Ray_Triangle$r12), triangles.prims[reinterpret_cast<_tree_layout3>(triangles.group0_index[triangles_index].split0on_nPrims).pOffset + _idx0])
+                _best0 = build<__tuple_0>((*distmin_Ray_Triangle$r3), _t584)
               }
             }
           }

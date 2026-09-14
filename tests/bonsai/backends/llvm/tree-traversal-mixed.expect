@@ -194,8 +194,8 @@ tailrecurse:                                      ; preds = %then_bb53, %_recloo
   %15 = fmul <3 x float> %0, %14
   %16 = fsub <3 x float> %13, %r.o
   %17 = fmul <3 x float> %0, %16
-  %"tMax$i1.0.vec.extract" = extractelement <3 x float> %17, i64 0
-  %18 = fmul float %"tMax$i1.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i35.0.vec.extract" = extractelement <3 x float> %17, i64 0
+  %18 = fmul float %"tMax$i35.0.vec.extract", 0x3FF0000060000000
   %19 = extractelement <3 x float> %17, i64 1
   %20 = extractelement <3 x float> %15, i64 0
   %21 = fcmp olt float %19, %20
@@ -232,8 +232,8 @@ after_bb32:                                       ; preds = %next_bb, %tailrecur
   ret void
 
 then_bb41:                                        ; preds = %then_bb28
-  %"@97._field0" = load float, ptr %_best0, align 4
-  %34 = fcmp olt float %max19, %"@97._field0"
+  %"@96._field0" = load float, ptr %_best0, align 4
+  %34 = fcmp olt float %max19, %"@96._field0"
   br i1 %34, label %then_bb50, label %after_bb32
 
 then_bb50:                                        ; preds = %then_bb41
@@ -293,27 +293,27 @@ next_bb62:                                        ; preds = %while.body
   %48 = and i64 %extract59, 72057594037927935
   %extract_ptr79 = getelementptr inbounds %struct.Inst, ptr %Prim_Inst_pool, i64 %48
   %extract80 = load %struct.Inst, ptr %extract_ptr79, align 16
-  %_t1466.render_from_instance = extractvalue %struct.Inst %extract80, 0
-  %_t984.i0 = extractvalue %struct.Transform %_t1466.render_from_instance, 4
-  %_t984.i1 = extractvalue %struct.Transform %_t1466.render_from_instance, 5
-  %_t984.i2 = extractvalue %struct.Transform %_t1466.render_from_instance, 6
-  %49 = fmul <3 x float> %.splat, %_t984.i0
-  %50 = fmul <3 x float> %.splat82, %_t984.i1
+  %_t1170.blas = extractvalue %struct.Inst %extract80, 1
+  %_t1170.render_from_instance = extractvalue %struct.Inst %extract80, 0
+  %"m$i5.i0" = extractvalue %struct.Transform %_t1170.render_from_instance, 4
+  %"m$i5.i1" = extractvalue %struct.Transform %_t1170.render_from_instance, 5
+  %"m$i5.i2" = extractvalue %struct.Transform %_t1170.render_from_instance, 6
+  %49 = fmul <3 x float> %.splat, %"m$i5.i0"
+  %50 = fmul <3 x float> %.splat82, %"m$i5.i1"
   %51 = fadd <3 x float> %49, %50
-  %52 = fmul <3 x float> %.splat84, %_t984.i2
+  %52 = fmul <3 x float> %.splat84, %"m$i5.i2"
   %53 = fadd <3 x float> %52, %51
-  %_t984.i3 = extractvalue %struct.Transform %_t1466.render_from_instance, 7
-  %54 = fadd <3 x float> %_t984.i3, %53
-  %55 = fmul <3 x float> %.splat86, %_t984.i0
-  %56 = fmul <3 x float> %.splat88, %_t984.i1
+  %"m$i5.i3" = extractvalue %struct.Transform %_t1170.render_from_instance, 7
+  %54 = fadd <3 x float> %"m$i5.i3", %53
+  %55 = fmul <3 x float> %.splat86, %"m$i5.i0"
+  %56 = fmul <3 x float> %.splat88, %"m$i5.i1"
   %57 = fadd <3 x float> %55, %56
-  %58 = fmul <3 x float> %.splat90, %_t984.i2
+  %58 = fmul <3 x float> %.splat90, %"m$i5.i2"
   %59 = fadd <3 x float> %58, %57
-  %_t1466.blas = extractvalue %struct.Inst %extract80, 1
   %deref_temp92.fca.0.insert = insertvalue %struct.Ray poison, <3 x float> %54, 0
   %deref_temp92.fca.1.insert = insertvalue %struct.Ray %deref_temp92.fca.0.insert, <3 x float> %59, 1
   %deref_temp92.fca.2.insert = insertvalue %struct.Ray %deref_temp92.fca.1.insert, float %r.tmax, 2
-  tail call void @_recloop_func1(i32 %_t1466.blas, %struct._tree_layout0 %prims, %struct.Ray %deref_temp92.fca.2.insert, ptr %_best0, i32 %prims_index.tr, i32 %_idx0.0170)
+  tail call void @_recloop_func1(i32 %_t1170.blas, %struct._tree_layout0 %prims, %struct.Ray %deref_temp92.fca.2.insert, ptr %_best0, i32 %prims_index.tr, i32 %_idx0.0170)
   br label %after_bb60
 
 then_bb67:                                        ; preds = %then_bb61
@@ -322,8 +322,8 @@ then_bb67:                                        ; preds = %then_bb61
   br i1 %60, label %then_bb71, label %after_bb60
 
 then_bb71:                                        ; preds = %then_bb67
-  %"@128._field0" = load float, ptr %_best0, align 4
-  %61 = fcmp olt float %.fca.0.3.load, %"@128._field0"
+  %"@127._field0" = load float, ptr %_best0, align 4
+  %61 = fcmp olt float %.fca.0.3.load, %"@127._field0"
   br i1 %61, label %then_bb76, label %after_bb60
 
 then_bb76:                                        ; preds = %then_bb71
@@ -374,8 +374,8 @@ tailrecurse:                                      ; preds = %then_bb53, %_recloo
   %15 = fmul <3 x float> %0, %14
   %16 = fsub <3 x float> %13, %_pulled1.o
   %17 = fmul <3 x float> %0, %16
-  %"tMax$i0.0.vec.extract" = extractelement <3 x float> %17, i64 0
-  %18 = fmul float %"tMax$i0.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i37.0.vec.extract" = extractelement <3 x float> %17, i64 0
+  %18 = fmul float %"tMax$i37.0.vec.extract", 0x3FF0000060000000
   %19 = extractelement <3 x float> %17, i64 1
   %20 = extractelement <3 x float> %15, i64 0
   %21 = fcmp olt float %19, %20
@@ -412,8 +412,8 @@ after_bb32:                                       ; preds = %next_bb, %tailrecur
   ret void
 
 then_bb41:                                        ; preds = %then_bb28
-  %"@97._field0" = load float, ptr %_best0, align 4
-  %34 = fcmp olt float %max19, %"@97._field0"
+  %"@96._field0" = load float, ptr %_best0, align 4
+  %34 = fcmp olt float %max19, %"@96._field0"
   br i1 %34, label %then_bb50, label %after_bb32
 
 then_bb50:                                        ; preds = %then_bb41
@@ -467,8 +467,8 @@ then_bb61:                                        ; preds = %while.body
   br i1 %48, label %then_bb65, label %after_bb60
 
 then_bb65:                                        ; preds = %then_bb61
-  %"@122._field0" = load float, ptr %_best0, align 4
-  %49 = fcmp olt float %.fca.0.3.load, %"@122._field0"
+  %"@121._field0" = load float, ptr %_best0, align 4
+  %49 = fcmp olt float %.fca.0.3.load, %"@121._field0"
   br i1 %49, label %then_bb70, label %after_bb60
 
 then_bb70:                                        ; preds = %then_bb65
@@ -519,18 +519,18 @@ _traverse_tree0_entry:
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @_unexported_trace(ptr noalias nocapture noundef nonnull writeonly sret(%struct._option0) align 16 %_sret, %struct.Ray noundef %r, %struct._tree_layout0 noundef %prims, ptr nocapture noundef readonly %Prim_Solo_pool, ptr nocapture noundef readonly %Prim_Inst_pool) local_unnamed_addr #2 {
 _unexported_trace_entry:
-  %"_best0$i5" = alloca %struct.__tuple_1, align 16
-  store float 0x7FF0000000000000, ptr %"_best0$i5", align 16
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 16
+  %"_best0$i32" = alloca %struct.__tuple_1, align 16
+  store float 0x7FF0000000000000, ptr %"_best0$i32", align 16
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 16
   store i64 0, ptr %.fca.1.0.gep, align 16
-  %.fca.1.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 32
+  %.fca.1.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 32
   store <3 x float> zeroinitializer, ptr %.fca.1.1.0.gep, align 16
-  %.fca.1.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 48
+  %.fca.1.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 48
   store <3 x float> zeroinitializer, ptr %.fca.1.1.1.gep, align 16
-  %.fca.1.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 64
+  %.fca.1.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 64
   store <3 x float> zeroinitializer, ptr %.fca.1.1.2.gep, align 16
-  call void @_recloop_func0(i32 0, %struct._tree_layout0 %prims, %struct.Ray %r, ptr %"_best0$i5", ptr %Prim_Solo_pool, ptr %Prim_Inst_pool)
-  %deref_temp.fca.0.load = load float, ptr %"_best0$i5", align 16
+  call void @_recloop_func0(i32 0, %struct._tree_layout0 %prims, %struct.Ray %r, ptr %"_best0$i32", ptr %Prim_Solo_pool, ptr %Prim_Inst_pool)
+  %deref_temp.fca.0.load = load float, ptr %"_best0$i32", align 16
   %deref_temp.fca.1.0.load = load i64, ptr %.fca.1.0.gep, align 16
   %deref_temp.fca.1.1.0.load = load <3 x float>, ptr %.fca.1.1.0.gep, align 16
   %deref_temp.fca.1.1.1.load = load <3 x float>, ptr %.fca.1.1.1.gep, align 16
@@ -953,8 +953,8 @@ distmax_Ray_AABB_entry:
   %5 = fmul <3 x float> %0, %4
   %6 = fsub <3 x float> %3, %r.o
   %7 = fmul <3 x float> %0, %6
-  %"tMax$i2.0.vec.extract" = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %"tMax$i2.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i14.0.vec.extract" = extractelement <3 x float> %7, i64 0
+  %8 = fmul float %"tMax$i14.0.vec.extract", 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -964,8 +964,8 @@ distmax_Ray_AABB_entry:
   br i1 %14, label %after_bb, label %next_bb
 
 after_bb:                                         ; preds = %next_bb, %distmax_Ray_AABB_entry, %next_bb15
-  %"intersectsp_ray_aabb$r2.sroa.10.0" = phi float [ %min23, %next_bb15 ], [ 0x7FF0000000000000, %distmax_Ray_AABB_entry ], [ 0x7FF0000000000000, %next_bb ]
-  ret float %"intersectsp_ray_aabb$r2.sroa.10.0"
+  %"intersectsp_ray_aabb$r14.sroa.10.0" = phi float [ %min23, %next_bb15 ], [ 0x7FF0000000000000, %distmax_Ray_AABB_entry ], [ 0x7FF0000000000000, %next_bb ]
+  ret float %"intersectsp_ray_aabb$r14.sroa.10.0"
 
 next_bb:                                          ; preds = %distmax_Ray_AABB_entry
   %max_lt = fcmp olt float %10, %12
@@ -1181,8 +1181,8 @@ distmin_Ray_AABB_entry:
   %5 = fmul <3 x float> %0, %4
   %6 = fsub <3 x float> %3, %r.o
   %7 = fmul <3 x float> %0, %6
-  %"tMax$i3.0.vec.extract" = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %"tMax$i3.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i17.0.vec.extract" = extractelement <3 x float> %7, i64 0
+  %8 = fmul float %"tMax$i17.0.vec.extract", 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -1192,8 +1192,8 @@ distmin_Ray_AABB_entry:
   br i1 %14, label %after_bb, label %next_bb
 
 after_bb:                                         ; preds = %next_bb, %distmin_Ray_AABB_entry, %next_bb15
-  %"intersectsp_ray_aabb$r3.sroa.10.0" = phi float [ %max19, %next_bb15 ], [ 0xFFF0000000000000, %distmin_Ray_AABB_entry ], [ 0xFFF0000000000000, %next_bb ]
-  ret float %"intersectsp_ray_aabb$r3.sroa.10.0"
+  %"intersectsp_ray_aabb$r17.sroa.10.0" = phi float [ %max19, %next_bb15 ], [ 0xFFF0000000000000, %distmin_Ray_AABB_entry ], [ 0xFFF0000000000000, %next_bb ]
+  ret float %"intersectsp_ray_aabb$r17.sroa.10.0"
 
 next_bb:                                          ; preds = %distmin_Ray_AABB_entry
   %max_lt = fcmp olt float %10, %12
@@ -1321,8 +1321,8 @@ intersects_Ray_AABB_entry:
   %5 = fmul <3 x float> %0, %4
   %6 = fsub <3 x float> %3, %r.o
   %7 = fmul <3 x float> %0, %6
-  %"tMax$i4.0.vec.extract" = extractelement <3 x float> %7, i64 0
-  %8 = fmul float %"tMax$i4.0.vec.extract", 0x3FF0000060000000
+  %"tMax$i19.0.vec.extract" = extractelement <3 x float> %7, i64 0
+  %8 = fmul float %"tMax$i19.0.vec.extract", 0x3FF0000060000000
   %9 = extractelement <3 x float> %7, i64 1
   %10 = extractelement <3 x float> %5, i64 0
   %11 = fcmp olt float %9, %10
@@ -1963,15 +1963,15 @@ sqlen__entry:
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @trace(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %r, ptr nocapture noundef nonnull readonly %prims, ptr nocapture noundef readonly %Prim_Solo_pool, ptr nocapture noundef readonly %Prim_Inst_pool) local_unnamed_addr #2 {
 trace_entry:
-  %"_best0$i5" = alloca %struct.__tuple_1, align 16
-  store float 0x7FF0000000000000, ptr %"_best0$i5", align 16
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 16
+  %"_best0$i32" = alloca %struct.__tuple_1, align 16
+  store float 0x7FF0000000000000, ptr %"_best0$i32", align 16
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 16
   store i64 0, ptr %.fca.1.0.gep, align 16
-  %.fca.1.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 32
+  %.fca.1.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 32
   store <3 x float> zeroinitializer, ptr %.fca.1.1.0.gep, align 16
-  %.fca.1.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 48
+  %.fca.1.1.1.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 48
   store <3 x float> zeroinitializer, ptr %.fca.1.1.1.gep, align 16
-  %.fca.1.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i5", i64 64
+  %.fca.1.1.2.gep = getelementptr inbounds i8, ptr %"_best0$i32", i64 64
   store <3 x float> zeroinitializer, ptr %.fca.1.1.2.gep, align 16
   %deref_temp.unpack = load i32, ptr %prims, align 1
   %0 = insertvalue %struct._tree_layout0 poison, i32 %deref_temp.unpack, 0
@@ -1997,8 +1997,8 @@ trace_entry:
   %deref_temp.unpack18 = load ptr, ptr %deref_temp.elt17, align 1
   %deref_temp19 = insertvalue %struct._tree_layout0 %6, ptr %deref_temp.unpack18, 7
   %deref_temp1 = load %struct.Ray, ptr %r, align 16
-  call void @_recloop_func0(i32 0, %struct._tree_layout0 %deref_temp19, %struct.Ray %deref_temp1, ptr %"_best0$i5", ptr %Prim_Solo_pool, ptr %Prim_Inst_pool)
-  %deref_temp2.fca.0.load = load float, ptr %"_best0$i5", align 16
+  call void @_recloop_func0(i32 0, %struct._tree_layout0 %deref_temp19, %struct.Ray %deref_temp1, ptr %"_best0$i32", ptr %Prim_Solo_pool, ptr %Prim_Inst_pool)
+  %deref_temp2.fca.0.load = load float, ptr %"_best0$i32", align 16
   %deref_temp2.fca.1.0.load = load i64, ptr %.fca.1.0.gep, align 16
   %deref_temp2.fca.1.1.0.load = load <3 x float>, ptr %.fca.1.1.0.gep, align 16
   %deref_temp2.fca.1.1.1.load = load <3 x float>, ptr %.fca.1.1.1.gep, align 16

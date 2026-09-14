@@ -1136,13 +1136,39 @@ ir::Stmt substitute_temporaries(ir::Stmt body) {
         Substitute(std::unordered_set<std::string> single_use_variables)
             : single_use_variables(std::move(single_use_variables)) {}
 
+        // The value goes where the variable was read, and the `let` goes
+        // with it. Kept, it computed the value a second time for nothing --
+        // and a dead `let` holding a call is a call a later pass may act on:
+        // inlining ran CSE between its rounds and copied the call in every
+        // round, since every round's CSE made the `let` again.
         ir::Stmt visit(const ir::LetStmt *node) override {
             const std::string &base = node->loc.base;
             if (!single_use_variables.contains(base)) {
                 return ir::Mutator::visit(node);
             }
             variable_to_expr[base] = mutate(node->value);
-            return ir::Mutator::visit(node);
+            return ir::Stmt();
+        }
+        ir::Stmt visit(const ir::Sequence *node) override {
+            std::vector<ir::Stmt> stmts;
+            bool changed = false;
+            for (const ir::Stmt &s : node->stmts) {
+                ir::Stmt m = mutate(s);
+                changed = changed || !m.same_as(s);
+                if (m.defined()) {
+                    stmts.push_back(std::move(m));
+                }
+            }
+            if (!changed) {
+                return node;
+            }
+            if (stmts.empty()) {
+                return ir::Stmt();
+            }
+            if (stmts.size() == 1) {
+                return stmts[0];
+            }
+            return ir::Sequence::make(std::move(stmts));
         }
         ir::Expr visit(const ir::Var *node) override {
             auto it = variable_to_expr.find(node->name);

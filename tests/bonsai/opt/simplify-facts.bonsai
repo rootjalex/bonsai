@@ -1,0 +1,85 @@
+//! flags: -p simplify
+
+// What a branch decides, folded by the simplifier (Opt/Simplify.h): inside
+// `if (c) { A } else { B }` the condition is true throughout A and false
+// throughout B, and after `if (c) { ...; return }` it is false for the rest
+// of the sequence. Nothing is copied; a test on a known condition is
+// replaced by the arm it takes.
+//
+// `nested`: the inner tests of `is_tri` fold to their arm -- the then arm
+// under `is_tri`, the else arm under `!is_tri` -- and the test of `!is_tri`
+// inside the then arm goes. `returned`: past `if k > 0 { return x }`, the
+// second test of `k > 0` goes and the select on it takes its false arm.
+// `mutable`: `c` is a local the arm assigns, so nothing is learned about it
+// and the inner test stands. `strict`: a select on a known condition folds
+// only when the arm not taken has no effect. `bump` writes through its
+// argument, so the first select stays; `tri_test` is pure, so the second
+// folds to the constant taken, and the call goes with it.
+
+func tri_test(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter) -> f32 {
+    c.n = c.n + 1;
+    return cast[[f32]](c.n);
+}
+
+func [[export]] nested(is_tri : bool, x : f32) -> f32 {
+    d : mut f32 = 0.0;
+    if is_tri {
+        if is_tri {
+            d = x;
+        } else {
+            d = 0.0 - x;
+        }
+        if !is_tri {
+            d = d * 2.0;
+        }
+    } else {
+        if is_tri {
+            d = 1.0;
+        }
+    }
+    return d;
+}
+
+func [[export]] returned(k : i32, x : f32) -> f32 {
+    if k > 0 {
+        return x;
+    }
+    y : mut f32 = x;
+    if k > 0 {
+        y = y + 1.0;
+    }
+    z = select(k > 0, 1.0, 2.0);
+    return y * z;
+}
+
+func [[export]] mutable(flag : bool, x : f32) -> f32 {
+    c : mut bool = flag;
+    y : mut f32 = 0.0;
+    if c {
+        c = false;
+        if c {
+            y = x;
+        } else {
+            y = 1.0;
+        }
+    }
+    return y;
+}
+
+func [[export]] strict(k : i32, x : f32) -> f32 {
+    c : mut Counter = {0};
+    y : mut f32 = 0.0;
+    if k > 0 {
+        y = select(k > 0, x, bump(c));
+        y = y + select(k > 0, 5.0, tri_test(x));
+    }
+    return y + cast[[f32]](c.n) * 100.0;
+}

@@ -1,0 +1,32 @@
+//! flags: -p cse
+
+// Common subexpressions that build a variant. CSE orders expressions to
+// find the ones that occur twice, and the ordering had no case for a
+// `Construct` or a `UnionOf` -- it fell off the end of its switch and
+// answered whatever was in the register, which corrupted the map it keeps
+// and crashed the compiler on the first program that compared two of them.
+//
+// What to read for in the golden: the two `area(Sph(c, r))` in `twice` are
+// one binding, and the `Sph` and the `Tri` in `mixed` stay two.
+
+element vec3f = vector[f32, 3];
+
+element Shape =
+    | Sph(center : vec3f, radius : f32)
+    | Tri(p0 : vec3f, p1 : vec3f, p2 : vec3f);
+
+func area(s : Shape) -> f32 {
+    match s {
+        Sph(center, radius) => return 4.0 * 3.14159 * radius * radius;
+        Tri(p0, p1, p2) => return 0.5 * (p1.x - p0.x) * (p2.y - p0.y);
+    }
+}
+
+func [[export]] twice(c : vec3f, r : f32) -> f32 {
+    return area(Sph(c, r)) + area(Sph(c, r));
+}
+
+func [[export]] mixed(c : vec3f, r : f32) -> f32 {
+    return area(Sph(c, r)) + area(Tri(c, c + vec3f{1.0, 0.0, 0.0},
+                                      c + vec3f{0.0, 1.0, 0.0}));
+}

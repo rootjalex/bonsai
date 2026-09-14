@@ -5,11 +5,9 @@ func f(b : B) -> f32 {
   acc : mut f32 := 0f
   let _t2 = b.n in
   while ((*s) < _t2) {
-    let _t1 = cast<f32>(_t2) in
     acc = (*acc) + (b.x * cast<f32>(_t2))
     s = (*s) + 1
   }
-  let _t4 = cast<f32>(_t2) in
   return (*acc) / cast<f32>(_t2)
 }
 
@@ -21,10 +19,8 @@ func h(b : B) -> f32 {
   acc : mut f32 := 0f
   let _t7 = b.n in
   forall i in [0:_t7:1] {
-    let _t6 = cast<f32>(_t7) in
     acc = ((*acc) + (b.x * cast<f32>(_t7))) + cast<f32>(i)
   }
-  let _t9 = cast<f32>(_t7) in
   return (*acc) / cast<f32>(_t7)
 }
 

@@ -224,6 +224,62 @@ CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls) {
     return call_graph;
 }
 
+std::set<std::string> recursive_functions(const ir::FuncMap &funcs) {
+    const CallGraph graph = build_call_graph(funcs);
+
+    // Tarjan's strongly connected components:
+    //   Robert Tarjan. "Depth-First Search and Linear Graph Algorithms."
+    //   SIAM Journal on Computing 1(2), 1972.
+    std::map<std::string, size_t> index, low;
+    std::set<std::string> on_stack;
+    std::vector<std::string> stack;
+    std::set<std::string> recursive;
+    size_t next = 0;
+
+    std::function<void(const std::string &)> connect =
+        [&](const std::string &v) {
+            index[v] = low[v] = next++;
+            stack.push_back(v);
+            on_stack.insert(v);
+            const auto edges = graph.find(v);
+            if (edges != graph.end()) {
+                for (const std::string &w : edges->second) {
+                    if (!index.contains(w)) {
+                        connect(w);
+                        low[v] = std::min(low[v], low[w]);
+                    } else if (on_stack.contains(w)) {
+                        low[v] = std::min(low[v], index[w]);
+                    }
+                }
+            }
+            if (low[v] != index[v]) {
+                return;
+            }
+            std::vector<std::string> component;
+            while (true) {
+                std::string w = std::move(stack.back());
+                stack.pop_back();
+                on_stack.erase(w);
+                component.push_back(w);
+                if (component.back() == v) {
+                    break;
+                }
+            }
+            const bool calls_itself =
+                edges != graph.end() && edges->second.contains(v);
+            if (component.size() > 1 || calls_itself) {
+                recursive.insert(component.begin(), component.end());
+            }
+        };
+
+    for (const auto &[name, _] : graph) {
+        if (!index.contains(name)) {
+            connect(name);
+        }
+    }
+    return recursive;
+}
+
 std::ostream &operator<<(std::ostream &os, const CallGraph &call_graph) {
     for (const auto &[call, graph] : call_graph) {
         os << call << '\n';

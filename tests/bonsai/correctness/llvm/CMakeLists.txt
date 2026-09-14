@@ -26,7 +26,7 @@ add_bonsai_tests(
     halton.bonsai
     hex-and-complement.bonsai
     if-else-returns.bonsai
-    inline-locals.bonsai
+    inline-rounds.bonsai
     inline-statements.bonsai
     jump-threading.bonsai
     int64.bonsai
@@ -48,6 +48,7 @@ add_bonsai_tests(
     sampler.bonsai
     select-const-arms.bonsai
     shadowed-let.bonsai
+    simplify-facts.bonsai
     sret.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai

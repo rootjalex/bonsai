@@ -1,0 +1,23 @@
+type vec3f = f32x3
+
+func dot_(a : f32x3, b : f32x3) -> f32 {
+  let z = a.z * b.z in
+  let x = a.x * b.x in
+  let y = a.y * b.y in
+  return fma(x, 1f, fma(y, 1f, z))
+}
+
+func [[export]] g(raw : f32x3, n : f32x3) -> f32 {
+  let ns = select(0f < sqlen_(raw), unit_vector_(raw), n) in
+  return ns.x + (ns.y * 2f)
+}
+
+func sqlen_(v : f32x3) -> f32 {
+  return dot_(v, v)
+}
+
+func unit_vector_(v : f32x3) -> f32x3 {
+  return v / f32x3(sqrt(sqlen_(v)))
+}
+
+
