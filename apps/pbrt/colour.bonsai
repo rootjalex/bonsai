@@ -17,6 +17,21 @@ extern cie_y : array[Float, 471];
 extern cie_z : array[Float, 471];
 extern illuminant_d65 : array[Float, 471];
 
+// pbrt: PixelSensor's three response curves and RGBFilm's
+// `outputRGBFromSensorRGB`. The camera records a radiance as the integral of it
+// against each of its three curves; the film then maps that sensor RGB to the
+// output space through one 3x3. The default `cie1931` sensor's curves are X, Y
+// and Z and its matrix is pbrt's `RGBFromXYZ`; a named camera sensor has its own
+// measured curves and a matrix pbrt fits by least squares. Both are built by
+// pbrt's own PixelSensor in scene_dump and handed here, on the same 360..830 nm
+// grid as `cie_x`, row-major -- so the radiance path is one shape whatever the
+// sensor. These are separate from the CIE curves above, which the *reflectance*
+// path (spectrum_to_rgb) still needs and which do not depend on the sensor.
+extern sensor_r : array[Float, 471];
+extern sensor_g : array[Float, 471];
+extern sensor_b : array[Float, 471];
+extern output_rgb_from_sensor : array[Float, 9];
+
 // pbrt: DenselySampledSpectrum::operator(), which rounds to the nearest
 // nanometre rather than interpolating -- the table is dense enough that it
 // does not, and matching means rounding the same way.
@@ -71,7 +86,23 @@ func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
     return rgb_of_xyz(xyz_of(s, w) / 106.856895);
 }
 
-// A radiance, as pbrt's sensor records it.
+// pbrt: PixelSensor::ToSensorRGB's `(bar.Sample(lambda) * L).Average()` for each
+// of the three response curves -- the radiance integrated against the sensor,
+// not divided by the CIE Y integral the way a reflectance is. For the default
+// cie1931 sensor these curves are X, Y and Z, so this is the XYZ estimate; for a
+// named camera they are its own responses and this is the camera's raw RGB.
+func sensor_rgb_of(s : vec4f, w : SampledWavelengths) -> vec3f {
+    return vec3f{average_over_pdf(spectrum_at_dense(sensor_r, w) * s, w),
+                 average_over_pdf(spectrum_at_dense(sensor_g, w) * s, w),
+                 average_over_pdf(spectrum_at_dense(sensor_b, w) * s, w)};
+}
+
+// A radiance, as pbrt's sensor records it: the sensor RGB above, scaled by the
+// imaging ratio and mapped to the output space by RGBFilm's own
+// `outputRGBFromSensorRGB`. For the default sensor that matrix is pbrt's
+// `RGBFromXYZ` and this reduces to the XYZ-to-sRGB the film always did; a named
+// sensor folds its least-squares camera-to-XYZ fit into the same matrix, which
+// is why nothing here has to know which sensor the scene named.
 //
 // `imaging_ratio` is pbrt's `exposureTime * ISO / 100`, which is one at its
 // defaults -- and was assumed to be one here until a scene set `"float iso"`
@@ -79,5 +110,9 @@ func spectrum_to_rgb(s : vec4f, w : SampledWavelengths) -> vec3f {
 // assumption held for as long as nothing tried it.
 func radiance_to_rgb(s : vec4f, w : SampledWavelengths,
                      imaging_ratio : Float) -> vec3f {
-    return imaging_ratio * rgb_of_xyz(xyz_of(s, w));
+    c = imaging_ratio * sensor_rgb_of(s, w);
+    m = output_rgb_from_sensor;
+    return vec3f{m[0] * c.x + m[1] * c.y + m[2] * c.z,
+                 m[3] * c.x + m[4] * c.y + m[5] * c.z,
+                 m[6] * c.x + m[7] * c.y + m[8] * c.z};
 }

@@ -533,6 +533,22 @@ struct Scene {
     // radiance. One at PBRT's defaults, which is why every scene here had it
     // until one set `"float iso"`.
     float imaging_ratio = 1.f;
+    // PBRT: PixelSensor's three response curves and RGBFilm's
+    // `outputRGBFromSensorRGB`. A camera's sensor records a radiance as three
+    // numbers by integrating it against its own r/g/b spectral responses, and
+    // the film then maps those to the output space through one 3x3. The default
+    // `cie1931` sensor uses the CIE X/Y/Z curves and a white-balance matrix; a
+    // named sensor like `canon_eos_100d` uses the camera's measured curves and a
+    // matrix pbrt fits by least squares over the Macbeth chart. Both are built
+    // by pbrt's own PixelSensor in scene_dump, so this carries the result: the
+    // three curves resampled to the same 360..830 nm grid as `cie_x` and the
+    // 3x3 `RGBFromXYZ * XYZFromSensorRGB`, row-major. Always present -- the
+    // default sensor fills the curves with X/Y/Z -- so the renderer has one path.
+    std::vector<float> sensor_r;
+    std::vector<float> sensor_g;
+    std::vector<float> sensor_b;
+    float output_rgb_from_sensor[9] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f,
+                                       0.f, 0.f, 1.f};
     // PBRT: RGBFilm's `maxcomponentvalue`, which clamps each *sample*'s sensor
     // RGB before it is accumulated -- a firefly suppressor. Infinite unless the
     // scene names one.
@@ -788,6 +804,19 @@ inline bool write(const char *path, const Scene &scene) {
         const float v = finite ? scene.max_component_value : 0.f;
         detail::put(out, &v, 1);
     }
+    out << '\n';
+
+    // The pixel sensor: its output matrix and its three response curves. See
+    // the fields on Scene. Always written, the default sensor's curves being
+    // X/Y/Z, so the reader and the renderer have one shape to handle.
+    out << "sensor";
+    detail::put(out, scene.output_rgb_from_sensor, 9);
+    out << "\nsensor_r " << scene.sensor_r.size();
+    detail::put(out, scene.sensor_r.data(), scene.sensor_r.size());
+    out << "\nsensor_g " << scene.sensor_g.size();
+    detail::put(out, scene.sensor_g.data(), scene.sensor_g.size());
+    out << "\nsensor_b " << scene.sensor_b.size();
+    detail::put(out, scene.sensor_b.data(), scene.sensor_b.size());
     out << '\n';
 
     // Before the materials, because a material names one by index.
@@ -1176,6 +1205,30 @@ inline bool read(const char *path, Scene &scene) {
         floats(&v, 1);
         scene.max_component_value =
             finite ? v : std::numeric_limits<float>::infinity();
+    }
+
+    // The pixel sensor: its output matrix, then its three response curves each
+    // as a count and that many values.
+    if (!(in >> word) || word != "sensor") {
+        return false;
+    }
+    floats(scene.output_rgb_from_sensor, 9);
+    {
+        const auto curve = [&](const char *name, std::vector<float> &into) {
+            size_t n = 0;
+            if (!(in >> word) || word != name) {
+                return false;
+            }
+            in >> n;
+            into.resize(n);
+            floats(into.data(), int(n));
+            return true;
+        };
+        if (!curve("sensor_r", scene.sensor_r) ||
+            !curve("sensor_g", scene.sensor_g) ||
+            !curve("sensor_b", scene.sensor_b)) {
+            return false;
+        }
     }
 
     // A labelled field, checked as it is read. The labels are what makes a

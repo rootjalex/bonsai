@@ -1,0 +1,71 @@
+# A named camera sensor rather than pbrt's default cie1931 one, so the film's
+# radiance path runs pbrt's PixelSensor with the camera's own spectral response
+# curves and a sensor-to-XYZ matrix pbrt fits by least squares over the Macbeth
+# chart, rather than the CIE curves and RGBFromXYZ. `scene_dump` builds that
+# sensor with pbrt's own code and ships its curves and matrix; this checks the
+# renderer applies them to match pbrt. The `iso` makes the imaging ratio other
+# than one at the same time, which is the other thing the sensor path scales by.
+#
+# One triangle emitter and a uniform light sampler, so nothing here depends on
+# the BVH sampler; all-diffuse, so the gbuffer's albedo -- which pbrt does not
+# run through the sensor -- stays an exact check while the radiance carries the
+# sensor. `Integrator "path"` named so both sides run it.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "sensor.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "string sensor" "canon_eos_100d"
+    "float iso" [ 200 ]
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The emitter: one two-sided triangle over the scene.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+        "bool twosided" true
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 ]
+        "point3 P" [ -6 7 -4   6 7 -4   0 7 6 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# Two coloured diffuse spheres, so the sensor's colour response shows.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.2 0.2 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.6 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

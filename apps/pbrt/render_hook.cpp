@@ -1547,6 +1547,18 @@ int main(int argc, char **argv) {
     std::copy(CIE_Z, CIE_Z + CIE_SAMPLES, z.begin());
     std::copy(CIE_D65_FILM, CIE_D65_FILM + CIE_SAMPLES, d65.begin());
 
+    // The pixel sensor's three response curves and its output matrix, from the
+    // scene. scene_dump ships them for every scene -- the default sensor's
+    // curves are X/Y/Z and its matrix is RGBFromXYZ -- so this is unconditional
+    // and the renderer's radiance path has one shape whatever the sensor.
+    std::array<float, CIE_SAMPLES> sensor_r{}, sensor_g{}, sensor_b{};
+    std::copy(loaded.sensor_r.begin(), loaded.sensor_r.end(), sensor_r.begin());
+    std::copy(loaded.sensor_g.begin(), loaded.sensor_g.end(), sensor_g.begin());
+    std::copy(loaded.sensor_b.begin(), loaded.sensor_b.end(), sensor_b.begin());
+    std::array<float, 9> output_rgb_from_sensor{};
+    std::copy(loaded.output_rgb_from_sensor, loaded.output_rgb_from_sensor + 9,
+              output_rgb_from_sensor.begin());
+
     // Only the render is timed. Building the scene and the BVH is the work
     // pbrt does before its own timer starts (its renderTimeSeconds comes from
     // a progress reporter created after the scene is built), so counting it
@@ -1578,7 +1590,8 @@ int main(int argc, char **argv) {
                loaded.conductor_eta.data(), loaded.conductor_k.data(),
                meshes.data(),
                loaded.indices.data(), positions.data(), normals.data(),
-               uvs.data(), x, y, z, d65, filter_f.data(),
+               uvs.data(), x, y, z, d65, sensor_r, sensor_g, sensor_b,
+               output_rgb_from_sensor, filter_f.data(),
                filter_cond_cdf.data(), filter_marg_func.data(),
                filter_marg_cdf.data(), primes, digit_permutations.data(),
                digit_permutation_offsets, env_texels.data(),

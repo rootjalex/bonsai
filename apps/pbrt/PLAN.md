@@ -1511,6 +1511,23 @@ Read in dependency order rather than by count, the road is:
 7. **Samplers**, 17 scenes, and the cheapest item on this list per scene
    unblocked -- the Sobol family shares one matrix-based construction and
    `zsobol` alone is 12.
+8. **A named camera sensor** -- *done*. A scene that names a real camera's
+   sensor rather than the default `cie1931` -- `canon_eos_100d` is the common
+   one, 16 scenes across the collection -- records a radiance through the
+   camera's own spectral response curves and a sensor-to-XYZ matrix pbrt fits by
+   least squares over the Macbeth chart, not the CIE curves and `RGBFromXYZ`.
+   `scene_dump` builds the sensor with pbrt's own `PixelSensor` and ships its
+   three curves and its `RGBFromXYZ * XYZFromSensorRGB`, so the fit is pbrt's;
+   the renderer applies them in `radiance_to_rgb` (the reflectance path is
+   untouched, since pbrt does not run albedo through the sensor). The default
+   sensor takes the same path, its curves being X/Y/Z and its matrix pbrt's
+   exact `RGBFromXYZ` -- which replaced a hand-rounded copy and moved
+   killeroo-simple's mean from 1.0000x to 0.9999x of pbrt's. This unblocked the
+   `pbrt-book` scene, which also needed one more thing: a `scale` texture whose
+   factor is a `constant` texture rather than a literal, which folds the same
+   way. `scenes/sensor.pbrt`, a named sensor on a simple scene, matches pbrt to
+   99.9% of its pixels at a thousandth relative; `book.pbrt` matches to 1.00007x
+   of its mean.
 
 ## What is next, in order
 

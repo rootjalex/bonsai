@@ -49,6 +49,7 @@
 #include <pbrt/base/material.h>
 #include <pbrt/bxdfs.h>
 #include <pbrt/cameras.h>
+#include <pbrt/film.h>
 #include <pbrt/cpu/aggregates.h>
 #include <pbrt/cpu/integrators.h>
 #include <pbrt/cpu/primitive.h>
@@ -936,16 +937,41 @@ ScaleChain resolve_scale_chain(const std::string &name, int depth) {
     float factor = 1.f;
     if (sc != nullptr) {
         if (sc->type == "texture") {
-            fail("the `scale` texture \"" + name +
-                 "\" scales by another texture. Folding that into the image's "
-                 "own scale would filter the product where PBRT multiplies two "
-                 "filtered lookups, which is a different answer.");
+            // A factor given as a texture folds only when that texture is a
+            // `constant` -- a value that does not vary over the surface, so
+            // multiplying by it is exactly scaling the image, filtering and all.
+            // A varying texture as the factor is the genuine product of two
+            // filtered lookups and is still refused. PBRT scenes routinely wrap
+            // a plain number in a constant texture, which is what book.pbrt's
+            // bump scale is, so this is the common shape rather than an edge.
+            if (sc->strings.empty()) {
+                fail("the `scale` texture \"" + name +
+                     "\" names no scale texture");
+            }
+            const auto sit = g_builder->named_textures.find(sc->strings[0]);
+            if (sit == g_builder->named_textures.end()) {
+                fail("the `scale` texture \"" + name + "\" scales by \"" +
+                     sc->strings[0] + "\", which the scene never declared");
+            }
+            const CapturingBuilder::MaterialInfo &sp = sit->second.params;
+            if (sp.name != "constant") {
+                fail("the `scale` texture \"" + name +
+                     "\" scales by the texture \"" + sc->strings[0] +
+                     "\", a `" + sp.name +
+                     "` rather than a `constant`. Multiplying two filtered "
+                     "lookups is not the same as filtering their product.");
+            }
+            // PBRT's FloatConstantTexture default value is 1.
+            const CapturingBuilder::MaterialInfo::Value *val = sp.find("value");
+            factor =
+                (val != nullptr && !val->floats.empty()) ? val->floats[0] : 1.f;
+        } else {
+            if (sc->floats.empty()) {
+                fail("the `scale` texture \"" + name + "\" has a scale with no "
+                     "value");
+            }
+            factor = sc->floats[0];
         }
-        if (sc->floats.empty()) {
-            fail("the `scale` texture \"" + name + "\" has a scale with no "
-                 "value");
-        }
-        factor = sc->floats[0];
     }
 
     if (tex->type == "texture") {
@@ -2952,21 +2978,63 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                  "renderer has nothing that moves during it");
         }
         const float iso = builder.film_params.GetOneFloat("iso", 100.f);
-        const std::string sensor =
-            builder.film_params.GetOneString("sensor", "cie1931");
-        if (sensor != "cie1931") {
-            fail("the `" + sensor +
-                 "` sensor has its own response curves; this renderer has "
-                 "PBRT's default cie1931 one");
-        }
-        if (builder.film_params.GetOneFloat("whitebalance", 0.f) != 0.f) {
-            fail("`whitebalance` re-illuminates the sensor, which this "
-                 "renderer does not do");
-        }
         out.imaging_ratio = (shutter_close - shutter_open) * iso / 100.f;
         // PBRT: RGBFilm's own default is Infinity, i.e. no clamping.
         out.max_component_value = builder.film_params.GetOneFloat(
             "maxcomponentvalue", std::numeric_limits<float>::infinity());
+
+        // The pixel sensor, built by PBRT's own PixelSensor::Create from the
+        // film's parameters -- the sensor name, the ISO, any whitebalance -- so
+        // the response curves and the sensor-to-XYZ matrix are PBRT's, whether
+        // the sensor is the default cie1931 or a named camera like
+        // canon_eos_100d. What is serialized is that result: the three response
+        // curves resampled to the renderer's 360..830 nm grid, and the matrix
+        // RGBFilm applies once per pixel. A named sensor was refused before
+        // this, which is what kept the pbrt-book scenes out.
+        pbrt::Allocator sensor_alloc;
+        const pbrt::PixelSensor *sensor = pbrt::PixelSensor::Create(
+            builder.film_params, pbrt::RGBColorSpace::sRGB,
+            shutter_close - shutter_open, nullptr, sensor_alloc);
+        // The sensor's own response curves. cie1931 uses the CIE matching
+        // functions; a named sensor names its three as spectra PBRT interns
+        // under `<sensor>_r/_g/_b`. This is the source PBRT's own densely
+        // sampled sensor curves are built from, read on the same integer-nm grid
+        // the renderer rounds a wavelength to, so a lookup there matches PBRT's.
+        const std::string sensor_name =
+            builder.film_params.GetOneString("sensor", "cie1931");
+        pbrt::Spectrum r_bar, g_bar, b_bar;
+        if (sensor_name == "cie1931") {
+            r_bar = &pbrt::Spectra::X();
+            g_bar = &pbrt::Spectra::Y();
+            b_bar = &pbrt::Spectra::Z();
+        } else {
+            r_bar = pbrt::GetNamedSpectrum(sensor_name + "_r");
+            g_bar = pbrt::GetNamedSpectrum(sensor_name + "_g");
+            b_bar = pbrt::GetNamedSpectrum(sensor_name + "_b");
+            if (!r_bar || !g_bar || !b_bar) {
+                fail("the `" + sensor_name +
+                     "` sensor is not one PBRT has response curves for");
+            }
+        }
+        out.sensor_r.resize(471);
+        out.sensor_g.resize(471);
+        out.sensor_b.resize(471);
+        for (int i = 0; i < 471; i++) {
+            const float lambda = float(360 + i);
+            out.sensor_r[size_t(i)] = float(r_bar(lambda));
+            out.sensor_g[size_t(i)] = float(g_bar(lambda));
+            out.sensor_b[size_t(i)] = float(b_bar(lambda));
+        }
+        // RGBFilm's outputRGBFromSensorRGB: RGBFromXYZ * XYZFromSensorRGB, the
+        // second read straight off the sensor PBRT built -- it is public -- so
+        // the least-squares fit a named sensor needs is PBRT's, not a copy.
+        const pbrt::SquareMatrix<3> m =
+            pbrt::RGBColorSpace::sRGB->RGBFromXYZ * sensor->XYZFromSensorRGB;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                out.output_rgb_from_sensor[size_t(3 * r + c)] = float(m[r][c]);
+            }
+        }
     }
 
     // PBRT: PerspectiveCamera's constructor, which derives dxCamera and
