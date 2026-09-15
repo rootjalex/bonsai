@@ -19,7 +19,31 @@
 //
 // See scene_io.h for the format.
 
+// The light tree is dumped by building PBRT's own BVHLightSampler and reading
+// the tree it produced -- not by re-deriving the build here, which would risk a
+// transcription mistake in the surface-area heuristic that the whole point is
+// to avoid. That sampler keeps its nodes, its bit trails, and the octahedral
+// `w` of its compact bounds private with no accessor, so `lightsamplers.h`
+// alone is included with member access opened up. Every header it depends on is
+// included normally just above, so their guards are already set and only
+// `lightsamplers.h`'s own definitions are seen under the macro -- opening a
+// standard-library header this way would break it, which is why the two are
+// kept apart. Making an access specifier public changes no layout and no
+// behaviour; it only lets the dump read what it has to serialize. It must
+// precede anything that could pull `lightsamplers.h` in normally (an integrator
+// header does), or the guard would win and the access would stay closed.
 #include <pbrt/pbrt.h>
+#include <pbrt/base/light.h>
+#include <pbrt/base/lightsampler.h>
+#include <pbrt/lights.h>
+#include <pbrt/util/containers.h>
+#include <pbrt/util/hash.h>
+#include <pbrt/util/pstd.h>
+#include <pbrt/util/sampling.h>
+#include <pbrt/util/vecmath.h>
+#define private public
+#include <pbrt/lightsamplers.h>
+#undef private
 
 #include <pbrt/base/bxdf.h>
 #include <pbrt/base/material.h>
@@ -28,6 +52,7 @@
 #include <pbrt/cpu/aggregates.h>
 #include <pbrt/cpu/integrators.h>
 #include <pbrt/cpu/primitive.h>
+#include <pbrt/lights.h>
 #include <pbrt/options.h>
 #include <pbrt/parser.h>
 #include <pbrt/samplers.h>
@@ -2487,6 +2512,58 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
     return nullptr;
 }
 
+// Serializes PBRT's light BVH: builds PBRT's own BVHLightSampler over `lights`
+// and hands back the tree it produced, its nodes dequantized (see
+// bonsai_scene::LightTreeNode) and a bit trail per light ordinal.
+//
+// This is PBRT's actual builder. `BVHLightSampler`'s constructor runs its
+// surface-area heuristic, its octahedral and sixteen-bit quantization and all;
+// what is read out here is that result, node for node, not a re-derivation of
+// it. The tree, the bit trails and the compact bounds' `w` are private with no
+// accessor, which is why the file opens member access for that one header at
+// the top -- the seam a future light-tree project would replace is the
+// `BVHLightSampler` constructor call, and nothing here.
+//
+// A leaf's `childOrLightIndex` is the light's position in the span passed in,
+// which is the ordinal the emitting shapes carry, so the leaves line up with
+// the renderer's per-shape light list; each ordinal's bit trail is read from
+// `lightToBitTrail` by the light handle sitting at that ordinal. The compact
+// bounds are read back through PBRT's own dequantizing accessors, so the floats
+// stored are the ones PBRT's importance actually uses.
+void dump_light_tree(const std::vector<pbrt::Light> &lights,
+                     bonsai_scene::Scene &out) {
+    pbrt::Allocator alloc;
+    const pbrt::BVHLightSampler sampler(
+        pstd::span<const pbrt::Light>(lights.data(), lights.size()), alloc);
+
+    for (const pbrt::LightBVHNode &node : sampler.nodes) {
+        const pbrt::CompactLightBounds &cb = node.lightBounds;
+        const pbrt::Bounds3f b = cb.Bounds(sampler.allLightBounds);
+        const pbrt::Vector3f w = pbrt::Vector3f(cb.w);
+        bonsai_scene::LightTreeNode n;
+        n.w[0] = float(w.x);
+        n.w[1] = float(w.y);
+        n.w[2] = float(w.z);
+        n.phi = float(cb.phi);
+        n.cos_theta_o = float(cb.CosTheta_o());
+        n.cos_theta_e = float(cb.CosTheta_e());
+        n.bounds_min[0] = float(b.pMin.x);
+        n.bounds_min[1] = float(b.pMin.y);
+        n.bounds_min[2] = float(b.pMin.z);
+        n.bounds_max[0] = float(b.pMax.x);
+        n.bounds_max[1] = float(b.pMax.y);
+        n.bounds_max[2] = float(b.pMax.z);
+        n.two_sided = cb.TwoSided() ? 1u : 0u;
+        n.child_or_light = node.childOrLightIndex;
+        n.is_leaf = node.isLeaf ? 1u : 0u;
+        out.light_tree.push_back(n);
+    }
+
+    out.light_bit_trails.assign(lights.size(), 0u);
+    for (size_t ord = 0; ord < lights.size(); ++ord) {
+        out.light_bit_trails[ord] = sampler.lightToBitTrail[lights[ord]];
+    }
+}
 
 // Parse and convert. Everything PBRT owns is local to this function, so all of
 // it is destroyed on the way out -- before CleanupPBRT takes the arenas it was
@@ -3224,6 +3301,41 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         return at;
     };
 
+    // The light BVH is built over the emitting shapes. Each is given a stable
+    // ordinal here, in the order shapes are converted; that ordinal is the slot
+    // the light takes in the renderer's per-shape light list, and carrying it on
+    // the shape is what lets the tree survive the driver's later reorder.
+    //
+    // A real pbrt::DiffuseAreaLight is built for each emitter and the set of them
+    // is handed to pbrt's own BVHLightSampler (dump_light_tree). The bounds, the
+    // surface-area heuristic and the quantization are then all pbrt's, computed
+    // by pbrt's code on pbrt's lights, not a copy of any of it. The lights, their
+    // emission spectra and the sphere shapes and transforms they name are
+    // allocated to outlive that build, which runs once every shape is converted;
+    // the default pbrt::Allocator is new/delete-backed, so they live to the end.
+    pbrt::Allocator light_alloc;
+    std::vector<pbrt::Light> emitter_lights;
+    int next_light_ordinal = 0;
+    // pbrt's DiffuseAreaLight::Create for the cases scene_dump admits -- an RGB
+    // or default L, a scale, twosided, with images and power refused above. The
+    // illuminant spectrum and the scale already divided by its photometric
+    // integral are what out.lights carries; the rest is pbrt's constructor.
+    const auto make_area_light =
+        [&](const pbrt::Transform &render_from_object, const pbrt::Shape shape,
+            int emission) -> pbrt::Light {
+        const bonsai_scene::Light &em = out.lights[size_t(emission)];
+        const pbrt::Spectrum Lemit =
+            light_alloc.new_object<pbrt::RGBIlluminantSpectrum>(
+                *pbrt::RGBColorSpace::sRGB,
+                pbrt::RGB(em.l[0], em.l[1], em.l[2]));
+        pbrt::DiffuseAreaLight *area =
+            light_alloc.new_object<pbrt::DiffuseAreaLight>(
+                render_from_object, pbrt::MediumInterface{}, Lemit, em.scale,
+                shape, pbrt::FloatTexture(), pbrt::Image(light_alloc),
+                pbrt::RGBColorSpace::sRGB, em.two_sided != 0);
+        return pbrt::Light(area);
+    };
+
     // One shape, converted into `into`. The same for a shape at the top level
     // and for one inside an `ObjectBegin` block: PBRT's CreateAggregate runs
     // both through one `CreatePrimitivesForShapes`, and the only difference it
@@ -3300,6 +3412,22 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             shape.material = material;
             shape.light = light;
             shape.alpha = alpha;
+            if (light >= 0) {
+                shape.light_ordinal = next_light_ordinal++;
+                // The Sphere and its two transforms are read by
+                // DiffuseAreaLight::Bounds() when the tree is built at the end,
+                // so they are allocated to persist rather than left on the stack.
+                pbrt::Transform *r_from_o =
+                    light_alloc.new_object<pbrt::Transform>(render_from_object);
+                pbrt::Transform *o_from_r =
+                    light_alloc.new_object<pbrt::Transform>(
+                        pbrt::Inverse(render_from_object));
+                pbrt::Sphere *sph = light_alloc.new_object<pbrt::Sphere>(
+                    r_from_o, o_from_r, entity.reverseOrientation, float(radius),
+                    -float(radius), float(radius), 360.f);
+                emitter_lights.push_back(
+                    make_area_light(render_from_object, pbrt::Shape(sph), light));
+            }
             into.push_back(shape);
 
         } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
@@ -3365,19 +3493,29 @@ void load(const char *filename, bonsai_scene::Scene &out) {
 
             const uint32_t mesh_index = uint32_t(out.meshes.size());
             out.meshes.push_back(out_mesh);
+            // A mesh that emits becomes one DiffuseAreaLight per triangle, as it
+            // is in pbrt -- the renderer builds a Light per emissive shape
+            // (render_hook.cpp) -- and each is sampled with Triangle::Sample,
+            // pbrt's spherical-triangle sampling (shapes.bonsai). The Triangle
+            // shapes come from pbrt's own CreateTriangles and feed pbrt's real
+            // DiffuseAreaLight, which is what the light BVH is then built over.
+            pstd::vector<pbrt::Shape> emit_tris;
+            if (light >= 0) {
+                emit_tris = pbrt::Triangle::CreateTriangles(mesh, light_alloc);
+            }
             for (int i = 0; i < mesh->nTriangles; i++) {
                 bonsai_scene::Shape shape;
                 shape.tag = bonsai_scene::ShapeTag::Triangle;
                 shape.mesh = mesh_index;
-                // A mesh that emits becomes one DiffuseAreaLight per triangle,
-                // as it is in pbrt -- the renderer builds a Light per emissive
-                // shape (render_hook.cpp) -- and each is sampled with
-                // Triangle::Sample, pbrt's spherical-triangle sampling
-                // (shapes.bonsai).
                 shape.tri = uint32_t(i);
                 shape.material = material;
                 shape.light = light;
                 shape.alpha = alpha;
+                if (light >= 0) {
+                    shape.light_ordinal = next_light_ordinal++;
+                    emitter_lights.push_back(make_area_light(
+                        render_from_object, emit_tris[size_t(i)], light));
+                }
                 into.push_back(shape);
             }
 
@@ -3532,23 +3670,24 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // radiance then comes out zero. The two draws happen before either sampler
     // is consulted, so the sampler stream does not move either.
     //
-    // With more than one light they genuinely differ -- the BVH sampler picks
-    // by importance and reports the probability it picked with -- so the scene
-    // is refused. Substituting the uniform sampler there would render a picture
-    // that is merely a noisier estimate of the same integral, which is exactly
-    // the kind of wrong that looks right.
-    if (out.integrator == bonsai_scene::IntegratorTag::Path &&
-        builder.light_sampler_name != "uniform") {
-        size_t emitters = 0;
-        for (const bonsai_scene::Shape &s : shapes) {
-            if (s.light >= 0) {
-                emitters++;
-            }
-        }
-        if (emitters > 1) {
-            fail("this renderer has only the `uniform` light sampler and the "
-                 "scene has " + std::to_string(emitters) + " lights under `" +
+    // With two or more bounded lights they genuinely differ -- the BVH sampler
+    // picks by importance and reports the probability it picked with -- and the
+    // tree built above is what reproduces that. It also splits infinite lights
+    // from the tree with a fixed probability, which the uniform sampler does
+    // not, so the two part company as soon as there is a second bounded light
+    // (the single-light case above holds because one bounded light makes the
+    // split come out uniform anyway). Below two, the scene stays on the uniform
+    // sampler, exactly as before.
+    if (out.integrator == bonsai_scene::IntegratorTag::Path) {
+        if (builder.light_sampler_name != "uniform" &&
+            builder.light_sampler_name != "bvh") {
+            fail("this renderer's `path` implements the `uniform` and `bvh` "
+                 "light samplers, and the scene asks for `" +
                  builder.light_sampler_name + "`");
+        }
+        if (builder.light_sampler_name == "bvh" && emitter_lights.size() >= 2) {
+            dump_light_tree(emitter_lights, out);
+            out.light_sampler = 1u;
         }
     }
 

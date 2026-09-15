@@ -326,10 +326,43 @@ struct Shape {
     // rather than per material because `AreaLightSource` is a graphics-state
     // directive like `Material` and the two are set independently.
     int32_t light = -1;
+    // The slot this emitter takes in the renderer's per-shape light list, and
+    // so the leaf index the light-tree below points at, or -1 for a shape that
+    // does not emit. Assigned in scene_dump's enumeration order and carried on
+    // the shape so that it survives the BVH reorder the driver does -- the
+    // light order the tree was built over cannot otherwise be recovered once
+    // the shapes have moved. See the note on the light tree.
+    int32_t light_ordinal = -1;
     // PBRT's GeometricPrimitive alpha texture, or -1 where the shape has none.
     // A cutout: the texture says how much of the surface is really there, which
     // is what makes a tree leaf leaf-shaped rather than a quad.
     int32_t alpha = -1;
+};
+
+// One node of PBRT's BVHLightSampler tree, dequantized.
+//
+// PBRT keeps a CompactLightBounds -- the box quantized to sixteen bits and the
+// direction to an octahedral code -- because the tree is walked per shading
+// point and cache footprint matters. The importance it computes reads those
+// back out through accessors that dequantize, so what actually enters the
+// arithmetic is the box and cosines at reduced precision. scene_dump builds
+// the tree with PBRT's own code and stores exactly those dequantized values,
+// so the renderer's importance runs on plain floats and matches PBRT bit for
+// bit without carrying the quantizer.
+struct LightTreeNode {
+    // The bounds' average emission direction (CompactLightBounds' `w`), decoded
+    // from the octahedral code so it is the vector PBRT's importance dots.
+    float w[3] = {0.f, 0.f, 1.f};
+    float phi = 0.f;
+    float cos_theta_o = 1.f;
+    float cos_theta_e = 0.f;
+    float bounds_min[3] = {0.f, 0.f, 0.f};
+    float bounds_max[3] = {0.f, 0.f, 0.f};
+    uint32_t two_sided = 0;
+    // An interior node's second child, an absolute node index; the first child
+    // is the next node along. A leaf's light ordinal.
+    uint32_t child_or_light = 0;
+    uint32_t is_leaf = 0;
 };
 
 // One BVH node, in PBRT's LinearBVHNode shape.
@@ -514,6 +547,20 @@ struct Scene {
     std::vector<float> uvs;
     std::vector<Light> lights;
     std::vector<InfiniteLight> infinite_lights;
+    // Which light sampler the path integrator draws with: 0 for the uniform
+    // one, 1 for PBRT's BVH. The uniform sampler needs nothing below it; the
+    // BVH one is the tree and the per-ordinal bit trails that follow. A scene
+    // with one non-infinite light resolves to uniform either way, since the
+    // two are the same function there.
+    uint32_t light_sampler = 0;
+    // PBRT's BVHLightSampler, over the bounded (area) lights only -- infinite
+    // lights are sampled uniformly beside the tree, as PBRT does. Node 0 is the
+    // root; a leaf's `child_or_light` is a light ordinal.
+    std::vector<LightTreeNode> light_tree;
+    // Per light ordinal, the sequence of left/right turns from the root to that
+    // light's leaf, low bit first -- what PBRT's PMF walks back down to recover
+    // the probability the light was chosen with.
+    std::vector<uint32_t> light_bit_trails;
     // Every environment map's texels, laid end to end -- *four* floats each:
     // the three coefficients of the sigmoid PBRT's RGBIlluminantSpectrum fits,
     // and its scale.
@@ -931,7 +978,8 @@ inline bool write(const char *path, const Scene &scene) {
                 out << "  tri " << s.mesh << ' ' << s.tri;
             }
             out << " material " << s.material << " light " << s.light
-                << " alpha " << s.alpha << '\n';
+                << " ordinal " << s.light_ordinal << " alpha " << s.alpha
+                << '\n';
         }
     };
     const auto put_nodes = [&](const char *name,
@@ -949,6 +997,25 @@ inline bool write(const char *path, const Scene &scene) {
             out << '\n';
         }
     };
+
+    out << "light_tree " << scene.light_sampler << ' '
+        << scene.light_tree.size() << '\n';
+    for (const LightTreeNode &n : scene.light_tree) {
+        out << (n.is_leaf ? "  leaf" : "  interior");
+        detail::put(out, n.w, 3);
+        detail::put(out, &n.phi, 1);
+        detail::put(out, &n.cos_theta_o, 1);
+        detail::put(out, &n.cos_theta_e, 1);
+        detail::put(out, n.bounds_min, 3);
+        detail::put(out, n.bounds_max, 3);
+        out << " twosided " << n.two_sided
+            << (n.is_leaf ? " light " : " right ") << n.child_or_light << '\n';
+    }
+    out << "light_bit_trails " << scene.light_bit_trails.size();
+    for (uint32_t t : scene.light_bit_trails) {
+        out << ' ' << t;
+    }
+    out << '\n';
 
     put_shapes("shapes", scene.shapes);
     put_nodes("nodes", scene.nodes);
@@ -1514,6 +1581,47 @@ inline bool read(const char *path, Scene &scene) {
         scene.infinite_lights.push_back(l);
     }
 
+    if (!(in >> word) || word != "light_tree") {
+        return false;
+    }
+    in >> scene.light_sampler;
+    size_t tree_count = 0;
+    in >> tree_count;
+    scene.light_tree.clear();
+    for (size_t i = 0; i < tree_count; i++) {
+        if (!(in >> word) || (word != "leaf" && word != "interior")) {
+            return false;
+        }
+        LightTreeNode n;
+        n.is_leaf = word == "leaf" ? 1u : 0u;
+        floats(n.w, 3);
+        floats(&n.phi, 1);
+        floats(&n.cos_theta_o, 1);
+        floats(&n.cos_theta_e, 1);
+        floats(n.bounds_min, 3);
+        floats(n.bounds_max, 3);
+        if (!tagged("twosided")) {
+            return false;
+        }
+        in >> n.two_sided;
+        if (!tagged(n.is_leaf ? "light" : "right")) {
+            return false;
+        }
+        in >> n.child_or_light;
+        scene.light_tree.push_back(n);
+    }
+    if (!(in >> word) || word != "light_bit_trails") {
+        return false;
+    }
+    size_t trail_count = 0;
+    in >> trail_count;
+    scene.light_bit_trails.clear();
+    for (size_t i = 0; i < trail_count; i++) {
+        uint32_t t = 0;
+        in >> t;
+        scene.light_bit_trails.push_back(t);
+    }
+
     const auto get_shapes = [&](const char *name,
                                 std::vector<Shape> &shapes) {
         if (!tagged(name)) {
@@ -1557,6 +1665,10 @@ inline bool read(const char *path, Scene &scene) {
             if (s.light >= int32_t(scene.lights.size())) {
                 return false;
             }
+            if (!tagged("ordinal")) {
+                return false;
+            }
+            in >> s.light_ordinal;
             if (!tagged("alpha")) {
                 return false;
             }

@@ -1,0 +1,112 @@
+# Several separated area lights, so `path` runs pbrt's BVH light sampler rather
+# than the uniform one. With two or more bounded lights the two samplers stop
+# being the same function: the BVH one picks a light by how much energy its
+# bounds can send to the shading point and reports that probability, so a point
+# near one emitter draws it far more often than a distant one. That importance
+# walk -- pbrt's BVHLightSampler::Sample and its PMF -- is what this scene
+# exercises and what mesh-light.pbrt, a single triangle, cannot.
+#
+# The tree itself is pbrt's: scene_dump builds it by handing real
+# DiffuseAreaLights to pbrt's own BVHLightSampler and serializing the result,
+# so a divergence here is the renderer's walk of the tree and not its shape.
+#
+# Three triangle emitters, spread along x and coloured apart so a mistake in
+# which one gets sampled shows as the wrong colour rather than as noise, each
+# two-sided so its winding cannot leave the scene dark. `gbuffer` so the
+# comparison sees normals and albedo as well as radiance; `Integrator "path"`
+# named so both sides run it.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 5 14   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 55 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "bvh-lights.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# A warm emitter on the left.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 14 6 3 ]
+        "bool twosided" true
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 ]
+        "point3 P" [ -9 6 -3   -5 6 -3   -7 6 3 ]
+AttributeEnd
+
+# A cool emitter on the right.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 3 6 14 ]
+        "bool twosided" true
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 ]
+        "point3 P" [ 5 6 -3   9 6 -3   7 6 3 ]
+AttributeEnd
+
+# A green emitter high in the centre, a different size so its importance is not
+# the same as the other two.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 4 12 4 ]
+        "bool twosided" true
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 ]
+        "point3 P" [ -2 9 -5   2 9 -5   0 9 -1 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.6 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# Three spheres across the floor, so each sits nearest a different emitter and
+# the light the sampler prefers changes across the image. All diffuse: a diffuse
+# reflectance is the gbuffer's albedo exactly, so the comparison's albedo channel
+# stays a check on the geometry rather than picking up the sampling noise a
+# layered material's hemispherical reflectance estimate carries -- which has
+# nothing to do with the light sampler this scene is here to exercise.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.55 0.5 ]
+    Translate -5 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.55 ]
+    Translate 0 1.2 1
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.5 0.55 0.6 ]
+    Translate 5 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

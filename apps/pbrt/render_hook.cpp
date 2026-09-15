@@ -1046,12 +1046,38 @@ int main(int argc, char **argv) {
                 shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
                                   &triangle_fill);
             }
-            out.push_back(Geometric{shape, s.light, s.material, s.alpha});
+            // `light` carries the light *ordinal* -- the shape's slot in the
+            // renderer's light list and the leaf index of pbrt's light tree --
+            // not the emission index, which the loop that builds the lights
+            // recovers through `ordinal_to_emission` below. The two coincide only
+            // when every emitter has its own emission; a mesh's triangles share
+            // one, so they differ, and it is the ordinal the renderer needs (its
+            // `lights[]` index and its bit-trail index are both the ordinal).
+            out.push_back(
+                Geometric{shape, s.light_ordinal, s.material, s.alpha});
         }
         return out;
     };
     std::vector<Geometric> shapes = convert(loaded.shapes);
     std::vector<Geometric> instanced = convert(loaded.instance_shapes);
+
+    // Which emission each light ordinal draws its spectrum from. The ordinal is
+    // scene_dump's stable per-emitter number (a shape's `light_ordinal`); the
+    // emission index (`light`) is shared by every triangle of one mesh light, so
+    // this maps the first back to the second. Built before the BVH reorders the
+    // shapes, since it is keyed by ordinal rather than by position.
+    int32_t area_light_count = 0;
+    for (const bonsai_scene::Shape &s : loaded.shapes) {
+        if (s.light_ordinal >= 0) {
+            area_light_count = std::max(area_light_count, s.light_ordinal + 1);
+        }
+    }
+    std::vector<int32_t> ordinal_to_emission(size_t(area_light_count), -1);
+    for (const bonsai_scene::Shape &s : loaded.shapes) {
+        if (s.light_ordinal >= 0) {
+            ordinal_to_emission[size_t(s.light_ordinal)] = s.light;
+        }
+    }
     if (sphere_fill != sphere_pool.size() ||
         triangle_fill != triangle_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
@@ -1222,15 +1248,23 @@ int main(int argc, char **argv) {
     //
     // Only the top-level shapes: pbrt gives a shape inside an instance
     // definition no area light, and scene_dump wrote -1 for every one of them.
-    std::vector<Light> lights;
+    // Placed by ordinal, not in the order the reordered `shapes` are walked, so
+    // that a light's slot is its ordinal: the renderer indexes `lights[]` by the
+    // ordinal a leaf of pbrt's light tree carries, and the two must agree. It is
+    // also the order pbrt builds its own area-light list in -- scene order, per
+    // mesh triangle order -- so a uniform sampler picks the same light too.
+    // `prim.light` already holds the ordinal, and the emission spectrum for that
+    // ordinal is `ordinal_to_emission[ordinal]`.
+    std::vector<Light> lights(size_t(area_light_count), Light{});
     for (Geometric &prim : shapes) {
         if (prim.light < 0) {
             continue;
         }
         Light light;
-        Light_DiffuseArea(light, emission[size_t(prim.light)], prim.shape);
-        prim.light = int32_t(lights.size());
-        lights.push_back(light);
+        Light_DiffuseArea(
+            light, emission[size_t(ordinal_to_emission[size_t(prim.light)])],
+            prim.shape);
+        lights[size_t(prim.light)] = light;
     }
 
     // pbrt: the Primitives the top-level BVHAggregate is built over, made
@@ -1445,6 +1479,22 @@ int main(int argc, char **argv) {
     light_set.count = int32_t(lights.size());
     light_set.first_infinite = first_infinite;
 
+    // pbrt's light tree, as scene_dump serialized it straight out of pbrt's own
+    // BVHLightSampler. The generated LightTreeNode is the driver's
+    // bonsai_scene::LightTreeNode field for field, so this is a copy rather than
+    // a reinterpret -- the two structs are free to differ in padding without a
+    // silent mismatch. Empty unless the scene uses the BVH sampler.
+    std::vector<LightTreeNode> light_tree(loaded.light_tree.size());
+    for (size_t i = 0; i < light_tree.size(); i++) {
+        const bonsai_scene::LightTreeNode &n = loaded.light_tree[i];
+        light_tree[i] = LightTreeNode{
+            n.w[0],          n.w[1],          n.w[2],
+            n.phi,           n.cos_theta_o,   n.cos_theta_e,
+            n.bounds_min[0], n.bounds_min[1], n.bounds_min[2],
+            n.bounds_max[0], n.bounds_max[1], n.bounds_max[2],
+            n.two_sided,     n.child_or_light, n.is_leaf};
+    }
+
     // The integrator the scene named, built through the constructor the
     // Integrator variant generated. This is the whole of what a vtable does
     // here: the driver picks a variant, hands it across once, and the bonsai
@@ -1465,11 +1515,19 @@ int main(int argc, char **argv) {
         break;
     }
     case bonsai_scene::IntegratorTag::Path: {
-        // Uniform here too. pbrt's `path` defaults to its BVH light sampler,
-        // and scene_dump refuses any scene where the two could disagree -- see
-        // the note there.
+        // pbrt's `path` defaults to its BVH light sampler. scene_dump serializes
+        // pbrt's own tree and sets `light_sampler` to 1 when a scene has two or
+        // more bounded lights, where the BVH and uniform samplers genuinely
+        // differ; below that the two are the same function and the cheaper
+        // uniform arm stands (see the note in scene_dump.cpp). `num_bounded` is
+        // the area lights, which sit at `[0, first_infinite)`.
         LightSampler light_sampler;
-        LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
+        if (loaded.light_sampler == 1) {
+            LightSampler_BVHLights(light_sampler, first_infinite,
+                                   int32_t(lights.size()) - first_infinite);
+        } else {
+            LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
+        }
         Integrator_Path(integrator, loaded.max_depth, light_sampler, light_set,
                         loaded.regularize != 0);
         break;
@@ -1526,7 +1584,7 @@ int main(int argc, char **argv) {
                digit_permutation_offsets, env_texels.data(),
                env_dist_values.data(), env_dist_cond_cdf.data(),
                env_dist_marg_func.data(), env_dist_marg_cdf.data(),
-               lights.data(),
+               lights.data(), light_tree.data(), loaded.light_bit_trails.data(),
                materials.data(), material_displacement.data(), rho_uc, rho_ux,
                rho_uy, tree, inst_pool.data(),
                sphere_pool.data(), triangle_pool.data());

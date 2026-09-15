@@ -1500,8 +1500,8 @@ Read in dependency order rather than by count, the road is:
    DiffuseAreaLight as it is in pbrt. `scenes/mesh-light.pbrt`, a one-triangle
    emitter, matches pbrt's `path` to 1.00002x of its mean. It took an `asin`
    intrinsic, added beside `acos`. A mesh light with more than one emitting
-   triangle still needs the BVH light sampler (item 3), because pbrt's `path`
-   samples several lights by importance and the uniform sampler here does not.
+   triangle needs the BVH light sampler, which is now in (item 3): pbrt's `path`
+   samples several lights by importance, and `ganesha` renders and matches.
 6. **`volpath`**, which is 51 scenes by name and rather fewer by need: it is
    pbrt's default, so a scene names it whether or not it has any medium in it.
    The ones that genuinely need media are the cloud and smoke scenes. Every
@@ -1521,8 +1521,8 @@ These are the items that came out of comparing against pbrt on the scenes that
 already work. They are not the same list as the section above, which is about
 scenes that do not work yet, and that list is the more important of the two —
 what to do first is an `infinite` light. The items below are what the comparison
-itself still owes: item 3 is the light samplers, item 4 is a profile of a path
-rather than of a walk.
+itself still owes: item 3, the light samplers, is answered — `path` runs pbrt's
+BVH sampler now — and item 4 is a profile of a path rather than of a walk.
 
 ### 1. The last 2.7% — answered: it was noise, and it converges
 
@@ -1694,37 +1694,44 @@ such pixel and killeroo-simple has eight. The comparison has always treated a
 silhouette disagreement as tolerable and reported them separately, which is
 exactly the distinction that now earns its keep.
 
-### 3. The light samplers `path` actually defaults to
+### 3. The light samplers `path` actually defaults to — done
 
-`path` is in and every scene compares, but it runs with the uniform light
-sampler and pbrt's `path` defaults to `bvh`. So this is item 3 renamed rather
-than item 3 closed.
+`path` now runs pbrt's `BVHLightSampler`, the one pbrt's `path` defaults to, so
+a scene with several lights compares rather than being refused. `bvh-lights`
+(three separated triangle emitters) and `ganesha` (four mesh emitters and a sky)
+both match pbrt on their radiance; `bvh-lights` matches on its normals and
+albedo exactly and is 1.7x faster than pbrt.
 
-The two are the same function on a scene with a single non-infinite light, and
-that is an argument rather than a hope: `BVHLightSampler` over one light has a
-one-node tree, so its PMF is 1 — the number the uniform sampler returns — and
-the only way its `Sample` can differ is by declining to return the light where
-the light's bounds say no energy can reach the shading point, which contributes
-nothing either way. Both of its draws happen before either sampler is consulted,
-so the stream does not move. The comparison checks the argument rather than
-restating it: `render_reference` builds pbrt's `PathIntegrator` with the light
-sampler the *scene* named, so on `area-light-mis` pbrt's real BVH sampler runs
-against the uniform one here, and they agree to 1.0001x on the mean.
+The tree is pbrt's own, not a copy of how pbrt builds one. `scene_dump`
+constructs a real `pbrt::DiffuseAreaLight` for each emitter and hands the set to
+pbrt's `BVHLightSampler` constructor, then serializes the tree it built — its
+nodes read back through pbrt's dequantizing accessors, and a bit trail per light
+read from its `lightToBitTrail`. So the surface-area-heuristic split, the twelve
+buckets, the octahedral and sixteen-bit quantization and the topology are all
+pbrt's code running on pbrt's lights, and a future project on light-tree
+construction replaces exactly the constructor call and nothing else. Reading
+those private members takes a `#define private public` over pbrt's
+`lightsamplers.h` alone, its dependencies included normally first so only that
+header's own definitions are opened.
 
-With more than one light they genuinely differ, so `scene_dump` refuses the
-scene and says so. That is what has to be lifted, and lifting it is real work
-rather than a switch: `BVHLightSampler` needs `LightBounds`, `DirectionCone`,
-`Importance`, a SAH-ish build over 12 buckets, and the bit trails `PMF` walks
-back down. `PowerLightSampler` is much smaller — an alias table over each
-light's `Phi` — and is the sensible first of the two, since it removes the
-refusal for every scene where importance does not vary over the frame.
+The renderer walks the serialized tree: `light_node_importance` is
+`CompactLightBounds::Importance` on plain floats, `bvh_descend` is the
+`SampleDiscrete` walk down to a leaf, and `bvh_pmf_bounded` recovers a light's
+density from its bit trail. The infinite lights split off with pbrt's fixed
+`pInfinite` before the walk. The two samplers still coincide on a single bounded
+light — a one-node tree has PMF 1 and the pInfinite split is uniform — so
+`scene_dump` keeps such a scene on the cheaper uniform arm, which is why a
+single mesh or sphere emitter stays exactly as it compared before.
 
-Until then, no scene with two lights can be compared, which is the shape the
-`path` gap had before this round: the renderer refuses rather than substitutes,
-and the refusal names what is missing. The *geometry* a mesh light sits on is
-sampled now -- `Triangle::Sample` is in (item 5) -- so a scene with a single
-mesh emitter compares like a single-sphere one does; what a scene like ganesha
-still waits on is only the sampler across its four lights.
+A light's slot in the renderer's list is its *ordinal*, the stable per-emitter
+number `scene_dump` assigns in scene order and carries on the shape through the
+driver's BVH reorder, so a tree leaf and the `lights[]` it names line up. That
+ordinal is also the order pbrt builds its own area-light list in, so the uniform
+sampler picks the same light too.
+
+What is not yet in: `PowerLightSampler` (pbrt's other non-uniform sampler, an
+alias table over each light's `Phi`) and area lights with an emission image or a
+`power`, which `scene_dump` still refuses.
 
 ### 4. Where the time goes in a path
 

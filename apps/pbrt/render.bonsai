@@ -443,20 +443,185 @@ func light_is_delta(light : Light) -> bool {
     }
 }
 
-// pbrt: LightSampler, another TaggedPointer and so another variant. Uniform is
-// the one pbrt falls back to and the only one worth having while every scene
-// here has a single light; `Power` and `BVH` are the arms that follow, and they
-// differ only in how `light_sampler_sample` picks.
-element LightSampler =
-    | UniformLights(num : i32);
+// pbrt: one node of BVHLightSampler's tree, dequantized -- the CompactLightBounds
+// read back through the accessors pbrt's importance reads them through, so the
+// importance below runs on plain floats and comes out as pbrt's. Scalar fields
+// rather than a vec3f so the bytes are exactly the driver's LightTreeNode: a
+// vec3f in storage is the compute vector's sixteen, and this is three floats.
+// See scene_dump.cpp, which builds the tree with pbrt's own builder.
+element LightTreeNode {
+    wx : Float; wy : Float; wz : Float;
+    phi : Float;
+    cos_theta_o : Float;
+    cos_theta_e : Float;
+    bmin_x : Float; bmin_y : Float; bmin_z : Float;
+    bmax_x : Float; bmax_y : Float; bmax_z : Float;
+    two_sided : u32;
+    // Interior: the second child, an absolute node index. Leaf: a light ordinal.
+    child_or_light : u32;
+    is_leaf : u32;
+}
 
-// pbrt: UniformLightSampler::Sample. One draw picks a light, and every light is
-// equally likely -- which is exactly right for one light and increasingly poor
-// for many, which is what the other samplers exist to fix.
+extern light_tree : array[LightTreeNode];
+extern light_bit_trails : array[u32];
+
+func bvh_safe_sqrt(x : Float) -> Float = sqrt(max(x, 0.0));
+
+// pbrt: BoundSubtendedDirections(bounds, p).cosTheta -- the cosine of the half
+// angle the box subtends from p, or -1 (the whole sphere) when p is inside it.
+func bounds_subtended_cos(bmin : vec3f, bmax : vec3f, p : vec3f) -> Float {
+    center = (bmin + bmax) * 0.5;
+    radius2 = sqlen_((bmax - bmin) * 0.5);
+    d2 = sqlen_(p - center);
+    if d2 < radius2 {
+        return -1.0;
+    }
+    return bvh_safe_sqrt(1.0 - radius2 / d2);
+}
+
+// pbrt's cosSubClamped/sinSubClamped: cos/sin of (theta_a - theta_b) clamped to
+// zero angle, the subtraction of two cones' half-angles.
+func cos_sub_clamped(sin_a : Float, cos_a : Float, sin_b : Float,
+                     cos_b : Float) -> Float =
+    select(cos_a > cos_b, 1.0, cos_a * cos_b + sin_a * sin_b);
+func sin_sub_clamped(sin_a : Float, cos_a : Float, sin_b : Float,
+                     cos_b : Float) -> Float =
+    select(cos_a > cos_b, 0.0, sin_a * cos_b - cos_a * sin_b);
+
+// pbrt: CompactLightBounds::Importance, the estimate of how much a light's
+// bounds can send towards the shading point -- power, folded by how far the
+// point is off the emission cone and off the surface's own normal. `ctx.ns` is
+// the shading normal pbrt weighs the incident cosine with.
+func light_node_importance(node : LightTreeNode,
+                           ctx : ShapeSampleContext) -> Float {
+    w = vec3f{node.wx, node.wy, node.wz};
+    bmin = vec3f{node.bmin_x, node.bmin_y, node.bmin_z};
+    bmax = vec3f{node.bmax_x, node.bmax_y, node.bmax_z};
+    p = ctx.p;
+    pc = (bmin + bmax) * 0.5;
+    d2 = max(sqlen_(p - pc), norm(bmax - bmin) * 0.5);
+
+    wi = unit_vector_(p - pc);
+    cos_w0 = dot(w, wi);
+    cos_w = select(node.two_sided != 0u, abs(cos_w0), cos_w0);
+    sin_w = bvh_safe_sqrt(1.0 - cos_w * cos_w);
+
+    cos_b = bounds_subtended_cos(bmin, bmax, p);
+    sin_b = bvh_safe_sqrt(1.0 - cos_b * cos_b);
+    sin_o = bvh_safe_sqrt(1.0 - node.cos_theta_o * node.cos_theta_o);
+
+    cos_x = cos_sub_clamped(sin_w, cos_w, sin_o, node.cos_theta_o);
+    sin_x = sin_sub_clamped(sin_w, cos_w, sin_o, node.cos_theta_o);
+    cos_tp = cos_sub_clamped(sin_x, cos_x, sin_b, cos_b);
+    if cos_tp <= node.cos_theta_e {
+        return 0.0;
+    }
+
+    imp : mut Float = node.phi * cos_tp / d2;
+    // The incident-cosine factor at a surface. Always taken here: a shading
+    // point has a normal. pbrt guards it for the point-in-space case, which a
+    // path tracer's light sampling is not.
+    if sqlen_(ctx.ns) != 0.0 {
+        cos_i = abs(dot(wi, ctx.ns));
+        sin_i = bvh_safe_sqrt(1.0 - cos_i * cos_i);
+        imp = imp * cos_sub_clamped(sin_i, cos_i, sin_b, cos_b);
+    }
+    return max(imp, 0.0);
+}
+
+// pbrt: the descent of BVHLightSampler::Sample once the infinite lights have
+// been split off -- at each interior node the two children's importances are a
+// two-way discrete choice (pbrt's SampleDiscrete), and the leaf is the light.
+// A `while` rather than the recursion pbrt writes: the tree is not something a
+// schedule turns into a wavefront, it is a handful of nodes walked per shadow
+// ray.
+func bvh_descend(u_in : Float, pmf_in : Float,
+                 ctx : ShapeSampleContext) -> option[SampledLight] {
+    node_index : mut i32 = 0;
+    u : mut Float = u_in;
+    pmf : mut Float = pmf_in;
+    // The leaf's light, or -1 if a node of zero total importance stopped the
+    // walk. The option is built once at the single exit, since a bare
+    // SampledLight is not itself an option[SampledLight].
+    chosen : mut i32 = -1;
+    done : mut bool = false;
+    while !done {
+        node = light_tree[cast[[u32]](node_index)];
+        if node.is_leaf != 0u {
+            chosen = cast[[i32]](node.child_or_light);
+            done = true;
+        } else {
+            ci0 = light_node_importance(light_tree[cast[[u32]](node_index + 1)],
+                                        ctx);
+            ci1 = light_node_importance(light_tree[node.child_or_light], ctx);
+            imp_sum = ci0 + ci1;
+            if imp_sum == 0.0 {
+                done = true;
+            } else {
+                up = u * imp_sum;
+                if up < ci0 {
+                    u = min(up / ci0, 0.99999994);
+                    pmf = pmf * (ci0 / imp_sum);
+                    node_index = node_index + 1;
+                } else {
+                    u = min((up - ci0) / ci1, 0.99999994);
+                    pmf = pmf * (ci1 / imp_sum);
+                    node_index = cast[[i32]](node.child_or_light);
+                }
+            }
+        }
+    }
+    if chosen < 0 {
+        return {};
+    }
+    s : SampledLight = {chosen, pmf};
+    return s;
+}
+
+// pbrt: BVHLightSampler::PMF, the density the descent above draws a bounded
+// light with, recovered by walking that light's stored bit trail rather than
+// its importances -- the turns are known, only the probabilities are recomputed.
+func bvh_pmf_bounded(light : i32, ctx : ShapeSampleContext) -> Float {
+    trail : mut u32 = light_bit_trails[cast[[u32]](light)];
+    node_index : mut i32 = 0;
+    pmf : mut Float = 1.0;
+    done : mut bool = false;
+    while !done {
+        node = light_tree[cast[[u32]](node_index)];
+        if node.is_leaf != 0u {
+            done = true;
+        } else {
+            ci0 = light_node_importance(light_tree[cast[[u32]](node_index + 1)],
+                                        ctx);
+            ci1 = light_node_importance(light_tree[node.child_or_light], ctx);
+            went_right = (trail & 1u) != 0u;
+            ci = select(went_right, ci1, ci0);
+            pmf = pmf * (ci / (ci0 + ci1));
+            node_index = select(went_right, cast[[i32]](node.child_or_light),
+                                node_index + 1);
+            trail = trail >> 1u;
+        }
+    }
+    return pmf;
+}
+
+// pbrt: LightSampler, another TaggedPointer and so another variant. Uniform is
+// pbrt's fallback and what simplepath always uses; `BVHLights` is pbrt's default
+// for `path`, the importance tree above. They differ once a scene has two or
+// more bounded lights (see scene_dump.cpp); below that the driver keeps the
+// cheaper uniform arm.
+element LightSampler =
+    | UniformLights(num : i32)
+    | BVHLights(num_bounded : i32, num_infinite : i32);
+
+// pbrt: UniformLightSampler::Sample, and BVHLightSampler::Sample. The uniform
+// arm gives every light the same chance; the BVH arm splits the infinite lights
+// off with a fixed probability and walks the tree for the rest.
 //
 // `min` because a `u` of exactly one would index off the end. pbrt guards it
 // the same way rather than assuming the sampler never returns it.
-func light_sampler_sample(ls : LightSampler, u : Float) -> option[SampledLight] {
+func light_sampler_sample(ls : LightSampler, ctx : ShapeSampleContext,
+                          u : Float) -> option[SampledLight] {
     match ls {
         UniformLights(num) => {
             if num == 0 {
@@ -466,15 +631,46 @@ func light_sampler_sample(ls : LightSampler, u : Float) -> option[SampledLight] 
             s : SampledLight = {index, 1.0 / cast[[Float]](num)};
             return s;
         }
+        BVHLights(num_bounded, num_infinite) => {
+            has_tree = select(num_bounded == 0, 0, 1);
+            denom = cast[[Float]](num_infinite + has_tree);
+            p_inf = cast[[Float]](num_infinite) / denom;
+            if u < p_inf {
+                uu = u / p_inf;
+                index = min(cast[[i32]](uu * cast[[Float]](num_infinite)),
+                            num_infinite - 1);
+                // The infinite lights sit after the bounded ones in the list.
+                s : SampledLight = {num_bounded + index, p_inf /
+                                    cast[[Float]](num_infinite)};
+                return s;
+            }
+            if num_bounded == 0 {
+                return {};
+            }
+            uu = min((u - p_inf) / (1.0 - p_inf), 0.99999994);
+            return bvh_descend(uu, 1.0 - p_inf, ctx);
+        }
     }
 }
 
 // pbrt: LightSampler::PMF, the probability `light_sampler_sample` would have
 // chosen this light. The other half of the MIS weight.
-func light_sampler_pmf(ls : LightSampler, light : i32) -> Float {
+func light_sampler_pmf(ls : LightSampler, ctx : ShapeSampleContext,
+                       light : i32) -> Float {
     match ls {
         UniformLights(num) =>
             return select(num == 0, 0.0, 1.0 / cast[[Float]](num));
+        BVHLights(num_bounded, num_infinite) => {
+            has_tree = select(num_bounded == 0, 0, 1);
+            if light >= num_bounded {
+                // An infinite light: uniform among them, which is the same
+                // 1 / (num_infinite + has_tree) pbrt returns.
+                return 1.0 / cast[[Float]](num_infinite + has_tree);
+            }
+            p_inf = cast[[Float]](num_infinite) /
+                    cast[[Float]](num_infinite + has_tree);
+            return (1.0 - p_inf) * bvh_pmf_bounded(light, ctx);
+        }
     }
 }
 
@@ -1054,7 +1250,7 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
     ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
     // Direct lighting: pick a light, pick a point on it, and connect.
-    chosen = light_sampler_sample(ls, get_1d(sampler, state));
+    chosen = light_sampler_sample(ls, ctx, get_1d(sampler, state));
     if chosen {
         picked = *chosen;
         u_light = get_2d(sampler, state);
@@ -1162,7 +1358,7 @@ func path_sample_ld(bsdf : BxDF, surf : SurfaceGeometry, shading : Frame,
     // not, which is why the difference is written down rather than smoothed
     // over. See the refusal in scene_dump.cpp.
     u = get_1d(sampler, state);
-    chosen = light_sampler_sample(ls, u);
+    chosen = light_sampler_sample(ls, ctx, u);
     u_light = get_2d(sampler, state);
     if !chosen {
         return zero;
@@ -1261,7 +1457,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
             if (depth == 0) || specular_bounce {
                 escaped = escaped + beta * emitted;
             } else {
-                p_l = light_sampler_pmf(ls, i) *
+                p_l = light_sampler_pmf(ls, prev_ctx, i) *
                       light_pdf_li(lights[i], prev_ctx, ray.d, true);
                 escaped = escaped +
                           beta * power_heuristic(1.0, p_b, 1.0, p_l) * emitted;
@@ -1301,7 +1497,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
             if (depth == 0) || specular_bounce {
                 found = l + beta * emitted;
             } else {
-                p_l = light_sampler_pmf(ls, prim.light) *
+                p_l = light_sampler_pmf(ls, prev_ctx, prim.light) *
                       light_pdf_li(lights[max(prim.light, 0)], prev_ctx, ray.d,
                                    true);
                 found = l + beta * power_heuristic(1.0, p_b, 1.0, p_l) *
