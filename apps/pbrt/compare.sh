@@ -269,14 +269,35 @@ pbrt_render() {
 # What pbrt writes it to is decided by the *film* and not by what is going to
 # be compared: a gbuffer has twenty-five channels and PFM holds three, so a
 # gbuffer film has to go to an EXR whether or not its normals are worth
-# reading. pbrt reports its own render time in the image's metadata, which is
-# the number to use -- it is measured around the render and excludes parsing
-# the scene and building the aggregate, which is what our side excludes too --
-# and PFM carries no metadata, so an `rgb` film gets one extra EXR run for the
-# clock.
+# reading, and an `rgb` film's radiance goes to a PFM so the comparison sees
+# full floats rather than an EXR's halves.
+#
+# pbrt's own render time comes from the image metadata -- measured around the
+# render and excluding parsing the scene and building the aggregate, which is
+# what our side excludes too. It lives only in an EXR, since PFM carries no
+# metadata, so the timing renders are EXR whatever the film. The figure is the
+# *best* of REPEATS of them, the same minimum our side takes: noise on a shared
+# machine only ever adds time, so the smallest run is the closest estimate of
+# the work itself. Timing a single run against our best-of-REPEATS was the one
+# asymmetry left in this comparison, and this removes it.
+pbrt_seconds_of() {
+  "$IMGTOOL" info "$1" 2>/dev/null |
+    sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1
+}
+# The smaller of two times, or the second when the first is unset -- a running
+# minimum over the repeats, done in awk because these are floating-point.
+min_seconds() {
+  awk -v a="$1" -v b="$2" \
+    'BEGIN { if (a == "" || (b != "" && b < a)) print b; else print a }'
+}
 PBRT_SECONDS=""
 if [[ "$FILM" == "gbuffer" ]]; then
-  for _ in $(seq "$REPEATS"); do pbrt_render "$WORK/pbrt.exr"; done
+  # A gbuffer film's EXR is full float and carries the clock, so each repeat is
+  # both a timing sample and, on the last, the channels the comparison reads.
+  for _ in $(seq "$REPEATS"); do
+    pbrt_render "$WORK/pbrt.exr"
+    PBRT_SECONDS=$(min_seconds "$PBRT_SECONDS" "$(pbrt_seconds_of "$WORK/pbrt.exr")")
+  done
   "$IMGTOOL" convert --channels R,G,B --outfile "$WORK/pbrt-radiance.pfm" \
       "$WORK/pbrt.exr" >/dev/null
   if [[ "$GBUFFER" == "1" ]]; then
@@ -290,13 +311,16 @@ if [[ "$FILM" == "gbuffer" ]]; then
     "$IMGTOOL" convert --channels Albedo.R,Albedo.G,Albedo.B \
         --outfile "$WORK/pbrt-albedo.pfm" "$WORK/pbrt.exr" >/dev/null
   fi
-  PBRT_SECONDS=$("$IMGTOOL" info "$WORK/pbrt.exr" 2>/dev/null |
-      sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1)
 else
-  for _ in $(seq "$REPEATS"); do pbrt_render "$WORK/pbrt-radiance.pfm"; done
-  pbrt_render "$WORK/pbrt-time.exr"
-  PBRT_SECONDS=$("$IMGTOOL" info "$WORK/pbrt-time.exr" 2>/dev/null |
-      sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1)
+  # The timing runs go to an EXR for its metadata clock; the radiance the
+  # comparison reads is one more render, to a full-float PFM. Same render count
+  # as before -- REPEATS plus one -- only now the REPEATS are the timed ones.
+  for _ in $(seq "$REPEATS"); do
+    pbrt_render "$WORK/pbrt-time.exr"
+    PBRT_SECONDS=$(min_seconds "$PBRT_SECONDS" \
+        "$(pbrt_seconds_of "$WORK/pbrt-time.exr")")
+  done
+  pbrt_render "$WORK/pbrt-radiance.pfm"
 fi
 echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\"," \
      "integrator \"$PBRT_INTEGRATOR\")"
