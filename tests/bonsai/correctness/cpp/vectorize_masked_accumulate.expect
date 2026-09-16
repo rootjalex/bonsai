@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.o tests/bonsai/correctness/cpp/vectorize_masked_accumulate.o -o tests/bonsai/correctness/cpp/vectorize_masked_accumulate
+[test] ./tests/bonsai/correctness/cpp/vectorize_masked_accumulate
+15 30 45 | 15 30 45
+same as scalar

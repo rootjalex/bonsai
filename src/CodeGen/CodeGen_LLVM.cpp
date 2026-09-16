@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <limits>
+#include <numeric>
 
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/IRBuilder.h>
@@ -116,7 +117,16 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         target_cpu = llvm::sys::getHostCPUName().str();
         llvm::SubtargetFeatures features;
         for (const auto &feature : llvm::sys::getHostCPUFeatures()) {
-            features.AddFeature(feature.first(), feature.second);
+            // AVX-512 is turned off even where the host has it. A gang is eight
+            // lanes -- a 256-bit vector -- and nothing here is wider, so 512-bit
+            // registers buy the vectorized code nothing. Worse, with them on
+            // LLVM lowered a memset of a widened local to 512-bit stores while
+            // realigning the enclosing function's stack only to 256, and an
+            // aligned store of one to the under-aligned slot faulted (the parfor
+            // kernel in CodeGen_LLVM_SSA.cpp). Capping the machine at 256 keeps
+            // every spill and initialization inside the alignment the stack has.
+            const bool avx512 = feature.first().starts_with("avx512");
+            features.AddFeature(feature.first(), feature.second && !avx512);
         }
         target_features = features.getString();
     }
@@ -770,10 +780,30 @@ void CodeGen_LLVM::visit(const Ref_t *node) {
     // type = etype->getPointerTo();
 }
 
+void CodeGen_LLVM::visit(const ElementRef_t *node) {
+    internal_error << "A reference to a stored element reached code "
+                   << "generation unresolved: " << ir::Type(node)
+                   << ". Lower/ElementReferences.cpp lowers these to the "
+                   << "index the layout gives them.";
+}
+
+void CodeGen_LLVM::visit(const RefTo *node) {
+    internal_error << "A reference to a stored element reached code "
+                   << "generation unresolved: " << ir::Expr(node)
+                   << ". Lower/ElementReferences.cpp lowers these to the "
+                   << "index the layout gives them.";
+}
+
 void CodeGen_LLVM::visit(const Vector_t *node) {
     llvm::Type *etype = codegen_type(node->etype);
     internal_assert(!etype->isVoidTy())
         << "Cannot make a vector of type void: " << Type(node);
+    // Said here, with the type, rather than by LLVM's own assertion, which
+    // says only that some element type was wrong.
+    internal_assert(node->packed || etype->isIntegerTy() ||
+                    etype->isFloatingPointTy() || etype->isPointerTy())
+        << "Cannot make a vector of " << node->etype << ": " << Type(node)
+        << " -- a vector's elements must be scalars";
     if (node->packed) {
         // Storage: exactly `lanes` elements, aligned as one element is. An
         // LLVM vector of three floats is allocated sixteen bytes and aligned
@@ -815,7 +845,29 @@ llvm::Value *CodeGen_LLVM::pack_vector(llvm::Value *vector,
 
 void CodeGen_LLVM::visit(const Struct_t *node) {
     // TODO: could just use module->getTypeByName
-    type = struct_types[node->name];
+    auto it = struct_types.find(node->name);
+    if (it != struct_types.end()) {
+        type = it->second;
+        return;
+    }
+    // A struct type not gathered up front: one a pass built after
+    // `gather_struct_types` ran, such as a vectorized `SamplerState$v8`, whose
+    // fields are the widened forms of the scalar struct's. It is declared on
+    // demand, the same two steps `declare_struct_types` takes -- the opaque
+    // type into the map before its body is built, so a field that refers back
+    // to it or to a sibling widened struct terminates rather than recurses.
+    llvm::StructType *st =
+        llvm::StructType::create(*context, "struct." + node->name);
+    struct_types[node->name] = st;
+    std::vector<llvm::Type *> fields;
+    fields.reserve(node->fields.size());
+    for (const auto &field : node->fields) {
+        if (!field.type.is<Ref_t>()) {
+            fields.push_back(codegen_type(field.type));
+        }
+    }
+    st->setBody(fields, node->is_packed());
+    type = st;
 }
 
 void CodeGen_LLVM::visit(const Rand_State_t *node) {
@@ -1315,6 +1367,73 @@ void CodeGen_LLVM::visit(const UnOp *node) {
     internal_error << "Cannot codegen UnOp: " << Expr(node);
 }
 
+namespace {
+
+int vector_lanes(llvm::Type *t) {
+    return int(llvm::cast<llvm::FixedVectorType>(t)->getNumElements());
+}
+
+// Is `t` the struct a vectorized union widens to -- one scalar union per lane
+// (see ir::widen) -- for a gang of `lanes`? Its fields are the union, which
+// the backend spells as a struct named for it.
+bool is_lanes_of_union(llvm::Type *t, unsigned lanes) {
+    auto *st = llvm::dyn_cast<llvm::StructType>(t);
+    if (st == nullptr || st->getNumElements() != lanes) {
+        return false;
+    }
+    for (unsigned i = 0; i < lanes; i++) {
+        auto *field = llvm::dyn_cast<llvm::StructType>(st->getElementType(i));
+        if (field == nullptr || !field->hasName() ||
+            !field->getName().starts_with("union.")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+llvm::Value *CodeGen_LLVM::create_select(llvm::Value *cond, llvm::Value *tvalue,
+                                         llvm::Value *fvalue) {
+    // A per-lane choice between two aggregates -- the blend of a gang's struct
+    // at a join, where the struct is one of gang-wide fields (see widen() in
+    // SSA/Vectorize.cpp) -- is a choice field by field: LLVM's select takes a
+    // vector condition only over vector operands of the same width.
+    if (cond->getType()->isVectorTy() && tvalue->getType()->isAggregateType()) {
+        llvm::Type *t = tvalue->getType();
+        // One union per lane: field k is lane k's, chosen by lane k's bit.
+        if (is_lanes_of_union(t, vector_lanes(cond->getType()))) {
+            llvm::Value *result = llvm::UndefValue::get(t);
+            for (unsigned k = 0; k < t->getStructNumElements(); k++) {
+                llvm::Value *bit = builder->CreateExtractElement(cond, uint64_t(k));
+                result = builder->CreateInsertValue(
+                    result,
+                    builder->CreateSelect(
+                        bit, builder->CreateExtractValue(tvalue, k),
+                        builder->CreateExtractValue(fvalue, k)),
+                    k);
+            }
+            return result;
+        }
+        llvm::Value *result = llvm::UndefValue::get(t);
+        const unsigned n = t->isStructTy()
+                               ? t->getStructNumElements()
+                               : unsigned(t->getArrayNumElements());
+        for (unsigned i = 0; i < n; i++) {
+            result = builder->CreateInsertValue(
+                result,
+                create_select(cond, builder->CreateExtractValue(tvalue, i),
+                              builder->CreateExtractValue(fvalue, i)),
+                i);
+        }
+        return result;
+    }
+    // TODO: try Vector Predication Intrinsics!
+    // https://llvm.org/docs/LangRef.html#vector-predication-intrinsics
+    // https://llvm.org/docs/LangRef.html#llvm-vp-select-intrinsics
+    return builder->CreateSelect(cond, tvalue, fvalue);
+}
+
 void CodeGen_LLVM::visit(const Select *node) {
     llvm::Value *cond = codegen_expr(node->cond);
     llvm::Value *tvalue = codegen_expr(node->tvalue);
@@ -1326,10 +1445,7 @@ void CodeGen_LLVM::visit(const Select *node) {
         internal_assert(fvalue->getType()->isVectorTy())
             << "Select lowering failure: " << ir::Expr(node);
     }
-    // TODO: try Vector Predication Intrinsics!
-    // https://llvm.org/docs/LangRef.html#vector-predication-intrinsics
-    // https://llvm.org/docs/LangRef.html#llvm-vp-select-intrinsics
-    value = builder->CreateSelect(cond, tvalue, fvalue);
+    value = create_select(cond, tvalue, fvalue);
 }
 
 void CodeGen_LLVM::print_helper(const ir::Expr &node,
@@ -1573,10 +1689,55 @@ void CodeGen_LLVM::visit(const Cast *node) {
         !dst.is_reference()) {
         llvm::Type *llvm_src = codegen_type(src);
         const llvm::DataLayout &dl = module->getDataLayout();
+
+        // One aggregate per lane read at another type -- a tree's node,
+        // gathered as a struct of gang-wide fields, read as the struct of the
+        // arm its tag says it is. Per lane it is that lane's bytes at the
+        // other type, which is the same transpose a union per lane goes
+        // through (see scatter_units): each lane's bytes spread into unit
+        // vectors as the source lays them out, and gathered back as the
+        // destination does.
+        const std::optional<uint32_t> src_lanes = widened_lanes(src);
+        const std::optional<uint32_t> dst_lanes = widened_lanes(dst);
+        if (src_lanes.has_value() || dst_lanes.has_value()) {
+            internal_assert(src_lanes.has_value() && dst_lanes.has_value() &&
+                            *src_lanes == *dst_lanes)
+                << "Cannot reinterpret " << src << " as " << dst
+                << ": one is per lane and the other is not";
+            const uint32_t lanes = *src_lanes;
+            const Type from = narrow(src, lanes);
+            const Type to = narrow(dst, lanes);
+            const uint64_t from_size =
+                dl.getTypeAllocSize(codegen_type(from)).getFixedValue();
+            const uint64_t to_size =
+                dl.getTypeAllocSize(codegen_type(to)).getFixedValue();
+            const uint64_t size = std::max(from_size, to_size);
+            const uint64_t unit = std::min<uint64_t>(
+                union_unit(to, 0, union_unit(from, 0, size)), 8);
+            llvm::Type *unit_t =
+                llvm::Type::getIntNTy(*context, unsigned(unit * 8));
+            std::vector<llvm::Value *> slots(size_t(size / unit), nullptr);
+            scatter_units(from, inner, 0, unit, slots);
+            for (llvm::Value *&slot : slots) {
+                if (slot == nullptr) {
+                    slot = llvm::PoisonValue::get(
+                        llvm::FixedVectorType::get(unit_t, lanes));
+                }
+            }
+            value = gather_units(to, dst, 0, unit, slots, lanes);
+            return;
+        }
+
         internal_assert(dl.getTypeAllocSize(llvm_dst) ==
                         dl.getTypeAllocSize(llvm_src))
             << "Cannot reinterpret " << src << " as " << dst
             << ": they are not the same size";
+        // An aggregate has no bitcast; its bytes are read at the other type
+        // through memory, which is what a reinterpretation is.
+        if (llvm_src->isAggregateType() || llvm_dst->isAggregateType()) {
+            value = reinterpret_via_memory(inner, llvm_dst);
+            return;
+        }
         value = builder->CreateBitCast(inner, llvm_dst);
         return;
     }
@@ -1730,6 +1891,394 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
     internal_assert(value) << "VectorReduce intrin failure: " << Expr(node);
 }
 
+namespace {
+
+int gcd(int a, int b) {
+    while (b != 0) {
+        const int t = a % b;
+        a = b;
+        b = t;
+    }
+    return a;
+}
+
+int largest_power_of_two_factor(int x) {
+    int f = 1;
+    while (x % (f * 2) == 0) {
+        f *= 2;
+    }
+    return f;
+}
+
+} // namespace
+
+llvm::Value *CodeGen_LLVM::as_vector(llvm::Value *v) {
+    if (v->getType()->isVectorTy()) {
+        return v;
+    }
+    llvm::Type *vt = llvm::FixedVectorType::get(v->getType(), 1);
+    return builder->CreateInsertElement(llvm::PoisonValue::get(vt), v,
+                                        uint64_t(0));
+}
+
+llvm::Value *CodeGen_LLVM::shuffle_vectors(llvm::Value *a,
+                                           const std::vector<int> &indices) {
+    return builder->CreateShuffleVector(a, indices);
+}
+
+llvm::Value *CodeGen_LLVM::shuffle_vectors(llvm::Value *a, llvm::Value *b,
+                                           const std::vector<int> &indices) {
+    internal_assert(a->getType()->getScalarType() ==
+                    b->getType()->getScalarType())
+        << "shuffle of vectors of different element types";
+    // LLVM shuffles two vectors of one width. The narrower is padded with
+    // lanes that do not matter, and the indices into the second renumbered
+    // to where it then starts.
+    const int na = vector_lanes(a->getType());
+    const int nb = vector_lanes(b->getType());
+    if (na != nb) {
+        const int n = std::max(na, nb);
+        std::vector<int> renumbered = indices;
+        for (int &i : renumbered) {
+            if (i >= na) {
+                i += n - na;
+            }
+        }
+        return shuffle_vectors(slice_vector(a, 0, n), slice_vector(b, 0, n),
+                               renumbered);
+    }
+    return builder->CreateShuffleVector(a, b, indices);
+}
+
+llvm::Value *CodeGen_LLVM::slice_vector(llvm::Value *v, int start, int size) {
+    const int n = vector_lanes(v->getType());
+    if (start == 0 && size == n) {
+        return v;
+    }
+    std::vector<int> indices(static_cast<size_t>(size));
+    for (int i = 0; i < size; i++) {
+        const int k = start + i;
+        indices[size_t(i)] = k < n ? k : -1;
+    }
+    return shuffle_vectors(v, indices);
+}
+
+llvm::Value *CodeGen_LLVM::concat_vectors(const std::vector<llvm::Value *> &vs) {
+    internal_assert(!vs.empty()) << "concat of no vectors";
+    std::vector<llvm::Value *> v = vs;
+    // Pairwise, so that the tree of shuffles is as shallow as it can be.
+    while (v.size() > 1) {
+        std::vector<llvm::Value *> next;
+        next.reserve((v.size() + 1) / 2);
+        for (size_t i = 0; i < v.size(); i += 2) {
+            if (i + 1 == v.size()) {
+                next.push_back(v[i]);
+                continue;
+            }
+            const int na = vector_lanes(v[i]->getType());
+            const int nb = vector_lanes(v[i + 1]->getType());
+            std::vector<int> indices(static_cast<size_t>(na + nb));
+            for (int k = 0; k < na + nb; k++) {
+                indices[size_t(k)] = k;
+            }
+            next.push_back(shuffle_vectors(v[i], v[i + 1], indices));
+        }
+        v.swap(next);
+    }
+    return v[0];
+}
+
+llvm::Value *CodeGen_LLVM::optimization_fence(llvm::Value *v) {
+    llvm::Type *t = v->getType();
+    const uint64_t bits = t->getPrimitiveSizeInBits().getFixedValue();
+    if (bits == 0 || bits % 32 != 0) {
+        return v;
+    }
+    // A constant -- the lanes that do not matter in a padded interleave --
+    // has nothing to protect, and fencing it would only keep it from folding.
+    if (llvm::isa<llvm::Constant>(v)) {
+        return v;
+    }
+    // The arithmetic fence is defined on floating-point values; the bits are
+    // read as floats across it and back, which costs nothing.
+    llvm::Type *as_floats = llvm::FixedVectorType::get(f32_t, unsigned(bits / 32));
+    llvm::Value *fenced = builder->CreateBitCast(v, as_floats);
+    fenced = builder->CreateArithmeticFence(fenced, as_floats);
+    return builder->CreateBitCast(fenced, t);
+}
+
+// a0 b0 c0 a1 b1 c1 .., following Halide's CodeGen_LLVM::interleave_vectors.
+//
+// Two vectors are one shuffle. A count coprime to the width is Catanzaro,
+// Keller and Garland's decomposition of the transpose (PPoPP 2014, section
+// 6.2): each vector is permuted on its own (a static row permutation), the
+// vectors are relabelled, and the columns are rotated by lane-dependent
+// amounts -- done as a barrel rotation, log2(count) steps of two-input blends
+// -- after which the vectors concatenated are the interleave. Otherwise the
+// count is factored: the vectors are dealt into `f` groups, each group
+// interleaved, and the results interleaved, with a fence between the stages
+// so LLVM does not fuse the shuffles back into the poor sequence its own
+// lowering would have picked.
+llvm::Value *CodeGen_LLVM::interleave_vectors(const std::vector<llvm::Value *> &vecs) {
+    internal_assert(!vecs.empty()) << "interleave of no vectors";
+    const int num_vecs = int(vecs.size());
+    if (num_vecs == 1) {
+        return vecs[0];
+    }
+    llvm::Type *vec_type = vecs[0]->getType();
+    for (llvm::Value *v : vecs) {
+        internal_assert(v->getType() == vec_type)
+            << "interleave of vectors of different types";
+    }
+    const int vec_elements = vector_lanes(vec_type);
+    const int factor = gcd(vec_elements, num_vecs);
+
+    if (num_vecs == 2) {
+        std::vector<int> indices(size_t(vec_elements) * 2);
+        for (int i = 0; i < vec_elements * 2; i++) {
+            indices[size_t(i)] = i % 2 == 0 ? i / 2 : i / 2 + vec_elements;
+        }
+        return shuffle_vectors(vecs[0], vecs[1], indices);
+    }
+
+    if (factor == 1) {
+        std::vector<llvm::Value *> v = vecs;
+
+        // The row permutation: element j of vector i is bound for lane
+        // j * num_vecs + i of the result, which is lane (j * num_vecs + i) %
+        // vec_elements of its own vector after the rotation below; put it
+        // there now.
+        std::vector<int> shuffle(static_cast<size_t>(vec_elements));
+        for (int i = 0; i < num_vecs; i++) {
+            for (int j = 0; j < vec_elements; j++) {
+                const int k = j * num_vecs + i;
+                shuffle[size_t(k % vec_elements)] = j;
+            }
+            v[size_t(i)] = shuffle_vectors(v[size_t(i)], shuffle);
+        }
+
+        // The relabelling of the vectors.
+        std::vector<llvm::Value *> new_v(v.size());
+        for (int i = 0; i < num_vecs; i++) {
+            const int j = (i * vec_elements) % num_vecs;
+            new_v[size_t(i)] = v[size_t(j)];
+        }
+        v.swap(new_v);
+
+        // How far each lane's column has to rotate.
+        std::vector<int> rotation(size_t(vec_elements), 0);
+        for (int i = 0; i < vec_elements; i++) {
+            const int k = (i * num_vecs) % vec_elements;
+            rotation[size_t(k)] = (i * num_vecs) / vec_elements;
+        }
+        internal_assert(rotation[0] == 0);
+
+        // The barrel rotation: at step d, every lane whose rotation has bit d
+        // set takes its value from the vector d further round.
+        int d = 1;
+        while (d < num_vecs) {
+            for (int i = 0; i < vec_elements; i++) {
+                shuffle[size_t(i)] =
+                    (rotation[size_t(i)] & d) == 0 ? i : i + vec_elements;
+            }
+            for (int i = 0; i < num_vecs; i++) {
+                const int j = (i + num_vecs - d) % num_vecs;
+                new_v[size_t(i)] =
+                    shuffle_vectors(v[size_t(i)], v[size_t(j)], shuffle);
+            }
+            v.swap(new_v);
+            d *= 2;
+        }
+        return concat_vectors(v);
+    }
+
+    // Factor the count: the largest power of two, or failing that the
+    // smallest divisor.
+    int f = largest_power_of_two_factor(num_vecs);
+    if (f == 1 || f == num_vecs) {
+        for (int i = 2; i < num_vecs; i++) {
+            if (num_vecs % i == 0) {
+                f = i;
+                break;
+            }
+        }
+    }
+    if (f == 1) {
+        // A prime count that shares a factor with the width: pad the width
+        // to a power of two, which the count is then coprime to, and drop
+        // the padding lanes from the result.
+        const int padded_size = next_power_of_two(vec_elements);
+        std::vector<llvm::Value *> padded(vecs.size());
+        for (int i = 0; i < num_vecs; i++) {
+            padded[size_t(i)] = slice_vector(vecs[size_t(i)], 0, padded_size);
+        }
+        llvm::Value *v = interleave_vectors(padded);
+        return slice_vector(v, 0, num_vecs * vec_elements);
+    }
+    internal_assert(f > 1 && f < num_vecs && num_vecs % f == 0)
+        << f << " " << num_vecs << " " << factor;
+
+    std::vector<std::vector<llvm::Value *>> groups(static_cast<size_t>(f));
+    for (int i = 0; i < num_vecs; i++) {
+        groups[size_t(i % f)].push_back(vecs[size_t(i)]);
+    }
+    std::vector<llvm::Value *> interleaved(static_cast<size_t>(f));
+    for (int i = 0; i < f; i++) {
+        interleaved[size_t(i)] =
+            optimization_fence(interleave_vectors(groups[size_t(i)]));
+    }
+    return interleave_vectors(interleaved);
+}
+
+// The inverse of interleave_vectors, following Halide's deinterleave_vector:
+// the same three cases, each run backwards.
+std::vector<llvm::Value *> CodeGen_LLVM::deinterleave_vector(llvm::Value *vec,
+                                                             int num_vecs) {
+    int vec_elements = vector_lanes(vec->getType());
+    internal_assert(num_vecs > 0 && vec_elements % num_vecs == 0)
+        << "deinterleave of " << vec_elements << " lanes into " << num_vecs;
+    vec_elements /= num_vecs;
+    const int factor = gcd(vec_elements, num_vecs);
+
+    if (num_vecs == 1) {
+        return {vec};
+    }
+    if (num_vecs == 2) {
+        std::vector<llvm::Value *> result(2);
+        std::vector<int> indices(static_cast<size_t>(vec_elements));
+        for (int i = 0; i < vec_elements; i++) {
+            indices[size_t(i)] = i * 2;
+        }
+        result[0] = shuffle_vectors(vec, indices);
+        for (int i = 0; i < vec_elements; i++) {
+            indices[size_t(i)]++;
+        }
+        result[1] = shuffle_vectors(vec, indices);
+        return result;
+    }
+
+    if (factor == 1) {
+        std::vector<llvm::Value *> v(static_cast<size_t>(num_vecs));
+        for (int i = 0; i < num_vecs; i++) {
+            v[size_t(i)] = slice_vector(vec, i * vec_elements, vec_elements);
+        }
+
+        std::vector<int> rotation(size_t(vec_elements), 0);
+        for (int i = 0; i < vec_elements; i++) {
+            const int k = (i * num_vecs) % vec_elements;
+            rotation[size_t(k)] = (i * num_vecs) / vec_elements;
+        }
+        internal_assert(rotation[0] == 0);
+
+        // The barrel rotation, the other way round.
+        std::vector<int> shuffle(static_cast<size_t>(vec_elements));
+        std::vector<llvm::Value *> new_v(v.size());
+        int d = 1;
+        while (d < num_vecs) {
+            for (int i = 0; i < vec_elements; i++) {
+                shuffle[size_t(i)] =
+                    (rotation[size_t(i)] & d) == 0 ? i : i + vec_elements;
+            }
+            for (int i = 0; i < num_vecs; i++) {
+                const int j = (i + d) % num_vecs;
+                new_v[size_t(i)] = optimization_fence(
+                    shuffle_vectors(v[size_t(i)], v[size_t(j)], shuffle));
+            }
+            v.swap(new_v);
+            d *= 2;
+        }
+
+        // The relabelling, inverted.
+        for (int i = 0; i < num_vecs; i++) {
+            const int j = (i * vec_elements) % num_vecs;
+            new_v[size_t(j)] = v[size_t(i)];
+        }
+        v.swap(new_v);
+
+        // The row permutation, inverted.
+        for (int i = 0; i < num_vecs; i++) {
+            for (int j = 0; j < vec_elements; j++) {
+                const int k = j * num_vecs + i;
+                shuffle[size_t(j)] = k % vec_elements;
+            }
+            v[size_t(i)] = shuffle_vectors(v[size_t(i)], shuffle);
+        }
+        return v;
+    }
+
+    int f = largest_power_of_two_factor(num_vecs);
+    if (f == 1 || f == num_vecs) {
+        for (int i = 2; i < num_vecs; i++) {
+            if (num_vecs % i == 0) {
+                f = i;
+                break;
+            }
+        }
+    }
+    if (f == 1) {
+        const int padded_size = next_power_of_two(vec_elements);
+        llvm::Value *padded = slice_vector(vec, 0, padded_size * num_vecs);
+        std::vector<llvm::Value *> result = deinterleave_vector(padded, num_vecs);
+        for (int i = 0; i < num_vecs; i++) {
+            result[size_t(i)] = slice_vector(result[size_t(i)], 0, vec_elements);
+        }
+        return result;
+    }
+    internal_assert(f > 1 && f < num_vecs && num_vecs % f == 0)
+        << f << " " << num_vecs << " " << factor;
+
+    // Deal by f first, then each part by the rest: part i holds the streams
+    // i, i + f, i + 2f, .. and dealing it by num_vecs / f separates them.
+    const std::vector<llvm::Value *> partial = deinterleave_vector(vec, f);
+    std::vector<llvm::Value *> result(static_cast<size_t>(num_vecs));
+    for (size_t i = 0; i < partial.size(); i++) {
+        const std::vector<llvm::Value *> parts =
+            deinterleave_vector(partial[i], num_vecs / f);
+        for (size_t j = 0; j < parts.size(); j++) {
+            result[j * size_t(f) + i] = parts[j];
+        }
+    }
+    return result;
+}
+
+void CodeGen_LLVM::visit(const Shuffle *node) {
+    std::vector<llvm::Value *> vecs;
+    vecs.reserve(node->vectors.size());
+    for (const Expr &v : node->vectors) {
+        vecs.push_back(as_vector(codegen_expr(v)));
+    }
+    llvm::Value *result = nullptr;
+    if (node->is_interleave()) {
+        result = interleave_vectors(vecs);
+    } else if (node->is_transpose()) {
+        // A transpose either way round: as Halide does, take whichever of
+        // the two algorithms sees the power-of-two shape.
+        const int cols = node->transpose_factor();
+        const int rows = vector_lanes(vecs[0]->getType()) / cols;
+        if (is_power_of_two(cols) && !is_power_of_two(rows)) {
+            std::vector<llvm::Value *> slices(static_cast<size_t>(rows));
+            for (int i = 0; i < rows; i++) {
+                slices[size_t(i)] = slice_vector(vecs[0], i * cols, cols);
+            }
+            result = interleave_vectors(slices);
+        } else {
+            result = concat_vectors(deinterleave_vector(vecs[0], cols));
+        }
+    } else if (node->is_concat()) {
+        result = concat_vectors(vecs);
+    } else if (vecs.size() == 1) {
+        result = shuffle_vectors(vecs[0], node->indices);
+    } else if (vecs.size() == 2) {
+        result = shuffle_vectors(vecs[0], vecs[1], node->indices);
+    } else {
+        result = shuffle_vectors(concat_vectors(vecs), node->indices);
+    }
+    if (!node->type.is_vector()) {
+        result = builder->CreateExtractElement(result, uint64_t(0));
+    }
+    value = result;
+}
+
 void CodeGen_LLVM::visit(const VectorShuffle *node) {
     llvm::Value *_value = codegen_expr(node->value);
     llvm::Type *out_type = codegen_type(node->type);
@@ -1805,12 +2354,26 @@ void CodeGen_LLVM::visit(const Extract *node) {
     // over the container, dense or gathered depending on the index.
     if (node->idx.type().defined() && node->idx.type().is_vector() &&
         vec_expr.type().is<Array_t>()) {
-        // Unmasked: every lane of a gang stands for a real iteration, so
-        // every lane's address is one the program would have read anyway.
-        // A load that must not read on some lanes is a masked Deref.
-        value = create_vector_load(codegen_type(vec_expr.type().element_of()),
-                                   vec, node->idx, node->idx.type().lanes(),
-                                   Expr(), "extract");
+        const Type element = vec_expr.type().element_of();
+        const uint32_t lanes = node->idx.type().lanes();
+        // An aggregate per lane -- a tree's node, a light, a primitive, at
+        // each lane's own index -- is gathered a leaf at a time into the
+        // struct of gang-wide fields it is carried as (see gather_elements).
+        if (element.is<Struct_t, Union_t, Vector_t>()) {
+            llvm::Value *ptrs = builder->CreateInBoundsGEP(
+                codegen_type(element), vec, codegen_expr(node->idx),
+                "extract_ptrs");
+            llvm::Value *mask =
+                node->mask.defined() ? codegen_expr(node->mask) : nullptr;
+            value = gather_elements(element, node->type, ptrs, lanes, mask,
+                                    "extract");
+            return;
+        }
+        // Unmasked, every lane of a gang stands for a real iteration and
+        // every lane's address is one the program would have read anyway;
+        // masked, the disabled lanes do not touch memory (see Extract::mask).
+        value = create_vector_load(codegen_type(element), vec, node->idx,
+                                   lanes, node->mask, "extract");
         return;
     }
 
@@ -1827,6 +2390,110 @@ void CodeGen_LLVM::visit(const Extract *node) {
         internal_error << "[unimplemented] codegen of Extract on type: "
                        << vec_expr.type();
     }
+}
+
+llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
+                                           const ir::Type &wide_t,
+                                           llvm::Value *ptrs, uint32_t lanes,
+                                           llvm::Value *mask,
+                                           const std::string &name) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Type *elem_llvm = codegen_type(element);
+    llvm::Type *wide_llvm = codegen_type(wide_t);
+    llvm::Value *zero = llvm::ConstantInt::get(i32_t, 0);
+
+    if (const Struct_t *s = element.as<Struct_t>()) {
+        const Struct_t *ws = wide_t.as<Struct_t>();
+        internal_assert(ws && ws->fields.size() == s->fields.size())
+            << wide_t << " is not " << element << " widened";
+        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
+        // The LLVM struct leaves out reference-typed fields (see the Struct_t
+        // visitor), so its element numbers run ahead of the IR's.
+        unsigned slot = 0;
+        for (size_t i = 0; i < s->fields.size(); i++) {
+            if (s->fields[i].type.is<Ref_t>()) {
+                continue;
+            }
+            llvm::Value *field_ptrs = builder->CreateInBoundsGEP(
+                elem_llvm, ptrs, {zero, llvm::ConstantInt::get(i32_t, slot)},
+                name + "_" + s->fields[i].name + "_ptrs");
+            llvm::Value *field = gather_elements(
+                s->fields[i].type, ws->fields[i].type, field_ptrs, lanes, mask,
+                name + "_" + s->fields[i].name);
+            result = builder->CreateInsertValue(result, field, unsigned(i));
+            slot++;
+        }
+        return result;
+    }
+    if (const Vector_t *v = element.as<Vector_t>()) {
+        // Widened as one gang vector per component (see ir::widen): each
+        // component is a gather of scalars, at a stride of the vector.
+        const Struct_t *ws = wide_t.as<Struct_t>();
+        internal_assert(ws && ws->fields.size() == v->lanes)
+            << wide_t << " is not " << element << " widened";
+        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
+        for (uint32_t c = 0; c < v->lanes; c++) {
+            llvm::Value *component_ptrs = builder->CreateInBoundsGEP(
+                elem_llvm, ptrs, {zero, llvm::ConstantInt::get(i32_t, c)},
+                name + "_" + std::to_string(c) + "_ptrs");
+            llvm::Value *component = gather_elements(
+                v->etype, ws->fields[c].type, component_ptrs, lanes, mask,
+                name + "_" + std::to_string(c));
+            result = builder->CreateInsertValue(result, component, c);
+        }
+        return result;
+    }
+    if (element.is<Union_t>()) {
+        // One union per lane, loaded whole: exactly the bytes a scalar read
+        // of the element would load, into that lane's slot. A lane that is
+        // off does not load, and its slot is left unsaid.
+        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
+        for (uint32_t k = 0; k < lanes; k++) {
+            llvm::Value *ptr =
+                builder->CreateExtractElement(ptrs, uint64_t(k), name + "_ptr");
+            llvm::Value *lane = nullptr;
+            if (mask == nullptr) {
+                lane = create_aligned_load(elem_llvm, ptr, name + "_lane");
+            } else {
+                llvm::Value *bit = builder->CreateExtractElement(mask, uint64_t(k));
+                llvm::BasicBlock *from = builder->GetInsertBlock();
+                llvm::BasicBlock *then_bb = llvm::BasicBlock::Create(
+                    *context, name + "_lane_on", current_function);
+                llvm::BasicBlock *after_bb = llvm::BasicBlock::Create(
+                    *context, name + "_lane_after", current_function);
+                builder->CreateCondBr(bit, then_bb, after_bb);
+                builder->SetInsertPoint(then_bb);
+                llvm::Value *loaded =
+                    create_aligned_load(elem_llvm, ptr, name + "_lane");
+                builder->CreateBr(after_bb);
+                builder->SetInsertPoint(after_bb);
+                llvm::PHINode *phi = builder->CreatePHI(elem_llvm, 2);
+                phi->addIncoming(loaded, then_bb);
+                phi->addIncoming(llvm::PoisonValue::get(elem_llvm), from);
+                lane = phi;
+            }
+            result = builder->CreateInsertValue(result, lane, k);
+        }
+        return result;
+    }
+
+    // A scalar: one gather. A boolean is a byte in memory (see
+    // create_vector_load).
+    if (elem_llvm->isIntegerTy(1)) {
+        llvm::Value *bytes = gather_elements(
+            UInt_t::make(8), Vector_t::make(UInt_t::make(8), lanes), ptrs, lanes,
+            mask, name);
+        return builder->CreateTrunc(
+            bytes, llvm::FixedVectorType::get(i1_t, lanes), name + "_bits");
+    }
+    llvm::Type *vtype = llvm::FixedVectorType::get(elem_llvm, lanes);
+    llvm::Value *on = mask != nullptr
+                          ? mask
+                          : llvm::Constant::getAllOnesValue(
+                                llvm::FixedVectorType::get(i1_t, lanes));
+    return builder->CreateMaskedGather(vtype, ptrs, dl.getABITypeAlign(elem_llvm),
+                                       on, llvm::Constant::getNullValue(vtype),
+                                       name);
 }
 
 void CodeGen_LLVM::visit(const Intrinsic *node) {
@@ -2277,6 +2944,15 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
             internal_assert(deref) << expr;
             ptr = codegen_expr(deref->expr);
             bonsai_type = deref->type;
+            // A vector of pointers dereferences to a per-lane place (see
+            // Deref::make), typed as a vector of what each lane's pointer
+            // points at. The offsets below are into that pointee, and a GEP
+            // over a vector of pointers with scalar indices yields a vector
+            // of pointers, which is the address of the per-lane place.
+            if (const Vector_t *per_lane = bonsai_type.as<Vector_t>();
+                per_lane != nullptr && ptr->getType()->isVectorTy()) {
+                bonsai_type = per_lane->etype;
+            }
         }
         llvm::Type *llvm_t = codegen_type(bonsai_type);
 
@@ -2380,6 +3056,27 @@ void CodeGen_LLVM::visit(const Deref *node) {
             create_aligned_load(loaded_type, pointer_value, "deref_temp");
         add_tbaa(load, node->type);
         value = load;
+    } else if (pointer_value->getType()->isVectorTy()) {
+        // One pointer per lane, every lane on: a gather, of scalars. An
+        // aggregate per lane would have to be gathered a field at a time,
+        // which nothing asks for yet -- a per-lane aggregate is only ever
+        // stepped into by an address chain (see the PtrTo visitor), never
+        // loaded whole.
+        const bool scalar_lanes =
+            node->type.is_vector() &&
+            !node->type.element_of().is<Struct_t, Union_t>();
+        internal_assert(scalar_lanes)
+            << "[unimplemented] gathering an aggregate a field at a time: "
+            << Expr(node);
+        llvm::Type *loaded_type = codegen_type(node->type);
+        const llvm::DataLayout &dl = module->getDataLayout();
+        const uint32_t lanes = node->type.lanes();
+        value = builder->CreateMaskedGather(
+            llvm::dyn_cast<llvm::VectorType>(loaded_type), pointer_value,
+            dl.getABITypeAlign(loaded_type->getScalarType()),
+            llvm::Constant::getAllOnesValue(
+                llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false)),
+            llvm::Constant::getNullValue(loaded_type), "deref_gather");
     } else {
         internal_error << "Cannot dereference non-pointer expression: "
                        << node->expr;
@@ -2523,9 +3220,227 @@ void CodeGen_LLVM::visit(const Build *node) {
 // back gives the first-class value a surrounding Build needs. Whatever of the
 // storage the member did not cover stays undefined, which is what clang leaves
 // in a union's padding too.
+llvm::Value *CodeGen_LLVM::reinterpret_via_memory(llvm::Value *v,
+                                                  llvm::Type *as) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    // Store sizes, not allocation sizes: a vector of other than a power of
+    // two of elements is allocated rounded up to its alignment, and holds
+    // exactly as many bytes as the struct it stands for all the same.
+    if (dl.getTypeStoreSize(v->getType()) != dl.getTypeStoreSize(as)) {
+        std::string from, to;
+        llvm::raw_string_ostream from_os(from), to_os(to);
+        v->getType()->print(from_os);
+        as->print(to_os);
+        internal_error << "reinterpreting "
+                       << dl.getTypeStoreSize(v->getType()).getFixedValue()
+                       << " bytes of " << from_os.str() << " as "
+                       << dl.getTypeStoreSize(as).getFixedValue()
+                       << " bytes of " << to_os.str();
+    }
+    // The slot is the vector's type, the larger and more aligned of the two.
+    llvm::Type *slot_type = v->getType()->isVectorTy() ? v->getType() : as;
+    llvm::Value *slot = create_alloca_at_entry(slot_type, "transpose");
+    builder->CreateStore(v, slot);
+    return create_aligned_load(as, slot, "transposed");
+}
+
+uint64_t CodeGen_LLVM::union_unit(const ir::Type &member, uint64_t offset,
+                                  uint64_t so_far) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    if (const Struct_t *s = member.as<Struct_t>()) {
+        llvm::StructType *st = llvm::cast<llvm::StructType>(codegen_type(member));
+        const llvm::StructLayout *layout = dl.getStructLayout(st);
+        for (size_t i = 0; i < s->fields.size(); i++) {
+            internal_assert(!s->fields[i].type.is<Ref_t>())
+                << "[unimplemented] a per-lane union member with a reference "
+                << "field: " << member;
+            so_far = union_unit(s->fields[i].type,
+                                offset + layout->getElementOffset(unsigned(i)),
+                                so_far);
+        }
+        return so_far;
+    }
+    if (const Vector_t *v = member.as<Vector_t>()) {
+        const uint64_t esize =
+            dl.getTypeAllocSize(codegen_type(v->etype)).getFixedValue();
+        for (uint32_t c = 0; c < v->lanes; c++) {
+            so_far = union_unit(v->etype, offset + c * esize, so_far);
+        }
+        return so_far;
+    }
+    const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
+    return std::gcd(so_far, std::gcd(size, offset));
+}
+
+void CodeGen_LLVM::scatter_units(const ir::Type &member, llvm::Value *wide,
+                                 uint64_t offset, uint64_t unit,
+                                 std::vector<llvm::Value *> &slots) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Type *unit_t = llvm::Type::getIntNTy(*context, unsigned(unit * 8));
+    if (const Struct_t *s = member.as<Struct_t>()) {
+        llvm::StructType *st = llvm::cast<llvm::StructType>(codegen_type(member));
+        const llvm::StructLayout *layout = dl.getStructLayout(st);
+        for (size_t i = 0; i < s->fields.size(); i++) {
+            scatter_units(s->fields[i].type,
+                          builder->CreateExtractValue(wide, unsigned(i)),
+                          offset + layout->getElementOffset(unsigned(i)), unit,
+                          slots);
+        }
+        return;
+    }
+    if (const Vector_t *v = member.as<Vector_t>()) {
+        // Widened as one gang vector per component (see ir::widen).
+        const uint64_t esize =
+            dl.getTypeAllocSize(codegen_type(v->etype)).getFixedValue();
+        for (uint32_t c = 0; c < v->lanes; c++) {
+            scatter_units(v->etype, builder->CreateExtractValue(wide, c),
+                          offset + c * esize, unit, slots);
+        }
+        return;
+    }
+    if (const Union_t *inner = member.as<Union_t>()) {
+        // A union inside the member: `wide` is one inner union per lane, so
+        // its bytes are already in lane order. Read them as unit vectors.
+        const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
+        const int units = int(size / unit);
+        const uint32_t n = uint32_t(llvm::cast<llvm::StructType>(wide->getType())
+                                        ->getNumElements());
+        llvm::Value *flat = reinterpret_via_memory(
+            wide, llvm::FixedVectorType::get(unit_t, unsigned(units) * n));
+        std::vector<llvm::Value *> parts = deinterleave_vector(flat, units);
+        for (int u = 0; u < units; u++) {
+            slots[size_t(offset / unit) + size_t(u)] = parts[size_t(u)];
+        }
+        (void)inner;
+        return;
+    }
+    // A scalar: `wide` is <lanes x T>. A bool is a byte in storage.
+    const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
+    llvm::Value *bits = wide;
+    if (member.is<Bool_t>()) {
+        bits = builder->CreateZExt(
+            wide, llvm::FixedVectorType::get(i8_t, vector_lanes(wide->getType())));
+    }
+    const int m = int(size / unit);
+    const int n = vector_lanes(bits->getType());
+    llvm::Type *as_units = llvm::FixedVectorType::get(unit_t, unsigned(n * m));
+    if (bits->getType() != as_units) {
+        bits = builder->CreateBitCast(bits, as_units);
+    }
+    if (m == 1) {
+        slots[size_t(offset / unit)] = bits;
+        return;
+    }
+    // Lane k's m units are contiguous in `bits`; unit u of every lane is
+    // then every m-th element from u.
+    std::vector<llvm::Value *> parts = deinterleave_vector(bits, m);
+    for (int u = 0; u < m; u++) {
+        slots[size_t(offset / unit) + size_t(u)] = parts[size_t(u)];
+    }
+}
+
+llvm::Value *CodeGen_LLVM::gather_units(const ir::Type &member,
+                                        const ir::Type &wide_t,
+                                        uint64_t offset, uint64_t unit,
+                                        const std::vector<llvm::Value *> &slots,
+                                        uint32_t lanes) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Type *unit_t = llvm::Type::getIntNTy(*context, unsigned(unit * 8));
+    llvm::Type *wide_llvm = codegen_type(wide_t);
+    if (const Struct_t *s = member.as<Struct_t>()) {
+        llvm::StructType *st = llvm::cast<llvm::StructType>(codegen_type(member));
+        const llvm::StructLayout *layout = dl.getStructLayout(st);
+        const Struct_t *ws = wide_t.as<Struct_t>();
+        internal_assert(ws && ws->fields.size() == s->fields.size())
+            << wide_t << " is not " << member << " widened";
+        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
+        for (size_t i = 0; i < s->fields.size(); i++) {
+            llvm::Value *field = gather_units(
+                s->fields[i].type, ws->fields[i].type,
+                offset + layout->getElementOffset(unsigned(i)), unit, slots,
+                lanes);
+            result = builder->CreateInsertValue(result, field, unsigned(i));
+        }
+        return result;
+    }
+    if (const Vector_t *v = member.as<Vector_t>()) {
+        const uint64_t esize =
+            dl.getTypeAllocSize(codegen_type(v->etype)).getFixedValue();
+        const Struct_t *ws = wide_t.as<Struct_t>();
+        internal_assert(ws && ws->fields.size() == v->lanes)
+            << wide_t << " is not " << member << " widened";
+        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
+        for (uint32_t c = 0; c < v->lanes; c++) {
+            llvm::Value *component =
+                gather_units(v->etype, ws->fields[c].type, offset + c * esize,
+                             unit, slots, lanes);
+            result = builder->CreateInsertValue(result, component, c);
+        }
+        return result;
+    }
+    if (member.is<Union_t>()) {
+        const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
+        const int units = int(size / unit);
+        std::vector<llvm::Value *> parts(static_cast<size_t>(units));
+        for (int u = 0; u < units; u++) {
+            parts[size_t(u)] = slots[size_t(offset / unit) + size_t(u)];
+        }
+        llvm::Value *flat = interleave_vectors(parts);
+        return reinterpret_via_memory(flat, wide_llvm);
+    }
+    const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
+    const int m = int(size / unit);
+    std::vector<llvm::Value *> parts(static_cast<size_t>(m));
+    for (int u = 0; u < m; u++) {
+        parts[size_t(u)] = slots[size_t(offset / unit) + size_t(u)];
+    }
+    llvm::Value *bits = interleave_vectors(parts);
+    if (member.is<Bool_t>()) {
+        llvm::Type *bytes = llvm::FixedVectorType::get(i8_t, lanes);
+        if (bits->getType() != bytes) {
+            bits = builder->CreateBitCast(bits, bytes);
+        }
+        return builder->CreateTrunc(bits, wide_llvm);
+    }
+    if (bits->getType() != wide_llvm) {
+        bits = builder->CreateBitCast(bits, wide_llvm);
+    }
+    (void)unit_t;
+    return bits;
+}
+
 void CodeGen_LLVM::visit(const UnionOf *node) {
     llvm::Type *union_type = codegen_type(node->type);
     llvm::Value *member = codegen_expr(node->value);
+
+    // One union per lane, from one member value per lane (see ir::widen and
+    // the note above scatter_units): the member's gang-wide fields spread
+    // into unit vectors of the union, interleaved into every lane's bytes.
+    if (const Struct_t *lanes_t = node->type.as<Struct_t>()) {
+        const Union_t *as_union = union_behind(node->type);
+        internal_assert(as_union) << "UnionOf of " << node->type;
+        const Type member_t = as_union->member(node->member);
+        internal_assert(member_t.defined())
+            << "Union " << as_union->name << " has no member " << node->member;
+        const llvm::DataLayout &dl = module->getDataLayout();
+        const uint64_t size =
+            dl.getTypeAllocSize(codegen_type(Type(as_union))).getFixedValue();
+        const uint64_t unit = std::min<uint64_t>(union_unit(member_t, 0, size), 8);
+        const uint32_t lanes = uint32_t(lanes_t->fields.size());
+        llvm::Type *unit_t = llvm::Type::getIntNTy(*context, unsigned(unit * 8));
+        std::vector<llvm::Value *> slots(size_t(size / unit), nullptr);
+        scatter_units(member_t, member, 0, unit, slots);
+        for (llvm::Value *&slot : slots) {
+            if (slot == nullptr) {
+                slot = llvm::PoisonValue::get(
+                    llvm::FixedVectorType::get(unit_t, lanes));
+            }
+        }
+        llvm::Value *flat = interleave_vectors(slots);
+        value = reinterpret_via_memory(flat, union_type);
+        return;
+    }
+
     llvm::Value *storage =
         create_alloca_at_entry(union_type, "union_" + node->member);
     builder->CreateStore(member, storage);
@@ -2552,6 +3467,29 @@ void CodeGen_LLVM::visit(const Access *node) {
             << " in " << Expr(node);
         llvm::Value *storage = codegen_expr(PtrTo::make(value_e));
         value = create_aligned_load(codegen_type(member), storage, name);
+        return;
+    }
+
+    // A member of every lane's union at once (see ir::widen and the note
+    // above scatter_units): every lane's bytes as unit vectors, deinterleaved,
+    // and the member's gang-wide fields gathered out of them.
+    if (const Union_t *as_union = union_behind(value_e.type());
+        as_union != nullptr && value_e.type().is<Struct_t>() &&
+        as_union->member(node->field).defined()) {
+        const Type member_t = as_union->member(node->field);
+        const llvm::DataLayout &dl = module->getDataLayout();
+        const uint64_t size =
+            dl.getTypeAllocSize(codegen_type(Type(as_union))).getFixedValue();
+        const uint64_t unit = std::min<uint64_t>(union_unit(member_t, 0, size), 8);
+        const uint32_t lanes =
+            uint32_t(value_e.type().as<Struct_t>()->fields.size());
+        llvm::Type *unit_t = llvm::Type::getIntNTy(*context, unsigned(unit * 8));
+        const int units = int(size / unit);
+        llvm::Value *whole = codegen_expr(value_e);
+        llvm::Value *flat = reinterpret_via_memory(
+            whole, llvm::FixedVectorType::get(unit_t, unsigned(units) * lanes));
+        std::vector<llvm::Value *> slots = deinterleave_vector(flat, units);
+        value = gather_units(member_t, node->type, 0, unit, slots, lanes);
         return;
     }
 
@@ -2702,6 +3640,56 @@ void CodeGen_LLVM::visit(const IfElse *node) {
 
     if (needs_after_bb) {
         codegen_branch(after_bb);
+        builder->SetInsertPoint(after_bb);
+    }
+}
+
+// An LLVM switch: a case per arm but the last, which is the default (see
+// ir::SwitchStmt). Each arm is a scope of its own, as an if's arms are.
+void CodeGen_LLVM::visit(const SwitchStmt *node) {
+    llvm::Value *value = codegen_expr(node->value);
+    auto *int_type = llvm::dyn_cast<llvm::IntegerType>(value->getType());
+    internal_assert(int_type) << "Switch on a non-integer: " << node->value;
+
+    bool needs_after_bb = false;
+    for (const Stmt &arm : node->arms) {
+        needs_after_bb =
+            needs_after_bb || !arm.defined() || !always_returns(arm);
+    }
+
+    internal_assert(current_function);
+    llvm::BasicBlock *after_bb =
+        needs_after_bb
+            ? llvm::BasicBlock::Create(*context, "after_bb", current_function)
+            : nullptr;
+    llvm::BasicBlock *default_bb =
+        llvm::BasicBlock::Create(*context, "default_bb", current_function);
+    llvm::SwitchInst *sw = builder->CreateSwitch(
+        value, default_bb, static_cast<unsigned>(node->arms.size() - 1));
+
+    for (size_t k = 0; k < node->arms.size(); k++) {
+        const bool last = k + 1 == node->arms.size();
+        llvm::BasicBlock *arm_bb = default_bb;
+        if (!last) {
+            // Named by the value it is taken on, so that the block for tag 1
+            // reads as such and not as whatever suffix LLVM invents to keep
+            // two blocks of one name apart.
+            arm_bb = llvm::BasicBlock::Create(
+                *context, "case" + std::to_string(k) + "_bb", current_function);
+            sw->addCase(llvm::ConstantInt::get(int_type, k), arm_bb);
+        }
+        builder->SetInsertPoint(arm_bb);
+        if (node->arms[k].defined()) {
+            frames.push_frame();
+            codegen_stmt(node->arms[k]);
+            frames.pop_frame();
+        }
+        if (!node->arms[k].defined() || !always_returns(node->arms[k])) {
+            codegen_branch(after_bb);
+        }
+    }
+
+    if (needs_after_bb) {
         builder->SetInsertPoint(after_bb);
     }
 }
@@ -2973,9 +3961,6 @@ void CodeGen_LLVM::visit(const Store *node) {
         }
     }
 
-    internal_assert(!node->mask.defined())
-        << "Masked store to a location that is not indexed per lane: "
-        << Stmt(node);
     llvm::Value *dest = codegen_write_loc(loc);
     // A name bound to a value rather than to storage cannot be assigned to.
     // Without this the failure is an assertion inside LLVM, which says
@@ -2983,6 +3968,13 @@ void CodeGen_LLVM::visit(const Store *node) {
     internal_assert(dest->getType()->isPointerTy())
         << "Cannot store to " << loc.base
         << ": it is bound to a value, not to storage, in " << Stmt(node);
+
+    // A store the gang makes under a mask through one address: into per-lane
+    // memory lane by lane, or into shared memory once if any lane is on.
+    if (node->mask.defined()) {
+        create_masked_store_at(rhs, dest, codegen_expr(node->mask));
+        return;
+    }
 
     // A whole array assigned to a name of array type: `ws = {1.0, 5.0}` for a
     // `ws : mut array[f32, 2]`. A name of array type is bound to its
@@ -3317,35 +4309,28 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         // other than itself becoming visible, so the stronger orderings would
         // be paying for a guarantee nobody asked for. What it does promise is
         // that no update is lost.
-        llvm::AtomicRMWInst::BinOp op;
-        switch (node->op) {
-        case Accumulate::Add:
-            op = node->value.type().is_float() ? llvm::AtomicRMWInst::FAdd
-                                               : llvm::AtomicRMWInst::Add;
-            break;
-        case Accumulate::Sub:
-            op = node->value.type().is_float() ? llvm::AtomicRMWInst::FSub
-                                               : llvm::AtomicRMWInst::Sub;
-            break;
-        case Accumulate::Min:
-            op = node->value.type().is_float()  ? llvm::AtomicRMWInst::FMin
-                 : node->value.type().is_int()  ? llvm::AtomicRMWInst::Min
-                                                : llvm::AtomicRMWInst::UMin;
-            break;
-        case Accumulate::Max:
-            op = node->value.type().is_float()  ? llvm::AtomicRMWInst::FMax
-                 : node->value.type().is_int()  ? llvm::AtomicRMWInst::Max
-                                                : llvm::AtomicRMWInst::UMax;
-            break;
-        default:
-            // Multiply and the argmins have no atomicrmw; they would need a
-            // compare-and-swap loop, which is worth writing when something
-            // wants one rather than in advance.
-            internal_error << "atomic is not supported for this accumulate: "
-                           << Stmt(node);
+        const Type &value_t = node->value.type();
+        if (const Vector_t *v = value_t.as<Vector_t>()) {
+            // Nothing atomic works on a vector. A short vector's slot is its
+            // components side by side, and each is an atomic of its own:
+            // indivisible per component, which is what a sum of vectors
+            // needs, since no component's update is lost, and the whole is
+            // never promised to anyone as one read.
+            const llvm::AtomicRMWInst::BinOp rmw =
+                atomic_rmw_op(node->op, v->etype);
+            llvm::Type *elem_t = codegen_type(v->etype);
+            for (uint32_t k = 0; k < v->lanes; k++) {
+                llvm::Value *ptr = builder->CreateInBoundsGEP(
+                    elem_t, loc, {llvm::ConstantInt::get(i64_t, k)});
+                llvm::Value *component =
+                    builder->CreateExtractElement(update, uint64_t(k));
+                builder->CreateAtomicRMW(rmw, ptr, component, llvm::MaybeAlign(),
+                                         llvm::AtomicOrdering::Monotonic);
+            }
             return;
         }
-        builder->CreateAtomicRMW(op, loc, update, llvm::MaybeAlign(),
+        builder->CreateAtomicRMW(atomic_rmw_op(node->op, value_t), loc, update,
+                                 llvm::MaybeAlign(),
                                  llvm::AtomicOrdering::Monotonic);
         return;
     }
@@ -3558,6 +4543,150 @@ void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
     builder->CreateMaskedScatter(value, ptrs, dl.getABITypeAlign(etype), mask);
 }
 
+void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,
+                                          llvm::Value *dest,
+                                          llvm::Value *mask) {
+    llvm::Type *t = value->getType();
+    const llvm::DataLayout &dl = module->getDataLayout();
+
+    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t)) {
+        // A vector that is not one value per lane -- a lane's own short
+        // vector, the same for every lane -- is a uniform value, stored once
+        // if any lane is on, as a scalar is below.
+        if (vt->getNumElements() != vector_lanes(mask->getType())) {
+            emit_if_any_lane(mask, [&] { builder->CreateStore(value, dest); });
+            return;
+        }
+        // One slot per lane, written for the lanes that are on. A vector of
+        // booleans has no masked store to lower to -- the intrinsic wants
+        // elements the target can address, and a bit is not one -- so it is
+        // blended instead: the memory is the gang's own, so reading the
+        // disabled lanes back to keep them is reading what the gang itself
+        // last wrote there.
+        if (vt->getElementType()->isIntegerTy(1)) {
+            llvm::Value *old = builder->CreateLoad(t, dest, "masked_old");
+            builder->CreateStore(builder->CreateSelect(mask, value, old), dest);
+            return;
+        }
+        builder->CreateMaskedStore(value, dest, dl.getABITypeAlign(t), mask);
+        return;
+    }
+
+    if (auto *st = llvm::dyn_cast<llvm::StructType>(t)) {
+        // One union per lane (see ir::widen): field k is lane k's slot, and
+        // is written only if lane k is on. Blended rather than branched: the
+        // memory is the gang's own, so reading a disabled lane's slot back to
+        // keep it is reading what the gang itself last wrote there.
+        if (is_lanes_of_union(t, vector_lanes(mask->getType()))) {
+            for (unsigned k = 0; k < st->getNumElements(); k++) {
+                llvm::Type *slot_t = st->getElementType(k);
+                llvm::Value *slot = builder->CreateStructGEP(st, dest, k);
+                llvm::Value *old = builder->CreateLoad(slot_t, slot, "lane_old");
+                llvm::Value *bit = builder->CreateExtractElement(mask, uint64_t(k));
+                builder->CreateStore(
+                    builder->CreateSelect(
+                        bit, builder->CreateExtractValue(value, k), old),
+                    slot);
+            }
+            return;
+        }
+        // A widened struct is a struct of per-lane fields (see widen() in
+        // SSA/Vectorize.cpp), each written under the same mask at its own
+        // address.
+        for (unsigned i = 0; i < st->getNumElements(); i++) {
+            create_masked_store_at(builder->CreateExtractValue(value, i),
+                                   builder->CreateStructGEP(st, dest, i), mask);
+        }
+        return;
+    }
+
+    if (auto *at = llvm::dyn_cast<llvm::ArrayType>(t)) {
+        for (uint64_t i = 0; i < at->getNumElements(); i++) {
+            create_masked_store_at(
+                builder->CreateExtractValue(value, unsigned(i)),
+                builder->CreateConstInBoundsGEP2_64(at, dest, 0, i), mask);
+        }
+        return;
+    }
+
+    // A scalar, into memory the lanes share: the value is the same whichever
+    // lane writes it, so it is written once, provided some lane would have --
+    // ispc's rule for an assignment to a uniform inside varying control flow.
+    emit_if_any_lane(mask, [&] { builder->CreateStore(value, dest); });
+}
+
+void CodeGen_LLVM::emit_if_any_lane(llvm::Value *mask,
+                                    const std::function<void()> &body) {
+    emit_if(builder->CreateOrReduce(mask), body);
+}
+
+void CodeGen_LLVM::emit_if(llvm::Value *cond,
+                           const std::function<void()> &body) {
+    llvm::BasicBlock *then_bb =
+        llvm::BasicBlock::Create(*context, "if_lane", current_function);
+    llvm::BasicBlock *after_bb =
+        llvm::BasicBlock::Create(*context, "if_lane_after", current_function);
+    builder->CreateCondBr(cond, then_bb, after_bb);
+    builder->SetInsertPoint(then_bb);
+    body();
+    builder->CreateBr(after_bb);
+    builder->SetInsertPoint(after_bb);
+}
+
+llvm::AtomicRMWInst::BinOp CodeGen_LLVM::atomic_rmw_op(Accumulate::OpType op,
+                                                       const Type &value_t) {
+    switch (op) {
+    case Accumulate::Add:
+        return value_t.is_float() ? llvm::AtomicRMWInst::FAdd
+                                  : llvm::AtomicRMWInst::Add;
+    case Accumulate::Sub:
+        return value_t.is_float() ? llvm::AtomicRMWInst::FSub
+                                  : llvm::AtomicRMWInst::Sub;
+    case Accumulate::Min:
+        return value_t.is_float()  ? llvm::AtomicRMWInst::FMin
+               : value_t.is_int()  ? llvm::AtomicRMWInst::Min
+                                   : llvm::AtomicRMWInst::UMin;
+    case Accumulate::Max:
+        return value_t.is_float()  ? llvm::AtomicRMWInst::FMax
+               : value_t.is_int()  ? llvm::AtomicRMWInst::Max
+                                   : llvm::AtomicRMWInst::UMax;
+    default:
+        // Multiply and the argmins have no atomicrmw; they would need a
+        // compare-and-swap loop, which is worth writing when something wants
+        // one rather than in advance.
+        internal_error << "atomic is not supported for this accumulate";
+        return llvm::AtomicRMWInst::Add;
+    }
+}
+
+void CodeGen_LLVM::emit_atomic_lanes(Accumulate::OpType op, const Type &value_t,
+                                     llvm::Value *ptrs, llvm::Value *values,
+                                     llvm::Value *mask) {
+    const bool scalar_lanes =
+        value_t.is_vector() && value_t.element_of().is_scalar();
+    internal_assert(scalar_lanes)
+        << "[unimplemented] an atomic accumulate of an aggregate per lane: "
+        << value_t;
+    const llvm::AtomicRMWInst::BinOp rmw = atomic_rmw_op(op, value_t.element_of());
+    const uint32_t lanes = value_t.lanes();
+    llvm::Type *vector_t = codegen_type(value_t);
+    for (uint32_t k = 0; k < lanes; k++) {
+        llvm::Value *bit = builder->CreateExtractElement(mask, uint64_t(k));
+        emit_if(bit, [&] {
+            llvm::Value *ptr =
+                ptrs->getType()->isVectorTy()
+                    ? builder->CreateExtractElement(ptrs, uint64_t(k))
+                    : builder->CreateInBoundsGEP(
+                          vector_t, ptrs,
+                          {llvm::ConstantInt::get(i32_t, 0),
+                           llvm::ConstantInt::get(i32_t, k)});
+            llvm::Value *v = builder->CreateExtractElement(values, uint64_t(k));
+            builder->CreateAtomicRMW(rmw, ptr, v, llvm::MaybeAlign(),
+                                     llvm::AtomicOrdering::Monotonic);
+        });
+    }
+}
+
 llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
                                                   const std::string &name,
                                                   llvm::Value *size) {
@@ -3573,6 +4702,17 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
 
     const llvm::DataLayout &dl = module->getDataLayout();
     unsigned align = dl.getABITypeAlign(t).value();
+    // A local an aggregate lives in is aligned to the widest vector the
+    // optimizer might initialize it with, not only to what its own fields need.
+    // LLVM merges adjacent field stores into one 256-bit vector store and then
+    // wants that store's address 32-aligned, which a struct slot aligned only to
+    // its 16-byte fields is not -- and an aligned store to it faults. This bites
+    // the vectorized parfor kernel, whose stack is realigned; over-aligning the
+    // aggregate closes the gap. Only there: the relooper's functions keep the
+    // alignment their fields ask for, so the golden IR that pins it is unchanged.
+    if (lowering_from_ssa && t->isAggregateType() && align < 32) {
+        align = 32;
+    }
     ptr->setAlignment(llvm::Align(align));
 
     builder->restoreIP(here);

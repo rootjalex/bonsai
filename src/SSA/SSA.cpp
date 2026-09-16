@@ -124,10 +124,14 @@ const char *op_name(Instruction::Op op) {
         return "load";
     case Instruction::Op::LoadField:
         return "load_field";
+    case Instruction::Op::LoadMember:
+        return "load_member";
     case Instruction::Op::Lt:
         return "lt";
     case Instruction::Op::MakeStruct:
         return "make_struct";
+    case Instruction::Op::MakeUnion:
+        return "make_union";
     case Instruction::Op::Max:
         return "max";
     case Instruction::Op::Min:
@@ -157,6 +161,8 @@ const char *op_name(Instruction::Op op) {
         return "shl";
     case Instruction::Op::Shr:
         return "shr";
+    case Instruction::Op::Shuffle:
+        return "shuffle";
     case Instruction::Op::SizeOf:
         return "sizeof";
     case Instruction::Op::Xor:
@@ -206,8 +212,10 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Leq:
     case Instruction::Op::Load:
     case Instruction::Op::LoadField:
+    case Instruction::Op::LoadMember:
     case Instruction::Op::Lt:
     case Instruction::Op::MakeStruct:
+    case Instruction::Op::MakeUnion:
     case Instruction::Op::Max:
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
@@ -224,6 +232,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Set:
     case Instruction::Op::Shl:
     case Instruction::Op::Shr:
+    case Instruction::Op::Shuffle:
     case Instruction::Op::SizeOf:
     case Instruction::Op::Sub:
     case Instruction::Op::Xor:
@@ -288,8 +297,16 @@ void Instruction::dump(std::ostream &os) const {
     if (op == Instruction::Op::Alloc || op == Instruction::Op::Alloca ||
         op == Instruction::Op::Cast || op == Instruction::Op::Eps ||
         op == Instruction::Op::MakeStruct ||
+        op == Instruction::Op::MakeUnion ||
         op == Instruction::Op::Reinterpret) {
         os << "<" << type << ">";
+    }
+    if (op == Instruction::Op::Shuffle) {
+        os << "<";
+        for (size_t i = 0; i < shuffle.size(); i++) {
+            os << (i == 0 ? "" : ", ") << shuffle[i];
+        }
+        os << ">";
     }
     os << "(";
 
@@ -712,6 +729,42 @@ void Function::dump(std::ostream &os) const {
         blocks[i]->dump(os);
         os << "\n";
     }
+}
+
+std::shared_ptr<Value> zero_value(const Type &type, Function &func,
+                                  const std::shared_ptr<Block> &into) {
+    if (type.is_bool()) {
+        return std::make_shared<Value>(Constant{type, false});
+    }
+    if (type.is_float()) {
+        return std::make_shared<Value>(Constant{type, 0.0});
+    }
+    if (type.is_uint()) {
+        return std::make_shared<Value>(Constant{type, uint64_t(0)});
+    }
+    if (type.is_int_or_uint()) {
+        return std::make_shared<Value>(Constant{type, int64_t(0)});
+    }
+    // A vector literal and a struct literal are both a MakeStruct of the
+    // type, built from the parts (see the VecImm and Build visitors in
+    // SSA/Convert.cpp).
+    std::vector<std::shared_ptr<Value>> parts;
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        for (uint32_t k = 0; k < v->lanes; k++) {
+            parts.push_back(zero_value(v->etype, func, into));
+        }
+    } else if (const Struct_t *s = type.as<Struct_t>()) {
+        for (const TypedVar &f : s->fields) {
+            parts.push_back(zero_value(f.type, func, into));
+        }
+    } else {
+        internal_error << "No zero for a value of type " << type;
+    }
+    auto build = std::make_shared<Instruction>(
+        func.get_unique_name(), type, Instruction::Op::MakeStruct,
+        std::move(parts), into);
+    into->instrs.push_back(build);
+    return std::make_shared<Value>(std::move(build));
 }
 
 } // namespace ssa

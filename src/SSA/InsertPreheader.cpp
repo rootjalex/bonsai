@@ -135,6 +135,37 @@ string insert_preheader(Function &func, const string &header,
     // blocks inside can go on naming the preheader's copy of it, which
     // dominates them. That keeps things the loop merely reads -- an array it
     // writes through, an index it does not move -- out of the loop's state.
+    //
+    // Handed straight back means the same value, not merely one of the same
+    // name. A local the loop assigns is promoted to a block argument called
+    // after the local in every block that merges it (see
+    // SSA/PromoteAllocas.h), the latch included, and what the latch then
+    // passes under the header's name is its own merge of the new values --
+    // the very thing the loop carries. A name the loop gives a value to is
+    // one some jump inside the loop passes something other than the name
+    // itself for; a name every jump passes on as itself, from block to block,
+    // is one value throughout, whatever redeclares it on the way.
+    set<string> defined_in_loop;
+    for (const string &name : back_edges) {
+        Block &block = name == header ? *body : *blocks.at(name);
+        for (Terminator::Jump *jump : jumps_of(block)) {
+            const auto target = blocks.find(jump->name);
+            if (target == blocks.end() || !back_edges.count(jump->name)) {
+                continue;
+            }
+            // A call continuation's leading argument is the result, which no
+            // jump passes, so the values line up with the last ones.
+            const Block &to = jump->name == header ? *old : *target->second;
+            const size_t offset = to.args.size() - jump->args.size();
+            for (size_t j = 0; j < jump->args.size(); j++) {
+                const string &param = to.args[j + offset].name;
+                const auto *a = std::get_if<Argument>(&jump->args[j]->data);
+                if (a == nullptr || a->name != param) {
+                    defined_in_loop.insert(param);
+                }
+            }
+        }
+    }
     vector<bool> carried(old->args.size(), false);
     for (const string &name : back_edges) {
         Block &block = name == header ? *body : *blocks.at(name);
@@ -147,8 +178,9 @@ string insert_preheader(Function &func, const string &header,
                 << " values to a header taking " << old->args.size();
             for (size_t k = 0; k < carried.size(); k++) {
                 const auto *a = std::get_if<Argument>(&jump->args[k]->data);
-                carried[k] =
-                    carried[k] || a == nullptr || a->name != old->args[k].name;
+                carried[k] = carried[k] || a == nullptr ||
+                             a->name != old->args[k].name ||
+                             defined_in_loop.count(a->name) > 0;
             }
         }
     }
@@ -207,11 +239,24 @@ string insert_preheader(Function &func, const string &header,
     // loopify() turned into a loop the preheader is the entry, and its
     // argument names are the ones the rest of the compiler refers to the
     // function's parameters by.
+    //
+    // Renamed in the blocks the header dominates, which is where a reference
+    // to its argument can mean the header's: a name resolves to the nearest
+    // declaration that dominates the use. Not in everything reachable from
+    // the header, which is more -- for a loop inside another it takes in the
+    // enclosing loop's header, whose own argument of that name is a different
+    // value, and renaming that one alike left the outer back edge passing the
+    // inner value under the outer argument's name, which reads as the loop
+    // handing the value straight back and so not carrying it at all.
+    const AdjacencyMap all_succs = compute_successors(func);
+    const AdjacencyMap all_preds = compute_predecessors(all_succs);
+    const string entry = func.blocks.front()->name;
+    const DomTree dom = compute_dominator_tree(
+        entry, all_succs, all_preds, reverse_postorder(entry, all_succs));
     vector<shared_ptr<Block>> dominated;
-    const set<string> reach =
-        reachable_from(body->name, compute_successors(func));
     for (const auto &block : func.blocks) {
-        if (reach.count(block->name)) {
+        if (dom.idom.count(block->name) &&
+            dom.dominates(body->name, block->name)) {
             dominated.push_back(block);
         }
     }

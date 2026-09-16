@@ -1,0 +1,48 @@
+//! flags: -p ssa
+
+// Golden for a variant built, carried and matched per lane: the SSA a gang
+// holding a union per lane comes out as.
+//
+// What to read for: `Blob_payload$v8`, the union widened as one scalar union
+// per lane (see ir::widen); `make_union<Blob_payload$v8>` in each arm of
+// make_blob, every lane's union from one member value per lane; and
+// `load_member` on it in each arm of the match, one member of every lane at
+// once. The tag test is a per-lane compare, so the match is a divergent
+// branch that linearization has turned into masked arms. The same program
+// runs in correctness/cpp/vectorize_union.bonsai.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func make_blob(v : f32, i : i32) -> Blob {
+    if (i % 3 == 0) {
+        return Whole(v);
+    }
+    if (i % 3 == 1) {
+        return Split(i, i * 10);
+    }
+    return Wide(vec3f{v, 2.0 * v, 3.0 * v}, v < 0.0);
+}
+
+func weigh(b : Blob) -> f32 {
+    match b {
+        Whole(x) => return x * 2.0;
+        Split(lo, hi) => return cast[[f32]](lo + hi);
+        Wide(v, neg) => return select(neg, -(v.x + v.y + v.z), v.x + v.y + v.z);
+    }
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        b : Blob = make_blob(a[i], cast[[i32]](i));
+        out[i] = weigh(b);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

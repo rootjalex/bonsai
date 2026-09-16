@@ -12,6 +12,8 @@
 // a standalone one in another, each of which the other arm has to lose to.
 #ifdef PER_ARM
 #include "mixed-tlas-per-arm.h"
+#elif defined(VECTORIZED)
+#include "vectorize_tree_traversal_mixed.h"
 #elif defined(SORTED)
 #include "mixed-tlas-sorted.h"
 #elif defined(LOOPIFIED)
@@ -358,4 +360,21 @@ int main() {
     // Nothing in this lane at all.
     report("empty lane    ", ray(0.0f, 40.0f), scene, pools);
     report("past the top  ", ray(5.0f, 0.0f), scene, pools);
+
+#ifdef VECTORIZED
+    // The same eight rays traced together, one per lane, each checked against
+    // the same ray traced alone (see vectorize_tree_traversal_mixed.bonsai).
+    const std::array<Ray, 8> rays = {
+        ray(0.0f, -1.0f), ray(0.0f, 1.0f),  ray(0.0f, 30.0f), ray(0.2f, 20.0f),
+        ray(0.0f, 20.2f), ray(0.8f, 20.0f), ray(0.0f, 40.0f), ray(5.0f, 0.0f)};
+    std::array<float, 8> out{};
+    hit_x_all(rays, out, scene, PRIM_POOLS(pools));
+    bool same = true;
+    for (size_t i = 0; i < rays.size(); i++) {
+        same = same && hit_x_one(rays[i], scene, PRIM_POOLS(pools)) == out[i];
+        std::cout << (i == 0 ? "" : " ") << out[i];
+    }
+    std::cout << '\n' << (same ? "same as scalar" : "DIFFERS from scalar")
+              << '\n';
+#endif
 }

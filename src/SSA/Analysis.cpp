@@ -125,10 +125,20 @@ OriginMap make_origin_map(const ssa::Function &func) {
 
             const size_t offset = non_drop_call ? 1 : 0;
 
+            if (!omap.contains(j.name) ||
+                omap[j.name].size() != offset + j.args.size()) {
+                // The whole function, since which rewrite left the edge and
+                // the block disagreeing is only readable off it.
+                func.dump(std::cerr);
+            }
             internal_assert(omap.contains(j.name) &&
                             omap[j.name].size() == offset + j.args.size())
                 << "Bad argument count in jump to " << j.name
-                << " in terminator of " << block->name;
+                << " in terminator of " << block->name << " of "
+                << func.blocks[0]->name << ": the block takes "
+                << (omap.contains(j.name) ? omap[j.name].size() : 0)
+                << " arguments and the jump passes " << j.args.size()
+                << (non_drop_call ? " plus the call's result" : "");
 
             auto &om = omap[j.name];
 
@@ -301,6 +311,20 @@ void refresh_preds(Function &func) {
             block->preds.push_back(blocks.at(p));
         }
     }
+}
+
+size_t remove_unreachable_blocks(Function &func) {
+    internal_assert(!func.blocks.empty()) << "A function with no blocks";
+    // Reachable along every kind of edge, a parfor's body included: the
+    // regions of one function are all its own.
+    const set<string> live =
+        reachable_from(func.blocks.front()->name, compute_successors(func));
+    const size_t before = func.blocks.size();
+    std::erase_if(func.blocks, [&](const std::shared_ptr<Block> &block) {
+        return live.count(block->name) == 0;
+    });
+    refresh_preds(func);
+    return before - func.blocks.size();
 }
 
 vector<Terminator::Jump *> jumps_of(Block &block) {

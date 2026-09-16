@@ -1,0 +1,160 @@
+type Counter = struct Counter{ n : i32 }
+type Pair = struct Pair{ c : struct Counter{ n : i32 }; scale : f32 }
+type Tally = struct Tally{ total : f32; count : i32 }
+
+func [[noinline]] bump(t : mut (Tally*), x : f32) -> void {
+  let @0 = (*t) in
+  let @1 = @0.total in
+  let @2 = @1 + x in
+  t.total = @2
+  let @4 = (*t) in
+  let @5 = @4.count in
+  let @6 = @5 + 1 in
+  t.count = @6
+  return
+}
+
+func [[noinline]] bump$gang8_p0_v1(t : mut (Tally$v8*), x : f32x8) -> void {
+  let @0 = (*t) in
+  let @1 = @0.total in
+  let @2 = @1 + x in
+  t.total = @2
+  let @4 = (*t) in
+  let @5 = @4.count in
+  let @8 = i32x8(1) in
+  let @6 = @5 + @8 in
+  t.count = @6
+  return
+}
+
+func [[noinline]] bump$gang8_p0_v1$masked(t : mut (Tally$v8*), x : f32x8, !mask : boolx8) -> void {
+  let @0 = (*t) in
+  let @1 = @0.total in
+  let @2 = @1 + x in
+  masked_store(t.total, @2, !mask)
+  let @4 = (*t) in
+  let @5 = @4.count in
+  let @8 = i32x8(1) in
+  let @6 = @5 + @8 in
+  masked_store(t.count, @6, !mask)
+  return
+}
+
+func [[noinline]] step(p : mut (Pair*), x : f32) -> f32 {
+  let @1 = tick((&(*p).c)) in
+  let k = @1 in
+  let @2 = (*p) in
+  let @3 = @2.scale in
+  let @4 = x * @3 in
+  let @5 = cast<f32>(k) in
+  let @6 = @4 * @5 in
+  return @6
+}
+
+func [[noinline]] step$gang8_p0_v1(p : mut (Pair$v8*), x : f32x8) -> f32x8 {
+  let @1 = tick$gang8_p0((&(*p).c)) in
+  let k = @1 in
+  let @2 = (*p) in
+  let @3 = @2.scale in
+  let @4 = x * @3 in
+  let @5 = cast<f32x8>(k) in
+  let @6 = @4 * @5 in
+  return @6
+}
+
+func stepping(a : f32[8], out : mut f32[8]) -> void {
+  alloc p : mut Pair$v8
+  let @0 = build<Counter>(0) in
+  let @1 = build<Pair>(@0, 0.5f) in
+  let @11 = @1.c in
+  let @12 = @11.n in
+  let @13 = i32x8(@12) in
+  let @14 = build<Counter$v8>(@13) in
+  let @15 = @1.scale in
+  let @16 = f32x8(@15) in
+  let @17 = build<Pair$v8>(@14, @16) in
+  p = @17
+  let @2 = a[ramp(0, 1, 8)] in
+  let @3 = step$gang8_p0_v1(p, @2) in
+  let i = ramp(0, 1, 8) in
+  let @4 = (*p) in
+  let @5 = @4.c in
+  let @6 = @5.n in
+  let @7 = cast<f32x8>(@6) in
+  let @8 = @3 + @7 in
+  out[ramp(0, 1, 8)] = @8
+  return
+}
+
+func tally(a : f32[8], out : mut f32[8]) -> void {
+  alloc t : mut Tally$v8
+  let @0 = build<Tally>(0f, 0) in
+  let @10 = @0.total in
+  let @11 = f32x8(@10) in
+  let @12 = @0.count in
+  let @13 = i32x8(@12) in
+  let @14 = build<Tally$v8>(@11, @13) in
+  t = @14
+  let @1 = a[ramp(0, 1, 8)] in
+  bump$gang8_p0_v1(t, @1)
+  let i = ramp(0, 1, 8) in
+  let @2 = (*t) in
+  let @3 = @2.total in
+  let @4 = (*t) in
+  let @5 = @4.count in
+  let @6 = cast<f32x8>(@5) in
+  let @7 = @3 + @6 in
+  out[ramp(0, 1, 8)] = @7
+  return
+}
+
+func tally_some(a : f32[8], out : mut f32[8]) -> void {
+  alloc t : mut Tally$v8
+  let @0 = build<Tally>(1f, 0) in
+  let @8 = @0.total in
+  let @9 = f32x8(@8) in
+  let @10 = @0.count in
+  let @11 = i32x8(@10) in
+  let @12 = build<Tally$v8>(@9, @11) in
+  t = @12
+  let _t1 = a[ramp(0, 1, 8)] in
+  let @13 = f32x8(0f) in
+  let @2 = @13 < _t1 in
+  let @14 = boolx8(false) in
+  let @15 = boolx8(true) in
+  let @6 = select(@2, @14, @15) in
+  bump$gang8_p0_v1$masked(t, _t1, @2)
+  let @3 = (*t) in
+  let @4 = @3.total in
+  out[ramp(0, 1, 8)] = @4
+  return
+}
+
+func [[noinline]] tick(c : mut (Counter*)) -> i32 {
+  let @0 = (*c) in
+  let @1 = @0.n in
+  let @2 = @1 + 1 in
+  c.n = @2
+  let @4 = (*c) in
+  let @5 = @4.n in
+  return @5
+}
+
+func [[noinline]] tick$gang8_p0(c : mut (Counter$v8*)) -> i32x8 {
+  let @0 = (*c) in
+  let @1 = @0.n in
+  let @6 = i32x8(1) in
+  let @2 = @1 + @6 in
+  c.n = @2
+  let @4 = (*c) in
+  let @5 = @4.n in
+  return @5
+}
+
+
+schedule host {
+    stepping.vectorize(i)
+    tally.vectorize(i)
+    tally_some.vectorize(i)
+
+}

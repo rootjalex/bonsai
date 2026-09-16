@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_loop_carried.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_loop_carried.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_loop_carried.o tests/bonsai/correctness/cpp/vectorize_loop_carried.o -o tests/bonsai/correctness/cpp/vectorize_loop_carried
+[test] ./tests/bonsai/correctness/cpp/vectorize_loop_carried
+6.01562 2.5625 4.1875 9.04688 4.1875 2.5625 6.04688 9.04688
+same as scalar

@@ -158,7 +158,12 @@ vector<Candidate> find_candidates(Function &func, const set<string> &region) {
             continue;
         }
         for (const auto &instr : block->instrs) {
-            if (instr->op != Instruction::Op::Alloca) {
+            // Both kinds of allocation: which memory a `mut` local was given
+            // is a size heuristic (see Allocate::make), and either way it is
+            // a slot the function owns, holding one value, that a register
+            // can hold instead.
+            if (instr->op != Instruction::Op::Alloca &&
+                instr->op != Instruction::Op::Alloc) {
                 continue;
             }
             // An array's name is bound to its elements rather than to a slot
@@ -300,18 +305,84 @@ size_t promote_allocas(Function &func, const string &entry) {
         return 0;
     }
 
+    size_t promoted = 0;
     for (const Candidate &c : candidates) {
         // Where the value is (re)defined, and hence where the joins that need
         // a block argument for it are.
         set<string> defs = {c.block};
+        set<string> stores_in;
         for (const string &name : region) {
             for (const auto &instr : blocks.at(name)->instrs) {
-                if (instr->op == Instruction::Op::Store &&
+                if ((instr->op == Instruction::Op::Store ||
+                     accumulate_binop(instr->op).has_value()) &&
                     refers_to(*instr->operands[0], c.name)) {
                     defs.insert(name);
+                    stores_in.insert(name);
                 }
             }
         }
+
+        // A local that is read, or merged at a join, on a path that never
+        // assigned it has no value to hand the read or the join: the program
+        // is reading uninitialized memory there, and this form has nothing to
+        // stand for that. Such a local stays in memory. Whether every path
+        // has assigned it is a must-reach problem -- assigned on entry to a
+        // block if assigned on exit from all of its predecessors.
+        //
+        // The usual case is a slot declared at the top of a function and
+        // first written inside a loop: the loop's header merges the slot from
+        // the entry, where nothing has written it, with the latch, where
+        // something has.
+        const map<string, bool> assigned_in = solve_dataflow<bool>(
+            entry, succs, preds, Direction::Forward, /*init=*/true,
+            /*boundary=*/false,
+            [&](const string &name, const bool &in) {
+                return in || stores_in.count(name) > 0;
+            },
+            [](const bool &a, const bool &b) { return a && b; });
+        const auto assigned_out = [&](const string &name) {
+            const auto it = assigned_in.find(name);
+            return (it != assigned_in.end() && it->second) ||
+                   stores_in.count(name) > 0;
+        };
+        bool always_assigned = true;
+        for (const string &name : region) {
+            const Block &block = *blocks.at(name);
+            const auto in = assigned_in.find(name);
+            bool assigned = in != assigned_in.end() && in->second;
+            for (const auto &instr : block.instrs) {
+                const bool addresses = !instr->operands.empty() &&
+                                       refers_to(*instr->operands[0], c.name);
+                if (!addresses) {
+                    continue;
+                }
+                if (instr->op == Instruction::Op::Store) {
+                    assigned = true;
+                } else if (!assigned) {
+                    always_assigned = false; // a load, or an accumulate
+                }
+            }
+        }
+        const set<string> joins =
+            iterated_dominance_frontier(defs, frontier);
+        for (const string &join : joins) {
+            if (!dom.dominates(c.block, join)) {
+                continue;
+            }
+            const auto join_preds = preds.find(join);
+            if (join_preds == preds.end()) {
+                continue;
+            }
+            for (const string &pred : join_preds->second) {
+                if (!assigned_out(pred)) {
+                    always_assigned = false;
+                }
+            }
+        }
+        if (!always_assigned) {
+            continue;
+        }
+        promoted++;
         // Only the joins the allocation's own block dominates. The value
         // exists nowhere else: a local declared in one arm of an `if` is
         // stored to in that arm and read in that arm, and the join below the
@@ -320,7 +391,7 @@ size_t promote_allocas(Function &func, const string &entry) {
         // there is no value to hand the join and nothing past it that could
         // read one.
         set<string> phis;
-        for (const string &join : iterated_dominance_frontier(defs, frontier)) {
+        for (const string &join : joins) {
             if (dom.dominates(c.block, join)) {
                 phis.insert(join);
             }
@@ -443,7 +514,7 @@ size_t promote_allocas(Function &func, const string &entry) {
         }
     }
 
-    return candidates.size();
+    return promoted;
 }
 
 } // namespace ssa

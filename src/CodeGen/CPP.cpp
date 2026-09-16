@@ -83,6 +83,7 @@ void emit_type(std::ostream &ss, Type type) {
         }
 
         RESTRICT_VISITOR(Ref_t);
+        RESTRICT_VISITOR(ElementRef_t);
 
         void visit(const Vector_t *node) override {
             internal_assert(!contains<Ptr_t>(node->etype));
@@ -807,6 +808,104 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // void visit(const VectorShuffle *) override;
+
+    // A shuffle with constant indices is clang's __builtin_shufflevector,
+    // which takes one or two vectors of one width and the indices. More
+    // vectors than two are concatenated pairwise first; a scalar input is a
+    // one-lane vector; -1 is a lane whose value does not matter, as here.
+    void visit(const Shuffle *node) override {
+        std::vector<std::string> parts;
+        std::vector<int> widths;
+        for (const Expr &v : node->vectors) {
+            std::stringstream part;
+            BonsaiToCpp inner;
+            inner.print_no_parens(v);
+            if (v.type().is_vector()) {
+                part << "(" << inner.ss.str() << ")";
+                widths.push_back(int(v.type().lanes()));
+            } else {
+                // A one-lane vector of the scalar.
+                part << "(";
+                emit_type(part, Vector_t::make(v.type(), 1));
+                part << "{" << inner.ss.str() << "})";
+                widths.push_back(1);
+            }
+            parts.push_back(part.str());
+        }
+        // Concatenate pairwise until at most two remain, widening the
+        // narrower of a pair with lanes that do not matter.
+        while (parts.size() > 2) {
+            std::vector<std::string> next;
+            std::vector<int> next_widths;
+            for (size_t i = 0; i < parts.size(); i += 2) {
+                if (i + 1 == parts.size()) {
+                    next.push_back(parts[i]);
+                    next_widths.push_back(widths[i]);
+                    continue;
+                }
+                const int w = std::max(widths[i], widths[i + 1]);
+                std::stringstream cat;
+                cat << "__builtin_shufflevector(" << pad_to(parts[i], widths[i], w)
+                    << ", " << pad_to(parts[i + 1], widths[i + 1], w);
+                for (int k = 0; k < widths[i]; k++) {
+                    cat << ", " << k;
+                }
+                for (int k = 0; k < widths[i + 1]; k++) {
+                    cat << ", " << w + k;
+                }
+                cat << ")";
+                next.push_back(cat.str());
+                next_widths.push_back(widths[i] + widths[i + 1]);
+            }
+            parts.swap(next);
+            widths.swap(next_widths);
+        }
+        ss << "__builtin_shufflevector(";
+        if (parts.size() == 1) {
+            ss << parts[0] << ", " << parts[0];
+        } else {
+            const int w = std::max(widths[0], widths[1]);
+            ss << pad_to(parts[0], widths[0], w) << ", "
+               << pad_to(parts[1], widths[1], w);
+            // Indices into the second vector count from the padded width.
+            std::vector<int> indices = node->indices;
+            for (int &i : indices) {
+                if (i >= widths[0]) {
+                    i += w - widths[0];
+                }
+            }
+            for (const int i : indices) {
+                ss << ", " << i;
+            }
+            ss << ")";
+            if (node->indices.size() == 1) {
+                ss << "[0]";
+            }
+            return;
+        }
+        for (const int i : node->indices) {
+            ss << ", " << i;
+        }
+        ss << ")";
+        if (node->indices.size() == 1) {
+            ss << "[0]";
+        }
+    }
+
+    // `part`, a vector of `width` lanes, as one of `to` lanes, the extra ones
+    // not mattering.
+    static std::string pad_to(const std::string &part, int width, int to) {
+        if (width == to) {
+            return part;
+        }
+        std::stringstream padded;
+        padded << "__builtin_shufflevector(" << part << ", " << part;
+        for (int k = 0; k < to; k++) {
+            padded << ", " << (k < width ? k : -1);
+        }
+        padded << ")";
+        return padded.str();
+    }
     // void visit(const Ramp *) override;
 
     void visit(const Extract *node) override {
@@ -875,6 +974,10 @@ class BonsaiToCpp : ir::Printer {
     // IR printer does. Not inherited, because the base prints the union's
     // whole definition where C++ wants only its name.
     void visit(const UnionOf *node) override {
+        internal_assert(node->type.is<Union_t>())
+            << "[unimplemented] The C++ source emitter cannot build a union "
+            << "per lane (see ir::widen); -b cpp and -b llvm can: "
+            << Expr(node);
         emit_type(ss, node->type);
         ss << "{." << node->member << " = ";
         print_no_parens(node->value);
@@ -882,6 +985,13 @@ class BonsaiToCpp : ir::Printer {
     }
 
     void visit(const Access *node) override {
+        internal_assert(!node->value.type().is<Struct_t>() ||
+                        get_field_type(node->value.type(), node->field)
+                                .same_as(node->type) ||
+                        union_behind(node->value.type()) == nullptr)
+            << "[unimplemented] The C++ source emitter cannot read a member "
+            << "of a union per lane (see ir::widen); -b cpp and -b llvm can: "
+            << Expr(node);
         if (node->type.is<Ref_t>()) {
             ss << "(*"; // deref
         }
@@ -983,6 +1093,7 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Call *) override;
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
+    RESTRICT_VISITOR(RefTo);
     void visit(const Deref *node) override {
         internal_assert(!node->mask.defined())
             << "[unimplemented] masked load in C++ codegen: " << Expr(node);

@@ -1,0 +1,27 @@
+//! flags: -p ssa -b llvm
+
+// A short vector accumulated atomically into one shared slot by some lanes
+// of a gang, all the way to LLVM: the program of
+// correctness/cpp/vectorize_masked_accumulate.bonsai.
+//
+// Nothing atomic works on a `<3 x float>`, so the folded `vec3f` is added as
+// three `atomicrmw fadd`, one per component, under one branch on whether any
+// lane took the `if` (see the Accumulate visitor in CodeGen/CodeGen_LLVM.cpp).
+// The plain accumulate beside it is a load, a vector add and a store under
+// the same branch.
+import stdlib/numerics;
+
+func [[export]] sum_some(a : array[f32, 8], sums : mut array[vec3f, 2]) {
+    parfor i in 0:8 {
+        v = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+        if a[i] > 0.0 {
+            atomic sums[0] += v;
+            sums[1] += v;
+        }
+    }
+    return;
+}
+
+schedule {
+    sum_some.vectorize(i);
+}

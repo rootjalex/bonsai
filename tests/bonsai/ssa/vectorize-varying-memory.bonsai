@@ -1,0 +1,80 @@
+//! flags: -p ssa
+
+// Golden for a `mut` local whose address escapes into a call, inside a gang:
+// ispc's `varying T * uniform`, a shared address of memory laid out per lane.
+//
+// The local cannot be promoted -- the callee writes through the pointer -- so
+// each lane needs its own slot, and the allocation is widened field by field
+// (`Tally$v8`, a struct of vectors) while the pointer to it stays one address.
+// The callee is specialized for a parameter of that shape, `_p0`: inside it, a
+// load through the pointer is a vector, a store through it writes every lane's
+// slot, and under a mask only the lanes that are on. `step` hands a field of
+// its own pointer on to `tick`, so the field's address is such a pointer too.
+// The original scalar functions stay for whoever calls them that way.
+
+element Tally {
+    total : f32;
+    count : i32;
+}
+
+func [[noinline]] bump(t : mut Tally, x : f32) -> void {
+    t.total = t.total + x;
+    t.count = t.count + 1;
+    return;
+}
+
+func tally(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        t : mut Tally = {0.0, 0};
+        bump(t, a[i]);
+        out[i] = t.total + cast[[f32]](t.count);
+    }
+    return;
+}
+
+// The call is made by some lanes only, so the variant takes a mask and its
+// stores through the pointer are predicated by it.
+func tally_some(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        t : mut Tally = {1.0, 0};
+        if (a[i] > 0.0) {
+            bump(t, a[i]);
+        }
+        out[i] = t.total;
+    }
+    return;
+}
+
+element Counter {
+    n : i32;
+}
+
+element Pair {
+    c : Counter;
+    scale : f32;
+}
+
+func [[noinline]] tick(c : mut Counter) -> i32 {
+    c.n = c.n + 1;
+    return c.n;
+}
+
+func [[noinline]] step(p : mut Pair, x : f32) -> f32 {
+    k = tick(p.c);
+    return x * p.scale * cast[[f32]](k);
+}
+
+func stepping(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        c0 : Counter = {0};
+        p : mut Pair = {c0, 0.5};
+        out[i] = step(p, a[i]) + cast[[f32]](p.c.n);
+    }
+    return;
+}
+
+schedule {
+    tally.vectorize(i);
+    tally_some.vectorize(i);
+    stepping.vectorize(i);
+}

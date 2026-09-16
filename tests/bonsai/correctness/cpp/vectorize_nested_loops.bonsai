@@ -1,0 +1,60 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_nested_loops
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_nested_loops.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_nested_loops.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_nested_loops.o tests/bonsai/correctness/cpp/vectorize_nested_loops.o -o tests/bonsai/correctness/cpp/vectorize_nested_loops, ./tests/bonsai/correctness/cpp/vectorize_nested_loops, rm tests/bonsai/correctness/cpp/vectorize_nested_loops, rm tests/bonsai/correctness/cpp/main_vectorize_nested_loops.o, rm tests/bonsai/correctness/cpp/vectorize_nested_loops.h, rm tests/bonsai/correctness/cpp/vectorize_nested_loops.o
+
+// A divergent loop inside another divergent loop, in a gang.
+//
+// Each lane runs the outer loop its own number of times, and the inner loop a
+// number of times that depends on where the outer one is. Both are turned into
+// loops the gang leaves together, the inner one afresh on every iteration of
+// the outer: its live mask is seeded by the jump from its preheader, which is
+// inside the outer loop. This is the shape of a tree traversal -- a loop over
+// the stack around a loop over a leaf's primitives -- and the case the
+// uniformization used to refuse.
+//
+// Each function checks its own answer; the comment beside the store says
+// what it should be for a lane whose input is n.
+
+// The sum over a < n of the sum over b < a of b: the sum of the first n
+// triangular numbers less one, which is n (n - 1) (n - 2) / 6.
+func [[export]] nested_sum(n : array[i32, 8], out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        total : mut i32 = 0;
+        for a in 0:n[i] {
+            for b in 0:a {
+                total += b;
+            }
+        }
+        // n (n - 1) (n - 2) / 6
+        out[i] = total;
+    }
+    return;
+}
+
+// Leaves both loops at once from inside the inner one: the first (a, b) with
+// b < a < n whose product reaches the limit, or -1. The early return is an
+// exit of the inner loop that is also an exit of the outer, and a lane that
+// takes it has to keep its answer while the others go on.
+func [[noinline]] first_product_at_least(n : i32, limit : i32) -> i32 {
+    for a in 0:n {
+        for b in 0:a {
+            if (a * b >= limit) {
+                return a * 10 + b;
+            }
+        }
+    }
+    return 0 - 1;
+}
+
+func [[export]] find_pair(n : array[i32, 8], limit : i32,
+                          out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        // limit 6: -1 for n <= 3, and 32 (a = 3, b = 2) for n >= 4
+        out[i] = first_product_at_least(n[i], limit);
+    }
+    return;
+}
+
+schedule {
+    nested_sum.vectorize(i);
+    find_pair.vectorize(i);
+}

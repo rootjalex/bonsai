@@ -164,6 +164,13 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Ptr_t: {
         return compare_types(t0.as<Ptr_t>()->etype, t1.as<Ptr_t>()->etype);
     }
+    case IRTypeEnum::ElementRef_t: {
+        const ElementRef_t *r0 = t0.as<ElementRef_t>();
+        const ElementRef_t *r1 = t1.as<ElementRef_t>();
+        const Cmp tree = compare_primitives(r0->tree, r1->tree);
+        return tree != Cmp::Equals ? tree
+                                   : compare_types(r0->etype, r1->etype);
+    }
     case IRTypeEnum::Ref_t: {
         return compare_primitives(t0.as<Ref_t>()->name, t1.as<Ref_t>()->name);
     }
@@ -620,6 +627,23 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         }
         return compare_exprs(v0->value, v1->value);
     }
+    case IRExprEnum::Shuffle: {
+        const Shuffle *v0 = e0.as<Shuffle>();
+        const Shuffle *v1 = e1.as<Shuffle>();
+        if (const Cmp n = compare_primitives(v0->indices.size(),
+                                             v1->indices.size());
+            n != Cmp::Equals) {
+            return n;
+        }
+        for (size_t i = 0; i < v0->indices.size(); i++) {
+            if (const Cmp c =
+                    compare_primitives(v0->indices[i], v1->indices[i]);
+                c != Cmp::Equals) {
+                return c;
+            }
+        }
+        return compare_lists(v0->vectors, v1->vectors, compare_exprs);
+    }
     case IRExprEnum::Ramp: {
         const Ramp *v0 = e0.as<Ramp>();
         const Ramp *v1 = e1.as<Ramp>();
@@ -640,7 +664,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
             base != Cmp::Equals) {
             return base;
         }
-        return compare_exprs(v0->idx, v1->idx);
+        if (const Cmp idx = compare_exprs(v0->idx, v1->idx);
+            idx != Cmp::Equals) {
+            return idx;
+        }
+        if (v0->mask.defined() != v1->mask.defined()) {
+            return v0->mask.defined() ? Cmp::Greater : Cmp::Less;
+        }
+        return v0->mask.defined() ? compare_exprs(v0->mask, v1->mask)
+                                  : Cmp::Equals;
     }
     case IRExprEnum::Build: {
         const Build *v0 = e0.as<Build>();
@@ -795,6 +827,13 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         const PtrTo *v0 = e0.as<PtrTo>();
         const PtrTo *v1 = e1.as<PtrTo>();
         return compare_exprs(v0->expr, v1->expr);
+    }
+    case IRExprEnum::RefTo: {
+        const RefTo *v0 = e0.as<RefTo>();
+        const RefTo *v1 = e1.as<RefTo>();
+        const Cmp tree = compare_primitives(v0->tree, v1->tree);
+        return tree != Cmp::Equals ? tree
+                                   : compare_exprs(v0->place, v1->place);
     }
     case IRExprEnum::Deref: {
         const Deref *v0 = e0.as<Deref>();

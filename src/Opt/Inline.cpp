@@ -80,6 +80,10 @@ struct BodyShape : ir::Visitor {
         statements++;
         Visitor::visit(node);
     }
+    void visit(const ir::SwitchStmt *node) override {
+        statements++;
+        Visitor::visit(node);
+    }
     void visit(const ir::CallStmt *node) override {
         statements++;
         Visitor::visit(node);
@@ -145,6 +149,31 @@ bool nestable(const std::vector<ir::Stmt> &stmts) {
             // Whatever follows is unreachable.
             return true;
         }
+        if (const auto *sw = s.as<ir::SwitchStmt>()) {
+            // The arms of a switch, by the same rule: an arm that mentions a
+            // return must return on every path, and the statements after the
+            // switch move into every arm that does not return.
+            bool any_mentions = false;
+            bool all_return = true;
+            for (const ir::Stmt &arm : sw->arms) {
+                const bool mentions = arm.defined() && mentions_return(arm);
+                const bool returns = arm.defined() && ir::always_returns(arm);
+                if (mentions && (!returns || !nestable(flatten(arm)))) {
+                    return false;
+                }
+                any_mentions = any_mentions || mentions;
+                all_return = all_return && returns;
+            }
+            if (!any_mentions) {
+                continue;
+            }
+            if (all_return) {
+                // Every arm is done; whatever follows is unreachable.
+                return true;
+            }
+            std::vector<ir::Stmt> rest(stmts.begin() + i + 1, stmts.end());
+            return nestable(rest);
+        }
         const auto *ie = s.as<ir::IfElse>();
         if (ie == nullptr) {
             // Anything else may not hide a return: loops are excluded
@@ -204,6 +233,41 @@ struct Nester {
                     out.push_back(ir::Store::make(ir::WriteLoc(result, type),
                                                   r->value));
                 }
+                return sequence(std::move(out));
+            }
+            if (const auto *sw = s.as<ir::SwitchStmt>()) {
+                bool any_mentions = false;
+                bool all_return = true;
+                for (const ir::Stmt &arm : sw->arms) {
+                    any_mentions = any_mentions ||
+                                   (arm.defined() && mentions_return(arm));
+                    all_return = all_return &&
+                                 (arm.defined() && ir::always_returns(arm));
+                }
+                if (!any_mentions) {
+                    out.push_back(s);
+                    continue;
+                }
+                // The statements after the switch go into every arm that
+                // falls out of it, where they run exactly when the function
+                // would have gone on to them (see `nestable`); into more
+                // than one arm when more than one does.
+                std::vector<ir::Stmt> rest(stmts.begin() + i + 1, stmts.end());
+                std::vector<ir::Stmt> arms;
+                arms.reserve(sw->arms.size());
+                for (const ir::Stmt &arm : sw->arms) {
+                    std::vector<ir::Stmt> arm_stmts = flatten(arm);
+                    if (!arm.defined() || !ir::always_returns(arm)) {
+                        internal_assert(!arm.defined() || !mentions_return(arm))
+                            << "An arm that returns on some paths only: " << s;
+                        if (!all_return) {
+                            arm_stmts.insert(arm_stmts.end(), rest.begin(),
+                                             rest.end());
+                        }
+                    }
+                    arms.push_back(rewrite(arm_stmts));
+                }
+                out.push_back(ir::SwitchStmt::make(sw->value, std::move(arms)));
                 return sequence(std::move(out));
             }
             const auto *ie = s.as<ir::IfElse>();
@@ -401,6 +465,17 @@ class Inliner : public ir::Mutator {
             node->else_body.defined() ? mutate(node->else_body) : ir::Stmt();
         return with(std::move(pre),
                     ir::IfElse::make(cond, then_body, else_body));
+    }
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        std::vector<ir::Stmt> pre;
+        ir::Expr value = mutate_hoisting(node->value, pre);
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::Stmt &arm : node->arms) {
+            arms.push_back(mutate(arm));
+        }
+        return with(std::move(pre),
+                    ir::SwitchStmt::make(std::move(value), std::move(arms)));
     }
 
     // A nested sequence is opened into its parent, so that a `let` a

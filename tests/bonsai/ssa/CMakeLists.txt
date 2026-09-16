@@ -24,12 +24,19 @@ add_bonsai_tests(
     sort-recursion.bonsai
     split.bonsai
     split-unsigned.bonsai
+    switch-merge.bonsai
     traverse.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
     vectorize-arm-local.bonsai
     vectorize-loop.bonsai
+    vectorize-masked-accumulate.bonsai
+    vectorize-short-vectors.bonsai
     vectorize-soa.bonsai
+    vectorize-sorted-traversal.bonsai
+    vectorize-switch-constant-merge.bonsai
+    vectorize-union.bonsai
+    vectorize-varying-memory.bonsai
     while-loops.bonsai
 )
 

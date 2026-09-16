@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_tree_traversal_sorted.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_tree_traversal_sorted.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_tree_traversal_sorted.o tests/bonsai/correctness/cpp/vectorize_tree_traversal_sorted.o -o tests/bonsai/correctness/cpp/vectorize_tree_traversal_sorted
+[test] ./tests/bonsai/correctness/cpp/vectorize_tree_traversal_sorted
+0 10 21 30 51 40 -1 10
+same as scalar

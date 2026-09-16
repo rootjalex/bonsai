@@ -77,6 +77,16 @@ shared_ptr<Function> clone_function(const Function &func) {
             auto instr_copy = std::make_shared<Instruction>(
                 instr->name, instr->type, instr->op,
                 vector<shared_ptr<Value>>{}, copy);
+            // Everything an instruction carries besides its operands: which
+            // intrinsic or reduction it is, what it asks the size of, the
+            // lanes it shuffles, whether it is atomic. An instruction is
+            // its opcode and these together, and a copy that kept only the
+            // opcode would be a different instruction.
+            instr_copy->queried_type = instr->queried_type;
+            instr_copy->intrinsic = instr->intrinsic;
+            instr_copy->reduce = instr->reduce;
+            instr_copy->shuffle = instr->shuffle;
+            instr_copy->atomic = instr->atomic;
             instrs[instr.get()] = instr_copy;
             copy->instrs.push_back(instr_copy);
             // The copy's name counter starts from zero, so it has to be told

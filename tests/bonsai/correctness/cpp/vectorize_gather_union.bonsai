@@ -1,0 +1,51 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_gather_union
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_gather_union.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_gather_union.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_gather_union.o tests/bonsai/correctness/cpp/vectorize_gather_union.o -o tests/bonsai/correctness/cpp/vectorize_gather_union, ./tests/bonsai/correctness/cpp/vectorize_gather_union, rm tests/bonsai/correctness/cpp/vectorize_gather_union, rm tests/bonsai/correctness/cpp/main_vectorize_gather_union.o, rm tests/bonsai/correctness/cpp/vectorize_gather_union.h, rm tests/bonsai/correctness/cpp/vectorize_gather_union.o
+
+// A variant read out of an array at an index that differs per lane, then
+// matched on.
+//
+// The shape of a primitive fetched from a scene's array in a traversal: a
+// tag and a union, one per lane, each lane's at its own index. The tag is
+// gathered like any scalar; the union is loaded whole per lane into the
+// struct of one union per lane a gang carries it as (see ir::widen), and the
+// match then reads one member of every lane at once -- the transpose
+// CodeGen_LLVM lowers as an interleave. Every lane picks a different element,
+// so every gang holds all three variants, and each lane's answer must match
+// the scalar read. Lanes whose index is past the end skip the read.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func weigh(b : Blob) -> f32 {
+    match b {
+        Whole(x) => return x * 2.0;
+        Split(lo, hi) => return cast[[f32]](lo + hi);
+        Wide(v, neg) => return select(neg, -(v.x + v.y + v.z), v.x + v.y + v.z);
+    }
+}
+
+func pick(blobs : array[Blob, 12], i : i32) -> f32 {
+    if i < 12 {
+        return weigh(blobs[i]);
+    }
+    return -1.0;
+}
+
+func [[export]] pick_one(blobs : array[Blob, 12], i : i32) -> f32 {
+    return pick(blobs, i);
+}
+
+func [[export]] pick_all(blobs : array[Blob, 12], idx : array[i32, 8],
+                         out : mut array[f32, 8]) {
+    parfor l in 0:8 {
+        out[l] = pick(blobs, idx[l]);
+    }
+    return;
+}
+
+schedule {
+    pick_all.vectorize(l);
+}

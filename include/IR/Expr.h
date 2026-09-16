@@ -34,6 +34,7 @@ enum class IRExprEnum {
     Broadcast,
     VectorReduce,
     VectorShuffle,
+    Shuffle,
     Ramp,
     Extract,
     // Struct ops.
@@ -54,6 +55,7 @@ enum class IRExprEnum {
     Instantiate,
     // Pointer operations
     PtrTo,
+    RefTo,
     Deref,
     AtomicAdd,
 };
@@ -301,6 +303,70 @@ struct VectorShuffle : ExprNode<VectorShuffle> {
     static const IRExprEnum node_type = IRExprEnum::VectorShuffle;
 };
 
+// A vector made by picking elements out of one or more vectors, each by a
+// constant index into their concatenation: Halide's Shuffle. The constant
+// indices are the point. A shuffle whose indices are known is a permutation
+// the backend can lower as a whole -- and the ones that matter are not
+// arbitrary permutations but a few shapes with names, which this node
+// recognizes so that code generation can pick the lowering by shape:
+//
+//   interleave(a, b, c)   a0 b0 c0 a1 b1 c1 ..     structure of arrays to
+//                                                  array of structures
+//   transpose(v, f)       v0 vf v2f .. v1 v(f+1) .. the inverse: every f-th
+//                                                  element, f vectors' worth
+//   concat(a, b)          a0 .. an b0 .. bn
+//   slice(v, b, s, n)     vb v(b+s) .. v(b+(n-1)s)
+//   broadcast(v, k)       v v .. v                 k copies
+//
+// The interleave and the transpose are how an array of structures in a gang
+// of lanes -- one union per lane, one struct per lane -- is turned into the
+// structure of vectors the lanes compute on and back; see
+// CodeGen_LLVM::interleave_vectors for the lowering, which follows Halide's,
+// after Catanzaro, Keller and Garland, "A Decomposition for In-place Matrix
+// Transposition", PPoPP 2014.
+//
+// Distinct from VectorShuffle above, whose indices are values: that is a
+// per-element gather out of a vector, lowered one element at a time, and it
+// is what the source's `shuffle(v, i, j, ..)` builds when the indices are not
+// constants.
+struct Shuffle : ExprNode<Shuffle> {
+    // All of one element type. A scalar counts as a vector of one lane.
+    std::vector<Expr> vectors;
+    // One per lane of the result, into the concatenation of `vectors`. A
+    // negative index is a lane whose value does not matter.
+    std::vector<int> indices;
+
+    static Expr make(std::vector<Expr> vectors, std::vector<int> indices);
+
+    // The structured shapes, by name.
+    static Expr make_interleave(std::vector<Expr> vectors);
+    static Expr make_concat(std::vector<Expr> vectors);
+    static Expr make_broadcast(Expr vector, int factor);
+    static Expr make_slice(Expr vector, int begin, int stride, int size);
+    static Expr make_extract_element(Expr vector, int index);
+    // Every `factor`-th element gathered together: the elements at 0, f, 2f,
+    // .. then those at 1, f + 1, .. and so on, which is `factor` slices of
+    // stride `factor` concatenated -- the inverse of interleaving `factor`
+    // vectors. The lanes must divide by `factor`.
+    static Expr make_transpose(Expr vector, int factor);
+
+    // The lanes `vectors` contribute between them.
+    int input_lanes() const;
+
+    bool is_interleave() const;
+    bool is_concat() const;
+    bool is_broadcast() const;
+    int broadcast_factor() const;
+    bool is_slice() const;
+    int slice_begin() const;
+    int slice_stride() const;
+    bool is_extract_element() const;
+    bool is_transpose() const;
+    int transpose_factor() const;
+
+    static const IRExprEnum node_type = IRExprEnum::Shuffle;
+};
+
 struct Ramp : ExprNode<Ramp> {
     Expr base, stride;
     int lanes;
@@ -312,9 +378,17 @@ struct Ramp : ExprNode<Ramp> {
 
 struct Extract : ExprNode<Extract> {
     Expr vec, idx;
+    // Predication, for a read of one element per lane out of memory (a
+    // gather: `idx` a vector). Undefined means every lane reads; otherwise a
+    // boolean vector with one entry per lane, and a disabled lane reads as
+    // zero rather than touching memory -- its index may be anything, a
+    // sentinel the program only ever tests, and a read at it would be a read
+    // the program never makes.
+    Expr mask;
 
     static Expr make(Expr vec, int idx);
     static Expr make(Expr vec, Expr idx);
+    static Expr make(Expr vec, Expr idx, Expr mask);
 
     static const IRExprEnum node_type = IRExprEnum::Extract;
 };
@@ -662,6 +736,20 @@ struct PtrTo : ExprNode<PtrTo> {
     static Expr make(Expr expr);
 
     static const IRExprEnum node_type = IRExprEnum::PtrTo;
+};
+
+// A reference to `place`, an element of the leaves of the tree named `tree`:
+// which element it is, with the representation left to the layout lowering
+// (see ElementRef_t). Reading through one is a Deref, as through a pointer;
+// the difference from PtrTo is only what the reference is made of, and that
+// is decided later.
+struct RefTo : ExprNode<RefTo> {
+    Expr place;
+    std::string tree;
+
+    static Expr make(Expr place, std::string tree);
+
+    static const IRExprEnum node_type = IRExprEnum::RefTo;
 };
 
 struct Deref : ExprNode<Deref> {

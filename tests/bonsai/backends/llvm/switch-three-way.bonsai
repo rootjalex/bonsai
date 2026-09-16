@@ -1,0 +1,23 @@
+//! flags: -p ssa -b llvm
+
+// A three-variant match, all the way to LLVM: a `switch` instruction on the
+// tag with a case per variant but the last, which is the default (see
+// ir::SwitchStmt), rather than a chain of compares and branches. Two variants
+// would not show it -- LLVM folds a one-case switch back into a compare -- so
+// there are three, and the arms both fall through to a merge and return.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func [[export]] weigh(b : Blob, k : f32) -> f32 {
+    acc : mut = k;
+    match b {
+        Whole(x) => { acc = acc + x * 2.0; }
+        Split(lo, hi) => return cast[[f32]](lo + hi);
+        Wide(v, neg) => { acc = acc - select(neg, v.x, v.y); }
+    }
+    return acc * 3.0;
+}

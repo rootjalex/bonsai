@@ -11,6 +11,7 @@ add_bonsai_tests(
     collision.bonsai
     defer-dbl-buffer.bonsai
     defer.bonsai
+    element-reference-variant.bonsai
     exported-function.bonsai
     extent-after-functions.bonsai
     externs-order.bonsai

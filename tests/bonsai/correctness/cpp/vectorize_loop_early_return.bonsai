@@ -1,0 +1,46 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_loop_early_return
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.o tests/bonsai/correctness/cpp/vectorize_loop_early_return.o -o tests/bonsai/correctness/cpp/vectorize_loop_early_return, ./tests/bonsai/correctness/cpp/vectorize_loop_early_return, rm tests/bonsai/correctness/cpp/vectorize_loop_early_return, rm tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.o, rm tests/bonsai/correctness/cpp/vectorize_loop_early_return.h, rm tests/bonsai/correctness/cpp/vectorize_loop_early_return.o
+
+// A divergent loop left early with a value defined inside its body.
+//
+// The shape of pbrt's path loop: each iteration computes a `found` of its
+// own, a branch inside the body may `return found`, and otherwise the loop
+// goes round with a value derived from it. The early return is an exit of the
+// loop whose block reads `found` directly -- sound while the block hangs off
+// the join that declares it, but once the loop is uniformized every exit is
+// reached from the header's test and nothing in the body dominates it, so the
+// value has to be carried out through the exit edge and captured by a tracker
+// at the iteration the lane left on. The trip count and the exit iteration
+// differ per lane, and every lane's answer must match the scalar function.
+func walk(x_in : f32, n : i32) -> f32 {
+    x : mut f32 = x_in;
+    i : mut i32 = 0;
+    while i < n {
+        found : mut f32 = x * 2.0;
+        if x > 10.0 {
+            found = found + 1.0;
+        }
+        if found > 40.0 {
+            return found;
+        }
+        x = found * 0.75 + cast[[f32]](i);
+        i = i + 1;
+    }
+    return x;
+}
+
+func [[export]] walk_one(x : f32, n : i32) -> f32 {
+    return walk(x, n);
+}
+
+func [[export]] walk_all(xs : array[f32, 8], ns : array[i32, 8],
+                         out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = walk(xs[i], ns[i]);
+    }
+    return;
+}
+
+schedule {
+    walk_all.vectorize(i);
+}

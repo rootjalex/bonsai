@@ -80,6 +80,10 @@ struct Shape : Visitor {
         statements++;
         Visitor::visit(node);
     }
+    void visit(const SwitchStmt *node) override {
+        statements++;
+        Visitor::visit(node);
+    }
     void visit(const IfElse *node) override {
         if (facts != nullptr) {
             if (std::optional<bool> value = decided(*facts, node->cond)) {

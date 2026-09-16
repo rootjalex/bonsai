@@ -28,11 +28,26 @@ add_bonsai_tests(
     vectorize_calls.bonsai
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
+    vectorize_gather_struct.bonsai
+    vectorize_gather_union.bonsai
     vectorize_locals.bonsai
     vectorize_loop.bonsai
+    vectorize_loop_carried.bonsai
+    vectorize_loop_early_return.bonsai
+    vectorize_masked_accumulate.bonsai
+    vectorize_nested_loops.bonsai
+    vectorize_parfor.bonsai
     vectorize_shapes.bonsai
+    vectorize_tree_traversal.bonsai
+    vectorize_tree_traversal_mixed.bonsai
+    vectorize_tree_traversal_sorted.bonsai
+    vectorize_uniform_branch.bonsai
+    vectorize_union.bonsai
     vectorize_soa.bonsai
     vectorize_visect.bonsai
     vectorize_scale.bonsai
+    vectorize_short_vectors.bonsai
     vectorize_stride.bonsai
+    vectorize_switch_merge.bonsai
+    vectorize_varying_memory.bonsai
 )

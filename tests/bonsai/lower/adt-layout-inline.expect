@@ -27,12 +27,15 @@ func _unexported_Shape_Tri(a : f32x3, b : f32x3) -> Shape {
 }
 
 func [[export]] size(s : (Shape*)) -> f32 {
-  if ((*s).tag == 0u) {
+  switch ((*s).tag) {
+  case 0: {
     let radius = (*s).payload.Sph.radius in
     return radius
-  } else {
+  } break;
+  default: {
     let a = (*s).payload.Tri.a in
     return a[0u]
+  }
   }
 }
 

@@ -1,0 +1,50 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for a variant built, carried and matched per lane.
+//
+// A gang holding a union per lane is a struct of eight unions (see ir::widen),
+// and reading one member of every lane, or making every lane's union from a
+// member value per lane, is a transpose between that array of unions and the
+// struct of gang-wide vectors the member is otherwise carried as. What to
+// read for in `weigh_all`: the transposes lowered as shuffle networks --
+// `shufflevector` in interleave and deinterleave patterns, with
+// `llvm.arithmetic.fence` between the stages so LLVM does not fuse them back
+// into its own poorer sequence (see CodeGen_LLVM::interleave_vectors) -- and
+// no loop over lanes and no scalar load or store per lane per field. The
+// same program runs in correctness/cpp/vectorize_union.bonsai.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func make_blob(v : f32, i : i32) -> Blob {
+    if (i % 3 == 0) {
+        return Whole(v);
+    }
+    if (i % 3 == 1) {
+        return Split(i, i * 10);
+    }
+    return Wide(vec3f{v, 2.0 * v, 3.0 * v}, v < 0.0);
+}
+
+func weigh(b : Blob) -> f32 {
+    match b {
+        Whole(x) => return x * 2.0;
+        Split(lo, hi) => return cast[[f32]](lo + hi);
+        Wide(v, neg) => return select(neg, -(v.x + v.y + v.z), v.x + v.y + v.z);
+    }
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        b : Blob = make_blob(a[i], cast[[i32]](i));
+        out[i] = weigh(b);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

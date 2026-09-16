@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for a `mut` local the gang keeps a copy of per lane
+// and hands to a callee by pointer. Two things only the IR can show:
+//
+//   * the local is one `alloca` of a struct of vectors (`Tally$v8`), not a
+//     scalar struct the gang stores eight lanes' worth into -- which is what
+//     it was before, and overran the slot;
+//   * the callee variant made under a mask writes through the pointer with
+//     `llvm.masked.store`, one per field, so the lanes that did not make the
+//     call keep their slots.
+//
+// A wrong lowering here can still compute plausible numbers on a run where
+// the overrun lands on nothing that matters.
+
+element Tally {
+    total : f32;
+    count : i32;
+}
+
+func [[noinline]] bump(t : mut Tally, x : f32) -> void {
+    t.total = t.total + x;
+    t.count = t.count + 1;
+    return;
+}
+
+func tally_some(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        t : mut Tally = {1.0, 0};
+        if (a[i] > 0.0) {
+            bump(t, a[i]);
+        }
+        out[i] = t.total * 10.0 + cast[[f32]](t.count);
+    }
+    return;
+}
+
+schedule {
+    tally_some.vectorize(i);
+}

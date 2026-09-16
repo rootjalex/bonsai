@@ -28,6 +28,7 @@ enum class IRTypeEnum {
     String_t,
     Ptr_t,
     Ref_t,
+    ElementRef_t,
     Vector_t,
     Struct_t,
     Tuple_t,
@@ -215,6 +216,27 @@ struct Ref_t : TypeNode<Ref_t> {
     static const IRTypeEnum node_type = IRTypeEnum::Ref_t;
 };
 
+// A reference to an element of a tree's leaves -- which element the best hit
+// of an `argmin` was, say -- whose representation is the layout's to decide.
+// The query lowering says only that it remembers *which* element (see
+// RefTo); the layout lowering knows where the tree's elements are kept and
+// lowers this to the minimal bits that pick one out, an index into that
+// container, so that the type never becomes an address. An address is a
+// layout the program did not write: sixty-four bits bound to one address
+// space, that cannot go to another device or be serialized, and that a SIMD
+// gang would have to carry as a vector of pointers. See
+// Lower/ElementReferences.cpp.
+struct ElementRef_t : TypeNode<ElementRef_t> {
+    // What is referred to.
+    Type etype;
+    // The tree whose leaves hold it, by the name the schedule gave the tree.
+    std::string tree;
+
+    static Type make(Type etype, std::string tree);
+
+    static const IRTypeEnum node_type = IRTypeEnum::ElementRef_t;
+};
+
 struct Vector_t : TypeNode<Vector_t> {
     Type etype;
     uint32_t lanes;
@@ -325,6 +347,68 @@ struct ADT_t : TypeNode<ADT_t> {
 // Only the backend can work out the size and alignment, so this reaches code
 // generation rather than being flattened before it. See Type::bytes(), which
 // says as much.
+// The name of component `k` of a value widened to one gang-wide vector per
+// component, and of lane `k` of a union widened to one union per lane (see
+// widen).
+std::string component_field(uint32_t k);
+
+// The form of a value of `type` that a gang of `lanes` lanes holds one of per
+// lane: what SSA/Vectorize.cpp turns a varying value's type into.
+//
+// A scalar becomes a vector as wide as the gang. A struct is widened field by
+// field, into a struct of the same shape whose members are the widened field
+// types -- ISPC's varying-struct representation, `struct { x: f32, y: f32 }`
+// becoming `struct { x: f32x8, y: f32x8 }` rather than a vector of structs,
+// which no backend can spell (a vector's elements must be primitive, but a
+// struct's members may be vectors). The name gains a suffix so the widened
+// struct is a type distinct from the scalar one it came from.
+//
+// A lane's own short vector -- a `vec3f` -- is widened the same way, as a
+// struct with one gang-wide vector per component: `f32x3` becomes `f32x3$v8 =
+// { !0: f32x8, !1: f32x8, !2: f32x8 }`. That is ispc's `varying float<3>`,
+// laid out component-major so that a component across the gang is one
+// contiguous vector, and it is the only shape available: a vector of vectors
+// is not a type either backend has. Arithmetic on such a value never reaches
+// this form -- SSA/SplitAggregates.h takes a per-lane vector apart into its
+// components before widening, so each becomes an ordinary gang vector -- but a
+// vector that is a field of a struct, that lives in per-lane memory, or that
+// crosses a block boundary or a return is carried whole, and this is what it
+// is carried as.
+//
+// A union is widened as a vector of the union: one scalar union per lane,
+// each lane's bytes kept separate exactly as the scalar code keeps them, so
+// that the gang's footprint is the lane count times the largest member and a
+// lane may hold whichever member it likes regardless of its neighbours. As a
+// vector of aggregates is not a type either backend has, the vector is spelled
+// as a struct with one field per lane: `_ref0_payload$v8 = { !0: _ref0_payload,
+// .., !7: _ref0_payload }` (see union_behind). Reading a member of every lane
+// at once, or making every lane's union from a member value per lane, is then
+// an array-of-structures to structure-of-arrays transpose, which the backends
+// lower as an interleave (see ir::Shuffle). The alternative, one gang-wide slot
+// per member, would make those reads single vector operations but cost the sum
+// of the members' sizes per gang rather than the largest, and was rejected for
+// it.
+Type widen(const Type &type, uint32_t lanes);
+
+// The inverse of widen: the type a lane holds one of, from its gang-wide
+// form. Read off the shape widen() makes -- a vector as wide as the gang, a
+// struct named with the `$v<lanes>` suffix, a struct of one gang vector per
+// component (named for the short vector, with its packedness), a struct of one
+// union per lane -- so it is defined only on those.
+Type narrow(const Type &type, uint32_t lanes);
+
+// The lane count of a gang-wide aggregate -- a struct widen() built, which
+// its name says -- or nothing for any other type. A vector alone does not
+// tell: a lane's own short vector can be as wide as a gang.
+std::optional<uint32_t> widened_lanes(const Type &type);
+
+// The union a value of `type` holds one of per lane: `type` itself when it is
+// a union, or the union every field of `type` is when `type` is the struct a
+// vectorized union widens to (see widen). Nothing otherwise. What is asked
+// about a union's members (which member a name is, what type it has) is the
+// same for the widened form, and this is what lets the two be asked alike.
+const Union_t *union_behind(const Type &type);
+
 struct Union_t : TypeNode<Union_t> {
     using Map = std::vector<TypedVar>;
 

@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for a per-lane `vec3f` carried whole: the type a
+// gang's vector widens to is a struct of three gang vectors
+// (`%"struct.f32x3$v8" = { <8 x float>, <8 x float>, <8 x float> }`), the
+// per-lane `Ray$v8` holds two of them, and the store `advance` makes through
+// its pointer under a mask is three masked stores, one per component. Nothing
+// but the IR shows the layout: a wrong one still computes plausible numbers
+// while the components sit interleaved where the next field should be.
+
+element vec3f = vector[f32, 3];
+
+element Ray {
+    o : vec3f;
+    d : vec3f;
+    tmax : f32;
+}
+
+func [[noinline]] advance(r : mut Ray, t : f32) -> void {
+    r.o = r.o + r.d * t;
+    r.tmax = r.tmax - t;
+    return;
+}
+
+func flip_negative(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        d = vec3f{a[i], a[i] * 2.0, a[i] * 3.0};
+        r : mut Ray = {d, d, 1.0};
+        if (a[i] < 0.0) {
+            advance(r, 0.0 - 1.0);
+        }
+        out[i] = sum(r.o * r.o) + r.tmax;
+    }
+    return;
+}
+
+schedule {
+    flip_negative.vectorize(i);
+}

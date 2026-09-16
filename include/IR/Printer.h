@@ -93,6 +93,7 @@ struct Printer : public Visitor {
     void visit(const Bool_t *) override;
     void visit(const String_t *) override;
     void visit(const Ptr_t *) override;
+    void visit(const ElementRef_t *) override;
     void visit(const Ref_t *) override;
     void visit(const Vector_t *) override;
     void visit(const Struct_t *) override;
@@ -131,6 +132,7 @@ struct Printer : public Visitor {
     void print(const VectorReduce::OpType &op);
     void visit(const VectorReduce *) override;
     void visit(const VectorShuffle *) override;
+    void visit(const Shuffle *) override;
     void visit(const Ramp *) override;
     void visit(const Extract *) override;
     void visit(const Build *) override;
@@ -148,6 +150,7 @@ struct Printer : public Visitor {
     void visit(const Call *) override;
     void visit(const Instantiate *) override;
     void visit(const PtrTo *) override;
+    void visit(const RefTo *) override;
     void visit(const Deref *) override;
     void visit(const AtomicAdd *) override;
     // Stmts
@@ -157,6 +160,7 @@ struct Printer : public Visitor {
     void visit(const Return *) override;
     void visit(const LetStmt *) override;
     void visit(const IfElse *) override;
+    void visit(const SwitchStmt *) override;
     void visit(const DoWhile *) override;
     void visit(const While *) override;
     void visit(const Sequence *) override;

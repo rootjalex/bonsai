@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_loop_early_return.o tests/bonsai/correctness/cpp/vectorize_loop_early_return.o -o tests/bonsai/correctness/cpp/vectorize_loop_early_return
+[test] ./tests/bonsai/correctness/cpp/vectorize_loop_early_return
+6.875 60.75 42.8438 51 49.375 45 61 2
+same as scalar

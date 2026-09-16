@@ -633,13 +633,18 @@ func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
 
     // pbrt substitutes these for a mesh with no texture coordinates of its own.
     // Per triangle rather than per vertex, which is why they cannot live in the
-    // pool beside the ones a mesh does bring.
-    uv0 = select(m.has_uv, mesh_uvs[m.first_uv + i0 - m.first_vertex],
-                 vec2f{0.0, 0.0});
-    uv1 = select(m.has_uv, mesh_uvs[m.first_uv + i1 - m.first_vertex],
-                 vec2f{1.0, 0.0});
-    uv2 = select(m.has_uv, mesh_uvs[m.first_uv + i2 - m.first_vertex],
-                 vec2f{1.0, 1.0});
+    // pool beside the ones a mesh does bring. An `if`, as pbrt's
+    // `mesh->uv ? ... : ...` is, and not a select: a select evaluates both of
+    // its arms, and a mesh without texture coordinates has nothing at
+    // `mesh_uvs` to read -- the scene need not hand over an address at all.
+    uv0 : mut vec2f = vec2f{0.0, 0.0};
+    uv1 : mut vec2f = vec2f{1.0, 0.0};
+    uv2 : mut vec2f = vec2f{1.0, 1.0};
+    if m.has_uv {
+        uv0 = mesh_uvs[m.first_uv + i0 - m.first_vertex];
+        uv1 = mesh_uvs[m.first_uv + i1 - m.first_vertex];
+        uv2 = mesh_uvs[m.first_uv + i2 - m.first_vertex];
+    }
 
     // pbrt: the partial derivatives, from inverting the map that the texture
     // coordinates give from the triangle to the plane.
@@ -1099,15 +1104,18 @@ func triangle_face_normal(t : Triangle, b : vec3f) -> vec3f {
 }
 
 // The texture coordinates a mesh brings, or pbrt's per-triangle (0,0),(1,0),
-// (1,1) for one that has none, interpolated at the barycentrics.
+// (1,1) for one that has none, interpolated at the barycentrics. An `if`
+// rather than a select, for the reason given in triangle_geometry.
 func triangle_uv_at(m : TriangleMesh, i0 : u32, i1 : u32, i2 : u32,
                     b : vec3f) -> vec2f {
-    uv0 = select(m.has_uv, mesh_uvs[m.first_uv + i0 - m.first_vertex],
-                 vec2f{0.0, 0.0});
-    uv1 = select(m.has_uv, mesh_uvs[m.first_uv + i1 - m.first_vertex],
-                 vec2f{1.0, 0.0});
-    uv2 = select(m.has_uv, mesh_uvs[m.first_uv + i2 - m.first_vertex],
-                 vec2f{1.0, 1.0});
+    uv0 : mut vec2f = vec2f{0.0, 0.0};
+    uv1 : mut vec2f = vec2f{1.0, 0.0};
+    uv2 : mut vec2f = vec2f{1.0, 1.0};
+    if m.has_uv {
+        uv0 = mesh_uvs[m.first_uv + i0 - m.first_vertex];
+        uv1 = mesh_uvs[m.first_uv + i1 - m.first_vertex];
+        uv2 = mesh_uvs[m.first_uv + i2 - m.first_vertex];
+    }
     return b.x * uv0 + b.y * uv1 + b.z * uv2;
 }
 

@@ -1,0 +1,53 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_loop_carried
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_loop_carried.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_loop_carried.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_loop_carried.o tests/bonsai/correctness/cpp/vectorize_loop_carried.o -o tests/bonsai/correctness/cpp/vectorize_loop_carried, ./tests/bonsai/correctness/cpp/vectorize_loop_carried, rm tests/bonsai/correctness/cpp/vectorize_loop_carried, rm tests/bonsai/correctness/cpp/main_vectorize_loop_carried.o, rm tests/bonsai/correctness/cpp/vectorize_loop_carried.h, rm tests/bonsai/correctness/cpp/vectorize_loop_carried.o
+
+// A divergent loop whose carried values are assigned on one arm of a branch
+// inside it, with the loop's exit reading them afterwards.
+//
+// The shape of pbrt's light-tree descent (BVHLightSampler::Sample): a while
+// loop over a node index, a flag that ends it, and a probability multiplied
+// along the way, all three assigned inside an `else` and read after the loop.
+// Every lane takes its own path through the tree, so the loop is uniformized
+// and its body linearized, and each of those values is a loop-carried block
+// argument that several joins merge under the local's own name. Two things
+// went wrong here once and are pinned by this test: the preheader split took
+// a latch's merge of a carried value, passed back under the header's name,
+// for the header's own argument and dropped it from the loop's state, so the
+// exit read the initial value; and a blend at a join read a stale snapshot of
+// a header argument after the argument had been replaced. The vectorized
+// result is checked lane by lane against the same function run scalar.
+func descend(u_in : f32, steps : array[i32, 16]) -> f32 {
+    node_index : mut i32 = 0;
+    u : mut f32 = u_in;
+    pmf : mut f32 = 1.0;
+    done : mut bool = false;
+    while !done {
+        s = steps[cast[[u32]](node_index)];
+        if s < 0 {
+            done = true;
+        } else {
+            went_right = u < 0.5;
+            pmf = pmf * select(went_right, 0.25, 0.75);
+            u = select(went_right, u * 2.0, (u - 0.5) * 2.0);
+            node_index = select(went_right, s, node_index + 1);
+        }
+    }
+    return pmf + cast[[f32]](node_index);
+}
+
+// The same descent, one lane at a time, for the driver to compare against.
+func [[export]] descend_one(u : f32, steps : array[i32, 16]) -> f32 {
+    return descend(u, steps);
+}
+
+func [[export]] descend_all(us : array[f32, 8], steps : array[i32, 16],
+                            out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = descend(us[i], steps);
+    }
+    return;
+}
+
+schedule {
+    descend_all.vectorize(i);
+}

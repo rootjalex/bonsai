@@ -8,40 +8,32 @@ extern blobs : struct Blob{ tag : u8; payload : union Blob_payload{ A : struct A
 
 func [[export]] Blob_A(_ret0 : mut (Blob*), x : f32) -> void {
   let @0 = build<A>(x) in
-  @1 : mut Blob_payload
-  @1 = @0
-  let @2 = (*@1) in
-  let @3 = build<Blob>(0u, @2) in
-  _ret0 = @3
+  let @1 = Blob_payload{.A = @0} in
+  let @2 = build<Blob>(0u, @1) in
+  _ret0 = @2
   return
 }
 
 func [[export]] Blob_B(_ret1 : mut (Blob*), y : f32, z : f32) -> void {
   let @0 = build<B>(y, z) in
-  @1 : mut Blob_payload
-  @1 = @0
-  let @2 = (*@1) in
-  let @3 = build<Blob>(1u, @2) in
-  _ret1 = @3
+  let @1 = Blob_payload{.B = @0} in
+  let @2 = build<Blob>(1u, @1) in
+  _ret1 = @2
   return
 }
 
 func _unexported_Blob_A(x : f32) -> Blob {
   let @0 = build<A>(x) in
-  @1 : mut Blob_payload
-  @1 = @0
-  let @2 = (*@1) in
-  let @3 = build<Blob>(0u, @2) in
-  return @3
+  let @1 = Blob_payload{.A = @0} in
+  let @2 = build<Blob>(0u, @1) in
+  return @2
 }
 
 func _unexported_Blob_B(y : f32, z : f32) -> Blob {
   let @0 = build<B>(y, z) in
-  @1 : mut Blob_payload
-  @1 = @0
-  let @2 = (*@1) in
-  let @3 = build<Blob>(1u, @2) in
-  return @3
+  let @1 = Blob_payload{.B = @0} in
+  let @2 = build<Blob>(1u, @1) in
+  return @2
 }
 
 func doubled(v : f32, n : i32) -> f32 {
@@ -58,23 +50,23 @@ func doubled(v : f32, n : i32) -> f32 {
 
 func [[noinline]] pick(b : Blob, k : f32) -> f32 {
   let @0 = b.tag in
-  let @1 = @0 == 0u in
-  if (@1) {
-    let @2 = b.payload in
-    let @3 = (&@2) in
-    let @4 = (*@3) in
-    let x = @4.x in
-    let @6 = x * k in
-    return @6
-  } else {
-    let @7 = b.payload in
-    let @8 = (&@7) in
-    let _t7 = (*@8) in
+  switch (@0) {
+  case 0: {
+    let @1 = b.payload in
+    let @2 = @1.A in
+    let x = @2.x in
+    let @4 = x * k in
+    return @4
+  } break;
+  default: {
+    let @5 = b.payload in
+    let _t7 = @5.B in
     let y = _t7.y in
     let z = _t7.z in
-    let @12 = y + z in
-    let @13 = @12 * k in
-    return @13
+    let @9 = y + z in
+    let @10 = @9 * k in
+    return @10
+  }
   }
 }
 

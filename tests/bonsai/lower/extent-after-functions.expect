@@ -21,7 +21,7 @@ extern instances : tree[[struct Instance{ render_from_instance : struct Transfor
   | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high)
 
 func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Instance, Triangle)> {
-  _best0 : mut (f32, ((Instance*), Triangle)) := ((f32)inf, ())
+  _best0 : mut (f32, (ref[Instance in instances], Triangle)) := ((f32)inf, ())
   rec(instances : tree[[Instance]] TLAS) {
     match instances {
     | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high) ->
@@ -42,7 +42,7 @@ func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Inst
               if (intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) < _best0[0])) {
                 foreach _iter1 in (_subtree0 as Leaf).data {
                   if (intersects(r, transform(_iter0.render_from_instance, _iter1)) && (distmin(r, transform(_iter0.render_from_instance, _iter1)) < _best0[0])) {
-                    _best0 = (distmin(r, transform(_iter0.render_from_instance, _iter1)), ((&_iter0), transform(_iter0.render_from_instance, _iter1)))
+                    _best0 = (distmin(r, transform(_iter0.render_from_instance, _iter1)), (ref(_iter0), transform(_iter0.render_from_instance, _iter1)))
                   }
                 }
               }

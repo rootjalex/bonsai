@@ -9,6 +9,7 @@
 #include "Lower/DynamicArrays.h"
 #include "Lower/DynamicSets.h"
 #include "Lower/Externs.h"
+#include "Lower/ElementReferences.h"
 #include "Lower/ForEachs.h"
 #include "Lower/Generics.h"
 #include "Lower/Geometrics.h"
@@ -143,6 +144,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<LowerDefers>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
+    manager.register_pass<LowerElementReferences>();
     manager.register_pass<LowerMaps>();
     manager.register_pass<LowerDynamicSets>();
     manager.register_pass<LowerGeometrics>();
@@ -200,6 +202,11 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerExterns>());
     core.push_back(std::make_unique<LowerLayouts>());
     core.push_back(std::make_unique<LowerForEachs>());
+    // Once every element a traversal reaches is a read from its tree's
+    // storage: after LowerLayouts has said where that is and LowerForEachs
+    // has spelled each element as an indexed read of it. See
+    // Lower/ElementReferences.h.
+    core.push_back(std::make_unique<LowerElementReferences>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
@@ -256,6 +263,8 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerExterns>());
     ssa.push_back(std::make_unique<LowerLayouts>());
     ssa.push_back(std::make_unique<LowerForEachs>());
+    // After LowerForEachs; see `core`.
+    ssa.push_back(std::make_unique<LowerElementReferences>());
     ssa.push_back(std::make_unique<LowerDynamicSets>());
     ssa.push_back(std::make_unique<LowerYields>());
     ssa.push_back(std::make_unique<LowerScans>());
@@ -343,6 +352,7 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerExterns>());
     ssa_analysis.push_back(std::make_unique<LowerLayouts>());
     ssa_analysis.push_back(std::make_unique<LowerForEachs>());
+    ssa_analysis.push_back(std::make_unique<LowerElementReferences>());
     ssa_analysis.push_back(std::make_unique<LowerDynamicSets>());
     ssa_analysis.push_back(std::make_unique<LowerYields>());
     ssa_analysis.push_back(std::make_unique<LowerScans>());
@@ -386,6 +396,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerExterns>());
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
+    d.push_back(std::make_unique<LowerElementReferences>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,

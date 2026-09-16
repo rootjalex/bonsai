@@ -12,4 +12,5 @@ add_bonsai_tests(
     mixed-traversal.bonsai
     nested-traversal.bonsai
     sort.bonsai
+    switch-merge.bonsai
 )

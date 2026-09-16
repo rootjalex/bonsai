@@ -1,0 +1,171 @@
+; === ssa preschedule ===
+; --- Blob_Split (lowered via statements) ---
+func Blob_Split(_ret0 : (Blob*), lo : i32, hi : i32): 
+  @0 = make_struct<Split>(lo, hi)
+  @1 = make_union<Blob_payload>(@0, (u32)1)
+  @2 = make_struct<Blob>((u8)1, @1)
+  store _ret0 @2
+  ret
+
+; --- Blob_Whole (lowered via statements) ---
+func Blob_Whole(_ret1 : (Blob*), x : f32): 
+  @0 = make_struct<Whole>(x)
+  @1 = make_union<Blob_payload>(@0, (u32)0)
+  @2 = make_struct<Blob>((u8)0, @1)
+  store _ret1 @2
+  ret
+
+; --- Blob_Wide (lowered via statements) ---
+func Blob_Wide(_ret2 : (Blob*), v : f32x3, neg : bool): 
+  @0 = make_struct<Wide>(v, neg)
+  @1 = make_union<Blob_payload>(@0, (u32)2)
+  @2 = make_struct<Blob>((u8)2, @1)
+  store _ret2 @2
+  ret
+
+; --- _unexported_Blob_Split (lowered via statements) ---
+func _unexported_Blob_Split(lo : i32, hi : i32): 
+  @0 = make_struct<Split>(lo, hi)
+  @1 = make_union<Blob_payload>(@0, (u32)1)
+  @2 = make_struct<Blob>((u8)1, @1)
+  ret @2
+
+; --- _unexported_Blob_Whole (lowered via statements) ---
+func _unexported_Blob_Whole(x : f32): 
+  @0 = make_struct<Whole>(x)
+  @1 = make_union<Blob_payload>(@0, (u32)0)
+  @2 = make_struct<Blob>((u8)0, @1)
+  ret @2
+
+; --- _unexported_Blob_Wide (lowered via statements) ---
+func _unexported_Blob_Wide(v : f32x3, neg : bool): 
+  @0 = make_struct<Wide>(v, neg)
+  @1 = make_union<Blob_payload>(@0, (u32)2)
+  @2 = make_struct<Blob>((u8)2, @1)
+  ret @2
+
+; --- weigh (lowered via statements) ---
+func weigh(b : (Blob*), k : f32): 
+  acc = alloca<(f32*)>()
+  store acc k
+  @0 = load(b)
+  @1 = load_field(@0, (u32)0)
+  dispatch @1 [!case_1(b, acc), !case_2(b), !merge_0(acc)]
+
+!merge_0(acc : (f32*)): // preds: !case_1, weigh
+  @16 = load(acc)
+  @17 = mul(@16, (f32)3)
+  ret @17
+
+!case_1(b : (Blob*), acc : (f32*)): // preds: weigh
+  @2 = load(b)
+  @3 = load_field(@2, (u32)1)
+  @4 = load_member(@3, (u32)0)
+  x = load_field(@4, (u32)0)
+  @6 = load(acc)
+  @7 = mul(x, (f32)2)
+  @8 = add(@6, @7)
+  store acc @8
+  jmp !merge_0(acc)
+
+!case_2(b : (Blob*)): // preds: weigh
+  @9 = load(b)
+  @10 = load_field(@9, (u32)1)
+  _t76 = load_member(@10, (u32)1)
+  lo = load_field(_t76, (u32)0)
+  hi = load_field(_t76, (u32)1)
+  @14 = add(lo, hi)
+  @15 = cast<f32>(@14)
+  ret @15
+
+type Blob = struct Blob{ tag : u8; payload : union Blob_payload{ Whole : struct Whole{ x : f32 }; Split : struct Split{ lo : i32; hi : i32 }; Wide : struct Wide{ v : f32x3; neg : bool } } }
+type Float = f32
+type Half = f16
+type Split = struct Split{ lo : i32; hi : i32 }
+type Whole = struct Whole{ x : f32 }
+type Wide = struct Wide{ v : f32x3; neg : bool }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] Blob_Split(_ret0 : mut (Blob*), lo : i32, hi : i32) -> void {
+  let @0 = build<Split>(lo, hi) in
+  let @1 = Blob_payload{.Split = @0} in
+  let @2 = build<Blob>(1u, @1) in
+  _ret0 = @2
+  return
+}
+
+func [[export]] Blob_Whole(_ret1 : mut (Blob*), x : f32) -> void {
+  let @0 = build<Whole>(x) in
+  let @1 = Blob_payload{.Whole = @0} in
+  let @2 = build<Blob>(0u, @1) in
+  _ret1 = @2
+  return
+}
+
+func [[export]] Blob_Wide(_ret2 : mut (Blob*), v : f32x3, neg : bool) -> void {
+  let @0 = build<Wide>(v, neg) in
+  let @1 = Blob_payload{.Wide = @0} in
+  let @2 = build<Blob>(2u, @1) in
+  _ret2 = @2
+  return
+}
+
+func _unexported_Blob_Split(lo : i32, hi : i32) -> Blob {
+  let @0 = build<Split>(lo, hi) in
+  let @1 = Blob_payload{.Split = @0} in
+  let @2 = build<Blob>(1u, @1) in
+  return @2
+}
+
+func _unexported_Blob_Whole(x : f32) -> Blob {
+  let @0 = build<Whole>(x) in
+  let @1 = Blob_payload{.Whole = @0} in
+  let @2 = build<Blob>(0u, @1) in
+  return @2
+}
+
+func _unexported_Blob_Wide(v : f32x3, neg : bool) -> Blob {
+  let @0 = build<Wide>(v, neg) in
+  let @1 = Blob_payload{.Wide = @0} in
+  let @2 = build<Blob>(2u, @1) in
+  return @2
+}
+
+func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
+  acc : mut f32
+  acc = k
+  let @0 = (*b) in
+  let @1 = @0.tag in
+  switch (@1) {
+  case 0: {
+    let @2 = (*b) in
+    let @3 = @2.payload in
+    let @4 = @3.Whole in
+    let x = @4.x in
+    let @6 = (*acc) in
+    let @7 = x * 2f in
+    let @8 = @6 + @7 in
+    acc = @8
+  } break;
+  case 1: {
+    let @9 = (*b) in
+    let @10 = @9.payload in
+    let _t76 = @10.Split in
+    let lo = _t76.lo in
+    let hi = _t76.hi in
+    let @14 = lo + hi in
+    let @15 = cast<f32>(@14) in
+    return @15
+  } break;
+  default: {
+  }
+  }
+  let @16 = (*acc) in
+  let @17 = @16 * 3f in
+  return @17
+}
+
+

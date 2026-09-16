@@ -65,6 +65,9 @@ std::string short_type_name(const Type &type) {
         return "^" + short_type_name(type.as<Ptr_t>()->etype);
     case IRTypeEnum::Ref_t:
         return "&" + type.as<Ref_t>()->name;
+    case IRTypeEnum::ElementRef_t:
+        return "@" + type.as<ElementRef_t>()->tree + "_" +
+               short_type_name(type.as<ElementRef_t>()->etype);
     case IRTypeEnum::Vector_t:
         return short_type_name(type.as<Vector_t>()->etype) + "x" +
                std::to_string(type.as<Vector_t>()->lanes);

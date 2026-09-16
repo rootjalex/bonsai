@@ -1,0 +1,4 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_union.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_union.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_union.o tests/bonsai/correctness/cpp/vectorize_union.o -o tests/bonsai/correctness/cpp/vectorize_union
+[test] ./tests/bonsai/correctness/cpp/vectorize_union
+3 11 3 8 44 18 -0.5 77

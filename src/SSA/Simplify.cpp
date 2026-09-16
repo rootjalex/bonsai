@@ -163,8 +163,10 @@ bool pure(const Instruction &in) {
     case Instruction::Op::Leq:
     case Instruction::Op::Load:
     case Instruction::Op::LoadField:
+    case Instruction::Op::LoadMember:
     case Instruction::Op::Lt:
     case Instruction::Op::MakeStruct:
+    case Instruction::Op::MakeUnion:
     case Instruction::Op::Max:
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
@@ -178,6 +180,7 @@ bool pure(const Instruction &in) {
     case Instruction::Op::Set:
     case Instruction::Op::Shl:
     case Instruction::Op::Shr:
+    case Instruction::Op::Shuffle:
     case Instruction::Op::SizeOf:
     case Instruction::Op::Sub:
     case Instruction::Op::Xor:

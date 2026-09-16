@@ -1,0 +1,58 @@
+//! flags: -p ssa
+
+// A branch, in a gang, on a value every arm of a switch hands the merge as
+// the same constant.
+//
+// Inlined, `never` becomes a switch whose arms each assign `false` to its
+// result, and the test after it a dispatch on that result: a block argument
+// of the merge, passed the same constant along every edge. The divergence
+// analysis rightly calls that uniform (see value_key in AnalyzeDivergence.cpp),
+// so the dispatch is not one the linearizer folds. The linearizer must then
+// agree when it blends the merge's arguments: a select between `false` and
+// `false` on the arms' masks would be a varying value standing for a uniform
+// one, and the branch on it would be left divergent after linearization was
+// over (see same_definition in SSA/Linearize.cpp). This is the shape a light
+// sampler's `match` left in apps/pbrt.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func make_blob(v : f32, i : i32) -> Blob {
+    if (i % 3 == 0) {
+        return Whole(v);
+    }
+    if (i % 3 == 1) {
+        return Split(i, i * 10);
+    }
+    return Wide(vec3f{v, 2.0 * v, 3.0 * v}, v < 0.0);
+}
+
+func never(b : Blob) -> bool {
+    match b {
+        Whole(x) => return false;
+        Split(lo, hi) => return false;
+        Wide(v, neg) => return false;
+    }
+}
+
+func weigh(b : Blob, k : f32) -> f32 {
+    if never(b) {
+        return 0.0;
+    }
+    return k * 2.0;
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        b : Blob = make_blob(a[i], cast[[i32]](i));
+        out[i] = weigh(b, a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

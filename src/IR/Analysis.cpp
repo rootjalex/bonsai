@@ -208,6 +208,21 @@ struct AlwaysReturns : public Visitor {
         }
     }
 
+    // A switch returns when every arm does; an arm with nothing in it does
+    // not.
+    void visit(const SwitchStmt *node) override {
+        for (const Stmt &arm : node->arms) {
+            returns = false;
+            if (!arm.defined()) {
+                return;
+            }
+            arm.accept(this);
+            if (!returns) {
+                return;
+            }
+        }
+    }
+
     void visit(const Sequence *node) override {
         for (size_t i = 0; i < node->stmts.size() - 1; i++) {
             const Stmt &stmt = node->stmts[i];
@@ -286,6 +301,25 @@ struct ReturnType : public Visitor {
         } else if (then_type.defined()) {
             type = then_type;
         }
+    }
+
+    void visit(const SwitchStmt *node) override {
+        Type found;
+        for (const Stmt &arm : node->arms) {
+            type = Type();
+            if (arm.defined()) {
+                arm.accept(this);
+            }
+            if (!type.defined()) {
+                continue;
+            }
+            internal_assert(!found.defined() || equals(found, type))
+                << "Switch returns two separate types:" << found << " vs. "
+                << type << " in\n"
+                << node;
+            found = type;
+        }
+        type = found;
     }
 
     void visit(const Sequence *node) override {

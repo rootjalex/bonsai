@@ -62,15 +62,18 @@ func Shape_Tri_new(p0 : f32x3, p1 : f32x3, p2 : f32x3, Shape_Tri_pool : mut Tri[
 }
 
 func area(s : u64, Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
-  if ((s >> 56u) == 0u) {
+  switch (s >> 56u) {
+  case 0: {
     let c = Shape_Sph_pool[s & 72057594037927935u].center in
     let r = Shape_Sph_pool[s & 72057594037927935u].radius in
     return ((4f * 3.14159f) * r) * r
-  } else {
+  } break;
+  default: {
     let p0 = Shape_Tri_pool[s & 72057594037927935u].p0 in
     let p1 = Shape_Tri_pool[s & 72057594037927935u].p1 in
     let p2 = Shape_Tri_pool[s & 72057594037927935u].p2 in
     return 0.5f * norm(cross(p1 - p0, p2 - p0))
+  }
   }
 }
 
@@ -83,13 +86,16 @@ func [[export]] hold(item : (Item*), Holder_One_pool : mut One[], Holder_One_fil
 }
 
 func [[export]] total(h : u64, Holder_One_pool : One[], Holder_Two_pool : Two[], Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
-  if ((h >> 56u) == 0u) {
+  switch (h >> 56u) {
+  case 0: {
     let item = Holder_One_pool[h & 72057594037927935u].item in
     return describe(item, Shape_Sph_pool, Shape_Tri_pool)
-  } else {
+  } break;
+  default: {
     let a = Holder_Two_pool[h & 72057594037927935u].a in
     let b = Holder_Two_pool[h & 72057594037927935u].b in
     return describe(a, Shape_Sph_pool, Shape_Tri_pool) + describe(b, Shape_Sph_pool, Shape_Tri_pool)
+  }
   }
 }
 

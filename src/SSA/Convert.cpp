@@ -177,6 +177,62 @@ struct FunctionBuilder : Visitor {
         }
     }
 
+    // A switch is a Dispatch with a target per arm: the k-th target is taken
+    // on k, the last on anything else, which is what the statement means (see
+    // ir::SwitchStmt). The arms meet at a merge block, as an if's do, unless
+    // every one of them returns; an arm with nothing in it goes straight
+    // there.
+    void visit(const SwitchStmt *node) override {
+        auto v = get_value(node->value); // in current block
+        internal_assert(!block->terminator.defined());
+
+        bool needs_merge = false;
+        for (const Stmt &arm : node->arms) {
+            needs_merge = needs_merge || !arm.defined() || !always_returns(arm);
+        }
+        std::shared_ptr<Block> merge_block =
+            needs_merge ? make_block("merge") : nullptr;
+
+        std::vector<std::shared_ptr<Block>> cases;
+        Terminator::Dispatch dispatch{.cond = std::move(v), .targets = {}};
+        for (const Stmt &arm : node->arms) {
+            if (!arm.defined()) {
+                cases.push_back(nullptr);
+                dispatch.targets.push_back(
+                    Terminator::Jump{.name = merge_block->name, .args = {}});
+                continue;
+            }
+            cases.push_back(make_block("case"));
+            dispatch.targets.push_back(
+                Terminator::Jump{.name = cases.back()->name, .args = {}});
+        }
+        block->terminator.data = std::move(dispatch);
+
+        auto curr_block = std::move(block);
+        bool merges_from_here = false;
+        for (size_t k = 0; k < node->arms.size(); k++) {
+            if (cases[k] == nullptr) {
+                merges_from_here = true;
+                continue;
+            }
+            cases[k]->preds.push_back(curr_block);
+            block = cases[k];
+            node->arms[k].accept(this);
+            if (!always_returns(node->arms[k])) {
+                // *current* insert block is predecessor to merge.
+                merge_block->preds.push_back(block);
+                set_block_jump(merge_block->name);
+            }
+        }
+        if (merges_from_here) {
+            merge_block->preds.push_back(curr_block);
+        }
+
+        if (merge_block) {
+            block = merge_block;
+        }
+    }
+
     void visit(const DoWhile *node) override {
         std::shared_ptr<Block> loop_head = make_block("do_while");
         internal_assert(!block->terminator.defined());
@@ -544,13 +600,17 @@ struct FunctionBuilder : Visitor {
             } else {
                 Expr idx = std::get<Expr>(value);
                 auto i = get_value(idx);
+                // The address of one element, typed as such -- the same way
+                // the PtrTo visitor below types the GEPs it builds. The type
+                // is what tells a later pass what a store through it writes,
+                // and what a vectorized index turns it into: a per-lane index
+                // makes it a vector of element addresses, a scatter.
+                Type element;
                 if (current.defined()) {
                     current = current.element_of();
+                    element = Ptr_t::make(current);
                 }
-                // TODO: FIGURE OUT TYPE!!
-                // TODO: aligned load first?? not sure how this works.
-                // LLVM is weird here.
-                ptr = block->make_instruction(Type(), Instruction::Op::GEP,
+                ptr = block->make_instruction(element, Instruction::Op::GEP,
                                               {std::move(ptr), std::move(i)});
             }
         }
@@ -769,15 +829,22 @@ struct FunctionBuilder : Visitor {
         static const Type u32 = UInt_t::make(32);
 
         // A union's members all begin at the same address, so reading one is
-        // reading those bytes at that member's type. There is no field index
-        // to load -- LoadField takes one into a struct -- so this goes through
-        // the address, which is what CodeGen_LLVM does for the same Access.
-        if (node->value.type().is<Union_t>()) {
-            auto addr = block->make_instruction(Ptr_t::make(node->type),
-                                                Instruction::Op::AddressOf,
-                                                {std::move(v)});
-            value = block->make_instruction(node->type, Instruction::Op::Load,
-                                            {std::move(addr)});
+        // reading those bytes at that member's type: a LoadMember, by the
+        // member's number, which the backends spell as the read of storage
+        // it is (see CodeGen_LLVM::visit(const Access *)).
+        if (const Union_t *union_t = node->value.type().as<Union_t>()) {
+            size_t idx = 0;
+            while (idx < union_t->members.size() &&
+                   union_t->members[idx].name != node->field) {
+                idx++;
+            }
+            internal_assert(idx < union_t->members.size())
+                << "no member `" << node->field << "` in "
+                << node->value.type();
+            auto vidx = make_constant(u32, (uint64_t)idx);
+            value = block->make_instruction(node->type,
+                                            Instruction::Op::LoadMember,
+                                            {std::move(v), std::move(vidx)});
             return;
         }
 
@@ -789,19 +856,42 @@ struct FunctionBuilder : Visitor {
                                         {std::move(v), std::move(vidx)});
     }
 
-    // A union holding one of its members: the member's bytes, read as the
-    // union. The mirror of reading one out above, but not simply the address
-    // of the member -- a union is as wide as its largest member, and loading
-    // one out of storage only big enough for this member would read past the
-    // end of it. So the storage is the union's and the member is written into
-    // it, which is the same shape CodeGen_LLVM::visit(const UnionOf *) has.
+    // A union holding one of its members: a MakeUnion, by the member's
+    // number. The mirror of reading one out above. A value, not a slot on the
+    // stack written and read back: what a union is made of is the backend's
+    // business (CodeGen_LLVM::visit(const UnionOf *) does write storage the
+    // size of the union and read it back), and a pass that sees a union
+    // built -- the vectorizer, which makes one per lane -- needs to see that
+    // and not a store.
     void visit(const UnionOf *node) override {
         auto v = get_value(node->value);
-        auto slot = block->make_instruction(Ptr_t::make(node->type),
-                                            Instruction::Op::Alloca, {});
-        block->make_side_effect(Instruction::Op::Store, {slot, std::move(v)});
-        value = block->make_instruction(node->type, Instruction::Op::Load,
-                                        {std::move(slot)});
+        const Union_t *union_t = node->type.as<Union_t>();
+        internal_assert(union_t) << "UnionOf of a non-union " << node->type;
+        size_t idx = 0;
+        while (idx < union_t->members.size() &&
+               union_t->members[idx].name != node->member) {
+            idx++;
+        }
+        internal_assert(idx < union_t->members.size())
+            << "no member `" << node->member << "` in " << node->type;
+        static const Type u32 = UInt_t::make(32);
+        auto vidx = make_constant(u32, (uint64_t)idx);
+        value = block->make_instruction(node->type, Instruction::Op::MakeUnion,
+                                        {std::move(v), std::move(vidx)});
+    }
+
+    // The constant indices ride on the instruction, as a reduction's kind
+    // does; the vectors are its operands.
+    void visit(const Shuffle *node) override {
+        std::vector<std::shared_ptr<Value>> vectors;
+        vectors.reserve(node->vectors.size());
+        for (const Expr &v : node->vectors) {
+            vectors.push_back(get_value(v));
+        }
+        value = block->make_instruction(node->type, Instruction::Op::Shuffle,
+                                        std::move(vectors));
+        std::get<std::shared_ptr<Instruction>>(value->data)->shuffle =
+            node->indices;
     }
 
     Instruction::Op get_binop(BinOp::OpType op) {
@@ -954,7 +1044,21 @@ struct FunctionBuilder : Visitor {
     void visit(const Extract *node) override {
         auto vec = get_value(node->vec);
         auto idx = get_value(node->idx);
-        value = block->make_instruction(node->type, Instruction::Op::ExtractIdx,
+        // The element's type, from the container's when the expression arrived
+        // without one -- a loop bound written as an element of an array is one
+        // such (see Extract::make, which infers the type only when the
+        // container's is known as it is built). Every instruction here has to
+        // have a type: the passes downstream read the shape of a value off it,
+        // and a vectorized one is widened by rewriting it.
+        Type type = node->type;
+        if (!type.defined()) {
+            const Type &container = vec->get_type();
+            internal_assert(container.defined())
+                << "Element read of a container of unknown type: " << Expr(node);
+            type = container.element_of();
+        }
+        value = block->make_instruction(std::move(type),
+                                        Instruction::Op::ExtractIdx,
                                         {std::move(vec), std::move(idx)});
     }
 

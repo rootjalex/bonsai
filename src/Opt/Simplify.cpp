@@ -758,6 +758,50 @@ struct Simplifier : ir::Mutator {
                                 std::move(else_body));
     }
 
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        const size_t last = node->arms.size() - 1;
+        if (auto x = get_constant_value<int64_t>(value); x.has_value()) {
+            // The arm the value picks; the last for anything past the others
+            // (see ir::SwitchStmt).
+            const size_t k =
+                *x < 0 ? last : std::min(static_cast<size_t>(*x), last);
+            return mutate(node->arms[k]);
+        }
+
+        // Inside arm k the value is k. The last arm only knows it is none of
+        // the others, which is nothing to learn from.
+        auto key = [&](size_t k) -> ir::Expr {
+            return value.type().is_uint()
+                       ? ir::UIntImm::make(value.type(), k)
+                       : ir::IntImm::make(value.type(), static_cast<int64_t>(k));
+        };
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        bool same = value.same_as(node->value);
+        bool any = false;
+        for (size_t k = 0; k < node->arms.size(); k++) {
+            if (k == last) {
+                arms.push_back(mutate(node->arms[k]));
+            } else {
+                const ir::Expr is_k =
+                    ir::BinOp::make(ir::BinOp::OpType::Eq, value, key(k));
+                arms.push_back(
+                    with_fact(is_k, true, learnable(is_k), node->arms[k]));
+            }
+            same = same && arms.back().same_as(node->arms[k]);
+            any = any || arms.back().defined();
+        }
+        if (!any) {
+            // No-op
+            return ir::Stmt();
+        }
+        if (same) {
+            return node;
+        }
+        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+    }
+
     ir::Stmt visit(const ir::Store *node) override {
         ir::Expr value = node->value;
         ir::WriteLoc loc = node->loc;

@@ -1,0 +1,4 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_parfor.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_parfor.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_parfor.o tests/bonsai/correctness/cpp/vectorize_parfor.o -o tests/bonsai/correctness/cpp/vectorize_parfor
+[test] ./tests/bonsai/correctness/cpp/vectorize_parfor
+28 60 92 124 156 188 220 252 284 316 348 380 412 444 476 508

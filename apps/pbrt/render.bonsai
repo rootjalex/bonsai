@@ -2167,5 +2167,12 @@ schedule {
     path_step.loopify();
     full_path_step.loopify();
 
+    // The samples of a pixel are a gang on the SIMD unit: ISPC-style, one lane
+    // per sample, the whole path trace run eight at a time. `spp` is a runtime
+    // count, and vectorize wants a constant gang width, so split peels a
+    // width-eight inner loop off it first and that is what is vectorized; a
+    // scene whose spp is not a multiple of eight is the tail split's to carry.
+    render.split(s, s_gang, s_lane, 8, false)
+          .vectorize(s_lane);
     render.bind(p, CPUThread);
 }

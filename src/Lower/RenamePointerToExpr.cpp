@@ -116,6 +116,17 @@ struct Rename : public ir::Mutator {
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
 
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::Stmt &arm : node->arms) {
+            arms.push_back(mutate(arm));
+        }
+        // Arms first, for the reason given at IfElse.
+        ir::Expr value = mutate(node->value);
+        return make(ir::SwitchStmt::make(std::move(value), std::move(arms)));
+    }
+
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);

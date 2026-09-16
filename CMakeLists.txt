@@ -132,6 +132,7 @@ target_sources(
     src/Lower/Defers.cpp
     src/Lower/DynamicArrays.cpp
     src/Lower/DynamicSets.cpp
+    src/Lower/ElementReferences.cpp
     src/Lower/Externs.cpp
     src/Lower/ForEachs.cpp
     src/Lower/Generics.cpp
@@ -189,6 +190,7 @@ target_sources(
     src/SSA/DumpAnalysis.cpp
     src/SSA/InsertPreheader.cpp
     src/SSA/Linearize.cpp
+    src/SSA/MergeLatches.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
     src/SSA/Simplify.cpp
@@ -246,6 +248,7 @@ target_sources(
     include/Lower/Defers.h
     include/Lower/DynamicArrays.h
     include/Lower/DynamicSets.h
+    include/Lower/ElementReferences.h
     include/Lower/Externs.h
     include/Lower/ForEachs.h
     include/Lower/Generics.h

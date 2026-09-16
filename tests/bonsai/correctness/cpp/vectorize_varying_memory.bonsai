@@ -1,0 +1,96 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_varying_memory
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_varying_memory.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_varying_memory.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_varying_memory.o tests/bonsai/correctness/cpp/vectorize_varying_memory.o -o tests/bonsai/correctness/cpp/vectorize_varying_memory, ./tests/bonsai/correctness/cpp/vectorize_varying_memory, rm tests/bonsai/correctness/cpp/vectorize_varying_memory, rm tests/bonsai/correctness/cpp/main_vectorize_varying_memory.o, rm tests/bonsai/correctness/cpp/vectorize_varying_memory.h, rm tests/bonsai/correctness/cpp/vectorize_varying_memory.o
+
+// A `mut` local whose address escapes into a call, inside a gang.
+//
+// Promotion cannot lift such a local into a register -- the callee writes
+// through the pointer -- so it stays in memory. Each lane then needs its own
+// copy of that memory: the local is laid out with a slot per lane (ispc's
+// `varying T * uniform`, a shared address of per-lane data), and the callee is
+// specialized to take a pointer of that shape, reading a vector through it and
+// writing one back. Before this was done the slot kept its scalar type while
+// the gang stored eight lanes' worth into it, overrunning the stack.
+//
+// Each function checks its own answer; the comment beside the store says what
+// it should be for a lane whose input is a.
+
+element Tally {
+    total : f32;
+    count : i32;
+}
+
+// Writes through its `mut` parameter, from a value that differs per lane.
+// `[[noinline]]`, so that there is a call to specialize rather than a body the
+// inliner has already copied into the caller.
+func [[noinline]] bump(t : mut Tally, x : f32) -> void {
+    t.total = t.total + x;
+    t.count = t.count + 1;
+    return;
+}
+
+// The local is written by every lane, twice, and read back afterwards.
+func [[export]] tally(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        t : mut Tally = {0.0, 0};
+        bump(t, a[i]);
+        bump(t, a[i] * 2.0);
+        // 3a + 2
+        out[i] = t.total + cast[[f32]](t.count);
+    }
+    return;
+}
+
+// The local starts the same in every lane and is written only by the lanes
+// that take the branch: a call made under a mask, whose stores through the
+// pointer must leave the other lanes' slots alone.
+func [[export]] tally_some(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        t : mut Tally = {1.0, 0};
+        if (a[i] > 0.0) {
+            bump(t, a[i]);
+        }
+        // (1 + a) * 10 + 1 where a > 0, and 10 otherwise
+        out[i] = t.total * 10.0 + cast[[f32]](t.count);
+    }
+    return;
+}
+
+element Counter {
+    n : i32;
+}
+
+element Pair {
+    c : Counter;
+    scale : f32;
+}
+
+func [[noinline]] tick(c : mut Counter) -> i32 {
+    c.n = c.n + 1;
+    return c.n;
+}
+
+// Hands a field of its own `mut` parameter on to another callee by pointer --
+// the shape of pbrt's `next_float(st.rng)` -- so the field's address has to
+// be a pointer into per-lane memory too, and `tick` specialized for one.
+func [[noinline]] step(p : mut Pair, x : f32) -> f32 {
+    k = tick(p.c);
+    return x * p.scale * cast[[f32]](k);
+}
+
+func [[export]] stepping(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        c0 : Counter = {0};
+        p : mut Pair = {c0, 0.5};
+        s1 = step(p, a[i]);
+        s2 = step(p, a[i]);
+        // 0.5a + a + 2
+        out[i] = s1 + s2 + cast[[f32]](p.c.n);
+    }
+    return;
+}
+
+schedule {
+    tally.vectorize(i);
+    tally_some.vectorize(i);
+    stepping.vectorize(i);
+}

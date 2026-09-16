@@ -100,6 +100,18 @@ struct NameHygiene : ir::Mutator {
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        // Rename where control flow diverges.
+        ScopedValue<bool> _(rename, true);
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::Stmt &arm : node->arms) {
+            arms.push_back(mutate(arm));
+        }
+        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+    }
+
     ir::Stmt visit(const ir::Match *node) override {
         ir::Expr loc = mutate(node->loc);
         // Rename where control flow diverges.
@@ -512,6 +524,26 @@ struct DeadCodeElimination : ir::Mutator {
             ir::Expr flipped = ir::UnOp::make(ir::UnOp::Not, node->cond);
             return ir::IfElse::make(std::move(flipped), std::move(else_body));
         }
+    }
+
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        bool same = true;
+        bool any = false;
+        for (const ir::Stmt &arm : node->arms) {
+            arms.push_back(mutate(arm));
+            same = same && arms.back().same_as(arm);
+            any = any || arms.back().defined();
+        }
+        if (same) {
+            return node;
+        }
+        if (!any) {
+            // Every arm has been DCEed: nothing left to switch between.
+            return ir::Stmt();
+        }
+        return ir::SwitchStmt::make(node->value, std::move(arms));
     }
 
     ir::Stmt visit(const ir::Sequence *node) override {

@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_gather_union.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_gather_union.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_gather_union.o tests/bonsai/correctness/cpp/vectorize_gather_union.o -o tests/bonsai/correctness/cpp/vectorize_gather_union
+[test] ./tests/bonsai/correctness/cpp/vectorize_gather_union
+3 11 -5.5 32.5 77 44 -1 30
+same as scalar

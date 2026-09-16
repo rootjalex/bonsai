@@ -281,21 +281,24 @@ struct RewriteADTs : public Mutator {
                           adt->variant_name(node->index));
     }
 
-    // A match becomes a test per arm, in the order they were written.
+    // A match becomes a switch on the tag with an arm per variant, in tag
+    // order rather than the order the arms were written in: a variant's tag
+    // is its index (see ADTLayout), and arm k of a switch is the one taken on
+    // k (see ir::SwitchStmt), which is what lets the switch become one
+    // Dispatch in the SSA form rather than a chain of tests.
     //
-    // The last arm needs no test: MatchVariant::make has already checked that
-    // every variant is named exactly once, so once the others are ruled out
-    // this is the only thing left. Testing it anyway would leave a branch
-    // nothing can reach and nothing to put in it.
+    // The last arm is the switch's default, which needs no test:
+    // MatchVariant::make has already checked that every variant is named
+    // exactly once, so once the others are ruled out this is the only thing
+    // left.
     Stmt visit(const MatchVariant *node) override {
         const ADT_t *adt = node->value.type().as<ADT_t>();
         internal_assert(adt) << "Match on a non-variant type: " << node->value;
         const ADTLayout &layout = layout_of(node->value.type());
         const Expr value = mutate(node->value);
 
-        Stmt result;
-        for (size_t i = node->arms.size(); i-- > 0;) {
-            const MatchVariant::Arm &arm = node->arms[i];
+        std::vector<Stmt> arms(node->arms.size());
+        for (const MatchVariant::Arm &arm : node->arms) {
             const auto index = adt->index_of(arm.variant);
             internal_assert(index.has_value())
                 << adt->name << " has no variant " << arm.variant;
@@ -313,19 +316,19 @@ struct RewriteADTs : public Mutator {
                     Access::make(fields[f].name, payload)));
             }
             body.push_back(mutate(arm.body));
-            Stmt arm_body = Sequence::make(std::move(body));
 
-            if (!result.defined()) {
-                result = std::move(arm_body);
-                continue;
-            }
-            const Expr is_variant = BinOp::make(
-                BinOp::OpType::Eq, tag_of(layout, value),
-                UIntImm::make(layout.tag_type, layout.tag(arm.variant)));
-            result = IfElse::make(is_variant, std::move(arm_body),
-                                  std::move(result));
+            const uint64_t tag = layout.tag(arm.variant);
+            internal_assert(tag < arms.size() && !arms[tag].defined())
+                << "The tag of " << adt->name << "::" << arm.variant << " is "
+                << tag << ", not its index among " << arms.size()
+                << " variants";
+            arms[tag] = Sequence::make(std::move(body));
         }
-        return result;
+        if (arms.size() == 1) {
+            // The only variant there is: nothing to switch on.
+            return arms[0];
+        }
+        return SwitchStmt::make(tag_of(layout, value), std::move(arms));
     }
 };
 

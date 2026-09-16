@@ -59,6 +59,19 @@ struct Program {
     std::map<std::string, Expr> extents;
     // TODO: interfaces / inheritance?
 
+    // Where a tree keeps its leaf elements, once its layout has been applied:
+    // the array they are rows of, as an expression reading it out of the
+    // tree's storage, and the type of an index into it. Keyed by the tree's
+    // name. This is what a reference to one of the tree's elements (an
+    // ElementRef_t) is lowered to -- the index -- and what reading through the
+    // reference indexes; see Lower/ElementReferences.cpp. Recorded by
+    // Lower/Layouts.cpp, which is the one place that knows.
+    struct ElementStorage {
+        Expr container;
+        Type index_t;
+    };
+    std::map<std::string, ElementStorage> element_storage;
+
     // The SSA form of whichever functions are to be lowered to the backend
     // straight from it, rather than from the statements the relooper builds.
     // Keyed by the same names as `funcs`, which still holds a statement form

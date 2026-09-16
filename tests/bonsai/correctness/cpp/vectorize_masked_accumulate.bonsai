@@ -1,0 +1,44 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_masked_accumulate
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.o tests/bonsai/correctness/cpp/vectorize_masked_accumulate.o -o tests/bonsai/correctness/cpp/vectorize_masked_accumulate, ./tests/bonsai/correctness/cpp/vectorize_masked_accumulate, rm tests/bonsai/correctness/cpp/vectorize_masked_accumulate, rm tests/bonsai/correctness/cpp/main_vectorize_masked_accumulate.o, rm tests/bonsai/correctness/cpp/vectorize_masked_accumulate.h, rm tests/bonsai/correctness/cpp/vectorize_masked_accumulate.o
+
+// A short vector accumulated into one shared slot by some lanes of a gang.
+//
+// `sums[0] += v` inside a branch a gang takes in part is, once vectorized, a
+// cross-lane reduction of the lanes that are on into one `vec3f` accumulate
+// of the whole gang (see widen_region in SSA/Vectorize.cpp). That value is a
+// vector of three components and not of eight lanes, and the lowering has to
+// know the difference: read as per-lane memory, its components would be
+// added under mask bits 0, 1 and 2 -- x only if lane 0 took the branch, y
+// only if lane 1 did -- which is what a film's silhouette pixels showed in
+// apps/pbrt, where the samples that hit are exactly the lanes that are on.
+// Every lane here contributes a different vector, the lanes that contribute
+// are chosen so that lanes 0 and 2 are off while 1 is on, and the answer is
+// checked against the same sum taken one lane at a time. Both an atomic
+// accumulate, which is what a film uses, and a plain one.
+import stdlib/numerics;
+
+func [[export]] sum_some(a : array[f32, 8], sums : mut array[vec3f, 2]) {
+    parfor i in 0:8 {
+        v = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+        if a[i] > 0.0 {
+            atomic sums[0] += v;
+            sums[1] += v;
+        }
+    }
+    return;
+}
+
+func [[export]] sum_some_one(a : array[f32, 8], sums : mut array[vec3f, 2]) {
+    for i in 0:8 {
+        v = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+        if a[i] > 0.0 {
+            atomic sums[0] += v;
+            sums[1] += v;
+        }
+    }
+    return;
+}
+
+schedule {
+    sum_some.vectorize(i);
+}

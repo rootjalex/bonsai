@@ -1,0 +1,63 @@
+//! flags: -p ssa
+
+// Golden for a lane's own short vectors -- a `vec3f` per lane -- through a
+// gang.
+//
+// Arithmetic on one is taken apart into its components, each of which becomes
+// an ordinary gang vector: `v * v` on a per-lane vec3f is three multiplies of
+// f32x8. Everywhere the vector has to be one value it is carried whole, as
+// `f32x3$v8`, a struct with one gang vector per component (ispc's `varying
+// float<3>`): the `o` field of the per-lane `Ray$v8`, the value `direction`
+// returns, the vector `advance` stores through its pointer. Reading a
+// component of a whole one is then a field read.
+//
+// `pick_axis` reads a component the lane chooses at run time, which is a
+// select over the components; `length_squared` reduces one to a scalar, which
+// is a chain over the components.
+
+element vec3f = vector[f32, 3];
+
+element Ray {
+    o : vec3f;
+    d : vec3f;
+    tmax : f32;
+}
+
+func [[noinline]] direction(x : f32) -> vec3f {
+    return vec3f{x, x * 2.0, x * 3.0};
+}
+
+func [[noinline]] length_squared(v : vec3f) -> f32 {
+    w = v * v;
+    return sum(w);
+}
+
+func [[noinline]] advance(r : mut Ray, t : f32) -> void {
+    r.o = r.o + r.d * t;
+    r.tmax = r.tmax - t;
+    return;
+}
+
+func march(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        d = direction(a[i]);
+        r : mut Ray = {d, d, 10.0};
+        advance(r, 0.5);
+        out[i] = length_squared(r.o) + r.tmax;
+    }
+    return;
+}
+
+func pick_axis(a : array[f32, 8], axis : array[i32, 8],
+               out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        v = vec3f{a[i], a[i] + 10.0, a[i] + 20.0};
+        out[i] = v[axis[i]];
+    }
+    return;
+}
+
+schedule {
+    march.vectorize(i);
+    pick_axis.vectorize(i);
+}

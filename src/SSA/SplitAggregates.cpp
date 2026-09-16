@@ -28,6 +28,9 @@ using Components = vector<shared_ptr<Value>>;
 struct Splitter {
     Function &func;
     const Divergence &divergence;
+    // Gang-wide vectors, which are not a lane's own and are never split: the
+    // lane indices, built as a vector to begin with.
+    const set<const Instruction *> &already_wide;
 
     // Values that were split, keyed by what named them. Instructions are
     // keyed by identity; entry-block arguments by name, since an argument is
@@ -40,26 +43,54 @@ struct Splitter {
     // use instead.
     map<const Instruction *, shared_ptr<Value>> folded;
 
-    // Component reads of uniform vectors, cached so that a vector used by
-    // several split operations is only taken apart once.
-    map<std::pair<const void *, uint32_t>, shared_ptr<Value>> extracted;
-
-    // Instructions to drop once the walk is done: those that were split and
-    // those that folded away.
-    set<const Instruction *> dead;
+    // Component reads of whole vectors, cached so that a vector used by
+    // several split operations is only taken apart once. Per block, since a
+    // read emitted in one block is not in scope in another that it does not
+    // dominate.
+    map<std::tuple<string, const void *, uint32_t>, shared_ptr<Value>>
+        extracted;
 
     shared_ptr<Block> block;
     vector<shared_ptr<Instruction>> emitted;
 
-    Splitter(Function &func, const Divergence &divergence)
-        : func(func), divergence(divergence) {}
+    Splitter(Function &func, const Divergence &divergence,
+             const set<const Instruction *> &already_wide)
+        : func(func), divergence(divergence), already_wide(already_wide) {}
 
-    shared_ptr<Value> emit(Type type, Instruction::Op op,
-                           vector<shared_ptr<Value>> operands) {
+    // Is this a vector a lane holds one of -- as opposed to a scalar, or to a
+    // vector that is already the gang's?
+    bool per_lane_vector(const Value &value) const {
+        if (!value.get_type().is_vector()) {
+            return false;
+        }
+        const auto *instr = std::get_if<shared_ptr<Instruction>>(&value.data);
+        return instr == nullptr || already_wide.count(instr->get()) == 0;
+    }
+
+    shared_ptr<Instruction> emit_instr(Type type, Instruction::Op op,
+                                       vector<shared_ptr<Value>> operands) {
         auto instr = std::make_shared<Instruction>(func.get_unique_name(),
                                                    std::move(type), op,
                                                    std::move(operands), block);
         emitted.push_back(instr);
+        return instr;
+    }
+
+    shared_ptr<Value> emit(Type type, Instruction::Op op,
+                           vector<shared_ptr<Value>> operands) {
+        return std::make_shared<Value>(
+            emit_instr(std::move(type), op, std::move(operands)));
+    }
+
+    // The same operation as `like`, on other operands and producing `type`:
+    // what one component of a split operation is.
+    shared_ptr<Value> emit_like(const Instruction &like, Type type,
+                                vector<shared_ptr<Value>> operands) {
+        auto instr = emit_instr(std::move(type), like.op, std::move(operands));
+        instr->intrinsic = like.intrinsic;
+        instr->reduce = like.reduce;
+        instr->shuffle = like.shuffle;
+        instr->queried_type = like.queried_type;
         return std::make_shared<Value>(std::move(instr));
     }
 
@@ -77,8 +108,14 @@ struct Splitter {
         return nullptr;
     }
 
+    // Is this value one the lanes disagree about, as seen from the block
+    // being walked?
+    bool is_varying(const Value &value) const {
+        return divergence.is_varying(block->name, value);
+    }
+
     // The k-th component of `value`, however it is represented: a component
-    // of a split value, a component read out of a uniform vector, or a scalar
+    // of a split value, a component read out of a whole vector, or a scalar
     // that every component shares.
     shared_ptr<Value> component(const shared_ptr<Value> &value, uint32_t k) {
         if (const Components *split = components_of(*value)) {
@@ -89,13 +126,14 @@ struct Splitter {
             return value; // a scalar: the same for every component
         }
 
-        // A uniform vector, read apart once and reused.
+        // A whole vector -- uniform, or a per-lane one that is carried whole
+        // (see whole()) -- read apart once per block and reused.
         const void *key = value.get();
         if (const auto *instr =
                 std::get_if<shared_ptr<Instruction>>(&value->data)) {
             key = instr->get();
         }
-        const auto cached = extracted.find({key, k});
+        const auto cached = extracted.find({block->name, key, k});
         if (cached != extracted.end()) {
             return cached->second;
         }
@@ -103,8 +141,23 @@ struct Splitter {
             std::make_shared<Value>(Constant{UInt_t::make(32), uint64_t(k)});
         auto value_k = emit(type.element_of(), Instruction::Op::ExtractIdx,
                             {value, std::move(index)});
-        extracted[{key, k}] = value_k;
+        extracted[{block->name, key, k}] = value_k;
         return value_k;
+    }
+
+    // A split value as one vector again, for a use that takes the vector
+    // whole: a field of a struct being built, a value being stored, returned
+    // or passed along a jump. Built the way the SSA builder spells a vector
+    // literal, a MakeStruct of the vector type (see the VecImm visitor in
+    // SSA/Convert.cpp), so that nothing downstream sees a second spelling.
+    // Widening then turns it into the struct of gang vectors a per-lane vector
+    // is carried as; see widen() in SSA/Vectorize.cpp.
+    shared_ptr<Value> whole(const shared_ptr<Value> &value) {
+        const Components *split = components_of(*value);
+        if (split == nullptr) {
+            return value;
+        }
+        return emit(value->get_type(), Instruction::Op::MakeStruct, *split);
     }
 
     shared_ptr<Value> resolve(const shared_ptr<Value> &value) {
@@ -118,12 +171,13 @@ struct Splitter {
 
 // Operations whose result is one value per component of their operands, and
 // which therefore split into one operation per component.
-bool is_elementwise(Instruction::Op op) {
-    switch (op) {
+bool is_elementwise(const Instruction &instr) {
+    switch (instr.op) {
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
     case Instruction::Op::BwAnd:
     case Instruction::Op::BwOr:
+    case Instruction::Op::Cast:
     case Instruction::Op::Div:
     case Instruction::Op::Eq:
     case Instruction::Op::LAnd:
@@ -134,6 +188,8 @@ bool is_elementwise(Instruction::Op op) {
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
     case Instruction::Op::Mul:
+    case Instruction::Op::Ne:
+    case Instruction::Op::Not:
     case Instruction::Op::Select:
     case Instruction::Op::Set:
     case Instruction::Op::Shl:
@@ -141,6 +197,19 @@ bool is_elementwise(Instruction::Op op) {
     case Instruction::Op::Sub:
     case Instruction::Op::Xor:
         return true;
+    // The intrinsics are all pointwise -- `sqrt`, `fma`, `atanh` and the rest
+    // apply to each component -- except `rand`, whose argument is a count, and
+    // except the vector-valued ones, `dot`, `cross` and `norm`, which the SSA
+    // builder expands into the pieces before anything here sees them (see the
+    // Intrinsic visitor in SSA/Convert.cpp).
+    case Instruction::Op::Intrinsic:
+        return instr.intrinsic != ir::Intrinsic::rand;
+    // A bitwise reinterpretation of one vector as another with the same
+    // number of components is a reinterpretation of each component.
+    case Instruction::Op::Reinterpret:
+        return instr.operands.size() == 1 &&
+               instr.operands[0]->get_type().is_vector() &&
+               instr.operands[0]->get_type().lanes() == instr.type.lanes();
     default:
         return false;
     }
@@ -163,6 +232,40 @@ optional<uint64_t> constant_index(const Value &value) {
         constant->data);
 }
 
+// A constant of `type` holding `k`, spelled the way that type's constants are.
+shared_ptr<Value> constant_of(const Type &type, uint64_t k) {
+    if (type.is_int()) {
+        return std::make_shared<Value>(Constant{type, int64_t(k)});
+    }
+    return std::make_shared<Value>(Constant{type, k});
+}
+
+// The binary operation that folds two components of a reduction.
+Instruction::Op reduction_step(ir::VectorReduce::OpType op, const Type &element,
+                               const string &name) {
+    switch (op) {
+    case ir::VectorReduce::Add:
+        return Instruction::Op::Add;
+    case ir::VectorReduce::Mul:
+        return Instruction::Op::Mul;
+    case ir::VectorReduce::Min:
+        return Instruction::Op::Min;
+    case ir::VectorReduce::Max:
+        return Instruction::Op::Max;
+    case ir::VectorReduce::And:
+        return element.is_bool() ? Instruction::Op::LAnd
+                                 : Instruction::Op::BwAnd;
+    case ir::VectorReduce::Or:
+        return element.is_bool() ? Instruction::Op::LOr : Instruction::Op::BwOr;
+    default:
+        internal_error << "TODO: reduce a per-lane vector with "
+                       << to_string(op) << " in " << name
+                       << ", which needs the component's index kept beside "
+                          "its value";
+        return Instruction::Op::Add;
+    }
+}
+
 } // namespace
 
 SplitResult split_aggregates(Function &func, const string &entry,
@@ -182,7 +285,7 @@ SplitResult split_aggregates(Function &func, const string &entry,
         }
     }
 
-    Splitter splitter(func, divergence);
+    Splitter splitter(func, divergence, already_wide);
     SplitResult result;
 
     // A varying vector parameter becomes one parameter per component, which
@@ -226,31 +329,95 @@ SplitResult split_aggregates(Function &func, const string &entry,
                                          instr->type.is_vector() &&
                                          already_wide.count(instr.get()) == 0;
 
-            // Reading a component of a split vector is that component: no
-            // instruction is needed for it at all.
+            // Reading a component of a vector.
             if (instr->op == Instruction::Op::ExtractIdx &&
-                splitter.components_of(*instr->operands[0]) != nullptr) {
+                splitter.per_lane_vector(*instr->operands[0])) {
+                const auto &vec = instr->operands[0];
                 const auto k = constant_index(*instr->operands[1]);
-                internal_assert(k.has_value())
-                    << "Reading a per-lane vector at a computed index is a "
-                    << "shuffle across lanes, which vectorization does not "
-                    << "support: " << instr->name;
-                splitter.folded[instr.get()] =
-                    (*splitter.components_of(*instr->operands[0]))[*k];
-                splitter.dead.insert(instr.get());
+                if (k.has_value()) {
+                    // Of a split vector: that component, and no instruction
+                    // at all. Of a whole one: the read stays as it is, and
+                    // widening makes it a field read if the vector turns out
+                    // to be per lane (see widen() in SSA/Vectorize.cpp).
+                    if (const Components *split = splitter.components_of(*vec)) {
+                        splitter.folded[instr.get()] = (*split)[*k];
+                        continue;
+                    }
+                } else if (varying) {
+                    // At a computed index: which component a lane reads is
+                    // its own business, so no single component can be named.
+                    // A shuffle across the gang is what it would take, and
+                    // what is done instead is what every SIMD compiler does
+                    // for a dynamically indexed short vector -- select among
+                    // the components by comparing the index against each.
+                    const Type &vec_type = vec->get_type();
+                    const uint32_t n = vec_type.lanes();
+                    const auto &index = instr->operands[1];
+                    const Type index_type = index->get_type();
+                    shared_ptr<Value> picked = splitter.component(vec, n - 1);
+                    for (uint32_t c = n - 1; c-- > 0;) {
+                        auto is_c = splitter.emit(
+                            Bool_t::make(), Instruction::Op::Eq,
+                            {index, constant_of(index_type, c)});
+                        picked = splitter.emit(
+                            vec_type.element_of(), Instruction::Op::Select,
+                            {is_c, splitter.component(vec, c), picked});
+                    }
+                    splitter.folded[instr.get()] = picked;
+                    continue;
+                }
+            }
+
+            // Folding the components of a per-lane vector into one value.
+            if (instr->op == Instruction::Op::Reduce && varying &&
+                splitter.per_lane_vector(*instr->operands[0])) {
+                const auto &vec = instr->operands[0];
+                const Type element = vec->get_type().element_of();
+                const uint32_t n = vec->get_type().lanes();
+                // Which component is the extremum is the extremum first, then
+                // the first component equal to it -- the way lower::argmax
+                // spells the scalar case, so that a tie picks the same
+                // component whether or not the loop was vectorized.
+                const bool by_index =
+                    instr->reduce == ir::VectorReduce::Idxmax ||
+                    instr->reduce == ir::VectorReduce::Idxmin;
+                const ir::VectorReduce::OpType fold =
+                    instr->reduce == ir::VectorReduce::Idxmax
+                        ? ir::VectorReduce::Max
+                    : instr->reduce == ir::VectorReduce::Idxmin
+                        ? ir::VectorReduce::Min
+                        : instr->reduce;
+                const Instruction::Op step =
+                    reduction_step(fold, element, instr->name);
+                shared_ptr<Value> acc = splitter.component(vec, 0);
+                for (uint32_t c = 1; c < n; c++) {
+                    acc = splitter.emit(element, step,
+                                        {acc, splitter.component(vec, c)});
+                }
+                if (by_index) {
+                    const Type index_type = instr->type;
+                    shared_ptr<Value> picked = constant_of(index_type, n - 1);
+                    for (uint32_t c = n - 1; c-- > 0;) {
+                        auto is_c = splitter.emit(
+                            Bool_t::make(), Instruction::Op::Eq,
+                            {acc, splitter.component(vec, c)});
+                        picked = splitter.emit(
+                            index_type, Instruction::Op::Select,
+                            {is_c, constant_of(index_type, c), picked});
+                    }
+                    acc = picked;
+                }
+                splitter.folded[instr.get()] = acc;
                 continue;
             }
 
             if (!varying || !produces_vector) {
                 // Nothing about this instruction changes, but it may still
-                // read a value that was split -- which only makes sense for
-                // the cases handled above.
-                for (const auto &operand : instr->operands) {
-                    internal_assert(splitter.components_of(*operand) == nullptr)
-                        << "Instruction " << instr->name
-                        << " uses a value that was split per component, which "
-                        << "vectorization only knows how to do for "
-                        << "elementwise operations and component reads";
+                // read a value that was split -- a struct built from a
+                // per-lane vector, a store of one -- and it takes that value
+                // whole.
+                for (auto &operand : instr->operands) {
+                    operand = splitter.whole(operand);
                 }
                 splitter.emitted.push_back(instr);
                 continue;
@@ -259,7 +426,21 @@ SplitResult split_aggregates(Function &func, const string &entry,
             const uint32_t lanes = instr->type.lanes();
             const Type element = instr->type.element_of();
 
-            if (is_elementwise(instr->op)) {
+            // A copy of a vector is a copy of its components, and needs no
+            // instruction: the components are the operand's. (A `set` is also
+            // the one instruction the relooper insists carry the program's own
+            // name for the value, which a component made here would not.)
+            if (instr->op == Instruction::Op::Set) {
+                Components components;
+                for (uint32_t k = 0; k < lanes; k++) {
+                    components.push_back(
+                        splitter.component(instr->operands[0], k));
+                }
+                splitter.instrs[instr.get()] = std::move(components);
+                continue;
+            }
+
+            if (is_elementwise(*instr)) {
                 Components components;
                 for (uint32_t k = 0; k < lanes; k++) {
                     vector<shared_ptr<Value>> operands;
@@ -267,10 +448,9 @@ SplitResult split_aggregates(Function &func, const string &entry,
                         operands.push_back(splitter.component(operand, k));
                     }
                     components.push_back(
-                        splitter.emit(element, instr->op, std::move(operands)));
+                        splitter.emit_like(*instr, element, std::move(operands)));
                 }
                 splitter.instrs[instr.get()] = std::move(components);
-                splitter.dead.insert(instr.get());
                 continue;
             }
 
@@ -278,7 +458,20 @@ SplitResult split_aggregates(Function &func, const string &entry,
             if (instr->op == Instruction::Op::Bc) {
                 Components components(lanes, instr->operands[0]);
                 splitter.instrs[instr.get()] = std::move(components);
-                splitter.dead.insert(instr.get());
+                continue;
+            }
+
+            // A vector literal is already its components.
+            if (instr->op == Instruction::Op::MakeStruct) {
+                internal_assert(instr->operands.size() == lanes)
+                    << "Vector literal " << instr->name << " has "
+                    << instr->operands.size() << " components for a "
+                    << instr->type;
+                Components components;
+                for (const auto &operand : instr->operands) {
+                    components.push_back(splitter.whole(operand));
+                }
+                splitter.instrs[instr.get()] = std::move(components);
                 continue;
             }
 
@@ -331,32 +524,75 @@ SplitResult split_aggregates(Function &func, const string &entry,
 
                 Components components;
                 for (uint32_t k = 0; k < lanes; k++) {
-                    auto offset = std::make_shared<Value>(
-                        Constant{scalar_index, int64_t(k)});
+                    auto offset = constant_of(scalar_index, k);
                     auto index = splitter.emit(index_type, Instruction::Op::Add,
                                                {base, offset});
-                    components.push_back(
-                        splitter.emit(element, Instruction::Op::ExtractIdx,
-                                      {flat_array, std::move(index)}));
+                    // The read's execution mask, if it has one, covers every
+                    // component read in its stead.
+                    vector<shared_ptr<Value>> operands{flat_array,
+                                                       std::move(index)};
+                    if (instr->operands.size() == 3) {
+                        operands.push_back(instr->operands[2]);
+                    }
+                    components.push_back(splitter.emit(
+                        element, Instruction::Op::ExtractIdx, std::move(operands)));
                 }
                 splitter.instrs[instr.get()] = std::move(components);
-                splitter.dead.insert(instr.get());
                 continue;
             }
 
-            instr->dump(std::cerr);
-            internal_error << "TODO: split the per-lane vector produced by ^";
+            // Anything else that produces a per-lane vector -- a field read out
+            // of a per-lane struct, a load from per-lane memory, a copy -- is
+            // carried whole, and taken apart where a component is wanted (see
+            // component()). Whatever it reads that was split, it reads whole.
+            for (auto &operand : instr->operands) {
+                operand = splitter.whole(operand);
+            }
+            splitter.emitted.push_back(instr);
         }
 
         block->instrs = splitter.emitted;
     }
 
     // Anything that folded away has to stop being referenced, including from
-    // terminators: a call may pass a component of a split vector.
+    // terminators, and a terminator that takes a vector whole -- a return, a
+    // jump -- gets a split one rebuilt; a call gets a per-lane one as its
+    // components, since the callee's parameter is split to match.
     for (const string &name : region) {
         auto block = blocks.at(name);
+        splitter.block = block;
+        splitter.emitted = block->instrs;
         auto fix = [&](shared_ptr<Value> &value) {
             value = splitter.resolve(value);
+        };
+        auto fix_whole = [&](shared_ptr<Value> &value) {
+            fix(value);
+            value = splitter.whole(value);
+        };
+        // A vector the lanes disagree about is handed to a callee as its
+        // components, whether it was split here or is carried whole: the
+        // callee's own parameter is split (see the entry-block rewrite above),
+        // so the two have to line up. How many values each argument became
+        // is recorded so that the callee can be expanded the same way.
+        auto flatten = [&](vector<shared_ptr<Value>> &args,
+                           vector<uint32_t> &shape) {
+            vector<shared_ptr<Value>> flattened;
+            for (auto &a : args) {
+                fix(a);
+                const Type &type = a->get_type();
+                if (splitter.per_lane_vector(*a) &&
+                    (splitter.components_of(*a) != nullptr ||
+                     splitter.is_varying(*a))) {
+                    for (uint32_t k = 0; k < type.lanes(); k++) {
+                        flattened.push_back(splitter.component(a, k));
+                    }
+                    shape.push_back(type.lanes());
+                } else {
+                    flattened.push_back(a);
+                    shape.push_back(1);
+                }
+            }
+            args = std::move(flattened);
         };
         for (const auto &instr : block->instrs) {
             for (auto &operand : instr->operands) {
@@ -367,53 +603,30 @@ SplitResult split_aggregates(Function &func, const string &entry,
                        [&](std::monostate &) {},
                        [&](Terminator::Jump &t) {
                            for (auto &a : t.args) {
-                               fix(a);
+                               fix_whole(a);
                            }
                        },
                        [&](Terminator::Dispatch &t) {
                            fix(t.cond);
                            for (auto &target : t.targets) {
                                for (auto &a : target.args) {
-                                   fix(a);
+                                   fix_whole(a);
                                }
                            }
                        },
                        [&](Terminator::Return &t) {
                            if (t.value) {
-                               internal_assert(
-                                   splitter.components_of(*t.value) == nullptr)
-                                   << "TODO: return a per-lane vector, which "
-                                   << "needs one returned value per component";
-                               fix(t.value);
+                               fix_whole(t.value);
                            }
                        },
                        [&](Terminator::ParFor &) {},
                        [&](Terminator::Yield &) {},
                        [&](Terminator::Call &t) {
-                           // A split argument is handed over as its
-                           // components, which is why a callee's parameters
-                           // are split to match. How many each became is
-                           // recorded so that the callee can be expanded the
-                           // same way.
-                           vector<shared_ptr<Value>> flattened;
                            vector<uint32_t> shape;
-                           for (auto &a : t.call.args) {
-                               fix(a);
-                               if (const Components *split =
-                                       splitter.components_of(*a)) {
-                                   for (const auto &part : *split) {
-                                       flattened.push_back(part);
-                                   }
-                                   shape.push_back(uint32_t(split->size()));
-                               } else {
-                                   flattened.push_back(a);
-                                   shape.push_back(1);
-                               }
-                           }
-                           t.call.args = std::move(flattened);
+                           flatten(t.call.args, shape);
                            result.call_shapes[name] = std::move(shape);
                            for (auto &a : t.cont.args) {
-                               fix(a);
+                               fix_whole(a);
                            }
                        },
                        [&](Terminator::MultiCall &t) {
@@ -425,29 +638,21 @@ SplitResult split_aggregates(Function &func, const string &entry,
                            // it stands in for -- otherwise one call in the run
                            // would hand the callee a different number of
                            // arguments than another.
-                           vector<shared_ptr<Value>> flattened;
-                           vector<uint32_t> shape;
                            vector<size_t> new_at(t.call.args.size());
                            vector<size_t> width(t.call.args.size());
-                           for (size_t i = 0; i < t.call.args.size(); i++) {
-                               auto &a = t.call.args[i];
-                               fix(a);
-                               new_at[i] = flattened.size();
-                               if (const Components *split =
-                                       splitter.components_of(*a)) {
-                                   for (const auto &part : *split) {
-                                       flattened.push_back(part);
-                                   }
-                                   shape.push_back(uint32_t(split->size()));
-                                   width[i] = split->size();
-                               } else {
-                                   flattened.push_back(a);
-                                   shape.push_back(1);
-                                   width[i] = 1;
+                           {
+                               vector<uint32_t> shape;
+                               vector<shared_ptr<Value>> args = t.call.args;
+                               flatten(args, shape);
+                               size_t at = 0;
+                               for (size_t i = 0; i < shape.size(); i++) {
+                                   new_at[i] = at;
+                                   width[i] = shape[i];
+                                   at += shape[i];
                                }
+                               t.call.args = std::move(args);
+                               result.call_shapes[name] = std::move(shape);
                            }
-                           t.call.args = std::move(flattened);
-                           result.call_shapes[name] = std::move(shape);
 
                            vector<size_t> varying_at;
                            for (const size_t old : t.varying_at) {
@@ -460,18 +665,23 @@ SplitResult split_aggregates(Function &func, const string &entry,
                                for (size_t k = 0; k < vs.size(); k++) {
                                    fix(vs[k]);
                                    const size_t old = t.varying_at[k];
-                                   const Components *split =
-                                       splitter.components_of(*vs[k]);
+                                   const Type &type = vs[k]->get_type();
                                    const size_t parts =
-                                       split ? split->size() : 1;
+                                       splitter.per_lane_vector(*vs[k]) &&
+                                               (splitter.components_of(*vs[k]) !=
+                                                    nullptr ||
+                                                splitter.is_varying(*vs[k]))
+                                           ? type.lanes()
+                                           : 1;
                                    internal_assert(parts == width[old])
                                        << "A varying value splits into "
                                        << parts << " components but the "
                                        << "argument it replaces splits into "
                                        << width[old];
-                                   if (split) {
-                                       for (const auto &part : *split) {
-                                           flat.push_back(part);
+                                   if (parts > 1) {
+                                       for (uint32_t c = 0; c < parts; c++) {
+                                           flat.push_back(
+                                               splitter.component(vs[k], c));
                                        }
                                    } else {
                                        flat.push_back(vs[k]);
@@ -491,11 +701,12 @@ SplitResult split_aggregates(Function &func, const string &entry,
                            }
 
                            for (auto &a : t.cont.args) {
-                               fix(a);
+                               fix_whole(a);
                            }
                        },
                    },
                    block->terminator.data);
+        block->instrs = splitter.emitted;
     }
 
     return result;

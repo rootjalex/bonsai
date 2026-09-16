@@ -8,8 +8,8 @@ type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type TriBVH = (const TriBVH&)
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type __tuple_0 = struct __tuple_0{ _field0 : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }*) }
-type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }*) } }
+type __tuple_0 = struct __tuple_0{ _field0 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : u32 } }
 type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
@@ -37,7 +37,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mu
       forall _idx0 in [0u:cast<u32>(tris.group1_index[tris_index].nPrims):1u] {
         if (intersects_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])) {
           if (distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]) < (*_best0)._field0) {
-            _best0 = build<__tuple_1>(distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]), build<__tuple_0>((&tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0])))
+            _best0 = build<__tuple_1>(distmin_Ray_Triangle(r, tris.prims[reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0]), build<__tuple_0>(reinterpret_cast<_tree_layout3>(tris.group1_index[tris_index].split0on_nPrims).pOffset + _idx0))
           }
         }
       }
@@ -51,7 +51,7 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
   _recloop_func0(0u, tris, r, _best0)
   _best0_result : mut _option0 := build<_option0>()
   if ((*_best0)._field0 != (f32)inf) {
-    _best0_result = build<_option0>((*(*_best0)._field1._field0), true)
+    _best0_result = build<_option0>(tris.prims[(*_best0)._field1._field0], true)
   }
   return (*_best0_result)
 }

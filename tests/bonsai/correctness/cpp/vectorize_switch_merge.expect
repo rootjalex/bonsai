@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_switch_merge.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_switch_merge.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_switch_merge.o tests/bonsai/correctness/cpp/vectorize_switch_merge.o -o tests/bonsai/correctness/cpp/vectorize_switch_merge
+[test] ./tests/bonsai/correctness/cpp/vectorize_switch_merge
+13.5 11 1.5 36 44 9 -2.25 77
+same as scalar

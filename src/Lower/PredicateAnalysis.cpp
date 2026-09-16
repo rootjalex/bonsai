@@ -631,6 +631,7 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::Broadcast);
     RESTRICT_VISITOR(ir::VectorReduce);
     RESTRICT_VISITOR(ir::VectorShuffle);
+    RESTRICT_VISITOR(ir::Shuffle);
     RESTRICT_VISITOR(ir::Ramp);
     RESTRICT_VISITOR(ir::Extract);
     RESTRICT_VISITOR(ir::Build);
@@ -917,6 +918,7 @@ struct PredicateAnalysis : public ir::Visitor {
 
     RESTRICT_VISITOR(ir::Instantiate);
     RESTRICT_VISITOR(ir::PtrTo);
+    RESTRICT_VISITOR(ir::RefTo);
     RESTRICT_VISITOR(ir::Deref);
     RESTRICT_VISITOR(ir::AtomicAdd);
 };

@@ -1,0 +1,29 @@
+//! flags: -p ssa
+
+// A short vector accumulated into one shared slot by some lanes of a gang,
+// as the vectorizer leaves it: the program of
+// correctness/cpp/vectorize_masked_accumulate.bonsai.
+//
+// What this pins is the shape of the folded accumulate. The lanes that take
+// the branch are reduced into one `vec3f` -- each component a select of the
+// lane's value or zero, then a sum across the gang -- and the accumulate is
+// made once, under `reduce<any>` of the branch's mask rather than under the
+// mask itself. That scalar condition is what tells the backends this is the
+// gang's one accumulate into shared memory and not a lane per component (see
+// widen_region in SSA/Vectorize.cpp).
+import stdlib/numerics;
+
+func [[export]] sum_some(a : array[f32, 8], sums : mut array[vec3f, 2]) {
+    parfor i in 0:8 {
+        v = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+        if a[i] > 0.0 {
+            atomic sums[0] += v;
+            sums[1] += v;
+        }
+    }
+    return;
+}
+
+schedule {
+    sum_some.vectorize(i);
+}

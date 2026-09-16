@@ -65,7 +65,7 @@ func _traverse_tree1(triangles : tree[[Triangle]] TriangleBVH, triangles2 : tree
 }
 
 func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> option<Triangle> {
-  _best0 : mut (f32, ((Triangle*))) := ((f32)inf, ())
+  _best0 : mut (f32, (ref[Triangle in triangles])) := ((f32)inf, ())
   rec(triangles : tree[[Triangle]] TriangleBVH) {
     match triangles {
     | Interior(low : f32x3, high : f32x3, left : (const TriangleBVH&), right : (const TriangleBVH&)) with AABB(low, high) ->
@@ -75,7 +75,7 @@ func _traverse_tree2(ray : Ray, triangles : tree[[Triangle]] TriangleBVH) -> opt
     | Leaf(low : f32x3, high : f32x3, data : Triangle) with data = data with AABB(low, high) ->
       if (intersects(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) && (distmin(ray, build<AABB>((triangles as Leaf).low, (triangles as Leaf).high)) < _best0[0])) {
         if (intersects(ray, (triangles as Leaf).data) && (distmin(ray, (triangles as Leaf).data) < _best0[0])) {
-          _best0 = (distmin(ray, (triangles as Leaf).data), ((&(triangles as Leaf).data)))
+          _best0 = (distmin(ray, (triangles as Leaf).data), (ref((triangles as Leaf).data)))
         }
       }
     }

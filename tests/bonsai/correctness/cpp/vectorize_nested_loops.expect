@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_nested_loops.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_nested_loops.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_nested_loops.o tests/bonsai/correctness/cpp/vectorize_nested_loops.o -o tests/bonsai/correctness/cpp/vectorize_nested_loops
+[test] ./tests/bonsai/correctness/cpp/vectorize_nested_loops
+0 0 0 1 4 10 20 35
+-1 -1 -1 -1 32 32 32 32

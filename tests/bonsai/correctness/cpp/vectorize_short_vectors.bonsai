@@ -1,0 +1,102 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_short_vectors
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_short_vectors.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_short_vectors.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_short_vectors.o tests/bonsai/correctness/cpp/vectorize_short_vectors.o -o tests/bonsai/correctness/cpp/vectorize_short_vectors, ./tests/bonsai/correctness/cpp/vectorize_short_vectors, rm tests/bonsai/correctness/cpp/vectorize_short_vectors, rm tests/bonsai/correctness/cpp/main_vectorize_short_vectors.o, rm tests/bonsai/correctness/cpp/vectorize_short_vectors.h, rm tests/bonsai/correctness/cpp/vectorize_short_vectors.o
+
+// A lane's own short vectors -- a `vec3f` per lane -- everywhere they can go.
+//
+// Arithmetic on one is taken apart into its components, each a gang vector.
+// Everywhere else it is carried whole, as a struct of those component
+// vectors: as a field of a per-lane struct, in per-lane memory a callee
+// writes through a pointer, returned from a callee, passed into one, reduced
+// to a scalar, and read at a component the lane chooses at run time. Each
+// function checks its own answer; the comment beside the store says what it
+// should be for a lane whose input is a.
+
+element vec3f = vector[f32, 3];
+element vec4f = vector[f32, 4];
+
+element Ray {
+    o : vec3f;
+    d : vec3f;
+    tmax : f32;
+}
+
+// Returns a per-lane vector, built from per-lane components.
+func [[noinline]] direction(x : f32) -> vec3f {
+    return vec3f{x, x * 2.0, x * 3.0};
+}
+
+// Takes one whole, applies an intrinsic to it, and reduces it: sum of the
+// squares of the components.
+func [[noinline]] length_squared(v : vec3f) -> f32 {
+    w = v * v;
+    return sum(w);
+}
+
+// Writes a per-lane vector into a per-lane struct through a pointer.
+func [[noinline]] advance(r : mut Ray, t : f32) -> void {
+    r.o = r.o + r.d * t;
+    r.tmax = r.tmax - t;
+    return;
+}
+
+// A vector returned, stored into a struct field, reloaded, and reduced.
+//   o = (a, 2a, 3a) + (a, 2a, 3a) * 0.5 = 1.5 * (a, 2a, 3a)
+//   sum(o * o) = 2.25 * 14 a^2 = 31.5 a^2, plus tmax = 10 - 0.5
+func [[export]] march(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        d = direction(a[i]);
+        r : mut Ray = {d, d, 10.0};
+        advance(r, 0.5);
+        // 31.5 a^2 + 9.5
+        out[i] = length_squared(r.o) + r.tmax;
+    }
+    return;
+}
+
+// A component chosen per lane at run time, from a vector every lane has its
+// own of: a select over the components, not a shuffle.
+func [[export]] pick_axis(a : array[f32, 8], axis : array[i32, 8],
+                          out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        v = vec3f{a[i], a[i] + 10.0, a[i] + 20.0};
+        // a + 10 * axis
+        out[i] = v[axis[i]];
+    }
+    return;
+}
+
+// A per-lane vector under a divergent branch: the store into the struct field
+// is made by some lanes only, and the vector it stores is blended by the mask.
+func [[export]] flip_negative(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        d = direction(a[i]);
+        r : mut Ray = {d, d, 1.0};
+        if (a[i] < 0.0) {
+            advance(r, 0.0 - 1.0);
+        }
+        // a < 0: o = (a,2a,3a) - (a,2a,3a) = 0, tmax = 2 -> 2
+        // else:  o = (a,2a,3a), sum(o*o) = 14 a^2, tmax = 1 -> 14 a^2 + 1
+        out[i] = length_squared(r.o) + r.tmax;
+    }
+    return;
+}
+
+// A per-lane vector cast component by component, and one compared component
+// by component: `max` of a spectrum-like vec4f against a uniform one.
+func [[export]] clamp_spectrum(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        s = vec4f{a[i], a[i] * 0.5, a[i] * 0.25, a[i] * 0.125};
+        floor = vec4f{0.0, 0.0, 0.0, 0.0};
+        c = max(s, floor);
+        // a <= 0: 0; else a * (1 + 0.5 + 0.25 + 0.125) = 1.875 a
+        out[i] = sum(c);
+    }
+    return;
+}
+
+schedule {
+    march.vectorize(i);
+    pick_axis.vectorize(i);
+    flip_negative.vectorize(i);
+    clamp_spectrum.vectorize(i);
+}

@@ -1,0 +1,36 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_parfor
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_parfor.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_parfor.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_parfor.o tests/bonsai/correctness/cpp/vectorize_parfor.o -o tests/bonsai/correctness/cpp/vectorize_parfor, ./tests/bonsai/correctness/cpp/vectorize_parfor, rm tests/bonsai/correctness/cpp/vectorize_parfor, rm tests/bonsai/correctness/cpp/main_vectorize_parfor.o, rm tests/bonsai/correctness/cpp/vectorize_parfor.h, rm tests/bonsai/correctness/cpp/vectorize_parfor.o
+
+// bind(p, CPUThread) and vectorize(s) on the same function, which the direct
+// SSA->LLVM lowering has to compose: the outer loop becomes a bonsai_parallel_for
+// over a kernel it outlines, and the inner loop, split to the gang width, becomes
+// a vector gang. So this exercises the parfor lowering -- both the thread-bound
+// outer loop as a launch and the serial split remainder as a counted loop -- in
+// one program that also checks its own answer.
+//
+// The accumulate into `acc` is the reduction case: `acc` is one value per pixel
+// and does not vary across the gang, while the value added to it does, so folding
+// eight lanes into it is a cross-lane sum. Without that reduction the gang's whole
+// vector was written into acc's scalar slot -- eight times too much, and past the
+// end of the four bytes it owns. `acc` is a mutable local the promotion pass lifts
+// to a register, and the sum per pixel p is
+//   sum over s in 0..7 of ((a[p] + s) + 2*a[p] + a[p]) = 32*a[p] + 28.
+
+element Vec3 { x : f32; y : f32; z : f32; }
+
+func [[export]] work(a : array[f32, 16], out : mut array[f32, 16]) -> void {
+    parfor p in 0u:16u {
+        acc : mut f32 = 0.0;
+        parfor s in 0u:8u {
+            v : Vec3 = {a[p] + cast[[f32]](s), a[p] * 2.0, a[p]};
+            acc += v.x + v.y + v.z;
+        }
+        out[p] = acc;
+    }
+    return;
+}
+
+schedule {
+    work.split(s, s_gang, s_lane, 8, false).vectorize(s_lane);
+    work.bind(p, CPUThread);
+}

@@ -1,0 +1,6 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_varying_memory.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_varying_memory.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_varying_memory.o tests/bonsai/correctness/cpp/vectorize_varying_memory.o -o tests/bonsai/correctness/cpp/vectorize_varying_memory
+[test] ./tests/bonsai/correctness/cpp/vectorize_varying_memory
+-10 -1 2 5 8 62 17 -4
+10 10 10 21 31 211 61 10
+-4 0.5 2 3.5 5 32 9.5 -1

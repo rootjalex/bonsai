@@ -24,6 +24,7 @@ struct Mutator {
     virtual Type visit(const Bool_t *);
     virtual Type visit(const String_t *);
     virtual Type visit(const Ptr_t *);
+    virtual Type visit(const ElementRef_t *);
     virtual Type visit(const Ref_t *);
     virtual Type visit(const Vector_t *);
     virtual Type visit(const Struct_t *);
@@ -59,6 +60,7 @@ struct Mutator {
     virtual Expr visit(const Broadcast *);
     virtual Expr visit(const VectorReduce *);
     virtual Expr visit(const VectorShuffle *);
+    virtual Expr visit(const Shuffle *);
     virtual Expr visit(const Ramp *);
     virtual Expr visit(const Extract *);
     virtual Expr visit(const Build *);
@@ -76,6 +78,7 @@ struct Mutator {
     virtual Expr visit(const Call *);
     virtual Expr visit(const Instantiate *);
     virtual Expr visit(const PtrTo *);
+    virtual Expr visit(const RefTo *);
     virtual Expr visit(const Deref *);
     virtual Expr visit(const AtomicAdd *);
     // Stmts
@@ -85,6 +88,7 @@ struct Mutator {
     virtual Stmt visit(const Return *);
     virtual Stmt visit(const LetStmt *);
     virtual Stmt visit(const IfElse *);
+    virtual Stmt visit(const SwitchStmt *);
     virtual Stmt visit(const DoWhile *);
     virtual Stmt visit(const While *);
     virtual Stmt visit(const Sequence *);

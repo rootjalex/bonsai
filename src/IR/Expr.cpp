@@ -521,6 +521,236 @@ Expr VectorReduce::make(VectorReduce::OpType op, Expr value) {
     return node;
 }
 
+namespace {
+
+int lanes_of(const Expr &e) {
+    return e.type().is_vector() ? int(e.type().lanes()) : 1;
+}
+
+} // namespace
+
+Expr Shuffle::make(std::vector<Expr> vectors, std::vector<int> indices) {
+    internal_assert(!vectors.empty()) << "Shuffle of no vectors";
+    internal_assert(!indices.empty()) << "Shuffle to no lanes";
+    Type element;
+    int total = 0;
+    for (const Expr &v : vectors) {
+        internal_assert(v.defined() && v.type().defined())
+            << "Shuffle of an undefined or untyped vector";
+        const Type e = v.type().is_vector() ? v.type().element_of() : v.type();
+        internal_assert(!element.defined() || equals(element, e))
+            << "Shuffle of vectors of different element types: " << element
+            << " and " << e;
+        element = e;
+        total += lanes_of(v);
+    }
+    for (const int i : indices) {
+        internal_assert(i < total)
+            << "Shuffle index " << i << " past the " << total
+            << " lanes of its vectors";
+    }
+    Shuffle *node = new Shuffle;
+    node->type = indices.size() == 1
+                     ? element
+                     : Vector_t::make(element, uint32_t(indices.size()));
+    node->vectors = std::move(vectors);
+    node->indices = std::move(indices);
+    return node;
+}
+
+Expr Shuffle::make_interleave(std::vector<Expr> vectors) {
+    internal_assert(!vectors.empty()) << "Interleave of no vectors";
+    if (vectors.size() == 1) {
+        return vectors[0];
+    }
+    const int lanes = lanes_of(vectors[0]);
+    for (const Expr &v : vectors) {
+        internal_assert(lanes_of(v) == lanes)
+            << "Interleave of vectors of different widths: " << vectors[0]
+            << " and " << v;
+    }
+    const int count = int(vectors.size());
+    std::vector<int> indices(static_cast<size_t>(lanes * count));
+    for (int i = 0; i < lanes * count; i++) {
+        indices[size_t(i)] = (i % count) * lanes + i / count;
+    }
+    return make(std::move(vectors), std::move(indices));
+}
+
+Expr Shuffle::make_concat(std::vector<Expr> vectors) {
+    internal_assert(!vectors.empty()) << "Concat of no vectors";
+    if (vectors.size() == 1) {
+        return vectors[0];
+    }
+    int total = 0;
+    for (const Expr &v : vectors) {
+        total += lanes_of(v);
+    }
+    std::vector<int> indices(static_cast<size_t>(total));
+    for (int i = 0; i < total; i++) {
+        indices[size_t(i)] = i;
+    }
+    return make(std::move(vectors), std::move(indices));
+}
+
+Expr Shuffle::make_broadcast(Expr vector, int factor) {
+    internal_assert(factor > 0) << "Broadcast by " << factor;
+    const int lanes = lanes_of(vector);
+    std::vector<int> indices(static_cast<size_t>(lanes * factor));
+    for (int i = 0; i < lanes * factor; i++) {
+        indices[size_t(i)] = i % lanes;
+    }
+    return make({std::move(vector)}, std::move(indices));
+}
+
+Expr Shuffle::make_slice(Expr vector, int begin, int stride, int size) {
+    internal_assert(size > 0) << "Slice of " << size << " lanes";
+    std::vector<int> indices(static_cast<size_t>(size));
+    for (int i = 0; i < size; i++) {
+        indices[size_t(i)] = begin + i * stride;
+    }
+    return make({std::move(vector)}, std::move(indices));
+}
+
+Expr Shuffle::make_extract_element(Expr vector, int index) {
+    return make({std::move(vector)}, {index});
+}
+
+Expr Shuffle::make_transpose(Expr vector, int factor) {
+    const int lanes = lanes_of(vector);
+    internal_assert(factor > 0 && lanes % factor == 0)
+        << "Transpose of " << lanes << " lanes by " << factor;
+    const int rows = lanes / factor;
+    std::vector<int> indices(static_cast<size_t>(lanes));
+    for (int i = 0; i < factor; i++) {
+        for (int j = 0; j < rows; j++) {
+            indices[size_t(i * rows + j)] = j * factor + i;
+        }
+    }
+    return make({std::move(vector)}, std::move(indices));
+}
+
+int Shuffle::input_lanes() const {
+    int total = 0;
+    for (const Expr &v : vectors) {
+        total += lanes_of(v);
+    }
+    return total;
+}
+
+bool Shuffle::is_interleave() const {
+    if (vectors.size() < 2) {
+        return false;
+    }
+    const int lanes = lanes_of(vectors[0]);
+    for (const Expr &v : vectors) {
+        if (lanes_of(v) != lanes) {
+            return false;
+        }
+    }
+    const int count = int(vectors.size());
+    if (int(indices.size()) != lanes * count) {
+        return false;
+    }
+    for (int i = 0; i < lanes * count; i++) {
+        if (indices[size_t(i)] != (i % count) * lanes + i / count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Shuffle::is_concat() const {
+    if (int(indices.size()) != input_lanes()) {
+        return false;
+    }
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (indices[i] != int(i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Shuffle::is_broadcast() const {
+    if (vectors.size() != 1) {
+        return false;
+    }
+    const int lanes = lanes_of(vectors[0]);
+    if (indices.size() <= size_t(lanes) || indices.size() % size_t(lanes) != 0) {
+        return false;
+    }
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (indices[i] != int(i) % lanes) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int Shuffle::broadcast_factor() const {
+    internal_assert(is_broadcast());
+    return int(indices.size()) / lanes_of(vectors[0]);
+}
+
+bool Shuffle::is_slice() const {
+    if (vectors.size() != 1 || indices.size() < 2) {
+        return false;
+    }
+    const int stride = indices[1] - indices[0];
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (indices[i] < 0 || indices[i] != indices[0] + int(i) * stride) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int Shuffle::slice_begin() const {
+    internal_assert(is_slice());
+    return indices[0];
+}
+
+int Shuffle::slice_stride() const {
+    internal_assert(is_slice());
+    return indices[1] - indices[0];
+}
+
+bool Shuffle::is_extract_element() const {
+    return indices.size() == 1 && indices[0] >= 0;
+}
+
+bool Shuffle::is_transpose() const { return transpose_factor() > 1; }
+
+int Shuffle::transpose_factor() const {
+    if (vectors.size() != 1) {
+        return 0;
+    }
+    const int lanes = lanes_of(vectors[0]);
+    if (int(indices.size()) != lanes) {
+        return 0;
+    }
+    for (int factor = 2; factor < lanes; factor++) {
+        if (lanes % factor != 0) {
+            continue;
+        }
+        const int rows = lanes / factor;
+        bool matches = true;
+        for (int i = 0; i < factor && matches; i++) {
+            for (int j = 0; j < rows; j++) {
+                if (indices[size_t(i * rows + j)] != j * factor + i) {
+                    matches = false;
+                    break;
+                }
+            }
+        }
+        if (matches) {
+            return factor;
+        }
+    }
+    return 0;
+}
+
 Expr VectorShuffle::make(Expr value, std::vector<Expr> idxs) {
     internal_assert(value.defined()) << "VectorShuffle of undefined.";
     internal_assert(std::all_of(idxs.cbegin(), idxs.cend(), [](const auto &e) {
@@ -608,8 +838,20 @@ Expr Extract::make(Expr vec, int32_t idx) {
 }
 
 Expr Extract::make(Expr vec, Expr idx) {
+    return make(std::move(vec), std::move(idx), Expr());
+}
+
+Expr Extract::make(Expr vec, Expr idx, Expr mask) {
     internal_assert(vec.defined()) << "Extract of undefined vector";
     internal_assert(idx.defined()) << "Extract with undefined idx of: " << vec;
+    if (mask.defined() && mask.type().defined()) {
+        internal_assert(mask.type().is_bool() && mask.type().is_vector())
+            << "Extract mask must be a boolean vector, got: " << mask.type();
+        internal_assert(idx.type().defined() && idx.type().is_vector() &&
+                        idx.type().lanes() == mask.type().lanes())
+            << "Extract mask has " << mask.type().lanes()
+            << " lanes but the index is " << idx.type();
+    }
 
     Type type;
     const bool infer_types = type_enforcement_enabled() || vec.type().defined();
@@ -633,9 +875,13 @@ Expr Extract::make(Expr vec, Expr idx) {
             }
             type = vec.type().element_of();
             // One index per lane extracts one element per lane: a dense
-            // vector load when the index is a Ramp, a gather otherwise.
+            // vector load when the index is a Ramp, a gather otherwise. One
+            // element per lane is the element's gang-wide form (ir::widen):
+            // a vector of a scalar, and for an aggregate the struct of
+            // gang-wide fields a gang carries it as, gathered a field at a
+            // time -- there being no vector whose element is an aggregate.
             if (idx.type().is_vector()) {
-                type = Vector_t::make(std::move(type), idx.type().lanes());
+                type = widen(std::move(type), idx.type().lanes());
             }
         }
     }
@@ -644,6 +890,7 @@ Expr Extract::make(Expr vec, Expr idx) {
     node->type = std::move(type);
     node->vec = std::move(vec);
     node->idx = std::move(idx);
+    node->mask = std::move(mask);
     return node;
 }
 
@@ -667,7 +914,9 @@ Expr Construct::make(Type adt, std::string variant, std::vector<Expr> args) {
 }
 
 Expr UnionOf::make(Type union_type, std::string member, Expr value) {
-    const Union_t *as_union = union_type.as<Union_t>();
+    // A union, or one union per lane (see union_behind): the latter holding
+    // the member in every lane, from one member value per lane.
+    const Union_t *as_union = union_behind(union_type);
     internal_assert(as_union)
         << "UnionOf::make received a non-union type: " << union_type;
     internal_assert(as_union->member(member).defined())
@@ -1540,9 +1789,52 @@ Expr PtrTo::make(Expr expr) {
         return ref->expr;
     }
 
+    // The address of a per-lane place is one address per lane. A place is per
+    // lane when the chain of accesses that names it is rooted at a
+    // dereference of a vector of pointers (see Deref::make) or steps into an
+    // array at one index per lane; its type is then a vector, of what each
+    // lane's place holds, and its address a vector of pointers to that. A
+    // short vector that is simply a value -- a `vec3f` -- has an ordinary
+    // pointer to the whole of it.
+    const bool per_lane_place = [&] {
+        Expr root = expr;
+        bool stepped_per_lane = false;
+        while (root.is<Extract, Access>()) {
+            if (const Extract *extract = root.as<Extract>()) {
+                stepped_per_lane = stepped_per_lane ||
+                                   (extract->idx.type().defined() &&
+                                    extract->idx.type().is_vector());
+                root = extract->vec;
+            } else {
+                root = root.as<Access>()->value;
+            }
+        }
+        if (const Deref *deref = root.as<Deref>()) {
+            stepped_per_lane = stepped_per_lane ||
+                               (deref->expr.type().is<Vector_t>() &&
+                                deref->expr.type().element_of().is<Ptr_t>());
+        }
+        return stepped_per_lane && expr.type().is<Vector_t>();
+    }();
+
     PtrTo *node = new PtrTo;
-    node->type = Ptr_t::make(expr.type());
+    node->type = per_lane_place
+                     ? Vector_t::make(Ptr_t::make(expr.type().element_of()),
+                                      expr.type().lanes())
+                     : Ptr_t::make(expr.type());
     node->expr = std::move(expr);
+    return node;
+}
+
+Expr RefTo::make(Expr place, std::string tree) {
+    internal_assert(place.defined()) << "RefTo::make received undefined place";
+    internal_assert(place.type().defined())
+        << "RefTo::make received untyped place: " << place;
+    internal_assert(!tree.empty()) << "RefTo::make received no tree";
+    RefTo *node = new RefTo;
+    node->type = ElementRef_t::make(place.type(), tree);
+    node->place = std::move(place);
+    node->tree = std::move(tree);
     return node;
 }
 
@@ -1550,7 +1842,18 @@ Expr Deref::make(Expr expr, Expr mask) {
     internal_assert(expr.defined()) << "Deref::make received undefined expr";
     internal_assert(expr.type().defined())
         << "Deref::make received untyped expr: " << expr;
-    internal_assert(expr.type().is<Ptr_t>())
+    // A pointer, or one pointer per lane: a vector of pointers dereferences
+    // to one value per lane -- a gather -- and, when what it points at is an
+    // aggregate, to a per-lane *place* that an access chain may go on into
+    // (see PtrTo::make), which is how the address of a field of each lane's
+    // element is spelled. Or a reference to a stored element (see RefTo),
+    // which dereferences to the element, however the layout ends up spelling
+    // the reference.
+    const bool per_lane = expr.type().is<Vector_t>() &&
+                          expr.type().element_of().is<Ptr_t>();
+    const ElementRef_t *element_ref = expr.type().as<ElementRef_t>();
+    internal_assert(expr.type().is<Ptr_t>() || per_lane ||
+                    element_ref != nullptr)
         << "Deref::make received non-ptr expr: " << expr
         << " has type: " << expr.type();
     if (mask.defined() && mask.type().defined()) {
@@ -1563,9 +1866,17 @@ Expr Deref::make(Expr expr, Expr mask) {
     if (const PtrTo *ptr = expr.as<PtrTo>(); ptr && !mask.defined()) {
         return ptr->expr;
     }
+    if (const RefTo *ref = expr.as<RefTo>(); ref && !mask.defined()) {
+        return ref->place;
+    }
 
     Deref *node = new Deref;
-    node->type = expr.type().as<Ptr_t>()->etype;
+    node->type = element_ref != nullptr ? element_ref->etype
+                 : per_lane
+                     ? Vector_t::make(
+                           expr.type().element_of().as<Ptr_t>()->etype,
+                           expr.type().lanes())
+                     : expr.type().as<Ptr_t>()->etype;
     node->expr = std::move(expr);
     node->mask = std::move(mask);
     return node;

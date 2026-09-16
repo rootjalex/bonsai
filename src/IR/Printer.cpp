@@ -499,6 +499,12 @@ void Printer::visit(const Ptr_t *node) {
     os << "*)";
 }
 
+void Printer::visit(const ElementRef_t *node) {
+    os << "ref[";
+    print(node->etype);
+    os << " in " << node->tree << "]";
+}
+
 void Printer::visit(const Ref_t *node) {
     os << "(const " << node->name << "&)";
 }
@@ -1015,6 +1021,45 @@ void Printer::visit(const VectorShuffle *node) {
     os << "})";
 }
 
+void Printer::visit(const Shuffle *node) {
+    // By shape where it has one, so that a transpose reads as a transpose
+    // rather than as the list of indices it happens to be.
+    if (node->is_interleave()) {
+        os << "interleave(";
+        print_expr_list(node->vectors);
+        os << ")";
+    } else if (node->is_concat()) {
+        os << "concat(";
+        print_expr_list(node->vectors);
+        os << ")";
+    } else if (node->is_transpose()) {
+        os << "transpose(";
+        print_no_parens(node->vectors[0]);
+        os << ", " << node->transpose_factor() << ")";
+    } else if (node->is_broadcast()) {
+        os << "broadcast_lanes(";
+        print_no_parens(node->vectors[0]);
+        os << ", " << node->broadcast_factor() << ")";
+    } else if (node->is_extract_element()) {
+        os << "extract_element(";
+        print_no_parens(node->vectors[0]);
+        os << ", " << node->indices[0] << ")";
+    } else if (node->is_slice()) {
+        os << "slice(";
+        print_no_parens(node->vectors[0]);
+        os << ", " << node->slice_begin() << ", " << node->slice_stride()
+           << ", " << node->indices.size() << ")";
+    } else {
+        os << "shuffle({";
+        print_expr_list(node->vectors);
+        os << "}, {";
+        for (size_t i = 0; i < node->indices.size(); i++) {
+            os << (i == 0 ? "" : ", ") << node->indices[i];
+        }
+        os << "})";
+    }
+}
+
 void Printer::visit(const Ramp *node) {
     // TODO: print type?
     os << "ramp(";
@@ -1025,6 +1070,17 @@ void Printer::visit(const Ramp *node) {
 }
 
 void Printer::visit(const Extract *node) {
+    // A predicated gather reads only the lanes the mask enables.
+    if (node->mask.defined()) {
+        os << "masked_extract(";
+        print(node->vec);
+        os << "[";
+        print_no_parens(node->idx);
+        os << "], ";
+        print_no_parens(node->mask);
+        os << ")";
+        return;
+    }
     // TODO: parens?
     print(node->vec);
     os << "[";
@@ -1291,6 +1347,12 @@ void Printer::visit(const PtrTo *node) {
     os << ")";
 }
 
+void Printer::visit(const RefTo *node) {
+    os << "ref(";
+    print_no_parens(node->place);
+    os << ")";
+}
+
 void Printer::visit(const Deref *node) {
     if (node->mask.defined()) {
         os << "masked_load(";
@@ -1413,6 +1475,32 @@ void Printer::visit(const IfElse *node) {
         break;
     }
 
+    os << get_indent() << "}\n";
+}
+
+// Printed as C++ would write it -- `case k:` for every arm but the last and
+// `default:` for that one, each arm braced and the others ended by a `break`
+// -- because the C++ and CUDA emitters print statements through this printer
+// and the arms of a switch are scopes of their own, the same as an `if`'s.
+void Printer::visit(const SwitchStmt *node) {
+    os << get_indent() << "switch (";
+    print_no_parens(node->value);
+    os << ") {\n";
+    for (size_t k = 0; k < node->arms.size(); k++) {
+        const bool last = k + 1 == node->arms.size();
+        os << get_indent();
+        if (last) {
+            os << "default: {\n";
+        } else {
+            os << "case " << k << ": {\n";
+        }
+        indent++;
+        if (node->arms[k].defined()) {
+            print(node->arms[k]);
+        }
+        indent--;
+        os << get_indent() << (last ? "}\n" : "} break;\n");
+    }
     os << get_indent() << "}\n";
 }
 

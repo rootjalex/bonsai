@@ -14,6 +14,7 @@
 #include "LLVMIncl.h"
 #include "Scope.h"
 
+#include <functional>
 #include <memory>
 
 namespace bonsai {
@@ -120,6 +121,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::String_t);
     virtual void visit(const ir::Ptr_t *) override;
     virtual void visit(const ir::Ref_t *) override;
+    virtual void visit(const ir::ElementRef_t *) override;
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;
@@ -155,6 +157,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Broadcast *) override;
     virtual void visit(const ir::VectorReduce *) override;
     virtual void visit(const ir::VectorShuffle *) override;
+    virtual void visit(const ir::Shuffle *) override;
     virtual void visit(const ir::Ramp *) override;
     virtual void visit(const ir::Extract *) override;
     virtual void visit(const ir::Build *) override;
@@ -174,6 +177,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Call *) override;
     virtual void visit(const ir::Instantiate *) override;
     virtual void visit(const ir::PtrTo *) override;
+    virtual void visit(const ir::RefTo *) override;
     virtual void visit(const ir::Deref *) override;
     virtual void visit(const ir::AtomicAdd *) override;
     // Stmts
@@ -183,6 +187,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Return *) override;
     virtual void visit(const ir::LetStmt *) override;
     virtual void visit(const ir::IfElse *) override;
+    virtual void visit(const ir::SwitchStmt *) override;
     virtual void visit(const ir::DoWhile *) override;
     virtual void visit(const ir::While *) override;
     // default behavior is fine.
@@ -231,6 +236,85 @@ struct CodeGen_LLVM : public ir::Visitor {
     // the program computes with; see ir::Vector_t::packed.
     llvm::Value *unpack_vector(llvm::Value *packed, const ir::Vector_t *type);
     llvm::Value *pack_vector(llvm::Value *vector, const ir::Vector_t *type);
+
+    //===------------------------------------------------------------------===//
+    // Shuffles
+    //===------------------------------------------------------------------===//
+    //
+    // How an ir::Shuffle is lowered, following Halide's CodeGen_LLVM (see
+    // ir::Shuffle). The interleave and its inverse are the ones that take
+    // thought: LLVM's own lowering of a wide interleave built from two-way
+    // shuffles is poor, so they are decomposed here, after Catanzaro, Keller
+    // and Garland, "A Decomposition for In-place Matrix Transposition",
+    // PPoPP 2014, and Halide PR 8925 ("Better vector interleaves"). A target
+    // with a better answer for particular shapes -- x86's unpck and
+    // immediate-controlled shuffles -- overrides these.
+
+    // Lanes `indices` picks out of `a` then `b`; a negative index is a lane
+    // whose value does not matter. The two may differ in width.
+    llvm::Value *shuffle_vectors(llvm::Value *a, llvm::Value *b,
+                                 const std::vector<int> &indices);
+    llvm::Value *shuffle_vectors(llvm::Value *a,
+                                 const std::vector<int> &indices);
+    // Lanes [start, start + size) of `v`; lanes past its end do not matter.
+    llvm::Value *slice_vector(llvm::Value *v, int start, int size);
+    // The vectors end to end.
+    llvm::Value *concat_vectors(const std::vector<llvm::Value *> &vs);
+    // a0 b0 c0 a1 b1 c1 .. from a, b, c of one width.
+    virtual llvm::Value *interleave_vectors(const std::vector<llvm::Value *> &vs);
+    // The inverse: `count` vectors, the k-th holding lanes k, k + count, ..
+    virtual std::vector<llvm::Value *> deinterleave_vector(llvm::Value *v,
+                                                           int count);
+    // Keeps LLVM from re-fusing shuffles on either side of it into a worse
+    // sequence; see Halide's optimization_fence.
+    llvm::Value *optimization_fence(llvm::Value *v);
+    // A scalar as a one-lane vector, so that it can be shuffled.
+    llvm::Value *as_vector(llvm::Value *v);
+
+    //===------------------------------------------------------------------===//
+    // Unions, one per lane
+    //===------------------------------------------------------------------===//
+    //
+    // A vectorized union is a struct of one scalar union per lane (see
+    // ir::widen). Reading one member of every lane at once, and making every
+    // lane's union from one member value per lane, are transposes between
+    // that array of structures and the structure of gang-wide vectors the
+    // member is otherwise carried as. The union is taken as a flat vector of
+    // units -- the largest byte width that divides the union's size and every
+    // field's size and offset -- and the transpose is a deinterleave of that
+    // vector by the units per union (a read) or an interleave of the fields'
+    // unit vectors into it (a construction), so that it is the shuffle
+    // network above and not a scalar move per field per lane.
+
+    // `v`, whose storage is the size of `as`, read as `as`: through a stack
+    // slot, which is how a value of one aggregate type is read at another.
+    llvm::Value *reinterpret_via_memory(llvm::Value *v, llvm::Type *as);
+    // The unit the per-lane transposes of member `member` of `union_t` work
+    // in, in bytes.
+    uint64_t union_unit(const ir::Type &member, uint64_t offset,
+                        uint64_t so_far);
+    // Every lane's `member` value, held gang-wide as `wide` (of type
+    // ir::widen(member)), spread into the unit vectors of the union at byte
+    // offset `offset`: `slots[u]` is the vector of every lane's unit `u`.
+    void scatter_units(const ir::Type &member, llvm::Value *wide,
+                       uint64_t offset, uint64_t unit,
+                       std::vector<llvm::Value *> &slots);
+    // The inverse: every lane's `member`, gang-wide, from the unit vectors.
+    llvm::Value *gather_units(const ir::Type &member, const ir::Type &wide_t,
+                              uint64_t offset, uint64_t unit,
+                              const std::vector<llvm::Value *> &slots,
+                              uint32_t lanes);
+
+    // One value of `element` per lane, at the addresses in `ptrs` (one per
+    // lane), gathered into the gang-wide form `wide_t` (ir::widen(element)):
+    // a leaf at a time for a struct or a short vector, whose leaves become
+    // gathers of scalars; whole per lane for a union, whose gang-wide form is
+    // one union per lane.
+    // `mask`, if given, is the lanes that read at all; the others' values are
+    // unsaid and their addresses are never touched.
+    llvm::Value *gather_elements(const ir::Type &element, const ir::Type &wide_t,
+                                 llvm::Value *ptrs, uint32_t lanes,
+                                 llvm::Value *mask, const std::string &name);
 
     // An alloca at the top of the current function's entry block: where a
     // callee returning through a hidden pointer puts its result. In the entry
@@ -291,6 +375,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *value = nullptr;
     llvm::Type *type = nullptr;
     llvm::Function *current_function = nullptr;
+    // Set while a function is being lowered straight from SSA -- the vectorized
+    // ones, and the parfor kernels they contain, whose stacks are realigned and
+    // whose aggregate locals are over-aligned to match the wide vector stores
+    // LLVM may initialize them with (see create_alloca_at_entry). Off for the
+    // functions the relooper still hands over, so their allocas -- and the
+    // golden IR that pins them -- are unchanged.
+    bool lowering_from_ssa = false;
     // Used to compile `continue`
     std::vector<llvm::BasicBlock *> latch_blocks;
     // TODO(ajr): will need this for `break` statements.
@@ -366,6 +457,36 @@ struct CodeGen_LLVM : public ir::Visitor {
     void create_vector_store(llvm::Value *value, llvm::Type *etype,
                              llvm::Value *base, const ir::Expr &index,
                              uint32_t lanes, const ir::Expr &mask);
+    // A predicated store through one shared address, `dest`. What is stored
+    // decides what that means: a gang-wide vector, or an aggregate of them,
+    // is memory laid out with a slot per lane -- a `mut` local every lane has
+    // its own copy of -- and each lane's slot is written under its own bit of
+    // the mask; a scalar is memory the lanes share, and is written once if
+    // any lane is on.
+    void create_masked_store_at(llvm::Value *value, llvm::Value *dest,
+                                llvm::Value *mask);
+    // A select that also takes a vector condition over two aggregates of
+    // gang-wide fields, choosing field by field.
+    llvm::Value *create_select(llvm::Value *cond, llvm::Value *tvalue,
+                               llvm::Value *fvalue);
+    // Emits `body` under a branch taken if any lane of `mask` is on: what a
+    // gang does with a side effect on memory the lanes share, which is made
+    // once, provided some lane would have made it.
+    void emit_if_any_lane(llvm::Value *mask, const std::function<void()> &body);
+    // `body`, under a branch on the scalar `cond`.
+    void emit_if(llvm::Value *cond, const std::function<void()> &body);
+    // The indivisible read-modify-write an accumulate of `op` on values of
+    // type `value_t` is, or an error for one there is no such instruction for.
+    llvm::AtomicRMWInst::BinOp atomic_rmw_op(ir::Accumulate::OpType op,
+                                             const ir::Type &value_t);
+    // One indivisible read-modify-write per lane that is on: lane k's value
+    // into lane k's place. `ptrs` is one address per lane (a scatter) or the
+    // one address of memory laid out per lane, in which case lane k's place
+    // is element k of the vector there. LLVM has no masked atomic scatter, so
+    // this is a branch and an atomicrmw per lane.
+    void emit_atomic_lanes(ir::Accumulate::OpType op, const ir::Type &value_t,
+                           llvm::Value *ptrs, llvm::Value *values,
+                           llvm::Value *mask);
     llvm::Value *create_alloca_at_entry(llvm::Type *etype,
                                         const std::string &name,
                                         llvm::Value *size = nullptr);

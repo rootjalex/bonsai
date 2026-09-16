@@ -68,9 +68,15 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                     internal_assert(i->operands.size() == 2)
                         << "Malformed FieldPtr: expected 2 operands";
                     Expr base = codegen_value(i->operands[0]);
-                    const Type pointee = base.type().is<Ptr_t>()
-                                             ? base.type().as<Ptr_t>()->etype
-                                             : base.type();
+                    // Through one pointer, or one pointer per lane (see
+                    // Deref::make and PtrTo::make).
+                    const Type &base_type = base.type();
+                    const Type pointee =
+                        base_type.is<Ptr_t>() ? base_type.as<Ptr_t>()->etype
+                        : base_type.is<Vector_t>() &&
+                                base_type.element_of().is<Ptr_t>()
+                            ? base_type.element_of().as<Ptr_t>()->etype
+                            : base_type;
                     // Read off the Value rather than through codegen_value:
                     // the index is a constant by construction, and this runs
                     // before the helper that unwraps one is declared.
@@ -233,8 +239,10 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Leq:
     case Instruction::Op::Load:
     case Instruction::Op::LoadField:
+    case Instruction::Op::LoadMember:
     case Instruction::Op::Lt:
     case Instruction::Op::MakeStruct:
+    case Instruction::Op::MakeUnion:
     case Instruction::Op::Max:
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
@@ -246,6 +254,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Reinterpret:
     case Instruction::Op::Select:
     case Instruction::Op::Set:
+    case Instruction::Op::Shuffle:
     case Instruction::Op::Sub:
         return false;
     }
@@ -382,11 +391,58 @@ Stmt codegen_instruction(const Instruction &instr) {
         case Instruction::Op::AccArgmax:
         case Instruction::Op::AccMin:
         case Instruction::Op::AccMax: {
-            internal_assert(instr.operands.size() == 2)
+            // A third operand is the execution mask of a vectorized
+            // accumulate, as for a store below.
+            internal_assert(instr.operands.size() == 2 ||
+                            instr.operands.size() == 3)
                 << instr.operands.size();
             WriteLoc loc = codegen_gep(instr.operands[0]);
             auto op = codegen_acc_op(instr.op);
             auto val = codegen_value(instr.operands[1]);
+            if (instr.operands.size() == 3) {
+                // Spelled in statements the way CodeGen_LLVM_SSA.cpp lowers
+                // it: into per-lane memory, a masked store of the combined
+                // value; into shared memory, the accumulate under a test that
+                // some lane is on.
+                Expr mask = codegen_value(instr.operands[2]);
+                if (!mask.type().is_vector()) {
+                    // The gang's one accumulate into shared memory, made if
+                    // some lane was on: the vectorizer folded the lanes and
+                    // left that one bool as the mask (see widen_region in
+                    // SSA/Vectorize.cpp). A vector mask is per lane.
+                    return IfElse::make(
+                        std::move(mask),
+                        Accumulate::make(std::move(loc), op, std::move(val),
+                                         instr.atomic));
+                }
+                if (val.type().is_vector() || val.type().is<Struct_t>()) {
+                    internal_assert(op != Accumulate::OpType::Argmin &&
+                                    op != Accumulate::OpType::Argmax)
+                        << "[unimplemented] a masked argmin/argmax into "
+                        << "per-lane memory";
+                    Expr place = codegen_value(instr.operands[0]);
+                    Expr current = Deref::make(
+                        place, place.type().is_vector() ? mask : Expr());
+                    Expr combined =
+                        op == Accumulate::OpType::Add
+                            ? BinOp::make(BinOp::OpType::Add, current, val)
+                        : op == Accumulate::OpType::Sub
+                            ? BinOp::make(BinOp::OpType::Sub, current, val)
+                        : op == Accumulate::OpType::Mul
+                            ? BinOp::make(BinOp::OpType::Mul, current, val)
+                        : op == Accumulate::OpType::Min
+                            ? Intrinsic::make(Intrinsic::OpType::min,
+                                              {current, val})
+                            : Intrinsic::make(Intrinsic::OpType::max,
+                                              {current, val});
+                    return Store::make(std::move(loc), std::move(combined),
+                                       std::move(mask));
+                }
+                return IfElse::make(
+                    VectorReduce::make(VectorReduce::Or, std::move(mask)),
+                    Accumulate::make(std::move(loc), op, std::move(val),
+                                     instr.atomic));
+            }
             return Accumulate::make(std::move(loc), op, std::move(val),
                                     instr.atomic);
         }
@@ -575,8 +631,11 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         break;
     }
     case Instruction::Op::ExtractIdx: {
-        internal_assert(args.size() == 2) << args.size();
-        value = Extract::make(std::move(args[0]), std::move(args[1]));
+        // A third operand is the execution mask of a gather (see
+        // Extract::mask).
+        internal_assert(args.size() == 2 || args.size() == 3) << args.size();
+        value = Extract::make(std::move(args[0]), std::move(args[1]),
+                              args.size() == 3 ? std::move(args[2]) : Expr());
         break;
     }
     case Instruction::Op::GEP: {
@@ -626,6 +685,22 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         value = Access::make(struct_t->fields[idx].name, std::move(args[0]));
         break;
     }
+    case Instruction::Op::LoadMember: {
+        // A member of a union, or of every lane's union at once (see
+        // Instruction::Op::LoadMember): either way an Access by the member's
+        // name, whose type is the instruction's rather than inferred, since
+        // the widened form's type is not one Access::make can work out.
+        internal_assert(args.size() == 2) << args.size();
+        const Union_t *union_t = union_behind(args[0].type());
+        internal_assert(union_t) << args[0].type();
+        const uint64_t idx = get_const_u64(args[1]);
+        internal_assert(idx < union_t->members.size())
+            << idx << " versus " << union_t->members.size() << " in "
+            << args[0].type();
+        value = Access::make(union_t->members[idx].name, std::move(args[0]),
+                             instr.type);
+        break;
+    }
     case Instruction::Op::Lt: {
         internal_assert(args.size() == 2) << args.size();
         value = BinOp::make(BinOp::OpType::Lt, std::move(args[0]),
@@ -634,6 +709,18 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
     }
     case Instruction::Op::MakeStruct: {
         value = Build::make(instr.type, std::move(args));
+        break;
+    }
+    case Instruction::Op::MakeUnion: {
+        internal_assert(args.size() == 2) << args.size();
+        const Union_t *union_t = union_behind(instr.type);
+        internal_assert(union_t) << instr.type;
+        const uint64_t idx = get_const_u64(args[1]);
+        internal_assert(idx < union_t->members.size())
+            << idx << " versus " << union_t->members.size() << " in "
+            << instr.type;
+        value = UnionOf::make(instr.type, union_t->members[idx].name,
+                              std::move(args[0]));
         break;
     }
     case Instruction::Op::Max: {
@@ -696,6 +783,10 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         // allocation would mean the name held the address of the value
         // instead of the value, and every read of it would have to say so.
         value = std::move(args[0]);
+        break;
+    }
+    case Instruction::Op::Shuffle: {
+        value = Shuffle::make(std::move(args), instr.shuffle);
         break;
     }
     case Instruction::Op::Sub: {
@@ -825,12 +916,16 @@ std::set<std::string> reachable(const std::string &name,
     return reachable(name);
 }
 
-// Helper: find the merge/join block for a dispatch
-// Returns the name of the first block reachable from BOTH branches
-// that hasn't been visited yet (i.e., the post-dominator)
+// Helper: find the merge/join block for a dispatch -- the first block, in
+// breadth-first order from the first of its branches that joins any other,
+// that every joining branch reaches; the post-dominator, for structured
+// code. A branch that reaches no block another does -- it returns, say --
+// has no say in where the others meet, and is emitted to where it ends.
+// A branch may itself be the merge: an arm with nothing in it goes straight
+// there (see the SwitchStmt visitor in SSA/Convert.cpp).
 std::string
-find_merge_block(const std::string &true_branch,
-                 const std::string &false_branch, const BlockMap &block_map,
+find_merge_block(const std::vector<std::string> &branches,
+                 const BlockMap &block_map,
                  const std::set<std::string> &already_visited) { // <-- add this
 
     auto get_successors =
@@ -880,20 +975,51 @@ find_merge_block(const std::string &true_branch,
         return seen;
     };
 
-    auto from_true = reachable(true_branch);
-    auto from_false = reachable(false_branch);
+    std::vector<std::unordered_set<std::string>> from;
+    from.reserve(branches.size());
+    for (const std::string &b : branches) {
+        from.push_back(reachable(b));
+    }
 
+    // The branches that come back together with another at all.
+    std::vector<size_t> joining;
+    for (size_t i = 0; i < branches.size(); i++) {
+        bool joins = false;
+        for (size_t j = 0; j < branches.size() && !joins; j++) {
+            if (i == j) {
+                continue;
+            }
+            for (const std::string &x : from[i]) {
+                if (from[j].count(x)) {
+                    joins = true;
+                    break;
+                }
+            }
+        }
+        if (joins) {
+            joining.push_back(i);
+        }
+    }
+    if (joining.size() < 2) {
+        return "";
+    }
+
+    const std::string &start = branches[joining[0]];
     std::queue<std::string> q;
     std::unordered_set<std::string> local_visited;
-    q.push(true_branch);
+    q.push(start);
     while (!q.empty()) {
         auto name = q.front();
         q.pop();
         if (!local_visited.insert(name).second)
             continue;
-        if (already_visited.count(name) && name != true_branch)
+        if (already_visited.count(name) && name != start)
             continue; // don't follow back-edges
-        if (from_false.count(name) && name != true_branch)
+        bool common = true;
+        for (size_t i : joining) {
+            common = common && from[i].count(name) > 0;
+        }
+        if (common)
             return name;
         auto succs = get_successors(name);
         for (auto &s : succs)
@@ -1004,18 +1130,31 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
                                  }
                              },
                              [&](const Terminator::Dispatch &d) {
-                                 const std::string &t0 = d.targets[0].name;
-                                 const std::string &t1 = d.targets[1].name;
-                                 const bool t0_back = is_backedge(name, t0);
-                                 const bool t1_back = is_backedge(name, t1);
-                                 if (t0_back || t1_back) {
-                                     internal_assert(!(t0_back && t1_back))
+                                 size_t back = d.targets.size();
+                                 for (size_t k = 0; k < d.targets.size(); k++) {
+                                     if (!is_backedge(name, d.targets[k].name)) {
+                                         continue;
+                                     }
+                                     internal_assert(back == d.targets.size())
                                          << "Both arms backedges: " << name;
-                                     info[name].role =
-                                         BlockInfo::Role::DoWhileLatch;
-                                     info[name].loop_header = t0_back ? t0 : t1;
-                                     info[name].loop_exit = t0_back ? t1 : t0;
+                                     back = k;
                                  }
+                                 if (back == d.targets.size()) {
+                                     return;
+                                 }
+                                 // A loop's test goes two ways, round again
+                                 // or out. A switch (see ir::SwitchStmt)
+                                 // never is one: its arms are regions of the
+                                 // body it is in, and none of them is an edge
+                                 // back.
+                                 internal_assert(d.targets.size() == 2 &&
+                                                 d.cond->get_type().is_bool())
+                                     << "A switch with a back edge: " << name;
+                                 info[name].role =
+                                     BlockInfo::Role::DoWhileLatch;
+                                 info[name].loop_header = d.targets[back].name;
+                                 info[name].loop_exit =
+                                     d.targets[1 - back].name;
                              },
                              [&](const auto &) {}},
                    b->terminator.data);
@@ -1043,6 +1182,12 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
             }
         }
         if (latch.empty())
+            continue;
+
+        // A switch at the top of a loop's body is not the loop's test (see
+        // ir::SwitchStmt): the loop is closed at its latch, and this block
+        // heads it as a do-while's header does (pass 3).
+        if (d->targets.size() != 2 || !d->cond->get_type().is_bool())
             continue;
 
         const std::string &t0 = d->targets[0].name;
@@ -1562,8 +1707,19 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         if (!loop_header.empty()) {
                             stop.insert(loop_header);
                         }
+                        // An if's arms from the true side first; a switch's
+                        // (an integer dispatch, see ir::SwitchStmt) in
+                        // order.
+                        std::vector<std::string> branches;
+                        if (cond.type().is_bool()) {
+                            branches = {t1, t0};
+                        } else {
+                            for (const Terminator::Jump &t : d.targets) {
+                                branches.push_back(t.name);
+                            }
+                        }
                         std::string merge =
-                            find_merge_block(t1, t0, block_map, stop);
+                            find_merge_block(branches, block_map, stop);
 
                         // Allocate mutable args of the merge block BEFORE the
                         // if/else
@@ -1596,6 +1752,26 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         // there, the same as on a jump.
                         const std::string &arm_exit =
                             merge.empty() ? exit : merge;
+                        if (!cond.type().is_bool()) {
+                            // A switch, lifted back from the dispatch it
+                            // lowered to: an arm per target, each the region
+                            // its edge enters. An arm may be empty; a switch
+                            // with nothing in any arm is not emitted at all.
+                            std::vector<Stmt> arms;
+                            bool any = false;
+                            for (const Terminator::Jump &t : d.targets) {
+                                arms.push_back(
+                                    branch_region(t, arm_exit, loop_header));
+                                any = any || arms.back().defined();
+                            }
+                            if (any) {
+                                append(SwitchStmt::make(std::move(cond),
+                                                        std::move(arms)));
+                            }
+                            name = merge.empty() ? exit : merge;
+                            return;
+                        }
+
                         Stmt true_body =
                             branch_region(d.targets[1], arm_exit, loop_header);
                         Stmt false_body =

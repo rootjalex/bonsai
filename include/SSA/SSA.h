@@ -134,8 +134,19 @@ struct Instruction {
         Leq,
         Load, // from ptr
         LoadField,
+        // One member of a union, by index: the union's bytes read at that
+        // member's type (ir::Access on a union). Not a LoadField, though it
+        // has the same shape, because on the struct a vectorized union
+        // widens to -- one scalar union per lane, see ir::union_behind --
+        // a field index would name a lane where this names a member of
+        // every lane at once, and the two must not be confused.
+        LoadMember,
         Lt,
         MakeStruct,
+        // A union holding one member, by index, from that member's value
+        // (ir::UnionOf). On the widened form, one union per lane from one
+        // member value per lane.
+        MakeUnion,
         Max,
         Min,
         Mod,
@@ -166,6 +177,9 @@ struct Instruction {
         Set,
         Shl,
         Shr,
+        // Lanes picked out of the operands' concatenation by the constant
+        // indices in `shuffle`, one per lane of the result (ir::Shuffle).
+        Shuffle,
         // The storage size of `queried_type`, left for the backend to answer
         // (see ir::SizeOf).
         SizeOf,
@@ -189,6 +203,11 @@ struct Instruction {
 
     // Which reduction this is. Only meaningful for Op::Reduce.
     ir::VectorReduce::OpType reduce = ir::VectorReduce::Add;
+
+    // The constant indices of a Shuffle, one per lane of the result, into
+    // the concatenation of its operands (see ir::Shuffle). Only meaningful
+    // for Op::Shuffle.
+    std::vector<int> shuffle;
 
     // Whether an accumulate is indivisible. Only meaningful for the Acc ops.
     // Carried rather than acted on, the way a ParFor's binding is: what it
@@ -383,6 +402,14 @@ struct Function {
 
 // What an opcode is called, for reporting one.
 const char *op_name(Instruction::Op op);
+
+// The zero of `type`: a constant for a scalar, and for an aggregate -- a short
+// vector, a struct, a struct of them -- a value built from the zeros of its
+// parts by instructions appended to `into`, since this form has no constant
+// aggregates. For a slot that has to hold something before anything has been
+// put in it.
+std::shared_ptr<Value> zero_value(const Type &type, Function &func,
+                                  const std::shared_ptr<Block> &into);
 
 // Useful helper for std::variant
 template <class... Ts>

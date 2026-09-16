@@ -62,6 +62,14 @@ AdjacencyMap compute_predecessors(const AdjacencyMap &succs);
 // Block::get_value walks them to thread a value back to where it is defined.
 void refresh_preds(Function &func);
 
+// Drops every block the entry cannot reach, and rebuilds the predecessor
+// lists. A rewrite that redirects an edge -- loopify() turning a recursion's
+// call into a jump, say -- can leave the block the edge went to with no way
+// in; such a block still names the blocks it jumps to as their predecessor,
+// and still passes them arguments that a later rewrite of the reachable graph
+// may have removed. Returns how many blocks were dropped.
+size_t remove_unreachable_blocks(Function &func);
+
 // Blocks reachable from `entry`, in reverse postorder. Every analysis below
 // iterates in this order, which is what makes the iterative dataflow solvers
 // converge in few passes.

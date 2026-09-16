@@ -1,0 +1,105 @@
+//! flags: -p ssa
+
+// A sorted, loopified tree traversal in a gang: the program of
+// correctness/cpp/vectorize_tree_traversal_sorted.bonsai, as the vectorizer
+// leaves it.
+//
+// What this pins is the traversal's stack. The loopified recursion pushes the
+// far child at each lane's own depth, `!stack[!count]` with a per-lane count,
+// and every lane had a stack of its own in the program as written -- so the
+// stack has to be laid out per lane, `u16x8[64]`, one gang vector per element
+// (see the Store rule in SSA/AnalyzeDivergence.cpp). Before that rule a
+// scatter into the region's own allocation was read as saying nothing about
+// its layout, the stack stayed one shared `u16[64]`, and lanes descending
+// into the children in different orders -- which is what the sort key does
+// when their directions along the split axis differ -- overwrote each
+// other's entries.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+import stdlib/triangle;
+
+element Shape =
+    | Sph(s : Sphere)
+    | Tri(t : Triangle);
+
+func distmin(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmin(r, s);
+        Tri(t) => return distmin(r, t);
+    }
+}
+
+func distmax(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmax(r, s);
+        Tri(t) => return distmax(r, t);
+    }
+}
+
+func intersects(r : Ray, sh : Shape) -> bool {
+    match sh {
+        Sph(s) => return intersects(r, s);
+        Tri(t) => return intersects(r, t);
+    }
+}
+
+extern shapes : set[Shape];
+
+func trace(r : Ray) =
+    argmin(|sh : Shape| distmin(r, sh),
+           filter(|sh : Shape| intersects(r, sh) && distmin(r, sh) > 0.001,
+                  shapes));
+
+func hit_z(r : Ray) -> f32 {
+    h = trace(r);
+    if !h {
+        return -1.0;
+    }
+    s = *h;
+    match s {
+        Sph(sp) => return sp.center.z;
+        Tri(t) => return t.p2.z;
+    }
+}
+
+func [[export]] hit_z_all(rs : array[Ray, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = hit_z(rs[i]);
+    }
+    return;
+}
+
+schedule {
+    tree[[Shape]] ShapeBVH(center : vec3f, radius : Float)
+        with Sphere(center, radius) =
+    | Interior(left : ShapeBVH, right : ShapeBVH, axis : u8)
+    | Leaf(data : array[Shape]) with data = data;
+
+    shapes : ShapeBVH;
+
+    layout shapes {
+        pCount : u32;
+        prims : array[Shape, pCount];
+        nCount : u32;
+        group[nCount] index : u16 {
+            center : vec3f;
+            radius : Float;
+            nPrims : u8;
+            axis : u8;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
+            };
+        };
+    };
+
+    trace.sort(shapes.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    hit_z_all.vectorize(i);
+}

@@ -31,15 +31,18 @@ func _unexported_unit_sphere() -> Shape {
 }
 
 func [[export]] area(s : (Shape*)) -> f32 {
-  if ((*s).tag == 0u) {
+  switch ((*s).tag) {
+  case 0: {
     let center = (*s).payload.Sph.center in
     let radius = (*s).payload.Sph.radius in
     return ((4f * 3.14159f) * radius) * radius
-  } else {
+  } break;
+  default: {
     let p0 = (*s).payload.Tri.p0 in
     let p1 = (*s).payload.Tri.p1 in
     let p2 = (*s).payload.Tri.p2 in
     return 0.5f * norm(cross(p1 - p0, p2 - p0))
+  }
   }
 }
 

@@ -9,9 +9,9 @@ source_filename = "bonsai_module"
 %struct.TriangleIntersection = type { float, float, float, float }
 %struct._tree_layout1 = type <{ [3 x float], i16, i8, i8, [3 x float], [4 x i8] }>
 %struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
-%struct.__tuple_0 = type { ptr }
-%struct.__tuple_1 = type { float, %struct.__tuple_0 }
 %struct._option0 = type { %struct.Triangle, i1 }
+%struct.__tuple_1 = type { float, %struct.__tuple_0 }
+%struct.__tuple_0 = type { i32 }
 %struct.__tuple_2 = type { %struct.Point, %struct.Point }
 %struct.Sphere = type { <3 x float>, float }
 %struct._option1 = type { %struct.FInterval, i1 }
@@ -83,24 +83,24 @@ _recloop_func0_entry:
   br label %tailrecurse
 
 tailrecurse:                                      ; preds = %then_bb45, %_recloop_func0_entry
-  %triangles_index.tr = phi i32 [ %triangles_index, %_recloop_func0_entry ], [ %37, %then_bb45 ]
+  %triangles_index.tr = phi i32 [ %triangles_index, %_recloop_func0_entry ], [ %36, %then_bb45 ]
   %2 = sext i32 %triangles_index.tr to i64
   %extract_ptr = getelementptr inbounds %struct._tree_layout1, ptr %triangles.group0_index, i64 %2
   %extract.unpack.unpack = load float, ptr %extract_ptr, align 1
-  %extract.unpack.elt104 = getelementptr inbounds i8, ptr %extract_ptr, i64 4
-  %3 = load <2 x float>, ptr %extract.unpack.elt104, align 1
-  %extract.elt93 = getelementptr inbounds i8, ptr %extract_ptr, i64 12
-  %extract.unpack94 = load i16, ptr %extract.elt93, align 1
-  %extract.elt99 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
-  %extract.unpack100.unpack = load float, ptr %extract.elt99, align 1
-  %extract.unpack100.elt109 = getelementptr inbounds i8, ptr %extract_ptr, i64 20
-  %4 = load <2 x float>, ptr %extract.unpack100.elt109, align 1
-  %extract.elt101 = getelementptr inbounds i8, ptr %extract_ptr, i64 28
-  %5 = load <4 x i8>, ptr %extract.elt101, align 1
+  %extract.unpack.elt98 = getelementptr inbounds i8, ptr %extract_ptr, i64 4
+  %3 = load <2 x float>, ptr %extract.unpack.elt98, align 1
+  %extract.elt87 = getelementptr inbounds i8, ptr %extract_ptr, i64 12
+  %extract.unpack88 = load i16, ptr %extract.elt87, align 1
+  %extract.elt93 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
+  %extract.unpack94.unpack = load float, ptr %extract.elt93, align 1
+  %extract.unpack94.elt103 = getelementptr inbounds i8, ptr %extract_ptr, i64 20
+  %4 = load <2 x float>, ptr %extract.unpack94.elt103, align 1
+  %extract.elt95 = getelementptr inbounds i8, ptr %extract_ptr, i64 28
+  %5 = load i32, ptr %extract.elt95, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
-  %9 = insertelement <3 x float> poison, float %extract.unpack100.unpack, i64 0
+  %9 = insertelement <3 x float> poison, float %extract.unpack94.unpack, i64 0
   %10 = shufflevector <2 x float> %4, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %11 = shufflevector <3 x float> %9, <3 x float> %10, <3 x i32> <i32 0, i32 3, i32 4>
   %12 = select <3 x i1> %1, <3 x float> %11, <3 x float> %8
@@ -145,133 +145,132 @@ after_bb32:                                       ; preds = %next_bb, %tailrecur
   ret void
 
 then_bb33:                                        ; preds = %after_bb
-  %"@90._field0" = load float, ptr %_best0, align 4
-  %33 = fcmp olt float %max19, %"@90._field0"
+  %deref_temp40.unpack = load float, ptr %_best0, align 4
+  %33 = fcmp olt float %max19, %deref_temp40.unpack
   br i1 %33, label %then_bb42, label %after_bb32
 
 then_bb42:                                        ; preds = %then_bb33
-  %34 = icmp eq i16 %extract.unpack94, 0
+  %34 = icmp eq i16 %extract.unpack88, 0
   br i1 %34, label %then_bb45, label %next_bb46
 
 then_bb45:                                        ; preds = %then_bb42
   %35 = add i32 %triangles_index.tr, 1
-  %36 = bitcast <4 x i8> %5 to i32
-  %37 = add i32 %triangles_index.tr, %36
+  %36 = add i32 %triangles_index.tr, %5
   tail call void @_recloop_func0(i32 %35, %struct._tree_layout0 %triangles, %struct.Ray %ray, ptr %_best0)
   br label %tailrecurse
 
 next_bb46:                                        ; preds = %then_bb42
-  %extract.elt101.le = getelementptr inbounds i8, ptr %extract_ptr, i64 28
-  %38 = zext i16 %extract.unpack94 to i32
+  %37 = zext i16 %extract.unpack88 to i32
   %triangles.prims = extractvalue %struct._tree_layout0 %triangles, 1
-  %39 = bitcast <4 x i8> %5 to i32
   %.fca.1.gep = getelementptr inbounds i8, ptr %_ret, i64 16
   %.fca.0.3.gep = getelementptr inbounds i8, ptr %_ret, i64 12
+  %_best0.repack128 = getelementptr inbounds i8, ptr %_best0, i64 4
   br label %while.body
 
 while.body:                                       ; preds = %next_bb46, %after_bb52
-  %_idx0.0173 = phi i32 [ 0, %next_bb46 ], [ %44, %after_bb52 ]
-  %40 = add i32 %_idx0.0173, %39
-  %41 = sext i32 %40 to i64
-  %extract_ptr50 = getelementptr inbounds %struct.Triangle, ptr %triangles.prims, i64 %41
+  %deref_temp56.unpack = phi float [ %deref_temp40.unpack, %next_bb46 ], [ %deref_temp56.unpack150, %after_bb52 ]
+  %_idx0.0142 = phi i32 [ 0, %next_bb46 ], [ %42, %after_bb52 ]
+  %38 = add i32 %_idx0.0142, %5
+  %39 = sext i32 %38 to i64
+  %extract_ptr50 = getelementptr inbounds %struct.Triangle, ptr %triangles.prims, i64 %39
   %extract51.unpack = load <3 x float>, ptr %extract_ptr50, align 16
-  %42 = insertvalue %struct.Triangle poison, <3 x float> %extract51.unpack, 0
-  %extract51.elt121 = getelementptr inbounds i8, ptr %extract_ptr50, i64 16
+  %40 = insertvalue %struct.Triangle poison, <3 x float> %extract51.unpack, 0
+  %extract51.elt119 = getelementptr inbounds i8, ptr %extract_ptr50, i64 16
+  %extract51.unpack120 = load <3 x float>, ptr %extract51.elt119, align 16
+  %41 = insertvalue %struct.Triangle %40, <3 x float> %extract51.unpack120, 1
+  %extract51.elt121 = getelementptr inbounds i8, ptr %extract_ptr50, i64 32
   %extract51.unpack122 = load <3 x float>, ptr %extract51.elt121, align 16
-  %43 = insertvalue %struct.Triangle %42, <3 x float> %extract51.unpack122, 1
-  %extract51.elt123 = getelementptr inbounds i8, ptr %extract_ptr50, i64 32
-  %extract51.unpack124 = load <3 x float>, ptr %extract51.elt123, align 16
-  %extract51125 = insertvalue %struct.Triangle %43, <3 x float> %extract51.unpack124, 2
-  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret, %struct.Ray %ray, %struct.Triangle %extract51125)
+  %extract51123 = insertvalue %struct.Triangle %41, <3 x float> %extract51.unpack122, 2
+  call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret, %struct.Ray %ray, %struct.Triangle %extract51123)
   %.fca.1.load = load i1, ptr %.fca.1.gep, align 8
   br i1 %.fca.1.load, label %then_bb53, label %after_bb52
 
 after_bb52:                                       ; preds = %then_bb53, %then_bb58, %while.body
-  %44 = add nuw nsw i32 %_idx0.0173, 1
-  %45 = icmp ult i32 %44, %38
-  br i1 %45, label %while.body, label %after_bb32
+  %deref_temp56.unpack150 = phi float [ %deref_temp56.unpack, %then_bb53 ], [ %.fca.0.3.load, %then_bb58 ], [ %deref_temp56.unpack, %while.body ]
+  %42 = add nuw nsw i32 %_idx0.0142, 1
+  %43 = icmp ult i32 %42, %37
+  br i1 %43, label %while.body, label %after_bb32
 
 then_bb53:                                        ; preds = %while.body
   %.fca.0.3.load = load float, ptr %.fca.0.3.gep, align 4
-  %"@113._field0" = load float, ptr %_best0, align 4
-  %46 = fcmp olt float %.fca.0.3.load, %"@113._field0"
-  br i1 %46, label %then_bb58, label %after_bb52
+  %44 = fcmp olt float %.fca.0.3.load, %deref_temp56.unpack
+  br i1 %44, label %then_bb58, label %after_bb52
 
 then_bb58:                                        ; preds = %then_bb53
-  %47 = load i32, ptr %extract.elt101.le, align 1
-  %48 = add i32 %_idx0.0173, %47
-  %49 = sext i32 %48 to i64
-  %ptr_array_deref = getelementptr inbounds %struct.Triangle, ptr %triangles.prims, i64 %49
-  %50 = insertvalue %struct.__tuple_0 undef, ptr %ptr_array_deref, 0
-  %51 = insertvalue %struct.__tuple_1 undef, float %.fca.0.3.load, 0
-  %52 = insertvalue %struct.__tuple_1 %51, %struct.__tuple_0 %50, 1
-  store %struct.__tuple_1 %52, ptr %_best0, align 8
+  store float %.fca.0.3.load, ptr %_best0, align 4
+  store i32 %38, ptr %_best0.repack128, align 4
   br label %after_bb52
 }
 
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @_traverse_tree0(ptr noalias nocapture noundef nonnull writeonly sret(%struct._option0) align 16 %_sret, %struct.Ray noundef %ray, %struct._tree_layout0 noundef %triangles) local_unnamed_addr #1 {
 _traverse_tree0_entry:
-  %_best0 = alloca %struct.__tuple_1, align 8
-  store float 0x7FF0000000000000, ptr %_best0, align 8
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %_best0, i64 8
-  store ptr null, ptr %.fca.1.0.gep, align 8
+  %_best0 = alloca %struct.__tuple_1, align 4
+  store float 0x7FF0000000000000, ptr %_best0, align 4
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %_best0, i64 4
+  store i32 0, ptr %.fca.1.0.gep, align 4
   call void @_recloop_func0(i32 0, %struct._tree_layout0 %triangles, %struct.Ray %ray, ptr %_best0)
-  %deref_temp.fca.0.load = load float, ptr %_best0, align 8
+  %deref_temp.fca.0.load = load float, ptr %_best0, align 4
   %0 = fcmp one float %deref_temp.fca.0.load, 0x7FF0000000000000
   br i1 %0, label %then_bb, label %after_bb
 
 after_bb:                                         ; preds = %_traverse_tree0_entry, %then_bb
-  %_best0_result.sroa.6.0 = phi <3 x float> [ %deref_temp2.unpack11, %then_bb ], [ zeroinitializer, %_traverse_tree0_entry ]
-  %_best0_result.sroa.3.0 = phi <3 x float> [ %deref_temp2.unpack9, %then_bb ], [ zeroinitializer, %_traverse_tree0_entry ]
-  %_best0_result.sroa.0.0 = phi <3 x float> [ %deref_temp2.unpack, %then_bb ], [ zeroinitializer, %_traverse_tree0_entry ]
-  %deref_temp3.fca.0.0.insert = insertvalue %struct._option0 poison, <3 x float> %_best0_result.sroa.0.0, 0, 0
-  %deref_temp3.fca.0.1.insert = insertvalue %struct._option0 %deref_temp3.fca.0.0.insert, <3 x float> %_best0_result.sroa.3.0, 0, 1
-  %deref_temp3.fca.0.2.insert = insertvalue %struct._option0 %deref_temp3.fca.0.1.insert, <3 x float> %_best0_result.sroa.6.0, 0, 2
-  %deref_temp3.fca.1.insert = insertvalue %struct._option0 %deref_temp3.fca.0.2.insert, i1 %0, 1
-  store %struct._option0 %deref_temp3.fca.1.insert, ptr %_sret, align 16
+  %_best0_result.sroa.6.0 = phi <3 x float> [ %extract.unpack10, %then_bb ], [ zeroinitializer, %_traverse_tree0_entry ]
+  %_best0_result.sroa.3.0 = phi <3 x float> [ %extract.unpack8, %then_bb ], [ zeroinitializer, %_traverse_tree0_entry ]
+  %_best0_result.sroa.0.0 = phi <3 x float> [ %extract.unpack, %then_bb ], [ zeroinitializer, %_traverse_tree0_entry ]
+  %deref_temp2.fca.0.0.insert = insertvalue %struct._option0 poison, <3 x float> %_best0_result.sroa.0.0, 0, 0
+  %deref_temp2.fca.0.1.insert = insertvalue %struct._option0 %deref_temp2.fca.0.0.insert, <3 x float> %_best0_result.sroa.3.0, 0, 1
+  %deref_temp2.fca.0.2.insert = insertvalue %struct._option0 %deref_temp2.fca.0.1.insert, <3 x float> %_best0_result.sroa.6.0, 0, 2
+  %deref_temp2.fca.1.insert = insertvalue %struct._option0 %deref_temp2.fca.0.2.insert, i1 %0, 1
+  store %struct._option0 %deref_temp2.fca.1.insert, ptr %_sret, align 16
   ret void
 
 then_bb:                                          ; preds = %_traverse_tree0_entry
-  %deref_temp.fca.1.0.load = load ptr, ptr %.fca.1.0.gep, align 8
-  %deref_temp2.unpack = load <3 x float>, ptr %deref_temp.fca.1.0.load, align 16
-  %deref_temp2.elt8 = getelementptr inbounds i8, ptr %deref_temp.fca.1.0.load, i64 16
-  %deref_temp2.unpack9 = load <3 x float>, ptr %deref_temp2.elt8, align 16
-  %deref_temp2.elt10 = getelementptr inbounds i8, ptr %deref_temp.fca.1.0.load, i64 32
-  %deref_temp2.unpack11 = load <3 x float>, ptr %deref_temp2.elt10, align 16
+  %deref_temp.fca.1.0.load = load i32, ptr %.fca.1.0.gep, align 4
+  %triangles.prims = extractvalue %struct._tree_layout0 %triangles, 1
+  %1 = sext i32 %deref_temp.fca.1.0.load to i64
+  %extract_ptr = getelementptr inbounds %struct.Triangle, ptr %triangles.prims, i64 %1
+  %extract.unpack = load <3 x float>, ptr %extract_ptr, align 16
+  %extract.elt7 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
+  %extract.unpack8 = load <3 x float>, ptr %extract.elt7, align 16
+  %extract.elt9 = getelementptr inbounds i8, ptr %extract_ptr, i64 32
+  %extract.unpack10 = load <3 x float>, ptr %extract.elt9, align 16
   br label %after_bb
 }
 
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @_unexported_trace(ptr noalias nocapture noundef nonnull writeonly sret(%struct._option0) align 16 %_sret, %struct.Ray noundef %ray, %struct._tree_layout0 noundef %triangles) local_unnamed_addr #1 {
 _unexported_trace_entry:
-  %"_best0$i25" = alloca %struct.__tuple_1, align 8
-  store float 0x7FF0000000000000, ptr %"_best0$i25", align 8
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 8
-  store ptr null, ptr %.fca.1.0.gep, align 8
+  %"_best0$i25" = alloca %struct.__tuple_1, align 4
+  store float 0x7FF0000000000000, ptr %"_best0$i25", align 4
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 4
+  store i32 0, ptr %.fca.1.0.gep, align 4
   call void @_recloop_func0(i32 0, %struct._tree_layout0 %triangles, %struct.Ray %ray, ptr %"_best0$i25")
-  %deref_temp.fca.0.load = load float, ptr %"_best0$i25", align 8
+  %deref_temp.fca.0.load = load float, ptr %"_best0$i25", align 4
   %0 = fcmp one float %deref_temp.fca.0.load, 0x7FF0000000000000
   br i1 %0, label %then_bb, label %after_bb
 
 after_bb:                                         ; preds = %_unexported_trace_entry, %then_bb
-  %"_best0_result$i25.sroa.0.0" = phi <3 x float> [ %deref_temp2.unpack, %then_bb ], [ zeroinitializer, %_unexported_trace_entry ]
-  %"_best0_result$i25.sroa.3.0" = phi <3 x float> [ %deref_temp2.unpack10, %then_bb ], [ zeroinitializer, %_unexported_trace_entry ]
-  %"_best0_result$i25.sroa.6.0" = phi <3 x float> [ %deref_temp2.unpack12, %then_bb ], [ zeroinitializer, %_unexported_trace_entry ]
-  %deref_temp3.fca.0.0.insert = insertvalue %struct._option0 poison, <3 x float> %"_best0_result$i25.sroa.0.0", 0, 0
-  %deref_temp3.fca.0.1.insert = insertvalue %struct._option0 %deref_temp3.fca.0.0.insert, <3 x float> %"_best0_result$i25.sroa.3.0", 0, 1
-  %deref_temp3.fca.0.2.insert = insertvalue %struct._option0 %deref_temp3.fca.0.1.insert, <3 x float> %"_best0_result$i25.sroa.6.0", 0, 2
-  %deref_temp3.fca.1.insert = insertvalue %struct._option0 %deref_temp3.fca.0.2.insert, i1 %0, 1
-  store %struct._option0 %deref_temp3.fca.1.insert, ptr %_sret, align 16
+  %"_best0_result$i25.sroa.0.0" = phi <3 x float> [ %extract.unpack, %then_bb ], [ zeroinitializer, %_unexported_trace_entry ]
+  %"_best0_result$i25.sroa.3.0" = phi <3 x float> [ %extract.unpack9, %then_bb ], [ zeroinitializer, %_unexported_trace_entry ]
+  %"_best0_result$i25.sroa.6.0" = phi <3 x float> [ %extract.unpack11, %then_bb ], [ zeroinitializer, %_unexported_trace_entry ]
+  %deref_temp2.fca.0.0.insert = insertvalue %struct._option0 poison, <3 x float> %"_best0_result$i25.sroa.0.0", 0, 0
+  %deref_temp2.fca.0.1.insert = insertvalue %struct._option0 %deref_temp2.fca.0.0.insert, <3 x float> %"_best0_result$i25.sroa.3.0", 0, 1
+  %deref_temp2.fca.0.2.insert = insertvalue %struct._option0 %deref_temp2.fca.0.1.insert, <3 x float> %"_best0_result$i25.sroa.6.0", 0, 2
+  %deref_temp2.fca.1.insert = insertvalue %struct._option0 %deref_temp2.fca.0.2.insert, i1 %0, 1
+  store %struct._option0 %deref_temp2.fca.1.insert, ptr %_sret, align 16
   ret void
 
 then_bb:                                          ; preds = %_unexported_trace_entry
-  %deref_temp.fca.1.0.load = load ptr, ptr %.fca.1.0.gep, align 8
-  %deref_temp2.unpack = load <3 x float>, ptr %deref_temp.fca.1.0.load, align 16
-  %deref_temp2.elt9 = getelementptr inbounds i8, ptr %deref_temp.fca.1.0.load, i64 16
-  %deref_temp2.unpack10 = load <3 x float>, ptr %deref_temp2.elt9, align 16
-  %deref_temp2.elt11 = getelementptr inbounds i8, ptr %deref_temp.fca.1.0.load, i64 32
-  %deref_temp2.unpack12 = load <3 x float>, ptr %deref_temp2.elt11, align 16
+  %deref_temp.fca.1.0.load = load i32, ptr %.fca.1.0.gep, align 4
+  %triangles.prims = extractvalue %struct._tree_layout0 %triangles, 1
+  %1 = sext i32 %deref_temp.fca.1.0.load to i64
+  %extract_ptr = getelementptr inbounds %struct.Triangle, ptr %triangles.prims, i64 %1
+  %extract.unpack = load <3 x float>, ptr %extract_ptr, align 16
+  %extract.elt8 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
+  %extract.unpack9 = load <3 x float>, ptr %extract.elt8, align 16
+  %extract.elt10 = getelementptr inbounds i8, ptr %extract_ptr, i64 32
+  %extract.unpack11 = load <3 x float>, ptr %extract.elt10, align 16
   br label %after_bb
 }
 
@@ -1672,10 +1671,10 @@ sqlen__entry:
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
 define void @trace(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %ray, ptr nocapture noundef nonnull readonly %triangles) local_unnamed_addr #1 {
 trace_entry:
-  %"_best0$i25" = alloca %struct.__tuple_1, align 8
-  store float 0x7FF0000000000000, ptr %"_best0$i25", align 8
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 8
-  store ptr null, ptr %.fca.1.0.gep, align 8
+  %"_best0$i25" = alloca %struct.__tuple_1, align 4
+  store float 0x7FF0000000000000, ptr %"_best0$i25", align 4
+  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i25", i64 4
+  store i32 0, ptr %.fca.1.0.gep, align 4
   %deref_temp.unpack = load i32, ptr %triangles, align 1
   %0 = insertvalue %struct._tree_layout0 poison, i32 %deref_temp.unpack, 0
   %deref_temp.elt11 = getelementptr inbounds i8, ptr %triangles, i64 4
@@ -1689,14 +1688,14 @@ trace_entry:
   %deref_temp17 = insertvalue %struct._tree_layout0 %2, ptr %deref_temp.unpack16, 3
   %deref_temp1 = load %struct.Ray, ptr %ray, align 16
   call void @_recloop_func0(i32 0, %struct._tree_layout0 %deref_temp17, %struct.Ray %deref_temp1, ptr %"_best0$i25")
-  %deref_temp2.fca.0.load = load float, ptr %"_best0$i25", align 8
+  %deref_temp2.fca.0.load = load float, ptr %"_best0$i25", align 4
   %3 = fcmp one float %deref_temp2.fca.0.load, 0x7FF0000000000000
   br i1 %3, label %then_bb, label %after_bb
 
 after_bb:                                         ; preds = %trace_entry, %then_bb
-  %"_best0_result$i25.sroa.0.0" = phi <3 x float> [ %deref_temp4.unpack, %then_bb ], [ zeroinitializer, %trace_entry ]
-  %"_best0_result$i25.sroa.3.0" = phi <3 x float> [ %deref_temp4.unpack19, %then_bb ], [ zeroinitializer, %trace_entry ]
-  %"_best0_result$i25.sroa.6.0" = phi <3 x float> [ %deref_temp4.unpack21, %then_bb ], [ zeroinitializer, %trace_entry ]
+  %"_best0_result$i25.sroa.0.0" = phi <3 x float> [ %extract.unpack, %then_bb ], [ zeroinitializer, %trace_entry ]
+  %"_best0_result$i25.sroa.3.0" = phi <3 x float> [ %extract.unpack26, %then_bb ], [ zeroinitializer, %trace_entry ]
+  %"_best0_result$i25.sroa.6.0" = phi <3 x float> [ %extract.unpack28, %then_bb ], [ zeroinitializer, %trace_entry ]
   %deref_temp5.fca.0.0.insert = insertvalue %struct._option0 poison, <3 x float> %"_best0_result$i25.sroa.0.0", 0, 0
   %deref_temp5.fca.0.1.insert = insertvalue %struct._option0 %deref_temp5.fca.0.0.insert, <3 x float> %"_best0_result$i25.sroa.3.0", 0, 1
   %deref_temp5.fca.0.2.insert = insertvalue %struct._option0 %deref_temp5.fca.0.1.insert, <3 x float> %"_best0_result$i25.sroa.6.0", 0, 2
@@ -1705,12 +1704,14 @@ after_bb:                                         ; preds = %trace_entry, %then_
   ret void
 
 then_bb:                                          ; preds = %trace_entry
-  %deref_temp2.fca.1.0.load = load ptr, ptr %.fca.1.0.gep, align 8
-  %deref_temp4.unpack = load <3 x float>, ptr %deref_temp2.fca.1.0.load, align 16
-  %deref_temp4.elt18 = getelementptr inbounds i8, ptr %deref_temp2.fca.1.0.load, i64 16
-  %deref_temp4.unpack19 = load <3 x float>, ptr %deref_temp4.elt18, align 16
-  %deref_temp4.elt20 = getelementptr inbounds i8, ptr %deref_temp2.fca.1.0.load, i64 32
-  %deref_temp4.unpack21 = load <3 x float>, ptr %deref_temp4.elt20, align 16
+  %deref_temp2.fca.1.0.load = load i32, ptr %.fca.1.0.gep, align 4
+  %4 = sext i32 %deref_temp2.fca.1.0.load to i64
+  %extract_ptr = getelementptr inbounds %struct.Triangle, ptr %deref_temp.unpack12, i64 %4
+  %extract.unpack = load <3 x float>, ptr %extract_ptr, align 16
+  %extract.elt25 = getelementptr inbounds i8, ptr %extract_ptr, i64 16
+  %extract.unpack26 = load <3 x float>, ptr %extract.elt25, align 16
+  %extract.elt27 = getelementptr inbounds i8, ptr %extract_ptr, i64 32
+  %extract.unpack28 = load <3 x float>, ptr %extract.elt27, align 16
   br label %after_bb
 }
 

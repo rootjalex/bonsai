@@ -80,6 +80,14 @@ Type Mutator::visit(const Ptr_t *node) {
     return Ptr_t::make(std::move(etype));
 }
 
+Type Mutator::visit(const ElementRef_t *node) {
+    Type etype = mutate(node->etype);
+    if (etype.same_as(node->etype)) {
+        return node;
+    }
+    return ElementRef_t::make(std::move(etype), node->tree);
+}
+
 Type Mutator::visit(const Ref_t *node) { return node; }
 
 Type Mutator::visit(const Vector_t *node) {
@@ -369,6 +377,14 @@ Expr Mutator::visit(const VectorShuffle *node) {
     return VectorShuffle::make(std::move(value), std::move(idxs));
 }
 
+Expr Mutator::visit(const Shuffle *node) {
+    auto [vectors, not_changed] = visit_list(this, node->vectors);
+    if (not_changed) {
+        return node;
+    }
+    return Shuffle::make(std::move(vectors), node->indices);
+}
+
 Expr Mutator::visit(const Ramp *node) {
     Expr base = mutate(node->base);
     Expr stride = mutate(node->stride);
@@ -381,10 +397,12 @@ Expr Mutator::visit(const Ramp *node) {
 Expr Mutator::visit(const Extract *node) {
     Expr vec = mutate(node->vec);
     Expr idx = mutate(node->idx);
-    if (vec.same_as(node->vec) && idx.same_as(node->idx)) {
+    Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;
+    if (vec.same_as(node->vec) && idx.same_as(node->idx) &&
+        mask.same_as(node->mask)) {
         return node;
     }
-    return Extract::make(std::move(vec), std::move(idx));
+    return Extract::make(std::move(vec), std::move(idx), std::move(mask));
 }
 
 Expr Mutator::visit(const Construct *node) {
@@ -537,6 +555,14 @@ Expr Mutator::visit(const PtrTo *node) {
     return PtrTo::make(std::move(expr));
 }
 
+Expr Mutator::visit(const RefTo *node) {
+    Expr place = mutate(node->place);
+    if (place.same_as(node->place)) {
+        return node;
+    }
+    return RefTo::make(std::move(place), node->tree);
+}
+
 Expr Mutator::visit(const Deref *node) {
     Expr expr = mutate(node->expr);
     Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;
@@ -622,6 +648,21 @@ Stmt Mutator::visit(const IfElse *node) {
     }
     return IfElse::make(std::move(cond), std::move(then_body),
                         std::move(else_body));
+}
+
+Stmt Mutator::visit(const SwitchStmt *node) {
+    Expr value = mutate(node->value);
+    bool same = value.same_as(node->value);
+    std::vector<Stmt> arms;
+    arms.reserve(node->arms.size());
+    for (const Stmt &arm : node->arms) {
+        arms.push_back(mutate(arm));
+        same = same && arms.back().same_as(arm);
+    }
+    if (same) {
+        return node;
+    }
+    return SwitchStmt::make(std::move(value), std::move(arms));
 }
 
 Stmt Mutator::visit(const DoWhile *node) {

@@ -1,0 +1,215 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BLAS = (const BLAS&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Inst = struct Inst{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }
+type Point = struct Point{ vec : f32x3 }
+type Prim = u64
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Solo = struct Solo{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type TLAS = (const TLAS&)
+type Transform = struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : u64; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : struct _ref0{ tag : u8; payload : union _ref0_payload{ _ref0_0 : struct _ref0_0{ idx0 : u32 }; _ref0_1 : struct _ref0_1{ idx0 : u32 } } } }
+type __tuple_2 = struct __tuple_2{ _field0 : f32; _field1 : struct __tuple_1{ _field0 : u32; _field1 : struct _ref0{ tag : u8; payload : union _ref0_payload{ _ref0_0 : struct _ref0_0{ idx0 : u32 }; _ref0_1 : struct _ref0_1{ idx0 : u32 } } } } }
+type __tuple_3 = struct __tuple_3{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct __tuple_0{ _field0 : u64; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }; set : bool = false }
+type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _ref0 = struct _ref0{ tag : u8; payload : union _ref0_payload{ _ref0_0 : struct _ref0_0{ idx0 : u32 }; _ref0_1 : struct _ref0_1{ idx0 : u32 } } }
+type _ref0_0 = struct _ref0_0{ idx0 : u32 }
+type _ref0_1 = struct _ref0_1{ idx0 : u32 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[bCount]; pCount : u32; elems : u64[pCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
+type _tree_layout4 = [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }
+type _tree_layout5 = [[packed]] struct _tree_layout5{ offset : u32 }
+type _tree_layout6 = [[packed]] struct _tree_layout6{ pOffset : u32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern prims : [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[bCount]; pCount : u32; elems : u64[pCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+extern Prim_Solo_pool : struct Solo{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[]
+extern Prim_Solo_fill : u64[]
+extern Prim_Inst_pool : struct Inst{ render_from_instance : struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x3; i0 : f32x3; i1 : f32x3; i2 : f32x3; i3 : f32x3 }; blas : u32 }[]
+extern Prim_Inst_fill : u64[]
+
+func [[export]] Prim_Inst(render_from_instance : (Transform*), blas : u32, Prim_Inst_pool : mut Inst[], Prim_Inst_fill : mut u64[]) -> u64 {
+  return Prim_Inst_new((*render_from_instance), blas, Prim_Inst_pool, Prim_Inst_fill)
+}
+
+func Prim_Inst_new(render_from_instance : Transform, blas : u32, Prim_Inst_pool : mut Inst[], Prim_Inst_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Prim_Inst_fill[0u]), 1u) in
+  Prim_Inst_pool[_index] = build<Inst>(render_from_instance, blas)
+  return (1u << 56u) | _index
+}
+
+func [[export]] Prim_Solo(tri : (Triangle*), Prim_Solo_pool : mut Solo[], Prim_Solo_fill : mut u64[]) -> u64 {
+  return Prim_Solo_new((*tri), Prim_Solo_pool, Prim_Solo_fill)
+}
+
+func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : mut Solo[], Prim_Solo_fill : mut u64[]) -> u64 {
+  let _index = atomic_add((&Prim_Solo_fill[0u]), 1u) in
+  Prim_Solo_pool[_index] = build<Solo>(tri)
+  return (0u << 56u) | _index
+}
+
+func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]) -> Triangle {
+  switch (_matched.tag) {
+  case 0: {
+    return Prim_Solo_pool[prims.elems[_matched.payload._ref0_0.idx0] & 72057594037927935u].tri
+  } break;
+  default: {
+    return prims.tris[_matched.payload._ref0_1.idx0]
+  }
+  }
+}
+
+func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : mut (__tuple_2*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> void {
+  if (prims.group1_index[prims_index].nPrims == 0u) {
+    if (intersects_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high)))) {
+      if (0.001f < distmax_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high)))) {
+        if (distmin_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high))) < (*_best0)._field0) {
+          multirecurse _recloop_func0(<0>, prims, r, _best0, Prim_Solo_pool, Prim_Inst_pool) from { (prims_index + 1u), (prims_index + reinterpret_cast<_tree_layout5>(prims.group1_index[prims_index].split0on_nPrims).offset) }
+        }
+      }
+    }
+  } else if (intersects_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high)))) {
+    if (0.001f < distmax_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high)))) {
+      if (distmin_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high))) < (*_best0)._field0) {
+        forall _idx0 in [0u:cast<u32>(prims.group1_index[prims_index].nPrims):1u] {
+          switch (prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] >> 56u) {
+          case 0: {
+            let _pulled0 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0], r, Prim_Solo_pool, Prim_Inst_pool) in
+            if (intersects_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
+              if (0.001f < distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
+                if (distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri) < (*_best0)._field0) {
+                  _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(0u, _ref0_payload{._ref0_0 = build<_ref0_0>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0)})))
+                }
+              }
+            }
+          } break;
+          default: {
+            let _pulled1 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0], r, Prim_Solo_pool, Prim_Inst_pool) in
+            let _subtree0 = Prim_Inst_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].blas in
+            _recloop_func1(_subtree0, prims, _pulled1, _best0, prims_index, _idx0)
+          }
+          }
+        }
+      }
+    }
+  }
+  return
+}
+
+func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : mut (__tuple_2*), prims_index : u32, _idx0 : u32) -> void {
+  if (prims.group0_bnode[_subtree0_bnode].nPrims == 0u) {
+    if (intersects_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
+      if (0.001f < distmax_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
+        if (distmin_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high))) < (*_best0)._field0) {
+          multirecurse _recloop_func1(<0>, prims, _pulled1, _best0, prims_index, _idx0) from { (_subtree0_bnode + 1u), (_subtree0_bnode + reinterpret_cast<_tree_layout2>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).offset) }
+        }
+      }
+    }
+  } else if (intersects_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
+    if (0.001f < distmax_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
+      if (distmin_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high))) < (*_best0)._field0) {
+        forall _idx1 in [0u:cast<u32>(prims.group0_bnode[_subtree0_bnode].nPrims):1u] {
+          if (intersects_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
+            if (0.001f < distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
+              if (distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]) < (*_best0)._field0) {
+                _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(1u, _ref0_payload{._ref0_1 = build<_ref0_1>(reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1)})))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return
+}
+
+func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> _option0 {
+  _best0 : mut __tuple_2 := build<__tuple_2>((f32)inf, build<__tuple_1>())
+  _recloop_func0(0u, prims, r, _best0, Prim_Solo_pool, Prim_Inst_pool)
+  _best0_result : mut _option0 := build<_option0>()
+  if ((*_best0)._field0 != (f32)inf) {
+    _best0_result = build<_option0>(build<__tuple_0>(prims.elems[(*_best0)._field1._field0], _match0((*_best0)._field1._field1, prims, Prim_Solo_pool)), true)
+  }
+  return (*_best0_result)
+}
+
+func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> _option0 {
+  return _traverse_tree0(r, prims, Prim_Solo_pool, Prim_Inst_pool)
+}
+
+func apply(t : Transform, p : f32x3) -> f32x3 {
+  return (((t.m0 * f32x3(p[0u])) + (t.m1 * f32x3(p[1u]))) + (t.m2 * f32x3(p[2u]))) + t.m3
+}
+
+func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), prims : (_tree_layout0*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> void {
+  _ret0 = _traverse_tree0((*r), (*prims), Prim_Solo_pool, Prim_Inst_pool)
+  return
+}
+
+func transform_Prim_AABB(p : u64, b : AABB, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> AABB {
+  switch (p >> 56u) {
+  case 0: {
+    let tri = Prim_Solo_pool[p & 72057594037927935u].tri in
+    return b
+  } break;
+  default: {
+    let m = Prim_Inst_pool[p & 72057594037927935u].render_from_instance in
+    let blas = Prim_Inst_pool[p & 72057594037927935u].blas in
+    return transform_Transform_AABB(m, b)
+  }
+  }
+}
+
+func transform_Transform_AABB(t : Transform, b : AABB) -> AABB {
+  let c0 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.low[2u])) in
+  let c1 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.low[2u])) in
+  let c2 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.low[2u])) in
+  let c3 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.low[2u])) in
+  let c4 = apply(t, build<f32x3>(b.low[0u], b.low[1u], b.high[2u])) in
+  let c5 = apply(t, build<f32x3>(b.high[0u], b.low[1u], b.high[2u])) in
+  let c6 = apply(t, build<f32x3>(b.low[0u], b.high[1u], b.high[2u])) in
+  let c7 = apply(t, build<f32x3>(b.high[0u], b.high[1u], b.high[2u])) in
+  let lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7))) in
+  let hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7))) in
+  let out = build<AABB>(lo, hi) in
+  return out
+}
+
+func untransform_Prim_Ray(p : u64, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> Ray {
+  switch (p >> 56u) {
+  case 0: {
+    let tri = Prim_Solo_pool[p & 72057594037927935u].tri in
+    return r
+  } break;
+  default: {
+    let m = Prim_Inst_pool[p & 72057594037927935u].render_from_instance in
+    let blas = Prim_Inst_pool[p & 72057594037927935u].blas in
+    return untransform_Transform_Ray(m, r)
+  }
+  }
+}
+
+func untransform_Transform_Ray(t : Transform, r : Ray) -> Ray {
+  let o = (((t.i0 * f32x3(r.o[0u])) + (t.i1 * f32x3(r.o[1u]))) + (t.i2 * f32x3(r.o[2u]))) + t.i3 in
+  let d = ((t.i0 * f32x3(r.d[0u])) + (t.i1 * f32x3(r.d[1u]))) + (t.i2 * f32x3(r.d[2u])) in
+  let out = build<Ray>(o, d, r.tmax) in
+  return out
+}
+
+
+schedule host {
+
+}

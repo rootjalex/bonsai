@@ -82,6 +82,14 @@ struct MapStack {
         frames.back()[std::move(k)] = std::move(v);
     }
 
+    // Binds `k` in the innermost frame, overwriting a binding already in that
+    // frame and shadowing any in an enclosing one. Unlike add_to_frame this
+    // does not object to the key already existing: it is for a nested scope --
+    // the body of a loop, a kernel -- that rebinds a name a wider scope also
+    // uses, and whose binding must be undone when the scope is popped rather
+    // than left standing for the code after it.
+    void set_local(K k, V v) { frames.back()[std::move(k)] = std::move(v); }
+
     void push_frame() { frames.emplace_back(); }
 
     void pop_frame() { frames.pop_back(); }

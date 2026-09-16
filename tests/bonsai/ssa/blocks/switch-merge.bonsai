@@ -1,0 +1,24 @@
+//! flags: -p ssa --dump-ssa-preschedule
+
+// A match as the block graph: one dispatch on the tag with a target per
+// variant (see the SwitchStmt visitor in SSA/Convert.cpp), not a chain of
+// two-way tests. The arm that returns has no edge to the merge; the arm with
+// nothing left in it has no block of its own, its target being the merge
+// itself. ssa/switch-merge.bonsai is the same program as the relooper reads
+// it back.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func [[export]] weigh(b : Blob, k : f32) -> f32 {
+    acc : mut = k;
+    match b {
+        Whole(x) => { acc = acc + x * 2.0; }
+        Split(lo, hi) => return cast[[f32]](lo + hi);
+        Wide(v, neg) => { unused = v.x; }
+    }
+    return acc * 3.0;
+}

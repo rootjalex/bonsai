@@ -1,0 +1,37 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_uniform_branch
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.o tests/bonsai/correctness/cpp/vectorize_uniform_branch.o -o tests/bonsai/correctness/cpp/vectorize_uniform_branch, ./tests/bonsai/correctness/cpp/vectorize_uniform_branch, rm tests/bonsai/correctness/cpp/vectorize_uniform_branch, rm tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.o, rm tests/bonsai/correctness/cpp/vectorize_uniform_branch.h, rm tests/bonsai/correctness/cpp/vectorize_uniform_branch.o
+
+// A uniform branch around a divergent early return.
+//
+// The shape of pbrt's AreaLight::L: `if !two_sided && dot(n, w) < 0 return 0`,
+// where `two_sided` is the same for every lane and the dot product is not.
+// The outer test stays a real branch and the inner one is folded, so the
+// block after the `if` is a join that keeps every edge into it -- a uniform
+// dispatch straight to it, and the masked path through the folded test. Such
+// a join's arguments are all threaded through under their own names, and the
+// linearizer once left the block declaring them while stripping every jump
+// of the values, which the LLVM lowering then had no phi operands for. The
+// vectorized result is checked against the same function run scalar, with
+// both settings of the uniform flag.
+func shade(two_sided : bool, nd : f32) -> f32 {
+    if !two_sided && (nd < 0.0) {
+        return 0.0;
+    }
+    return nd * 2.0 + 1.0;
+}
+
+func [[export]] shade_one(two_sided : bool, nd : f32) -> f32 {
+    return shade(two_sided, nd);
+}
+
+func [[export]] shade_all(two_sided : bool, a : array[f32, 8],
+                          out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = shade(two_sided, a[i]);
+    }
+    return;
+}
+
+schedule {
+    shade_all.vectorize(i);
+}

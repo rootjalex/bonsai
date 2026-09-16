@@ -8,8 +8,8 @@ type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleBVH = (const TriangleBVH&)
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type __tuple_0 = struct __tuple_0{ _field0 : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }*) }
-type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : (struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }*) } }
+type __tuple_0 = struct __tuple_0{ _field0 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : u32 } }
 type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
@@ -36,38 +36,38 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   !live = true
   while ((*!live)) {
     let @0 = triangles.group0_index in
-    let _t617 = @0[(*triangles_index!top)] in
+    let _t623 = @0[(*triangles_index!top)] in
     intersects_Ray_AABB$r0 : mut bool
-    let @2 = _t617.low in
+    let @2 = _t623.low in
     let @3 = cast<f32x3>(@2) in
-    let @4 = _t617.high in
+    let @4 = _t623.high in
     let @5 = cast<f32x3>(@4) in
-    let _t622 = build<AABB>(@3, @5) in
+    let _t628 = build<AABB>(@3, @5) in
     intersectsp_ray_aabb$r26 : mut _option1
     let @7 = f32x3(1f) in
     let @8 = ray.d in
-    let _t624 = @7 / @8 in
+    let _t630 = @7 / @8 in
     let @10 = f32x3(0f) in
-    let dirIsNeg$i26 = _t624 < @10 in
-    let _t125$i26 = _t622.high in
-    let _t126$i26 = _t622.low in
-    let low_parts$i26 = select(dirIsNeg$i26, _t125$i26, _t126$i26) in
-    let high_parts$i26 = select(dirIsNeg$i26, _t126$i26, _t125$i26) in
-    let _t129$i26 = ray.o in
+    let dirIsNeg$i26 = _t630 < @10 in
+    let _t131$i26 = _t628.high in
+    let _t132$i26 = _t628.low in
+    let low_parts$i26 = select(dirIsNeg$i26, _t131$i26, _t132$i26) in
+    let high_parts$i26 = select(dirIsNeg$i26, _t132$i26, _t131$i26) in
+    let _t135$i26 = ray.o in
     tMin$i26 : mut f32x3
-    let @17 = low_parts$i26 - _t129$i26 in
-    let @18 = @17 * _t624 in
+    let @17 = low_parts$i26 - _t135$i26 in
+    let @18 = @17 * _t630 in
     tMin$i26 = @18
     tMax$i26 : mut f32x3
-    let @19 = high_parts$i26 - _t129$i26 in
-    let @20 = @19 * _t624 in
+    let @19 = high_parts$i26 - _t135$i26 in
+    let @20 = @19 * _t630 in
     tMax$i26 = @20
     gamma$r14$i26 : mut f32
     let @21 = (f32)eps in
     let @22 = 0.5f * @21 in
-    let _t626 = 3f * @22 in
-    let @24 = 1f - _t626 in
-    let @25 = _t626 / @24 in
+    let _t632 = 3f * @22 in
+    let @24 = 1f - _t632 in
+    let @25 = _t632 / @24 in
     gamma$r14$i26 = @25
     let @26 = (*gamma$r14$i26) in
     let @27 = 2f * @26 in
@@ -133,8 +133,8 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
       }
     }
     let @73 = (*intersectsp_ray_aabb$r26) in
-    let _t345 = @73.set in
-    if (_t345) {
+    let _t351 = @73.set in
+    if (_t351) {
       let @75 = (*intersectsp_ray_aabb$r26) in
       let extract$i0 = @75.value in
       let @77 = extract$i0.low in
@@ -150,7 +150,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
     let @83 = (*intersects_Ray_AABB$r0) in
     if (@83) {
       distmin_Ray_AABB$r1 : mut f32
-      if (_t345) {
+      if (_t351) {
         let @84 = (*intersectsp_ray_aabb$r26) in
         let extract$i1 = @84.value in
         let @86 = extract$i1.low in
@@ -165,42 +165,42 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
       let @91 = @90._field0 in
       let @92 = @89 < @91 in
       if (@92) {
-        let _t58 = _t617.nPrims in
-        let @94 = _t58 == 0u in
+        let _t64 = _t623.nPrims in
+        let @94 = _t64 == 0u in
         if (@94) {
-          let @95 = _t617.axis in
+          let @95 = _t623.axis in
           let _t19 = dirIsNeg$i26[@95] in
           let @97 = (*triangles_index!top) + 1u in
-          let @98 = _t617.split0on_nPrims in
+          let @98 = _t623.split0on_nPrims in
           let @99 = reinterpret_cast<_tree_layout2>(@98) in
           let @100 = @99.offset in
           let @101 = (*triangles_index!top) + @100 in
           let @103 = !_t19 in
-          let @136 = select(@103, @97, @101) in
-          let @137 = select(@103, @101, @97) in
-          let @143 = (*!count) in
-          !stack[@143] = @137
-          let @145 = @143 + 1u in
-          !count = @145
-          triangles_index!top = @136
+          let @128 = select(@103, @97, @101) in
+          let @129 = select(@103, @101, @97) in
+          let @135 = (*!count) in
+          !stack[@135] = @129
+          let @137 = @135 + 1u in
+          !count = @137
+          triangles_index!top = @128
           !live = true
           continue
         } else {
-          let @105 = cast<u32>(_t58) in
+          let @105 = cast<u32>(_t64) in
           _idx0 = 0u
           while ((*_idx0) < @105) {
-            let @107 = triangles.prims in
-            let @108 = _t617.split0on_nPrims in
-            let @109 = reinterpret_cast<_tree_layout3>(@108) in
-            let @110 = @109.pOffset in
-            let @111 = @110 + (*_idx0) in
-            let @112 = @107[@111] in
+            let @107 = _t623.split0on_nPrims in
+            let @108 = reinterpret_cast<_tree_layout3>(@107) in
+            let @109 = @108.pOffset in
+            let _t640 = @109 + (*_idx0) in
+            let @111 = triangles.prims in
+            let @112 = @111[_t640] in
             let @113 = intersectsp_ray_tri(ray, @112) in
-            let _t637 = @113 in
-            let @114 = _t637.set in
+            let _t643 = @113 in
+            let @114 = _t643.set in
             if (@114) {
               distmin_Ray_Triangle$r2 : mut f32
-              let isect_$i2 = _t637.value in
+              let isect_$i2 = _t643.value in
               let @116 = isect_$i2.t in
               distmin_Ray_Triangle$r2 = @116
               let @117 = (*distmin_Ray_Triangle$r2) in
@@ -209,31 +209,24 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
               let @120 = @117 < @119 in
               if (@120) {
                 let @121 = (*distmin_Ray_Triangle$r2) in
-                let @122 = triangles.prims in
-                let @123 = triangles.group0_index in
-                let @124 = @123[(*triangles_index!top)] in
-                let @125 = @124.split0on_nPrims in
-                let @126 = reinterpret_cast<_tree_layout3>(@125) in
-                let @127 = @126.pOffset in
-                let @128 = @127 + (*_idx0) in
-                let @130 = build<__tuple_0>((&@122[@128])) in
-                let @131 = build<__tuple_1>(@121, @130) in
-                _best0 = @131
+                let @122 = build<__tuple_0>(_t640) in
+                let @123 = build<__tuple_1>(@121, @122) in
+                _best0 = @123
               }
             }
-            let @132 = (*_idx0) + 1u in
-            _idx0 = @132
+            let @124 = (*_idx0) + 1u in
+            _idx0 = @124
           }
         }
       }
     }
-    let @139 = (*!count) in
-    let @140 = @139 != 0u in
-    if (@140) {
-      let @141 = @139 - 1u in
-      !count = @141
-      let @142 = !stack[@141] in
-      triangles_index!top = @142
+    let @131 = (*!count) in
+    let @132 = @131 != 0u in
+    if (@132) {
+      let @133 = @131 - 1u in
+      !count = @133
+      let @134 = !stack[@133] in
+      triangles_index!top = @134
       !live = true
     } else {
       !live = false
@@ -257,15 +250,16 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
   let @6 = (f32)inf in
   let @7 = @5 != @6 in
   if (@7) {
-    let @8 = (*_best0) in
-    let @9 = @8._field1 in
-    let @10 = @9._field0 in
-    let @11 = (*@10) in
-    let @12 = build<_option0>(@11, true) in
-    _best0_result = @12
+    let @8 = triangles.prims in
+    let @9 = (*_best0) in
+    let @10 = @9._field1 in
+    let @11 = @10._field0 in
+    let @12 = @8[@11] in
+    let @13 = build<_option0>(@12, true) in
+    _best0_result = @13
   }
-  let @13 = (*_best0_result) in
-  return @13
+  let @14 = (*_best0_result) in
+  return @14
 }
 
 func _unexported_trace(ray : Ray, triangles : _tree_layout0) -> _option0 {
@@ -284,17 +278,18 @@ func _unexported_trace(ray : Ray, triangles : _tree_layout0) -> _option0 {
   let @6 = (f32)inf in
   let @7 = @5 != @6 in
   if (@7) {
-    let @8 = (*_best0$i25) in
-    let @9 = @8._field1 in
-    let @10 = @9._field0 in
-    let @11 = (*@10) in
-    let @12 = build<_option0>(@11, true) in
-    _best0_result$i25 = @12
+    let @8 = triangles.prims in
+    let @9 = (*_best0$i25) in
+    let @10 = @9._field1 in
+    let @11 = @10._field0 in
+    let @12 = @8[@11] in
+    let @13 = build<_option0>(@12, true) in
+    _best0_result$i25 = @13
   }
-  let @13 = (*_best0_result$i25) in
-  _traverse_tree0$r25 = @13
-  let @14 = (*_traverse_tree0$r25) in
-  return @14
+  let @14 = (*_best0_result$i25) in
+  _traverse_tree0$r25 = @14
+  let @15 = (*_traverse_tree0$r25) in
+  return @15
 }
 
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_layout0*)) -> void {
@@ -315,17 +310,19 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_
   let @8 = (f32)inf in
   let @9 = @7 != @8 in
   if (@9) {
-    let @10 = (*_best0$i25) in
-    let @11 = @10._field1 in
-    let @12 = @11._field0 in
-    let @13 = (*@12) in
-    let @14 = build<_option0>(@13, true) in
-    _best0_result$i25 = @14
+    let @10 = (*triangles) in
+    let @11 = @10.prims in
+    let @12 = (*_best0$i25) in
+    let @13 = @12._field1 in
+    let @14 = @13._field0 in
+    let @15 = @11[@14] in
+    let @16 = build<_option0>(@15, true) in
+    _best0_result$i25 = @16
   }
-  let @15 = (*_best0_result$i25) in
-  _traverse_tree0$r25 = @15
-  let @16 = (*_traverse_tree0$r25) in
-  _ret0 = @16
+  let @17 = (*_best0_result$i25) in
+  _traverse_tree0$r25 = @17
+  let @18 = (*_traverse_tree0$r25) in
+  _ret0 = @18
   return
 }
 

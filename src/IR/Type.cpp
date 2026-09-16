@@ -51,6 +51,12 @@ uint32_t Type::bytes() const {
         // stored a byte per lane.
         return 1;
     } else if (auto *as_vec = as<Vector_t>()) {
+        // Packed storage is exactly its elements: the twelve bytes a
+        // layout's `vec3f` promised (see Vector_t::packed), an array of three
+        // floats on both backends.
+        if (as_vec->packed) {
+            return as_vec->lanes * as_vec->etype.bytes();
+        }
         // How much a vector *occupies*, which is not how much data it
         // holds: both backends round the lane count up to a power of two,
         // so a vector[f32,3] is twelve bytes of floats inside sixteen
@@ -357,6 +363,16 @@ Type Ref_t::make(std::string name) {
     return node;
 }
 
+Type ElementRef_t::make(Type etype, std::string tree) {
+    internal_assert(etype.defined())
+        << "ElementRef_t::make received undefined etype";
+    internal_assert(!tree.empty()) << "ElementRef_t::make received no tree";
+    ElementRef_t *node = new ElementRef_t;
+    node->etype = std::move(etype);
+    node->tree = std::move(tree);
+    return node;
+}
+
 Type Vector_t::make(Type etype, uint32_t lanes, bool packed) {
     internal_assert(etype.defined())
         << "Vector_t::make received undefined etype";
@@ -518,6 +534,130 @@ Type Union_t::member(const std::string &name) const {
         }
     }
     return Type();
+}
+
+std::string component_field(uint32_t k) { return "!" + std::to_string(k); }
+
+Type widen(const Type &type, uint32_t lanes) {
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        Struct_t::Map fields;
+        fields.reserve(s->fields.size());
+        for (const TypedVar &f : s->fields) {
+            fields.emplace_back(f.name, widen(f.type, lanes));
+        }
+        return Struct_t::make(s->name + "$v" + std::to_string(lanes), fields,
+                              s->attributes);
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        Struct_t::Map fields;
+        fields.reserve(v->lanes);
+        for (uint32_t k = 0; k < v->lanes; k++) {
+            fields.emplace_back(component_field(k),
+                                Vector_t::make(v->etype, lanes));
+        }
+        std::ostringstream name;
+        name << type << "$v" << lanes;
+        return Struct_t::make(name.str(), fields);
+    }
+    if (const Union_t *u = type.as<Union_t>()) {
+        Struct_t::Map fields;
+        fields.reserve(lanes);
+        for (uint32_t k = 0; k < lanes; k++) {
+            fields.emplace_back(component_field(k), type);
+        }
+        return Struct_t::make(u->name + "$v" + std::to_string(lanes), fields);
+    }
+    return Vector_t::make(type, lanes);
+}
+
+std::optional<uint32_t> widened_lanes(const Type &type) {
+    const Struct_t *s = type.as<Struct_t>();
+    if (s == nullptr) {
+        return std::nullopt;
+    }
+    const size_t at = s->name.rfind("$v");
+    if (at == std::string::npos || at + 2 >= s->name.size()) {
+        return std::nullopt;
+    }
+    uint32_t lanes = 0;
+    for (size_t i = at + 2; i < s->name.size(); i++) {
+        if (s->name[i] < '0' || s->name[i] > '9') {
+            return std::nullopt;
+        }
+        lanes = lanes * 10 + uint32_t(s->name[i] - '0');
+    }
+    return lanes == 0 ? std::nullopt : std::optional<uint32_t>(lanes);
+}
+
+Type narrow(const Type &type, uint32_t lanes) {
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        internal_assert(v->lanes == lanes)
+            << "narrow of " << type << ", which is not " << lanes << " wide";
+        return v->etype;
+    }
+    const Struct_t *s = type.as<Struct_t>();
+    const std::string suffix = "$v" + std::to_string(lanes);
+    internal_assert(s != nullptr && s->name.size() > suffix.size() &&
+                    s->name.compare(s->name.size() - suffix.size(),
+                                    suffix.size(), suffix) == 0)
+        << "narrow of " << type << ", which widen() did not make for "
+        << lanes << " lanes";
+    std::string name = s->name.substr(0, s->name.size() - suffix.size());
+    // One union per lane.
+    if (union_behind(type) != nullptr) {
+        return s->fields[0].type;
+    }
+    // One gang vector per component of a short vector, named for the vector:
+    // `f32x3` or `[[packed]] f32x3`. Told from a struct of vector fields by
+    // the name, which is the vector's own spelling.
+    const bool components =
+        !s->fields.empty() && s->fields[0].name == component_field(0) &&
+        std::all_of(s->fields.begin(), s->fields.end(),
+                    [&](const TypedVar &f) {
+                        return f.type.is<Vector_t>() &&
+                               f.type.as<Vector_t>()->lanes == lanes;
+                    });
+    if (components) {
+        const std::string packed_prefix = "[[packed]] ";
+        const bool packed =
+            name.compare(0, packed_prefix.size(), packed_prefix) == 0;
+        const Type etype = s->fields[0].type.as<Vector_t>()->etype;
+        const Type vector =
+            Vector_t::make(etype, uint32_t(s->fields.size()), packed);
+        std::ostringstream spelled;
+        spelled << vector;
+        if (spelled.str() == name) {
+            return vector;
+        }
+    }
+    Struct_t::Map fields;
+    fields.reserve(s->fields.size());
+    for (const TypedVar &f : s->fields) {
+        fields.emplace_back(f.name, narrow(f.type, lanes));
+    }
+    return Struct_t::make(std::move(name), std::move(fields), s->attributes);
+}
+
+const Union_t *union_behind(const Type &type) {
+    if (const Union_t *as_union = type.as<Union_t>()) {
+        return as_union;
+    }
+    const Struct_t *as_struct = type.as<Struct_t>();
+    if (as_struct == nullptr || as_struct->fields.empty()) {
+        return nullptr;
+    }
+    const Union_t *lane = as_struct->fields[0].type.as<Union_t>();
+    if (lane == nullptr) {
+        return nullptr;
+    }
+    for (size_t k = 0; k < as_struct->fields.size(); k++) {
+        const TypedVar &field = as_struct->fields[k];
+        if (field.name != component_field(uint32_t(k)) ||
+            !equals(field.type, as_struct->fields[0].type)) {
+            return nullptr;
+        }
+    }
+    return lane;
 }
 
 Type Set_t::make(Type etype) {
@@ -682,9 +822,24 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
                 return value;
             }
         }
+        // The struct a vectorized union widens to, asked for a member of the
+        // union: that member, one per lane (see widen and union_behind).
+        if (const Union_t *lane = union_behind(struct_type)) {
+            const Type member = lane->member(field);
+            if (member.defined()) {
+                return widen(member, uint32_t(as_struct->fields.size()));
+            }
+        }
         internal_error << "Failed to find field: " << field
                        << " in struct type: " << struct_type;
     } else if (const Vector_t *as_vec = struct_type.as<Vector_t>()) {
+        // A vector of aggregates is one aggregate per lane -- the place a
+        // vector of pointers dereferences to (see Deref::make) -- and its
+        // field is that field, one per lane.
+        if (as_vec->etype.is<Struct_t, Union_t>()) {
+            return Vector_t::make(get_field_type(as_vec->etype, field),
+                                  as_vec->lanes);
+        }
         internal_assert((field == "x" && as_vec->lanes > 0) ||
                         (field == "y" && as_vec->lanes > 1) ||
                         (field == "z" && as_vec->lanes > 2) ||

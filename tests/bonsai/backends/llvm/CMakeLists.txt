@@ -33,6 +33,7 @@ add_bonsai_tests(
     simple.bonsai
     sret.bonsai
     struct_defaults.bonsai
+    switch-three-way.bonsai
     tail-call.bonsai
     tight-array.bonsai
     tree-traversal.bonsai
@@ -46,6 +47,10 @@ add_bonsai_tests(
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
     vectorize_loop.bonsai
+    vectorize_masked_accumulate.bonsai
     vectorize_scale.bonsai
+    vectorize_short_vectors.bonsai
     vectorize_soa.bonsai
+    vectorize_union.bonsai
+    vectorize_varying_memory.bonsai
 )

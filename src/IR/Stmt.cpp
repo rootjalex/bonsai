@@ -4,6 +4,8 @@
 #include "IR/Printer.h"
 #include "Utils.h"
 
+#include <algorithm>
+
 namespace bonsai {
 namespace ir {
 
@@ -132,6 +134,20 @@ Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     return node;
 }
 
+Stmt SwitchStmt::make(Expr value, std::vector<Stmt> arms) {
+    internal_assert(value.defined()) << "Undefined value in SwitchStmt::make";
+    internal_assert(value.type().defined() && value.type().is_int_or_uint())
+        << "Non-integer value in SwitchStmt::make: " << value << " of type "
+        << value.type();
+    internal_assert(arms.size() >= 2)
+        << "A switch on " << value << " with " << arms.size()
+        << " arm(s); one arm is just that arm";
+    SwitchStmt *node = new SwitchStmt;
+    node->value = std::move(value);
+    node->arms = std::move(arms);
+    return node;
+}
+
 Stmt DoWhile::make(Stmt body, Expr cond) {
     internal_assert(body.defined()) << "Undefined body in DoWhile::make";
     internal_assert(cond.defined()) << "Undefined condition in DoWhile::make";
@@ -220,14 +236,68 @@ Stmt Free::make(Expr var) {
     return node;
 }
 
+namespace {
+
+// Does a value of this type hold one element per lane of a `lanes`-wide mask:
+// a vector that wide, or an aggregate whose every leaf is one? The latter is
+// how a gang carries a struct -- as a struct of gang-wide fields -- and a
+// masked store of one writes each field under the mask (see
+// CodeGen_LLVM::create_masked_store_at).
+bool has_lanes(const Type &type, uint32_t lanes) {
+    if (type.is_vector()) {
+        return type.lanes() == lanes;
+    }
+    // One union per lane (see ir::widen): a slot per lane, as a vector has.
+    if (union_behind(type) != nullptr && type.is<Struct_t>()) {
+        return type.as<Struct_t>()->fields.size() == lanes;
+    }
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        return std::all_of(s->fields.begin(), s->fields.end(),
+                           [&](const TypedVar &f) {
+                               return has_lanes(f.type, lanes);
+                           });
+    }
+    if (const Array_t *a = type.as<Array_t>()) {
+        return has_lanes(a->etype, lanes);
+    }
+    return false;
+}
+
+// Does any part of `type` hold one value per lane of a gang of `lanes`? A
+// value none of whose parts does is uniform -- the same for every lane -- and
+// a masked store of it writes it once if any lane is on. What is neither is
+// an aggregate only partly widened, which is a mistake.
+bool mentions_lanes(const Type &type, uint32_t lanes) {
+    if (type.is_vector()) {
+        return type.lanes() == lanes;
+    }
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        if (union_behind(type) != nullptr) {
+            return s->fields.size() == lanes;
+        }
+        return std::any_of(s->fields.begin(), s->fields.end(),
+                           [&](const TypedVar &f) {
+                               return mentions_lanes(f.type, lanes);
+                           });
+    }
+    if (const Array_t *a = type.as<Array_t>()) {
+        return mentions_lanes(a->etype, lanes);
+    }
+    return false;
+}
+
+} // namespace
+
 Stmt Store::make(WriteLoc loc, Expr value, Expr mask) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
     if (mask.defined() && mask.type().defined() && value.type().defined()) {
         internal_assert(mask.type().is_bool() && mask.type().is_vector())
             << "Store mask must be a boolean vector, got: " << mask.type();
-        internal_assert(value.type().is_vector() &&
-                        mask.type().lanes() == value.type().lanes())
+        // Per lane, or uniform (stored once if any lane is on); never half
+        // of each.
+        internal_assert(has_lanes(value.type(), mask.type().lanes()) ||
+                        !mentions_lanes(value.type(), mask.type().lanes()))
             << "Store mask has " << mask.type().lanes()
             << " lanes but stores a value of type: " << value.type();
     }

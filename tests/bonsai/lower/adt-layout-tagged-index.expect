@@ -34,12 +34,15 @@ func Shape_Tri_new(a : f32x3, b : f32x3, Shape_Tri_pool : mut Tri[], Shape_Tri_f
 }
 
 func [[export]] size(s : u64, Shape_Sph_pool : Sph[], Shape_Tri_pool : Tri[]) -> f32 {
-  if ((s >> 56u) == 0u) {
+  switch (s >> 56u) {
+  case 0: {
     let radius = Shape_Sph_pool[s & 72057594037927935u].radius in
     return radius
-  } else {
+  } break;
+  default: {
     let a = Shape_Tri_pool[s & 72057594037927935u].a in
     return a[0u]
+  }
   }
 }
 

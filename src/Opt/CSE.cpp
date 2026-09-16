@@ -147,8 +147,10 @@ class RenameAnalysis : public ir::Visitor {
     // The operand of an address-of names a place, not a value: `&vs[i].w` is
     // where `w` sits in the array, and giving `vs[i]` a name would make it a
     // copy whose address is somewhere else. Nothing under one is counted, so
-    // nothing under one is renamed.
+    // nothing under one is renamed. A reference to a stored element names a
+    // place the same way (see ir::RefTo).
     void visit(const ir::PtrTo *) override {}
+    void visit(const ir::RefTo *) override {}
 
     void visit(const ir::IfElse *node) override {
         node->cond.accept(this);
@@ -161,6 +163,17 @@ class RenameAnalysis : public ir::Visitor {
             node->else_body.accept(this);
         }
         pop_frame();
+    }
+
+    void visit(const ir::SwitchStmt *node) override {
+        node->value.accept(this);
+        for (const ir::Stmt &arm : node->arms) {
+            push_frame();
+            if (arm.defined()) {
+                arm.accept(this);
+            }
+            pop_frame();
+        }
     }
 
     void visit(const ir::Store *node) override {
@@ -480,6 +493,17 @@ struct Rename : public ir::Mutator {
             ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
     }
 
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::Stmt &arm : node->arms) {
+            arms.push_back(mutate(arm));
+        }
+        // Arms first, for the reason given at IfElse.
+        ir::Expr value = mutate(node->value);
+        return make(ir::SwitchStmt::make(std::move(value), std::move(arms)));
+    }
+
     ir::Stmt visit(const ir::ForEach *node) override {
         // Body first, for the reason given at IfElse: a temporary the
         // iterator needs has to be bound before the loop, and the body's
@@ -557,6 +581,7 @@ struct Rename : public ir::Mutator {
 
     // A place, not a value (see RenameAnalysis): left exactly as written.
     ir::Expr visit(const ir::PtrTo *node) override { return node; }
+    ir::Expr visit(const ir::RefTo *node) override { return node; }
 
     ir::Expr visit(const ir::Intrinsic *node) override {
         const bool rename = should_rename(node);
@@ -766,6 +791,20 @@ class LVN : public ir::Mutator {
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
     }
 
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        push_frame();
+        ir::Expr value = mutate(node->value);
+        pop_frame();
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::Stmt &arm : node->arms) {
+            push_frame();
+            arms.push_back(mutate(arm));
+            pop_frame();
+        }
+        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+    }
+
     ir::Stmt visit(const ir::ForEach *node) override {
         push_frame();
         ir::Expr iter = mutate(node->iter);
@@ -882,6 +921,7 @@ class LVN : public ir::Mutator {
     // A place, not a value (see RenameAnalysis): numbering what is under an
     // address-of would replace the place with a name for a copy of it.
     ir::Expr visit(const ir::PtrTo *node) override { return node; }
+    ir::Expr visit(const ir::RefTo *node) override { return node; }
 
   private:
     // A list of functions that may have side effects. This is "whole program
@@ -1054,6 +1094,18 @@ class CopyPropagation : public ir::Mutator {
         ir::Stmt el = mutate(node->else_body);
         pop_frame();
         return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+    }
+
+    ir::Stmt visit(const ir::SwitchStmt *node) override {
+        ir::Expr value = mutate(node->value);
+        std::vector<ir::Stmt> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::Stmt &arm : node->arms) {
+            push_frame();
+            arms.push_back(mutate(arm));
+            pop_frame();
+        }
+        return ir::SwitchStmt::make(std::move(value), std::move(arms));
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {

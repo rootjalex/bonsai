@@ -19,18 +19,24 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), p0 : f32x3, p1 : f32x3, p2 : f32
 }
 
 func _match0(_matched : Shape) -> f32 {
-  if (_matched.tag == 0u) {
+  switch (_matched.tag) {
+  case 0: {
     return ((4f * 3.14159f) * _matched.payload.Sph.radius) * _matched.payload.Sph.radius
-  } else {
+  } break;
+  default: {
     return 0.5f * norm(cross(_matched.payload.Tri.p1 - _matched.payload.Tri.p0, _matched.payload.Tri.p2 - _matched.payload.Tri.p0))
+  }
   }
 }
 
 func _match1(_matched : Shape) -> f32 {
-  if (_matched.tag == 0u) {
+  switch (_matched.tag) {
+  case 0: {
     return 2f * _matched.payload.Sph.radius
-  } else {
+  } break;
+  default: {
     return norm(_matched.payload.Tri.p1 - _matched.payload.Tri.p0)
+  }
   }
 }
 

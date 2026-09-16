@@ -23,6 +23,7 @@ enum class IRStmtEnum {
     Return,
     LetStmt,
     IfElse,
+    SwitchStmt,
     DoWhile,
     While,
     Sequence,
@@ -171,6 +172,28 @@ struct IfElse : StmtNode<IfElse> {
     static Stmt make(Expr cond, Stmt then_body, Stmt else_body = Stmt());
 
     static const IRStmtEnum node_type = IRStmtEnum::IfElse;
+};
+
+// A branch on an integer with one arm per value: arm k runs when `value` is
+// k, and the last arm runs for every value past the others, the way the last
+// arm of a `match` needs no test once the rest are ruled out. The values are
+// dense from zero because that is what this is for -- a variant's tag (see
+// Lower/ADTs.cpp) -- and because it is the shape the SSA form has: the
+// Dispatch terminator jumps to its k-th target on k, and a switch lowers to
+// one with an arm per target (SSA/Convert.cpp) and is lifted back from one
+// that is not a loop's test (SSA/CodeGen_Stmt.cpp). A switch on sparse keys
+// would need a Dispatch with keys, which nothing yet wants.
+//
+// Named after CallStmt rather than `Switch`, which is the layout language's
+// switch (IR/Layout.h) and a different thing: that one picks which fields a
+// node has, this one picks which statement runs.
+struct SwitchStmt : StmtNode<SwitchStmt> {
+    Expr value;             // an integer
+    std::vector<Stmt> arms; // at least two; an arm may be undefined
+
+    static Stmt make(Expr value, std::vector<Stmt> arms);
+
+    static const IRStmtEnum node_type = IRStmtEnum::SwitchStmt;
 };
 
 struct DoWhile : StmtNode<DoWhile> {

@@ -3,6 +3,7 @@
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/SSA.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -62,6 +63,15 @@ struct UniformLoop {
     // entered with: a block in here that no divergent branch decides is still
     // not executing for a lane that has already left.
     std::set<std::string> blocks;
+    // The pure latch, whose arguments hand the header its values for the next
+    // iteration: the loop's carried values first, under the header's own
+    // names for them, then the masks. A lane that has left the loop is off in
+    // every mask a latch argument is blended on, and has to keep the value
+    // the header holds for it -- what it had when it left, which is what code
+    // after the loop reads -- rather than whatever the blend falls through
+    // to. Linearization seeds the blend of a carried value with the header's
+    // for that reason.
+    std::string latch;
 };
 
 struct LoopUniformization {
@@ -73,13 +83,37 @@ struct LoopUniformization {
     std::set<std::pair<std::string, std::string>> varying_args;
 
     bool empty() const { return loops.empty(); }
+
+    // Every block that now runs under a live mask: the blocks of all the loops
+    // together. The analysis has to be told, since after the transform the
+    // only branch deciding them is the uniform one on `any`.
+    std::set<std::string> masked_blocks() const {
+        std::set<std::string> all;
+        for (const UniformLoop &loop : loops) {
+            all.insert(loop.blocks.begin(), loop.blocks.end());
+        }
+        return all;
+    }
 };
 
+// The divergence analysis of the region, re-run as the region changes: it is
+// handed the block arguments introduced so far, which hold one value per lane
+// by construction and so have to be seeded as varying, and the blocks of the
+// loops transformed so far, which run under a live mask and have to be seeded
+// as masked.
+using Analyzer = std::function<Divergence(
+    const std::set<std::pair<std::string, std::string>> &varying_args,
+    const std::set<std::string> &masked_blocks)>;
+
 // Uniformizes every divergent loop in the region of `func` rooted at `entry`.
-// `divergence` is the analysis of that region as it stands, which is what says
-// which loop exits the lanes disagree about.
+// `analyze` is the divergence analysis of that region, which is what says
+// which loop exits the lanes disagree about. It is run afresh after every loop
+// transformed: folding an inner loop's exits leaves a dispatch over its exit
+// masks behind, and when one of those exits also left the loop around it,
+// that dispatch is a new divergent exit of the outer loop, which the analysis
+// that found the inner loop could not have seen.
 LoopUniformization uniformize_loops(Function &func, const std::string &entry,
-                                    const Divergence &divergence);
+                                    const Analyzer &analyze);
 
 } // namespace ssa
 } // namespace ir

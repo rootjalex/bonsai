@@ -1,0 +1,134 @@
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 }
+type vec3f = f32x3
+
+func [[noinline]] advance(r : mut (Ray*), t : f32) -> void {
+  let @0 = (*r) in
+  let @1 = @0.o in
+  let @2 = (*r) in
+  let @3 = @2.d in
+  let @4 = f32x3(t) in
+  let @5 = @3 * @4 in
+  let @6 = @1 + @5 in
+  r.o = @6
+  let @8 = (*r) in
+  let @9 = @8.tmax in
+  let @10 = @9 - t in
+  r.tmax = @10
+  return
+}
+
+func [[noinline]] advance$gang8_p0(r : mut (Ray$v8*), t : f32) -> void {
+  let @0 = (*r) in
+  let @1 = @0.o in
+  let @2 = (*r) in
+  let @3 = @2.d in
+  let @4 = f32x3(t) in
+  let @12 = @3.!0 in
+  let @13 = @4[0u] in
+  let @28 = f32x8(@13) in
+  let @14 = @12 * @28 in
+  let @15 = @3.!1 in
+  let @16 = @4[1u] in
+  let @29 = f32x8(@16) in
+  let @17 = @15 * @29 in
+  let @18 = @3.!2 in
+  let @19 = @4[2u] in
+  let @30 = f32x8(@19) in
+  let @20 = @18 * @30 in
+  let @21 = @1.!0 in
+  let @22 = @21 + @14 in
+  let @23 = @1.!1 in
+  let @24 = @23 + @17 in
+  let @25 = @1.!2 in
+  let @26 = @25 + @20 in
+  let @27 = build<f32x3$v8>(@22, @24, @26) in
+  r.o = @27
+  let @8 = (*r) in
+  let @9 = @8.tmax in
+  let @31 = f32x8(t) in
+  let @10 = @9 - @31 in
+  r.tmax = @10
+  return
+}
+
+func [[noinline]] direction(x : f32) -> f32x3 {
+  let @0 = x * 2f in
+  let @1 = x * 3f in
+  let @2 = build<f32x3>(x, @0, @1) in
+  return @2
+}
+
+func [[noinline]] direction$gang8_v0(x : f32x8) -> f32x3$v8 {
+  let @4 = f32x8(2f) in
+  let @0 = x * @4 in
+  let @5 = f32x8(3f) in
+  let @1 = x * @5 in
+  let @3 = build<f32x3$v8>(x, @0, @1) in
+  return @3
+}
+
+func [[noinline]] length_squared(v : f32x3) -> f32 {
+  let w = v * v in
+  let @1 = reduce<+>(w) in
+  return @1
+}
+
+func [[noinline]] length_squared$gang8_v0(v!0 : f32x8, v!1 : f32x8, v!2 : f32x8) -> f32x8 {
+  let @2 = v!0 * v!0 in
+  let @3 = v!1 * v!1 in
+  let @4 = v!2 * v!2 in
+  let @5 = @2 + @3 in
+  let @6 = @5 + @4 in
+  return @6
+}
+
+func march(a : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = direction$gang8_v0(@0) in
+  let i = ramp(0, 1, 8) in
+  let @11 = @1.!0 in
+  let @12 = @1.!1 in
+  let @13 = @1.!2 in
+  alloc r : mut Ray$v8
+  let @14 = build<f32x3$v8>(@11, @12, @13) in
+  let @15 = build<f32x3$v8>(@11, @12, @13) in
+  let @19 = f32x8(10f) in
+  let @2 = build<Ray$v8>(@14, @15, @19) in
+  r = @2
+  advance$gang8_p0(r, 0.5f)
+  let @3 = (*r) in
+  let @4 = @3.o in
+  let @16 = @4.!0 in
+  let @17 = @4.!1 in
+  let @18 = @4.!2 in
+  let @5 = length_squared$gang8_v0(@16, @17, @18) in
+  let @6 = (*r) in
+  let @7 = @6.tmax in
+  let @8 = @5 + @7 in
+  out[ramp(0, 1, 8)] = @8
+  return
+}
+
+func pick_axis(a : f32[8], axis : i32[8], out : mut f32[8]) -> void {
+  let _t2 = a[ramp(0, 1, 8)] in
+  let @12 = f32x8(10f) in
+  let @1 = _t2 + @12 in
+  let @13 = f32x8(20f) in
+  let @2 = _t2 + @13 in
+  let @4 = axis[ramp(0, 1, 8)] in
+  let @14 = i32x8(1) in
+  let @8 = @4 == @14 in
+  let @9 = select(@8, @1, @2) in
+  let @15 = i32x8(0) in
+  let @10 = @4 == @15 in
+  let @11 = select(@10, _t2, @9) in
+  out[ramp(0, 1, 8)] = @11
+  return
+}
+
+
+schedule host {
+    march.vectorize(i)
+    pick_axis.vectorize(i)
+
+}

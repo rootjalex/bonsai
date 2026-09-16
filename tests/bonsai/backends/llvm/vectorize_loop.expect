@@ -31,33 +31,35 @@ while.end:                                        ; preds = %while.body.preheade
 
 ; Function Attrs: nofree norecurse nosync nounwind memory(write)
 define void @"sum_to$gang8_v0_v3"(<8 x i32> noundef %n, i32 noundef %acc, ptr noundef %out, <8 x i32> noundef %i) local_unnamed_addr #1 {
-"sum_to$gang8_v0_v3_entry":
+"sum_to$gang8_v0_v3":
   %.splatinsert = insertelement <8 x i32> poison, i32 %acc, i64 0
   %.splat = shufflevector <8 x i32> %.splatinsert, <8 x i32> poison, <8 x i32> zeroinitializer
-  br label %while.body
+  br label %"sum_to!loop!loop"
 
-while.body:                                       ; preds = %"sum_to$gang8_v0_v3_entry", %while.body
-  %"n!loop!loop.025" = phi <8 x i32> [ %n, %"sum_to$gang8_v0_v3_entry" ], [ %3, %while.body ]
-  %"acc!loop!loop.024" = phi <8 x i32> [ %.splat, %"sum_to$gang8_v0_v3_entry" ], [ %5, %while.body ]
-  %"!live.023" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %"sum_to$gang8_v0_v3_entry" ], [ %6, %while.body ]
-  %"!track.then_0.0.021" = phi <8 x i32> [ zeroinitializer, %"sum_to$gang8_v0_v3_entry" ], [ %7, %while.body ]
-  %0 = icmp slt <8 x i32> %"n!loop!loop.025", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %1 = and <8 x i1> %0, %"!live.023"
-  %not. = xor <8 x i1> %1, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
-  %2 = sext <8 x i1> %not. to <8 x i32>
-  %3 = add <8 x i32> %"n!loop!loop.025", %2
-  %4 = select <8 x i1> %1, <8 x i32> zeroinitializer, <8 x i32> %"n!loop!loop.025"
-  %5 = add <8 x i32> %4, %"acc!loop!loop.024"
-  %6 = xor <8 x i1> %1, %"!live.023"
-  %7 = select <8 x i1> %1, <8 x i32> %"acc!loop!loop.024", <8 x i32> %"!track.then_0.0.021"
-  %8 = bitcast <8 x i1> %6 to i8
-  %.not = icmp eq i8 %8, 0
-  br i1 %.not, label %while.end, label %while.body
+"sum_to!loop!loop":                               ; preds = %"sum_to$gang8_v0_v3", %"sum_to!loop!loop"
+  %"!track.then_0.07" = phi <8 x i32> [ zeroinitializer, %"sum_to$gang8_v0_v3" ], [ %9, %"sum_to!loop!loop" ]
+  %"!live5" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %"sum_to$gang8_v0_v3" ], [ %8, %"sum_to!loop!loop" ]
+  %"acc!loop!loop4" = phi <8 x i32> [ %.splat, %"sum_to$gang8_v0_v3" ], [ %7, %"sum_to!loop!loop" ]
+  %"n!loop!loop3" = phi <8 x i32> [ %n, %"sum_to$gang8_v0_v3" ], [ %4, %"sum_to!loop!loop" ]
+  %0 = icmp slt <8 x i32> %"n!loop!loop3", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %not. = xor <8 x i1> %0, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
+  %1 = and <8 x i1> %"!live5", %not.
+  %2 = and <8 x i1> %"!live5", %0
+  %3 = sext <8 x i1> %1 to <8 x i32>
+  %4 = add <8 x i32> %"n!loop!loop3", %3
+  %5 = select <8 x i1> %1, <8 x i32> %"n!loop!loop3", <8 x i32> zeroinitializer
+  %6 = select <8 x i1> %2, <8 x i32> zeroinitializer, <8 x i32> %5
+  %7 = add <8 x i32> %6, %"acc!loop!loop4"
+  %8 = xor <8 x i1> %2, %"!live5"
+  %9 = select <8 x i1> %2, <8 x i32> %"acc!loop!loop4", <8 x i32> %"!track.then_0.07"
+  %10 = bitcast <8 x i1> %8 to i8
+  %.not = icmp eq i8 %10, 0
+  br i1 %.not, label %"!then_0", label %"sum_to!loop!loop"
 
-while.end:                                        ; preds = %while.body
-  %9 = sext <8 x i32> %i to <8 x i64>
-  %store_ptrs = getelementptr inbounds i32, ptr %out, <8 x i64> %9
-  tail call void @llvm.masked.scatter.v8i32.v8p0(<8 x i32> %7, <8 x ptr> %store_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>)
+"!then_0":                                        ; preds = %"sum_to!loop!loop"
+  %11 = sext <8 x i32> %i to <8 x i64>
+  %store_ptrs = getelementptr inbounds i32, ptr %out, <8 x i64> %11
+  tail call void @llvm.masked.scatter.v8i32.v8p0(<8 x i32> %9, <8 x ptr> %store_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>)
   ret void
 }
 
@@ -65,29 +67,31 @@ while.end:                                        ; preds = %while.body
 define void @triangles(ptr nocapture noundef readonly %n, ptr noundef %out) local_unnamed_addr #2 {
 triangles:
   %extract = load <8 x i32>, ptr %n, align 4
-  br label %while.body.i
+  br label %"sum_to!loop!loop.i"
 
-while.body.i:                                     ; preds = %while.body.i, %triangles
-  %"n!loop!loop.025.i" = phi <8 x i32> [ %extract, %triangles ], [ %3, %while.body.i ]
-  %"acc!loop!loop.024.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %5, %while.body.i ]
-  %"!live.023.i" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %triangles ], [ %6, %while.body.i ]
-  %"!track.then_0.0.021.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %7, %while.body.i ]
-  %0 = icmp slt <8 x i32> %"n!loop!loop.025.i", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %1 = and <8 x i1> %"!live.023.i", %0
-  %not..i = xor <8 x i1> %1, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
-  %2 = sext <8 x i1> %not..i to <8 x i32>
-  %3 = add <8 x i32> %"n!loop!loop.025.i", %2
-  %4 = select <8 x i1> %1, <8 x i32> zeroinitializer, <8 x i32> %"n!loop!loop.025.i"
-  %5 = add <8 x i32> %4, %"acc!loop!loop.024.i"
-  %6 = xor <8 x i1> %1, %"!live.023.i"
-  %7 = select <8 x i1> %1, <8 x i32> %"acc!loop!loop.024.i", <8 x i32> %"!track.then_0.0.021.i"
-  %8 = bitcast <8 x i1> %6 to i8
-  %.not.i = icmp eq i8 %8, 0
-  br i1 %.not.i, label %"sum_to$gang8_v0_v3.exit", label %while.body.i
+"sum_to!loop!loop.i":                             ; preds = %"sum_to!loop!loop.i", %triangles
+  %"!track.then_0.07.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %9, %"sum_to!loop!loop.i" ]
+  %"!live5.i" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %triangles ], [ %8, %"sum_to!loop!loop.i" ]
+  %"acc!loop!loop4.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %7, %"sum_to!loop!loop.i" ]
+  %"n!loop!loop3.i" = phi <8 x i32> [ %extract, %triangles ], [ %4, %"sum_to!loop!loop.i" ]
+  %0 = icmp slt <8 x i32> %"n!loop!loop3.i", <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %not..i = xor <8 x i1> %0, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
+  %1 = and <8 x i1> %"!live5.i", %not..i
+  %2 = and <8 x i1> %0, %"!live5.i"
+  %3 = sext <8 x i1> %1 to <8 x i32>
+  %4 = add <8 x i32> %"n!loop!loop3.i", %3
+  %5 = select <8 x i1> %1, <8 x i32> %"n!loop!loop3.i", <8 x i32> zeroinitializer
+  %6 = select <8 x i1> %2, <8 x i32> zeroinitializer, <8 x i32> %5
+  %7 = add <8 x i32> %6, %"acc!loop!loop4.i"
+  %8 = xor <8 x i1> %2, %"!live5.i"
+  %9 = select <8 x i1> %2, <8 x i32> %"acc!loop!loop4.i", <8 x i32> %"!track.then_0.07.i"
+  %10 = bitcast <8 x i1> %8 to i8
+  %.not.i = icmp eq i8 %10, 0
+  br i1 %.not.i, label %"sum_to$gang8_v0_v3.exit", label %"sum_to!loop!loop.i"
 
-"sum_to$gang8_v0_v3.exit":                        ; preds = %while.body.i
+"sum_to$gang8_v0_v3.exit":                        ; preds = %"sum_to!loop!loop.i"
   %store_ptrs.i = getelementptr inbounds i32, ptr %out, <8 x i64> <i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7>
-  tail call void @llvm.masked.scatter.v8i32.v8p0(<8 x i32> %7, <8 x ptr> %store_ptrs.i, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>)
+  tail call void @llvm.masked.scatter.v8i32.v8p0(<8 x i32> %9, <8 x ptr> %store_ptrs.i, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>)
   ret void
 }
 

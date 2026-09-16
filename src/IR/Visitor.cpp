@@ -48,6 +48,7 @@ void Visitor::visit(const Bool_t *) {}
 void Visitor::visit(const String_t *) {}
 
 void Visitor::visit(const Ptr_t *node) { node->etype.accept(this); }
+void Visitor::visit(const ElementRef_t *node) { node->etype.accept(this); }
 
 void Visitor::visit(const Ref_t *node) {}
 
@@ -157,6 +158,8 @@ void Visitor::visit(const VectorShuffle *node) {
     visit_list(this, node->idxs);
 }
 
+void Visitor::visit(const Shuffle *node) { visit_list(this, node->vectors); }
+
 void Visitor::visit(const Ramp *node) {
     node->base.accept(this);
     node->stride.accept(this);
@@ -165,6 +168,9 @@ void Visitor::visit(const Ramp *node) {
 void Visitor::visit(const Extract *node) {
     node->vec.accept(this);
     node->idx.accept(this);
+    if (node->mask.defined()) {
+        node->mask.accept(this);
+    }
 }
 
 void Visitor::visit(const Build *node) { visit_list(this, node->values); }
@@ -221,6 +227,7 @@ void Visitor::visit(const Instantiate *node) {
 }
 
 void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
+void Visitor::visit(const RefTo *node) { node->place.accept(this); }
 
 void Visitor::visit(const Deref *node) {
     node->expr.accept(this);
@@ -268,6 +275,15 @@ void Visitor::visit(const IfElse *node) {
     node->then_body.accept(this);
     if (node->else_body.defined()) {
         node->else_body.accept(this);
+    }
+}
+
+void Visitor::visit(const SwitchStmt *node) {
+    node->value.accept(this);
+    for (const Stmt &arm : node->arms) {
+        if (arm.defined()) {
+            arm.accept(this);
+        }
     }
 }
 

@@ -50,12 +50,15 @@ func [[export]] large(_ret2 : mut (Item*), big : (Big*), Item_Large_pool : mut L
 }
 
 func [[export]] size(i : (Item*), Item_Large_pool : Large[]) -> f32 {
-  if ((*i).tag == 0u) {
+  switch ((*i).tag) {
+  case 0: {
     let x = (*i).payload.Small.x in
     return x
-  } else {
+  } break;
+  default: {
     let big = Item_Large_pool[(*i).payload.Large].big in
     return big.a[0u] + big.d[3u]
+  }
   }
 }
 

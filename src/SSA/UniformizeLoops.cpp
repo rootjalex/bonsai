@@ -2,11 +2,15 @@
 
 #include "SSA/Analysis.h"
 #include "SSA/InsertPreheader.h"
+#include "SSA/MergeLatches.h"
 
 #include "Utils.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -27,25 +31,16 @@ namespace {
 // it -- a lane's tracker is only ever read after that lane has left, and
 // leaving is what writes it -- but the header argument has to be given
 // something on the way in, and this way the generated code has no undefined
-// values in it.
-shared_ptr<Value> zero_of(const Type &type) {
-    if (type.is_bool()) {
-        return std::make_shared<Value>(Constant{type, false});
-    }
-    if (type.is_float()) {
-        return std::make_shared<Value>(Constant{type, 0.0});
-    }
-    if (type.is_uint()) {
-        return std::make_shared<Value>(Constant{type, uint64_t(0)});
-    }
-    if (type.is_int_or_uint()) {
-        return std::make_shared<Value>(Constant{type, int64_t(0)});
-    }
-    internal_error << "[unimplemented] a divergent loop carries a value of "
-                   << "type " << type << " out to a use after the loop; only "
-                   << "values a lane can hold one of can be captured at the "
-                   << "iteration it leaves";
-    return nullptr;
+// values in it. An aggregate's zero -- a ray carried out of a path loop -- is
+// built by instructions in `into`, the block whose jump seeds the tracker.
+shared_ptr<Value> zero_of(const Type &type, Function &func,
+                          const shared_ptr<Block> &into) {
+    internal_assert(type.is_bool() || type.is_numeric() ||
+                    type.is<Vector_t>() || type.is<Struct_t>())
+        << "[unimplemented] a divergent loop carries a value of type " << type
+        << " out to a use after the loop; only values a lane can hold one of "
+        << "can be captured at the iteration it leaves";
+    return zero_value(type, func, into);
 }
 
 shared_ptr<Value> bool_constant(bool b) {
@@ -53,15 +48,22 @@ shared_ptr<Value> bool_constant(bool b) {
 }
 
 // Do two values name the same definition? A name is enough: this SSA form
-// threads a definition onwards through block arguments under its own name.
+// threads a definition onwards through block arguments under its own name,
+// so the instruction that defined a value and the argument it arrived as are
+// the same value under one name, however either reference spells it.
 bool same_value(const Value &a, const Value &b) {
-    if (const auto *ai = std::get_if<shared_ptr<Instruction>>(&a.data)) {
-        const auto *bi = std::get_if<shared_ptr<Instruction>>(&b.data);
-        return bi != nullptr && (*ai)->name == (*bi)->name;
-    }
-    if (const auto *aa = std::get_if<Argument>(&a.data)) {
-        const auto *ba = std::get_if<Argument>(&b.data);
-        return ba != nullptr && aa->name == ba->name;
+    const auto name_of = [](const Value &v) -> const string * {
+        if (const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data)) {
+            return &(*i)->name;
+        }
+        if (const auto *arg = std::get_if<Argument>(&v.data)) {
+            return &arg->name;
+        }
+        return nullptr;
+    };
+    if (const string *na = name_of(a)) {
+        const string *nb = name_of(b);
+        return nb != nullptr && *na == *nb;
     }
     if (const auto *ac = std::get_if<Constant>(&a.data)) {
         const auto *bc = std::get_if<Constant>(&b.data);
@@ -73,6 +75,28 @@ bool same_value(const Value &a, const Value &b) {
 bool is_named_argument(const Value &v, const string &name) {
     const auto *a = std::get_if<Argument>(&v.data);
     return a != nullptr && a->name == name;
+}
+
+// A name for a block argument that no block of the function declares yet.
+// The masks and trackers a loop is given are named for what they are, and a
+// loop inside another gets its own: two loops both calling their live mask
+// `!live` would have the outer loop's latch, which comes after the inner
+// loop, read the inner loop's -- exhausted by then -- as its own.
+string fresh_argument(const Function &func, const string &stem) {
+    set<string> taken;
+    for (const auto &block : func.blocks) {
+        for (const Argument &arg : block->args) {
+            taken.insert(arg.name);
+        }
+        for (const auto &[name, _] : block->lookups) {
+            taken.insert(name);
+        }
+    }
+    string name = stem;
+    for (size_t i = 0; taken.count(name); i++) {
+        name = stem + "_" + std::to_string(i);
+    }
+    return name;
 }
 
 // A fresh block, owned by the same function and guaranteed not to collide
@@ -116,12 +140,16 @@ struct ExitTarget {
 } // namespace
 
 LoopUniformization uniformize_loops(Function &func, const string &entry,
-                                    const Divergence &divergence) {
+                                    const Analyzer &analyze) {
     LoopUniformization result;
 
-    // Loops are found again after each transform: uniformizing one rewrites
-    // the CFG the next one is found in.
+    // Loops are found again after each transform, and so is what diverges:
+    // uniformizing one rewrites the CFG the next one is found in, and the
+    // dispatch it leaves over the exit masks may be a divergent exit of the
+    // loop around it.
     for (;;) {
+        const Divergence divergence =
+            analyze(result.varying_args, result.masked_blocks());
         refresh_preds(func);
         const AdjacencyMap all_succs = compute_successors(func);
         const set<string> region = reachable_from(entry, all_succs);
@@ -138,28 +166,80 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         const vector<string> rpo = reverse_postorder(entry, succs);
         const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
         const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
+        const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
+        const ControlDependence cdep = compute_control_dependence(succs, pdom);
 
-        // A loop is divergent when the lanes disagree about when to leave it,
-        // which is exactly a loop with an exiting branch that is divergent.
-        // Innermost first, so that an inner loop is already uniform -- and its
-        // exits therefore already folded -- when its parent is looked at.
-        const Loop *target = nullptr;
-        for (const auto &[header, loop] : loops) {
-            const bool divergent = std::any_of(
-                loop.exits.begin(), loop.exits.end(), [&](const Edge &e) {
-                    return divergence.branches.count(e.first) > 0;
-                });
-            if (!divergent) {
-                continue;
+        // A loop is divergent when the lanes disagree about when to leave it:
+        // when some exit is taken by some lanes and not others on the same
+        // iteration, which is to say the exiting block is control dependent
+        // -- through blocks of the loop -- on a divergent branch inside it
+        // (Moll & Hack section 5). The exiting block need not be the branch
+        // itself: the dispatch over exit masks that folding an inner loop
+        // leaves behind branches divergently, and the blocks it dispatches to
+        // are what jump out. A branch outside the loop does not count; a loop
+        // that runs under an outer condition is left by every lane that
+        // entered it together.
+        auto divergent_exit = [&](const Loop &loop, const string &exiting) {
+            if (divergence.branches.count(exiting)) {
+                return true; // the exiting block is the divergent branch
             }
-            const string outer = header;
-            const bool innermost = std::none_of(
-                loops.begin(), loops.end(), [&](const auto &other) {
-                    return other.second.parent.has_value() &&
-                           *other.second.parent == outer;
-                });
+            set<string> seen;
+            vector<string> work{exiting};
+            while (!work.empty()) {
+                const string b = work.back();
+                work.pop_back();
+                if (!seen.insert(b).second) {
+                    continue;
+                }
+                const auto it = cdep.find(b);
+                if (it == cdep.end()) {
+                    continue;
+                }
+                for (const auto &[from, to] : it->second) {
+                    if (!loop.blocks.count(from)) {
+                        continue;
+                    }
+                    if (divergence.branches.count(from)) {
+                        return true;
+                    }
+                    work.push_back(from);
+                }
+            }
+            return false;
+        };
+
+        // Innermost first, so that an inner loop is already uniform -- and its
+        // exits therefore already folded -- when its parent is looked at:
+        // among the divergent loops, one with no divergent loop inside it. (A
+        // loop already made uniform still is a loop, nested where it was, so
+        // "innermost of all loops" would never reach its parent.)
+        set<string> divergent;
+        for (const auto &[header, loop] : loops) {
+            if (std::any_of(loop.exits.begin(), loop.exits.end(),
+                            [&](const Edge &e) {
+                                return divergent_exit(loop, e.first);
+                            })) {
+                divergent.insert(header);
+            }
+        }
+        const Loop *target = nullptr;
+        for (const string &header : divergent) {
+            const bool innermost =
+                std::none_of(divergent.begin(), divergent.end(),
+                             [&](const string &other) {
+                                 // Is `header` an enclosing loop of `other`?
+                                 std::optional<string> up =
+                                     loops.at(other).parent;
+                                 while (up.has_value()) {
+                                     if (*up == header) {
+                                         return true;
+                                     }
+                                     up = loops.at(*up).parent;
+                                 }
+                                 return false;
+                             });
             if (innermost) {
-                target = &loop;
+                target = &loops.at(header);
                 break;
             }
         }
@@ -168,14 +248,28 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         }
 
         const Loop loop = *target;
-        internal_assert(loop.latches.size() == 1)
-            << "[unimplemented] a divergent loop with " << loop.latches.size()
-            << " latches; partial linearization needs a unique one (Moll & "
-            << "Hack section 2.1), so the latches have to be merged first";
-        internal_assert(!loop.parent.has_value())
-            << "[unimplemented] a divergent loop nested in another loop: the "
-            << "live mask of " << loop.header << " would have to be reset on "
-            << "every iteration of " << *loop.parent;
+        // Several ways of going round again become one, through a latch of
+        // their own, which the pure latch below then replaces: partial
+        // linearization wants a unique back edge (Moll & Hack section 2.1).
+        // Found again from the start, since the graph has changed.
+        if (loop.latches.size() > 1) {
+            merge_latches(func, loop.header, loop.latches);
+            continue;
+        }
+        // A loop nested in another needs nothing more. Its live mask and
+        // trackers are header arguments seeded by the jump from its preheader,
+        // and the preheader is inside the enclosing loop, so they are seeded
+        // afresh on every iteration of it -- with, once mask generation has
+        // run, the mask the enclosing loop's body has at that point. An edge
+        // that leaves both loops at once becomes an exit of this one here, and
+        // an exit of the enclosing one when that is uniformized in turn.
+
+        // The graph as this loop is found, for reading against the dump made
+        // once it has been transformed (below).
+        if (std::getenv("BONSAI_DUMP_UNIFORMIZE") != nullptr) {
+            std::cerr << "--- before uniformizing " << loop.header << ":\n";
+            func.dump(std::cerr);
+        }
 
         // A dedicated preheader, so that the masks can be added as header
         // arguments: the header may be the region entry, whose arguments are
@@ -246,6 +340,123 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             return defined_in_loop.count(std::get<Argument>(v.data).name) == 0;
         };
 
+        // What the code after the loop reads of what the loop defines, made
+        // explicit first. A block an exit leads to may name a value defined
+        // inside the loop directly -- the early `return found` arm of a branch
+        // in the body reads the body's `found`, which a join before it
+        // declared and which dominated the arm -- and that is sound SSA while
+        // the arm hangs off the loop. Uniformized, every exit is reached from
+        // the header's test by way of the cascade below, and nothing inside
+        // the body dominates it any more: the value has to leave the loop the
+        // way an exit edge's arguments do, captured by a tracker at the
+        // iteration the lane left on. So each such reference is threaded into
+        // its block as an argument (Block::get_value), back along the
+        // predecessors to where the value is defined, which makes it an
+        // argument of the exit edge that the slots below then see.
+        {
+            set<string> loop_defined;
+            for (const string &name : in_loop) {
+                const Block &block = *blocks.at(name);
+                for (const Argument &arg : block.args) {
+                    loop_defined.insert(arg.name);
+                }
+                for (const auto &instr : block.instrs) {
+                    if (!instr->name.empty()) {
+                        loop_defined.insert(instr->name);
+                    }
+                }
+            }
+            refresh_preds(func);
+            const AdjacencyMap succs_now = compute_successors(func);
+            set<string> after;
+            for (const Edge &e : loop.exits) {
+                for (const string &r : reachable_from(e.second, succs_now)) {
+                    if (!in_loop.count(r) && r != preheader && r != header) {
+                        after.insert(r);
+                    }
+                }
+            }
+            for (const string &name : after) {
+                Block &block = *blocks.at(name);
+                auto thread = [&](shared_ptr<Value> &v) {
+                    if (!v) {
+                        return;
+                    }
+                    const string *n = nullptr;
+                    Type type;
+                    if (const auto *a = std::get_if<Argument>(&v->data)) {
+                        n = &a->name;
+                        type = a->type;
+                    } else if (const auto *i =
+                                   std::get_if<shared_ptr<Instruction>>(&v->data)) {
+                        n = &(*i)->name;
+                        type = (*i)->type;
+                    }
+                    if (n == nullptr || !loop_defined.count(*n)) {
+                        return;
+                    }
+                    const string wanted = *n;
+                    v = block.get_value(wanted, type);
+                };
+                for (const auto &instr : block.instrs) {
+                    for (auto &operand : instr->operands) {
+                        thread(operand);
+                    }
+                }
+                std::visit(overloads{
+                               [&](std::monostate &) {},
+                               [&](Terminator::Jump &t) {
+                                   for (auto &a : t.args) {
+                                       thread(a);
+                                   }
+                               },
+                               [&](Terminator::Dispatch &t) {
+                                   thread(t.cond);
+                                   for (auto &target : t.targets) {
+                                       for (auto &a : target.args) {
+                                           thread(a);
+                                       }
+                                   }
+                               },
+                               [&](Terminator::Return &t) { thread(t.value); },
+                               [&](Terminator::ParFor &t) {
+                                   thread(t.start);
+                                   thread(t.end);
+                                   thread(t.stride);
+                               },
+                               [&](Terminator::Yield &) {},
+                               [&](Terminator::Call &t) {
+                                   for (auto &a : t.call.args) {
+                                       thread(a);
+                                   }
+                                   for (auto &a : t.cont.args) {
+                                       thread(a);
+                                   }
+                               },
+                               [&](Terminator::MultiCall &t) {
+                                   for (auto &a : t.call.args) {
+                                       thread(a);
+                                   }
+                                   for (auto &vs : t.varying) {
+                                       for (auto &a : vs) {
+                                           thread(a);
+                                       }
+                                   }
+                                   for (auto &k : t.keys) {
+                                       thread(k);
+                                   }
+                                   for (auto &a : t.cont.args) {
+                                       thread(a);
+                                   }
+                               },
+                           },
+                           block.terminator.data);
+            }
+            // Threading adds arguments to blocks and values to jumps, which
+            // the analysis of the exits below reads.
+            blocks = make_block_map(func);
+        }
+
         // The edges that leave, in a deterministic order.
         vector<Edge> exits;
         for (const Edge &e : loop.exits) {
@@ -265,7 +476,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             if (!tag.empty() && tag[0] == '!') {
                 tag.erase(tag.begin());
             }
-            targets.push_back({block, "!exit." + tag, {}});
+            targets.push_back({block, fresh_argument(func, "!exit." + tag), {}});
             return targets.back();
         };
 
@@ -314,8 +525,8 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             }
             for (size_t j = 0; j < t.slots.size(); j++) {
                 if (t.slots[j].invariant == nullptr) {
-                    t.slots[j].tracker =
-                        "!track." + tag + "." + std::to_string(j);
+                    t.slots[j].tracker = fresh_argument(
+                        func, "!track." + tag + "." + std::to_string(j));
                 }
             }
         }
@@ -330,16 +541,18 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             Type type;
             shared_ptr<Value> seed;
         };
+        const string live_name = fresh_argument(func, "!live");
         vector<Carried> added;
-        added.push_back({"!live", bool_type, bool_constant(true)});
+        added.push_back({live_name, bool_type, bool_constant(true)});
         for (const ExitTarget &t : targets) {
             added.push_back({t.mask, bool_type, bool_constant(false)});
         }
         for (const ExitTarget &t : targets) {
             for (const ExitTarget::Slot &slot : t.slots) {
                 if (!slot.tracker.empty()) {
-                    added.push_back(
-                        {slot.tracker, slot.type, zero_of(slot.type)});
+                    added.push_back({slot.tracker, slot.type,
+                                     zero_of(slot.type, func,
+                                             blocks.at(preheader))});
                 }
             }
         }
@@ -373,7 +586,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             auto value = std::make_shared<Value>(arg);
             entry_test->lookups[c.name] = value;
             result.varying_args.insert({entry_test->name, c.name});
-            if (c.name == "!live") {
+            if (c.name == live_name) {
                 live = value;
             }
         }
@@ -429,7 +642,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // the loop continues as long as any lane is still live.
         auto any = std::make_shared<Instruction>(
             func.get_unique_name(), bool_type, Instruction::Op::Any,
-            vector<shared_ptr<Value>>{entry_test->lookups.at("!live")},
+            vector<shared_ptr<Value>>{entry_test->lookups.at(live_name)},
             entry_test);
         entry_test->instrs.push_back(any);
 
@@ -460,39 +673,38 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             leave = Terminator::Jump{targets.front().block,
                                      arguments_for(targets.front())};
         } else {
-            // An if-cascade, one block per destination, testing that
-            // destination's exit mask. The tests are divergent branches, but
-            // they are outside the loop now and linearization treats them
-            // like any other (Moll & Hack section 5).
-            string next;
-            for (size_t i = targets.size(); i-- > 0;) {
+            // An if-cascade, one test per destination but the last, each
+            // dispatching on that destination's exit mask straight to the
+            // destination or on to the next test; every lane left somewhere,
+            // so the last destination needs no test of its own. The tests
+            // are divergent branches, but they are outside the loop now and
+            // linearization treats them like any other (Moll & Hack section
+            // 5).
+            //
+            // A destination is jumped to from the test itself, with the
+            // values it takes on that edge, rather than through a block of
+            // its own that names them. This loop may sit inside another that
+            // is uniformized after it, and an edge out of here that leaves
+            // that loop too is then one of *its* exits: what the edge carries
+            // is captured in trackers of the outer loop, whereas a block past
+            // the edge that named the values directly would be reading
+            // definitions of this loop's from outside the outer one, where
+            // nothing of the sort is in scope any more.
+            const ExitTarget &last = targets.back();
+            Terminator::Jump onward{last.block, arguments_for(last)};
+            for (size_t i = targets.size() - 1; i-- > 0;) {
                 const ExitTarget &t = targets[i];
-                if (i + 1 == targets.size()) {
-                    // Every lane left somewhere, so the last destination
-                    // needs no test of its own.
-                    auto tail = new_block(func, "!exit_to");
-                    tail->terminator.data =
-                        Terminator::Jump{t.block, arguments_for(t)};
-                    func.blocks.push_back(tail);
-                    next = tail->name;
-                    continue;
-                }
-                // Registered as they are made: a fresh name is picked by
-                // looking at the names already in the function, so two blocks
-                // made before either is added would be given the same one.
+                // Registered as it is made: a fresh name is picked by looking
+                // at the names already in the function.
                 auto test = new_block(func, "!exit_to");
                 func.blocks.push_back(test);
-                auto taken = new_block(func, "!exit_to");
-                func.blocks.push_back(taken);
-
-                taken->terminator.data =
-                    Terminator::Jump{t.block, arguments_for(t)};
                 test->terminator.data = Terminator::Dispatch{
                     entry_test->lookups.at(t.mask),
-                    {Terminator::Jump{next}, Terminator::Jump{taken->name}}};
-                next = test->name;
+                    {std::move(onward),
+                     Terminator::Jump{t.block, arguments_for(t)}}};
+                onward = Terminator::Jump{test->name};
             }
-            leave = Terminator::Jump{next};
+            leave = std::move(onward);
         }
 
         // Target 0 is the false side of a dispatch, target 1 the true side
@@ -568,7 +780,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                                              entry_test->args[k].type));
             }
             for (const Carried &c : added) {
-                if (c.name == "!live") {
+                if (c.name == live_name) {
                     // These lanes are done.
                     out.push_back(bool_constant(false));
                 } else if (c.name == t.mask) {
@@ -613,8 +825,16 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         inside.insert(entry_test->name);
         inside.insert(pure->name);
 
-        result.loops.push_back(
-            {entry_test->name, live, preheader, seed_arg, std::move(inside)});
+        result.loops.push_back({entry_test->name, live, preheader, seed_arg,
+                                std::move(inside), pure->name});
+
+        // A loop inside another is transformed first and the outer one then
+        // sees the result, so what goes wrong at the outer one is only
+        // readable in the graph as it stands between the two.
+        if (std::getenv("BONSAI_DUMP_UNIFORMIZE") != nullptr) {
+            std::cerr << "--- after uniformizing " << header << ":\n";
+            func.dump(std::cerr);
+        }
     }
 }
 

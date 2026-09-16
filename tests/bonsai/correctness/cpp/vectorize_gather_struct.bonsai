@@ -1,0 +1,50 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_gather_struct
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_gather_struct.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_gather_struct.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_gather_struct.o tests/bonsai/correctness/cpp/vectorize_gather_struct.o -o tests/bonsai/correctness/cpp/vectorize_gather_struct, ./tests/bonsai/correctness/cpp/vectorize_gather_struct, rm tests/bonsai/correctness/cpp/vectorize_gather_struct, rm tests/bonsai/correctness/cpp/main_vectorize_gather_struct.o, rm tests/bonsai/correctness/cpp/vectorize_gather_struct.h, rm tests/bonsai/correctness/cpp/vectorize_gather_struct.o
+
+// A struct read out of an array at an index that differs per lane.
+//
+// An element that is an aggregate -- a mesh, a light, a tree's node -- is
+// gathered a field at a time into the struct of gang-wide fields a gang
+// carries it as (see CodeGen_LLVM::gather_elements): a scalar field is one
+// gather, a short vector one per component, a nested struct field by field.
+// The fields here are of unlike widths and one of them is a vector, so a
+// gather at the wrong offset or stride gives a different number. Every lane
+// gathers a different element, some lanes the same one, and each must match
+// the scalar read. A gather in a branch some lanes skip is masked, and the
+// lanes that skip it hold an index past the end of the array on purpose.
+import stdlib/numerics;
+
+element Vertex {
+    p : vec3f;
+    w : f32;
+    id : i32;
+    flag : bool;
+}
+
+func weigh(v : Vertex) -> f32 {
+    return v.p.x * v.w + cast[[f32]](v.id) + v.p.z * 0.5 +
+           select(v.flag, 100.0, 0.0);
+}
+
+func pick(verts : array[Vertex, 16], i : i32) -> f32 {
+    if i < 16 {
+        return weigh(verts[i]);
+    }
+    return -1.0;
+}
+
+func [[export]] pick_one(verts : array[Vertex, 16], i : i32) -> f32 {
+    return pick(verts, i);
+}
+
+func [[export]] pick_all(verts : array[Vertex, 16], idx : array[i32, 8],
+                         out : mut array[f32, 8]) {
+    parfor l in 0:8 {
+        out[l] = pick(verts, idx[l]);
+    }
+    return;
+}
+
+schedule {
+    pick_all.vectorize(l);
+}

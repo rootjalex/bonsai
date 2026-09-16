@@ -15,6 +15,7 @@ struct Visitor {
     virtual void visit(const Bool_t *);
     virtual void visit(const String_t *);
     virtual void visit(const Ptr_t *);
+    virtual void visit(const ElementRef_t *);
     virtual void visit(const Ref_t *);
     virtual void visit(const Vector_t *);
     virtual void visit(const Struct_t *);
@@ -50,6 +51,7 @@ struct Visitor {
     virtual void visit(const Broadcast *);
     virtual void visit(const VectorReduce *);
     virtual void visit(const VectorShuffle *);
+    virtual void visit(const Shuffle *);
     virtual void visit(const Ramp *);
     virtual void visit(const Extract *);
     virtual void visit(const Build *);
@@ -67,6 +69,7 @@ struct Visitor {
     virtual void visit(const Call *);
     virtual void visit(const Instantiate *);
     virtual void visit(const PtrTo *);
+    virtual void visit(const RefTo *);
     virtual void visit(const Deref *);
     virtual void visit(const AtomicAdd *);
     // Stmts
@@ -76,6 +79,7 @@ struct Visitor {
     virtual void visit(const Return *);
     virtual void visit(const LetStmt *);
     virtual void visit(const IfElse *);
+    virtual void visit(const SwitchStmt *);
     virtual void visit(const DoWhile *);
     virtual void visit(const While *);
     virtual void visit(const Sequence *);

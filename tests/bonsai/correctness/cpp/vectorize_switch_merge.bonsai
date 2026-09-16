@@ -1,0 +1,58 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_switch_merge
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_switch_merge.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_switch_merge.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_switch_merge.o tests/bonsai/correctness/cpp/vectorize_switch_merge.o -o tests/bonsai/correctness/cpp/vectorize_switch_merge, ./tests/bonsai/correctness/cpp/vectorize_switch_merge, rm tests/bonsai/correctness/cpp/vectorize_switch_merge, rm tests/bonsai/correctness/cpp/main_vectorize_switch_merge.o, rm tests/bonsai/correctness/cpp/vectorize_switch_merge.h, rm tests/bonsai/correctness/cpp/vectorize_switch_merge.o
+
+// A match whose arms fall out of it into what follows, traced for one value
+// and for a gang whose lanes take every arm.
+//
+// A match is a switch on the tag (see Lower/ADTs.cpp): one N-way dispatch in
+// the SSA form, which a gang with lanes in different arms runs as masked
+// arms -- lane by lane, the tag against each arm's value (see SSA/Linearize.cpp)
+// -- blended where the arms meet. The arms are of the three kinds the merge
+// has to get right: one that falls through with a value for what follows,
+// one that returns and so never reaches the merge, and one with nothing left
+// in it once its dead statement is eliminated. Lane i builds variant i % 3 of
+// its input, and each lane's answer is compared with the same value weighed
+// alone.
+import stdlib/numerics;
+
+element Blob =
+    | Whole(x : f32)
+    | Split(lo : i32, hi : i32)
+    | Wide(v : vec3f, neg : bool);
+
+func make_blob(v : f32, i : i32) -> Blob {
+    if (i % 3 == 0) {
+        return Whole(v);
+    }
+    if (i % 3 == 1) {
+        return Split(i, i * 10);
+    }
+    return Wide(vec3f{v, 2.0 * v, 3.0 * v}, v < 0.0);
+}
+
+func weigh(b : Blob, k : f32) -> f32 {
+    acc : mut = k;
+    match b {
+        Whole(x) => { acc = acc + x * 2.0; }
+        Split(lo, hi) => return cast[[f32]](lo + hi);
+        Wide(v, neg) => { unused = v.x; }
+    }
+    return acc * 3.0;
+}
+
+func [[export]] weigh_one(v : f32, i : i32) -> f32 {
+    b : Blob = make_blob(v, i);
+    return weigh(b, v);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        b : Blob = make_blob(a[i], cast[[i32]](i));
+        out[i] = weigh(b, a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

@@ -282,23 +282,23 @@ refract_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define float @size(i64 noundef %s, ptr nocapture noundef readonly %Shape_Sph_pool, ptr nocapture noundef readonly %Shape_Tri_pool) local_unnamed_addr #2 {
 size_entry:
-  %0 = icmp ult i64 %s, 72057594037927936
-  br i1 %0, label %then_bb, label %next_bb
+  %cond = icmp ult i64 %s, 72057594037927936
+  br i1 %cond, label %case0_bb, label %default_bb
 
-common.ret:                                       ; preds = %next_bb, %then_bb
-  %common.ret.op = phi float [ %"@3.radius", %then_bb ], [ %3, %next_bb ]
+common.ret:                                       ; preds = %case0_bb, %default_bb
+  %common.ret.op = phi float [ %1, %default_bb ], [ %"@2.radius", %case0_bb ]
   ret float %common.ret.op
 
-then_bb:                                          ; preds = %size_entry
-  %1 = getelementptr inbounds %struct.Sph, ptr %Shape_Sph_pool, i64 %s, i32 1
-  %"@3.radius" = load float, ptr %1, align 4
+default_bb:                                       ; preds = %size_entry
+  %0 = and i64 %s, 72057594037927935
+  %extract_ptr1 = getelementptr inbounds %struct.Tri, ptr %Shape_Tri_pool, i64 %0
+  %extract2.unpack = load <3 x float>, ptr %extract_ptr1, align 16
+  %1 = extractelement <3 x float> %extract2.unpack, i64 0
   br label %common.ret
 
-next_bb:                                          ; preds = %size_entry
-  %2 = and i64 %s, 72057594037927935
-  %extract_ptr1 = getelementptr inbounds %struct.Tri, ptr %Shape_Tri_pool, i64 %2
-  %extract2.unpack = load <3 x float>, ptr %extract_ptr1, align 16
-  %3 = extractelement <3 x float> %extract2.unpack, i64 0
+case0_bb:                                         ; preds = %size_entry
+  %2 = getelementptr inbounds %struct.Sph, ptr %Shape_Sph_pool, i64 %s, i32 1
+  %"@2.radius" = load float, ptr %2, align 4
   br label %common.ret
 }
 

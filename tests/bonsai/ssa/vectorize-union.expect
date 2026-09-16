@@ -1,0 +1,159 @@
+type Blob = struct Blob{ tag : u8; payload : union Blob_payload{ Whole : struct Whole{ x : f32 }; Split : struct Split{ lo : i32; hi : i32 }; Wide : struct Wide{ v : f32x3; neg : bool } } }
+type Float = f32
+type Half = f16
+type Split = struct Split{ lo : i32; hi : i32 }
+type Whole = struct Whole{ x : f32 }
+type Wide = struct Wide{ v : f32x3; neg : bool }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func make_blob(v : f32, i : i32) -> Blob {
+  let _t18 = i % 3 in
+  let @1 = _t18 == 0 in
+  if (@1) {
+    let @2 = build<Whole>(v) in
+    let @3 = Blob_payload{.Whole = @2} in
+    let @4 = build<Blob>(0u, @3) in
+    return @4
+  } else {
+    let @5 = _t18 == 1 in
+    if (@5) {
+      let @6 = i * 10 in
+      let @7 = build<Split>(i, @6) in
+      let @8 = Blob_payload{.Split = @7} in
+      let @9 = build<Blob>(1u, @8) in
+      return @9
+    } else {
+      let @10 = 2f * v in
+      let @11 = 3f * v in
+      let @12 = build<f32x3>(v, @10, @11) in
+      let @13 = v < 0f in
+      let @14 = build<Wide>(@12, @13) in
+      let @15 = Blob_payload{.Wide = @14} in
+      let @16 = build<Blob>(2u, @15) in
+      return @16
+    }
+  }
+}
+
+func weigh(b : Blob) -> f32 {
+  let @0 = b.tag in
+  switch (@0) {
+  case 0: {
+    let @1 = b.payload in
+    let @2 = @1.Whole in
+    let x = @2.x in
+    let @4 = x * 2f in
+    return @4
+  } break;
+  case 1: {
+    let @5 = b.payload in
+    let _t102 = @5.Split in
+    let lo = _t102.lo in
+    let hi = _t102.hi in
+    let @9 = lo + hi in
+    let @10 = cast<f32>(@9) in
+    return @10
+  } break;
+  default: {
+    let @11 = b.payload in
+    let _t104 = @11.Wide in
+    let _t33 = _t104.v in
+    let neg = _t104.neg in
+    let @15 = _t33[0u] in
+    let @16 = _t33[1u] in
+    let @17 = @15 + @16 in
+    let @18 = _t33[2u] in
+    let _t40 = @17 + @18 in
+    let @20 = 0f - _t40 in
+    let @21 = select(neg, @20, _t40) in
+    return @21
+  }
+  }
+}
+
+func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
+  let v$i6 = a[ramp(0, 1, 8)] in
+  let @61 = i32x8(3) in
+  let _t18$i6 = ramp(0, 1, 8) % @61 in
+  let @62 = i32x8(0) in
+  let @2 = _t18$i6 == @62 in
+  let @63 = boolx8(false) in
+  let @64 = boolx8(true) in
+  let @46 = select(@2, @63, @64) in
+  let @3 = build<Whole$v8>(v$i6) in
+  let @4 = Blob_payload$v8{.Whole = @3} in
+  let @65 = u8x8(0u) in
+  let @5 = build<Blob$v8>(@65, @4) in
+  let @66 = i32x8(1) in
+  let @6 = _t18$i6 == @66 in
+  let @67 = boolx8(false) in
+  let @68 = boolx8(true) in
+  let @47 = select(@6, @67, @68) in
+  let @48 = @46 && @47 in
+  let @49 = @46 && @6 in
+  let @69 = i32x8(10) in
+  let @7 = ramp(0, 1, 8) * @69 in
+  let @8 = build<Split$v8>(ramp(0, 1, 8), @7) in
+  let @9 = Blob_payload$v8{.Split = @8} in
+  let @70 = u8x8(1u) in
+  let @10 = build<Blob$v8>(@70, @9) in
+  let @71 = f32x8(2f) in
+  let @11 = @71 * v$i6 in
+  let @72 = f32x8(3f) in
+  let @12 = @72 * v$i6 in
+  let @73 = f32x8(0f) in
+  let @14 = v$i6 < @73 in
+  let @60 = build<f32x3$v8>(v$i6, @11, @12) in
+  let @15 = build<Wide$v8>(@60, @14) in
+  let @16 = Blob_payload$v8{.Wide = @15} in
+  let @74 = u8x8(2u) in
+  let @17 = build<Blob$v8>(@74, @16) in
+  let @55 = select(@48, @17, @10) in
+  let @56 = select(@46, @55, @5) in
+  let @19 = @56.tag in
+  let @75 = u8x8(0u) in
+  let @50 = @19 == @75 in
+  let @76 = u8x8(1u) in
+  let @51 = @19 == @76 in
+  let @77 = u8x8(0u) in
+  let @52 = @19 != @77 in
+  let @78 = u8x8(1u) in
+  let @53 = @19 != @78 in
+  let @54 = @52 && @53 in
+  let @33 = @56.payload in
+  let _t70 = @33.Wide in
+  let _t33$i7 = _t70.v in
+  let neg$i7 = _t70.neg in
+  let @37 = _t33$i7.!0 in
+  let @38 = _t33$i7.!1 in
+  let @39 = @37 + @38 in
+  let @40 = _t33$i7.!2 in
+  let _t40$i7 = @39 + @40 in
+  let @79 = f32x8(0f) in
+  let @42 = @79 - _t40$i7 in
+  let @43 = select(neg$i7, @42, _t40$i7) in
+  let @26 = @56.payload in
+  let _t68 = @26.Split in
+  let lo$i7 = _t68.lo in
+  let hi$i7 = _t68.hi in
+  let @30 = lo$i7 + hi$i7 in
+  let @31 = cast<f32x8>(@30) in
+  let @21 = @56.payload in
+  let @22 = @21.Whole in
+  let x$i7 = @22.x in
+  let @80 = f32x8(2f) in
+  let @24 = x$i7 * @80 in
+  let @57 = select(@54, @43, @24) in
+  let @58 = select(@51, @31, @57) in
+  out[ramp(0, 1, 8)] = @58
+  return
+}
+
+
+schedule host {
+    weigh_all.vectorize(i)
+
+}
