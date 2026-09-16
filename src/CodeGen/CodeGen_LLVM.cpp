@@ -117,18 +117,26 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         target_cpu = llvm::sys::getHostCPUName().str();
         llvm::SubtargetFeatures features;
         for (const auto &feature : llvm::sys::getHostCPUFeatures()) {
-            // AVX-512 is turned off even where the host has it. A gang is eight
-            // lanes -- a 256-bit vector -- and nothing here is wider, so 512-bit
-            // registers buy the vectorized code nothing. Worse, with them on
-            // LLVM lowered a memset of a widened local to 512-bit stores while
-            // realigning the enclosing function's stack only to 256, and an
-            // aligned store of one to the under-aligned slot faulted (the parfor
-            // kernel in CodeGen_LLVM_SSA.cpp). Capping the machine at 256 keeps
-            // every spill and initialization inside the alignment the stack has.
-            const bool avx512 = feature.first().starts_with("avx512");
-            features.AddFeature(feature.first(), feature.second && !avx512);
+            // Every feature the host has, AVX-512 included. A gang is eight
+            // lanes -- a 256-bit vector -- so 512-bit *registers* buy the
+            // vectorized code nothing, and with them on LLVM once lowered a
+            // memset of a widened local to 512-bit stores into a slot the
+            // stack had aligned only to 256, which faulted. But the AVX-512
+            // *feature* is worth having for what else it brings: LLVM keeps a
+            // masked gather or scatter as one instruction only on a machine
+            // with AVX-512 or Intel's fast-gather tuning, and scalarizes it
+            // everywhere else -- eight extracts, eight loads, eight inserts --
+            // which on an AMD host with the feature stripped was the whole of
+            // a gang's memory traffic. The registers are kept at 256 bits by
+            // `prefer-vector-width` and `min-legal-vector-width` on every
+            // function instead (see optimize_module), which is what a C
+            // compiler's -mprefer-vector-width=256 does: an eight-lane gather
+            // of pointers then goes as two 256-bit halves rather than one
+            // 512-bit register, and measured the same.
+            features.AddFeature(feature.first(), feature.second);
         }
         target_features = features.getString();
+        follows_host = true;
     }
 
     std::string error_string;
@@ -681,6 +689,19 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     }
 
     for (auto &function : *module) {
+        // 256-bit registers on a machine that has 512-bit ones: a gang is
+        // eight lanes wide, and the wider registers only ever showed up as
+        // 512-bit spills and initializations the stack was not aligned for
+        // (see the host features above). Both attributes, as clang sets
+        // them: without `min-legal-vector-width` LLVM takes every width to be
+        // required and still keeps an eight-lane pointer vector in a 512-bit
+        // register. Only when following the host, so that a named --mcpu,
+        // and the golden IR diffed under one, keeps its attributes as they
+        // were.
+        if (follows_host) {
+            function.addFnAttr("prefer-vector-width", "256");
+            function.addFnAttr("min-legal-vector-width", "0");
+        }
         if (false) { // get_target().has_feature(Target::ASAN)
             function.addFnAttr(llvm::Attribute::SanitizeAddress);
         }

@@ -382,6 +382,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // functions the relooper still hands over, so their allocas -- and the
     // golden IR that pins them -- are unchanged.
     bool lowering_from_ssa = false;
+
+    // Whether the target machine is the host's, features and all, rather
+    // than one `--mcpu` or `--triple` named. Following the host is what turns
+    // on `prefer-vector-width=256` (see optimize_module).
+    bool follows_host = false;
     // Used to compile `continue`
     std::vector<llvm::BasicBlock *> latch_blocks;
     // TODO(ajr): will need this for `break` statements.

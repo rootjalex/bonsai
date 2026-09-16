@@ -1,7 +1,9 @@
-//! flags: -p ssa -b llvm
+//! flags: -p ssa -b llvm --triple x86_64-unknown-linux-gnu --mcpu generic
 
 // A mutable local of a non-vector, non-array type, compiled through the SSA
-// pipeline.
+// pipeline. Pinned to a generic machine, as the backends/llvm goldens are:
+// following the host would put the host's CPU, features and vector-width
+// attributes into the IR this diffs.
 //
 // The SSA builder splits a declaration's initializer into a separate Store
 // (see the Allocate visitor in SSA/Convert.cpp), so every allocation reaches
