@@ -247,10 +247,6 @@ bool has_lanes(const Type &type, uint32_t lanes) {
     if (type.is_vector()) {
         return type.lanes() == lanes;
     }
-    // One union per lane (see ir::widen): a slot per lane, as a vector has.
-    if (union_behind(type) != nullptr && type.is<Struct_t>()) {
-        return type.as<Struct_t>()->fields.size() == lanes;
-    }
     if (const Struct_t *s = type.as<Struct_t>()) {
         return std::all_of(s->fields.begin(), s->fields.end(),
                            [&](const TypedVar &f) {
@@ -272,9 +268,6 @@ bool mentions_lanes(const Type &type, uint32_t lanes) {
         return type.lanes() == lanes;
     }
     if (const Struct_t *s = type.as<Struct_t>()) {
-        if (union_behind(type) != nullptr) {
-            return s->fields.size() == lanes;
-        }
         return std::any_of(s->fields.begin(), s->fields.end(),
                            [&](const TypedVar &f) {
                                return mentions_lanes(f.type, lanes);

@@ -502,14 +502,37 @@ shared_ptr<Value> broadcast(Function &func, const shared_ptr<Block> &block,
         sink.push_back(make);
         return std::make_shared<Value>(make);
     }
-    // A uniform union is the same union in every lane's slot (see widen()):
-    // nothing to read out, since which member it holds is not known here and
-    // does not need to be.
+    // A uniform union meets the gang a word at a time (see widen()): its
+    // bytes read as 32-bit words, each splatted. Which member it holds is
+    // not known here and does not need to be.
     if (type.is<Union_t>()) {
-        vector<shared_ptr<Value>> copies(lanes, value);
+        const Type wide = widen(type, lanes);
+        const Struct_t *words_t = wide.as<Struct_t>();
+        const uint32_t words = uint32_t(words_t->fields.size());
+        const Type word = UInt_t::make(32);
+        auto as_words = std::make_shared<Instruction>(
+            func.get_unique_name(),
+            Vector_t::make(word, words, /*packed=*/true),
+            Instruction::Op::Reinterpret, vector<shared_ptr<Value>>{value},
+            block);
+        sink.push_back(as_words);
+        vector<shared_ptr<Value>> splats;
+        splats.reserve(words);
+        for (uint32_t j = 0; j < words; j++) {
+            auto idx = std::make_shared<Value>(
+                Constant{UInt_t::make(32), uint64_t(j)});
+            auto read = std::make_shared<Instruction>(
+                func.get_unique_name(), word, Instruction::Op::ExtractIdx,
+                vector<shared_ptr<Value>>{std::make_shared<Value>(as_words),
+                                          idx},
+                block);
+            sink.push_back(read);
+            splats.push_back(broadcast(
+                func, block, std::make_shared<Value>(read), lanes, sink));
+        }
         auto make = std::make_shared<Instruction>(
-            func.get_unique_name(), widen(type, lanes),
-            Instruction::Op::MakeStruct, std::move(copies), block);
+            func.get_unique_name(), wide, Instruction::Op::MakeStruct,
+            std::move(splats), block);
         sink.push_back(make);
         return std::make_shared<Value>(make);
     }

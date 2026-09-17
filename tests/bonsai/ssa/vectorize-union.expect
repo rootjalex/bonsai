@@ -93,11 +93,28 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @60 = build<Whole>(0f) in
   let @61 = Blob_payload{.Whole = @60} in
   let @62 = build<Blob>(0u, @61) in
-  let @104 = @62.tag in
-  let @105 = u8x8(@104) in
-  let @106 = @62.payload in
-  let @107 = build<Blob_payload$v8>(@106, @106, @106, @106, @106, @106, @106, @106) in
-  let @108 = build<Blob$v8>(@105, @107) in
+  let @121 = @62.tag in
+  let @122 = u8x8(@121) in
+  let @123 = @62.payload in
+  let @124 = reinterpret_cast<[[packed]] u32x8>(@123) in
+  let @125 = @124[0u] in
+  let @126 = u32x8(@125) in
+  let @127 = @124[1u] in
+  let @128 = u32x8(@127) in
+  let @129 = @124[2u] in
+  let @130 = u32x8(@129) in
+  let @131 = @124[3u] in
+  let @132 = u32x8(@131) in
+  let @133 = @124[4u] in
+  let @134 = u32x8(@133) in
+  let @135 = @124[5u] in
+  let @136 = u32x8(@135) in
+  let @137 = @124[6u] in
+  let @138 = u32x8(@137) in
+  let @139 = @124[7u] in
+  let @140 = u32x8(@139) in
+  let @141 = build<Blob_payload$v8>(@126, @128, @130, @132, @134, @136, @138, @140) in
+  let @142 = build<Blob$v8>(@122, @141) in
   if (@59) {
     let @3 = build<Whole$v8>(v$i6) in
     let @4 = Blob_payload$v8{.Whole = @3} in
@@ -105,7 +122,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
     let @5 = build<Blob$v8>(@80, @4) in
     @5!skip = @5
   } else {
-    @5!skip = @108
+    @5!skip = @142
   }
   let @81 = i32x8(1) in
   let @6 = _t18$i6 == @81 in
@@ -118,11 +135,28 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @64 = build<Whole>(0f) in
   let @65 = Blob_payload{.Whole = @64} in
   let @66 = build<Blob>(0u, @65) in
-  let @109 = @66.tag in
-  let @110 = u8x8(@109) in
-  let @111 = @66.payload in
-  let @112 = build<Blob_payload$v8>(@111, @111, @111, @111, @111, @111, @111, @111) in
-  let @113 = build<Blob$v8>(@110, @112) in
+  let @143 = @66.tag in
+  let @144 = u8x8(@143) in
+  let @145 = @66.payload in
+  let @146 = reinterpret_cast<[[packed]] u32x8>(@145) in
+  let @147 = @146[0u] in
+  let @148 = u32x8(@147) in
+  let @149 = @146[1u] in
+  let @150 = u32x8(@149) in
+  let @151 = @146[2u] in
+  let @152 = u32x8(@151) in
+  let @153 = @146[3u] in
+  let @154 = u32x8(@153) in
+  let @155 = @146[4u] in
+  let @156 = u32x8(@155) in
+  let @157 = @146[5u] in
+  let @158 = u32x8(@157) in
+  let @159 = @146[6u] in
+  let @160 = u32x8(@159) in
+  let @161 = @146[7u] in
+  let @162 = u32x8(@161) in
+  let @163 = build<Blob_payload$v8>(@148, @150, @152, @154, @156, @158, @160, @162) in
+  let @164 = build<Blob$v8>(@144, @163) in
   if (@63) {
     let @84 = i32x8(10) in
     let @7 = ramp(0, 1, 8) * @84 in
@@ -132,7 +166,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
     let @10 = build<Blob$v8>(@85, @9) in
     @10!skip = @10
   } else {
-    @10!skip = @113
+    @10!skip = @164
   }
   let @67 = reduce<any>(@48) in
   let @68 = build<Whole>(0f) in
@@ -141,8 +175,25 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @99 = @70.tag in
   let @100 = u8x8(@99) in
   let @101 = @70.payload in
-  let @102 = build<Blob_payload$v8>(@101, @101, @101, @101, @101, @101, @101, @101) in
-  let @103 = build<Blob$v8>(@100, @102) in
+  let @102 = reinterpret_cast<[[packed]] u32x8>(@101) in
+  let @103 = @102[0u] in
+  let @104 = u32x8(@103) in
+  let @105 = @102[1u] in
+  let @106 = u32x8(@105) in
+  let @107 = @102[2u] in
+  let @108 = u32x8(@107) in
+  let @109 = @102[3u] in
+  let @110 = u32x8(@109) in
+  let @111 = @102[4u] in
+  let @112 = u32x8(@111) in
+  let @113 = @102[5u] in
+  let @114 = u32x8(@113) in
+  let @115 = @102[6u] in
+  let @116 = u32x8(@115) in
+  let @117 = @102[7u] in
+  let @118 = u32x8(@117) in
+  let @119 = build<Blob_payload$v8>(@104, @106, @108, @110, @112, @114, @116, @118) in
+  let @120 = build<Blob$v8>(@100, @119) in
   if (@67) {
     let @86 = f32x8(2f) in
     let @11 = @86 * v$i6 in
@@ -157,7 +208,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
     let @17 = build<Blob$v8>(@89, @16) in
     @17!skip = @17
   } else {
-    @17!skip = @103
+    @17!skip = @120
   }
   let @55 = select(@48, (*@17!skip), (*@10!skip)) in
   let @56 = select(@46, @55, (*@5!skip)) in

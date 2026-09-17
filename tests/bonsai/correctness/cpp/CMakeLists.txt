@@ -44,6 +44,7 @@ add_bonsai_tests(
     vectorize_tree_traversal_sorted.bonsai
     vectorize_uniform_branch.bonsai
     vectorize_union.bonsai
+    vectorize_union_words.bonsai
     vectorize_soa.bonsai
     vectorize_visect.bonsai
     vectorize_scale.bonsai

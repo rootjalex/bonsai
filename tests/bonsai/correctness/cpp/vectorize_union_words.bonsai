@@ -1,0 +1,57 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_union_words
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_union_words.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_union_words.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_union_words.o tests/bonsai/correctness/cpp/vectorize_union_words.o -o tests/bonsai/correctness/cpp/vectorize_union_words, ./tests/bonsai/correctness/cpp/vectorize_union_words, rm tests/bonsai/correctness/cpp/vectorize_union_words, rm tests/bonsai/correctness/cpp/main_vectorize_union_words.o, rm tests/bonsai/correctness/cpp/vectorize_union_words.h, rm tests/bonsai/correctness/cpp/vectorize_union_words.o
+
+// A variant whose fields are not one word each, built and read per lane.
+//
+// A vectorized union is its 32-bit words, one gang vector each (see
+// ir::widen). A field a word wide is a bitcast of its word; the fields here
+// are the other kinds: a byte, a bool and a sixteen-bit integer sharing one
+// word, which are shifted into and out of it, and a 64-bit integer and a
+// double spanning two, which are split and rejoined. Every lane picks its
+// variant by its index, so every gang holds all three, and each lane's answer
+// is compared with the same value taken through the scalar code.
+import stdlib/numerics;
+
+element Word =
+    | Small(a : u8, b : bool, c : u16)
+    | Big(q : i64)
+    | Dbl(d : f64, e : u32);
+
+func make_word(i : i32) -> Word {
+    if (i % 3 == 0) {
+        return Small(cast[[u8]](i + 200), i % 2 == 0, cast[[u16]](i * 1000 + 7));
+    }
+    if (i % 3 == 1) {
+        // Past 32 bits: ten billion times the lane, and three.
+        return Big(cast[[i64]](i) * cast[[i64]](100000) * cast[[i64]](100000) +
+                   cast[[i64]](3));
+    }
+    return Dbl(cast[[f64]](i) * 0.5 + 0.25, cast[[u32]](i * 3));
+}
+
+func weigh(w : Word) -> f64 {
+    match w {
+        Small(a, b, c) => return cast[[f64]](a) +
+                                 cast[[f64]](select(b, 0.5, 0.0)) +
+                                 cast[[f64]](c) * 100.0;
+        Big(q) => return cast[[f64]](q);
+        Dbl(d, e) => return d * 2.0 + cast[[f64]](e);
+    }
+}
+
+func [[export]] weigh_one(i : i32) -> f64 {
+    w : Word = make_word(i);
+    return weigh(w);
+}
+
+func [[export]] weigh_all(out : mut array[f64, 8]) {
+    parfor i in 0:8 {
+        w : Word = make_word(cast[[i32]](i));
+        out[i] = weigh(w);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

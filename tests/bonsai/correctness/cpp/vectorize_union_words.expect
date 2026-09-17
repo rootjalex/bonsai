@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_union_words.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_union_words.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_union_words.o tests/bonsai/correctness/cpp/vectorize_union_words.o -o tests/bonsai/correctness/cpp/vectorize_union_words
+[test] ./tests/bonsai/correctness/cpp/vectorize_union_words
+900.50 10000000003.00 8.50 300903.00 40000000003.00 20.50 600906.50 70000000003.00
+same as scalar

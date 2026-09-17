@@ -285,30 +285,33 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *as_vector(llvm::Value *v);
 
     //===------------------------------------------------------------------===//
-    // Unions, one per lane
+    // Unions, word by word
     //===------------------------------------------------------------------===//
     //
-    // A vectorized union is a struct of one scalar union per lane (see
-    // ir::widen). Reading one member of every lane at once, and making every
-    // lane's union from one member value per lane, are transposes between
-    // that array of structures and the structure of gang-wide vectors the
-    // member is otherwise carried as. The union is taken as a flat vector of
-    // units -- the largest byte width that divides the union's size and every
-    // field's size and offset -- and the transpose is a deinterleave of that
-    // vector by the units per union (a read) or an interleave of the fields'
-    // unit vectors into it (a construction), so that it is the shuffle
-    // network above and not a scalar move per field per lane.
+    // A vectorized union is the union's 32-bit words, each one gang vector
+    // (see ir::widen). A member's field lies at the same offset in every
+    // lane, so reading a member of every lane at once is reading its fields
+    // out of the words -- a bitcast for a word-sized field, a shift for a
+    // narrower one, two words for a wider -- and making every lane's union
+    // from one member value per lane is putting them in. Nothing is
+    // transposed; the shuffle network above is for the per-lane
+    // reinterpretation of one aggregate as another (see the Cast visitor),
+    // which the same unit-wise helpers do at whatever unit divides both.
 
     // `v`, whose storage is the size of `as`, read as `as`: through a stack
     // slot, which is how a value of one aggregate type is read at another.
     llvm::Value *reinterpret_via_memory(llvm::Value *v, llvm::Type *as);
-    // The unit the per-lane transposes of member `member` of `union_t` work
-    // in, in bytes.
+    // The unit the per-lane reinterpretation of an aggregate works in, in
+    // bytes: the largest that divides every field's size and offset.
     uint64_t union_unit(const ir::Type &member, uint64_t offset,
                         uint64_t so_far);
     // Every lane's `member` value, held gang-wide as `wide` (of type
-    // ir::widen(member)), spread into the unit vectors of the union at byte
-    // offset `offset`: `slots[u]` is the vector of every lane's unit `u`.
+    // ir::widen(member)), spread into unit vectors at byte offset `offset`:
+    // `slots[u]` is the vector of every lane's unit `u`. A field narrower than
+    // a unit is shifted into its place in the unit it shares. With a unit of
+    // four this is how a member goes into a widened union's words (see
+    // ir::widen), and no transpose is involved: a field is a word, or a part
+    // of one, or two.
     void scatter_units(const ir::Type &member, llvm::Value *wide,
                        uint64_t offset, uint64_t unit,
                        std::vector<llvm::Value *> &slots);
@@ -317,6 +320,10 @@ struct CodeGen_LLVM : public ir::Visitor {
                               uint64_t offset, uint64_t unit,
                               const std::vector<llvm::Value *> &slots,
                               uint32_t lanes);
+    // That the IR's count of a widened union's words (ir::layout_bytes)
+    // agrees with this target's layout of the union.
+    void check_union_words(const ir::Union_t &as_union,
+                           const ir::Struct_t &words);
 
     // One value of `element` per lane, at the addresses in `ptrs` (one per
     // lane), gathered into the gang-wide form `wide_t` (ir::widen(element)):

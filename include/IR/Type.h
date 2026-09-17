@@ -375,27 +375,42 @@ std::string component_field(uint32_t k);
 // crosses a block boundary or a return is carried whole, and this is what it
 // is carried as.
 //
-// A union is widened as a vector of the union: one scalar union per lane,
-// each lane's bytes kept separate exactly as the scalar code keeps them, so
-// that the gang's footprint is the lane count times the largest member and a
-// lane may hold whichever member it likes regardless of its neighbours. As a
-// vector of aggregates is not a type either backend has, the vector is spelled
-// as a struct with one field per lane: `_ref0_payload$v8 = { !0: _ref0_payload,
-// .., !7: _ref0_payload }` (see union_behind). Reading a member of every lane
-// at once, or making every lane's union from a member value per lane, is then
-// an array-of-structures to structure-of-arrays transpose, which the backends
-// lower as an interleave (see ir::Shuffle). The alternative, one gang-wide slot
-// per member, would make those reads single vector operations but cost the sum
-// of the members' sizes per gang rather than the largest, and was rejected for
-// it.
+// A union is widened word by word: its storage is a row of 32-bit words, and
+// each word is widened across the gang, so `Blob_payload$v8 = { !w0: u32x8,
+// .., !w4: u32x8 }` for a twenty-byte union. Every member's fields lie at the
+// same offsets in every lane, so a field of any member is a word of this (or
+// a part of one, for a `bool` or a `u16`, or two, for an `i64`), whichever
+// member a lane holds: reading a member for all lanes is a reinterpretation of
+// its words, with a shift for a field narrower than a word, and building one
+// from a member value per lane is the reverse. Nothing is transposed, and a
+// blend of two unions at a join is a select per word. The footprint is still
+// the lane count times the largest member, rounded up to a word, which is the
+// reason for not widening a union as one gang-wide slot per member instead: that
+// would cost the sum of the members' sizes per gang. The lanes holding some
+// other member read as garbage in a member's fields, which the masks and blends
+// downstream discard, as they discard every result of a lane that is off.
+// How many words a union is comes from layout_bytes below.
 Type widen(const Type &type, uint32_t lanes);
 
 // The inverse of widen: the type a lane holds one of, from its gang-wide
 // form. Read off the shape widen() makes -- a vector as wide as the gang, a
 // struct named with the `$v<lanes>` suffix, a struct of one gang vector per
-// component (named for the short vector, with its packedness), a struct of one
-// union per lane -- so it is defined only on those.
+// component (named for the short vector, with its packedness), the words of a
+// union (recorded by widen, since the words alone do not say) -- so it is
+// defined only on those.
 Type narrow(const Type &type, uint32_t lanes);
+
+// The bytes a value of `type` occupies in memory, and its alignment there:
+// the target's layout, stated here for the types that make up an ADT's
+// payload -- a scalar its width, a bool a byte, a vector its power-of-two
+// storage unless packed, a struct C's layout, a union its largest member
+// rounded to the widest alignment. The IR has no target to ask, and the width
+// of a widened union has to be a type before any target is in sight; so this
+// duplicates a rule the targets own, as Type::bytes does for vectors, and
+// CodeGen_LLVM checks it against its data layout wherever it lowers a widened
+// union.
+uint64_t layout_bytes(const Type &type);
+uint64_t layout_align(const Type &type);
 
 // The lane count of a gang-wide aggregate -- a struct widen() built, which
 // its name says -- or nothing for any other type. A vector alone does not
@@ -403,7 +418,7 @@ Type narrow(const Type &type, uint32_t lanes);
 std::optional<uint32_t> widened_lanes(const Type &type);
 
 // The union a value of `type` holds one of per lane: `type` itself when it is
-// a union, or the union every field of `type` is when `type` is the struct a
+// a union, or the union `type` is the words of when `type` is the struct a
 // vectorized union widens to (see widen). Nothing otherwise. What is asked
 // about a union's members (which member a name is, what type it has) is the
 // same for the widened form, and this is what lets the two be asked alike.

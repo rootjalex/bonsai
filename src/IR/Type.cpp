@@ -1,6 +1,7 @@
 #include "IR/Type.h"
 
 #include <algorithm>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -538,6 +539,100 @@ Type Union_t::member(const std::string &name) const {
 
 std::string component_field(uint32_t k) { return "!" + std::to_string(k); }
 
+uint64_t layout_align(const Type &type) {
+    if (type.is<Bool_t>()) {
+        return 1;
+    }
+    if (type.is<Int_t, UInt_t, Float_t>()) {
+        return type.bytes();
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        // Packed storage is an array of the element; a vector proper is
+        // aligned to its whole (power-of-two) size, as the targets align it.
+        return v->packed ? layout_align(v->etype) : type.bytes();
+    }
+    if (type.is<Ptr_t>() || type.is_reference()) {
+        return 8;
+    }
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        if (s->is_packed()) {
+            return 1;
+        }
+        uint64_t align = 1;
+        for (const TypedVar &f : s->fields) {
+            if (!f.type.is<Ref_t>()) {
+                align = std::max(align, layout_align(f.type));
+            }
+        }
+        return align;
+    }
+    if (const Union_t *u = type.as<Union_t>()) {
+        uint64_t align = 1;
+        for (const TypedVar &m : u->members) {
+            align = std::max(align, layout_align(m.type));
+        }
+        return align;
+    }
+    internal_error << "[unimplemented] layout_align of " << type;
+}
+
+uint64_t layout_bytes(const Type &type) {
+    if (type.is<Bool_t>()) {
+        return 1;
+    }
+    if (type.is<Int_t, UInt_t, Float_t, Vector_t>()) {
+        return type.bytes();
+    }
+    if (type.is<Ptr_t>() || type.is_reference()) {
+        return 8;
+    }
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        // C's rule, which is LLVM's for a struct that is not packed: each
+        // field at the next offset aligned for it, the whole rounded up to
+        // its own alignment. A reference-typed field takes no room, as the
+        // backend leaves it out (see the Struct_t visitor in
+        // CodeGen/CodeGen_LLVM.cpp).
+        uint64_t offset = 0;
+        for (const TypedVar &f : s->fields) {
+            if (f.type.is<Ref_t>()) {
+                continue;
+            }
+            const uint64_t align = s->is_packed() ? 1 : layout_align(f.type);
+            offset = (offset + align - 1) / align * align;
+            offset += layout_bytes(f.type);
+        }
+        const uint64_t align = layout_align(type);
+        return (offset + align - 1) / align * align;
+    }
+    if (const Union_t *u = type.as<Union_t>()) {
+        // Its largest member, rounded up to the alignment of the most
+        // aligned, so that an array of the union steps from one aligned
+        // value to the next (see set_union_body in CodeGen/CodeGen_LLVM.cpp).
+        uint64_t size = 0;
+        for (const TypedVar &m : u->members) {
+            size = std::max(size, layout_bytes(m.type));
+        }
+        const uint64_t align = layout_align(type);
+        return (size + align - 1) / align * align;
+    }
+    internal_error << "[unimplemented] layout_bytes of " << type;
+}
+
+namespace {
+
+// The struct a union widens to, by its name, back to the union (see widen):
+// nothing about the struct itself -- so many words of so many lanes -- says
+// which union, or that it was one.
+std::map<std::string, Type> &widened_unions() {
+    static std::map<std::string, Type> unions;
+    return unions;
+}
+
+// The k-th word of a widened union.
+std::string word_field(uint64_t k) { return "!w" + std::to_string(k); }
+
+} // namespace
+
 Type widen(const Type &type, uint32_t lanes) {
     if (const Struct_t *s = type.as<Struct_t>()) {
         Struct_t::Map fields;
@@ -560,12 +655,20 @@ Type widen(const Type &type, uint32_t lanes) {
         return Struct_t::make(name.str(), fields);
     }
     if (const Union_t *u = type.as<Union_t>()) {
+        // One gang vector per 32-bit word of the union's storage: word j of
+        // every lane's union, side by side. Every member's field is at its
+        // own offset in every lane, so a field is a word (or a part of one,
+        // or two) of this, whichever member it belongs to.
+        const uint64_t words = (layout_bytes(type) + 3) / 4;
         Struct_t::Map fields;
-        fields.reserve(lanes);
-        for (uint32_t k = 0; k < lanes; k++) {
-            fields.emplace_back(component_field(k), type);
+        fields.reserve(words);
+        for (uint64_t j = 0; j < words; j++) {
+            fields.emplace_back(word_field(j),
+                                Vector_t::make(UInt_t::make(32), lanes));
         }
-        return Struct_t::make(u->name + "$v" + std::to_string(lanes), fields);
+        const std::string name = u->name + "$v" + std::to_string(lanes);
+        widened_unions()[name] = type;
+        return Struct_t::make(name, fields);
     }
     return Vector_t::make(type, lanes);
 }
@@ -603,9 +706,10 @@ Type narrow(const Type &type, uint32_t lanes) {
         << "narrow of " << type << ", which widen() did not make for "
         << lanes << " lanes";
     std::string name = s->name.substr(0, s->name.size() - suffix.size());
-    // One union per lane.
-    if (union_behind(type) != nullptr) {
-        return s->fields[0].type;
+    // The words of a union (see widen): the union it was made from.
+    if (const auto known = widened_unions().find(s->name);
+        known != widened_unions().end()) {
+        return known->second;
     }
     // One gang vector per component of a short vector, named for the vector:
     // `f32x3` or `[[packed]] f32x3`. Told from a struct of vector fields by
@@ -643,21 +747,12 @@ const Union_t *union_behind(const Type &type) {
         return as_union;
     }
     const Struct_t *as_struct = type.as<Struct_t>();
-    if (as_struct == nullptr || as_struct->fields.empty()) {
+    if (as_struct == nullptr) {
         return nullptr;
     }
-    const Union_t *lane = as_struct->fields[0].type.as<Union_t>();
-    if (lane == nullptr) {
-        return nullptr;
-    }
-    for (size_t k = 0; k < as_struct->fields.size(); k++) {
-        const TypedVar &field = as_struct->fields[k];
-        if (field.name != component_field(uint32_t(k)) ||
-            !equals(field.type, as_struct->fields[0].type)) {
-            return nullptr;
-        }
-    }
-    return lane;
+    const auto known = widened_unions().find(as_struct->name);
+    return known == widened_unions().end() ? nullptr
+                                           : known->second.as<Union_t>();
 }
 
 Type Set_t::make(Type etype) {
@@ -823,11 +918,11 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
             }
         }
         // The struct a vectorized union widens to, asked for a member of the
-        // union: that member, one per lane (see widen and union_behind).
+        // union: that member, gang-wide (see widen and union_behind).
         if (const Union_t *lane = union_behind(struct_type)) {
             const Type member = lane->member(field);
             if (member.defined()) {
-                return widen(member, uint32_t(as_struct->fields.size()));
+                return widen(member, *widened_lanes(struct_type));
             }
         }
         internal_error << "Failed to find field: " << field
