@@ -190,6 +190,7 @@ target_sources(
     src/SSA/DumpAnalysis.cpp
     src/SSA/InsertPreheader.cpp
     src/SSA/Linearize.cpp
+    src/SSA/SkipInactiveBlocks.cpp
     src/SSA/MergeLatches.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
@@ -299,6 +300,7 @@ target_sources(
     include/SSA/DumpAnalysis.h
     include/SSA/InsertPreheader.h
     include/SSA/Linearize.h
+    include/SSA/SkipInactiveBlocks.h
     include/SSA/PromoteAllocas.h
     include/SSA/QueueRecursion.h
     include/SSA/Simplify.h

@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_skip.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_skip.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_skip.o tests/bonsai/correctness/cpp/vectorize_skip.o -o tests/bonsai/correctness/cpp/vectorize_skip
+[test] ./tests/bonsai/correctness/cpp/vectorize_skip
+0 8.11396 0 13.5459 0 16.2727 0 21.2279
+same as scalar

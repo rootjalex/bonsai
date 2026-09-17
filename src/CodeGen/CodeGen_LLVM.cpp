@@ -4,6 +4,8 @@
 #include <limits>
 #include <numeric>
 
+#include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/CodeGen/ReplaceWithVeclib.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/MDBuilder.h>
@@ -48,6 +50,8 @@
 #include "Lower/Random.h"
 
 #include "Utils.h"
+
+#include <dlfcn.h>
 
 #include <sstream>
 
@@ -137,6 +141,10 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         }
         target_features = features.getString();
         follows_host = true;
+        if (llvm::Triple(target_triple).isOSLinux() &&
+            llvm::Triple(target_triple).getArch() == llvm::Triple::x86_64) {
+            probe_host_vector_math();
+        }
     }
 
     std::string error_string;
@@ -611,6 +619,13 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     // Simplify the control flow graph (deleting unreachable blocks, etc).
     fpm.addPass(llvm::SimplifyCFGPass());
 
+    // The library information first, so that the default the PassBuilder
+    // would register is not what the passes see: this one knows the host's
+    // vector math (see target_library_info).
+    const llvm::TargetLibraryInfoImpl library_info =
+        target_library_info(llvm::Triple(module->getTargetTriple()));
+    fam.registerPass([&] { return llvm::TargetLibraryAnalysis(library_info); });
+
     // Register all the basic analyses with the managers.
     pb.registerModuleAnalyses(mam);
     pb.registerCGSCCAnalyses(cgam);
@@ -729,6 +744,11 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
 
     tm.registerPassBuilderCallbacks(pb);
     mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
+    // A vector math intrinsic becomes the libmvec call the library
+    // information maps it to. The backend would run this pass itself, but
+    // here the result is in the module for `-b llvm` to print.
+    mpm.addPass(llvm::createModuleToFunctionPassAdaptor(
+        llvm::ReplaceWithVeclib()));
 
     for (auto &F : *module) {
         if (llvm::verifyFunction(F, &llvm::errs())) {
@@ -1700,6 +1720,23 @@ void CodeGen_LLVM::visit(const Cast *node) {
         return;
     }
 
+    // An address as an integer, or an integer as an address: the zero a
+    // pointer-typed slot starts with is the integer zero read as a pointer
+    // (see zero_value in SSA/SSA.cpp).
+    const auto addresses_memory = [](const Type &t) {
+        return t.is<Ptr_t>() || t.is_reference();
+    };
+    if (node->mode == Cast::Mode::Reinterpret && addresses_memory(dst) &&
+        src.is_int_or_uint()) {
+        value = builder->CreateIntToPtr(inner, llvm_dst);
+        return;
+    }
+    if (node->mode == Cast::Mode::Reinterpret && addresses_memory(src) &&
+        dst.is_int_or_uint()) {
+        value = builder->CreatePtrToInt(inner, llvm_dst);
+        return;
+    }
+
     // What the node actually asked for. Everything below decides between a
     // conversion and a bitcast by looking at the types, which gets the answer
     // right only when the two cannot mean the same thing -- a float and an
@@ -2381,7 +2418,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
         // each lane's own index -- is gathered a leaf at a time into the
         // struct of gang-wide fields it is carried as (see gather_elements).
         if (element.is<Struct_t, Union_t, Vector_t>()) {
-            llvm::Value *ptrs = builder->CreateInBoundsGEP(
+            llvm::Value *ptrs = element_addresses(
                 codegen_type(element), vec, codegen_expr(node->idx),
                 "extract_ptrs");
             llvm::Value *mask =
@@ -2399,7 +2436,17 @@ void CodeGen_LLVM::visit(const Extract *node) {
     }
 
     llvm::Value *idx = codegen_expr(node->idx);
-    if (vec_expr.type().is<Vector_t>()) {
+    if (const Vector_t *v = vec_expr.type().as<Vector_t>();
+        v != nullptr && v->packed) {
+        // A packed vector's storage is an LLVM array (see the Vector_t
+        // visitor): its element is an extractvalue at a constant index, and
+        // an extractelement of the unpacked vector at any other.
+        if (const auto *k = llvm::dyn_cast<llvm::ConstantInt>(idx)) {
+            value = builder->CreateExtractValue(vec, unsigned(k->getZExtValue()));
+        } else {
+            value = builder->CreateExtractElement(unpack_vector(vec, v), idx);
+        }
+    } else if (vec_expr.type().is<Vector_t>()) {
         value = builder->CreateExtractElement(vec, idx);
     } else if (vec_expr.type().is<Array_t>()) {
         llvm::Type *etype = codegen_type(vec_expr.type().element_of());
@@ -2529,27 +2576,31 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         break;
     }
     case Intrinsic::acos: {
-        // As atanh below: LLVM has sin and cos as intrinsics but not their
-        // inverses, so this is the same call to libm that a C compiler emits
-        // for std::acos.
-        value = codegen_libm_call("acos", node);
-        return;
+        // An intrinsic since LLVM 19, along with asin and atan: on a scalar
+        // it is legalised to the same libm call a C compiler emits for
+        // std::acos, and on a vector it is one call of the libmvec entry
+        // point where the target library information maps it (see
+        // target_library_info) rather than a call per lane.
+        intrin = llvm::Intrinsic::acos;
+        break;
     }
     case Intrinsic::asin: {
-        // The companion of acos, and the same libm call std::asin makes.
-        value = codegen_libm_call("asin", node);
-        return;
+        // The companion of acos, and lowered the same way.
+        intrin = llvm::Intrinsic::asin;
+        break;
     }
     case Intrinsic::atanh: {
         // LLVM has intrinsics for the hyperbolic functions but not for their
         // inverses, so this is a call to libm -- which is what a C compiler
-        // emits for std::atanh too, and so is the same function bit for bit.
+        // emits for std::atanh too, and so is the same function bit for bit
+        // -- or, on a vector, to libmvec's atanhf (see codegen_libm_call).
         value = codegen_libm_call("atanh", node);
         return;
     }
     case Intrinsic::atan2: {
-        // Two arguments, and otherwise the same story: no LLVM intrinsic, so
-        // libm's atan2f, which is what a C compiler emits for std::atan2.
+        // Two arguments, and otherwise the same story: no LLVM intrinsic
+        // before LLVM 20, so libm's atan2f, which is what a C compiler emits
+        // for std::atan2, or libmvec's on a vector.
         internal_assert(node->args.size() == 2) << node->args.size();
         value = codegen_libm_call("atan2", node);
         return;
@@ -3158,6 +3209,21 @@ void CodeGen_LLVM::visit(const Build *node) {
         value = llvm::UndefValue::get(build_type);
         for (size_t i = 0; i < values.size(); i++) {
             value = builder->CreateInsertElement(value, values[i], i);
+        }
+        return;
+    } else if (build_type->isArrayTy() && node->type.is<Vector_t>()) {
+        // A packed vector is its elements side by side in memory, an LLVM
+        // array (see the Vector_t visitor), built element by element.
+        internal_assert(values.empty() ||
+                        values.size() == node->type.as<Vector_t>()->lanes)
+            << "Partial build of a packed vector: " << Expr(node);
+        if (values.empty()) {
+            value = llvm::Constant::getNullValue(build_type);
+            return;
+        }
+        value = llvm::PoisonValue::get(build_type);
+        for (size_t i = 0; i < values.size(); i++) {
+            value = builder->CreateInsertValue(value, values[i], unsigned(i));
         }
         return;
     } else if (build_type->isStructTy()) {
@@ -4069,6 +4135,21 @@ llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
         return builder->CreateCall(callee, args, name);
     }
 
+    // The host libmvec's vector entry point, one call for the whole gang,
+    // when it has one for this width; see probe_host_vector_math.
+    if (const auto vector_symbol =
+            vector_math_symbol(name, arg_type.lanes(), scalar_type.bits(),
+                               unsigned(node->args.size()))) {
+        llvm::Type *vector_t = codegen_type(node->type);
+        const std::vector<llvm::Type *> vector_params(node->args.size(),
+                                                      vector_t);
+        llvm::FunctionCallee vector_callee = module->getOrInsertFunction(
+            *vector_symbol,
+            llvm::FunctionType::get(vector_t, vector_params,
+                                    /*isVarArg=*/false));
+        return builder->CreateCall(vector_callee, args, name);
+    }
+
     llvm::Value *result = llvm::UndefValue::get(codegen_type(node->type));
     for (uint32_t lane = 0; lane < arg_type.lanes(); lane++) {
         llvm::Value *index = llvm::ConstantInt::get(i32_t, lane);
@@ -4081,6 +4162,155 @@ llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
         result = builder->CreateInsertElement(result, applied, index);
     }
     return result;
+}
+
+namespace {
+
+// The Vector Function ABI name glibc gives a vector entry point of libm:
+// `_ZGV`, the ISA level (`b` SSE4, `c` AVX, `d` AVX2, `e` AVX-512), `N` for
+// no mask, the lane count, a `v` per vector argument, and the scalar
+// function's name.
+std::string vector_abi_name(char isa, uint32_t lanes, unsigned arity,
+                            const std::string &name, bool single) {
+    return "_ZGV" + std::string(1, isa) + "N" + std::to_string(lanes) +
+           std::string(arity, 'v') + "_" + name + (single ? "f" : "");
+}
+
+} // namespace
+
+// Asked of the host's libmvec rather than assumed: which functions it has
+// depends on the glibc -- 2.22 shipped sin, cos, exp, log and pow, 2.35 the
+// rest of libm -- and which ISA levels run depends on the machine. Only a
+// symbol present in this machine's libmvec, at a level this machine runs, is
+// ever emitted, so nothing here can fail to link or to run where it was
+// compiled; following the host means the code runs on the host.
+void CodeGen_LLVM::probe_host_vector_math() {
+    // Global, and left loaded: the JIT resolves what the code it runs calls
+    // against this process's symbols, and libmvec is not otherwise among
+    // them -- the compiler links libm, whose linker script pulls libmvec in
+    // only for a program that references it.
+    void *lib = dlopen("libmvec.so.1", RTLD_LAZY | RTLD_GLOBAL);
+    if (lib == nullptr) {
+        return;
+    }
+    const llvm::StringMap<bool> features = llvm::sys::getHostCPUFeatures();
+    const auto has = [&](const char *feature) {
+        const auto it = features.find(feature);
+        return it != features.end() && it->second;
+    };
+    struct Isa {
+        char letter;
+        uint32_t f32_lanes, f64_lanes;
+        bool runs;
+    };
+    const Isa isas[] = {{'b', 4, 2, has("sse4.1")},
+                        {'d', 8, 4, has("avx2")},
+                        {'e', 16, 8, has("avx512f")}};
+    struct Fn {
+        const char *name;
+        unsigned arity;
+    };
+    static const Fn fns[] = {
+        {"sin", 1},   {"cos", 1},   {"tan", 1},   {"asin", 1},  {"acos", 1},
+        {"atan", 1},  {"atan2", 2}, {"sinh", 1},  {"cosh", 1},  {"tanh", 1},
+        {"asinh", 1}, {"acosh", 1}, {"atanh", 1}, {"exp", 1},   {"exp2", 1},
+        {"exp10", 1}, {"expm1", 1}, {"log", 1},   {"log2", 1},  {"log10", 1},
+        {"log1p", 1}, {"pow", 2},   {"hypot", 2}, {"cbrt", 1},  {"erf", 1},
+        {"erfc", 1}};
+    for (const Isa &isa : isas) {
+        if (!isa.runs) {
+            continue;
+        }
+        for (const Fn &fn : fns) {
+            for (const bool single : {true, false}) {
+                const std::string symbol =
+                    vector_abi_name(isa.letter,
+                                    single ? isa.f32_lanes : isa.f64_lanes,
+                                    fn.arity, fn.name, single);
+                if (dlsym(lib, symbol.c_str()) != nullptr) {
+                    host_vector_math.insert(symbol);
+                }
+            }
+        }
+    }
+}
+
+std::optional<std::string>
+CodeGen_LLVM::vector_math_symbol(const std::string &name, uint32_t lanes,
+                                 unsigned bits, unsigned arity) const {
+    char isa = 0;
+    const uint32_t f32_lanes = bits == 32 ? lanes : lanes * 2;
+    switch (f32_lanes) {
+    case 4:
+        isa = 'b';
+        break;
+    case 8:
+        isa = 'd';
+        break;
+    case 16:
+        isa = 'e';
+        break;
+    default:
+        return std::nullopt;
+    }
+    if (bits != 32 && bits != 64) {
+        return std::nullopt;
+    }
+    const std::string symbol =
+        vector_abi_name(isa, lanes, arity, name, bits == 32);
+    if (host_vector_math.count(symbol) == 0) {
+        return std::nullopt;
+    }
+    return symbol;
+}
+
+llvm::TargetLibraryInfoImpl
+CodeGen_LLVM::target_library_info(const llvm::Triple &triple) {
+    llvm::TargetLibraryInfoImpl info(triple);
+    // The intrinsics LLVM has for libm's functions, each mapped onto the
+    // host's libmvec entry point of the same width where the host has one.
+    // LLVM's own table for libmvec (VecFuncs.def) stops at sin, cos, tan,
+    // exp, log and pow -- what glibc 2.22 shipped -- so the table is built
+    // here from what the probe found instead.
+    struct Fn {
+        const char *intrinsic;
+        const char *libm;
+        unsigned arity;
+    };
+    static const Fn fns[] = {
+        {"sin", "sin", 1},     {"cos", "cos", 1},     {"tan", "tan", 1},
+        {"asin", "asin", 1},   {"acos", "acos", 1},   {"atan", "atan", 1},
+        {"sinh", "sinh", 1},   {"cosh", "cosh", 1},   {"tanh", "tanh", 1},
+        {"exp", "exp", 1},     {"exp2", "exp2", 1},   {"exp10", "exp10", 1},
+        {"log", "log", 1},     {"log2", "log2", 1},   {"log10", "log10", 1},
+        {"pow", "pow", 2}};
+    const auto keep = [&](std::string s) -> llvm::StringRef {
+        vector_math_names.push_back(std::move(s));
+        return vector_math_names.back();
+    };
+    std::vector<llvm::VecDesc> descs;
+    for (const Fn &fn : fns) {
+        for (const unsigned bits : {32u, 64u}) {
+            for (const uint32_t lanes : {2u, 4u, 8u, 16u}) {
+                const auto symbol =
+                    vector_math_symbol(fn.libm, lanes, bits, fn.arity);
+                if (!symbol) {
+                    continue;
+                }
+                descs.emplace_back(
+                    keep(std::string("llvm.") + fn.intrinsic +
+                         (bits == 32 ? ".f32" : ".f64")),
+                    keep(*symbol), llvm::ElementCount::getFixed(lanes),
+                    /*Masked=*/false,
+                    keep("_ZGV_LLVM_N" + std::to_string(lanes) +
+                         std::string(fn.arity, 'v')));
+            }
+        }
+    }
+    if (!descs.empty()) {
+        info.addVectorizableFunctions(descs);
+    }
+    return info;
 }
 
 llvm::FunctionCallee CodeGen_LLVM::get_pthread_lock() {
@@ -4513,8 +4743,8 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
                                          name);
     }
 
-    llvm::Value *ptrs = builder->CreateInBoundsGEP(
-        etype, base, codegen_expr(index), name + "_ptrs");
+    llvm::Value *ptrs =
+        element_addresses(etype, base, codegen_expr(index), name + "_ptrs");
     if (mask == nullptr) {
         mask = llvm::Constant::getAllOnesValue(
             llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
@@ -4555,13 +4785,44 @@ void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
         return;
     }
 
-    llvm::Value *ptrs = builder->CreateInBoundsGEP(
-        etype, base, codegen_expr(index), "store_ptrs");
+    llvm::Value *ptrs =
+        element_addresses(etype, base, codegen_expr(index), "store_ptrs");
     if (mask == nullptr) {
         mask = llvm::Constant::getAllOnesValue(
             llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
     }
     builder->CreateMaskedScatter(value, ptrs, dl.getABITypeAlign(etype), mask);
+}
+
+llvm::Value *CodeGen_LLVM::element_addresses(llvm::Type *element,
+                                             llvm::Value *base,
+                                             llvm::Value *indices,
+                                             const std::string &name) {
+    // 32-bit addressing, as ISPC's default is: a gather or scatter is a base
+    // pointer and one 32-bit offset per lane, which is what the hardware
+    // takes -- vgatherdps reads its eight indices out of one 256-bit
+    // register and scales them by 1, 2, 4 or 8 -- and half the register
+    // traffic of eight 64-bit pointers. The indices this IR computes are
+    // 32-bit already; sign-extending them to 64 here, as the scalar path
+    // does, only made LLVM carry the extension through every address.
+    //
+    // An element whose size is not a scale the hardware has is addressed by
+    // its byte offset, multiplied out in 32 bits, and a GEP over bytes. The
+    // limit of the model is that a byte offset must fit in 31 bits: an array
+    // over 2 GB is addressed wrongly past that, in a gather. (A GEP index is
+    // sign-extended, so an unsigned index past 2^31 was already outside
+    // what this backend addresses, before any scaling.)
+    auto *vt = llvm::dyn_cast<llvm::VectorType>(indices->getType());
+    internal_assert(vt) << "element_addresses wants one index per lane";
+    const llvm::DataLayout &dl = module->getDataLayout();
+    const uint64_t size = dl.getTypeAllocSize(element);
+    if (vt->getElementType()->getIntegerBitWidth() > 32 || size == 1 ||
+        size == 2 || size == 4 || size == 8) {
+        return builder->CreateInBoundsGEP(element, base, indices, name);
+    }
+    llvm::Value *offsets = builder->CreateMul(
+        indices, llvm::ConstantInt::get(vt, size), name + "_off");
+    return builder->CreateInBoundsGEP(i8_t, base, offsets, name);
 }
 
 void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,
@@ -5222,18 +5483,18 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
         return base_addr;
     }
 
-    // Promote index to 64-bit on targets that use 64-bit pointers.
+    // One index per lane: 32-bit addressing (see element_addresses).
+    if (llvm::isa<llvm::VectorType>(idx->getType())) {
+        return element_addresses(load_type, base_addr, idx, buffer + "_ptrs");
+    }
+
+    // Promote a scalar index to 64-bit on targets that use 64-bit pointers.
+    // A GEP sign-extends its index to the pointer's width anyway, so this
+    // changes nothing about the address; it is only kept for the IR to read
+    // as it always has.
     if (d.getPointerSize() == 8) {
-        llvm::Type *index_type = idx->getType();
-        llvm::Type *desired_index_type = llvm::Type::getInt64Ty(
-            *context); // TODO: cache this like Halide does.
-        if (llvm::isa<llvm::VectorType>(index_type)) {
-            desired_index_type = llvm::VectorType::get(
-                desired_index_type, llvm::dyn_cast<llvm::VectorType>(index_type)
-                                        ->getElementCount());
-        }
         // TODO: is isSigned always true for us?
-        idx = builder->CreateIntCast(idx, desired_index_type,
+        idx = builder->CreateIntCast(idx, llvm::Type::getInt64Ty(*context),
                                      /* isSigned */ true);
     }
 

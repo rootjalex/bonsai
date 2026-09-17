@@ -1,0 +1,51 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_skip
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_skip.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_skip.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_skip.o tests/bonsai/correctness/cpp/vectorize_skip.o -o tests/bonsai/correctness/cpp/vectorize_skip, ./tests/bonsai/correctness/cpp/vectorize_skip, rm tests/bonsai/correctness/cpp/vectorize_skip, rm tests/bonsai/correctness/cpp/main_vectorize_skip.o, rm tests/bonsai/correctness/cpp/vectorize_skip.h, rm tests/bonsai/correctness/cpp/vectorize_skip.o
+
+// Arms a gang skips, and the values that have to survive the skipping.
+//
+// A linearized block no lane is on is skipped by a uniform branch on
+// `any(mask)` (see SSA/SkipInactiveBlocks.h). What the block computed is then
+// undefined along the bypass, and every later use of it goes through an
+// argument of the successor that the bypass hands a zero: the blends that
+// merge the arm select the other side, and the masked stores store nothing.
+// The gang here runs the same code three ways -- with every lane in the arm,
+// with none, and with some -- so all three of the guard's outcomes are taken,
+// and each lane's answer is compared with the same input run alone. The arm
+// carries a value out through a blend, another through a masked store into
+// a per-lane local, and a third round a loop, where the block that computes
+// the next value is skipped on the iterations no lane is still on.
+import stdlib/numerics;
+
+func weigh(x : f32) -> f32 {
+    acc : mut = 1.0;
+    picked : mut = -1.0;
+    if x > 0.0 {
+        // The arm: a value for the blend after it, and one stored per lane.
+        t = sqrt(x) * 3.0 + 1.0;
+        acc = t;
+        picked = t * 0.5;
+    }
+    // A loop whose body is skipped once the lanes still counting are none.
+    n : mut = 0;
+    total : mut = 0.0;
+    while cast[[f32]](n) < x {
+        total = total + cast[[f32]](n) * 0.25;
+        n = n + 1;
+    }
+    return acc + picked + total;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

@@ -5,6 +5,7 @@
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
+#include "SSA/SkipInactiveBlocks.h"
 #include "SSA/SplitAggregates.h"
 #include "SSA/UniformizeLoops.h"
 
@@ -1417,8 +1418,12 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         std::cerr << "--- before linearizing " << name << ":\n";
         variant->dump(std::cerr);
     }
-    const BlockMasks masks =
+    BlockMasks masks =
         linearize(*variant, entry, linearizable, mask, uniform.loops);
+    // Then a uniform branch around each block no lane may be on, so that a
+    // gang skips the arms none of its lanes take (see
+    // SSA/SkipInactiveBlocks.h).
+    skip_inactive_blocks(*variant, entry, masks, mask);
 
     // Uniformizing a loop adds blocks, so the region is only settled now.
     const set<string> region =
@@ -1559,8 +1564,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // Fold away the branches the lanes disagree about, so that what is left
     // is control flow every lane follows together, with masks standing in for
     // the branches that were folded (see SSA/Linearize.h).
-    const BlockMasks masks =
-        linearize(*f, entry, before, nullptr, uniform.loops);
+    BlockMasks masks = linearize(*f, entry, before, nullptr, uniform.loops);
+    skip_inactive_blocks(*f, entry, masks);
 
     const BlockMap blocks = make_block_map(f);
     const AdjacencyMap all_succs = compute_successors(*f);

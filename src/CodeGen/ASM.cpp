@@ -3,6 +3,7 @@
 #include "CodeGen/CodeGen_LLVM.h"
 #include "Error.h"
 
+#include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
@@ -23,25 +24,18 @@ namespace codegen {
 
 namespace {
 
+// `target_machine` is the one the module was compiled for (see
+// CodeGen_LLVM::make_target_machine): the host's CPU and features when
+// nothing was named. It used to be a fresh "generic" machine here, which
+// made the assembly SSE2 code for a module optimized for AVX-512 -- not the
+// code the object file gets, and so useless for reading what the compiler
+// emits. `library_info` is the same the optimizer worked from, so a vector
+// math intrinsic still standing is lowered to the same libmvec call.
 void emit_file(const std::string &filename,
                std::unique_ptr<llvm::Module> module,
+               llvm::TargetMachine *target_machine,
+               const llvm::TargetLibraryInfoImpl &library_info,
                llvm::CodeGenFileType file_type) {
-    // This is set LLVM compilation, see CodeGen_LLVM::make_target_machine.
-    std::string target_triple = module->getTargetTriple();
-    std::string error;
-    const llvm::Target *target =
-        llvm::TargetRegistry::lookupTarget(target_triple, error);
-    if (target == nullptr) {
-        internal_error << "error: " << error;
-    }
-
-    // Create the target machine for emitting assembly.
-    llvm::TargetOptions target_options;
-    llvm::TargetMachine *target_machine = target->createTargetMachine(
-        target_triple, "generic", "", target_options,
-        std::optional<llvm::Reloc::Model>());
-    module->setDataLayout(target_machine->createDataLayout());
-
     // Build up all of the passes that we want to do to the module.
 
     // NOTE: use of the "legacy" PassManager here is still required; it is
@@ -57,8 +51,7 @@ void emit_file(const std::string &filename,
     // https://groups.google.com/g/llvm-dev/c/HoS07gXx0p8
     llvm::legacy::PassManager pass_manager;
 
-    pass_manager.add(new llvm::TargetLibraryInfoWrapperPass(
-        llvm::Triple(module->getTargetTriple())));
+    pass_manager.add(new llvm::TargetLibraryInfoWrapperPass(library_info));
 
     // Make sure things marked as always-inline get inlined
     pass_manager.add(llvm::createAlwaysInlinerLegacyPass());
@@ -90,9 +83,13 @@ void to_asm(const ir::Program &program, const CompilerOptions &options) {
     CodeGen_LLVM codegen;
     std::unique_ptr<llvm::Module> result =
         codegen.compile_program(program, options);
+    std::unique_ptr<llvm::TargetMachine> target_machine =
+        codegen.make_target_machine(*result, options);
+    const llvm::TargetLibraryInfoImpl library_info =
+        codegen.target_library_info(llvm::Triple(result->getTargetTriple()));
     std::unique_ptr<llvm::LLVMContext> context = codegen.steal_context();
-    emit_file(options.output_file, std::move(result),
-              llvm::CodeGenFileType::AssemblyFile);
+    emit_file(options.output_file, std::move(result), target_machine.get(),
+              library_info, llvm::CodeGenFileType::AssemblyFile);
 }
 
 } // namespace codegen

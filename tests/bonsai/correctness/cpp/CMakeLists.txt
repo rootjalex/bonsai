@@ -38,6 +38,7 @@ add_bonsai_tests(
     vectorize_nested_loops.bonsai
     vectorize_parfor.bonsai
     vectorize_shapes.bonsai
+    vectorize_skip.bonsai
     vectorize_tree_traversal.bonsai
     vectorize_tree_traversal_mixed.bonsai
     vectorize_tree_traversal_sorted.bonsai

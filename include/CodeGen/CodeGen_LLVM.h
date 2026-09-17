@@ -14,8 +14,13 @@
 #include "LLVMIncl.h"
 #include "Scope.h"
 
+#include <llvm/Analysis/TargetLibraryInfo.h>
+
 #include <functional>
+#include <list>
 #include <memory>
+#include <optional>
+#include <set>
 
 namespace bonsai {
 namespace codegen {
@@ -47,6 +52,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     // triple or data layout.
     void print_module(llvm::Module &module, llvm::raw_ostream &os,
                       bool redacted = false);
+
+    // The library information the optimizer and the backend work from: libm,
+    // and -- when following the host -- the vector math of the host's
+    // libmvec, mapped onto LLVM's vector intrinsics so that
+    // `llvm.sin.v8f32` becomes one call of `_ZGVdN8v_sinf` rather than eight
+    // of `sinf` (LLVM's ReplaceWithVeclib pass does the replacing). Given to
+    // every pass manager that runs over the module, so the two agree.
+    llvm::TargetLibraryInfoImpl target_library_info(const llvm::Triple &triple);
 
   protected:
     /** Initialize internal llvm state for the enabled targets. */
@@ -312,6 +325,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // one union per lane.
     // `mask`, if given, is the lanes that read at all; the others' values are
     // unsaid and their addresses are never touched.
+    // The address of one element per lane of an array: `base` plus each
+    // lane's index, scaled, in 32-bit addressing (ISPC's model).
+    llvm::Value *element_addresses(llvm::Type *element, llvm::Value *base,
+                                   llvm::Value *indices,
+                                   const std::string &name);
     llvm::Value *gather_elements(const ir::Type &element, const ir::Type &wide_t,
                                  llvm::Value *ptrs, uint32_t lanes,
                                  llvm::Value *mask, const std::string &name);
@@ -365,11 +383,26 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // A call to the libm function `name`, for the maths LLVM has no intrinsic
     // for. Single-precision goes to the `f`-suffixed entry point, as C's
-    // overloads do. A vector argument is taken a lane at a time, because libm
-    // is scalar; the intrinsics LLVM does have would have been legalised into
-    // the same calls.
+    // overloads do. A vector argument goes to the host libmvec's vector
+    // entry point when it has one (see probe_host_vector_math), and a lane
+    // at a time otherwise, because libm is scalar.
     llvm::Value *codegen_libm_call(const std::string &name,
                                    const ir::Intrinsic *node);
+
+    // What the host's libmvec provides, found by asking it. Every symbol
+    // here exists in this machine's libmvec and is of an ISA level this
+    // machine runs.
+    std::set<std::string> host_vector_math;
+    void probe_host_vector_math();
+    // The libmvec entry point for `name` on `lanes` lanes of `bits`-bit
+    // floats with `arity` vector arguments, if the host has one: the Vector
+    // Function ABI name, `_ZGVdN8v_sinf` for sinf on eight lanes for AVX2.
+    std::optional<std::string> vector_math_symbol(const std::string &name,
+                                                  uint32_t lanes, unsigned bits,
+                                                  unsigned arity) const;
+    // The strings a TargetLibraryInfoImpl's vector descriptions refer to,
+    // which have to outlive it (they are StringRefs there).
+    std::list<std::string> vector_math_names;
 
     // Local state for codegen() impls.
     llvm::Value *value = nullptr;

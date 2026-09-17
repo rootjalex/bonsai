@@ -249,32 +249,32 @@ sum_some:
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
   %1 = bitcast <8 x i1> %0 to i8
   %.not = icmp eq i8 %1, 0
-  br i1 %.not, label %if_lane_after5, label %if_lane
+  br i1 %.not, label %"!par_cont_1", label %"!then_2"
 
-if_lane:                                          ; preds = %sum_some
-  %2 = select <8 x i1> %0, <8 x float> %extract, <8 x float> zeroinitializer
-  %3 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %2)
-  %4 = insertelement <3 x float> poison, float %3, i64 0
-  %5 = fmul <8 x float> %extract, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
-  %6 = select <8 x i1> %0, <8 x float> %5, <8 x float> zeroinitializer
+"!then_2":                                        ; preds = %sum_some
+  %2 = fmul <8 x float> %extract, <float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00>
+  %3 = fmul <8 x float> %extract, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
+  %4 = select <8 x i1> %0, <8 x float> %extract, <8 x float> zeroinitializer
+  %5 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %4)
+  %6 = select <8 x i1> %0, <8 x float> %3, <8 x float> zeroinitializer
   %7 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %6)
-  %8 = insertelement <3 x float> %4, float %7, i64 1
-  %9 = fmul <8 x float> %extract, <float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00>
-  %10 = select <8 x i1> %0, <8 x float> %9, <8 x float> zeroinitializer
-  %11 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %10)
-  %12 = insertelement <3 x float> %8, float %11, i64 2
-  %13 = atomicrmw fadd ptr %sums, float %3 monotonic, align 4
+  %8 = select <8 x i1> %0, <8 x float> %2, <8 x float> zeroinitializer
+  %9 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %8)
+  %10 = insertelement <3 x float> poison, float %5, i64 0
+  %11 = insertelement <3 x float> %10, float %7, i64 1
+  %12 = insertelement <3 x float> %11, float %9, i64 2
+  %13 = atomicrmw fadd ptr %sums, float %5 monotonic, align 4
   %14 = getelementptr inbounds i8, ptr %sums, i64 4
   %15 = atomicrmw fadd ptr %14, float %7 monotonic, align 4
   %16 = getelementptr inbounds i8, ptr %sums, i64 8
-  %17 = atomicrmw fadd ptr %16, float %11 monotonic, align 4
+  %17 = atomicrmw fadd ptr %16, float %9 monotonic, align 4
   %sums6 = getelementptr inbounds i8, ptr %sums, i64 16
   %acc_base = load <3 x float>, ptr %sums6, align 16
   %18 = fadd <3 x float> %12, %acc_base
   store <3 x float> %18, ptr %sums6, align 16
-  br label %if_lane_after5
+  br label %"!par_cont_1"
 
-if_lane_after5:                                   ; preds = %sum_some, %if_lane
+"!par_cont_1":                                    ; preds = %"!then_2", %sum_some
   ret void
 }
 

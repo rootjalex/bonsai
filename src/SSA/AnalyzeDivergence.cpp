@@ -415,6 +415,16 @@ analyze_divergence(const Function &func, const string &entry,
     };
     vector<PendingWrite> pending;
 
+    // Blocks control dependent, directly or through others, on a branch the
+    // lanes disagree about. Grows monotonically with `result.branches`.
+    set<string> divergently_reached;
+    // Where each block comes in reverse postorder, to tell a back edge -- a
+    // predecessor no earlier than the block -- from a forward one.
+    map<string, size_t> rpo_index;
+    for (size_t i = 0; i < rpo.size(); i++) {
+        rpo_index[rpo[i]] = i;
+    }
+
     // Monotone: every rule only ever adds to the sets, so this terminates.
     //
     // Two fixpoints, one inside the other. The inner one settles what varies
@@ -463,19 +473,43 @@ analyze_divergence(const Function &func, const string &entry,
                 if (result.branches.count(from) || result.masked.count(from)) {
                     mark(result.masked, name);
                 }
+                // Reached through a divergent branch, as opposed to merely
+                // running under a mask seeded from outside (a loop's live
+                // mask, a masked variant's): what decides a join below.
+                if (result.branches.count(from) ||
+                    divergently_reached.count(from)) {
+                    mark(divergently_reached, name);
+                }
             }
             const bool under_mask = result.masked.count(name) > 0;
 
-            // At a join whose predecessors are only partially executed, lanes
-            // arrive along different edges, so an argument that is not passed
-            // the same definition along every edge disagrees between lanes.
+            // At a join reached through a branch the lanes disagree about,
+            // lanes arrive along different edges, so an argument that is not
+            // passed the same definition along every edge disagrees between
+            // lanes. Running under a mask is not by itself that: a join of
+            // two edges a uniform branch chose between -- the guard around a
+            // block no lane is on (SSA/SkipInactiveBlocks.h), or an `if` on a
+            // uniform value inside a loop -- is reached the same way by every
+            // live lane, and its argument varies only if a value passed does.
+            // The exception is a loop header: a lane that left the loop on an
+            // earlier iteration keeps the value it had while the others go
+            // on, so a header handed values by a masked latch is divergent
+            // in time, whatever the branches inside (see
+            // SSA/UniformizeLoops.h).
             const vector<string> &block_preds =
                 lookup_or(preds, name, no_names);
+            const bool is_header = std::any_of(
+                block_preds.begin(), block_preds.end(), [&](const string &p) {
+                    const auto it = rpo_index.find(p);
+                    return it == rpo_index.end() ||
+                           it->second >= rpo_index.at(name);
+                });
             const bool divergent_join =
                 block_preds.size() > 1 &&
                 std::any_of(block_preds.begin(), block_preds.end(),
                             [&](const string &p) {
-                                return result.masked.count(p) > 0;
+                                return divergently_reached.count(p) > 0 ||
+                                       (is_header && result.masked.count(p) > 0);
                             });
 
             const vector<ArgumentFlow> &incoming =

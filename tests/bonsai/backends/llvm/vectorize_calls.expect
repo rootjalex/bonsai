@@ -10,8 +10,16 @@ both_ways:
   %0 = fmul <8 x float> %.splat, %extract
   store <8 x float> %0, ptr %out, align 4
   %1 = fcmp ogt <8 x float> %extract, zeroinitializer
-  %2 = fmul <8 x float> %extract, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr %out, i32 4, <8 x i1> %1)
+  %2 = bitcast <8 x i1> %1 to i8
+  %.not = icmp eq i8 %2, 0
+  br i1 %.not, label %"!par_cont_1", label %"!then_2"
+
+"!then_2":                                        ; preds = %both_ways
+  %3 = fmul <8 x float> %extract, <float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02, float 1.000000e+02>
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %3, ptr nonnull %out, i32 4, <8 x i1> %1)
+  br label %"!par_cont_1"
+
+"!par_cont_1":                                    ; preds = %both_ways, %"!then_2"
   ret void
 }
 

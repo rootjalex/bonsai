@@ -1,16 +1,19 @@
 func both_ways(a : f32[8], k : f32, out : mut f32[8]) -> void {
   let _t0 = a[ramp(0, 1, 8)] in
-  let @8 = f32x8(k) in
-  let @1 = _t0 * @8 in
+  let @9 = f32x8(k) in
+  let @1 = _t0 * @9 in
   out[ramp(0, 1, 8)] = @1
-  let @9 = f32x8(0f) in
-  let @3 = @9 < _t0 in
-  let @10 = boolx8(false) in
-  let @11 = boolx8(true) in
-  let @6 = select(@3, @10, @11) in
-  let @12 = f32x8(100f) in
-  let @4 = _t0 * @12 in
-  masked_store(out[ramp(0, 1, 8)], @4, @3)
+  let @10 = f32x8(0f) in
+  let @3 = @10 < _t0 in
+  let @11 = boolx8(false) in
+  let @12 = boolx8(true) in
+  let @6 = select(@3, @11, @12) in
+  let @7 = reduce<any>(@3) in
+  if (@7) {
+    let @13 = f32x8(100f) in
+    let @4 = _t0 * @13 in
+    masked_store(out[ramp(0, 1, 8)], @4, @3)
+  }
   return
 }
 

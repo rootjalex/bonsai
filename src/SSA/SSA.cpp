@@ -733,17 +733,32 @@ void Function::dump(std::ostream &os) const {
 
 std::shared_ptr<Value> zero_value(const Type &type, Function &func,
                                   const std::shared_ptr<Block> &into) {
-    if (type.is_bool()) {
-        return std::make_shared<Value>(Constant{type, false});
+    // A constant only for a scalar: the predicates below hold of a vector of
+    // the kind too, and a constant of vector type is not one this form has.
+    if (type.is_scalar()) {
+        if (type.is_bool()) {
+            return std::make_shared<Value>(Constant{type, false});
+        }
+        if (type.is_float()) {
+            return std::make_shared<Value>(Constant{type, 0.0});
+        }
+        if (type.is_uint()) {
+            return std::make_shared<Value>(Constant{type, uint64_t(0)});
+        }
+        if (type.is_int_or_uint()) {
+            return std::make_shared<Value>(Constant{type, int64_t(0)});
+        }
     }
-    if (type.is_float()) {
-        return std::make_shared<Value>(Constant{type, 0.0});
-    }
-    if (type.is_uint()) {
-        return std::make_shared<Value>(Constant{type, uint64_t(0)});
-    }
-    if (type.is_int_or_uint()) {
-        return std::make_shared<Value>(Constant{type, int64_t(0)});
+    if (type.is<Ptr_t>() || type.is_reference()) {
+        // A null pointer: the integer zero read as an address, since this
+        // form has no pointer constants.
+        auto null = std::make_shared<Instruction>(
+            func.get_unique_name(), type, Instruction::Op::Reinterpret,
+            std::vector<std::shared_ptr<Value>>{std::make_shared<Value>(
+                Constant{UInt_t::make(64), uint64_t(0)})},
+            into);
+        into->instrs.push_back(null);
+        return std::make_shared<Value>(std::move(null));
     }
     // A vector literal and a struct literal are both a MakeStruct of the
     // type, built from the parts (see the VecImm and Build visitors in
@@ -757,6 +772,19 @@ std::shared_ptr<Value> zero_value(const Type &type, Function &func,
         for (const TypedVar &f : s->fields) {
             parts.push_back(zero_value(f.type, func, into));
         }
+    } else if (const Union_t *u = type.as<Union_t>()) {
+        // A union holding the zero of its first member: as much of a zero as
+        // a union has, and the value a slot of one starts with.
+        internal_assert(!u->members.empty()) << "An empty union: " << type;
+        auto made = std::make_shared<Instruction>(
+            func.get_unique_name(), type, Instruction::Op::MakeUnion,
+            std::vector<std::shared_ptr<Value>>{
+                zero_value(u->members[0].type, func, into),
+                std::make_shared<Value>(
+                    Constant{UInt_t::make(32), uint64_t(0)})},
+            into);
+        into->instrs.push_back(made);
+        return std::make_shared<Value>(std::move(made));
     } else {
         internal_error << "No zero for a value of type " << type;
     }

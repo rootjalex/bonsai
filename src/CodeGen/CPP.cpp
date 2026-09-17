@@ -13,6 +13,7 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -1374,6 +1375,12 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // AFAICT, the only way to lower LLVM IR to object files is through the
     // legacy pass manager.
     llvm::legacy::PassManager pass;
+    // The library information the optimizer worked from, so that a vector
+    // math intrinsic the backend meets is lowered to the same libmvec call
+    // (see CodeGen_LLVM::target_library_info).
+    const llvm::TargetLibraryInfoImpl library_info =
+        codegen.target_library_info(llvm::Triple(module->getTargetTriple()));
+    pass.add(new llvm::TargetLibraryInfoWrapperPass(library_info));
     internal_assert(!target_machine->addPassesToEmitFile(
         pass, os, nullptr, llvm::CodeGenFileType::ObjectFile));
 
