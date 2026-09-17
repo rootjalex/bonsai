@@ -1822,6 +1822,48 @@ The general lesson is worth keeping: a query written the more specific way is
 not automatically lowered the better way, and the place to look when it is not
 is what the *other* lowerings of the same shape already do.
 
+### 6. Specialize the traversal on a uniform node — next
+
+**Open, and the next thing to do for the vectorized render.** Profiling book
+at depth 1 -- camera rays only, sixteen lanes -- put two thirds of the
+vectorized time inside gather instructions (`vpgatherdd`, `vgatherdps`), at an
+IPC of 0.66 against the scalar render's 1.88, with fewer cache misses than the
+scalar render: the gang is bound on the gather units, not on memory. A gang at
+depth 1 is sixteen samples of one pixel, so its lanes are at the same BVH node
+and test the same triangles nearly every step, and each gather fetches one
+address sixteen times.
+
+The fix belongs in the schedule, since it changes no result and pays only
+where the workload is coherent, which the scene and the sampling decide and
+the compiler cannot. The shape is Halide's `Func::specialize(cond)` -- a
+run-time condition selecting between two copies of the loop nest, each with
+its own schedule -- with a per-lane predicate:
+
+    trace.loopify(64)
+         .specialize(uniform(primitives.Interior))
+         .specialize(uniform(primitives.Leaf));
+
+Where the traversal loads the node the lanes are at, test `all_equal` on the
+lanes' references (one compare and a `kortest`) and branch to a copy of the
+region in which that reference is uniform. Everything else the compiler
+derives by re-running divergence analysis on the copy with the reference
+marked uniform: the node's bounds, children and primitive range become scalar
+loads plus broadcasts, the stack push of the children becomes one push, and
+only the ray-dependent tests stay per lane. The general copy is the fallback,
+so a divergent gang traverses per lane as now rather than serializing, which
+is where this differs from a hand-written packet traversal. The value to
+specialize on is nameable already: `sort()` takes tree-arm locations. The same
+directive on a material or light index would give the "sort by material"
+effect at a hit without a sort.
+
+Precedents: ISPC's `uniform` qualifier and its ray tracer's hand-written
+uniform node traversal (static); AMD's GPU compiler's "waterfall loops", which
+peel a divergent operand's distinct values with `readfirstlane` and loop over
+them, one trip when all lanes agree (dynamic and automatic); NVIDIA's uniform
+datapath (static analysis). It composes with the load-and-transpose codegen
+that is done: the uniform copy takes scalar loads, the divergent fallback the
+transposed loads.
+
 ## What has been built, and what it cost
 
 ### Where the time went

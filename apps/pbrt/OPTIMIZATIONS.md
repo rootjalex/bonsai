@@ -241,6 +241,37 @@ The traversal never reads any of them. pbrt separates `RayDifferential` from
 BVH copies at 28 bytes. Worth stating because the fields are only ever used
 together with the ray, which makes putting them on it look natural.
 
+## 10. A load per lane and a transpose in place of gathers -- tried, a loss
+
+Written down so it is not tried again on its own. A gang reading an N-word
+element from each lane's own index -- a BVH node, a triangle's vertices --
+takes N gathers, and profiling book at depth 1 (sixteen lanes, Zen 5) put two
+thirds of the vectorized time inside gather instructions at an IPC of 0.66. So
+the backend was taught to read such an element as a masked 128-bit load per
+lane and block of four words followed by a transpose (Halide's interleave
+network), chosen per read by a cost model with per-target constants, only for
+the words the gang goes on to read.
+
+A microbenchmark of the reads in isolation favoured the transpose by 15 to 35
+percent (a twelve-word node at sixteen lanes, random indices: 25.8 ns per gang
+against 34.9 for gathers; coherent: 24.4 against 33.4). The render said the
+opposite, at depth 1 and 64 spp: killeroo's vectorized time went from 1.465 s
+to 3.08 s, and still 2.78 s once the transpose was limited to reads whose
+fields were statically known; ganesha 10.2 to 14.3 s; bvh-lights 99 to 141 ms;
+book, the one divergent scene, gained 5 percent. Against pbrt, killeroo went
+from 1.42x faster to 1.21x slower. Reverted.
+
+Two things the microbenchmark could not show. The traversal loop already
+saturates the shuffle port with its blends and mask moves and is under
+register pressure, so sixty extra shuffles and sixteen live 128-bit loads per
+node cost far more there than in an empty loop. And on a coherent gang --
+sixteen samples of one pixel at the same node -- a gather's sixteen addresses
+fall in one or two cache lines and it is cheap; the profile's two thirds
+"inside gathers" was the gang fetching the same address sixteen times, which
+is what item 6 of PLAN.md's "What is next" (`specialize(uniform(...))`)
+addresses. If a transpose is ever worth revisiting it is as the divergent
+fallback beside that uniform fast path, judged on the render.
+
 ## Done, kept for the record
 
 - **A leaf's volume bound hoisted out of its element loop** -- item 5.
