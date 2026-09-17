@@ -1,0 +1,106 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
+define void @read_bytes(i32 noundef %n, ptr noundef %table, ptr nocapture noundef readonly %which, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+read_bytes:
+  %extract = load <8 x i32>, ptr %which, align 4
+  %0 = icmp ugt i32 %n, 3
+  br i1 %0, label %extract_words, label %extract_lanes
+
+extract_words:                                    ; preds = %read_bytes
+  %extract_aligned = and <8 x i32> %extract, <i32 -4, i32 -4, i32 -4, i32 -4, i32 -4, i32 -4, i32 -4, i32 -4>
+  %.scalar = add i32 %n, -4
+  %1 = insertelement <8 x i32> poison, i32 %.scalar, i64 0
+  %extract_last = shufflevector <8 x i32> %1, <8 x i32> poison, <8 x i32> zeroinitializer
+  %extract_word_at = tail call <8 x i32> @llvm.umin.v8i32(<8 x i32> %extract_aligned, <8 x i32> %extract_last)
+  %2 = sext <8 x i32> %extract_word_at to <8 x i64>
+  %extract_word_ptrs = getelementptr inbounds i8, ptr %table, <8 x i64> %2
+  %extract_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_word_ptrs, i32 1, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i32> poison)
+  %3 = sub <8 x i32> %extract, %extract_word_at
+  %extract_shift = shl <8 x i32> %3, <i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3>
+  %4 = lshr <8 x i32> %extract_word, %extract_shift
+  %extract4 = trunc <8 x i32> %4 to <8 x i8>
+  br label %extract_after
+
+extract_lanes:                                    ; preds = %read_bytes
+  %5 = sext <8 x i32> %extract to <8 x i64>
+  %extract_ptrs = getelementptr inbounds i8, ptr %table, <8 x i64> %5
+  %extract5 = tail call <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr> %extract_ptrs, i32 1, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i8> poison)
+  br label %extract_after
+
+extract_after:                                    ; preds = %extract_lanes, %extract_words
+  %extract6 = phi <8 x i8> [ %extract4, %extract_words ], [ %extract5, %extract_lanes ]
+  %6 = zext <8 x i8> %extract6 to <8 x i32>
+  store <8 x i32> %6, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
+define void @read_halfwords(ptr noundef %table, ptr nocapture noundef readonly %which, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+read_halfwords:
+  %extract = load <8 x i32>, ptr %which, align 4
+  %extract_off = shl <8 x i32> %extract, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %extract_aligned = and <8 x i32> %extract_off, <i32 -4, i32 -4, i32 -4, i32 -4, i32 -4, i32 -4, i32 -4, i32 -4>
+  %extract_word_at = tail call <8 x i32> @llvm.umin.v8i32(<8 x i32> %extract_aligned, <8 x i32> <i32 18, i32 18, i32 18, i32 18, i32 18, i32 18, i32 18, i32 18>)
+  %0 = zext nneg <8 x i32> %extract_word_at to <8 x i64>
+  %extract_word_ptrs = getelementptr inbounds i8, ptr %table, <8 x i64> %0
+  %extract_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_word_ptrs, i32 2, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i32> poison)
+  %1 = sub <8 x i32> %extract_off, %extract_word_at
+  %extract_shift = shl <8 x i32> %1, <i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3>
+  %2 = lshr <8 x i32> %extract_word, %extract_shift
+  %3 = and <8 x i32> %2, <i32 65535, i32 65535, i32 65535, i32 65535, i32 65535, i32 65535, i32 65535, i32 65535>
+  store <8 x i32> %3, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
+define void @read_nodes(ptr noundef %nodes, ptr nocapture noundef readonly %which, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+read_nodes:
+  %extract = load <8 x i32>, ptr %which, align 4
+  %extract_off = mul <8 x i32> %extract, <i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12>
+  %0 = sext <8 x i32> %extract_off to <8 x i64>
+  %extract_n_prims_word_ptrs = getelementptr inbounds i8, ptr %nodes, <8 x i64> %0
+  %extract_n_prims_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_n_prims_word_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i32> poison)
+  %1 = lshr <8 x i32> %extract_n_prims_word, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
+  %2 = lshr <8 x i32> %extract_n_prims_word, <i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24>
+  %extract_flip_word_at = add <8 x i32> %extract_off, <i32 4, i32 4, i32 4, i32 4, i32 4, i32 4, i32 4, i32 4>
+  %3 = sext <8 x i32> %extract_flip_word_at to <8 x i64>
+  %extract_flip_word_ptrs = getelementptr inbounds i8, ptr %nodes, <8 x i64> %3
+  %extract_flip_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_flip_word_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i32> poison)
+  %4 = and <8 x i32> %extract_n_prims_word, <i32 65535, i32 65535, i32 65535, i32 65535, i32 65535, i32 65535, i32 65535, i32 65535>
+  %5 = and <8 x i32> %1, <i32 255, i32 255, i32 255, i32 255, i32 255, i32 255, i32 255, i32 255>
+  %6 = and <8 x i32> %extract_flip_word, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %7 = add nuw nsw <8 x i32> %2, %4
+  %8 = add nuw nsw <8 x i32> %7, %5
+  %9 = add nuw nsw <8 x i32> %8, %6
+  store <8 x i32> %9, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
+define void @read_tails(ptr noundef %tails, ptr nocapture noundef readonly %which, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+read_tails:
+  %extract = load <8 x i32>, ptr %which, align 4
+  %extract_off = mul <8 x i32> %extract, <i32 5, i32 5, i32 5, i32 5, i32 5, i32 5, i32 5, i32 5>
+  %extract_tag_word_at = add <8 x i32> %extract_off, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %0 = sext <8 x i32> %extract_tag_word_at to <8 x i64>
+  %extract_tag_word_ptrs = getelementptr inbounds i8, ptr %tails, <8 x i64> %0
+  %extract_tag_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_tag_word_ptrs, i32 1, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i32> poison)
+  %1 = lshr <8 x i32> %extract_tag_word, <i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24>
+  store <8 x i32> %1, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x i32> @llvm.umin.v8i32(<8 x i32>, <8 x i32>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, i32 immarg, <8 x i1>, <8 x i32>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr>, i32 immarg, <8 x i1>, <8 x i8>) #2
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

@@ -1,0 +1,75 @@
+//! flags: -p ssa -b llvm
+
+// How a gang gathers a byte, a halfword or a stored bool out of each lane's
+// element (see CodeGen_LLVM::gather_elements and gather_sub_word_elements).
+//
+// What to read for in the golden:
+//
+//   * `read_nodes` gathers one `<8 x i32>` word for `n_prims`, `axis`,
+//     `kind` and `flip` together -- the same word, at offset 0 of the
+//     element, which LLVM then merges into one gather -- and shifts each
+//     field down by its byte position. No `masked.gather.v8i8` or `.v8i16`
+//     appears anywhere in the module.
+//   * `read_tails` reads its byte at offset 4 of a packed five-byte element
+//     as the element's word at offset 1, shifted by 24 bits: the word that
+//     starts at the byte would run into the next element.
+//   * `read_halfwords` knows its array is eleven halfwords, so it clamps the
+//     word to the array's end with `umin` and shifts by a per-lane amount.
+//   * `read_bytes` does not know its length until it runs, so it branches
+//     once for the gang on whether the array is a word long at all.
+//
+// Pinned to a generic machine, as every golden here is: the gathers stay
+// intrinsics rather than instructions, which is what this is about.
+element Node {
+    n_prims : u16;
+    axis : u8;
+    kind : u8;
+    flip : bool;
+    offset : u32;
+}
+
+element [[packed]] Tail {
+    offset : u32;
+    tag : u8;
+}
+
+func [[export]] read_nodes(nodes : array[Node, 8], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        n = nodes[which[i]];
+        out[i] = cast[[i32]](n.n_prims) + cast[[i32]](n.axis) +
+                 cast[[i32]](n.kind) + select(n.flip, 1, 0);
+    }
+    return;
+}
+
+func [[export]] read_tails(tails : array[Tail, 8], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](tails[which[i]].tag);
+    }
+    return;
+}
+
+func [[export]] read_halfwords(table : array[u16, 11], which : array[i32, 8],
+                               out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](table[which[i]]);
+    }
+    return;
+}
+
+func [[export]] read_bytes(n : i32, table : array[u8, n], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](table[which[i]]);
+    }
+    return;
+}
+
+schedule {
+    read_nodes.vectorize(i);
+    read_tails.vectorize(i);
+    read_halfwords.vectorize(i);
+    read_bytes.vectorize(i);
+}

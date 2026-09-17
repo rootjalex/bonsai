@@ -64,6 +64,7 @@ add_bonsai_tests(
     mut-array-param.bonsai
     mutability.bonsai
     struct.bonsai
+    sub-word-gather.bonsai
     unswitch-mutated-cond.bonsai
     vector-bitwise.bonsai
     void-fallthrough.bonsai

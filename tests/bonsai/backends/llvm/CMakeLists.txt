@@ -30,6 +30,7 @@ add_bonsai_tests(
     parfor-sequential.bonsai
     rand-par.bonsai
     rand.bonsai
+    sub-word-gather.bonsai
     short-circuit.bonsai
     simple.bonsai
     sret.bonsai

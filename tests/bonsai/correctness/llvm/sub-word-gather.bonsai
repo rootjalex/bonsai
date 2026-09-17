@@ -1,0 +1,132 @@
+//! flags: -p ssa -b llvm -e
+
+// Gathering bytes, halfwords and stored bools a lane at a time, run.
+//
+// No machine gathers anything narrower than a word, so a gang reading a
+// `u8` field of each lane's own element -- a tree node's axis, an ADT's tag
+// -- is read as part of the aligned word that holds the field and shifted
+// down (see CodeGen_LLVM::gather_elements), and an element of an array of
+// halfwords likewise, with the word pulled back inside the array at its end
+// (see gather_sub_word_elements). What has to come out right is every
+// position a field can take inside a word and every position an element can
+// take at the end of an array; the values below are chosen so that every
+// byte of every word differs, and each gang reads a mixture of them, so a
+// word read at the wrong offset or shifted by the wrong amount shows up as
+// a wrong number rather than a plausible one.
+//
+// `Node` is the shape of pbrt's LinearBVHNode after the six floats: a
+// halfword at offset 0, two bytes, a bool, then a word, twelve bytes. `Tail`
+// is packed to five bytes with its byte at the very end, where the word that
+// holds it has to be the element's last whole word rather than the one the
+// byte starts, since the one the byte starts would run into the next
+// element.
+element Node {
+    n_prims : u16;
+    axis : u8;
+    kind : u8;
+    flip : bool;
+    pad : u8;
+    pad2 : u16;
+    offset : u32;
+}
+
+element [[packed]] Tail {
+    offset : u32;
+    tag : u8;
+}
+
+func node(n_prims : i32, axis : i32, kind : i32, flip : bool,
+          offset : i32) -> Node {
+    return Node{cast[[u16]](n_prims), cast[[u8]](axis), cast[[u8]](kind), flip,
+                cast[[u8]](255), cast[[u16]](65535), cast[[u32]](offset)};
+}
+
+func tail(offset : i32, tag : i32) -> Tail {
+    return Tail{cast[[u32]](offset), cast[[u8]](tag)};
+}
+
+func [[export]] read_nodes(nodes : array[Node, 8], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        n = nodes[which[i]];
+        f = select(n.flip, 1000000, 0);
+        out[i] = cast[[i32]](n.n_prims) * 1000 + cast[[i32]](n.axis) * 10 +
+                 cast[[i32]](n.kind) + f + cast[[i32]](n.offset) * 10000000;
+    }
+    return;
+}
+
+func [[export]] read_tails(tails : array[Tail, 8], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        t = tails[which[i]];
+        out[i] = cast[[i32]](t.tag) + cast[[i32]](t.offset) * 1000;
+    }
+    return;
+}
+
+// A fixed array of halfwords, and one whose length is only known when it
+// is called: the first settles at compile time that a word can be read, the
+// second has to ask.
+func [[export]] read_halfwords(table : array[u16, 11], which : array[i32, 8],
+                               out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](table[which[i]]);
+    }
+    return;
+}
+
+func [[export]] read_bytes(n : i32, table : array[u8, n], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](table[which[i]]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    // nodes[k] = {300 + 37k, k, 9 - k, k % 3 == 1, 7k + 1}.
+    nodes : array[Node, 8] = {
+        node(300, 0, 9, false, 1),  node(337, 1, 8, true, 8),
+        node(374, 2, 7, false, 15), node(411, 3, 6, false, 22),
+        node(448, 4, 5, true, 29),  node(485, 5, 4, false, 36),
+        node(522, 6, 3, false, 43), node(559, 7, 2, true, 50)};
+    // tails[k] = {11k + 5, 200 + k}.
+    tails : array[Tail, 8] = {tail(5, 200),  tail(16, 201), tail(27, 202),
+                              tail(38, 203), tail(49, 204), tail(60, 205),
+                              tail(71, 206), tail(82, 207)};
+    which : array[i32, 8] = {7, 0, 3, 3, 1, 6, 2, 5};
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+    read_nodes(nodes, which, out);
+    for i in 0:8 {
+        print(out[i]);
+    }
+    read_tails(tails, which, out);
+    for i in 0:8 {
+        print(out[i]);
+    }
+
+    table : array[u16, 11] = {100u, 101u, 102u, 103u, 104u, 105u,
+                              106u, 107u, 108u, 109u, 110u};
+    ends : array[i32, 8] = {10, 9, 0, 1, 8, 10, 2, 3};
+    read_halfwords(table, ends, out);
+    for i in 0:8 {
+        print(out[i]);
+    }
+
+    bytes : array[u8, 7] = {10u, 20u, 30u, 40u, 50u, 60u, 70u};
+    last : array[i32, 8] = {6, 5, 4, 0, 6, 1, 3, 2};
+    read_bytes(7, bytes, last, out);
+    for i in 0:8 {
+        print(out[i]);
+    }
+    return 0;
+}
+
+schedule {
+    read_nodes.vectorize(i);
+    read_tails.vectorize(i);
+    read_halfwords.vectorize(i);
+    read_bytes.vectorize(i);
+}

@@ -2415,22 +2415,42 @@ void CodeGen_LLVM::visit(const Extract *node) {
             if (idx->getType() != offsets_t) {
                 idx = builder->CreateIntCast(idx, offsets_t, /*isSigned=*/true);
             }
-            const uint64_t size = module->getDataLayout()
-                                      .getTypeAllocSize(codegen_type(element))
-                                      .getFixedValue();
+            const llvm::DataLayout &dl = module->getDataLayout();
+            llvm::Type *elem_llvm = codegen_type(element);
+            const GatheredElement whole{
+                dl.getTypeAllocSize(elem_llvm).getFixedValue(),
+                dl.getABITypeAlign(elem_llvm).value()};
             llvm::Value *offsets = builder->CreateMul(
-                idx, llvm::ConstantInt::get(offsets_t, size), "extract_off");
+                idx, llvm::ConstantInt::get(offsets_t, whole.bytes),
+                "extract_off");
             llvm::Value *mask =
                 node->mask.defined() ? codegen_expr(node->mask) : nullptr;
-            value = gather_elements(element, node->type, vec, offsets, 0, lanes,
-                                    mask, "extract");
+            value = gather_elements(element, node->type, vec, offsets, 0, whole,
+                                    lanes, mask, "extract");
             return;
+        }
+        // How long the array is, when that is known: a fixed array says so
+        // in its type, a dynamic one carries it beside its buffer. What lets
+        // a sub-word element be read as a whole word (see create_vector_load).
+        // A type's size may name a variable this function does not have --
+        // a layout's count, which the layout knows and its reader does not
+        // -- so only a constant, or a variable that is bound here, counts.
+        llvm::Value *length = nullptr;
+        if (is_dynamic_array_struct_type(node->vec.type())) {
+            length = codegen_expr(Access::make("size", node->vec));
+        } else if (const Array_t *array = vec_expr.type().as<Array_t>();
+                   array != nullptr && array->size.defined()) {
+            const Var *named = array->size.as<Var>();
+            if (as_const_int(array->size) != nullptr ||
+                (named != nullptr && frames.contains(named->name))) {
+                length = codegen_expr(array->size);
+            }
         }
         // Unmasked, every lane of a gang stands for a real iteration and
         // every lane's address is one the program would have read anyway;
         // masked, the disabled lanes do not touch memory (see Extract::mask).
         value = create_vector_load(codegen_type(element), vec, node->idx,
-                                   lanes, node->mask, "extract");
+                                   lanes, node->mask, "extract", length);
         return;
     }
 
@@ -2463,6 +2483,7 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
                                            const ir::Type &wide_t,
                                            llvm::Value *base,
                                            llvm::Value *offsets, uint64_t disp,
+                                           const GatheredElement &whole,
                                            uint32_t lanes, llvm::Value *mask,
                                            const std::string &name) {
     // Every field's address is the one base, plus each lane's 32-bit byte
@@ -2493,7 +2514,7 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
             }
             llvm::Value *field = gather_elements(
                 s->fields[i].type, ws->fields[i].type, base, offsets,
-                disp + layout->getElementOffset(slot), lanes, mask,
+                disp + layout->getElementOffset(slot), whole, lanes, mask,
                 name + "_" + s->fields[i].name);
             result = builder->CreateInsertValue(result, field, unsigned(i));
             slot++;
@@ -2512,7 +2533,7 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
         for (uint32_t c = 0; c < v->lanes; c++) {
             llvm::Value *component = gather_elements(
                 v->etype, ws->fields[c].type, base, offsets, disp + c * esize,
-                lanes, mask, name + "_" + std::to_string(c));
+                whole, lanes, mask, name + "_" + std::to_string(c));
             result = builder->CreateInsertValue(result, component, c);
         }
         return result;
@@ -2529,27 +2550,60 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
             << "[unimplemented] gathering a union of "
             << dl.getTypeAllocSize(elem_llvm).getFixedValue()
             << " bytes, which is not whole words: " << element;
-        const Type word_t = UInt_t::make(32);
         llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
         for (unsigned j = 0; j < words_t->fields.size(); j++) {
-            llvm::Value *word = gather_elements(
-                word_t, Vector_t::make(word_t, lanes), base, offsets,
-                disp + 4 * uint64_t(j), lanes, mask,
-                name + "_w" + std::to_string(j));
+            llvm::Value *word =
+                gather_words(i32_t, base, offsets, disp + 4 * uint64_t(j),
+                             whole.align, lanes, mask,
+                             name + "_w" + std::to_string(j));
             result = builder->CreateInsertValue(result, word, j);
         }
         return result;
     }
 
-    // A scalar: one gather. A boolean is a byte in memory (see
-    // create_vector_load).
+    // A scalar. A boolean is a byte in memory (see create_vector_load).
     if (elem_llvm->isIntegerTy(1)) {
         llvm::Value *bytes = gather_elements(
             UInt_t::make(8), Vector_t::make(UInt_t::make(8), lanes), base,
-            offsets, disp, lanes, mask, name);
+            offsets, disp, whole, lanes, mask, name);
         return builder->CreateTrunc(
             bytes, llvm::FixedVectorType::get(i1_t, lanes), name + "_bits");
     }
+    const uint64_t size = dl.getTypeStoreSize(elem_llvm).getFixedValue();
+    if (size < 4 && whole.bytes >= 4) {
+        // No machine gathers bytes or halfwords, so LLVM takes a gather of
+        // them apart into eight loads behind eight branches, one per lane,
+        // and the branches follow the mask, which the predictor cannot
+        // learn. A tree node's tag, its axis and its primitive count, and
+        // every stored bool, went that way; the three of them together were
+        // a fifth of the vectorized path step. The field is read instead as
+        // part of the aligned word that holds it, which lies inside the
+        // element -- pulled back to the element's last word when the
+        // element's size is not a multiple of four -- and shifted down. One
+        // gather.
+        const uint64_t word = std::min(disp & ~uint64_t(3), whole.bytes - 4);
+        const uint64_t shift = (disp - word) * 8;
+        llvm::Value *words = gather_words(i32_t, base, offsets, word,
+                                          whole.align, lanes, mask,
+                                          name + "_word");
+        if (shift != 0) {
+            words = builder->CreateLShr(
+                words, llvm::ConstantInt::get(words->getType(), shift));
+        }
+        return builder->CreateTrunc(
+            words, llvm::FixedVectorType::get(elem_llvm, lanes), name);
+    }
+    return gather_words(elem_llvm, base, offsets, disp, whole.align, lanes,
+                        mask, name);
+}
+
+llvm::Value *CodeGen_LLVM::gather_words(llvm::Type *elem_llvm,
+                                        llvm::Value *base,
+                                        llvm::Value *offsets, uint64_t disp,
+                                        uint64_t align, uint32_t lanes,
+                                        llvm::Value *mask,
+                                        const std::string &name) {
+    const llvm::DataLayout &dl = module->getDataLayout();
     llvm::Value *at = offsets;
     if (disp != 0) {
         at = builder->CreateAdd(
@@ -2562,9 +2616,46 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
                           ? mask
                           : llvm::Constant::getAllOnesValue(
                                 llvm::FixedVectorType::get(i1_t, lanes));
-    return builder->CreateMaskedGather(vtype, ptrs, dl.getABITypeAlign(elem_llvm),
-                                       on, llvm::Constant::getNullValue(vtype),
+    // No more aligned than the element is: a field of a packed element, or
+    // a word read across one, starts wherever the element does.
+    const uint64_t claimed =
+        std::min<uint64_t>(dl.getABITypeAlign(elem_llvm).value(),
+                           std::max<uint64_t>(align, 1));
+    return builder->CreateMaskedGather(vtype, ptrs, llvm::Align(claimed), on,
+                                       llvm::Constant::getNullValue(vtype),
                                        name);
+}
+
+llvm::Value *CodeGen_LLVM::gather_sub_word_elements(
+    llvm::Type *etype, llvm::Value *base, llvm::Value *offsets,
+    llvm::Value *total_bytes, uint32_t lanes, llvm::Value *mask,
+    const std::string &name) {
+    // The aligned word holding each lane's element, kept inside the array:
+    // an element in the array's last partial word is read as part of the
+    // array's last whole word instead, and shifted down by however far it
+    // sits into that word. The same reason as the field case in
+    // gather_elements; here the bound is the array's, known only at run
+    // time, which is why the caller has to have checked there is a word to
+    // read at all.
+    llvm::Type *offsets_t = offsets->getType();
+    llvm::Value *aligned = builder->CreateAnd(
+        offsets, llvm::ConstantInt::get(offsets_t, ~uint64_t(3)), name + "_aligned");
+    llvm::Value *last = builder->CreateSub(
+        builder->CreateVectorSplat(lanes, total_bytes),
+        llvm::ConstantInt::get(offsets_t, 4), name + "_last");
+    llvm::Value *word_at = builder->CreateBinaryIntrinsic(
+        llvm::Intrinsic::umin, aligned, last, nullptr, name + "_word_at");
+    // The array's own alignment is its element's, so the word may straddle
+    // whatever the element does not.
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Value *words =
+        gather_words(i32_t, base, word_at, 0, dl.getABITypeAlign(etype).value(),
+                     lanes, mask, name + "_word");
+    llvm::Value *shift = builder->CreateShl(
+        builder->CreateSub(offsets, word_at), llvm::ConstantInt::get(offsets_t, 3),
+        name + "_shift");
+    return builder->CreateTrunc(builder->CreateLShr(words, shift),
+                                llvm::FixedVectorType::get(etype, lanes), name);
 }
 
 llvm::Value *CodeGen_LLVM::multiply_high(llvm::Value *a, llvm::Value *b,
@@ -4938,14 +5029,15 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
                                               llvm::Value *base,
                                               const Expr &index, uint32_t lanes,
                                               const Expr &mask_expr,
-                                              const std::string &name) {
+                                              const std::string &name,
+                                              llvm::Value *length) {
     // A boolean occupies a byte in memory -- that is what the scalar path
     // stores and what the C++ side of an exported function sees -- while a
     // vector of i1 is bit-packed. So booleans are loaded a byte per lane and
     // narrowed afterwards, or eight lanes would come out of a single byte.
     if (etype->isIntegerTy(1)) {
-        llvm::Value *bytes =
-            create_vector_load(i8_t, base, index, lanes, mask_expr, name);
+        llvm::Value *bytes = create_vector_load(i8_t, base, index, lanes,
+                                                mask_expr, name, length);
         return builder->CreateTrunc(
             bytes, llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false),
             name + "_bits");
@@ -4979,8 +5071,63 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
                                          name);
     }
 
-    llvm::Value *ptrs =
-        element_addresses(etype, base, codegen_expr(index), name + "_ptrs");
+    llvm::Value *indices = codegen_expr(index);
+    const uint64_t esize = dl.getTypeStoreSize(etype).getFixedValue();
+    if (esize < 4 && length != nullptr &&
+        indices->getType()->getScalarType()->getIntegerBitWidth() <= 32) {
+        // A byte or halfword per lane, read as part of the word that holds
+        // it rather than lane by lane behind a branch each (see
+        // gather_elements and gather_sub_word_elements). The array has to be
+        // a word long for that to have a word to read: settled here when its
+        // length is a constant, and by a branch the gang takes together when
+        // it is not.
+        llvm::Type *offsets_t = llvm::FixedVectorType::get(i32_t, lanes);
+        llvm::Value *offsets = builder->CreateMul(
+            builder->CreateIntCast(indices, offsets_t, /*isSigned=*/true),
+            llvm::ConstantInt::get(offsets_t, esize), name + "_off");
+        llvm::Value *total = builder->CreateMul(
+            builder->CreateIntCast(length, i32_t, /*isSigned=*/false),
+            llvm::ConstantInt::get(i32_t, esize), name + "_bytes");
+        if (mask == nullptr) {
+            mask = llvm::Constant::getAllOnesValue(
+                llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
+        }
+        if (const auto *known = llvm::dyn_cast<llvm::ConstantInt>(total)) {
+            if (known->getZExtValue() >= 4) {
+                return gather_sub_word_elements(etype, base, offsets, total,
+                                                lanes, mask, name);
+            }
+        } else {
+            llvm::BasicBlock *words_bb = llvm::BasicBlock::Create(
+                *context, name + "_words", current_function);
+            llvm::BasicBlock *lanes_bb = llvm::BasicBlock::Create(
+                *context, name + "_lanes", current_function);
+            llvm::BasicBlock *after_bb = llvm::BasicBlock::Create(
+                *context, name + "_after", current_function);
+            builder->CreateCondBr(
+                builder->CreateICmpUGE(total, llvm::ConstantInt::get(i32_t, 4)),
+                words_bb, lanes_bb);
+            builder->SetInsertPoint(words_bb);
+            llvm::Value *as_words = gather_sub_word_elements(
+                etype, base, offsets, total, lanes, mask, name);
+            llvm::BasicBlock *words_end = builder->GetInsertBlock();
+            builder->CreateBr(after_bb);
+            builder->SetInsertPoint(lanes_bb);
+            llvm::Value *ptrs =
+                element_addresses(etype, base, indices, name + "_ptrs");
+            llvm::Value *as_lanes = builder->CreateMaskedGather(
+                vtype, ptrs, dl.getABITypeAlign(etype), mask,
+                llvm::Constant::getNullValue(vtype), name);
+            builder->CreateBr(after_bb);
+            builder->SetInsertPoint(after_bb);
+            llvm::PHINode *phi = builder->CreatePHI(vtype, 2, name);
+            phi->addIncoming(as_words, words_end);
+            phi->addIncoming(as_lanes, lanes_bb);
+            return phi;
+        }
+    }
+
+    llvm::Value *ptrs = element_addresses(etype, base, indices, name + "_ptrs");
     if (mask == nullptr) {
         mask = llvm::Constant::getAllOnesValue(
             llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));

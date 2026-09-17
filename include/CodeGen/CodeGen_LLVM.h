@@ -341,14 +341,42 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *element_addresses(llvm::Type *element, llvm::Value *base,
                                    llvm::Value *indices,
                                    const std::string &name);
+    // The whole element a gather reads fields out of: how many bytes each
+    // lane's element occupies and how its start is aligned. What decides
+    // whether a byte or halfword field can be read as part of the aligned
+    // word that holds it (see gather_elements).
+    struct GatheredElement {
+        uint64_t bytes;
+        uint64_t align;
+    };
     // One value of `element` per lane, each at `base` plus that lane's 32-bit
     // byte offset in `offsets` plus `disp`, gathered field by field into the
     // gang-wide form `wide_t` (ir::widen(element)); `mask` says which lanes
-    // load, or is null for all of them.
+    // load, or is null for all of them. `whole` is the outermost element the
+    // offsets point at, which the recursion carries down unchanged.
     llvm::Value *gather_elements(const ir::Type &element, const ir::Type &wide_t,
                                  llvm::Value *base, llvm::Value *offsets,
-                                 uint64_t disp, uint32_t lanes,
-                                 llvm::Value *mask, const std::string &name);
+                                 uint64_t disp, const GatheredElement &whole,
+                                 uint32_t lanes, llvm::Value *mask,
+                                 const std::string &name);
+    // One 32-bit word per lane at `base` plus that lane's byte offset in
+    // `offsets` (32-bit) plus `disp`: the gather every field of an element
+    // comes down to. `align` is what the addresses are known to be aligned
+    // to.
+    llvm::Value *gather_words(llvm::Type *elem_llvm, llvm::Value *base,
+                              llvm::Value *offsets, uint64_t disp,
+                              uint64_t align, uint32_t lanes, llvm::Value *mask,
+                              const std::string &name);
+    // A sub-word element -- a byte or a halfword -- from each lane's 32-bit
+    // byte offset into an array of them, read as part of the aligned word
+    // that holds it. `total_bytes` is the array's size in bytes, which the
+    // caller has established is at least a word, so that the word can be
+    // kept inside the array at its end.
+    llvm::Value *gather_sub_word_elements(llvm::Type *etype, llvm::Value *base,
+                                          llvm::Value *offsets,
+                                          llvm::Value *total_bytes,
+                                          uint32_t lanes, llvm::Value *mask,
+                                          const std::string &name);
 
     // An alloca at the top of the current function's entry block: where a
     // callee returning through a hidden pointer puts its result. In the entry
@@ -504,10 +532,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     // gather/scatter over a vector of addresses.
     // `mask`, when defined, is a boolean vector disabling the lanes that must
     // not touch memory.
+    // `length`, when known, is how many elements the array holds: what lets a
+    // byte or halfword element be gathered as part of a whole word without
+    // reading past the array's end (see gather_sub_word_elements).
     llvm::Value *create_vector_load(llvm::Type *etype, llvm::Value *base,
                                     const ir::Expr &index, uint32_t lanes,
                                     const ir::Expr &mask,
-                                    const std::string &name);
+                                    const std::string &name,
+                                    llvm::Value *length = nullptr);
     void create_vector_store(llvm::Value *value, llvm::Type *etype,
                              llvm::Value *base, const ir::Expr &index,
                              uint32_t lanes, const ir::Expr &mask);
