@@ -103,6 +103,13 @@ namespace {
 // parsed scene and PBRT's own camera are both in scope; see the block there.
 bool g_print_differentials = false;
 
+// Set by `--maxdepth`: the path depth the renderer is given in place of the
+// scene's, for timing the primary hits alone. Zero for "the scene decides".
+// Only the dump sees it -- PBRT reads its depth from the scene file and has no
+// flag for it -- so an image rendered with this is not one to compare against
+// PBRT's.
+int g_max_depth_override = 0;
+
 // PBRT hands the camera and the film to BasicScene through methods that keep
 // them to itself, and the renderer needs the resolution and the field of view
 // rather than a constructed Camera. So this listens in: the parser's calls go
@@ -2908,8 +2915,9 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // on PBRT.
     out.seed = pbrt::GetOptions().seed;
     // The same depth the reference render uses, so that the two integrators are
-    // asked to go equally far.
-    out.max_depth = builder.integrator_max_depth;
+    // asked to go equally far -- unless `--maxdepth` asked for another.
+    out.max_depth = g_max_depth_override > 0 ? g_max_depth_override
+                                             : builder.integrator_max_depth;
     // Which integrator, refused rather than substituted. A scene that names
     // `volpath` and gets a random walk is an image that answers a question
     // nobody asked, and it would look plausible -- which is worse than an
@@ -4203,6 +4211,15 @@ int main(int argc, char **argv) {
                 fail("--spp needs a positive sample count");
             }
             spp_override = n;
+        } else if (arg == "--maxdepth") {
+            if (i + 1 >= argc) {
+                fail("--maxdepth needs a depth");
+            }
+            const int n = atoi(argv[++i]);
+            if (n < 1) {
+                fail("--maxdepth needs a positive depth");
+            }
+            g_max_depth_override = n;
         } else if (arg == "--repeats") {
             // Accepted and ignored: it timed the reference render that used to
             // live here, and compare.sh still passes it. The repeats that
@@ -4217,7 +4234,7 @@ int main(int argc, char **argv) {
     }
     if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
         !light_only && !shape_sample_only && positional.size() != 2) {
-        fail("usage: scene_dump [--pbrt-tree] [--spp <n>]"
+        fail("usage: scene_dump [--pbrt-tree] [--spp <n>] [--maxdepth <n>]"
              " [--disable-pixel-jitter] <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
              "       scene_dump --print-sampler\n"
