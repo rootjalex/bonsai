@@ -613,10 +613,8 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     // The widest vector register the target has, in bits: what a stack slot
     // an aggregate lives in is aligned to, so that a store of a whole
-    // register into it cannot fault, and the width LLVM is told to prefer,
-    // so that a gang as wide as the register runs as one operation per
-    // instruction rather than being split. The target-agnostic answer is
-    // the RNG's; a target with wider registers says so (see CodeGen_X86).
+    // register into it cannot fault. The target-agnostic answer is the
+    // RNG's; a target with wider registers says so (see CodeGen_X86).
     virtual int vector_register_bits() const { return native_vector_bits(); }
 
     bool is_llvm_const_one(llvm::Value *value) const {

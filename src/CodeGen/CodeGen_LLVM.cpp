@@ -97,6 +97,43 @@ bool CodeGen_LLVM::has_feature(const std::string &feature) const {
 }
 namespace {
 
+// The widest vector type a function touches, in bits: its arguments, its
+// result and every instruction's operands and result, looking inside
+// aggregates since a gang's struct of vectors is loaded and stored whole.
+// What clang sets `min-legal-vector-width` from (see optimize_module): the
+// width a function's own values need in one register, so that a sixteen-lane
+// gang value is one zmm in the function that has one and a function with
+// nothing wider than a `<3 x float>` is under no such requirement.
+unsigned widest_vector_bits(const llvm::Function &function,
+                            const llvm::DataLayout &dl) {
+    unsigned widest = 0;
+    std::function<void(llvm::Type *)> note = [&](llvm::Type *t) {
+        if (auto *v = llvm::dyn_cast<llvm::FixedVectorType>(t)) {
+            widest = std::max<unsigned>(
+                widest, unsigned(dl.getTypeSizeInBits(v).getFixedValue()));
+        } else if (auto *s = llvm::dyn_cast<llvm::StructType>(t)) {
+            for (llvm::Type *element : s->elements()) {
+                note(element);
+            }
+        } else if (auto *a = llvm::dyn_cast<llvm::ArrayType>(t)) {
+            note(a->getElementType());
+        }
+    };
+    for (const llvm::Argument &arg : function.args()) {
+        note(arg.getType());
+    }
+    note(function.getReturnType());
+    for (const llvm::BasicBlock &block : function) {
+        for (const llvm::Instruction &inst : block) {
+            note(inst.getType());
+            for (const llvm::Value *operand : inst.operands()) {
+                note(operand->getType());
+            }
+        }
+    }
+    return widest;
+}
+
 // Returns the `printf` function for this module. If none exists, it is created.
 static llvm::Function *retrieve_printf(llvm::Module &m) {
     llvm::Function *printf;
@@ -153,13 +190,12 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
             // on a machine with AVX-512 or Intel's fast-gather tuning, and
             // scalarizes it everywhere else -- one extract, load and insert
             // per lane -- which on an AMD host with the feature stripped was
-            // the whole of a gang's memory traffic. The register width LLVM
-            // is told to use is the machine's too (`prefer-vector-width` and
-            // `min-legal-vector-width` on every function, see
-            // optimize_module), and a stack slot an aggregate lives in is
-            // aligned to it (see create_alloca_at_entry): with the registers
-            // at 512 bits and the slots aligned to 256, a memset of a widened
-            // local once faulted.
+            // the whole of a gang's memory traffic. Each function is then
+            // told the width its own values need (`min-legal-vector-width`,
+            // see optimize_module), and a stack slot an aggregate lives in is
+            // aligned to the register (see create_alloca_at_entry): with the
+            // registers at 512 bits and the slots aligned to 256, a memset of
+            // a widened local once faulted.
             features.AddFeature(feature.first(), feature.second);
         }
         target_features = features.getString();
@@ -726,18 +762,25 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     }
 
     for (auto &function : *module) {
-        // The machine's own register width: a gang is one register wide
-        // (sixteen lanes in a zmm), and with less preferred LLVM would split
-        // each of its operations in two. Both attributes, as clang sets them
-        // for -mprefer-vector-width: without `min-legal-vector-width` LLVM
-        // decides the width from the types it sees rather than from the
-        // preference. Only when following the host, so that a named --mcpu,
-        // and the golden IR diffed under one, keeps its attributes as they
-        // were.
+        // As clang does: `min-legal-vector-width` is the widest vector type
+        // the function itself holds, so a function with a sixteen-lane gang
+        // value in it keeps that value in one 512-bit register whatever the
+        // CPU's tuning prefers, and a function with nothing wider than a
+        // `<3 x float>` leaves the auto-vectorizers to the tuning -- 256 bits
+        // on the Intel parts whose clocks drop under 512-bit code, 512 on
+        // Zen 4 and 5, which is what clang would give scalar code on the
+        // same machine. Setting a preference of 512 on every function put
+        // 512-bit code into the scalar render; pinning 256 on every function,
+        // as this once did, split every sixteen-lane operation in two. The
+        // inliner takes the maximum across an inlined call, so a gang
+        // function folded into a caller raises the caller's. Only when
+        // following the host, so that a named --mcpu, and the golden IR
+        // diffed under one, keeps its attributes as they were.
         if (follows_host) {
-            const std::string bits = std::to_string(vector_register_bits());
-            function.addFnAttr("prefer-vector-width", bits);
-            function.addFnAttr("min-legal-vector-width", bits);
+            function.addFnAttr(
+                "min-legal-vector-width",
+                std::to_string(
+                    widest_vector_bits(function, module->getDataLayout())));
         }
         if (false) { // get_target().has_feature(Target::ASAN)
             function.addFnAttr(llvm::Attribute::SanitizeAddress);
