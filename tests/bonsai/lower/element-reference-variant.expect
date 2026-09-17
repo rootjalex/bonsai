@@ -14,13 +14,13 @@ type Transform = struct Transform{ m0 : f32x3; m1 : f32x3; m2 : f32x3; m3 : f32x
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
 type __tuple_0 = struct __tuple_0{ _field0 : u64; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
-type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : struct _ref0{ tag : u8; payload : union _ref0_payload{ _ref0_0 : struct _ref0_0{ idx0 : u32 }; _ref0_1 : struct _ref0_1{ idx0 : u32 } } } }
-type __tuple_2 = struct __tuple_2{ _field0 : f32; _field1 : struct __tuple_1{ _field0 : u32; _field1 : struct _ref0{ tag : u8; payload : union _ref0_payload{ _ref0_0 : struct _ref0_0{ idx0 : u32 }; _ref0_1 : struct _ref0_1{ idx0 : u32 } } } } }
+type __tuple_1 = struct __tuple_1{ _field0 : u32; _field1 : struct _ref0{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 } }
+type __tuple_2 = struct __tuple_2{ _field0 : f32; _field1 : struct __tuple_1{ _field0 : u32; _field1 : struct _ref0{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 } } }
 type __tuple_3 = struct __tuple_3{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
 type _option0 = struct _option0{ value : struct __tuple_0{ _field0 : u64; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
-type _ref0 = struct _ref0{ tag : u8; payload : union _ref0_payload{ _ref0_0 : struct _ref0_0{ idx0 : u32 }; _ref0_1 : struct _ref0_1{ idx0 : u32 } } }
+type _ref0 = struct _ref0{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
 type _ref0_0 = struct _ref0_0{ idx0 : u32 }
 type _ref0_1 = struct _ref0_1{ idx0 : u32 }
 type _tree_layout0 = [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[bCount]; pCount : u32; elems : u64[pCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[nCount] }
@@ -64,10 +64,10 @@ func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : mut Solo[], Prim_Solo_fill :
 func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]) -> Triangle {
   switch (_matched.tag) {
   case 0: {
-    return Prim_Solo_pool[prims.elems[_matched.payload._ref0_0.idx0] & 72057594037927935u].tri
+    return Prim_Solo_pool[prims.elems[build<_ref0_0>(_matched.payload[0u]).idx0] & 72057594037927935u].tri
   } break;
   default: {
-    return prims.tris[_matched.payload._ref0_1.idx0]
+    return prims.tris[build<_ref0_1>(_matched.payload[0u]).idx0]
   }
   }
 }
@@ -91,7 +91,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
             if (intersects_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
               if (0.001f < distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
                 if (distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri) < (*_best0)._field0) {
-                  _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(0u, _ref0_payload{._ref0_0 = build<_ref0_0>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0)})))
+                  _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0))))
                 }
               }
             }
@@ -125,7 +125,7 @@ func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray
           if (intersects_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
             if (0.001f < distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
               if (distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]) < (*_best0)._field0) {
-                _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(1u, _ref0_payload{._ref0_1 = build<_ref0_1>(reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1)})))
+                _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1))))
               }
             }
           }

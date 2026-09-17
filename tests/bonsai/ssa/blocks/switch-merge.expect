@@ -1,48 +1,68 @@
 ; === ssa preschedule ===
 ; --- Blob_Split (lowered via statements) ---
 func Blob_Split(_ret0 : (Blob*), lo : i32, hi : i32): 
-  @0 = make_struct<Split>(lo, hi)
-  @1 = make_union<Blob_payload>(@0, (u32)1)
-  @2 = make_struct<Blob>((u8)1, @1)
-  store _ret0 @2
+  @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
+  @1 = reinterpret<u32>(lo)
+  @2 = reinterpret<u32>(hi)
+  @3 = make_struct<[[packed]] u32x8>(@1, @2, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0)
+  @4 = make_struct<Blob>((u8)1, @0, @3)
+  store _ret0 @4
   ret
 
 ; --- Blob_Whole (lowered via statements) ---
 func Blob_Whole(_ret1 : (Blob*), x : f32): 
-  @0 = make_struct<Whole>(x)
-  @1 = make_union<Blob_payload>(@0, (u32)0)
-  @2 = make_struct<Blob>((u8)0, @1)
-  store _ret1 @2
+  @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
+  @1 = reinterpret<u32>(x)
+  @2 = make_struct<[[packed]] u32x8>(@1, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0)
+  @3 = make_struct<Blob>((u8)0, @0, @2)
+  store _ret1 @3
   ret
 
 ; --- Blob_Wide (lowered via statements) ---
 func Blob_Wide(_ret2 : (Blob*), v : f32x3, neg : bool): 
-  @0 = make_struct<Wide>(v, neg)
-  @1 = make_union<Blob_payload>(@0, (u32)2)
-  @2 = make_struct<Blob>((u8)2, @1)
-  store _ret2 @2
+  @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
+  @1 = extract_idx(v, (u32)0)
+  @2 = reinterpret<u32>(@1)
+  @3 = extract_idx(v, (u32)1)
+  @4 = reinterpret<u32>(@3)
+  @5 = extract_idx(v, (u32)2)
+  @6 = reinterpret<u32>(@5)
+  @7 = cast<u32>(neg)
+  @8 = make_struct<[[packed]] u32x8>(@2, @4, @6, (u32)0, @7, (u32)0, (u32)0, (u32)0)
+  @9 = make_struct<Blob>((u8)2, @0, @8)
+  store _ret2 @9
   ret
 
 ; --- _unexported_Blob_Split (lowered via statements) ---
 func _unexported_Blob_Split(lo : i32, hi : i32): 
-  @0 = make_struct<Split>(lo, hi)
-  @1 = make_union<Blob_payload>(@0, (u32)1)
-  @2 = make_struct<Blob>((u8)1, @1)
-  ret @2
+  @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
+  @1 = reinterpret<u32>(lo)
+  @2 = reinterpret<u32>(hi)
+  @3 = make_struct<[[packed]] u32x8>(@1, @2, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0)
+  @4 = make_struct<Blob>((u8)1, @0, @3)
+  ret @4
 
 ; --- _unexported_Blob_Whole (lowered via statements) ---
 func _unexported_Blob_Whole(x : f32): 
-  @0 = make_struct<Whole>(x)
-  @1 = make_union<Blob_payload>(@0, (u32)0)
-  @2 = make_struct<Blob>((u8)0, @1)
-  ret @2
+  @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
+  @1 = reinterpret<u32>(x)
+  @2 = make_struct<[[packed]] u32x8>(@1, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0, (u32)0)
+  @3 = make_struct<Blob>((u8)0, @0, @2)
+  ret @3
 
 ; --- _unexported_Blob_Wide (lowered via statements) ---
 func _unexported_Blob_Wide(v : f32x3, neg : bool): 
-  @0 = make_struct<Wide>(v, neg)
-  @1 = make_union<Blob_payload>(@0, (u32)2)
-  @2 = make_struct<Blob>((u8)2, @1)
-  ret @2
+  @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
+  @1 = extract_idx(v, (u32)0)
+  @2 = reinterpret<u32>(@1)
+  @3 = extract_idx(v, (u32)1)
+  @4 = reinterpret<u32>(@3)
+  @5 = extract_idx(v, (u32)2)
+  @6 = reinterpret<u32>(@5)
+  @7 = cast<u32>(neg)
+  @8 = make_struct<[[packed]] u32x8>(@2, @4, @6, (u32)0, @7, (u32)0, (u32)0, (u32)0)
+  @9 = make_struct<Blob>((u8)2, @0, @8)
+  ret @9
 
 ; --- weigh (lowered via statements) ---
 func weigh(b : (Blob*), k : f32): 
@@ -53,15 +73,15 @@ func weigh(b : (Blob*), k : f32):
   dispatch @1 [!case_1(b, acc), !case_2(b), !merge_0(acc)]
 
 !merge_0(acc : (f32*)): // preds: !case_1, weigh
-  @16 = load(acc)
-  @17 = mul(@16, (f32)3)
-  ret @17
+  @17 = load(acc)
+  @18 = mul(@17, (f32)3)
+  ret @18
 
 !case_1(b : (Blob*), acc : (f32*)): // preds: weigh
   @2 = load(b)
-  @3 = load_field(@2, (u32)1)
-  @4 = load_member(@3, (u32)0)
-  x = load_field(@4, (u32)0)
+  @3 = load_field(@2, (u32)2)
+  @4 = extract_idx(@3, (u32)0)
+  x = reinterpret<f32>(@4)
   @6 = load(acc)
   @7 = mul(x, (f32)2)
   @8 = add(@6, @7)
@@ -70,15 +90,16 @@ func weigh(b : (Blob*), k : f32):
 
 !case_2(b : (Blob*)): // preds: weigh
   @9 = load(b)
-  @10 = load_field(@9, (u32)1)
-  _t76 = load_member(@10, (u32)1)
-  lo = load_field(_t76, (u32)0)
-  hi = load_field(_t76, (u32)1)
-  @14 = add(lo, hi)
-  @15 = cast<f32>(@14)
-  ret @15
+  _t26 = load_field(@9, (u32)2)
+  @11 = extract_idx(_t26, (u32)0)
+  lo = reinterpret<i32>(@11)
+  @13 = extract_idx(_t26, (u32)1)
+  hi = reinterpret<i32>(@13)
+  @15 = add(lo, hi)
+  @16 = cast<f32>(@15)
+  ret @16
 
-type Blob = struct Blob{ tag : u8; payload : union Blob_payload{ Whole : struct Whole{ x : f32 }; Split : struct Split{ lo : i32; hi : i32 }; Wide : struct Wide{ v : f32x3; neg : bool } } }
+type Blob = struct Blob{ tag : u8; _pad : [[packed]] u8x15; payload : [[packed]] u32x8 }
 type Float = f32
 type Half = f16
 type Split = struct Split{ lo : i32; hi : i32 }
@@ -90,48 +111,68 @@ type vec3h = f16x3
 type vec4f = f32x4
 
 func [[export]] Blob_Split(_ret0 : mut (Blob*), lo : i32, hi : i32) -> void {
-  let @0 = build<Split>(lo, hi) in
-  let @1 = Blob_payload{.Split = @0} in
-  let @2 = build<Blob>(1u, @1) in
-  _ret0 = @2
+  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(lo) in
+  let @2 = reinterpret_cast<u32>(hi) in
+  let @3 = build<[[packed]] u32x8>(@1, @2, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @4 = build<Blob>(1u, @0, @3) in
+  _ret0 = @4
   return
 }
 
 func [[export]] Blob_Whole(_ret1 : mut (Blob*), x : f32) -> void {
-  let @0 = build<Whole>(x) in
-  let @1 = Blob_payload{.Whole = @0} in
-  let @2 = build<Blob>(0u, @1) in
-  _ret1 = @2
+  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(x) in
+  let @2 = build<[[packed]] u32x8>(@1, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @3 = build<Blob>(0u, @0, @2) in
+  _ret1 = @3
   return
 }
 
 func [[export]] Blob_Wide(_ret2 : mut (Blob*), v : f32x3, neg : bool) -> void {
-  let @0 = build<Wide>(v, neg) in
-  let @1 = Blob_payload{.Wide = @0} in
-  let @2 = build<Blob>(2u, @1) in
-  _ret2 = @2
+  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @1 = v[0u] in
+  let @2 = reinterpret_cast<u32>(@1) in
+  let @3 = v[1u] in
+  let @4 = reinterpret_cast<u32>(@3) in
+  let @5 = v[2u] in
+  let @6 = reinterpret_cast<u32>(@5) in
+  let @7 = cast<u32>(neg) in
+  let @8 = build<[[packed]] u32x8>(@2, @4, @6, 0u, @7, 0u, 0u, 0u) in
+  let @9 = build<Blob>(2u, @0, @8) in
+  _ret2 = @9
   return
 }
 
 func _unexported_Blob_Split(lo : i32, hi : i32) -> Blob {
-  let @0 = build<Split>(lo, hi) in
-  let @1 = Blob_payload{.Split = @0} in
-  let @2 = build<Blob>(1u, @1) in
-  return @2
+  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(lo) in
+  let @2 = reinterpret_cast<u32>(hi) in
+  let @3 = build<[[packed]] u32x8>(@1, @2, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @4 = build<Blob>(1u, @0, @3) in
+  return @4
 }
 
 func _unexported_Blob_Whole(x : f32) -> Blob {
-  let @0 = build<Whole>(x) in
-  let @1 = Blob_payload{.Whole = @0} in
-  let @2 = build<Blob>(0u, @1) in
-  return @2
+  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(x) in
+  let @2 = build<[[packed]] u32x8>(@1, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @3 = build<Blob>(0u, @0, @2) in
+  return @3
 }
 
 func _unexported_Blob_Wide(v : f32x3, neg : bool) -> Blob {
-  let @0 = build<Wide>(v, neg) in
-  let @1 = Blob_payload{.Wide = @0} in
-  let @2 = build<Blob>(2u, @1) in
-  return @2
+  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
+  let @1 = v[0u] in
+  let @2 = reinterpret_cast<u32>(@1) in
+  let @3 = v[1u] in
+  let @4 = reinterpret_cast<u32>(@3) in
+  let @5 = v[2u] in
+  let @6 = reinterpret_cast<u32>(@5) in
+  let @7 = cast<u32>(neg) in
+  let @8 = build<[[packed]] u32x8>(@2, @4, @6, 0u, @7, 0u, 0u, 0u) in
+  let @9 = build<Blob>(2u, @0, @8) in
+  return @9
 }
 
 func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
@@ -143,8 +184,8 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   case 0: {
     let @2 = (*b) in
     let @3 = @2.payload in
-    let @4 = @3.Whole in
-    let x = @4.x in
+    let @4 = @3[0u] in
+    let x = reinterpret_cast<f32>(@4) in
     let @6 = (*acc) in
     let @7 = x * 2f in
     let @8 = @6 + @7 in
@@ -152,20 +193,21 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   } break;
   case 1: {
     let @9 = (*b) in
-    let @10 = @9.payload in
-    let _t76 = @10.Split in
-    let lo = _t76.lo in
-    let hi = _t76.hi in
-    let @14 = lo + hi in
-    let @15 = cast<f32>(@14) in
-    return @15
+    let _t26 = @9.payload in
+    let @11 = _t26[0u] in
+    let lo = reinterpret_cast<i32>(@11) in
+    let @13 = _t26[1u] in
+    let hi = reinterpret_cast<i32>(@13) in
+    let @15 = lo + hi in
+    let @16 = cast<f32>(@15) in
+    return @16
   } break;
   default: {
   }
   }
-  let @16 = (*acc) in
-  let @17 = @16 * 3f in
-  return @17
+  let @17 = (*acc) in
+  let @18 = @17 * 3f in
+  return @18
 }
 
 

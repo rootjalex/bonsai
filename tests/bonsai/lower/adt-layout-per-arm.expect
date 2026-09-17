@@ -1,7 +1,7 @@
 type Big = struct Big{ a : f32x4; b : f32x4; c : f32x4; d : f32x4 }
 type Float = f32
 type Half = f16
-type Item = struct Item{ tag : u8; payload : union Item_payload{ Small : struct Small{ x : f32 }; Large : u32 } }
+type Item = struct Item{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
 type Large = struct Large{ big : struct Big{ a : f32x4; b : f32x4; c : f32x4; d : f32x4 } }
 type Small = struct Small{ x : f32 }
 type vec2f = f32x2
@@ -13,7 +13,7 @@ extern Item_Large_pool : struct Large{ big : struct Big{ a : f32x4; b : f32x4; c
 extern Item_Large_fill : u64[]
 
 func [[export]] Item_Large(_ret0 : mut (Item*), big : (Big*), Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> void {
-  _ret0 = build<Item>(1u, Item_payload{.Large = Item_Large_new((*big), Item_Large_pool, Item_Large_fill)})
+  _ret0 = build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new((*big), Item_Large_pool, Item_Large_fill)))
   return
 }
 
@@ -24,46 +24,46 @@ func Item_Large_new(big : Big, Item_Large_pool : mut Large[], Item_Large_fill : 
 }
 
 func [[export]] Item_Small(_ret1 : mut (Item*), x : f32) -> void {
-  _ret1 = build<Item>(0u, Item_payload{.Small = build<Small>(x)})
+  _ret1 = build<Item>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(x)))
   return
 }
 
 func _unexported_Item_Large(big : Big, Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> Item {
-  return build<Item>(1u, Item_payload{.Large = Item_Large_new(big, Item_Large_pool, Item_Large_fill)})
+  return build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new(big, Item_Large_pool, Item_Large_fill)))
 }
 
 func _unexported_Item_Small(x : f32) -> Item {
-  return build<Item>(0u, Item_payload{.Small = build<Small>(x)})
+  return build<Item>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(x)))
 }
 
 func _unexported_large(big : Big, Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> Item {
-  return build<Item>(1u, Item_payload{.Large = Item_Large_new(big, Item_Large_pool, Item_Large_fill)})
+  return build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new(big, Item_Large_pool, Item_Large_fill)))
 }
 
 func _unexported_small(x : f32) -> Item {
-  return build<Item>(0u, Item_payload{.Small = build<Small>(x)})
+  return build<Item>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(x)))
 }
 
 func [[export]] large(_ret2 : mut (Item*), big : (Big*), Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> void {
-  _ret2 = build<Item>(1u, Item_payload{.Large = Item_Large_new((*big), Item_Large_pool, Item_Large_fill)})
+  _ret2 = build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new((*big), Item_Large_pool, Item_Large_fill)))
   return
 }
 
 func [[export]] size(i : (Item*), Item_Large_pool : Large[]) -> f32 {
   switch ((*i).tag) {
   case 0: {
-    let x = (*i).payload.Small.x in
+    let x = reinterpret_cast<f32>((*i).payload[0u]) in
     return x
   } break;
   default: {
-    let big = Item_Large_pool[(*i).payload.Large].big in
+    let big = Item_Large_pool[(*i).payload[0u]].big in
     return big.a[0u] + big.d[3u]
   }
   }
 }
 
 func [[export]] small(_ret3 : mut (Item*), x : f32) -> void {
-  _ret3 = build<Item>(0u, Item_payload{.Small = build<Small>(x)})
+  _ret3 = build<Item>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(x)))
   return
 }
 

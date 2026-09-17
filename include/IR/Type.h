@@ -411,6 +411,8 @@ Type narrow(const Type &type, uint32_t lanes);
 // union.
 uint64_t layout_bytes(const Type &type);
 uint64_t layout_align(const Type &type);
+// Where field `index` of `s` starts, by the same rule.
+uint64_t layout_offset(const Struct_t &s, size_t index);
 
 // The lane count of a gang-wide aggregate -- a struct widen() built, which
 // its name says -- or nothing for any other type. A vector alone does not

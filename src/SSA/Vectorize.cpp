@@ -118,10 +118,13 @@ Type widen_pointee(const Type &type, uint32_t lanes) {
 // ever found again by name (see widen_argument), so what is known about one
 // has to be readable off any of them. The one shape this cannot tell apart is
 // a lane's own short vector that happens to be exactly as wide as the gang;
-// the short vectors of a geometric program are two to four wide.
+// the short vectors of a geometric program are two to four wide. A packed
+// vector is never gang-wide, whatever its width: widen() makes a plain
+// vector, and packed storage -- the words of an ADT's payload, which are as
+// often eight as anything -- is a lane's own value.
 bool is_gang_wide(const Type &type, uint32_t lanes) {
     if (const Vector_t *v = type.as<Vector_t>()) {
-        return v->lanes == lanes;
+        return v->lanes == lanes && !v->packed;
     }
     if (const Struct_t *s = type.as<Struct_t>()) {
         const string suffix = "$v" + std::to_string(lanes);

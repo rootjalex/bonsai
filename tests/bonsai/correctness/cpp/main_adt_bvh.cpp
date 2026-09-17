@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <vector>
@@ -41,12 +42,35 @@ float length3(const float3 &v) {
     return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
+// The payload is the variant's fields as 32-bit words, at the offsets C
+// gives them (see Lower/WordStorage.h): a float3 takes four words, the
+// fourth its padding, as the C++ vector type does, so a Sphere is its centre
+// in words 0 to 2 and its radius in word 4, and a Triangle its three points
+// at words 0, 4 and 8.
+float word(const Shape &shape, size_t k) {
+    float f;
+    std::memcpy(&f, &shape.payload[k], sizeof f);
+    return f;
+}
+
+float3 point(const Shape &shape, size_t k) {
+    return float3{word(shape, k), word(shape, k + 1), word(shape, k + 2)};
+}
+
+Sphere sphere_of(const Shape &shape) {
+    return Sphere{point(shape, 0), word(shape, 4)};
+}
+
+Triangle triangle_of(const Shape &shape) {
+    return Triangle{point(shape, 0), point(shape, 4), point(shape, 8)};
+}
+
 // The bounding volume the schedule asked for: `with Sphere(center, radius)`.
 Sphere bounds_of(const Shape &shape) {
     if (shape.tag == 0) {
-        return shape.payload.Sph.s;
+        return sphere_of(shape);
     }
-    const Triangle &t = shape.payload.Tri.t;
+    const Triangle t = triangle_of(shape);
     const float3 centre = float3{(t.p0[0] + t.p1[0] + t.p2[0]) / 3.0f,
                                  (t.p0[1] + t.p1[1] + t.p2[1]) / 3.0f,
                                  (t.p0[2] + t.p1[2] + t.p2[2]) / 3.0f};
@@ -169,10 +193,9 @@ void report(const Ray &r, const _tree_layout0 &tree) {
         return;
     }
     if (hit.value.tag == 0) {
-        std::cout << "sphere at z=" << hit.value.payload.Sph.s.center[2]
-                  << '\n';
+        std::cout << "sphere at z=" << sphere_of(hit.value).center[2] << '\n';
     } else {
-        std::cout << "triangle at z=" << hit.value.payload.Tri.t.p2[2] << '\n';
+        std::cout << "triangle at z=" << triangle_of(hit.value).p2[2] << '\n';
     }
 }
 

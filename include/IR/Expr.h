@@ -149,7 +149,11 @@ struct BoolImm : ExprNode<BoolImm> {
 struct VecImm : ExprNode<VecImm> {
     std::vector<ir::Expr> values;
 
+    // A vector of the values' own type, as wide as there are values.
     static Expr make(std::vector<ir::Expr> values);
+    // A vector of the given type, which says whether it is packed storage
+    // (see Vector_t::packed); the values are its elements.
+    static Expr make(Type type, std::vector<ir::Expr> values);
     static const IRExprEnum node_type = IRExprEnum::VecImm;
 };
 

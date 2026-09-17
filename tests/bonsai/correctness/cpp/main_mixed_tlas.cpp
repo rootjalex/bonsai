@@ -187,10 +187,15 @@ using PrimValue = uint64_t;
 #define PRIM_POOLS(pools) (pools).solo.data(), (pools).inst.data()
 #endif
 
+// Only an arm behind a pool has one, and only such an arm's struct reaches
+// the header: under the per-arm layout the Solo arm is in the value, so there
+// is no `Solo` to make a pool of.
 struct Pools {
+#ifndef PER_ARM
     std::vector<Solo> solo;
-    std::vector<Inst> inst;
     uint64_t solo_fill = 0;
+#endif
+    std::vector<Inst> inst;
     uint64_t inst_fill = 0;
 };
 
@@ -284,7 +289,9 @@ int main() {
     // sized for what it is about to build: three instances and three
     // standalone triangles.
     Pools pools;
+#ifndef PER_ARM
     pools.solo.resize(3);
+#endif
     pools.inst.resize(3);
 
     std::vector<Placed> placed;

@@ -136,26 +136,42 @@ Expr BoolImm::make(bool value) {
 
 Expr VecImm::make(std::vector<Expr> values) {
     internal_assert(!values.empty()) << "unexpected empty values in VecImm";
-
-    VecImm *node = new VecImm;
-    Type element_type = values.front().type();
-    if (const bool infer_types =
-            type_enforcement_enabled() || element_type.defined();
-        infer_types) {
-        // TODO: support?
-        internal_assert(element_type.is_scalar())
-            << "immediate of non-scalar: " << element_type;
-        for (const Expr &e : values) {
-            internal_assert(is_const(e))
-                << "VecImm requires all constant values, received: " << e;
-            internal_assert(equals(e.type(), element_type))
-                << "VecImm requires uniform element type, expected: "
-                << element_type << " due to first element: " << values.front()
-                << ", but received: " << e << " of type: " << e.type();
-        }
-        node->type = Vector_t::make(element_type, values.size());
+    const Type element_type = values.front().type();
+    if (!type_enforcement_enabled() && !element_type.defined()) {
+        VecImm *node = new VecImm;
+        node->values = std::move(values);
+        return node;
     }
+    // TODO: support?
+    internal_assert(element_type.is_scalar())
+        << "immediate of non-scalar: " << element_type;
+    for (const Expr &e : values) {
+        internal_assert(equals(e.type(), element_type))
+            << "VecImm requires uniform element type, expected: "
+            << element_type << " due to first element: " << values.front()
+            << ", but received: " << e << " of type: " << e.type();
+    }
+    // The type before the values are moved from: the two arguments are not
+    // evaluated in any promised order.
+    Type type = Vector_t::make(element_type, uint32_t(values.size()));
+    return make(std::move(type), std::move(values));
+}
 
+Expr VecImm::make(Type type, std::vector<Expr> values) {
+    const Vector_t *vector = type.as<Vector_t>();
+    internal_assert(vector != nullptr) << "VecImm of a non-vector: " << type;
+    internal_assert(vector->lanes == values.size())
+        << "VecImm of " << type << " from " << values.size() << " values";
+    for (const Expr &e : values) {
+        internal_assert(is_const(e))
+            << "VecImm requires all constant values, received: " << e;
+        internal_assert(equals(e.type(), vector->etype))
+            << "VecImm requires uniform element type, expected: "
+            << vector->etype << " for " << type << ", but received: " << e
+            << " of type: " << e.type();
+    }
+    VecImm *node = new VecImm;
+    node->type = std::move(type);
     node->values = std::move(values);
     return node;
 }

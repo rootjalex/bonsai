@@ -598,9 +598,12 @@ struct Simplifier : ir::Mutator {
             is_all_constants &= is_const(v);
             values.push_back(std::move(v));
         }
+        // The immediate keeps the build's type: packed storage (see
+        // Vector_t::packed) stays the storage the field holding it says it
+        // is, rather than becoming a vector proper.
         if (node->type.is_vector() && is_all_constants && !values.empty()) {
             // x: i32 = 1; v: Build<i32x2>(x, (i32)2) => [1, 2]
-            return ir::VecImm::make(std::move(values));
+            return ir::VecImm::make(node->type, std::move(values));
         }
         return changed ? ir::Build::make(node->type, std::move(values)) : node;
     }

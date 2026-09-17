@@ -1,6 +1,7 @@
 #include "Lower/ADTs.h"
 
 #include "Lower/ADTLayout.h"
+#include "Lower/WordStorage.h"
 
 #include "IR/Analysis.h"
 #include "IR/Expr.h"
@@ -55,27 +56,92 @@ struct RewriteADTs : public Mutator {
         return found->second;
     }
 
+    // What a value of an `Inline` type is stored as: the tag, padding up to
+    // the payload's alignment, and the payload's words (see
+    // Lower/WordStorage.h). Built from the members as *rewritten*, not as
+    // the layout recorded them. Layouts are chosen from the program's types
+    // before any of them change, so a variant that holds another variant
+    // type still names it -- `Light`'s storage holds a `DiffuseArea` holding
+    // a `Shape`, and a `tagged_index` Shape is a `u64` -- and it is the
+    // rewritten member that has the size the payload has to hold.
+    //
+    // The payload starts at the largest alignment any member has, so that a
+    // member's fields sit where C would put them, and at a word at least; it
+    // is as long as the largest member rounded up to that. With a one-byte
+    // tag that is Rust's repr(C) enum, less the alignment of the whole,
+    // which is a word's rather than the payload's: an array of these steps
+    // by the same bytes either way.
+    //
+    // This terminates because a variant type cannot contain itself: the
+    // recursion is over the *contents* of the storage, and each step strips
+    // one ADT away.
+    std::map<std::string, Type> storages;
+    Type storage_of(const std::string &adt_name, const ADTLayout &layout) {
+        if (layout.kind != ir::AdtLayout::Inline) {
+            return layout.storage;
+        }
+        if (const auto made = storages.find(adt_name); made != storages.end()) {
+            return made->second;
+        }
+        uint64_t size = 0;
+        uint64_t align = 1;
+        for (const TypedVar &member : layout.members) {
+            const Type stored = mutate(member.type);
+            size = std::max(size, layout_bytes(stored));
+            align = std::max(align, layout_align(stored));
+        }
+        const uint64_t at = std::max<uint64_t>(align, 4);
+        const uint64_t words = (size + at - 1) / at * at / 4;
+        Struct_t::Map fields;
+        fields.push_back(TypedVar{layout.tag_field, layout.tag_type});
+        const uint64_t tag_bytes = layout_bytes(layout.tag_type);
+        internal_assert(tag_bytes <= at) << "a tag wider than the payload's "
+                                         << "alignment: " << layout.tag_type;
+        if (at > tag_bytes) {
+            fields.push_back(TypedVar{
+                layout.pad_field,
+                Vector_t::make(UInt_t::make(8), uint32_t(at - tag_bytes),
+                               /*packed=*/true)});
+        }
+        fields.push_back(TypedVar{layout.payload_field, words_type(words)});
+        Type storage = Struct_t::make(adt_name, std::move(fields));
+        storages[adt_name] = storage;
+        return storage;
+    }
+
     // A variant type becomes whatever it is stored as.
     Type mutate(const Type &type) override {
         Type rec = Mutator::mutate(type);
-        if (rec.is<ADT_t>()) {
-            // The storage rewritten in turn, not as the layout recorded it.
-            // Layouts are chosen from the program's types before any of them
-            // change, so a variant that holds another variant type still names
-            // it -- `Light`'s storage holds a `DiffuseArea` holding a `Shape`,
-            // and a `tagged_index` Shape is a `u64`. Returning the recorded
-            // storage gives two structs with one name and different fields,
-            // which surfaces much later as `Light vs Light`.
-            //
-            // This terminates because a variant type cannot contain itself:
-            // the recursion is over the *contents* of the storage, and each
-            // step strips one ADT away.
-            return mutate(layout_of(rec).storage);
+        if (const ADT_t *adt = rec.as<ADT_t>()) {
+            return storage_of(adt->name, layout_of(rec));
         }
         return rec;
     }
 
     using Mutator::mutate;
+
+    // The payload's words of an `Inline` value.
+    Expr payload_of(const ADTLayout &layout, const Expr &value) const {
+        return Access::make(layout.payload_field, value);
+    }
+
+    // The zero padding between an `Inline` value's tag and its payload, if
+    // its storage has any.
+    std::vector<Expr> tag_and_padding(const ADTLayout &layout,
+                                      const Type &storage, uint64_t tag) const {
+        std::vector<Expr> fields;
+        fields.push_back(UIntImm::make(layout.tag_type, tag));
+        const Struct_t *s = storage.as<Struct_t>();
+        internal_assert(s) << "storage that is not a struct: " << storage;
+        if (s->fields.size() == 3) {
+            const Vector_t *pad = s->fields[1].type.as<Vector_t>();
+            internal_assert(pad) << "padding that is not bytes: " << storage;
+            fields.push_back(VecImm::make(
+                s->fields[1].type,
+                std::vector<Expr>(pad->lanes, UIntImm::make(pad->etype, 0))));
+        }
+        return fields;
+    }
 
     // A name of a variant type now names one of whatever it is stored as. The
     // base Mutator leaves a Var's type alone, so this is the same thing
@@ -118,12 +184,12 @@ struct RewriteADTs : public Mutator {
     }
 
     // Where in its pool an arm stored by index keeps `value`'s fields: the
-    // low bits of a handle, or the union member named for the arm.
+    // low bits of a handle, or the first word of the payload.
     Expr index_of(const ADTLayout &layout, const Expr &value,
                   const std::string &variant) const {
+        (void)variant;
         if (layout.kind == ir::AdtLayout::Inline) {
-            return Access::make(variant,
-                                Access::make(layout.payload_field, value));
+            return read_words(payload_of(layout, value), 0, layout.index_type);
         }
         const uint64_t mask = (1ull << ADTLayout::tag_shift) - 1ull;
         return BinOp::make(BinOp::OpType::BwAnd, value,
@@ -138,10 +204,10 @@ struct RewriteADTs : public Mutator {
     Expr as_variant(const ADTLayout &layout, const Expr &value,
                     const std::string &variant) {
         if (!layout.boxed(variant)) {
-            // The union's members are named for their variants, so this is
-            // just naming one.
-            return Access::make(variant,
-                                Access::make(layout.payload_field, value));
+            // The arm's fields, read out of the payload's words from the
+            // start (see Lower/WordStorage.h).
+            return read_words(payload_of(layout, value), 0,
+                              mutate(layout.variant(variant)));
         }
         // The pool the tag names, at the index the value holds. The pool is an
         // extern, so this Var is free here and the LowerExterns that runs
@@ -260,12 +326,22 @@ struct RewriteADTs : public Mutator {
                                  std::move(args));
         }
 
-        std::vector<Expr> whole;
-        whole.push_back(
-            UIntImm::make(layout.tag_type, layout.tag(node->variant)));
-        whole.push_back(UnionOf::make(mutate(layout.payload), node->variant,
-                                      std::move(member)));
-        return Build::make(mutate(layout.storage), std::move(whole));
+        // The tag, the padding, and the payload's words with the member
+        // written into them from the start (see Lower/WordStorage.h).
+        const ADT_t *adt = node->type.as<ADT_t>();
+        internal_assert(adt) << "Not a variant type: " << node->type;
+        const Type storage = storage_of(adt->name, layout);
+        const Type member_type = layout.boxed(node->variant)
+                                     ? layout.index_type
+                                     : mutate(layout.variant(node->variant));
+        const Type payload_type = storage.as<Struct_t>()->fields.back().type;
+        const uint64_t n = payload_type.as<Vector_t>()->lanes;
+        std::vector<Expr> words(n, UIntImm::make(UInt_t::make(32), 0));
+        write_words(words, 0, member, member_type);
+        std::vector<Expr> whole =
+            tag_and_padding(layout, storage, layout.tag(node->variant));
+        whole.push_back(Build::make(payload_type, std::move(words)));
+        return Build::make(storage, std::move(whole));
     }
 
     // A value read as one of its variants: the fields of that variant, at
@@ -306,14 +382,32 @@ struct RewriteADTs : public Mutator {
 
             // The names the arm gave the fields, bound to them. Reading a
             // field of the variant a value is not would read whatever those
-            // bytes happen to be, which is why these are inside the arm.
-            const Expr payload = as_variant(layout, value, arm.variant);
+            // bytes happen to be, which is why these are inside the arm. An
+            // arm stored inline reads each field straight out of the
+            // payload's words at its offset, rather than the whole struct
+            // and a field of that.
             std::vector<Stmt> body;
             body.reserve(arm.bindings.size() + 1);
-            for (size_t f = 0; f < arm.bindings.size(); f++) {
-                body.push_back(LetStmt::make(
-                    WriteLoc(arm.bindings[f], mutate(fields[f].type)),
-                    Access::make(fields[f].name, payload)));
+            if (!layout.boxed(arm.variant)) {
+                const Type stored = mutate(layout.variant(arm.variant));
+                const Struct_t *as_struct = stored.as<Struct_t>();
+                internal_assert(as_struct && as_struct->fields.size() == fields.size())
+                    << adt->name << "::" << arm.variant << " is stored as "
+                    << stored;
+                const Expr words = payload_of(layout, value);
+                for (size_t f = 0; f < arm.bindings.size(); f++) {
+                    body.push_back(LetStmt::make(
+                        WriteLoc(arm.bindings[f], as_struct->fields[f].type),
+                        read_words(words, layout_offset(*as_struct, f),
+                                   as_struct->fields[f].type)));
+                }
+            } else {
+                const Expr payload = as_variant(layout, value, arm.variant);
+                for (size_t f = 0; f < arm.bindings.size(); f++) {
+                    body.push_back(LetStmt::make(
+                        WriteLoc(arm.bindings[f], mutate(fields[f].type)),
+                        Access::make(fields[f].name, payload)));
+                }
             }
             body.push_back(mutate(arm.body));
 
@@ -683,7 +777,7 @@ ir::Program LowerADTs::run(ir::Program program,
             program.types[variant.as<Struct_t>()->name] =
                 rewriter.mutate(variant);
         }
-        program.types[name] = rewriter.mutate(layout.storage);
+        program.types[name] = rewriter.storage_of(name, layout);
     }
 
     for (auto &[fname, func] : program.funcs) {

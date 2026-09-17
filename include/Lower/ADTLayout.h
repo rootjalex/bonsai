@@ -22,16 +22,23 @@ namespace lower {
 // The choice is made per arm (ir::AdtArmLayouts), and two shapes of storage
 // come out of it. When every arm is `tagged_index` the value is a single
 // word: the tag in its top bits and, in the rest, an index into one pool per
-// variant. Otherwise it is a tag beside a union of the arms -- Rust's repr(C)
-// enum -- in which an arm stored `inline` is its struct of fields and an arm
-// stored `tagged_index` is an index into that arm's pool. The second shape is
-// what lets a small common arm sit in the value while a large rare one sits
-// behind an index, and the tag is read the same way whichever arms are which.
-// Fields keep the order they were declared in either way, since nothing
-// reorders them.
+// variant. Otherwise it is a tag beside the payload -- the bytes any arm's
+// fields occupy, as Rust's repr(C) enum has them -- in which an arm stored
+// `inline` is its struct of fields and an arm stored `tagged_index` is an
+// index into that arm's pool. The second shape is what lets a small common
+// arm sit in the value while a large rare one sits behind an index, and the
+// tag is read the same way whichever arms are which. Fields keep the order
+// they were declared in either way, since nothing reorders them.
+//
+// The payload is held as 32-bit words rather than as a union of the arms
+// (see Lower/WordStorage.h): an arm's fields are read out of the words at
+// their offsets and written into them the same way, in arithmetic every
+// backend already lowers, and a gang reads the words a lane at a time in one
+// gather each. A union type would have to be laid out, widened and read
+// through storage by each backend in turn, and it used to be.
 struct ADTLayout {
     // The shape of the storage: `TaggedIndex` for the one-word handle, and
-    // `Inline` for the tag beside a union, whatever its arms are.
+    // `Inline` for the tag beside the payload, whatever its arms are.
     ir::AdtLayout kind = ir::AdtLayout::Inline;
 
     // What each arm became, by variant name. Under a `TaggedIndex` storage
@@ -39,14 +46,21 @@ struct ADTLayout {
     // `TaggedIndex`.
     std::map<std::string, ir::AdtLayout> arm_kind;
 
-    // What a value of the ADT becomes: the struct, for `Inline`, and the
-    // handle's unsigned integer type for `TaggedIndex`.
+    // What a value of the ADT becomes: the handle's unsigned integer type for
+    // `TaggedIndex`. For `Inline` it is the struct Lower/ADTs.cpp builds from
+    // the members once they are rewritten -- a member holding another variant
+    // type has become that type's storage by then, which is what sets the
+    // payload's size -- and is not recorded here.
     ir::Type storage;
 
-    // `Inline` only: the union inside the struct, and the two field names. An
-    // arm stored by index is the member of `index_type` named for the arm.
-    ir::Type payload;
+    // `Inline` only: what each arm keeps in the payload, by variant name --
+    // its struct of fields, or an `index_type` into its pool -- as found,
+    // before any variant type inside it was rewritten. And the field names
+    // of the storage: the tag, the padding that brings the payload to its
+    // alignment, and the payload's words.
+    std::vector<ir::TypedVar> members;
     std::string tag_field;
+    std::string pad_field;
     std::string payload_field;
 
     ir::Type tag_type;

@@ -3,15 +3,15 @@
 
 // An `element` and a `match` compiled to C++ and called from it.
 //
-// The C++ backend has a union where the LLVM backend has to build storage of
-// the right size and alignment by hand, so this is the test that the two
-// spellings describe the same bytes: main_adt.cpp fills a `Shape` in as C++
-// and bonsai reads it, and builds one in bonsai and C++ reads it back. A
-// disagreement about where the payload starts, or about how wide the tag is,
-// shows up as a wrong number rather than as a compile error.
+// The payload is words, and a caller in C++ sees only those words, so this is
+// the test that the two sides agree on what is in them: main_adt.cpp fills a
+// `Shape` in as C++ and bonsai reads it, and builds one in bonsai and C++
+// reads it back. A disagreement about where a field sits, or about how wide
+// the tag is, shows up as a wrong number rather than as a compile error.
 //
 // The layout it relies on is the one Lower/ADTLayout.cpp documents: a tag
-// numbered by declaration order, then the payload.
+// numbered by declaration order, padding, then the payload's words, with each
+// variant's fields at their C offsets (see Lower/WordStorage.h).
 import stdlib/numerics;
 
 element Shape =

@@ -1,39 +1,45 @@
 type A = struct A{ x : f32 }
 type B = struct B{ y : f32; z : f32 }
-type Blob = struct Blob{ tag : u8; payload : union Blob_payload{ A : struct A{ x : f32 }; B : struct B{ y : f32; z : f32 } } }
+type Blob = struct Blob{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x2 }
 type Float = f32
 type Holder = struct Holder{ which : u32; scale : f32 }
 
-extern blobs : struct Blob{ tag : u8; payload : union Blob_payload{ A : struct A{ x : f32 }; B : struct B{ y : f32; z : f32 } } }[]
+extern blobs : struct Blob{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x2 }[]
 
 func [[export]] Blob_A(_ret0 : mut (Blob*), x : f32) -> void {
-  let @0 = build<A>(x) in
-  let @1 = Blob_payload{.A = @0} in
-  let @2 = build<Blob>(0u, @1) in
-  _ret0 = @2
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(x) in
+  let @2 = build<[[packed]] u32x2>(@1, 0u) in
+  let @3 = build<Blob>(0u, @0, @2) in
+  _ret0 = @3
   return
 }
 
 func [[export]] Blob_B(_ret1 : mut (Blob*), y : f32, z : f32) -> void {
-  let @0 = build<B>(y, z) in
-  let @1 = Blob_payload{.B = @0} in
-  let @2 = build<Blob>(1u, @1) in
-  _ret1 = @2
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(y) in
+  let @2 = reinterpret_cast<u32>(z) in
+  let @3 = build<[[packed]] u32x2>(@1, @2) in
+  let @4 = build<Blob>(1u, @0, @3) in
+  _ret1 = @4
   return
 }
 
 func _unexported_Blob_A(x : f32) -> Blob {
-  let @0 = build<A>(x) in
-  let @1 = Blob_payload{.A = @0} in
-  let @2 = build<Blob>(0u, @1) in
-  return @2
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(x) in
+  let @2 = build<[[packed]] u32x2>(@1, 0u) in
+  let @3 = build<Blob>(0u, @0, @2) in
+  return @3
 }
 
 func _unexported_Blob_B(y : f32, z : f32) -> Blob {
-  let @0 = build<B>(y, z) in
-  let @1 = Blob_payload{.B = @0} in
-  let @2 = build<Blob>(1u, @1) in
-  return @2
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(y) in
+  let @2 = reinterpret_cast<u32>(z) in
+  let @3 = build<[[packed]] u32x2>(@1, @2) in
+  let @4 = build<Blob>(1u, @0, @3) in
+  return @4
 }
 
 func doubled(v : f32, n : i32) -> f32 {
@@ -53,19 +59,20 @@ func [[noinline]] pick(b : Blob, k : f32) -> f32 {
   switch (@0) {
   case 0: {
     let @1 = b.payload in
-    let @2 = @1.A in
-    let x = @2.x in
-    let @4 = x * k in
+    let @2 = @1[0u] in
+    let @3 = reinterpret_cast<f32>(@2) in
+    let @4 = @3 * k in
     return @4
   } break;
   default: {
-    let @5 = b.payload in
-    let _t7 = @5.B in
-    let y = _t7.y in
-    let z = _t7.z in
-    let @9 = y + z in
-    let @10 = @9 * k in
-    return @10
+    let _t3 = b.payload in
+    let @6 = _t3[1u] in
+    let z = reinterpret_cast<f32>(@6) in
+    let @8 = _t3[0u] in
+    let @9 = reinterpret_cast<f32>(@8) in
+    let @10 = @9 + z in
+    let @11 = @10 * k in
+    return @11
   }
   }
 }

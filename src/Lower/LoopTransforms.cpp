@@ -338,8 +338,11 @@ void verify_valid_tail_recursion(const Stmt &body, const Function &function) {
         const Function::Argument &farg = function.args[i];
         // Right now we conservatively assume that tail recursion does
         // not have mutating arguments.
+        // The name only: the body has been moved out of the function by the
+        // time this runs (see loopify), so the function itself cannot print.
         internal_assert(!farg.mutating)
-            << "unexpected mutable argument in tail recursion: " << function;
+            << "unexpected mutable argument " << farg.name
+            << " in tail recursion of: " << function.name;
     }
     Checker checker(function);
     body.accept(&checker);

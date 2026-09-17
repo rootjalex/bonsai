@@ -33,19 +33,21 @@ void name_pool(ADTLayout &layout, const std::string &adt_name,
     layout.fill_of[variant] = adt_name + "_" + variant + "_fill";
 }
 
-// A tag beside a union of the arms, each arm its struct of fields where it is
-// stored inline and a `u32` into its pool where it is stored by index.
+// A tag beside the payload of the arms, each arm its struct of fields where
+// it is stored inline and a `u32` into its pool where it is stored by index.
+// The storage struct itself is built by Lower/ADTs.cpp, from these members
+// as rewritten (see ADTLayout::storage).
 ADTLayout inline_adt_layout(const ir::ADT_t &adt,
                             const ir::AdtArmLayouts &arms) {
     ADTLayout layout;
     layout.kind = ir::AdtLayout::Inline;
     layout.tag_field = "tag";
+    layout.pad_field = "_pad";
     layout.payload_field = "payload";
     layout.tag_type = tag_type_for(adt.variants.size());
     layout.index_type = UInt_t::make(32);
     layout.variants = adt.variants;
-    Union_t::Map members;
-    members.reserve(adt.variants.size());
+    layout.members.reserve(adt.variants.size());
     for (size_t i = 0; i < adt.variants.size(); i++) {
         const std::string &name = adt.variant_name(i);
         const ir::AdtLayout kind = arms.at(name);
@@ -53,20 +55,12 @@ ADTLayout inline_adt_layout(const ir::ADT_t &adt,
         layout.tag_of[name] = i;
         layout.variant_type[name] = adt.variants[i];
         if (kind == ir::AdtLayout::TaggedIndex) {
-            members.push_back(TypedVar{name, layout.index_type});
+            layout.members.push_back(TypedVar{name, layout.index_type});
             name_pool(layout, adt.name, name);
         } else {
-            members.push_back(TypedVar{name, adt.variants[i]});
+            layout.members.push_back(TypedVar{name, adt.variants[i]});
         }
     }
-    layout.payload = Union_t::make(adt.name + "_payload", std::move(members));
-    // The tag first and the payload after it. With the union's own alignment
-    // that is Rust's repr(C) enum: the size is the largest member rounded up
-    // to the strictest alignment, and nothing is moved.
-    Struct_t::Map fields;
-    fields.push_back(TypedVar{layout.tag_field, layout.tag_type});
-    fields.push_back(TypedVar{layout.payload_field, layout.payload});
-    layout.storage = Struct_t::make(adt.name, std::move(fields));
     return layout;
 }
 

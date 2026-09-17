@@ -1,48 +1,58 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%union.Blob_payload = type { [2 x i128] }
-%struct.Blob = type { i8, %union.Blob_payload }
+%struct.Blob = type { i8, [15 x i8], [8 x i32] }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @Blob_Split(ptr nocapture noundef nonnull writeonly %_ret0, i32 noundef %lo, i32 noundef %hi) local_unnamed_addr #0 {
 Blob_Split_entry:
-  %union_Split.sroa.2.0.insert.ext = zext i32 %hi to i128
-  %union_Split.sroa.2.0.insert.shift = shl nuw nsw i128 %union_Split.sroa.2.0.insert.ext, 32
-  %union_Split.sroa.0.0.insert.ext = zext i32 %lo to i128
-  %union_Split.sroa.0.0.insert.insert = or disjoint i128 %union_Split.sroa.2.0.insert.shift, %union_Split.sroa.0.0.insert.ext
-  %union_Split1.fca.0.0.insert = insertvalue %union.Blob_payload poison, i128 %union_Split.sroa.0.0.insert.insert, 0, 0
-  %union_Split1.fca.0.1.insert = insertvalue %union.Blob_payload %union_Split1.fca.0.0.insert, i128 undef, 0, 1
-  %0 = insertvalue %struct.Blob { i8 1, %union.Blob_payload undef }, %union.Blob_payload %union_Split1.fca.0.1.insert, 1
-  store %struct.Blob %0, ptr %_ret0, align 16
+  store i8 1, ptr %_ret0, align 4
+  %_ret0.repack1 = getelementptr inbounds i8, ptr %_ret0, i64 1
+  %_ret0.repack3 = getelementptr inbounds i8, ptr %_ret0, i64 16
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_ret0.repack1, i8 0, i64 15, i1 false)
+  store i32 %lo, ptr %_ret0.repack3, align 4
+  %_ret0.repack3.repack19 = getelementptr inbounds i8, ptr %_ret0, i64 20
+  store i32 %hi, ptr %_ret0.repack3.repack19, align 4
+  %_ret0.repack3.repack21 = getelementptr inbounds i8, ptr %_ret0, i64 24
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(24) %_ret0.repack3.repack21, i8 0, i64 24, i1 false)
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @Blob_Whole(ptr nocapture noundef nonnull writeonly %_ret1, float noundef %x) local_unnamed_addr #0 {
 Blob_Whole_entry:
-  %0 = bitcast float %x to i32
-  %union_Whole.sroa.0.0.insert.ext = zext i32 %0 to i128
-  %union_Whole1.fca.0.0.insert = insertvalue %union.Blob_payload poison, i128 %union_Whole.sroa.0.0.insert.ext, 0, 0
-  %union_Whole1.fca.0.1.insert = insertvalue %union.Blob_payload %union_Whole1.fca.0.0.insert, i128 undef, 0, 1
-  %1 = insertvalue %struct.Blob { i8 0, %union.Blob_payload undef }, %union.Blob_payload %union_Whole1.fca.0.1.insert, 1
-  store %struct.Blob %1, ptr %_ret1, align 16
+  %_ret1.repack3 = getelementptr inbounds i8, ptr %_ret1, i64 16
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(16) %_ret1, i8 0, i64 16, i1 false)
+  store float %x, ptr %_ret1.repack3, align 4
+  %_ret1.repack3.repack19 = getelementptr inbounds i8, ptr %_ret1, i64 20
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(28) %_ret1.repack3.repack19, i8 0, i64 28, i1 false)
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @Blob_Wide(ptr nocapture noundef nonnull writeonly %_ret2, <3 x float> noundef %v, i1 noundef %neg) local_unnamed_addr #0 {
 Blob_Wide_entry:
-  %union_Wide.sroa.22 = alloca i8, align 16
-  store i1 %neg, ptr %union_Wide.sroa.22, align 16
-  %0 = bitcast <3 x float> %v to i96
-  %union_Wide.sroa.0.0.insert.ext = zext i96 %0 to i128
-  %union_Wide1.fca.0.0.insert = insertvalue %union.Blob_payload poison, i128 %union_Wide.sroa.0.0.insert.ext, 0, 0
-  %union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.16.union_Wide1.fca.0.1.load = load i8, ptr %union_Wide.sroa.22, align 16
-  %union_Wide.sroa.22.16.insert.ext = zext i8 %union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.16.union_Wide1.fca.0.1.load to i128
-  %union_Wide1.fca.0.1.insert = insertvalue %union.Blob_payload %union_Wide1.fca.0.0.insert, i128 %union_Wide.sroa.22.16.insert.ext, 0, 1
-  %1 = insertvalue %struct.Blob { i8 2, %union.Blob_payload undef }, %union.Blob_payload %union_Wide1.fca.0.1.insert, 1
-  store %struct.Blob %1, ptr %_ret2, align 16
+  %bc = bitcast <3 x float> %v to <3 x i32>
+  %0 = extractelement <3 x i32> %bc, i64 2
+  %1 = zext i1 %neg to i32
+  store i8 2, ptr %_ret2, align 4
+  %_ret2.repack3 = getelementptr inbounds i8, ptr %_ret2, i64 1
+  %_ret2.repack5 = getelementptr inbounds i8, ptr %_ret2, i64 16
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_ret2.repack3, i8 0, i64 15, i1 false)
+  %2 = shufflevector <3 x i32> %bc, <3 x i32> poison, <2 x i32> <i32 0, i32 1>
+  store <2 x i32> %2, ptr %_ret2.repack5, align 4
+  %_ret2.repack5.repack23 = getelementptr inbounds i8, ptr %_ret2, i64 24
+  store i32 %0, ptr %_ret2.repack5.repack23, align 4
+  %_ret2.repack5.repack25 = getelementptr inbounds i8, ptr %_ret2, i64 28
+  store i32 0, ptr %_ret2.repack5.repack25, align 4
+  %_ret2.repack5.repack27 = getelementptr inbounds i8, ptr %_ret2, i64 32
+  store i32 %1, ptr %_ret2.repack5.repack27, align 4
+  %_ret2.repack5.repack29 = getelementptr inbounds i8, ptr %_ret2, i64 36
+  store i32 0, ptr %_ret2.repack5.repack29, align 4
+  %_ret2.repack5.repack31 = getelementptr inbounds i8, ptr %_ret2, i64 40
+  store i32 0, ptr %_ret2.repack5.repack31, align 4
+  %_ret2.repack5.repack33 = getelementptr inbounds i8, ptr %_ret2, i64 44
+  store i32 0, ptr %_ret2.repack5.repack33, align 4
   ret void
 }
 
@@ -58,43 +68,57 @@ __prod_diff_f32_entry:
   ret float %5
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Blob @_unexported_Blob_Split(i32 noundef %lo, i32 noundef %hi) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @_unexported_Blob_Split(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Blob) align 4 %_sret, i32 noundef %lo, i32 noundef %hi) local_unnamed_addr #0 {
 _unexported_Blob_Split_entry:
-  %union_Split.sroa.2.0.insert.ext = zext i32 %hi to i128
-  %union_Split.sroa.2.0.insert.shift = shl nuw nsw i128 %union_Split.sroa.2.0.insert.ext, 32
-  %union_Split.sroa.0.0.insert.ext = zext i32 %lo to i128
-  %union_Split.sroa.0.0.insert.insert = or disjoint i128 %union_Split.sroa.2.0.insert.shift, %union_Split.sroa.0.0.insert.ext
-  %union_Split1.fca.0.0.insert = insertvalue %union.Blob_payload poison, i128 %union_Split.sroa.0.0.insert.insert, 0, 0
-  %union_Split1.fca.0.1.insert = insertvalue %union.Blob_payload %union_Split1.fca.0.0.insert, i128 undef, 0, 1
-  %0 = insertvalue %struct.Blob { i8 1, %union.Blob_payload undef }, %union.Blob_payload %union_Split1.fca.0.1.insert, 1
-  ret %struct.Blob %0
+  store i8 1, ptr %_sret, align 4
+  %_sret.repack1 = getelementptr inbounds i8, ptr %_sret, i64 1
+  %_sret.repack3 = getelementptr inbounds i8, ptr %_sret, i64 16
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_sret.repack1, i8 0, i64 15, i1 false)
+  store i32 %lo, ptr %_sret.repack3, align 4
+  %_sret.repack3.repack19 = getelementptr inbounds i8, ptr %_sret, i64 20
+  store i32 %hi, ptr %_sret.repack3.repack19, align 4
+  %_sret.repack3.repack21 = getelementptr inbounds i8, ptr %_sret, i64 24
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(24) %_sret.repack3.repack21, i8 0, i64 24, i1 false)
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Blob @_unexported_Blob_Whole(float noundef %x) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @_unexported_Blob_Whole(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Blob) align 4 %_sret, float noundef %x) local_unnamed_addr #0 {
 _unexported_Blob_Whole_entry:
-  %0 = bitcast float %x to i32
-  %union_Whole.sroa.0.0.insert.ext = zext i32 %0 to i128
-  %union_Whole1.fca.0.0.insert = insertvalue %union.Blob_payload poison, i128 %union_Whole.sroa.0.0.insert.ext, 0, 0
-  %union_Whole1.fca.0.1.insert = insertvalue %union.Blob_payload %union_Whole1.fca.0.0.insert, i128 undef, 0, 1
-  %1 = insertvalue %struct.Blob { i8 0, %union.Blob_payload undef }, %union.Blob_payload %union_Whole1.fca.0.1.insert, 1
-  ret %struct.Blob %1
+  %_sret.repack3 = getelementptr inbounds i8, ptr %_sret, i64 16
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(16) %_sret, i8 0, i64 16, i1 false)
+  store float %x, ptr %_sret.repack3, align 4
+  %_sret.repack3.repack19 = getelementptr inbounds i8, ptr %_sret, i64 20
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(28) %_sret.repack3.repack19, i8 0, i64 28, i1 false)
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Blob @_unexported_Blob_Wide(<3 x float> noundef %v, i1 noundef %neg) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @_unexported_Blob_Wide(ptr noalias nocapture noundef nonnull writeonly sret(%struct.Blob) align 4 %_sret, <3 x float> noundef %v, i1 noundef %neg) local_unnamed_addr #0 {
 _unexported_Blob_Wide_entry:
-  %union_Wide.sroa.22 = alloca i8, align 16
-  store i1 %neg, ptr %union_Wide.sroa.22, align 16
-  %0 = bitcast <3 x float> %v to i96
-  %union_Wide.sroa.0.0.insert.ext = zext i96 %0 to i128
-  %union_Wide1.fca.0.0.insert = insertvalue %union.Blob_payload poison, i128 %union_Wide.sroa.0.0.insert.ext, 0, 0
-  %union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.16.union_Wide1.fca.0.1.load = load i8, ptr %union_Wide.sroa.22, align 16
-  %union_Wide.sroa.22.16.insert.ext = zext i8 %union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.0.union_Wide.sroa.22.16.union_Wide1.fca.0.1.load to i128
-  %union_Wide1.fca.0.1.insert = insertvalue %union.Blob_payload %union_Wide1.fca.0.0.insert, i128 %union_Wide.sroa.22.16.insert.ext, 0, 1
-  %1 = insertvalue %struct.Blob { i8 2, %union.Blob_payload undef }, %union.Blob_payload %union_Wide1.fca.0.1.insert, 1
-  ret %struct.Blob %1
+  %bc = bitcast <3 x float> %v to <3 x i32>
+  %0 = extractelement <3 x i32> %bc, i64 2
+  %1 = zext i1 %neg to i32
+  store i8 2, ptr %_sret, align 4
+  %_sret.repack3 = getelementptr inbounds i8, ptr %_sret, i64 1
+  %_sret.repack5 = getelementptr inbounds i8, ptr %_sret, i64 16
+  tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_sret.repack3, i8 0, i64 15, i1 false)
+  %2 = shufflevector <3 x i32> %bc, <3 x i32> poison, <2 x i32> <i32 0, i32 1>
+  store <2 x i32> %2, ptr %_sret.repack5, align 4
+  %_sret.repack5.repack23 = getelementptr inbounds i8, ptr %_sret, i64 24
+  store i32 %0, ptr %_sret.repack5.repack23, align 4
+  %_sret.repack5.repack25 = getelementptr inbounds i8, ptr %_sret, i64 28
+  store i32 0, ptr %_sret.repack5.repack25, align 4
+  %_sret.repack5.repack27 = getelementptr inbounds i8, ptr %_sret, i64 32
+  store i32 %1, ptr %_sret.repack5.repack27, align 4
+  %_sret.repack5.repack29 = getelementptr inbounds i8, ptr %_sret, i64 36
+  store i32 0, ptr %_sret.repack5.repack29, align 4
+  %_sret.repack5.repack31 = getelementptr inbounds i8, ptr %_sret, i64 40
+  store i32 0, ptr %_sret.repack5.repack31, align 4
+  %_sret.repack5.repack33 = getelementptr inbounds i8, ptr %_sret, i64 44
+  store i32 0, ptr %_sret.repack5.repack33, align 4
+  ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
@@ -368,49 +392,44 @@ unit_vector__entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define float @weigh(ptr nocapture noundef nonnull readonly %b, float noundef %k) local_unnamed_addr #2 {
 weigh_entry:
-  %deref_temp = load %struct.Blob, ptr %b, align 16
-  %"@0.tag" = extractvalue %struct.Blob %deref_temp, 0
-  %"@16.payload" = extractvalue %struct.Blob %deref_temp, 1
-  %"@16.payload.fca.0.0.extract" = extractvalue %union.Blob_payload %"@16.payload", 0, 0
-  switch i8 %"@0.tag", label %default_bb [
+  %deref_temp.unpack = load i8, ptr %b, align 4
+  %deref_temp.elt9 = getelementptr inbounds i8, ptr %b, i64 16
+  %deref_temp.unpack10.unpack = load i32, ptr %deref_temp.elt9, align 4
+  %deref_temp.unpack10.elt41 = getelementptr inbounds i8, ptr %b, i64 20
+  %deref_temp.unpack10.unpack42 = load i32, ptr %deref_temp.unpack10.elt41, align 4
+  switch i8 %deref_temp.unpack, label %default_bb [
     i8 0, label %case0_bb
     i8 1, label %case1_bb
   ]
 
 common.ret:                                       ; preds = %case1_bb, %after_bb
-  %common.ret.op = phi float [ %0, %after_bb ], [ %12, %case1_bb ]
+  %common.ret.op = phi float [ %0, %after_bb ], [ %8, %case1_bb ]
   ret float %common.ret.op
 
 after_bb:                                         ; preds = %default_bb, %case0_bb
-  %acc.0 = phi float [ %7, %default_bb ], [ %10, %case0_bb ]
+  %acc.0 = phi float [ %3, %default_bb ], [ %6, %case0_bb ]
   %0 = fmul float %acc.0, 3.000000e+00
   br label %common.ret
 
 default_bb:                                       ; preds = %weigh_entry
-  %value_ptrto6.sroa.0.0.extract.trunc = trunc i128 %"@16.payload.fca.0.0.extract" to i96
-  %1 = bitcast i96 %value_ptrto6.sroa.0.0.extract.trunc to <3 x float>
-  %"@16.payload.fca.0.1.extract" = extractvalue %union.Blob_payload %"@16.payload", 0, 1
-  %2 = trunc i128 %"@16.payload.fca.0.1.extract" to i1
-  %3 = trunc i128 %"@16.payload.fca.0.0.extract" to i32
-  %4 = bitcast i32 %3 to float
-  %5 = extractelement <3 x float> %1, i64 1
-  %6 = select i1 %2, float %4, float %5
-  %7 = fsub float %k, %6
+  %deref_temp.unpack10.elt47 = getelementptr inbounds i8, ptr %b, i64 32
+  %deref_temp.unpack10.unpack48 = load i32, ptr %deref_temp.unpack10.elt47, align 4
+  %1 = and i32 %deref_temp.unpack10.unpack48, 255
+  %.not = icmp eq i32 %1, 0
+  %.v = select i1 %.not, i32 %deref_temp.unpack10.unpack42, i32 %deref_temp.unpack10.unpack
+  %2 = bitcast i32 %.v to float
+  %3 = fsub float %k, %2
   br label %after_bb
 
 case0_bb:                                         ; preds = %weigh_entry
-  %value_ptrto.sroa.0.0.extract.trunc = trunc i128 %"@16.payload.fca.0.0.extract" to i32
-  %8 = bitcast i32 %value_ptrto.sroa.0.0.extract.trunc to float
-  %9 = fmul float %8, 2.000000e+00
-  %10 = fadd float %9, %k
+  %4 = bitcast i32 %deref_temp.unpack10.unpack to float
+  %5 = fmul float %4, 2.000000e+00
+  %6 = fadd float %5, %k
   br label %after_bb
 
 case1_bb:                                         ; preds = %weigh_entry
-  %value_ptrto4.sroa.0.0.extract.trunc = trunc i128 %"@16.payload.fca.0.0.extract" to i32
-  %value_ptrto4.sroa.2.0.extract.shift = lshr i128 %"@16.payload.fca.0.0.extract", 32
-  %value_ptrto4.sroa.2.0.extract.trunc = trunc i128 %value_ptrto4.sroa.2.0.extract.shift to i32
-  %11 = add i32 %value_ptrto4.sroa.2.0.extract.trunc, %value_ptrto4.sroa.0.0.extract.trunc
-  %12 = sitofp i32 %11 to float
+  %7 = add i32 %deref_temp.unpack10.unpack42, %deref_temp.unpack10.unpack
+  %8 = sitofp i32 %7 to float
   br label %common.ret
 }
 
@@ -432,17 +451,21 @@ declare float @llvm.fabs.f32(float) #3
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.pow.f32(float, float) #3
 
-; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #4
+; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
+declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg) #4
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <2 x float> @llvm.sqrt.v2f32(<2 x float>) #4
+declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #5
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <2 x float> @llvm.fabs.v2f32(<2 x float>) #4
+declare <2 x float> @llvm.sqrt.v2f32(<2 x float>) #5
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <2 x float> @llvm.fabs.v2f32(<2 x float>) #5
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
 attributes #3 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #4 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #4 = { nocallback nofree nounwind willreturn memory(argmem: write) }
+attributes #5 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }

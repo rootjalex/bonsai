@@ -618,6 +618,26 @@ uint64_t layout_bytes(const Type &type) {
     internal_error << "[unimplemented] layout_bytes of " << type;
 }
 
+uint64_t layout_offset(const Struct_t &s, size_t index) {
+    internal_assert(index < s.fields.size())
+        << "field " << index << " of a struct with " << s.fields.size();
+    internal_assert(!s.fields[index].type.is<Ref_t>())
+        << "field " << s.fields[index].name << " of " << s.name
+        << " is a reference, which takes no room (see layout_bytes)";
+    uint64_t offset = 0;
+    for (size_t i = 0;; i++) {
+        if (s.fields[i].type.is<Ref_t>()) {
+            continue;
+        }
+        const uint64_t align = s.is_packed() ? 1 : layout_align(s.fields[i].type);
+        offset = (offset + align - 1) / align * align;
+        if (i == index) {
+            return offset;
+        }
+        offset += layout_bytes(s.fields[i].type);
+    }
+}
+
 namespace {
 
 // The struct a union widens to, by its name, back to the union (see widen):
