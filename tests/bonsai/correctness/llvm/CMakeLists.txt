@@ -71,4 +71,5 @@ add_bonsai_tests(
     while-loops.bonsai
     x86-gather-avx2.bonsai
     x86-gather-avx512.bonsai
+    x86-gather-avx512-16.bonsai
 )

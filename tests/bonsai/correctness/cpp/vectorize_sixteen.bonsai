@@ -1,0 +1,41 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_sixteen
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_sixteen.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_sixteen.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_sixteen.o tests/bonsai/correctness/cpp/vectorize_sixteen.o -o tests/bonsai/correctness/cpp/vectorize_sixteen, ./tests/bonsai/correctness/cpp/vectorize_sixteen, rm tests/bonsai/correctness/cpp/vectorize_sixteen, rm tests/bonsai/correctness/cpp/main_vectorize_sixteen.o, rm tests/bonsai/correctness/cpp/vectorize_sixteen.h, rm tests/bonsai/correctness/cpp/vectorize_sixteen.o
+
+// A gang of sixteen: the width of an AVX-512 register, twice what every other
+// vectorize test uses.
+//
+// Nothing in the vectorizer names the gang width, but the backends do -- the
+// masks, the gathers, the reductions, the register width LLVM is told to
+// prefer -- so a sixteen-lane gang has to be run, not only compiled. Each
+// lane gathers a value through an index, takes one of two arms on it (a
+// divergent branch, with the mask half on either way), and adds into the
+// pixel's accumulator, which is one value for the gang and so a cross-lane
+// sum. The driver computes the same thing in scalar C++ and prints both.
+//
+// A machine without AVX-512 runs the same program in two halves of a
+// register, which is LLVM's business; the answers are the same.
+
+func [[export]] work(a : array[f32, 64], which : array[i32, 64],
+                     out : mut array[f32, 4], per_lane : mut array[f32, 64]) -> void {
+    parfor p in 0u:4u {
+        acc : mut f32 = 0.0;
+        parfor s in 0u:16u {
+            i = p * 16u + s;
+            v = a[which[i]];
+            w : mut f32 = 0.0;
+            if (v > 8.0) {
+                w = v * 2.0;
+            } else {
+                w = v + 1.0;
+            }
+            per_lane[i] = w;
+            acc += w;
+        }
+        out[p] = acc;
+    }
+    return;
+}
+
+schedule {
+    work.split(s, s_gang, s_lane, 16, false).vectorize(s_lane);
+}

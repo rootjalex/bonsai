@@ -13,17 +13,21 @@ namespace bonsai {
 // -- every method falls back to the target-agnostic one.
 struct CodeGen_X86 : public CodeGen_LLVM {
   protected:
-    // A gather of eight 32-bit elements as `vpgatherdd`/`vgatherdps` with a
-    // base register, a 256-bit index register and a scale, through the x86
-    // intrinsic that takes exactly those. LLVM's masked gather takes a
-    // vector of eight 64-bit addresses instead, and recovers the
-    // base-plus-index form only when it can still see the addresses being
-    // formed from a base and 32-bit indices; once its own loop-invariant
-    // code motion has hoisted the address vector out of a loop, it cannot,
-    // and the gather goes through two 256-bit registers of pointers
-    // (`vpgatherqd`) with the pointers kept live across the loop. Naming the
-    // instruction keeps one register of indices live instead of two of
-    // pointers, and the form is the same whatever LLVM moves.
+    // 512 with AVX-512, 256 with AVX, 128 otherwise: the machine's widest
+    // register, which a gang of sixteen or eight 32-bit lanes fills.
+    int vector_register_bits() const override;
+
+    // A gather of eight or sixteen 32-bit elements as `vpgatherdd`/
+    // `vgatherdps` with a base register, an index register of 32-bit
+    // offsets and a scale, through the x86 intrinsic that takes exactly
+    // those. LLVM's masked gather takes a vector of 64-bit addresses
+    // instead, and recovers the base-plus-index form only when it can still
+    // see the addresses being formed from a base and 32-bit indices; once
+    // its own loop-invariant code motion has hoisted the address vector out
+    // of a loop, it cannot, and the gather goes through two registers of
+    // pointers (`vpgatherqd`) with the pointers kept live across the loop.
+    // Naming the instruction keeps one register of indices live instead of
+    // two of pointers, and the form is the same whatever LLVM moves.
     llvm::Value *gather_indexed(llvm::Type *elem_llvm, llvm::Value *base,
                                 llvm::Value *indices, uint64_t scale,
                                 uint64_t disp, uint64_t align, uint32_t lanes,

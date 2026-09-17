@@ -602,10 +602,22 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *create_malloc(llvm::Type *etype, llvm::Value *size,
                                bool zero_initialize, const std::string &name);
 
+    // The width of the random number generator's state, in bits: four 32-bit
+    // lanes on every target, so that a program's random stream does not
+    // depend on the machine it runs on. Not the machine's register width,
+    // which is vector_register_bits().
     virtual int native_vector_bits() const {
         // TODO(ajr): override for other targets.
         return 128; // ARM Neon
     }
+
+    // The widest vector register the target has, in bits: what a stack slot
+    // an aggregate lives in is aligned to, so that a store of a whole
+    // register into it cannot fault, and the width LLVM is told to prefer,
+    // so that a gang as wide as the register runs as one operation per
+    // instruction rather than being split. The target-agnostic answer is
+    // the RNG's; a target with wider registers says so (see CodeGen_X86).
+    virtual int vector_register_bits() const { return native_vector_bits(); }
 
     bool is_llvm_const_one(llvm::Value *value) const {
         if (auto *constInt = llvm::dyn_cast<llvm::ConstantInt>(value)) {

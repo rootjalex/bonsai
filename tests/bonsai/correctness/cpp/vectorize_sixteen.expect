@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_sixteen.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_sixteen.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_sixteen.o tests/bonsai/correctness/cpp/vectorize_sixteen.o -o tests/bonsai/correctness/cpp/vectorize_sixteen
+[test] ./tests/bonsai/correctness/cpp/vectorize_sixteen
+195/195 241/241 242/242 186/186
+lane mismatches: 0

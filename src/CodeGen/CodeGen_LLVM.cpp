@@ -147,22 +147,19 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         target_cpu = llvm::sys::getHostCPUName().str();
         llvm::SubtargetFeatures features;
         for (const auto &feature : llvm::sys::getHostCPUFeatures()) {
-            // Every feature the host has, AVX-512 included. A gang is eight
-            // lanes -- a 256-bit vector -- so 512-bit *registers* buy the
-            // vectorized code nothing, and with them on LLVM once lowered a
-            // memset of a widened local to 512-bit stores into a slot the
-            // stack had aligned only to 256, which faulted. But the AVX-512
-            // *feature* is worth having for what else it brings: LLVM keeps a
-            // masked gather or scatter as one instruction only on a machine
-            // with AVX-512 or Intel's fast-gather tuning, and scalarizes it
-            // everywhere else -- eight extracts, eight loads, eight inserts --
-            // which on an AMD host with the feature stripped was the whole of
-            // a gang's memory traffic. The registers are kept at 256 bits by
-            // `prefer-vector-width` and `min-legal-vector-width` on every
-            // function instead (see optimize_module), which is what a C
-            // compiler's -mprefer-vector-width=256 does: an eight-lane gather
-            // of pointers then goes as two 256-bit halves rather than one
-            // 512-bit register, and measured the same.
+            // Every feature the host has, AVX-512 included: a gang is as
+            // wide as the machine's register (sixteen lanes in a zmm), and
+            // LLVM keeps a masked gather or scatter as one instruction only
+            // on a machine with AVX-512 or Intel's fast-gather tuning, and
+            // scalarizes it everywhere else -- one extract, load and insert
+            // per lane -- which on an AMD host with the feature stripped was
+            // the whole of a gang's memory traffic. The register width LLVM
+            // is told to use is the machine's too (`prefer-vector-width` and
+            // `min-legal-vector-width` on every function, see
+            // optimize_module), and a stack slot an aggregate lives in is
+            // aligned to it (see create_alloca_at_entry): with the registers
+            // at 512 bits and the slots aligned to 256, a memset of a widened
+            // local once faulted.
             features.AddFeature(feature.first(), feature.second);
         }
         target_features = features.getString();
@@ -729,18 +726,18 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     }
 
     for (auto &function : *module) {
-        // 256-bit registers on a machine that has 512-bit ones: a gang is
-        // eight lanes wide, and the wider registers only ever showed up as
-        // 512-bit spills and initializations the stack was not aligned for
-        // (see the host features above). Both attributes, as clang sets
-        // them: without `min-legal-vector-width` LLVM takes every width to be
-        // required and still keeps an eight-lane pointer vector in a 512-bit
-        // register. Only when following the host, so that a named --mcpu,
+        // The machine's own register width: a gang is one register wide
+        // (sixteen lanes in a zmm), and with less preferred LLVM would split
+        // each of its operations in two. Both attributes, as clang sets them
+        // for -mprefer-vector-width: without `min-legal-vector-width` LLVM
+        // decides the width from the types it sees rather than from the
+        // preference. Only when following the host, so that a named --mcpu,
         // and the golden IR diffed under one, keeps its attributes as they
         // were.
         if (follows_host) {
-            function.addFnAttr("prefer-vector-width", "256");
-            function.addFnAttr("min-legal-vector-width", "0");
+            const std::string bits = std::to_string(vector_register_bits());
+            function.addFnAttr("prefer-vector-width", bits);
+            function.addFnAttr("min-legal-vector-width", bits);
         }
         if (false) { // get_target().has_feature(Target::ASAN)
             function.addFnAttr(llvm::Attribute::SanitizeAddress);
@@ -5243,15 +5240,18 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
     const llvm::DataLayout &dl = module->getDataLayout();
     unsigned align = dl.getABITypeAlign(t).value();
     // A local an aggregate lives in is aligned to the widest vector the
-    // optimizer might initialize it with, not only to what its own fields need.
-    // LLVM merges adjacent field stores into one 256-bit vector store and then
-    // wants that store's address 32-aligned, which a struct slot aligned only to
-    // its 16-byte fields is not -- and an aligned store to it faults. This bites
-    // the vectorized parfor kernel, whose stack is realigned; over-aligning the
-    // aggregate closes the gap. Only there: the relooper's functions keep the
-    // alignment their fields ask for, so the golden IR that pins it is unchanged.
-    if (lowering_from_ssa && t->isAggregateType() && align < 32) {
-        align = 32;
+    // optimizer might initialize it with -- the machine's register, see
+    // vector_register_bits -- not only to what its own fields need. LLVM
+    // merges adjacent field stores into one register-wide store and then
+    // wants that store's address aligned to the register, which a struct
+    // slot aligned only to its 16-byte fields is not -- and an aligned store
+    // to it faults. This bites the vectorized parfor kernel, whose stack is
+    // realigned; over-aligning the aggregate closes the gap. Only there: the
+    // relooper's functions keep the alignment their fields ask for, so the
+    // golden IR that pins it is unchanged.
+    const unsigned register_align = unsigned(vector_register_bits() / 8);
+    if (lowering_from_ssa && t->isAggregateType() && align < register_align) {
+        align = register_align;
     }
     ptr->setAlignment(llvm::Align(align));
 

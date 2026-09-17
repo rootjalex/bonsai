@@ -1,0 +1,52 @@
+//! flags: -p ssa -b llvm --triple x86_64-unknown-linux-gnu --mcpu skylake-avx512
+
+// A sixteen-lane gang's gathers on a machine with AVX-512F (see CodeGen_X86).
+//
+// x86-gather-avx512.bonsai with the gang as wide as the machine's register:
+// sixteen 32-bit lanes in a zmm. The x86 code generator names the 512-bit
+// instruction, `llvm.x86.avx512.mask.gather.dps.512` and `.dpi.512` -- the
+// base pointer, sixteen 32-bit offsets, a mask in a k register and a scale,
+// which is what `vgatherdps`/`vpgatherdd zmm` are -- where LLVM's own masked
+// gather would take sixteen 64-bit addresses in two registers.
+//
+// What to read for in the golden:
+//
+//   * `read_fields` gathers `x` through `gather.dps.512` with the base
+//     pointer itself, and `n` through `gather.dpi.512` with the field's
+//     displacement folded into the base, both with an all-true mask since
+//     every lane is on.
+//   * `read_flags` reads its `u8` field as a word through the same
+//     instruction with a shift after it (see gather_elements).
+//   * No `llvm.masked.gather` remains in the module, and every vector is
+//     `<16 x ...>`: one register, not two halves.
+element Sample {
+    x : f32;
+    n : i32;
+}
+
+element Flags {
+    n : u32;
+    kind : u8;
+}
+
+func [[export]] read_fields(samples : array[Sample, 16], which : array[i32, 16],
+                            out : mut array[f32, 16]) {
+    parfor i in 0:16 {
+        s = samples[which[i]];
+        out[i] = s.x * cast[[f32]](s.n);
+    }
+    return;
+}
+
+func [[export]] read_flags(flags : array[Flags, 16], which : array[i32, 16],
+                           out : mut array[i32, 16]) {
+    parfor i in 0:16 {
+        out[i] = cast[[i32]](flags[which[i]].kind);
+    }
+    return;
+}
+
+schedule {
+    read_fields.vectorize(i);
+    read_flags.vectorize(i);
+}
