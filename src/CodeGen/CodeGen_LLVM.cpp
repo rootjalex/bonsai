@@ -2402,13 +2402,24 @@ void CodeGen_LLVM::visit(const Extract *node) {
         // each lane's own index -- is gathered a leaf at a time into the
         // struct of gang-wide fields it is carried as (see gather_elements).
         if (element.is<Struct_t, Union_t, Vector_t>()) {
-            llvm::Value *ptrs = element_addresses(
-                codegen_type(element), vec, codegen_expr(node->idx),
-                "extract_ptrs");
+            // Each lane's byte offset to its element, in 32 bits (see
+            // element_addresses): what every field's gather is the base
+            // plus. An index wider than that is taken in 32 bits, which is
+            // the addressing model's limit.
+            llvm::Value *idx = codegen_expr(node->idx);
+            llvm::Type *offsets_t = llvm::FixedVectorType::get(i32_t, lanes);
+            if (idx->getType() != offsets_t) {
+                idx = builder->CreateIntCast(idx, offsets_t, /*isSigned=*/true);
+            }
+            const uint64_t size = module->getDataLayout()
+                                      .getTypeAllocSize(codegen_type(element))
+                                      .getFixedValue();
+            llvm::Value *offsets = builder->CreateMul(
+                idx, llvm::ConstantInt::get(offsets_t, size), "extract_off");
             llvm::Value *mask =
                 node->mask.defined() ? codegen_expr(node->mask) : nullptr;
-            value = gather_elements(element, node->type, ptrs, lanes, mask,
-                                    "extract");
+            value = gather_elements(element, node->type, vec, offsets, 0, lanes,
+                                    mask, "extract");
             return;
         }
         // Unmasked, every lane of a gang stands for a real iteration and
@@ -2446,18 +2457,28 @@ void CodeGen_LLVM::visit(const Extract *node) {
 
 llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
                                            const ir::Type &wide_t,
-                                           llvm::Value *ptrs, uint32_t lanes,
-                                           llvm::Value *mask,
+                                           llvm::Value *base,
+                                           llvm::Value *offsets, uint64_t disp,
+                                           uint32_t lanes, llvm::Value *mask,
                                            const std::string &name) {
+    // Every field's address is the one base, plus each lane's 32-bit byte
+    // offset to its element, plus the field's own offset within the element
+    // -- accumulated in `disp` down the recursion and added to the offsets
+    // only at the leaf, so that the gather is `base + sext(offsets) + disp`:
+    // one instruction with a 256-bit index register and a displacement. A
+    // vector of pointers offset once per field, which this used to form,
+    // LLVM could not fold back into that, and gathered through eight 64-bit
+    // addresses instead (see element_addresses for the addressing model).
     const llvm::DataLayout &dl = module->getDataLayout();
     llvm::Type *elem_llvm = codegen_type(element);
     llvm::Type *wide_llvm = codegen_type(wide_t);
-    llvm::Value *zero = llvm::ConstantInt::get(i32_t, 0);
 
     if (const Struct_t *s = element.as<Struct_t>()) {
         const Struct_t *ws = wide_t.as<Struct_t>();
         internal_assert(ws && ws->fields.size() == s->fields.size())
             << wide_t << " is not " << element << " widened";
+        const llvm::StructLayout *layout =
+            dl.getStructLayout(llvm::cast<llvm::StructType>(elem_llvm));
         llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
         // The LLVM struct leaves out reference-typed fields (see the Struct_t
         // visitor), so its element numbers run ahead of the IR's.
@@ -2466,11 +2487,9 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
             if (s->fields[i].type.is<Ref_t>()) {
                 continue;
             }
-            llvm::Value *field_ptrs = builder->CreateInBoundsGEP(
-                elem_llvm, ptrs, {zero, llvm::ConstantInt::get(i32_t, slot)},
-                name + "_" + s->fields[i].name + "_ptrs");
             llvm::Value *field = gather_elements(
-                s->fields[i].type, ws->fields[i].type, field_ptrs, lanes, mask,
+                s->fields[i].type, ws->fields[i].type, base, offsets,
+                disp + layout->getElementOffset(slot), lanes, mask,
                 name + "_" + s->fields[i].name);
             result = builder->CreateInsertValue(result, field, unsigned(i));
             slot++;
@@ -2483,14 +2502,13 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
         const Struct_t *ws = wide_t.as<Struct_t>();
         internal_assert(ws && ws->fields.size() == v->lanes)
             << wide_t << " is not " << element << " widened";
+        const uint64_t esize =
+            dl.getTypeAllocSize(codegen_type(v->etype)).getFixedValue();
         llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
         for (uint32_t c = 0; c < v->lanes; c++) {
-            llvm::Value *component_ptrs = builder->CreateInBoundsGEP(
-                elem_llvm, ptrs, {zero, llvm::ConstantInt::get(i32_t, c)},
-                name + "_" + std::to_string(c) + "_ptrs");
             llvm::Value *component = gather_elements(
-                v->etype, ws->fields[c].type, component_ptrs, lanes, mask,
-                name + "_" + std::to_string(c));
+                v->etype, ws->fields[c].type, base, offsets, disp + c * esize,
+                lanes, mask, name + "_" + std::to_string(c));
             result = builder->CreateInsertValue(result, component, c);
         }
         return result;
@@ -2510,11 +2528,9 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
         const Type word_t = UInt_t::make(32);
         llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
         for (unsigned j = 0; j < words_t->fields.size(); j++) {
-            llvm::Value *word_ptrs = builder->CreateInBoundsGEP(
-                i8_t, ptrs, {llvm::ConstantInt::get(i64_t, 4 * uint64_t(j))},
-                name + "_w" + std::to_string(j) + "_ptrs");
             llvm::Value *word = gather_elements(
-                word_t, Vector_t::make(word_t, lanes), word_ptrs, lanes, mask,
+                word_t, Vector_t::make(word_t, lanes), base, offsets,
+                disp + 4 * uint64_t(j), lanes, mask,
                 name + "_w" + std::to_string(j));
             result = builder->CreateInsertValue(result, word, j);
         }
@@ -2525,11 +2541,18 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
     // create_vector_load).
     if (elem_llvm->isIntegerTy(1)) {
         llvm::Value *bytes = gather_elements(
-            UInt_t::make(8), Vector_t::make(UInt_t::make(8), lanes), ptrs, lanes,
-            mask, name);
+            UInt_t::make(8), Vector_t::make(UInt_t::make(8), lanes), base,
+            offsets, disp, lanes, mask, name);
         return builder->CreateTrunc(
             bytes, llvm::FixedVectorType::get(i1_t, lanes), name + "_bits");
     }
+    llvm::Value *at = offsets;
+    if (disp != 0) {
+        at = builder->CreateAdd(
+            offsets, llvm::ConstantInt::get(offsets->getType(), disp),
+            name + "_at");
+    }
+    llvm::Value *ptrs = builder->CreateInBoundsGEP(i8_t, base, at, name + "_ptrs");
     llvm::Type *vtype = llvm::FixedVectorType::get(elem_llvm, lanes);
     llvm::Value *on = mask != nullptr
                           ? mask

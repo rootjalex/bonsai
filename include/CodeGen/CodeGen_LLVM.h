@@ -325,20 +325,18 @@ struct CodeGen_LLVM : public ir::Visitor {
     void check_union_words(const ir::Union_t &as_union,
                            const ir::Struct_t &words);
 
-    // One value of `element` per lane, at the addresses in `ptrs` (one per
-    // lane), gathered into the gang-wide form `wide_t` (ir::widen(element)):
-    // a leaf at a time for a struct or a short vector, whose leaves become
-    // gathers of scalars; whole per lane for a union, whose gang-wide form is
-    // one union per lane.
-    // `mask`, if given, is the lanes that read at all; the others' values are
-    // unsaid and their addresses are never touched.
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).
     llvm::Value *element_addresses(llvm::Type *element, llvm::Value *base,
                                    llvm::Value *indices,
                                    const std::string &name);
+    // One value of `element` per lane, each at `base` plus that lane's 32-bit
+    // byte offset in `offsets` plus `disp`, gathered field by field into the
+    // gang-wide form `wide_t` (ir::widen(element)); `mask` says which lanes
+    // load, or is null for all of them.
     llvm::Value *gather_elements(const ir::Type &element, const ir::Type &wide_t,
-                                 llvm::Value *ptrs, uint32_t lanes,
+                                 llvm::Value *base, llvm::Value *offsets,
+                                 uint64_t disp, uint32_t lanes,
                                  llvm::Value *mask, const std::string &name);
 
     // An alloca at the top of the current function's entry block: where a
