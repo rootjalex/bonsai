@@ -98,52 +98,72 @@ func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void
   !exit.then_2 : mut boolx8
   !exit.then_0 : mut boolx8
   !track.then_0.0 : mut i32x8
-  let @43 = i32x8(acc) in
-  let @44 = boolx8(true) in
-  let @45 = boolx8(false) in
-  let @46 = boolx8(false) in
-  let @47 = i32x8(0) in
+  @11!skip : mut boolx8
+  @4!skip : mut i32x8
+  @12!skip : mut boolx8
+  @5!skip : mut i32x8
+  let @48 = i32x8(acc) in
+  let @49 = boolx8(true) in
+  let @50 = boolx8(false) in
+  let @51 = boolx8(false) in
+  let @52 = i32x8(0) in
   n!loop!loop = n
-  acc!loop!loop = @43
-  !live = @44
-  !exit.then_2 = @45
-  !exit.then_0 = @46
-  !track.then_0.0 = @47
+  acc!loop!loop = @48
+  !live = @49
+  !exit.then_2 = @50
+  !exit.then_0 = @51
+  !track.then_0.0 = @52
   while (reduce<any>((*!live))) {
-    let @29 = i32x8(0) in
-    let @0 = (*n!loop!loop) <= @29 in
-    let @30 = boolx8(false) in
-    let @31 = boolx8(true) in
-    let @7 = select(@0, @30, @31) in
+    let @30 = i32x8(0) in
+    let @0 = (*n!loop!loop) <= @30 in
+    let @31 = boolx8(false) in
+    let @32 = boolx8(true) in
+    let @7 = select(@0, @31, @32) in
     let @8 = (*!live) && @7 in
     let @9 = (*!live) && @0 in
-    let @32 = i32x8(20) in
-    let @2 = @32 < (*acc!loop!loop) in
-    let @33 = boolx8(false) in
-    let @34 = boolx8(true) in
-    let @10 = select(@2, @33, @34) in
-    let @11 = @8 && @10 in
-    let @12 = @8 && @2 in
-    let @35 = i32x8(1) in
-    let @4 = (*n!loop!loop) - @35 in
-    let @5 = (*acc!loop!loop) + (*n!loop!loop) in
-    let @14 = select(@11, @4, (*n!loop!loop)) in
+    let @27 = reduce<any>(@8) in
+    let @44 = boolx8(false) in
+    let @45 = i32x8(0) in
+    let @46 = boolx8(false) in
+    let @47 = i32x8(0) in
+    if (@27) {
+      let @33 = i32x8(20) in
+      let @2 = @33 < (*acc!loop!loop) in
+      let @34 = boolx8(false) in
+      let @35 = boolx8(true) in
+      let @10 = select(@2, @34, @35) in
+      let @11 = @8 && @10 in
+      let @12 = @8 && @2 in
+      let @36 = i32x8(1) in
+      let @4 = (*n!loop!loop) - @36 in
+      let @5 = (*acc!loop!loop) + (*n!loop!loop) in
+      @11!skip = @11
+      @4!skip = @4
+      @12!skip = @12
+      @5!skip = @5
+    } else {
+      @11!skip = @44
+      @4!skip = @45
+      @12!skip = @46
+      @5!skip = @47
+    }
+    let @14 = select((*@11!skip), (*@4!skip), (*n!loop!loop)) in
     let @15 = select(@9, (*n!loop!loop), @14) in
-    let @16 = select(@12, (*n!loop!loop), @15) in
-    let @17 = select(@11, @5, (*acc!loop!loop)) in
+    let @16 = select((*@12!skip), (*n!loop!loop), @15) in
+    let @17 = select((*@11!skip), (*@5!skip), (*acc!loop!loop)) in
     let @18 = select(@9, (*acc!loop!loop), @17) in
-    let @19 = select(@12, (*acc!loop!loop), @18) in
-    let @36 = boolx8(false) in
-    let @20 = select(@9, @36, (*!live)) in
+    let @19 = select((*@12!skip), (*acc!loop!loop), @18) in
     let @37 = boolx8(false) in
-    let @21 = select(@12, @37, @20) in
-    let @38 = boolx8(true) in
-    let @22 = select(@12, @38, (*!exit.then_2)) in
+    let @20 = select(@9, @37, (*!live)) in
+    let @38 = boolx8(false) in
+    let @21 = select((*@12!skip), @38, @20) in
     let @39 = boolx8(true) in
-    let @23 = select(@9, @39, (*!exit.then_0)) in
-    let @24 = select(@12, (*!exit.then_0), @23) in
+    let @22 = select((*@12!skip), @39, (*!exit.then_2)) in
+    let @40 = boolx8(true) in
+    let @23 = select(@9, @40, (*!exit.then_0)) in
+    let @24 = select((*@12!skip), (*!exit.then_0), @23) in
     let @25 = select(@9, (*acc!loop!loop), (*!track.then_0.0)) in
-    let @26 = select(@12, (*!track.then_0.0), @25) in
+    let @26 = select((*@12!skip), (*!track.then_0.0), @25) in
     n!loop!loop = @16
     acc!loop!loop = @19
     !live = @21
@@ -151,16 +171,16 @@ func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void
     !exit.then_0 = @24
     !track.then_0.0 = @26
   }
-  let @40 = boolx8(false) in
-  let @41 = boolx8(true) in
-  let @13 = select((*!exit.then_2), @40, @41) in
-  let @27 = reduce<any>((*!exit.then_2)) in
-  if (@27) {
-    let @42 = i32x8(-1) in
-    masked_store(out[i], @42, (*!exit.then_2))
-  }
-  let @28 = reduce<any>(@13) in
+  let @41 = boolx8(false) in
+  let @42 = boolx8(true) in
+  let @13 = select((*!exit.then_2), @41, @42) in
+  let @28 = reduce<any>((*!exit.then_2)) in
   if (@28) {
+    let @43 = i32x8(-1) in
+    masked_store(out[i], @43, (*!exit.then_2))
+  }
+  let @29 = reduce<any>(@13) in
+  if (@29) {
     masked_store(out[i], (*!track.then_0.0), @13)
   }
   return

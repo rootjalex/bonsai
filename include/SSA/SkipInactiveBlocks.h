@@ -22,19 +22,27 @@ namespace ssa {
 // `any(mask)` around the block, taken together by the whole gang, which
 // leaves the block's work out entirely when the mask is empty.
 //
-// For each block with an execution mask, when the block does real work and
-// its mask is not the mask the whole region runs under, a guard block is put
-// in front of it holding `any(mask)` and a dispatch: the block when some lane
-// is on, its successor when none is. The block's arguments move to the guard,
-// so the edges into it need no change. A value the block defines and a later
-// block uses is not defined along the bypass, so it becomes an argument of the
-// successor -- the value from the block, zero from the guard -- and the later
-// uses take that argument; the zero is never read, since every such use is
-// under a mask that is empty when the block was skipped, or a blend that
-// selects the other side. A block whose own values travel to its successor as
-// arguments already is left alone: those are the slots of a join with several
-// live paths (see the `remaining > 1` case in Linearize.cpp), whose fallback
-// is the previous value and not zero.
+// For each block with an execution mask, when its mask is not the mask the
+// whole region runs under, a guard block is put in front of it holding
+// `any(mask)` and a dispatch: the block when some lane is on, and when none
+// is, past the *run* of blocks after it whose masks are narrowings of its own
+// -- the arms nested inside this one, which no lane can be on either -- to
+// the first block that is not. One test skips the whole arm, and the blocks
+// inside it need no test of their own for the outer condition; an inner
+// block with a narrower mask still gets a guard of its own, whose bypass lands
+// inside or at the end of the outer run. The first block's arguments move to
+// the guard, so the edges into it need no change. A value the run defines and
+// a later block uses is not defined along the bypass, so it becomes an
+// argument of the block after the run -- the value from the run, zero from
+// the guard -- and the later uses take that argument; the zero is never read,
+// since every such use is under a mask that is empty when the run was
+// skipped, or a blend that selects the other side. Values used only inside
+// the run are left alone, which is most of what an arm computes. A run is
+// skipped only when it does real work, and only when the block after it is
+// reached from the run alone, or from the run and other guards' bypasses,
+// which hand it zeros too: a join with several live paths (see the
+// `remaining > 1` case in Linearize.cpp) has a previous value to fall back
+// on, not zero, and is not touched.
 //
 // `masks` are the masks linearization returned, updated here where a mask
 // became an argument of a later block. `entry_mask` is the mask the region

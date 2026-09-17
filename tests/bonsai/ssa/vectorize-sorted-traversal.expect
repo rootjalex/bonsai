@@ -378,778 +378,757 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
 }
 
 func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : Ray$v8, _best0 : mut (__tuple_1$v8*)) -> void {
-  _t651!skip : mut _tree_layout1$v8
-  _t399!skip : mut f32x3$v8
-  _t166$i34!skip : mut f32x3$v8
-  a$i34!skip : mut f32x8
-  _t170$i34!skip : mut f32x8
-  _t663!skip : mut f32x8
-  @226!skip : mut boolx8
-  @227!skip : mut boolx8
   @41!skip : mut _option1$v8
   @51!skip : mut boolx8
-  @244!skip : mut boolx8
-  @245!skip : mut boolx8
   @210!skip : mut u16x8
   @219!skip : mut u32x8
   _idx0!loop : mut u16x8
   !live_0 : mut boolx8
   !exit.for__idx0_end_24 : mut boolx8
-  _t673!skip : mut u16x8
-  _t675!skip : mut Shape$v8
-  _t239!skip : mut u8x8
-  @253!skip : mut boolx8
+  @301!skip : mut boolx8
   @255!skip : mut boolx8
-  _t170$i21$i35!skip : mut f32x8
-  _t686!skip : mut f32x8
-  @257!skip : mut boolx8
-  @258!skip : mut boolx8
+  @251!skip : mut boolx8
+  _t675!skip : mut Shape$v8
+  @253!skip : mut boolx8
+  _t239!skip : mut u8x8
+  _t673!skip : mut u16x8
+  @250!skip : mut boolx8
   @127!skip : mut _option1$v8
   @137!skip : mut boolx8
-  _t170$i17$i36!skip : mut f32x8
-  _t706!skip : mut f32x8
-  @273!skip : mut boolx8
-  @274!skip : mut boolx8
+  @305!skip : mut f32x8
+  @303!skip : mut f32x8
   @179!skip : mut _option1$v8
-  @283!skip : mut boolx8
   shapes_index!top!loop : mut u16x8
   !live!loop : mut boolx8
   !count!loop : mut u32x8
   !live_1 : mut boolx8
   !exit.visited : mut boolx8
-  @215!skip : mut u32x8
   @216!skip : mut u16x8
+  @215!skip : mut u32x8
+  @294!skip : mut boolx8
   !stack : mut u16x8[64]
-  let @625 = u16x8(shapes_index) in
-  let @626 = boolx8(true) in
-  let @627 = u32x8(0u) in
-  let @628 = boolx8(true) in
-  let @629 = boolx8(false) in
-  shapes_index!top!loop = @625
-  !live!loop = @626
-  !count!loop = @627
-  !live_1 = @628
-  !exit.visited = @629
+  let @659 = u16x8(shapes_index) in
+  let @660 = boolx8(true) in
+  let @661 = u32x8(0u) in
+  let @662 = boolx8(true) in
+  let @663 = boolx8(false) in
+  shapes_index!top!loop = @659
+  !live!loop = @660
+  !count!loop = @661
+  !live_1 = @662
+  !exit.visited = @663
   while (reduce<any>((*!live_1))) {
-    let @431 = boolx8(false) in
-    let @432 = boolx8(true) in
-    let @222 = select((*!live!loop), @431, @432) in
+    let @435 = boolx8(false) in
+    let @436 = boolx8(true) in
+    let @222 = select((*!live!loop), @435, @436) in
     let @223 = (*!live_1) && @222 in
     let @224 = (*!live_1) && (*!live!loop) in
-    let @325 = reduce<any>(@224) in
-    let @326 = build<[[packed]] f32x3>(0f, 0f, 0f) in
-    let @327 = build<[[packed]] u8x2>(0u, 0u) in
-    let @328 = build<_tree_layout1>(@326, 0f, 0u, 0u, @327) in
-    let @329 = build<f32x3>(0f, 0f, 0f) in
-    let @330 = build<f32x3>(0f, 0f, 0f) in
-    let @632 = @328.center in
-    let @633 = @632[0u] in
-    let @634 = f32x8(@633) in
-    let @635 = @632[1u] in
-    let @636 = f32x8(@635) in
-    let @637 = @632[2u] in
-    let @638 = f32x8(@637) in
-    let @639 = build<[[packed]] f32x3$v8>(@634, @636, @638) in
-    let @640 = @328.radius in
-    let @641 = f32x8(@640) in
-    let @642 = @328.nPrims in
-    let @643 = u8x8(@642) in
-    let @644 = @328.axis in
-    let @645 = u8x8(@644) in
-    let @646 = @328.split0on_nPrims in
-    let @647 = @646[0u] in
-    let @648 = u8x8(@647) in
-    let @649 = @646[1u] in
-    let @650 = u8x8(@649) in
-    let @651 = build<[[packed]] u8x2$v8>(@648, @650) in
-    let @652 = build<_tree_layout1$v8>(@639, @641, @643, @645, @651) in
-    let @653 = @329[0u] in
-    let @654 = f32x8(@653) in
-    let @655 = @329[1u] in
-    let @656 = f32x8(@655) in
-    let @657 = @329[2u] in
-    let @658 = f32x8(@657) in
-    let @659 = build<f32x3$v8>(@654, @656, @658) in
-    let @660 = @330[0u] in
-    let @661 = f32x8(@660) in
-    let @662 = @330[1u] in
-    let @663 = f32x8(@662) in
-    let @664 = @330[2u] in
-    let @665 = f32x8(@664) in
-    let @666 = build<f32x3$v8>(@661, @663, @665) in
-    let @667 = f32x8(0f) in
-    let @668 = f32x8(0f) in
-    let @669 = f32x8(0f) in
-    let @670 = boolx8(false) in
-    let @671 = boolx8(false) in
-    if (@325) {
-      let @0 = shapes.group0_index in
-      let _t651 = masked_extract(@0[(*shapes_index!top!loop)], @224) in
-      let @2 = _t651.center in
-      let @355 = @2.!0 in
-      let @356 = cast<f32x8>(@355) in
-      let @357 = @2.!1 in
-      let @358 = cast<f32x8>(@357) in
-      let @359 = @2.!2 in
-      let @360 = cast<f32x8>(@359) in
-      let @4 = _t651.radius in
-      let @361 = build<f32x3$v8>(@356, @358, @360) in
-      let _t655 = build<Sphere$v8>(@361, @4) in
-      let _t399 = r.o in
-      let @7 = _t655.center in
-      let @362 = @7.!0 in
-      let @363 = _t399.!0 in
-      let @364 = @362 - @363 in
-      let @365 = @7.!1 in
-      let @366 = _t399.!1 in
-      let @367 = @365 - @366 in
-      let @368 = @7.!2 in
-      let @369 = _t399.!2 in
-      let @370 = @368 - @369 in
-      let _t166$i34 = r.d in
-      let @371 = _t166$i34.!0 in
-      let @372 = @371 * @371 in
-      let @373 = _t166$i34.!1 in
-      let @374 = @373 * @373 in
-      let @375 = _t166$i34.!2 in
-      let @376 = @375 * @375 in
-      let @377 = @372 + @374 in
-      let @378 = @377 + @376 in
-      let @12 = _t166$i34.!0 in
-      let @14 = @12 * @364 in
-      let @15 = _t166$i34.!1 in
-      let @17 = @15 * @367 in
-      let @18 = @14 + @17 in
-      let @19 = _t166$i34.!2 in
-      let @21 = @19 * @370 in
-      let _t170$i34 = @18 + @21 in
-      let _t172$i34 = _t655.radius in
-      let @24 = _t170$i34 * _t170$i34 in
-      let @379 = @364 * @364 in
-      let @380 = @367 * @367 in
-      let @381 = @370 * @370 in
-      let @382 = @379 + @380 in
-      let @383 = @382 + @381 in
-      let @27 = _t172$i34 * _t172$i34 in
-      let @28 = @383 - @27 in
-      let @29 = @378 * @28 in
-      let _t663 = @24 - @29 in
-      let @433 = f32x8(0f) in
-      let @31 = _t663 < @433 in
-      let @434 = boolx8(false) in
-      let @435 = boolx8(true) in
-      let @225 = select(@31, @434, @435) in
-      let @226 = @224 && @225 in
-      let @227 = @224 && @31 in
-      _t651!skip = _t651
-      _t399!skip = _t399
-      _t166$i34!skip = _t166$i34
-      a$i34!skip = @378
-      _t170$i34!skip = _t170$i34
-      _t663!skip = _t663
-      @226!skip = @226
-      @227!skip = @227
-    } else {
-      _t651!skip = @652
-      _t399!skip = @659
-      _t166$i34!skip = @666
-      a$i34!skip = @667
-      _t170$i34!skip = @668
-      _t663!skip = @669
-      @226!skip = @670
-      @227!skip = @671
-    }
+    let @0 = shapes.group0_index in
+    let _t651 = masked_extract(@0[(*shapes_index!top!loop)], @224) in
+    let @2 = _t651.center in
+    let @359 = @2.!0 in
+    let @360 = cast<f32x8>(@359) in
+    let @361 = @2.!1 in
+    let @362 = cast<f32x8>(@361) in
+    let @363 = @2.!2 in
+    let @364 = cast<f32x8>(@363) in
+    let @4 = _t651.radius in
+    let @365 = build<f32x3$v8>(@360, @362, @364) in
+    let _t655 = build<Sphere$v8>(@365, @4) in
+    let _t399 = r.o in
+    let @7 = _t655.center in
+    let @366 = @7.!0 in
+    let @367 = _t399.!0 in
+    let @368 = @366 - @367 in
+    let @369 = @7.!1 in
+    let @370 = _t399.!1 in
+    let @371 = @369 - @370 in
+    let @372 = @7.!2 in
+    let @373 = _t399.!2 in
+    let @374 = @372 - @373 in
+    let _t166$i34 = r.d in
+    let @375 = _t166$i34.!0 in
+    let @376 = @375 * @375 in
+    let @377 = _t166$i34.!1 in
+    let @378 = @377 * @377 in
+    let @379 = _t166$i34.!2 in
+    let @380 = @379 * @379 in
+    let @381 = @376 + @378 in
+    let @382 = @381 + @380 in
+    let @12 = _t166$i34.!0 in
+    let @14 = @12 * @368 in
+    let @15 = _t166$i34.!1 in
+    let @17 = @15 * @371 in
+    let @18 = @14 + @17 in
+    let @19 = _t166$i34.!2 in
+    let @21 = @19 * @374 in
+    let _t170$i34 = @18 + @21 in
+    let _t172$i34 = _t655.radius in
+    let @24 = _t170$i34 * _t170$i34 in
+    let @383 = @368 * @368 in
+    let @384 = @371 * @371 in
+    let @385 = @374 * @374 in
+    let @386 = @383 + @384 in
+    let @387 = @386 + @385 in
+    let @27 = _t172$i34 * _t172$i34 in
+    let @28 = @387 - @27 in
+    let @29 = @382 * @28 in
+    let _t663 = @24 - @29 in
+    let @437 = f32x8(0f) in
+    let @31 = _t663 < @437 in
+    let @438 = boolx8(false) in
+    let @439 = boolx8(true) in
+    let @225 = select(@31, @438, @439) in
+    let @226 = @224 && @225 in
+    let @227 = @224 && @31 in
     let @32 = build<_option1>() in
-    let @331 = reduce<any>((*@226!skip)) in
-    let @332 = build<FInterval>(0f, 0f) in
-    let @333 = build<_option1>(@332, false) in
-    let @555 = @333.value in
-    let @556 = @555.low in
+    let @325 = reduce<any>(@226) in
+    let @326 = build<FInterval>(0f, 0f) in
+    let @327 = build<_option1>(@326, false) in
+    let @553 = @327.value in
+    let @554 = @553.low in
+    let @555 = f32x8(@554) in
+    let @556 = @553.high in
     let @557 = f32x8(@556) in
-    let @558 = @555.high in
-    let @559 = f32x8(@558) in
-    let @560 = build<FInterval$v8>(@557, @559) in
-    let @561 = @333.set in
-    let @562 = boolx8(@561) in
-    let @563 = build<_option1$v8>(@560, @562) in
-    if (@331) {
-      let sqrtd$i34 = sqrt((*_t663!skip)) in
-      let @34 = (*_t170$i34!skip) - sqrtd$i34 in
-      let _t665 = @34 / (*a$i34!skip) in
-      let @36 = (*_t170$i34!skip) + sqrtd$i34 in
-      let _t667 = @36 / (*a$i34!skip) in
+    let @558 = build<FInterval$v8>(@555, @557) in
+    let @559 = @327.set in
+    let @560 = boolx8(@559) in
+    let @561 = build<_option1$v8>(@558, @560) in
+    if (@325) {
+      let sqrtd$i34 = sqrt(_t663) in
+      let @34 = _t170$i34 - sqrtd$i34 in
+      let _t665 = @34 / @382 in
+      let @36 = _t170$i34 + sqrtd$i34 in
+      let _t667 = @36 / @382 in
       let @38 = min(_t665, _t667) in
       let @39 = max(_t665, _t667) in
       let interval$i34 = build<FInterval$v8>(@38, @39) in
-      let @436 = boolx8(true) in
-      let @41 = build<_option1$v8>(interval$i34, @436) in
+      let @440 = boolx8(true) in
+      let @41 = build<_option1$v8>(interval$i34, @440) in
       @41!skip = @41
     } else {
-      @41!skip = @563
+      @41!skip = @561
     }
-    let @437 = @32.value in
-    let @438 = @437.low in
-    let @439 = f32x8(@438) in
-    let @440 = @437.high in
-    let @441 = f32x8(@440) in
-    let @442 = build<FInterval$v8>(@439, @441) in
-    let @443 = @32.set in
-    let @444 = boolx8(@443) in
-    let @445 = build<_option1$v8>(@442, @444) in
-    let @296 = select((*@226!skip), (*@41!skip), @445) in
+    let @441 = @32.value in
+    let @442 = @441.low in
+    let @443 = f32x8(@442) in
+    let @444 = @441.high in
+    let @445 = f32x8(@444) in
+    let @446 = build<FInterval$v8>(@443, @445) in
+    let @447 = @32.set in
+    let @448 = boolx8(@447) in
+    let @449 = build<_option1$v8>(@446, @448) in
+    let @296 = select(@226, (*@41!skip), @449) in
     let _t413 = @296.set in
-    let @446 = boolx8(false) in
-    let @447 = boolx8(true) in
-    let @228 = select(_t413, @446, @447) in
+    let @450 = boolx8(false) in
+    let @451 = boolx8(true) in
+    let @228 = select(_t413, @450, @451) in
     let @229 = @224 && @228 in
     let @230 = @224 && _t413 in
-    let @334 = reduce<any>(@230) in
-    let @622 = boolx8(false) in
-    if (@334) {
+    let @328 = reduce<any>(@230) in
+    let @657 = boolx8(false) in
+    if (@328) {
       let extract$i0 = @296.value in
       let @46 = extract$i0.low in
       let @47 = r.tmax in
       let @48 = @46 < @47 in
       let @49 = extract$i0.high in
-      let @448 = f32x8(0f) in
-      let @50 = @448 < @49 in
+      let @452 = f32x8(0f) in
+      let @50 = @452 < @49 in
       let @51 = @48 & @50 in
       @51!skip = @51
     } else {
-      @51!skip = @622
+      @51!skip = @657
     }
-    let @449 = boolx8(false) in
-    let @297 = select(@229, @449, (*@51!skip)) in
-    let @450 = boolx8(false) in
-    let @451 = boolx8(true) in
-    let @231 = select(@297, @450, @451) in
+    let @453 = boolx8(false) in
+    let @297 = select(@229, @453, (*@51!skip)) in
+    let @454 = boolx8(false) in
+    let @455 = boolx8(true) in
+    let @231 = select(@297, @454, @455) in
     let @232 = @224 && @231 in
     let @233 = @224 && @297 in
-    let @452 = boolx8(false) in
-    let @453 = boolx8(true) in
-    let @234 = select(_t413, @452, @453) in
+    let @456 = boolx8(false) in
+    let @457 = boolx8(true) in
+    let @234 = select(_t413, @456, @457) in
     let @235 = @233 && @234 in
     let @236 = @233 && _t413 in
     let extract$i1 = @296.value in
     let @55 = extract$i1.high in
     let @56 = (f32)inf in
-    let @454 = f32x8(@56) in
-    let @298 = select(@235, @454, @55) in
-    let @455 = f32x8(0.001f) in
-    let @58 = @455 < @298 in
-    let @456 = boolx8(false) in
-    let @457 = boolx8(true) in
-    let @237 = select(@58, @456, @457) in
+    let @458 = f32x8(@56) in
+    let @298 = select(@235, @458, @55) in
+    let @459 = f32x8(0.001f) in
+    let @58 = @459 < @298 in
+    let @460 = boolx8(false) in
+    let @461 = boolx8(true) in
+    let @237 = select(@58, @460, @461) in
     let @238 = @233 && @237 in
     let @239 = @233 && @58 in
-    let @458 = boolx8(false) in
-    let @459 = boolx8(true) in
-    let @240 = select(_t413, @458, @459) in
+    let @462 = boolx8(false) in
+    let @463 = boolx8(true) in
+    let @240 = select(_t413, @462, @463) in
     let @241 = @239 && @240 in
     let @242 = @239 && _t413 in
     let extract$i2 = @296.value in
     let @61 = extract$i2.low in
     let @62 = (f32)inf in
     let @63 = 0f - @62 in
-    let @335 = reduce<any>(@239) in
-    let @618 = boolx8(false) in
-    let @619 = boolx8(false) in
-    if (@335) {
-      let @460 = f32x8(@63) in
-      let @299 = select(@241, @460, @61) in
-      let @65 = (*_best0) in
-      let @66 = @65._field0 in
-      let @67 = @299 < @66 in
-      let @461 = boolx8(false) in
-      let @462 = boolx8(true) in
-      let @243 = select(@67, @461, @462) in
-      let @244 = @239 && @243 in
-      let @245 = @239 && @67 in
-      @244!skip = @244
-      @245!skip = @245
-    } else {
-      @244!skip = @618
-      @245!skip = @619
-    }
-    let _t73 = (*_t651!skip).nPrims in
-    let @463 = u8x8(0u) in
-    let @69 = _t73 == @463 in
-    let @464 = boolx8(false) in
-    let @465 = boolx8(true) in
-    let @246 = select(@69, @464, @465) in
-    let @247 = (*@245!skip) && @246 in
-    let @248 = (*@245!skip) && @69 in
-    let @336 = reduce<any>(@248) in
-    let @620 = u16x8(0u) in
-    let @621 = u32x8(0u) in
-    if (@336) {
+    let @464 = f32x8(@63) in
+    let @299 = select(@241, @464, @61) in
+    let @65 = (*_best0) in
+    let @66 = @65._field0 in
+    let @67 = @299 < @66 in
+    let @465 = boolx8(false) in
+    let @466 = boolx8(true) in
+    let @243 = select(@67, @465, @466) in
+    let @244 = @239 && @243 in
+    let @245 = @239 && @67 in
+    let _t73 = _t651.nPrims in
+    let @467 = u8x8(0u) in
+    let @69 = _t73 == @467 in
+    let @468 = boolx8(false) in
+    let @469 = boolx8(true) in
+    let @246 = select(@69, @468, @469) in
+    let @247 = @245 && @246 in
+    let @248 = @245 && @69 in
+    let @329 = reduce<any>(@248) in
+    let @655 = u16x8(0u) in
+    let @656 = u32x8(0u) in
+    if (@329) {
       let @70 = f32x3(1f) in
-      let @384 = @70[0u] in
-      let @385 = (*_t166$i34!skip).!0 in
-      let @466 = f32x8(@384) in
-      let @386 = @466 / @385 in
-      let @387 = @70[1u] in
-      let @388 = (*_t166$i34!skip).!1 in
-      let @467 = f32x8(@387) in
-      let @389 = @467 / @388 in
-      let @390 = @70[2u] in
-      let @391 = (*_t166$i34!skip).!2 in
-      let @468 = f32x8(@390) in
-      let @392 = @468 / @391 in
+      let @388 = @70[0u] in
+      let @389 = _t166$i34.!0 in
+      let @470 = f32x8(@388) in
+      let @390 = @470 / @389 in
+      let @391 = @70[1u] in
+      let @392 = _t166$i34.!1 in
+      let @471 = f32x8(@391) in
+      let @393 = @471 / @392 in
+      let @394 = @70[2u] in
+      let @395 = _t166$i34.!2 in
+      let @472 = f32x8(@394) in
+      let @396 = @472 / @395 in
       let @72 = f32x3(0f) in
-      let @393 = @72[0u] in
-      let @469 = f32x8(@393) in
-      let @394 = @386 < @469 in
-      let @395 = @72[1u] in
-      let @470 = f32x8(@395) in
-      let @396 = @389 < @470 in
-      let @397 = @72[2u] in
-      let @471 = f32x8(@397) in
-      let @398 = @392 < @471 in
-      let @74 = (*_t651!skip).axis in
-      let @472 = u8x8(1u) in
-      let @399 = @74 == @472 in
-      let @400 = select(@399, @396, @398) in
-      let @473 = u8x8(0u) in
-      let @401 = @74 == @473 in
-      let @402 = select(@401, @394, @400) in
-      let @474 = u16x8(1u) in
-      let @76 = (*shapes_index!top!loop) + @474 in
-      let @77 = (*_t651!skip).split0on_nPrims in
+      let @397 = @72[0u] in
+      let @473 = f32x8(@397) in
+      let @398 = @390 < @473 in
+      let @399 = @72[1u] in
+      let @474 = f32x8(@399) in
+      let @400 = @393 < @474 in
+      let @401 = @72[2u] in
+      let @475 = f32x8(@401) in
+      let @402 = @396 < @475 in
+      let @74 = _t651.axis in
+      let @476 = u8x8(1u) in
+      let @403 = @74 == @476 in
+      let @404 = select(@403, @400, @402) in
+      let @477 = u8x8(0u) in
+      let @405 = @74 == @477 in
+      let @406 = select(@405, @398, @404) in
+      let @478 = u16x8(1u) in
+      let @76 = (*shapes_index!top!loop) + @478 in
+      let @77 = _t651.split0on_nPrims in
       let @78 = reinterpret_cast<_tree_layout2$v8>(@77) in
       let @79 = @78.offset in
       let @80 = (*shapes_index!top!loop) + @79 in
-      let @82 = !@402 in
+      let @82 = !@406 in
       let @210 = select(@82, @76, @80) in
       let @211 = select(@82, @80, @76) in
-      let @475 = reinterpret_cast<u16[]>(!stack) in
-      let @477 = u32x8(8u) in
-      let @478 = (*!count!loop) * @477 in
-      let @479 = @478 + ramp(0u, 1u, 8) in
-      masked_store(@475[@479], @211, @248)
-      let @480 = u32x8(1u) in
-      let @219 = (*!count!loop) + @480 in
+      let @479 = reinterpret_cast<u16[]>(!stack) in
+      let @481 = u32x8(8u) in
+      let @482 = (*!count!loop) * @481 in
+      let @483 = @482 + ramp(0u, 1u, 8) in
+      masked_store(@479[@483], @211, @248)
+      let @484 = u32x8(1u) in
+      let @219 = (*!count!loop) + @484 in
       @210!skip = @210
       @219!skip = @219
     } else {
-      @210!skip = @620
-      @219!skip = @621
+      @210!skip = @655
+      @219!skip = @656
     }
     let @84 = cast<u16x8>(_t73) in
-    let @582 = u16x8(0u) in
-    let @583 = boolx8(false) in
-    _idx0!loop = @582
+    let @580 = u16x8(0u) in
+    let @581 = boolx8(false) in
+    _idx0!loop = @580
     !live_0 = @247
-    !exit.for__idx0_end_24 = @583
+    !exit.for__idx0_end_24 = @581
     while (reduce<any>((*!live_0))) {
-      let @85 = (*_idx0!loop) < @84 in
-      let @481 = boolx8(false) in
-      let @482 = boolx8(true) in
-      let @249 = select(@85, @481, @482) in
-      let @250 = (*!live_0) && @249 in
-      let @251 = (*!live_0) && @85 in
-      let @337 = reduce<any>(@251) in
-      let @338 = build<f32x3>(0f, 0f, 0f) in
-      let @339 = build<Sphere>(@338, 0f) in
-      let @340 = build<Sph>(@339) in
-      let @341 = Shape_payload{.Sph = @340} in
-      let @342 = build<Shape>(0u, @341) in
-      let @584 = u16x8(0u) in
-      let @585 = @342.tag in
-      let @586 = u8x8(@585) in
-      let @587 = @342.payload in
-      let @588 = reinterpret_cast<[[packed]] u32x12>(@587) in
-      let @589 = @588[0u] in
-      let @590 = u32x8(@589) in
-      let @591 = @588[1u] in
-      let @592 = u32x8(@591) in
-      let @593 = @588[2u] in
-      let @594 = u32x8(@593) in
-      let @595 = @588[3u] in
-      let @596 = u32x8(@595) in
-      let @597 = @588[4u] in
-      let @598 = u32x8(@597) in
-      let @599 = @588[5u] in
-      let @600 = u32x8(@599) in
-      let @601 = @588[6u] in
-      let @602 = u32x8(@601) in
-      let @603 = @588[7u] in
-      let @604 = u32x8(@603) in
-      let @605 = @588[8u] in
-      let @606 = u32x8(@605) in
-      let @607 = @588[9u] in
-      let @608 = u32x8(@607) in
-      let @609 = @588[10u] in
-      let @610 = u32x8(@609) in
-      let @611 = @588[11u] in
-      let @612 = u32x8(@611) in
-      let @613 = build<Shape_payload$v8>(@590, @592, @594, @596, @598, @600, @602, @604, @606, @608, @610, @612) in
-      let @614 = build<Shape$v8>(@586, @613) in
+      let @330 = reduce<any>((*!live_0)) in
+      let @331 = build<f32x3>(0f, 0f, 0f) in
+      let @332 = build<Sphere>(@331, 0f) in
+      let @333 = build<Sph>(@332) in
+      let @334 = Shape_payload{.Sph = @333} in
+      let @335 = build<Shape>(0u, @334) in
+      let @582 = boolx8(false) in
+      let @583 = boolx8(false) in
+      let @584 = @335.tag in
+      let @585 = u8x8(@584) in
+      let @586 = @335.payload in
+      let @587 = reinterpret_cast<[[packed]] u32x12>(@586) in
+      let @588 = @587[0u] in
+      let @589 = u32x8(@588) in
+      let @590 = @587[1u] in
+      let @591 = u32x8(@590) in
+      let @592 = @587[2u] in
+      let @593 = u32x8(@592) in
+      let @594 = @587[3u] in
+      let @595 = u32x8(@594) in
+      let @596 = @587[4u] in
+      let @597 = u32x8(@596) in
+      let @598 = @587[5u] in
+      let @599 = u32x8(@598) in
+      let @600 = @587[6u] in
+      let @601 = u32x8(@600) in
+      let @602 = @587[7u] in
+      let @603 = u32x8(@602) in
+      let @604 = @587[8u] in
+      let @605 = u32x8(@604) in
+      let @606 = @587[9u] in
+      let @607 = u32x8(@606) in
+      let @608 = @587[10u] in
+      let @609 = u32x8(@608) in
+      let @610 = @587[11u] in
+      let @611 = u32x8(@610) in
+      let @612 = build<Shape_payload$v8>(@589, @591, @593, @595, @597, @599, @601, @603, @605, @607, @609, @611) in
+      let @613 = build<Shape$v8>(@585, @612) in
+      let @614 = boolx8(false) in
       let @615 = u8x8(0u) in
-      let @616 = boolx8(false) in
+      let @616 = u16x8(0u) in
       let @617 = boolx8(false) in
-      if (@337) {
-        let @86 = (*_t651!skip).split0on_nPrims in
-        let @87 = reinterpret_cast<_tree_layout3$v8>(@86) in
-        let @88 = @87.pOffset in
-        let _t673 = @88 + (*_idx0!loop) in
-        let @90 = shapes.prims in
-        let _t675 = masked_extract(@90[_t673], @251) in
-        let _t239 = _t675.tag in
-        let @483 = u8x8(0u) in
-        let @252 = _t239 == @483 in
-        let @253 = @251 && @252 in
-        let @484 = u8x8(0u) in
-        let @254 = _t239 != @484 in
-        let @255 = @251 && @254 in
-        _t673!skip = _t673
-        _t675!skip = _t675
-        _t239!skip = _t239
-        @253!skip = @253
-        @255!skip = @255
+      if (@330) {
+        let @85 = (*_idx0!loop) < @84 in
+        let @485 = boolx8(false) in
+        let @486 = boolx8(true) in
+        let @249 = select(@85, @485, @486) in
+        let @250 = (*!live_0) && @249 in
+        let @251 = (*!live_0) && @85 in
+        let @336 = reduce<any>(@251) in
+        let @337 = build<f32x3>(0f, 0f, 0f) in
+        let @338 = build<Sphere>(@337, 0f) in
+        let @339 = build<Sph>(@338) in
+        let @340 = Shape_payload{.Sph = @339} in
+        let @341 = build<Shape>(0u, @340) in
+        let @618 = boolx8(false) in
+        let @619 = @341.tag in
+        let @620 = u8x8(@619) in
+        let @621 = @341.payload in
+        let @622 = reinterpret_cast<[[packed]] u32x12>(@621) in
+        let @623 = @622[0u] in
+        let @624 = u32x8(@623) in
+        let @625 = @622[1u] in
+        let @626 = u32x8(@625) in
+        let @627 = @622[2u] in
+        let @628 = u32x8(@627) in
+        let @629 = @622[3u] in
+        let @630 = u32x8(@629) in
+        let @631 = @622[4u] in
+        let @632 = u32x8(@631) in
+        let @633 = @622[5u] in
+        let @634 = u32x8(@633) in
+        let @635 = @622[6u] in
+        let @636 = u32x8(@635) in
+        let @637 = @622[7u] in
+        let @638 = u32x8(@637) in
+        let @639 = @622[8u] in
+        let @640 = u32x8(@639) in
+        let @641 = @622[9u] in
+        let @642 = u32x8(@641) in
+        let @643 = @622[10u] in
+        let @644 = u32x8(@643) in
+        let @645 = @622[11u] in
+        let @646 = u32x8(@645) in
+        let @647 = build<Shape_payload$v8>(@624, @626, @628, @630, @632, @634, @636, @638, @640, @642, @644, @646) in
+        let @648 = build<Shape$v8>(@620, @647) in
+        let @649 = boolx8(false) in
+        let @650 = u8x8(0u) in
+        let @651 = u16x8(0u) in
+        if (@336) {
+          let @86 = _t651.split0on_nPrims in
+          let @87 = reinterpret_cast<_tree_layout3$v8>(@86) in
+          let @88 = @87.pOffset in
+          let _t673 = @88 + (*_idx0!loop) in
+          let @90 = shapes.prims in
+          let _t675 = masked_extract(@90[_t673], @251) in
+          let _t239 = _t675.tag in
+          let @487 = u8x8(0u) in
+          let @252 = _t239 == @487 in
+          let @253 = @251 && @252 in
+          let @488 = u8x8(0u) in
+          let @254 = _t239 != @488 in
+          let @255 = @251 && @254 in
+          @255!skip = @255
+          @251!skip = @251
+          _t675!skip = _t675
+          @253!skip = @253
+          _t239!skip = _t239
+          _t673!skip = _t673
+          @250!skip = @250
+        } else {
+          @255!skip = @618
+          @251!skip = @251
+          _t675!skip = @648
+          @253!skip = @649
+          _t239!skip = @650
+          _t673!skip = @651
+          @250!skip = @250
+        }
       } else {
-        _t673!skip = @584
-        _t675!skip = @614
+        @255!skip = @582
+        @251!skip = @583
+        _t675!skip = @613
+        @253!skip = @614
         _t239!skip = @615
-        @253!skip = @616
-        @255!skip = @617
+        _t673!skip = @616
+        @250!skip = @617
       }
       let @139 = (*_t675!skip).payload in
       let @140 = @139.Tri in
       let @141 = @140.t in
       let @142 = intersectsp_ray_tri$gang8_v0_v1$masked(r, @141, (*@255!skip)) in
       let @143 = @142.set in
-      let @343 = reduce<any>((*@253!skip)) in
-      let @547 = f32x8(0f) in
-      let @548 = f32x8(0f) in
-      let @549 = boolx8(false) in
-      let @550 = boolx8(false) in
-      if (@343) {
+      let @342 = reduce<any>((*@253!skip)) in
+      let @551 = boolx8(false) in
+      if (@342) {
         let @93 = (*_t675!skip).payload in
         let @94 = @93.Sph in
         let _t678 = @94.s in
         let @96 = _t678.center in
-        let @403 = @96.!0 in
-        let @404 = (*_t399!skip).!0 in
-        let @405 = @403 - @404 in
-        let @406 = @96.!1 in
-        let @407 = (*_t399!skip).!1 in
-        let @408 = @406 - @407 in
-        let @409 = @96.!2 in
-        let @410 = (*_t399!skip).!2 in
-        let @411 = @409 - @410 in
-        let @98 = (*_t166$i34!skip).!0 in
-        let @100 = @98 * @405 in
-        let @101 = (*_t166$i34!skip).!1 in
-        let @103 = @101 * @408 in
+        let @407 = @96.!0 in
+        let @408 = _t399.!0 in
+        let @409 = @407 - @408 in
+        let @410 = @96.!1 in
+        let @411 = _t399.!1 in
+        let @412 = @410 - @411 in
+        let @413 = @96.!2 in
+        let @414 = _t399.!2 in
+        let @415 = @413 - @414 in
+        let @98 = _t166$i34.!0 in
+        let @100 = @98 * @409 in
+        let @101 = _t166$i34.!1 in
+        let @103 = @101 * @412 in
         let @104 = @100 + @103 in
-        let @105 = (*_t166$i34!skip).!2 in
-        let @107 = @105 * @411 in
+        let @105 = _t166$i34.!2 in
+        let @107 = @105 * @415 in
         let _t170$i21$i35 = @104 + @107 in
         let _t172$i21$i35 = _t678.radius in
         let @110 = _t170$i21$i35 * _t170$i21$i35 in
-        let @412 = @405 * @405 in
-        let @413 = @408 * @408 in
-        let @414 = @411 * @411 in
-        let @415 = @412 + @413 in
-        let @416 = @415 + @414 in
+        let @416 = @409 * @409 in
+        let @417 = @412 * @412 in
+        let @418 = @415 * @415 in
+        let @419 = @416 + @417 in
+        let @420 = @419 + @418 in
         let @113 = _t172$i21$i35 * _t172$i21$i35 in
-        let @114 = @416 - @113 in
-        let @115 = (*a$i34!skip) * @114 in
+        let @114 = @420 - @113 in
+        let @115 = @382 * @114 in
         let _t686 = @110 - @115 in
-        let @485 = f32x8(0f) in
-        let @117 = _t686 < @485 in
-        let @486 = boolx8(false) in
-        let @487 = boolx8(true) in
-        let @256 = select(@117, @486, @487) in
+        let @489 = f32x8(0f) in
+        let @117 = _t686 < @489 in
+        let @490 = boolx8(false) in
+        let @491 = boolx8(true) in
+        let @256 = select(@117, @490, @491) in
         let @257 = (*@253!skip) && @256 in
         let @258 = (*@253!skip) && @117 in
-        _t170$i21$i35!skip = _t170$i21$i35
-        _t686!skip = _t686
-        @257!skip = @257
-        @258!skip = @258
+        let @118 = build<_option1>() in
+        let @343 = reduce<any>(@257) in
+        let @344 = build<FInterval>(0f, 0f) in
+        let @345 = build<_option1>(@344, false) in
+        let @562 = @345.value in
+        let @563 = @562.low in
+        let @564 = f32x8(@563) in
+        let @565 = @562.high in
+        let @566 = f32x8(@565) in
+        let @567 = build<FInterval$v8>(@564, @566) in
+        let @568 = @345.set in
+        let @569 = boolx8(@568) in
+        let @570 = build<_option1$v8>(@567, @569) in
+        if (@343) {
+          let sqrtd$i21$i35 = sqrt(_t686) in
+          let @120 = _t170$i21$i35 - sqrtd$i21$i35 in
+          let _t688 = @120 / @382 in
+          let @122 = _t170$i21$i35 + sqrtd$i21$i35 in
+          let _t690 = @122 / @382 in
+          let @124 = min(_t688, _t690) in
+          let @125 = max(_t688, _t690) in
+          let interval$i21$i35 = build<FInterval$v8>(@124, @125) in
+          let @492 = boolx8(true) in
+          let @127 = build<_option1$v8>(interval$i21$i35, @492) in
+          @127!skip = @127
+        } else {
+          @127!skip = @570
+        }
+        let @346 = reduce<any>((*@253!skip)) in
+        let @653 = boolx8(false) in
+        if (@346) {
+          let @493 = @118.value in
+          let @494 = @493.low in
+          let @495 = f32x8(@494) in
+          let @496 = @493.high in
+          let @497 = f32x8(@496) in
+          let @498 = build<FInterval$v8>(@495, @497) in
+          let @499 = @118.set in
+          let @500 = boolx8(@499) in
+          let @501 = build<_option1$v8>(@498, @500) in
+          let @300 = select(@257, (*@127!skip), @501) in
+          let @129 = @300.set in
+          let @502 = boolx8(false) in
+          let @503 = boolx8(true) in
+          let @259 = select(@129, @502, @503) in
+          let @260 = (*@253!skip) && @259 in
+          let @261 = (*@253!skip) && @129 in
+          let @347 = reduce<any>(@261) in
+          let @658 = boolx8(false) in
+          if (@347) {
+            let extract$i35 = @300.value in
+            let @132 = extract$i35.low in
+            let @133 = r.tmax in
+            let @134 = @132 < @133 in
+            let @135 = extract$i35.high in
+            let @504 = f32x8(0f) in
+            let @136 = @504 < @135 in
+            let @137 = @134 & @136 in
+            @137!skip = @137
+          } else {
+            @137!skip = @658
+          }
+          let @505 = boolx8(false) in
+          let @301 = select(@260, @505, (*@137!skip)) in
+          @301!skip = @301
+        } else {
+          @301!skip = @653
+        }
       } else {
-        _t170$i21$i35!skip = @547
-        _t686!skip = @548
-        @257!skip = @549
-        @258!skip = @550
+        @301!skip = @551
       }
-      let @118 = build<_option1>() in
-      let @344 = reduce<any>((*@257!skip)) in
-      let @345 = build<FInterval>(0f, 0f) in
-      let @346 = build<_option1>(@345, false) in
-      let @564 = @346.value in
-      let @565 = @564.low in
-      let @566 = f32x8(@565) in
-      let @567 = @564.high in
-      let @568 = f32x8(@567) in
-      let @569 = build<FInterval$v8>(@566, @568) in
-      let @570 = @346.set in
-      let @571 = boolx8(@570) in
-      let @572 = build<_option1$v8>(@569, @571) in
-      if (@344) {
-        let sqrtd$i21$i35 = sqrt((*_t686!skip)) in
-        let @120 = (*_t170$i21$i35!skip) - sqrtd$i21$i35 in
-        let _t688 = @120 / (*a$i34!skip) in
-        let @122 = (*_t170$i21$i35!skip) + sqrtd$i21$i35 in
-        let _t690 = @122 / (*a$i34!skip) in
-        let @124 = min(_t688, _t690) in
-        let @125 = max(_t688, _t690) in
-        let interval$i21$i35 = build<FInterval$v8>(@124, @125) in
-        let @488 = boolx8(true) in
-        let @127 = build<_option1$v8>(interval$i21$i35, @488) in
-        @127!skip = @127
-      } else {
-        @127!skip = @572
-      }
-      let @489 = @118.value in
-      let @490 = @489.low in
-      let @491 = f32x8(@490) in
-      let @492 = @489.high in
-      let @493 = f32x8(@492) in
-      let @494 = build<FInterval$v8>(@491, @493) in
-      let @495 = @118.set in
-      let @496 = boolx8(@495) in
-      let @497 = build<_option1$v8>(@494, @496) in
-      let @300 = select((*@257!skip), (*@127!skip), @497) in
-      let @129 = @300.set in
-      let @498 = boolx8(false) in
-      let @499 = boolx8(true) in
-      let @259 = select(@129, @498, @499) in
-      let @260 = (*@253!skip) && @259 in
-      let @261 = (*@253!skip) && @129 in
-      let @347 = reduce<any>(@261) in
-      let @623 = boolx8(false) in
-      if (@347) {
-        let extract$i35 = @300.value in
-        let @132 = extract$i35.low in
-        let @133 = r.tmax in
-        let @134 = @132 < @133 in
-        let @135 = extract$i35.high in
-        let @500 = f32x8(0f) in
-        let @136 = @500 < @135 in
-        let @137 = @134 & @136 in
-        @137!skip = @137
-      } else {
-        @137!skip = @623
-      }
-      let @501 = boolx8(false) in
-      let @301 = select(@260, @501, (*@137!skip)) in
-      let @302 = select((*@255!skip), @143, @301) in
-      let @502 = boolx8(false) in
-      let @503 = boolx8(true) in
-      let @262 = select(@302, @502, @503) in
-      let @263 = @251 && @262 in
-      let @264 = @251 && @302 in
-      let @504 = u8x8(0u) in
-      let @265 = (*_t239!skip) == @504 in
+      let @302 = select((*@255!skip), @143, (*@301!skip)) in
+      let @506 = boolx8(false) in
+      let @507 = boolx8(true) in
+      let @262 = select(@302, @506, @507) in
+      let @263 = (*@251!skip) && @262 in
+      let @264 = (*@251!skip) && @302 in
+      let @508 = u8x8(0u) in
+      let @265 = (*_t239!skip) == @508 in
       let @266 = @264 && @265 in
-      let @505 = u8x8(0u) in
-      let @267 = (*_t239!skip) != @505 in
+      let @509 = u8x8(0u) in
+      let @267 = (*_t239!skip) != @509 in
       let @268 = @264 && @267 in
       let @188 = (*_t675!skip).payload in
       let @189 = @188.Tri in
       let @190 = @189.t in
       let @191 = intersectsp_ray_tri$gang8_v0_v1$masked(r, @190, @268) in
-      let _t714 = @191 in
-      let @192 = _t714.set in
-      let @506 = boolx8(false) in
-      let @507 = boolx8(true) in
-      let @269 = select(@192, @506, @507) in
-      let @270 = @268 && @269 in
-      let @271 = @268 && @192 in
-      let isect_$i37 = _t714.value in
-      let @194 = isect_$i37.t in
-      let @195 = (f32)inf in
-      let @508 = f32x8(@195) in
-      let @303 = select(@270, @508, @194) in
-      let @348 = reduce<any>(@266) in
-      let @551 = f32x8(0f) in
-      let @552 = f32x8(0f) in
-      let @553 = boolx8(false) in
-      let @554 = boolx8(false) in
+      let @348 = reduce<any>(@268) in
+      let @652 = f32x8(0f) in
       if (@348) {
+        let _t714 = @191 in
+        let @192 = _t714.set in
+        let @510 = boolx8(false) in
+        let @511 = boolx8(true) in
+        let @269 = select(@192, @510, @511) in
+        let @270 = @268 && @269 in
+        let @271 = @268 && @192 in
+        let isect_$i37 = _t714.value in
+        let @194 = isect_$i37.t in
+        let @195 = (f32)inf in
+        let @512 = f32x8(@195) in
+        let @303 = select(@270, @512, @194) in
+        @303!skip = @303
+      } else {
+        @303!skip = @652
+      }
+      let @349 = reduce<any>(@266) in
+      let @552 = f32x8(0f) in
+      if (@349) {
         let @145 = (*_t675!skip).payload in
         let @146 = @145.Sph in
         let _t698 = @146.s in
         let @148 = _t698.center in
-        let @417 = @148.!0 in
-        let @418 = (*_t399!skip).!0 in
-        let @419 = @417 - @418 in
-        let @420 = @148.!1 in
-        let @421 = (*_t399!skip).!1 in
-        let @422 = @420 - @421 in
-        let @423 = @148.!2 in
-        let @424 = (*_t399!skip).!2 in
-        let @425 = @423 - @424 in
-        let @150 = (*_t166$i34!skip).!0 in
-        let @152 = @150 * @419 in
-        let @153 = (*_t166$i34!skip).!1 in
-        let @155 = @153 * @422 in
+        let @421 = @148.!0 in
+        let @422 = _t399.!0 in
+        let @423 = @421 - @422 in
+        let @424 = @148.!1 in
+        let @425 = _t399.!1 in
+        let @426 = @424 - @425 in
+        let @427 = @148.!2 in
+        let @428 = _t399.!2 in
+        let @429 = @427 - @428 in
+        let @150 = _t166$i34.!0 in
+        let @152 = @150 * @423 in
+        let @153 = _t166$i34.!1 in
+        let @155 = @153 * @426 in
         let @156 = @152 + @155 in
-        let @157 = (*_t166$i34!skip).!2 in
-        let @159 = @157 * @425 in
+        let @157 = _t166$i34.!2 in
+        let @159 = @157 * @429 in
         let _t170$i17$i36 = @156 + @159 in
         let _t172$i17$i36 = _t698.radius in
         let @162 = _t170$i17$i36 * _t170$i17$i36 in
-        let @426 = @419 * @419 in
-        let @427 = @422 * @422 in
-        let @428 = @425 * @425 in
-        let @429 = @426 + @427 in
-        let @430 = @429 + @428 in
+        let @430 = @423 * @423 in
+        let @431 = @426 * @426 in
+        let @432 = @429 * @429 in
+        let @433 = @430 + @431 in
+        let @434 = @433 + @432 in
         let @165 = _t172$i17$i36 * _t172$i17$i36 in
-        let @166 = @430 - @165 in
-        let @167 = (*a$i34!skip) * @166 in
+        let @166 = @434 - @165 in
+        let @167 = @382 * @166 in
         let _t706 = @162 - @167 in
-        let @509 = f32x8(0f) in
-        let @169 = _t706 < @509 in
-        let @510 = boolx8(false) in
-        let @511 = boolx8(true) in
-        let @272 = select(@169, @510, @511) in
+        let @513 = f32x8(0f) in
+        let @169 = _t706 < @513 in
+        let @514 = boolx8(false) in
+        let @515 = boolx8(true) in
+        let @272 = select(@169, @514, @515) in
         let @273 = @266 && @272 in
         let @274 = @266 && @169 in
-        _t170$i17$i36!skip = _t170$i17$i36
-        _t706!skip = _t706
-        @273!skip = @273
-        @274!skip = @274
+        let @170 = build<_option1>() in
+        let @350 = reduce<any>(@273) in
+        let @351 = build<FInterval>(0f, 0f) in
+        let @352 = build<_option1>(@351, false) in
+        let @571 = @352.value in
+        let @572 = @571.low in
+        let @573 = f32x8(@572) in
+        let @574 = @571.high in
+        let @575 = f32x8(@574) in
+        let @576 = build<FInterval$v8>(@573, @575) in
+        let @577 = @352.set in
+        let @578 = boolx8(@577) in
+        let @579 = build<_option1$v8>(@576, @578) in
+        if (@350) {
+          let sqrtd$i17$i36 = sqrt(_t706) in
+          let @172 = _t170$i17$i36 - sqrtd$i17$i36 in
+          let _t708 = @172 / @382 in
+          let @174 = _t170$i17$i36 + sqrtd$i17$i36 in
+          let _t710 = @174 / @382 in
+          let @176 = min(_t708, _t710) in
+          let @177 = max(_t708, _t710) in
+          let interval$i17$i36 = build<FInterval$v8>(@176, @177) in
+          let @516 = boolx8(true) in
+          let @179 = build<_option1$v8>(interval$i17$i36, @516) in
+          @179!skip = @179
+        } else {
+          @179!skip = @579
+        }
+        let @353 = reduce<any>(@266) in
+        let @654 = f32x8(0f) in
+        if (@353) {
+          let @517 = @170.value in
+          let @518 = @517.low in
+          let @519 = f32x8(@518) in
+          let @520 = @517.high in
+          let @521 = f32x8(@520) in
+          let @522 = build<FInterval$v8>(@519, @521) in
+          let @523 = @170.set in
+          let @524 = boolx8(@523) in
+          let @525 = build<_option1$v8>(@522, @524) in
+          let @304 = select(@273, (*@179!skip), @525) in
+          let @181 = @304.set in
+          let @526 = boolx8(false) in
+          let @527 = boolx8(true) in
+          let @275 = select(@181, @526, @527) in
+          let @276 = @266 && @275 in
+          let @277 = @266 && @181 in
+          let extract$i36 = @304.value in
+          let @184 = extract$i36.low in
+          let @185 = (f32)inf in
+          let @186 = 0f - @185 in
+          let @528 = f32x8(@186) in
+          let @305 = select(@276, @528, @184) in
+          @305!skip = @305
+        } else {
+          @305!skip = @654
+        }
       } else {
-        _t170$i17$i36!skip = @551
-        _t706!skip = @552
-        @273!skip = @553
-        @274!skip = @554
+        @305!skip = @552
       }
-      let @170 = build<_option1>() in
-      let @349 = reduce<any>((*@273!skip)) in
-      let @350 = build<FInterval>(0f, 0f) in
-      let @351 = build<_option1>(@350, false) in
-      let @573 = @351.value in
-      let @574 = @573.low in
-      let @575 = f32x8(@574) in
-      let @576 = @573.high in
-      let @577 = f32x8(@576) in
-      let @578 = build<FInterval$v8>(@575, @577) in
-      let @579 = @351.set in
-      let @580 = boolx8(@579) in
-      let @581 = build<_option1$v8>(@578, @580) in
-      if (@349) {
-        let sqrtd$i17$i36 = sqrt((*_t706!skip)) in
-        let @172 = (*_t170$i17$i36!skip) - sqrtd$i17$i36 in
-        let _t708 = @172 / (*a$i34!skip) in
-        let @174 = (*_t170$i17$i36!skip) + sqrtd$i17$i36 in
-        let _t710 = @174 / (*a$i34!skip) in
-        let @176 = min(_t708, _t710) in
-        let @177 = max(_t708, _t710) in
-        let interval$i17$i36 = build<FInterval$v8>(@176, @177) in
-        let @512 = boolx8(true) in
-        let @179 = build<_option1$v8>(interval$i17$i36, @512) in
-        @179!skip = @179
-      } else {
-        @179!skip = @581
+      let @354 = reduce<any>(@264) in
+      if (@354) {
+        let @306 = select(@266, (*@305!skip), (*@303!skip)) in
+        let @529 = f32x8(0.001f) in
+        let @198 = @529 < @306 in
+        let @530 = boolx8(false) in
+        let @531 = boolx8(true) in
+        let @278 = select(@198, @530, @531) in
+        let @279 = @264 && @278 in
+        let @280 = @264 && @198 in
+        let @355 = reduce<any>(@280) in
+        if (@355) {
+          let @200 = (*_best0) in
+          let @201 = @200._field0 in
+          let @202 = @306 < @201 in
+          let @532 = boolx8(false) in
+          let @533 = boolx8(true) in
+          let @281 = select(@202, @532, @533) in
+          let @282 = @280 && @281 in
+          let @283 = @280 && @202 in
+          let @356 = reduce<any>(@283) in
+          if (@356) {
+            let @204 = build<__tuple_0$v8>((*_t673!skip)) in
+            let @205 = build<__tuple_1$v8>(@306, @204) in
+            masked_store(_best0, @205, @283)
+          }
+        }
       }
-      let @513 = @170.value in
-      let @514 = @513.low in
-      let @515 = f32x8(@514) in
-      let @516 = @513.high in
-      let @517 = f32x8(@516) in
-      let @518 = build<FInterval$v8>(@515, @517) in
-      let @519 = @170.set in
-      let @520 = boolx8(@519) in
-      let @521 = build<_option1$v8>(@518, @520) in
-      let @304 = select((*@273!skip), (*@179!skip), @521) in
-      let @181 = @304.set in
-      let @522 = boolx8(false) in
-      let @523 = boolx8(true) in
-      let @275 = select(@181, @522, @523) in
-      let @276 = @266 && @275 in
-      let @277 = @266 && @181 in
-      let extract$i36 = @304.value in
-      let @184 = extract$i36.low in
-      let @185 = (f32)inf in
-      let @186 = 0f - @185 in
-      let @524 = f32x8(@186) in
-      let @305 = select(@276, @524, @184) in
-      let @306 = select(@266, @305, @303) in
-      let @525 = f32x8(0.001f) in
-      let @198 = @525 < @306 in
-      let @526 = boolx8(false) in
-      let @527 = boolx8(true) in
-      let @278 = select(@198, @526, @527) in
-      let @279 = @264 && @278 in
-      let @280 = @264 && @198 in
-      let @352 = reduce<any>(@280) in
-      let @624 = boolx8(false) in
-      if (@352) {
-        let @200 = (*_best0) in
-        let @201 = @200._field0 in
-        let @202 = @306 < @201 in
-        let @528 = boolx8(false) in
-        let @529 = boolx8(true) in
-        let @281 = select(@202, @528, @529) in
-        let @282 = @280 && @281 in
-        let @283 = @280 && @202 in
-        @283!skip = @283
-      } else {
-        @283!skip = @624
-      }
-      let @353 = reduce<any>((*@283!skip)) in
-      if (@353) {
-        let @204 = build<__tuple_0$v8>((*_t673!skip)) in
-        let @205 = build<__tuple_1$v8>(@306, @204) in
-        masked_store(_best0, @205, (*@283!skip))
-      }
-      let @530 = u16x8(1u) in
-      let @206 = (*_idx0!loop) + @530 in
-      let @307 = select(@251, @206, (*_idx0!loop)) in
-      let @308 = select(@250, (*_idx0!loop), @307) in
-      let @531 = boolx8(false) in
-      let @309 = select(@250, @531, (*!live_0)) in
-      let @532 = boolx8(true) in
-      let @310 = select(@250, @532, (*!exit.for__idx0_end_24)) in
+      let @534 = u16x8(1u) in
+      let @206 = (*_idx0!loop) + @534 in
+      let @307 = select((*@251!skip), @206, (*_idx0!loop)) in
+      let @308 = select((*@250!skip), (*_idx0!loop), @307) in
+      let @535 = boolx8(false) in
+      let @309 = select((*@250!skip), @535, (*!live_0)) in
+      let @536 = boolx8(true) in
+      let @310 = select((*@250!skip), @536, (*!exit.for__idx0_end_24)) in
       _idx0!loop = @308
       !live_0 = @309
       !exit.for__idx0_end_24 = @310
     }
-    let @284 = (*@244!skip) || @247 in
-    let @285 = @238 || (*@244!skip) in
+    let @284 = @244 || @247 in
+    let @285 = @238 || @244 in
     let @286 = @285 || @247 in
-    let @287 = @238 || (*@244!skip) in
+    let @287 = @238 || @244 in
     let @288 = @287 || @232 in
     let @289 = @288 || @247 in
-    let @290 = @238 || (*@244!skip) in
+    let @290 = @238 || @244 in
     let @291 = @290 || @232 in
     let @292 = @291 || @247 in
-    let @533 = u32x8(0u) in
-    let @214 = (*!count!loop) != @533 in
-    let @534 = boolx8(false) in
-    let @535 = boolx8(true) in
-    let @293 = select(@214, @534, @535) in
-    let @294 = @292 && @293 in
-    let @295 = @292 && @214 in
-    let @354 = reduce<any>(@295) in
-    let @630 = u32x8(0u) in
-    let @631 = u16x8(0u) in
-    if (@354) {
-      let @536 = u32x8(1u) in
-      let @215 = (*!count!loop) - @536 in
-      let @537 = reinterpret_cast<u16[]>(!stack) in
-      let @539 = u32x8(8u) in
-      let @540 = @215 * @539 in
-      let @541 = @540 + ramp(0u, 1u, 8) in
-      let @216 = masked_extract(@537[@541], @295) in
-      @215!skip = @215
-      @216!skip = @216
+    let @357 = reduce<any>(@292) in
+    let @666 = boolx8(false) in
+    let @667 = u16x8(0u) in
+    let @668 = u32x8(0u) in
+    if (@357) {
+      let @537 = u32x8(0u) in
+      let @214 = (*!count!loop) != @537 in
+      let @538 = boolx8(false) in
+      let @539 = boolx8(true) in
+      let @293 = select(@214, @538, @539) in
+      let @294 = @292 && @293 in
+      let @295 = @292 && @214 in
+      let @358 = reduce<any>(@295) in
+      let @664 = u16x8(0u) in
+      let @665 = u32x8(0u) in
+      if (@358) {
+        let @540 = u32x8(1u) in
+        let @215 = (*!count!loop) - @540 in
+        let @541 = reinterpret_cast<u16[]>(!stack) in
+        let @543 = u32x8(8u) in
+        let @544 = @215 * @543 in
+        let @545 = @544 + ramp(0u, 1u, 8) in
+        let @216 = masked_extract(@541[@545], @295) in
+        @216!skip = @216
+        @215!skip = @215
+      } else {
+        @216!skip = @664
+        @215!skip = @665
+      }
+      @294!skip = @294
     } else {
-      @215!skip = @630
-      @216!skip = @631
+      @294!skip = @666
+      @216!skip = @667
+      @215!skip = @668
     }
-    let @311 = select(@294, (*shapes_index!top!loop), (*@216!skip)) in
+    let @311 = select((*@294!skip), (*shapes_index!top!loop), (*@216!skip)) in
     let @312 = select(@248, (*@210!skip), @311) in
-    let @542 = boolx8(false) in
-    let @543 = boolx8(true) in
-    let @313 = select(@294, @542, @543) in
-    let @544 = boolx8(true) in
-    let @314 = select(@248, @544, @313) in
-    let @315 = select(@294, (*!count!loop), (*@215!skip)) in
+    let @546 = boolx8(false) in
+    let @547 = boolx8(true) in
+    let @313 = select((*@294!skip), @546, @547) in
+    let @548 = boolx8(true) in
+    let @314 = select(@248, @548, @313) in
+    let @315 = select((*@294!skip), (*!count!loop), (*@215!skip)) in
     let @316 = select(@248, (*@219!skip), @315) in
     let @317 = select(@224, @312, (*shapes_index!top!loop)) in
     let @318 = select(@223, (*shapes_index!top!loop), @317) in
@@ -1157,10 +1136,10 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
     let @320 = select(@223, (*!live!loop), @319) in
     let @321 = select(@224, @316, (*!count!loop)) in
     let @322 = select(@223, (*!count!loop), @321) in
-    let @545 = boolx8(false) in
-    let @323 = select(@223, @545, (*!live_1)) in
-    let @546 = boolx8(true) in
-    let @324 = select(@223, @546, (*!exit.visited)) in
+    let @549 = boolx8(false) in
+    let @323 = select(@223, @549, (*!live_1)) in
+    let @550 = boolx8(true) in
+    let @324 = select(@223, @550, (*!exit.visited)) in
     shapes_index!top!loop = @318
     !live!loop = @320
     !count!loop = @322
@@ -1443,35 +1422,33 @@ func hit_z(r : Ray, shapes : _tree_layout0) -> f32 {
 
 func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0*)) -> void {
   @16!skip : mut _option0$v8
+  @44!skip : mut f32x8
   @29!skip : mut f32x8
   @34!skip : mut f32x8
-  s$i18!skip : mut Shape$v8
-  @40!skip : mut boolx8
-  @42!skip : mut boolx8
   let r$i18 = rs[ramp(0, 1, 8)] in
   _best0$i33$i44 : mut __tuple_1$v8
   let @1 = (f32)inf in
   let @2 = build<__tuple_0>() in
   let @3 = build<__tuple_1>(@1, @2) in
-  let @62 = @3._field0 in
-  let @63 = f32x8(@62) in
-  let @64 = @3._field1 in
-  let @65 = @64._field0 in
-  let @66 = u16x8(@65) in
-  let @67 = build<__tuple_0$v8>(@66) in
-  let @68 = build<__tuple_1$v8>(@63, @67) in
-  _best0$i33$i44 = @68
+  let @57 = @3._field0 in
+  let @58 = f32x8(@57) in
+  let @59 = @3._field1 in
+  let @60 = @59._field0 in
+  let @61 = u16x8(@60) in
+  let @62 = build<__tuple_0$v8>(@61) in
+  let @63 = build<__tuple_1$v8>(@58, @62) in
+  _best0$i33$i44 = @63
   let @4 = (*shapes) in
   _recloop_func0$gang8_v2_p3(0u, @4, r$i18, _best0$i33$i44)
   let @5 = build<_option0>() in
   let @6 = (*_best0$i33$i44) in
   let @7 = @6._field0 in
   let @8 = (f32)inf in
-  let @69 = f32x8(@8) in
-  let @9 = @7 != @69 in
-  let @70 = boolx8(false) in
-  let @71 = boolx8(true) in
-  let @37 = select(@9, @70, @71) in
+  let @64 = f32x8(@8) in
+  let @9 = @7 != @64 in
+  let @65 = boolx8(false) in
+  let @66 = boolx8(true) in
+  let @37 = select(@9, @65, @66) in
   let @46 = reduce<any>(@9) in
   let @47 = build<f32x3>(0f, 0f, 0f) in
   let @48 = build<Sphere>(@47, 0f) in
@@ -1479,40 +1456,40 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
   let @50 = Shape_payload{.Sph = @49} in
   let @51 = build<Shape>(0u, @50) in
   let @52 = build<_option0>(@51, false) in
-  let @146 = @52.value in
-  let @147 = @146.tag in
-  let @148 = u8x8(@147) in
-  let @149 = @146.payload in
-  let @150 = reinterpret_cast<[[packed]] u32x12>(@149) in
-  let @151 = @150[0u] in
-  let @152 = u32x8(@151) in
-  let @153 = @150[1u] in
-  let @154 = u32x8(@153) in
-  let @155 = @150[2u] in
-  let @156 = u32x8(@155) in
-  let @157 = @150[3u] in
-  let @158 = u32x8(@157) in
-  let @159 = @150[4u] in
-  let @160 = u32x8(@159) in
-  let @161 = @150[5u] in
-  let @162 = u32x8(@161) in
-  let @163 = @150[6u] in
-  let @164 = u32x8(@163) in
-  let @165 = @150[7u] in
-  let @166 = u32x8(@165) in
-  let @167 = @150[8u] in
-  let @168 = u32x8(@167) in
-  let @169 = @150[9u] in
-  let @170 = u32x8(@169) in
-  let @171 = @150[10u] in
-  let @172 = u32x8(@171) in
-  let @173 = @150[11u] in
-  let @174 = u32x8(@173) in
-  let @175 = build<Shape_payload$v8>(@152, @154, @156, @158, @160, @162, @164, @166, @168, @170, @172, @174) in
-  let @176 = build<Shape$v8>(@148, @175) in
-  let @177 = @52.set in
-  let @178 = boolx8(@177) in
-  let @179 = build<_option0$v8>(@176, @178) in
+  let @110 = @52.value in
+  let @111 = @110.tag in
+  let @112 = u8x8(@111) in
+  let @113 = @110.payload in
+  let @114 = reinterpret_cast<[[packed]] u32x12>(@113) in
+  let @115 = @114[0u] in
+  let @116 = u32x8(@115) in
+  let @117 = @114[1u] in
+  let @118 = u32x8(@117) in
+  let @119 = @114[2u] in
+  let @120 = u32x8(@119) in
+  let @121 = @114[3u] in
+  let @122 = u32x8(@121) in
+  let @123 = @114[4u] in
+  let @124 = u32x8(@123) in
+  let @125 = @114[5u] in
+  let @126 = u32x8(@125) in
+  let @127 = @114[6u] in
+  let @128 = u32x8(@127) in
+  let @129 = @114[7u] in
+  let @130 = u32x8(@129) in
+  let @131 = @114[8u] in
+  let @132 = u32x8(@131) in
+  let @133 = @114[9u] in
+  let @134 = u32x8(@133) in
+  let @135 = @114[10u] in
+  let @136 = u32x8(@135) in
+  let @137 = @114[11u] in
+  let @138 = u32x8(@137) in
+  let @139 = build<Shape_payload$v8>(@116, @118, @120, @122, @124, @126, @128, @130, @132, @134, @136, @138) in
+  let @140 = build<Shape$v8>(@112, @139) in
+  let @141 = @52.set in
+  let @142 = boolx8(@141) in
+  let @143 = build<_option0$v8>(@140, @142) in
   if (@46) {
     let @10 = (*shapes) in
     let @11 = @10.prims in
@@ -1520,134 +1497,94 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
     let @13 = @12._field1 in
     let @14 = @13._field0 in
     let @15 = masked_extract(@11[@14], @9) in
-    let @72 = boolx8(true) in
-    let @16 = build<_option0$v8>(@15, @72) in
+    let @67 = boolx8(true) in
+    let @16 = build<_option0$v8>(@15, @67) in
     @16!skip = @16
   } else {
-    @16!skip = @179
+    @16!skip = @143
   }
-  let @73 = @5.value in
-  let @74 = @73.tag in
-  let @75 = u8x8(@74) in
-  let @76 = @73.payload in
-  let @77 = reinterpret_cast<[[packed]] u32x12>(@76) in
-  let @78 = @77[0u] in
-  let @79 = u32x8(@78) in
-  let @80 = @77[1u] in
-  let @81 = u32x8(@80) in
-  let @82 = @77[2u] in
-  let @83 = u32x8(@82) in
-  let @84 = @77[3u] in
-  let @85 = u32x8(@84) in
-  let @86 = @77[4u] in
-  let @87 = u32x8(@86) in
-  let @88 = @77[5u] in
-  let @89 = u32x8(@88) in
-  let @90 = @77[6u] in
-  let @91 = u32x8(@90) in
-  let @92 = @77[7u] in
-  let @93 = u32x8(@92) in
-  let @94 = @77[8u] in
-  let @95 = u32x8(@94) in
-  let @96 = @77[9u] in
-  let @97 = u32x8(@96) in
-  let @98 = @77[10u] in
-  let @99 = u32x8(@98) in
-  let @100 = @77[11u] in
-  let @101 = u32x8(@100) in
-  let @102 = build<Shape_payload$v8>(@79, @81, @83, @85, @87, @89, @91, @93, @95, @97, @99, @101) in
-  let @103 = build<Shape$v8>(@75, @102) in
-  let @104 = @5.set in
-  let @105 = boolx8(@104) in
-  let @106 = build<_option0$v8>(@103, @105) in
-  let @43 = select(@37, @106, (*@16!skip)) in
+  let @68 = @5.value in
+  let @69 = @68.tag in
+  let @70 = u8x8(@69) in
+  let @71 = @68.payload in
+  let @72 = reinterpret_cast<[[packed]] u32x12>(@71) in
+  let @73 = @72[0u] in
+  let @74 = u32x8(@73) in
+  let @75 = @72[1u] in
+  let @76 = u32x8(@75) in
+  let @77 = @72[2u] in
+  let @78 = u32x8(@77) in
+  let @79 = @72[3u] in
+  let @80 = u32x8(@79) in
+  let @81 = @72[4u] in
+  let @82 = u32x8(@81) in
+  let @83 = @72[5u] in
+  let @84 = u32x8(@83) in
+  let @85 = @72[6u] in
+  let @86 = u32x8(@85) in
+  let @87 = @72[7u] in
+  let @88 = u32x8(@87) in
+  let @89 = @72[8u] in
+  let @90 = u32x8(@89) in
+  let @91 = @72[9u] in
+  let @92 = u32x8(@91) in
+  let @93 = @72[10u] in
+  let @94 = u32x8(@93) in
+  let @95 = @72[11u] in
+  let @96 = u32x8(@95) in
+  let @97 = build<Shape_payload$v8>(@74, @76, @78, @80, @82, @84, @86, @88, @90, @92, @94, @96) in
+  let @98 = build<Shape$v8>(@70, @97) in
+  let @99 = @5.set in
+  let @100 = boolx8(@99) in
+  let @101 = build<_option0$v8>(@98, @100) in
+  let @43 = select(@37, @101, (*@16!skip)) in
   let @20 = @43.set in
   let @21 = !@20 in
-  let @107 = boolx8(false) in
-  let @108 = boolx8(true) in
-  let @38 = select(@21, @107, @108) in
+  let @102 = boolx8(false) in
+  let @103 = boolx8(true) in
+  let @38 = select(@21, @102, @103) in
   let @53 = reduce<any>(@38) in
-  let @54 = build<f32x3>(0f, 0f, 0f) in
-  let @55 = build<Sphere>(@54, 0f) in
-  let @56 = build<Sph>(@55) in
-  let @57 = Shape_payload{.Sph = @56} in
-  let @58 = build<Shape>(0u, @57) in
-  let @114 = @58.tag in
-  let @115 = u8x8(@114) in
-  let @116 = @58.payload in
-  let @117 = reinterpret_cast<[[packed]] u32x12>(@116) in
-  let @118 = @117[0u] in
-  let @119 = u32x8(@118) in
-  let @120 = @117[1u] in
-  let @121 = u32x8(@120) in
-  let @122 = @117[2u] in
-  let @123 = u32x8(@122) in
-  let @124 = @117[3u] in
-  let @125 = u32x8(@124) in
-  let @126 = @117[4u] in
-  let @127 = u32x8(@126) in
-  let @128 = @117[5u] in
-  let @129 = u32x8(@128) in
-  let @130 = @117[6u] in
-  let @131 = u32x8(@130) in
-  let @132 = @117[7u] in
-  let @133 = u32x8(@132) in
-  let @134 = @117[8u] in
-  let @135 = u32x8(@134) in
-  let @136 = @117[9u] in
-  let @137 = u32x8(@136) in
-  let @138 = @117[10u] in
-  let @139 = u32x8(@138) in
-  let @140 = @117[11u] in
-  let @141 = u32x8(@140) in
-  let @142 = build<Shape_payload$v8>(@119, @121, @123, @125, @127, @129, @131, @133, @135, @137, @139, @141) in
-  let @143 = build<Shape$v8>(@115, @142) in
-  let @144 = boolx8(false) in
-  let @145 = boolx8(false) in
+  let @109 = f32x8(0f) in
   if (@53) {
     let s$i18 = @43.value in
     let @24 = s$i18.tag in
-    let @109 = u8x8(0u) in
-    let @39 = @24 == @109 in
+    let @104 = u8x8(0u) in
+    let @39 = @24 == @104 in
     let @40 = @38 && @39 in
-    let @110 = u8x8(0u) in
-    let @41 = @24 != @110 in
+    let @105 = u8x8(0u) in
+    let @41 = @24 != @105 in
     let @42 = @38 && @41 in
-    s$i18!skip = s$i18
-    @40!skip = @40
-    @42!skip = @42
+    let @54 = reduce<any>(@42) in
+    let @107 = f32x8(0f) in
+    if (@54) {
+      let @30 = s$i18.payload in
+      let @31 = @30.Tri in
+      let t$i18 = @31.t in
+      let @33 = t$i18.p2 in
+      let @34 = @33.!2 in
+      @34!skip = @34
+    } else {
+      @34!skip = @107
+    }
+    let @55 = reduce<any>(@40) in
+    let @108 = f32x8(0f) in
+    if (@55) {
+      let @25 = s$i18.payload in
+      let @26 = @25.Sph in
+      let sp$i18 = @26.s in
+      let @28 = sp$i18.center in
+      let @29 = @28.!2 in
+      @29!skip = @29
+    } else {
+      @29!skip = @108
+    }
+    let @44 = select(@42, (*@34!skip), (*@29!skip)) in
+    @44!skip = @44
   } else {
-    s$i18!skip = @143
-    @40!skip = @144
-    @42!skip = @145
+    @44!skip = @109
   }
-  let @59 = reduce<any>((*@42!skip)) in
-  let @112 = f32x8(0f) in
-  if (@59) {
-    let @30 = (*s$i18!skip).payload in
-    let @31 = @30.Tri in
-    let t$i18 = @31.t in
-    let @33 = t$i18.p2 in
-    let @34 = @33.!2 in
-    @34!skip = @34
-  } else {
-    @34!skip = @112
-  }
-  let @60 = reduce<any>((*@40!skip)) in
-  let @113 = f32x8(0f) in
-  if (@60) {
-    let @25 = (*s$i18!skip).payload in
-    let @26 = @25.Sph in
-    let sp$i18 = @26.s in
-    let @28 = sp$i18.center in
-    let @29 = @28.!2 in
-    @29!skip = @29
-  } else {
-    @29!skip = @113
-  }
-  let @44 = select((*@42!skip), (*@34!skip), (*@29!skip)) in
-  let @111 = f32x8(-1f) in
-  let @45 = select(@38, @44, @111) in
+  let @106 = f32x8(-1f) in
+  let @45 = select(@38, (*@44!skip), @106) in
   out[ramp(0, 1, 8)] = @45
   return
 }

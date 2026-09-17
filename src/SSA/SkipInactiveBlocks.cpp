@@ -103,11 +103,12 @@ void for_each_terminator_value(Terminator &terminator, F &&f) {
                terminator.data);
 }
 
-// Applies `f` to every value referred to from a block other than `except`.
+// Applies `f` to every value referred to from a block outside `inside`.
 template <typename F>
-void for_each_value_outside(Function &func, const Block *except, F &&f) {
+void for_each_value_outside(Function &func, const set<const Block *> &inside,
+                            F &&f) {
     for (const shared_ptr<Block> &block : func.blocks) {
-        if (block.get() == except) {
+        if (inside.count(block.get())) {
             continue;
         }
         for (const shared_ptr<Instruction> &instr : block->instrs) {
@@ -117,6 +118,24 @@ void for_each_value_outside(Function &func, const Block *except, F &&f) {
         }
         for_each_terminator_value(block->terminator, f);
     }
+}
+
+// Is every lane on in `narrow` on in `wide`, as far as the masks' own
+// definitions say? The same mask, or an AND with it: the mask of a block
+// nested inside an arm is the arm's mask AND its own condition (see
+// Linearize.cpp), and that is the relation this reads.
+bool implies(const Value &narrow, const Value &wide) {
+    if (same_value(narrow, wide)) {
+        return true;
+    }
+    const Instruction *i = instruction_of(narrow);
+    if (i == nullptr || i->op != Instruction::Op::LAnd) {
+        return false;
+    }
+    return std::any_of(i->operands.begin(), i->operands.end(),
+                       [&](const shared_ptr<Value> &operand) {
+                           return implies(*operand, wide);
+                       });
 }
 
 // The logic a mask is made of: no work worth a branch to skip, and what a
@@ -205,10 +224,27 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
     }
     AdjacencyMap preds = compute_predecessors(succs);
 
+    // The guards made here, by name. A block whose only ways in are the block
+    // before it and guards' bypasses is still one live path: the bypasses
+    // hand it zeros, so it can take a bypass more.
+    set<string> guards;
+
+    auto is_header = [&](const string &name) {
+        const auto p = preds.find(name);
+        if (p == preds.end() || p->second.empty()) {
+            return true; // the entry, which is a header of sorts
+        }
+        return std::any_of(p->second.begin(), p->second.end(),
+                           [&](const string &q) {
+                               return !index.count(q) ||
+                                      index.at(q) >= index.at(name);
+                           });
+    };
+
     size_t guarded = 0;
     for (const string &x_name : order) {
         const auto mask_it = masks.find(x_name);
-        if (mask_it == masks.end()) {
+        if (mask_it == masks.end() || guards.count(x_name)) {
             continue;
         }
         const shared_ptr<Value> mask = mask_it->second;
@@ -217,52 +253,94 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
         }
         const shared_ptr<Block> x = blocks.at(x_name);
 
-        // The block's one way out, and where it leads: the block after it in
-        // the chain. A block ending in a call is left alone: its callee is
-        // specialized to the mask and tests it on entry (see the `$masked`
-        // call guard in CodeGen_LLVM_SSA.cpp), and the relooper takes a call
-        // continuation to have the call as its only predecessor.
-        auto *out = std::get_if<Terminator::Jump>(&x->terminator.data);
-        if (out == nullptr) {
+        // The block's one way out. A block ending in a call is left alone:
+        // its callee is specialized to the mask and tests it on entry (see
+        // the `$masked` call guard in CodeGen_LLVM_SSA.cpp), and the
+        // relooper takes a call continuation to have the call as its only
+        // predecessor.
+        if (!std::holds_alternative<Terminator::Jump>(x->terminator.data)) {
             continue;
         }
-        const string y_name = out->name;
-        if (!region.count(y_name)) {
-            continue;
-        }
-
         // Not the entry, and not a loop header: a guard in front of a header
         // would sit on the back edge, and a header's mask is its loop's
         // business (see SSA/UniformizeLoops.h).
         const vector<string> x_preds = preds[x_name];
-        if (x_preds.empty()) {
+        if (is_header(x_name)) {
             continue;
         }
-        bool header = false;
-        for (const string &p : x_preds) {
-            header = header || !index.count(p) || index.at(p) >= index.at(x_name);
+
+        // The run of blocks the guard skips: from this block along the
+        // chain, for as long as the next block runs under a narrowing of
+        // this block's mask -- an arm nested inside this one, which no lane
+        // can be on when none is on here -- and is reached only from the
+        // block before it (or from earlier guards' bypasses). The run ends at
+        // the first block that is not such a narrowing, which is where the
+        // bypass lands; it too must have no other way in, or it would be a
+        // join with several live paths whose arguments are not this run's to
+        // zero. A block ending in anything but a jump -- a uniform branch, a
+        // call -- ends the run in front of it.
+        vector<shared_ptr<Block>> run{x};
+        set<const Block *> inside{x.get()};
+        string z_name;
+        for (shared_ptr<Block> cur = x;;) {
+            auto *out = std::get_if<Terminator::Jump>(&cur->terminator.data);
+            if (out == nullptr) {
+                break;
+            }
+            const string &y_name = out->name;
+            if (!region.count(y_name)) {
+                break;
+            }
+            const vector<string> &y_preds = preds[y_name];
+            const bool clean = std::all_of(
+                y_preds.begin(), y_preds.end(), [&](const string &p) {
+                    return p == cur->name || guards.count(p);
+                });
+            if (!clean) {
+                break;
+            }
+            const shared_ptr<Block> y = blocks.at(y_name);
+            const auto ym = masks.find(y_name);
+            const bool nested = ym != masks.end() &&
+                                implies(*ym->second, *mask) &&
+                                !is_header(y_name) &&
+                                std::holds_alternative<Terminator::Jump>(
+                                    y->terminator.data);
+            if (!nested) {
+                z_name = y_name;
+                break;
+            }
+            run.push_back(y);
+            inside.insert(y.get());
+            cur = y;
         }
-        if (header) {
+        if (z_name.empty()) {
             continue;
         }
-        // The successor is reached from this block alone, so that the bypass
-        // is the only other way in and its arguments are this block's to
-        // account for.
-        const vector<string> &y_preds = preds[y_name];
-        if (y_preds.size() != 1 || y_preds[0] != x_name) {
-            continue;
-        }
-        // Its own values travelling on as arguments already are the slots of
-        // a join with several live paths, whose fallback is the previous
-        // value and not zero (see SkipInactiveBlocks.h).
-        bool passes_own = false;
-        for (const auto &a : out->args) {
-            const Instruction *i = instruction_of(*a);
-            passes_own = passes_own || (i != nullptr && i->owner.lock() == x);
-        }
-        if (passes_own) {
-            continue;
-        }
+        const shared_ptr<Block> last = run.back();
+        auto *out = std::get_if<Terminator::Jump>(&last->terminator.data);
+        const shared_ptr<Block> z = blocks.at(z_name);
+
+        // Whether a value is one of the run's: an instruction of one of its
+        // blocks, or an argument of one other than the first, whose
+        // arguments move to the guard.
+        auto defined_inside = [&](const Value &v) {
+            if (const Instruction *i = instruction_of(v)) {
+                return inside.count(i->owner.lock().get()) > 0;
+            }
+            const auto *a = std::get_if<Argument>(&v.data);
+            if (a == nullptr) {
+                return false;
+            }
+            for (size_t k = 1; k < run.size(); k++) {
+                for (const Argument &arg : run[k]->args) {
+                    if (arg.name == a->name) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
 
         // What goes ahead of the test: the chain the block's mask is
         // computed from, which must be logic only.
@@ -277,23 +355,30 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
             hoisted.insert(i.get());
         }
 
-        // The block's values a later block uses, or a later block's mask is:
-        // its guard will test it, and a masked call in it will be handed it.
-        vector<shared_ptr<Instruction>> live;
-        for (const shared_ptr<Instruction> &instr : x->instrs) {
-            if (instr->name.empty() || hoisted.count(instr.get())) {
-                continue;
+        // The run's values a block after it uses, or a block after it has
+        // as its mask: its guard will test it, and a masked call in it will
+        // be handed it. An argument of an inner block is such a value too --
+        // what an earlier guard's bypass handed it -- and a value the run
+        // itself passes on to the block after it.
+        vector<shared_ptr<Value>> live;
+        auto note_live = [&](const shared_ptr<Value> &v) {
+            if (!defined_inside(*v) ||
+                std::any_of(live.begin(), live.end(),
+                            [&](const shared_ptr<Value> &l) {
+                                return same_value(*l, *v);
+                            })) {
+                return;
             }
-            bool used = false;
-            for_each_value_outside(func, x.get(), [&](shared_ptr<Value> &v) {
-                used = used || instruction_of(*v) == instr.get();
-            });
-            for (const auto &[name, m] : masks) {
-                used = used ||
-                       (name != x_name && instruction_of(*m) == instr.get());
+            const Instruction *i = instruction_of(*v);
+            if (i != nullptr && (i->name.empty() || hoisted.count(i))) {
+                return;
             }
-            if (used) {
-                live.push_back(instr);
+            live.push_back(v);
+        };
+        for_each_value_outside(func, inside, note_live);
+        for (const auto &[name, m] : masks) {
+            if (!inside.count(blocks.at(name).get())) {
+                note_live(m);
             }
         }
 
@@ -303,57 +388,77 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
         // call is spelled through such a pointer as a place (see Call::make),
         // which a null is not. Address arithmetic is pure, so computing it
         // whether or not a lane is on costs nothing; it can be, when what it
-        // is computed from is defined before the block, or hoisted with it.
-        // A block computing a pointer that cannot be is left alone.
-        vector<shared_ptr<Instruction>> addresses;
+        // is computed from is defined before the run, or hoisted with it. A
+        // run computing a pointer that cannot be is left alone.
         bool stuck = false;
-        for (const shared_ptr<Instruction> &instr : x->instrs) {
-            if (hoisted.count(instr.get()) ||
-                std::find(live.begin(), live.end(), instr) == live.end() ||
-                !instr->type.is<Ptr_t>()) {
-                continue;
+        for (const shared_ptr<Block> &b : run) {
+            for (const shared_ptr<Instruction> &instr : b->instrs) {
+                if (hoisted.count(instr.get()) || !instr->type.is<Ptr_t>() ||
+                    std::none_of(live.begin(), live.end(),
+                                 [&](const shared_ptr<Value> &l) {
+                                     return instruction_of(*l) == instr.get();
+                                 })) {
+                    continue;
+                }
+                bool movable = is_address_arithmetic(instr->op);
+                for (const auto &operand : instr->operands) {
+                    const Instruction *i = instruction_of(*operand);
+                    movable = movable &&
+                              (i == nullptr || !inside.count(i->owner.lock().get()) ||
+                               hoisted.count(i) > 0);
+                    if (i == nullptr && defined_inside(*operand)) {
+                        movable = false; // an inner block's argument
+                    }
+                }
+                if (!movable) {
+                    stuck = true;
+                    break;
+                }
+                hoisted.insert(instr.get());
             }
-            bool movable = is_address_arithmetic(instr->op);
-            for (const auto &operand : instr->operands) {
-                const Instruction *i = instruction_of(*operand);
-                movable = movable && (i == nullptr || i->owner.lock() != x ||
-                                      hoisted.count(i) > 0);
-            }
-            if (!movable) {
-                stuck = true;
+            if (stuck) {
                 break;
             }
-            addresses.push_back(instr);
-            hoisted.insert(instr.get());
         }
         if (stuck) {
             continue;
         }
+        // Pointer arguments of inner blocks have nowhere to be hoisted to.
+        if (std::any_of(live.begin(), live.end(),
+                        [&](const shared_ptr<Value> &l) {
+                            return instruction_of(*l) == nullptr &&
+                                   l->get_type().is<Ptr_t>();
+                        })) {
+            continue;
+        }
         live.erase(std::remove_if(live.begin(), live.end(),
-                                  [&](const shared_ptr<Instruction> &i) {
-                                      return hoisted.count(i.get()) > 0;
+                                  [&](const shared_ptr<Value> &l) {
+                                      const Instruction *i = instruction_of(*l);
+                                      return i != nullptr && hoisted.count(i) > 0;
                                   }),
                    live.end());
 
-        // Worth a test, judged on what is left in the block: memory it must
+        // Worth a test, judged on what is left in the run: memory it must
         // not touch, or enough arithmetic to outweigh the test.
         {
             bool worth = false;
             size_t work = 0;
-            for (const shared_ptr<Instruction> &instr : x->instrs) {
-                if (hoisted.count(instr.get())) {
-                    continue;
+            for (const shared_ptr<Block> &b : run) {
+                for (const shared_ptr<Instruction> &instr : b->instrs) {
+                    if (hoisted.count(instr.get())) {
+                        continue;
+                    }
+                    worth = worth || touches_memory(instr->op);
+                    work += is_mask_logic(instr->op) ? 0 : 1;
                 }
-                worth = worth || touches_memory(instr->op);
-                work += is_mask_logic(instr->op) ? 0 : 1;
             }
             if (!worth && work < 3) {
                 continue;
             }
         }
 
-        // The guard: the block's arguments, its mask's chain, its addresses,
-        // the test.
+        // The guard: the first block's arguments, its mask's chain, the
+        // run's addresses, the test.
         auto guard = std::make_shared<Block>();
         guard->name = x_name + "!any";
         guard->owner = x->owner;
@@ -368,47 +473,75 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
                 }
             }
         }
-        for (const shared_ptr<Instruction> &instr : x->instrs) {
-            if (hoisted.count(instr.get())) {
-                instr->owner = guard;
-                guard->instrs.push_back(instr);
+        for (const shared_ptr<Block> &b : run) {
+            for (const shared_ptr<Instruction> &instr : b->instrs) {
+                if (hoisted.count(instr.get())) {
+                    instr->owner = guard;
+                    guard->instrs.push_back(instr);
+                }
             }
+            b->instrs.erase(
+                std::remove_if(b->instrs.begin(), b->instrs.end(),
+                               [&](const shared_ptr<Instruction> &i) {
+                                   return hoisted.count(i.get()) > 0;
+                               }),
+                b->instrs.end());
         }
-        x->instrs.erase(std::remove_if(x->instrs.begin(), x->instrs.end(),
-                                       [&](const shared_ptr<Instruction> &i) {
-                                           return hoisted.count(i.get()) > 0;
-                                       }),
-                        x->instrs.end());
         auto any = std::make_shared<Instruction>(
             func.get_unique_name(), Bool_t::make(), Instruction::Op::Any,
             vector<shared_ptr<Value>>{mask}, guard);
         guard->instrs.push_back(any);
 
-        // What the bypass hands the successor: what the block would have,
-        // with zero for what only the block computes, the values below.
-        const shared_ptr<Block> y = blocks.at(y_name);
-        Terminator::Jump skip{.name = y_name, .args = out->args};
+        // What the bypass hands the block after the run: what the run would
+        // have, with zero for what only the run computes, whether passed on
+        // already or threaded below.
+        Terminator::Jump skip{.name = z_name, .args = {}};
+        for (const shared_ptr<Value> &a : out->args) {
+            skip.args.push_back(defined_inside(*a)
+                                    ? zero_value(a->get_type(), func, guard)
+                                    : a);
+        }
 
-        // A value of the block's that a later block uses becomes an argument
-        // of the successor, and those uses take the argument.
-        for (const shared_ptr<Instruction> &instr : live) {
+        // A value of the run's that a later block uses becomes an argument
+        // of the block after the run, and those uses take the argument. The
+        // bypasses of earlier guards that already land there hand it zero
+        // too.
+        for (const shared_ptr<Value> &v : live) {
+            const Type type = v->get_type();
+            const string name =
+                instruction_of(*v) ? instruction_of(*v)->name
+                                   : std::get<Argument>(v->data).name;
             const shared_ptr<Value> passed =
-                y->add_argument(Argument{instr->type, instr->name + "!skip"});
-            out->args.push_back(std::make_shared<Value>(instr));
-            skip.args.push_back(zero_value(instr->type, func, guard));
-            for_each_value_outside(func, x.get(), [&](shared_ptr<Value> &v) {
-                if (instruction_of(*v) == instr.get()) {
-                    v = passed;
+                z->add_argument(Argument{type, name + "!skip"});
+            out->args.push_back(v);
+            skip.args.push_back(zero_value(type, func, guard));
+            for (const string &p : preds[z_name]) {
+                if (p == last->name) {
+                    continue;
+                }
+                internal_assert(guards.count(p))
+                    << p << " reaches " << z_name << " beside the run";
+                const shared_ptr<Block> g = blocks.at(p);
+                for (Terminator::Jump *jump : jumps_of(*g)) {
+                    if (jump->name == z_name) {
+                        jump->args.push_back(zero_value(type, func, g));
+                    }
+                }
+            }
+            for_each_value_outside(func, inside, [&](shared_ptr<Value> &u) {
+                if (same_value(*u, *v)) {
+                    u = passed;
                 }
             });
             for (auto &[name, m] : masks) {
-                if (instruction_of(*m) == instr.get()) {
+                if (!inside.count(blocks.at(name).get()) &&
+                    same_value(*m, *v)) {
                     m = passed;
                 }
             }
         }
 
-        // targets[0] is where a false condition goes: past the block.
+        // targets[0] is where a false condition goes: past the run.
         guard->terminator.data = Terminator::Dispatch{
             .cond = std::make_shared<Value>(any),
             .targets = {skip, Terminator::Jump{.name = x_name, .args = {}}}};
@@ -416,9 +549,10 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
         const auto at = std::find(func.blocks.begin(), func.blocks.end(), x);
         func.blocks.insert(at, guard);
         blocks[guard->name] = guard;
+        guards.insert(guard->name);
         preds[guard->name] = x_preds;
         preds[x_name] = {guard->name};
-        preds[y_name].push_back(guard->name);
+        preds[z_name].push_back(guard->name);
         index[guard->name] = index.at(x_name);
         guarded++;
     }

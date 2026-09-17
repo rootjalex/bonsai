@@ -19,27 +19,30 @@ func divergent(a : f32[8], out : mut f32[8]) -> void {
 
 func nested(a : f32[8], out : mut f32[8]) -> void {
   let _t3 = a[ramp(0, 1, 8)] in
-  let @12 = f32x8(0f) in
-  let @1 = _t3 < @12 in
-  let @13 = boolx8(false) in
-  let @14 = boolx8(true) in
-  let @5 = select(@1, @13, @14) in
-  let @15 = f32x8(-5f) in
-  let @2 = _t3 < @15 in
-  let @16 = boolx8(false) in
-  let @17 = boolx8(true) in
-  let @6 = select(@2, @16, @17) in
-  let @7 = @1 && @6 in
-  let @8 = @1 && @2 in
-  let @9 = reduce<any>(@8) in
+  let @13 = f32x8(0f) in
+  let @1 = _t3 < @13 in
+  let @14 = boolx8(false) in
+  let @15 = boolx8(true) in
+  let @5 = select(@1, @14, @15) in
+  let @9 = reduce<any>(@1) in
   if (@9) {
-    let @18 = f32x8(-2f) in
-    masked_store(out[ramp(0, 1, 8)], @18, @8)
-  }
-  let @10 = reduce<any>(@7) in
-  if (@10) {
-    let @19 = f32x8(-1f) in
-    masked_store(out[ramp(0, 1, 8)], @19, @7)
+    let @16 = f32x8(-5f) in
+    let @2 = _t3 < @16 in
+    let @17 = boolx8(false) in
+    let @18 = boolx8(true) in
+    let @6 = select(@2, @17, @18) in
+    let @7 = @1 && @6 in
+    let @8 = @1 && @2 in
+    let @10 = reduce<any>(@8) in
+    if (@10) {
+      let @19 = f32x8(-2f) in
+      masked_store(out[ramp(0, 1, 8)], @19, @8)
+    }
+    let @11 = reduce<any>(@7) in
+    if (@11) {
+      let @20 = f32x8(-1f) in
+      masked_store(out[ramp(0, 1, 8)], @20, @7)
+    }
   }
   return
 }

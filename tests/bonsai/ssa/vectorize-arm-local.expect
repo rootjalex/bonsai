@@ -18,27 +18,35 @@ func clip(x : f32) -> f32 {
 }
 
 func [[export]] clip_all(inp : f32[8], out : mut f32[8]) -> void {
+  @6!skip : mut f32x8
   let x$i0 = inp[ramp(0, 1, 8)] in
-  let @16 = f32x8(0f) in
-  let @1 = x$i0 < @16 in
-  let @17 = boolx8(false) in
-  let @18 = boolx8(true) in
-  let @9 = select(@1, @17, @18) in
-  let @19 = f32x8(2f) in
-  let @2 = x$i0 * @19 in
-  let @20 = f32x8(10f) in
-  let @4 = @20 < @2 in
-  let @21 = boolx8(false) in
-  let @22 = boolx8(true) in
-  let @10 = select(@4, @21, @22) in
-  let @11 = @9 && @10 in
-  let @12 = @9 && @4 in
-  let @23 = f32x8(10f) in
-  let @13 = select(@11, @2, @23) in
-  let @24 = f32x8(1f) in
-  let @6 = @13 + @24 in
-  let @25 = f32x8(0f) in
-  let @14 = select(@9, @6, @25) in
+  let @17 = f32x8(0f) in
+  let @1 = x$i0 < @17 in
+  let @18 = boolx8(false) in
+  let @19 = boolx8(true) in
+  let @9 = select(@1, @18, @19) in
+  let @15 = reduce<any>(@9) in
+  let @27 = f32x8(0f) in
+  if (@15) {
+    let @20 = f32x8(2f) in
+    let @2 = x$i0 * @20 in
+    let @21 = f32x8(10f) in
+    let @4 = @21 < @2 in
+    let @22 = boolx8(false) in
+    let @23 = boolx8(true) in
+    let @10 = select(@4, @22, @23) in
+    let @11 = @9 && @10 in
+    let @12 = @9 && @4 in
+    let @24 = f32x8(10f) in
+    let @13 = select(@11, @2, @24) in
+    let @25 = f32x8(1f) in
+    let @6 = @13 + @25 in
+    @6!skip = @6
+  } else {
+    @6!skip = @27
+  }
+  let @26 = f32x8(0f) in
+  let @14 = select(@9, (*@6!skip), @26) in
   out[ramp(0, 1, 8)] = @14
   return
 }
