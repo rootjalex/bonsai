@@ -1,0 +1,25 @@
+//! flags: -p ssa -b llvm --triple x86_64-unknown-linux-gnu --mcpu haswell
+
+// The same gathers as x86-gather-avx512.bonsai on a machine with AVX2 and no
+// AVX-512 (see CodeGen_X86): `llvm.x86.avx2.gather.d.ps.256` and
+// `.gather.d.d.256`, whose mask is a vector of the result's type with the
+// sign bit on for the lanes to load -- an all-ones vector here, since every
+// lane is on -- and whose scale is an i8. The base-plus-index form is the
+// point, as there.
+element Sample {
+    x : f32;
+    n : i32;
+}
+
+func [[export]] read_fields(samples : array[Sample, 8], which : array[i32, 8],
+                            out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        s = samples[which[i]];
+        out[i] = s.x * cast[[f32]](s.n);
+    }
+    return;
+}
+
+schedule {
+    read_fields.vectorize(i);
+}

@@ -1,0 +1,59 @@
+//! flags: -p ssa -b llvm --triple x86_64-unknown-linux-gnu --mcpu skylake-avx512
+
+// A gang's gathers on a machine with AVX-512VL (see CodeGen_X86).
+//
+// LLVM's own masked gather takes a vector of eight 64-bit addresses, and
+// recovers the machine's base-plus-index form only while it can still see
+// the addresses being formed from a base and 32-bit offsets; hoisted out of a
+// loop, they become two registers of pointers and a `vpgatherqd`. The x86
+// code generator names the instruction instead: `llvm.x86.avx512.mask.
+// gather3siv8.sf` and `.si` take the base pointer, the eight 32-bit offsets,
+// a mask in a k register and a scale, which is what `vgatherdps`/`vpgatherdd`
+// are.
+//
+// What to read for in the golden:
+//
+//   * `read_fields` gathers `x` through `gather3siv8.sf` with the base
+//     pointer itself, and `n` through `.si` with the field's displacement
+//     folded into the base (a `getelementptr i8 ... 4`), both with an
+//     all-true mask since every lane is on.
+//   * `read_flags` reads its `u8` field as a word, the same intrinsic with a
+//     shift after it (see gather_elements): the sub-word path and the
+//     machine's gather compose.
+//   * No `llvm.masked.gather` remains in the module.
+//
+// Pinned to skylake-avx512 rather than to the host: what the host has is
+// what decides between this form, the AVX2 one and the generic one, and a
+// golden has to name it. The identical program pinned to a generic x86-64 is
+// in backends/llvm/sub-word-gather.bonsai, which shows the generic form.
+element Sample {
+    x : f32;
+    n : i32;
+}
+
+element Flags {
+    n : u32;
+    kind : u8;
+}
+
+func [[export]] read_fields(samples : array[Sample, 8], which : array[i32, 8],
+                            out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        s = samples[which[i]];
+        out[i] = s.x * cast[[f32]](s.n);
+    }
+    return;
+}
+
+func [[export]] read_flags(flags : array[Flags, 8], which : array[i32, 8],
+                           out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](flags[which[i]].kind);
+    }
+    return;
+}
+
+schedule {
+    read_fields.vectorize(i);
+    read_flags.vectorize(i);
+}

@@ -1,5 +1,9 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
+#include "CodeGen/CodeGen_X86.h"
+
+#include <llvm/MC/MCSubtargetInfo.h>
+
 #include <functional>
 #include <limits>
 #include <numeric>
@@ -58,22 +62,39 @@
 namespace bonsai {
 namespace codegen {
 void to_llvm(const ir::Program &program, const CompilerOptions &options) {
-    CodeGen_LLVM codegen;
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
     std::unique_ptr<llvm::Module> module =
-        codegen.compile_program(program, options);
+        codegen->compile_program(program, options);
     // Without the triple and data layout the module was generated against,
     // so that the same program prints the same on every machine (see
     // make_target_machine). A test that pins `--triple` gets the same code
     // either way; one that follows the host would otherwise print the
     // host's.
     if (options.output_file.empty()) {
-        codegen.print_module(*module, llvm::outs(), /*redacted=*/true);
+        codegen->print_module(*module, llvm::outs(), /*redacted=*/true);
         return;
     }
     auto os = make_raw_fd_ostream(options.output_file);
-    codegen.print_module(*module, *os, /*redacted=*/true);
+    codegen->print_module(*module, *os, /*redacted=*/true);
 }
 } // namespace codegen
+
+std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const CompilerOptions &options) {
+    // The same choice make_target_machine makes of the triple: the one
+    // named, or the host's.
+    const std::string triple = options.target_triple.empty()
+                                   ? llvm::sys::getDefaultTargetTriple()
+                                   : options.target_triple;
+    if (llvm::Triple(triple).getArch() == llvm::Triple::x86_64) {
+        return std::make_unique<CodeGen_X86>();
+    }
+    return std::make_unique<CodeGen_LLVM>();
+}
+
+bool CodeGen_LLVM::has_feature(const std::string &feature) const {
+    return target_machine != nullptr &&
+           target_machine->getMCSubtargetInfo()->checkFeatures("+" + feature);
+}
 namespace {
 
 // Returns the `printf` function for this module. If none exists, it is created.
@@ -2603,14 +2624,42 @@ llvm::Value *CodeGen_LLVM::gather_words(llvm::Type *elem_llvm,
                                         uint64_t align, uint32_t lanes,
                                         llvm::Value *mask,
                                         const std::string &name) {
+    return gather_indexed(elem_llvm, base, offsets, 1, disp, align, lanes, mask,
+                          name);
+}
+
+llvm::Value *CodeGen_LLVM::gather_indexed(llvm::Type *elem_llvm,
+                                          llvm::Value *base,
+                                          llvm::Value *indices, uint64_t scale,
+                                          uint64_t disp, uint64_t align,
+                                          uint32_t lanes, llvm::Value *mask,
+                                          const std::string &name) {
+    // The addresses as LLVM likes to see them formed: the base displaced
+    // once, then one GEP at the scale, which its x86 lowering folds into a
+    // gather with a base register and a 32-bit index register when the GEP
+    // is still in sight of the gather (see element_addresses for the
+    // addressing model, and CodeGen_X86 for when it is not).
     const llvm::DataLayout &dl = module->getDataLayout();
-    llvm::Value *at = offsets;
+    llvm::Value *at = base;
     if (disp != 0) {
-        at = builder->CreateAdd(
-            offsets, llvm::ConstantInt::get(offsets->getType(), disp),
-            name + "_at");
+        at = builder->CreateInBoundsGEP(
+            i8_t, base, llvm::ConstantInt::get(i64_t, disp), name + "_base");
     }
-    llvm::Value *ptrs = builder->CreateInBoundsGEP(i8_t, base, at, name + "_ptrs");
+    llvm::Value *ptrs;
+    if (scale == dl.getTypeAllocSize(elem_llvm).getFixedValue()) {
+        // An index into an array of the element: spelled over the element,
+        // which is what it is.
+        ptrs = builder->CreateInBoundsGEP(elem_llvm, at, indices, name + "_ptrs");
+    } else if (scale == 1 || scale == 2 || scale == 4 || scale == 8) {
+        ptrs = builder->CreateInBoundsGEP(
+            llvm::Type::getIntNTy(*context, unsigned(scale) * 8), at, indices,
+            name + "_ptrs");
+    } else {
+        llvm::Value *offsets = builder->CreateMul(
+            indices, llvm::ConstantInt::get(indices->getType(), scale),
+            name + "_off");
+        ptrs = builder->CreateInBoundsGEP(i8_t, at, offsets, name + "_ptrs");
+    }
     llvm::Type *vtype = llvm::FixedVectorType::get(elem_llvm, lanes);
     llvm::Value *on = mask != nullptr
                           ? mask
@@ -5127,14 +5176,12 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
         }
     }
 
-    llvm::Value *ptrs = element_addresses(etype, base, indices, name + "_ptrs");
-    if (mask == nullptr) {
-        mask = llvm::Constant::getAllOnesValue(
-            llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
-    }
-    return builder->CreateMaskedGather(
-        vtype, ptrs, dl.getABITypeAlign(etype), mask,
-        llvm::Constant::getNullValue(vtype), name);
+    // One element per lane at the base plus the index at the element's
+    // size (see gather_indexed, and element_addresses for the addressing
+    // model).
+    return gather_indexed(etype, base, indices,
+                          dl.getTypeAllocSize(etype).getFixedValue(), 0,
+                          dl.getABITypeAlign(etype).value(), lanes, mask, name);
 }
 
 void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,

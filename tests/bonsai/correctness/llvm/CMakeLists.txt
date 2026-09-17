@@ -69,4 +69,6 @@ add_bonsai_tests(
     vector-bitwise.bonsai
     void-fallthrough.bonsai
     while-loops.bonsai
+    x86-gather-avx2.bonsai
+    x86-gather-avx512.bonsai
 )

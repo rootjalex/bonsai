@@ -32,8 +32,18 @@ void to_llvm(const ir::Program &program, const CompilerOptions &options);
 
 } // namespace codegen
 
+struct CodeGen_LLVM;
+
+// The code generator for the machine `options` name, or the host's when they
+// name none: the target-agnostic CodeGen_LLVM, or the subclass that knows the
+// target's own instructions where LLVM's generic form loses something
+// (CodeGen_X86). Every backend that generates LLVM goes through this, so that
+// they all agree on what a program compiles to.
+std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const CompilerOptions &options);
+
 struct CodeGen_LLVM : public ir::Visitor {
     CodeGen_LLVM();
+    virtual ~CodeGen_LLVM() = default;
 
     /** Takes a bonsai Program and compiles it to an llvm Module. */
     virtual std::unique_ptr<llvm::Module>
@@ -226,7 +236,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Continue *) override;
     virtual void visit(const ir::Launch *) override;
 
-  private:
+    // Protected rather than private: a target's subclass (CodeGen_X86) emits
+    // through the same builder, types and target machine.
+  protected:
     llvm::FunctionType *get_function_type(const ir::Type &type);
 
     // The aggregate a function returns through a hidden pointer argument
@@ -359,14 +371,31 @@ struct CodeGen_LLVM : public ir::Visitor {
                                  uint64_t disp, const GatheredElement &whole,
                                  uint32_t lanes, llvm::Value *mask,
                                  const std::string &name);
+  protected:
+    // One element per lane at `base + disp + indices[lane] * scale`, for a
+    // scale the machine's addressing has (1, 2, 4 or 8) or any other: the
+    // gather every per-lane read comes down to, whether of a field of each
+    // lane's element (`gather_words`, scale one) or of an element of an
+    // array (`create_vector_load`, the element's size). `align` is what the
+    // addresses are known to be aligned to. Virtual because this is the one
+    // place a target's own gather instruction is worth naming (see
+    // CodeGen_X86); this emits LLVM's masked gather through a vector of
+    // addresses, which every target can lower.
+    virtual llvm::Value *gather_indexed(llvm::Type *elem_llvm, llvm::Value *base,
+                                        llvm::Value *indices, uint64_t scale,
+                                        uint64_t disp, uint64_t align,
+                                        uint32_t lanes, llvm::Value *mask,
+                                        const std::string &name);
     // One 32-bit word per lane at `base` plus that lane's byte offset in
-    // `offsets` (32-bit) plus `disp`: the gather every field of an element
-    // comes down to. `align` is what the addresses are known to be aligned
-    // to.
+    // `offsets` (32-bit) plus `disp`: gather_indexed at a scale of one.
     llvm::Value *gather_words(llvm::Type *elem_llvm, llvm::Value *base,
                               llvm::Value *offsets, uint64_t disp,
                               uint64_t align, uint32_t lanes, llvm::Value *mask,
                               const std::string &name);
+    // Whether the machine being compiled for has `feature` -- "avx2",
+    // "avx512vl" -- as the target machine made for the module says.
+    bool has_feature(const std::string &feature) const;
+
     // A sub-word element -- a byte or a halfword -- from each lane's 32-bit
     // byte offset into an array of them, read as part of the aligned word
     // that holds it. `total_bytes` is the array's size in bytes, which the

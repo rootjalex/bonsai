@@ -88,14 +88,14 @@ void emit_file(const std::string &filename,
 } // namespace
 
 void to_asm(const ir::Program &program, const CompilerOptions &options) {
-    CodeGen_LLVM codegen;
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
     std::unique_ptr<llvm::Module> result =
-        codegen.compile_program(program, options);
+        codegen->compile_program(program, options);
     std::unique_ptr<llvm::TargetMachine> target_machine =
-        codegen.make_target_machine(*result, options);
+        codegen->make_target_machine(*result, options);
     const llvm::TargetLibraryInfoImpl library_info =
-        codegen.target_library_info(llvm::Triple(result->getTargetTriple()));
-    std::unique_ptr<llvm::LLVMContext> context = codegen.steal_context();
+        codegen->target_library_info(llvm::Triple(result->getTargetTriple()));
+    std::unique_ptr<llvm::LLVMContext> context = codegen->steal_context();
     emit_file(options.output_file, std::move(result), target_machine.get(),
               library_info, llvm::CodeGenFileType::AssemblyFile);
 }

@@ -109,6 +109,7 @@ target_sources(
     src/CodeGen/CodeGen_CUDA.cpp
     src/CodeGen/CodeGen_LLVM.cpp
     src/CodeGen/CodeGen_LLVM_SSA.cpp
+    src/CodeGen/CodeGen_X86.cpp
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
@@ -216,6 +217,7 @@ target_sources(
     include/CodeGen/ASM.h
     include/CodeGen/CodeGen_CUDA.h
     include/CodeGen/CodeGen_LLVM.h
+    include/CodeGen/CodeGen_X86.h
     include/CodeGen/CPP.h
     include/CodeGen/JIT.h
     include/CompilerOptions.h

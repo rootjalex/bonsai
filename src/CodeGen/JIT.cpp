@@ -30,15 +30,15 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
             << ", which are the externs it reads and which nothing here can "
                "supply. Compile to a backend and link a driver instead.";
     }
-    CodeGen_LLVM codegen;
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
     std::unique_ptr<llvm::orc::LLJIT> JIT =
         llvm::cantFail(llvm::orc::LLJITBuilder().create());
     internal_assert(JIT != nullptr) << "Failed to generate JIT";
 
     std::unique_ptr<llvm::Module> module =
-        codegen.compile_program(program, options);
+        codegen->compile_program(program, options);
     module->setDataLayout(JIT->getDataLayout());
-    std::unique_ptr<llvm::LLVMContext> context = codegen.steal_context();
+    std::unique_ptr<llvm::LLVMContext> context = codegen->steal_context();
 
     llvm::orc::ThreadSafeModule tsm(std::move(module), std::move(context));
     auto err = JIT->addIRModule(std::move(tsm));

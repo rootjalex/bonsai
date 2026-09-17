@@ -1346,12 +1346,12 @@ class BonsaiToCpp : ir::Printer {
 
 void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Compile the program to LLVM.
-    CodeGen_LLVM codegen;
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
     std::unique_ptr<llvm::Module> module =
-        codegen.compile_program(program, options);
+        codegen->compile_program(program, options);
 
     std::unique_ptr<llvm::TargetMachine> target_machine =
-        codegen.make_target_machine(*module, options);
+        codegen->make_target_machine(*module, options);
     internal_assert(target_machine);
 
     // Open the object file (`.o`). We produce an object file during a dry run
@@ -1364,7 +1364,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
-        codegen.print_module(*module, llvm::outs(), /*redacted=*/true);
+        codegen->print_module(*module, llvm::outs(), /*redacted=*/true);
         return;
     }
     std::error_code ec;
@@ -1379,7 +1379,7 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // math intrinsic the backend meets is lowered to the same libmvec call
     // (see CodeGen_LLVM::target_library_info).
     const llvm::TargetLibraryInfoImpl library_info =
-        codegen.target_library_info(llvm::Triple(module->getTargetTriple()));
+        codegen->target_library_info(llvm::Triple(module->getTargetTriple()));
     pass.add(new llvm::TargetLibraryInfoWrapperPass(library_info));
     internal_assert(!target_machine->addPassesToEmitFile(
         pass, os, nullptr, llvm::CodeGenFileType::ObjectFile));
