@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm
+
+// The integer intrinsics a division by an invariant integer is rewritten
+// into (see SSA/InvariantDivision.h), and how the LLVM backend lowers them.
+//
+//   * `mulhi` of 32-bit scalars, and of 64-bit scalars, is a widening
+//     multiply and a shift -- one instruction on x86-64 -- and of a vector of
+//     32-bit lanes the same, which the target turns into pmuludq. A vector of
+//     64-bit lanes has no widening multiply anywhere, so its high half is
+//     assembled from four 32-by-32 products, with the two cross terms and the
+//     carry out of the low product added in; the signed form corrects the
+//     unsigned one by the other operand for each negative side.
+//   * `clz` is llvm.ctlz with zero defined, since clz(0) is the width.
+//   * `div_multiplier` is a count of leading zeros and one division twice
+//     the width of its operand -- 128 bits for a 64-bit divisor, which
+//     becomes a library call -- with a zero divisor taken as one, so that it
+//     can be computed where a divisor is defined for lanes that never divide.
+//
+// Pinned to a generic machine, as every golden here is.
+
+element u32x4 = vector[u32, 4];
+element i32x4 = vector[i32, 4];
+element u64x4 = vector[u64, 4];
+element i64x4 = vector[i64, 4];
+
+func [[export]] mulhi_u32(a : u32, b : u32) -> u32 = mulhi(a, b);
+func [[export]] mulhi_i32(a : i32, b : i32) -> i32 = mulhi(a, b);
+func [[export]] mulhi_u64(a : u64, b : u64) -> u64 = mulhi(a, b);
+func [[export]] mulhi_i64(a : i64, b : i64) -> i64 = mulhi(a, b);
+func [[export]] mulhi_u32x4(a : u32x4, b : u32x4) -> u32x4 = mulhi(a, b);
+func [[export]] mulhi_u64x4(a : u64x4, b : u64x4) -> u64x4 = mulhi(a, b);
+func [[export]] mulhi_i64x4(a : i64x4, b : i64x4) -> i64x4 = mulhi(a, b);
+
+func [[export]] clz_u32(a : u32) -> u32 = clz(a);
+func [[export]] clz_u64x4(a : u64x4) -> u64x4 = clz(a);
+
+func [[export]] multiplier_u32(d : u32) -> u32 = div_multiplier(d);
+func [[export]] multiplier_i32(d : i32) -> i32 = div_multiplier(d);
+func [[export]] multiplier_u64(d : u64) -> u64 = div_multiplier(d);
+func [[export]] multiplier_i64(d : i64) -> i64 = div_multiplier(d);

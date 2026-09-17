@@ -1267,6 +1267,27 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             }
             break;
         }
+        case Intrinsic::clz:
+        case Intrinsic::div_multiplier: {
+            // Integer to integer of the same type: a count of bits fits the
+            // type it counts, and the multiplier has the divisor's width.
+            internal_assert(args.size() == 1)
+                << to_string(op) << " takes one argument";
+            internal_assert(args[0].type().is_int_or_uint())
+                << to_string(op) << " of a non-integer " << args[0].type();
+            node->type = args[0].type();
+            break;
+        }
+        case Intrinsic::mulhi: {
+            internal_assert(args.size() == 2) << "mulhi takes two arguments";
+            try_match_types(args[0], args[1]);
+            internal_assert(args[0].type().is_int_or_uint() &&
+                            equals(args[0].type(), args[1].type()))
+                << "mulhi of " << args[0].type() << " and " << args[1].type()
+                << ", which are not one integer type";
+            node->type = args[0].type();
+            break;
+        }
         case Intrinsic::dot: {
             internal_assert(args.size() == 2);
             internal_assert(equals(args[0].type(), args[1].type()));

@@ -7,6 +7,7 @@ add_bonsai_tests(
     collapse.bonsai
     divergence.bonsai
     forall.bonsai
+    invariant-division.bonsai
     known-limitation-two-parfors.bonsai
     linearize.bonsai
     loopify.bonsai

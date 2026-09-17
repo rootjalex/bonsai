@@ -33,6 +33,7 @@ add_bonsai_tests(
     vectorize_locals.bonsai
     vectorize_loop.bonsai
     vectorize_loop_carried.bonsai
+    vectorize_division.bonsai
     vectorize_loop_early_return.bonsai
     vectorize_masked_accumulate.bonsai
     vectorize_nested_loops.bonsai

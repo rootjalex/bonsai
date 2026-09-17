@@ -1149,12 +1149,16 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "atanh";
     case Intrinsic::atan2:
         return "atan2";
+    case Intrinsic::clz:
+        return "clz";
     case Intrinsic::cos:
         return "cos";
     case Intrinsic::cosh:
         return "cosh";
     case Intrinsic::cross:
         return "cross";
+    case Intrinsic::div_multiplier:
+        return "div_multiplier";
     case Intrinsic::dot:
         return "dot";
     case Intrinsic::exp:
@@ -1167,6 +1171,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "max";
     case Intrinsic::min:
         return "min";
+    case Intrinsic::mulhi:
+        return "mulhi";
     case Intrinsic::norm:
         return "norm";
     case Intrinsic::pow:

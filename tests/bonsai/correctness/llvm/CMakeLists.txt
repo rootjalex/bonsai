@@ -31,6 +31,7 @@ add_bonsai_tests(
     inline-statements.bonsai
     jump-threading.bonsai
     int64.bonsai
+    invariant-division.bonsai
     literal-widening.bonsai
     loop-transforms.bonsai
     loopify.bonsai

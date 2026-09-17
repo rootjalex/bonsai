@@ -524,15 +524,38 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // loses the quadrant and divides by zero on the axis. Like the two
         // above it has no LLVM intrinsic and becomes a call to libm's atan2f.
         atan2,
+        // The number of leading zero bits of an integer, and the width of the
+        // type for zero: llvm.ctlz. One machine instruction, and the way a
+        // ceiling of log2 is taken -- which is what division by an invariant
+        // integer needs of its divisor (see SSA/InvariantDivision.h).
+        clz,
         cos,
         cosh,
         cross,
+        // The multiplier that turns a division by its argument into a
+        // multiply-high (Granlund & Montgomery, "Division by Invariant
+        // Integers using Multiplication", PLDI 1994): for an unsigned d the
+        // "round-up" multiplier floor(2^N (2^l - d) / d) + 1 with l =
+        // ceil(log2 d), and for a signed d the one for |d|, floor(2^(N+l-1) /
+        // |d|) + 1 taken modulo 2^N, with l at least one. Both fit the
+        // argument's N bits. Defined for every input, zero included, since
+        // it is taken once where the divisor is defined and lanes that never
+        // divide may hold anything there; only the backend's wide division
+        // knows how to compute it, which is why it is an intrinsic and the
+        // arithmetic around it is not (see SSA/InvariantDivision.h).
+        div_multiplier,
         dot,
         exp,
         fma,
         log,
         max,
         min,
+        // The high half of the full product of two N-bit integers -- of the
+        // 2N-bit product, the top N bits -- signed or unsigned as the type is.
+        // What a division by an invariant integer multiplies by (see
+        // div_multiplier), and one instruction on every machine that has a
+        // widening multiply.
+        mulhi,
         norm,
         pow,
         rand,

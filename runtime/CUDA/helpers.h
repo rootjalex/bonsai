@@ -1794,6 +1794,79 @@ __forceinline__ __host__ __device__ O bonsai_reinterpret(I input) {
     return *output;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Integer intrinsics: what a division by an invariant integer becomes (see
+// include/IR/Expr.h, Intrinsic::clz, mulhi and div_multiplier, and
+// SSA/InvariantDivision.h). Scalars only; the CUDA backend has no gangs.
+////////////////////////////////////////////////////////////////////////////////
+
+// Leading zero bits, and the width for zero.
+template <typename T>
+__forceinline__ __host__ __device__ T clz(const T &v) {
+    static_assert(std::is_integral<T>::value, "clz of a non-integer");
+    typedef typename std::make_unsigned<T>::type U;
+    const int width = std::numeric_limits<U>::digits;
+    if (v == 0) {
+        return T(width);
+    }
+    if (width <= 32) {
+#ifdef __CUDA_ARCH__
+        return T(__clz(int(U(v))) - (32 - width));
+#else
+        return T(__builtin_clz(unsigned(U(v))) - (32 - width));
+#endif
+    }
+#ifdef __CUDA_ARCH__
+    return T(__clzll(long long(U(v))));
+#else
+    return T(__builtin_clzll((unsigned long long)(U(v))));
+#endif
+}
+
+// The top half of the full product.
+template <typename T>
+__forceinline__ __host__ __device__ T mulhi(const T &a, const T &b) {
+    static_assert(std::is_integral<T>::value, "mulhi of a non-integer");
+    const int width = std::numeric_limits<typename std::make_unsigned<T>::type>::digits;
+    if (width <= 32) {
+        typedef typename std::conditional<std::is_signed<T>::value, int64_t,
+                                          uint64_t>::type W;
+        return T((W(a) * W(b)) >> width);
+    }
+    typedef typename std::conditional<std::is_signed<T>::value, __int128,
+                                      unsigned __int128>::type W;
+    return T((W(a) * W(b)) >> width);
+}
+
+// Granlund & Montgomery's multiplier for dividing by `d`: the round-up
+// multiplier for an unsigned d, the signed one for |d| otherwise, as
+// CodeGen_LLVM::division_multiplier computes it. Defined for every d.
+template <typename T>
+__forceinline__ __host__ __device__ T div_multiplier(const T &d) {
+    static_assert(std::is_integral<T>::value, "div_multiplier of a non-integer");
+    typedef typename std::make_unsigned<T>::type U;
+    typedef typename std::conditional<(sizeof(T) > 4), unsigned __int128,
+                                      uint64_t>::type W;
+    const int width = std::numeric_limits<U>::digits;
+    if (std::is_signed<T>::value) {
+        U ad = d < 0 ? U(0) - U(d) : U(d);
+        if (ad == 0) {
+            ad = 1;
+        }
+        int l = width - int(clz(U(ad - 1)));
+        if (l < 1) {
+            l = 1;
+        }
+        const W numerator = W(1) << (width + l - 1);
+        return T(U(numerator / W(ad)) + 1);
+    }
+    U ds = d == 0 ? U(1) : U(d);
+    const int l = width - int(clz(U(ds - 1)));
+    const U two_l = l == width ? U(0) : U(U(1) << l);
+    const W numerator = W(U(two_l - ds)) << width;
+    return T(U(numerator / W(ds)) + 1);
+}
+
 __forceinline__ __host__ void
 cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
     cudaMalloc(device, size);

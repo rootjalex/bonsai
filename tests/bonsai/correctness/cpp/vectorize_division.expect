@@ -1,0 +1,8 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_division.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_division.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_division.o tests/bonsai/correctness/cpp/vectorize_division.o -o tests/bonsai/correctness/cpp/vectorize_division
+[test] ./tests/bonsai/correctness/cpp/vectorize_division
+0 0 63 80378 34675727980433915 18446744060824649727 9223372036854775815 18323287284697205938
+u64 same as scalar
+i64 same as scalar
+u32 same as scalar
+i32 same as scalar

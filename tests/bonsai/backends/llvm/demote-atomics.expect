@@ -8,13 +8,12 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress nofree norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none)
 define void @_parfunc0(ptr nocapture noundef nonnull readonly %ctx0, i64 noundef %_parfor_idx) #0 {
 _parfunc0_entry:
-  %0 = trunc i64 %_parfor_idx to i32
-  %1 = lshr i32 %0, 1
+  %0 = lshr i64 %_parfor_idx, 1
   %ctx0_out = getelementptr inbounds i8, ptr %ctx0, i64 8
   %ctx0_out_ld = load ptr, ptr %ctx0_out, align 8
-  %2 = zext nneg i32 %1 to i64
-  %ctx0_out_ld1 = getelementptr inbounds float, ptr %ctx0_out_ld, i64 %2
-  %3 = atomicrmw fadd ptr %ctx0_out_ld1, float 1.000000e+00 monotonic, align 4
+  %1 = and i64 %0, 2147483647
+  %ctx0_out_ld1 = getelementptr inbounds float, ptr %ctx0_out_ld, i64 %1
+  %2 = atomicrmw fadd ptr %ctx0_out_ld1, float 1.000000e+00 monotonic, align 4
   ret void
 }
 
@@ -23,12 +22,12 @@ define void @_parfunc1(ptr nocapture noundef nonnull readonly %ctx1, i64 noundef
 _parfunc1_entry:
   %ctx1_out = getelementptr inbounds i8, ptr %ctx1, i64 8
   %ctx1_out_ld = load ptr, ptr %ctx1_out, align 8
-  %0 = shl i64 %_parfor_idx, 32
-  %1 = ashr exact i64 %0, 30
-  %ctx1_out_ld1 = getelementptr inbounds i8, ptr %ctx1_out_ld, i64 %1
+  %sext = shl i64 %_parfor_idx, 32
+  %0 = ashr exact i64 %sext, 30
+  %ctx1_out_ld1 = getelementptr inbounds i8, ptr %ctx1_out_ld, i64 %0
   %acc_base = load float, ptr %ctx1_out_ld1, align 4
-  %2 = fadd float %acc_base, 1.000000e+00
-  store float %2, ptr %ctx1_out_ld1, align 4
+  %1 = fadd float %acc_base, 1.000000e+00
+  store float %1, ptr %ctx1_out_ld1, align 4
   ret void
 }
 
@@ -102,8 +101,8 @@ i0_for:                                           ; preds = %i0_for, %i0_for.pre
   %7 = fadd float %6, 1.000000e+00
   %8 = fadd float %7, 1.000000e+00
   %niter.next.7 = add i32 %niter, 8
-  %niter.ncmp.7.not = icmp eq i32 %niter.next.7, %unroll_iter
-  br i1 %niter.ncmp.7.not, label %i0_for_end.loopexit.unr-lcssa, label %i0_for
+  %niter.ncmp.7 = icmp eq i32 %niter.next.7, %unroll_iter
+  br i1 %niter.ncmp.7, label %i0_for_end.loopexit.unr-lcssa, label %i0_for
 
 i0_for_end.loopexit.unr-lcssa:                    ; preds = %i0_for, %i0_for.preheader
   %.lcssa.ph = phi float [ poison, %i0_for.preheader ], [ %8, %i0_for ]

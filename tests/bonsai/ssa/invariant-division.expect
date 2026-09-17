@@ -1,0 +1,157 @@
+func digits(n : u64, b : u64) -> u64 {
+  let @16 = div_multiplier(b) in
+  let @17 = b - 1u in
+  let @18 = clz(@17) in
+  let @19 = 64u - @18 in
+  let @20 = min(@19, 1u) in
+  let @21 = max(@19, 1u) in
+  let @22 = @21 - 1u in
+  v : mut u64
+  v = n
+  r : mut u64
+  r = 0u
+  let @27 = mulhi(@16, 18446744073709551615u) in
+  let @28 = 18446744073709551615u - @27 in
+  let @29 = @28 >> @20 in
+  let @30 = @27 + @29 in
+  let @0 = @30 >> @22 in
+  let limit = @0 - b in
+  while (((*v) != 0u) && ((*r) < limit)) {
+    let @7 = (*v) in
+    let @23 = mulhi(@16, @7) in
+    let @24 = @7 - @23 in
+    let @25 = @24 >> @20 in
+    let @26 = @23 + @25 in
+    let next = @26 >> @22 in
+    let @9 = (*r) in
+    let @10 = @9 * b in
+    let @11 = (*v) in
+    let @12 = next * b in
+    let @13 = @11 - @12 in
+    let @14 = @10 + @13 in
+    r = @14
+    v = next
+  }
+  let @15 = (*r) in
+  return @15
+}
+
+func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
+  v!loop : mut u64x8
+  r!loop : mut u64x8
+  !live : mut boolx8
+  !exit.while_end_2 : mut boolx8
+  !track.while_end_2.0 : mut u64x8
+  next!skip : mut u64x8
+  @14!skip : mut u64x8
+  let @16 = div_multiplier(b) in
+  let @43 = u64x8(1u) in
+  let @17 = b - @43 in
+  let @18 = clz(@17) in
+  let @44 = u64x8(64u) in
+  let @19 = @44 - @18 in
+  let @45 = u64x8(1u) in
+  let @20 = min(@19, @45) in
+  let @46 = u64x8(1u) in
+  let @21 = max(@19, @46) in
+  let @47 = u64x8(1u) in
+  let @22 = @21 - @47 in
+  let @48 = u64x8(18446744073709551615u) in
+  let @27 = mulhi(@16, @48) in
+  let @49 = u64x8(18446744073709551615u) in
+  let @28 = @49 - @27 in
+  let @29 = @28 >> @20 in
+  let @30 = @27 + @29 in
+  let @0 = @30 >> @22 in
+  let limit = @0 - b in
+  let @55 = u64x8(0u) in
+  let @56 = boolx8(true) in
+  let @57 = boolx8(false) in
+  let @58 = u64x8(0u) in
+  v!loop = n
+  r!loop = @55
+  !live = @56
+  !exit.while_end_2 = @57
+  !track.while_end_2.0 = @58
+  while (reduce<any>((*!live))) {
+    let @50 = u64x8(0u) in
+    let @3 = (*v!loop) != @50 in
+    let @5 = (*r!loop) < limit in
+    let @6 = @3 && @5 in
+    let @51 = boolx8(false) in
+    let @52 = boolx8(true) in
+    let @32 = select(@6, @51, @52) in
+    let @33 = (*!live) && @32 in
+    let @34 = (*!live) && @6 in
+    let @42 = reduce<any>(@34) in
+    let @59 = u64x8(0u) in
+    let @60 = u64x8(0u) in
+    if (@42) {
+      let @23 = mulhi(@16, (*v!loop)) in
+      let @24 = (*v!loop) - @23 in
+      let @25 = @24 >> @20 in
+      let @26 = @23 + @25 in
+      let next = @26 >> @22 in
+      let @10 = (*r!loop) * b in
+      let @12 = next * b in
+      let @13 = (*v!loop) - @12 in
+      let @14 = @10 + @13 in
+      next!skip = next
+      @14!skip = @14
+    } else {
+      next!skip = @59
+      @14!skip = @60
+    }
+    let @35 = select(@34, (*next!skip), (*v!loop)) in
+    let @36 = select(@33, (*v!loop), @35) in
+    let @37 = select(@34, (*@14!skip), (*r!loop)) in
+    let @38 = select(@33, (*r!loop), @37) in
+    let @53 = boolx8(false) in
+    let @39 = select(@33, @53, (*!live)) in
+    let @54 = boolx8(true) in
+    let @40 = select(@33, @54, (*!exit.while_end_2)) in
+    let @41 = select(@33, (*r!loop), (*!track.while_end_2.0)) in
+    v!loop = @36
+    r!loop = @38
+    !live = @39
+    !exit.while_end_2 = @40
+    !track.while_end_2.0 = @41
+  }
+  return (*!track.while_end_2.0)
+}
+
+func quarters(n : u64) -> u64 {
+  total : mut u64
+  total = 0u
+  v : mut u64
+  v = n
+  while ((*v) != 0u) {
+    let @2 = (*total) in
+    let @3 = (*v) in
+    let @4 = @3 & 3u in
+    let @5 = @2 + @4 in
+    total = @5
+    let @6 = (*v) in
+    let @7 = @6 / 4u in
+    v = @7
+  }
+  let @8 = (*total) in
+  return @8
+}
+
+func [[export]] run(out : mut u64[8], bases : u64[8]) -> void {
+  let @0 = cast<u64x8>(ramp(0, 1, 8)) in
+  let @6 = u64x8(1000003u) in
+  let @1 = @0 * @6 in
+  let @2 = bases[ramp(0, 1, 8)] in
+  let @3 = digits$gang8_v0_v1(@1, @2) in
+  let i = ramp(0, 1, 8) in
+  out[ramp(0, 1, 8)] = @3
+  return
+}
+
+
+schedule host {
+    run.vectorize(i)
+
+}

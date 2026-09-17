@@ -189,6 +189,7 @@ target_sources(
     src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp
     src/SSA/InsertPreheader.cpp
+    src/SSA/InvariantDivision.cpp
     src/SSA/Linearize.cpp
     src/SSA/SkipInactiveBlocks.cpp
     src/SSA/MergeLatches.cpp
@@ -299,6 +300,7 @@ target_sources(
     include/SSA/Convert.h
     include/SSA/DumpAnalysis.h
     include/SSA/InsertPreheader.h
+    include/SSA/InvariantDivision.h
     include/SSA/Linearize.h
     include/SSA/SkipInactiveBlocks.h
     include/SSA/PromoteAllocas.h

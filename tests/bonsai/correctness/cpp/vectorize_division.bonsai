@@ -1,0 +1,102 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_division
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_division.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_division.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_division.o tests/bonsai/correctness/cpp/vectorize_division.o -o tests/bonsai/correctness/cpp/vectorize_division, ./tests/bonsai/correctness/cpp/vectorize_division, rm tests/bonsai/correctness/cpp/vectorize_division, rm tests/bonsai/correctness/cpp/main_vectorize_division.o, rm tests/bonsai/correctness/cpp/vectorize_division.h, rm tests/bonsai/correctness/cpp/vectorize_division.o
+
+// A gang dividing by a divisor each lane has its own of, in a loop none of
+// them changes it in: the shape of a Halton radical inverse, which peels the
+// digits of an index by dividing by the dimension's prime once per digit, in
+// a gang whose lanes are on different dimensions.
+//
+// A vector unit has no integer divider, so a vectorized division is eight
+// scalar ones with the lanes taken apart and put back around each. Division
+// by an invariant integer (SSA/InvariantDivision.h) computes each lane's
+// multiplier once, before the loop, and divides by a multiply-high inside it
+// -- which for 64-bit lanes is assembled from 32-bit products, since no
+// machine multiplies 64 by 64 to 128 across a vector. The driver compares
+// every lane with the same division done by the C++ compiler, for the four
+// integer widths and signs, on divisors of one, of powers of two, above half
+// the range, and of all ones, and on dividends of every size including zero.
+//
+// Six digits rather than all of them: a divisor of one never brings the
+// index to zero, so the loop has to be counted, not tested.
+func reverse_u64(n : u64, b : u64) -> u64 {
+    v : mut u64 = n;
+    r : mut u64 = 0u;
+    for k in 0:6 {
+        next = v / b;
+        r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func reverse_i64(n : i64, b : i64) -> i64 {
+    v : mut i64 = n;
+    r : mut i64 = 0;
+    for k in 0:6 {
+        next = v / b;
+        r = r * b + v % b;
+        v = next;
+    }
+    return r;
+}
+
+func reverse_u32(n : u32, b : u32) -> u32 {
+    v : mut u32 = n;
+    r : mut u32 = 0u;
+    for k in 0:6 {
+        next = v / b;
+        r = r * b + v % b;
+        v = next;
+    }
+    return r;
+}
+
+func reverse_i32(n : i32, b : i32) -> i32 {
+    v : mut i32 = n;
+    r : mut i32 = 0;
+    for k in 0:6 {
+        next = v / b;
+        r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func [[export]] reverse_all_u64(ns : array[u64, 8], bs : array[u64, 8],
+                                out : mut array[u64, 8]) {
+    parfor i in 0:8 {
+        out[i] = reverse_u64(ns[i], bs[i]);
+    }
+    return;
+}
+
+func [[export]] reverse_all_i64(ns : array[i64, 8], bs : array[i64, 8],
+                                out : mut array[i64, 8]) {
+    parfor i in 0:8 {
+        out[i] = reverse_i64(ns[i], bs[i]);
+    }
+    return;
+}
+
+func [[export]] reverse_all_u32(ns : array[u32, 8], bs : array[u32, 8],
+                                out : mut array[u32, 8]) {
+    parfor i in 0:8 {
+        out[i] = reverse_u32(ns[i], bs[i]);
+    }
+    return;
+}
+
+func [[export]] reverse_all_i32(ns : array[i32, 8], bs : array[i32, 8],
+                                out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = reverse_i32(ns[i], bs[i]);
+    }
+    return;
+}
+
+schedule {
+    reverse_all_u64.vectorize(i);
+    reverse_all_i64.vectorize(i);
+    reverse_all_u32.vectorize(i);
+    reverse_all_i32.vectorize(i);
+}

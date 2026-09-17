@@ -1,0 +1,83 @@
+//! flags: -p ssa -b llvm -e
+
+// Division by an invariant integer using multiplication, run (see
+// SSA/InvariantDivision.h).
+//
+// Each function below divides every entry of a table by one divisor, in a
+// loop the divisor does not change in, so the SSA pipeline replaces the
+// division and the remainder with a multiply-high and shifts by a multiplier
+// it computes once. Every number in the golden was computed independently, by
+// Python's arbitrary-precision integers with C's truncation toward zero, and
+// not by running this: a wrong multiplier gives a quotient off by one for some
+// dividends and not others, which is the kind of answer that looks right.
+//
+// The divisors cover what the method has cases for: one, where the shifts
+// vanish; powers of two, where the multiplier is one; a divisor above 2^63
+// (or 2^31), where 2^l overflows the width; and all ones. The signed tables
+// take both signs on both sides, and the divisor of the most negative value,
+// whose magnitude does not fit the signed type. The dividend of the most
+// negative value is left out of the signed tables, since dividing it by minus
+// one has no answer in two's complement.
+func divide_u64(d : u64) -> void {
+    ns : array[u64, 8] = {0u, 1u, 7u, 1000003u, 4294967295u, 4294967296u,
+                          9223372036854775807u, 18446744073709551615u};
+    for i in 0:8 {
+        print(ns[i] / d);
+        print(ns[i] % d);
+    }
+}
+
+func divide_i64(d : i64) -> void {
+    ns : array[i64, 10] = {0, 1, -1, 7, -7, 1000003, -1000003, 2147483647,
+                           9223372036854775807, -9223372036854775807};
+    for i in 0:10 {
+        print(ns[i] / d);
+        print(ns[i] % d);
+    }
+}
+
+func divide_u32(d : u32) -> void {
+    ns : array[u32, 8] = {0u, 1u, 7u, 65536u, 1000003u, 2147483647u,
+                          2147483648u, 4294967295u};
+    for i in 0:8 {
+        print(ns[i] / d);
+        print(ns[i] % d);
+    }
+}
+
+func divide_i32(d : i32) -> void {
+    ns : array[i32, 10] = {0, 1, -1, 7, -7, 65536, -65536, 1000003,
+                           2147483647, -2147483647};
+    for i in 0:10 {
+        print(ns[i] / d);
+        print(ns[i] % d);
+    }
+}
+
+func main() -> i32 {
+    ds64 : array[u64, 10] = {1u, 2u, 3u, 7u, 10u, 641u, 4294967295u,
+                             4294967297u, 9223372036854775808u,
+                             18446744073709551615u};
+    for k in 0:10 {
+        divide_u64(ds64[k]);
+    }
+
+    es64 : array[i64, 12] = {1, -1, 2, -2, 3, -3, 7, 10, -641, 2147483648,
+                             -4294967296, cast[[i64]](9223372036854775808u)};
+    for k in 0:12 {
+        divide_i64(es64[k]);
+    }
+
+    ds32 : array[u32, 9] = {1u, 2u, 3u, 7u, 10u, 641u, 65537u, 2147483648u,
+                            4294967295u};
+    for k in 0:9 {
+        divide_u32(ds32[k]);
+    }
+
+    es32 : array[i32, 11] = {1, -1, 2, -2, 3, -3, 7, 10, -641, 65537,
+                             -2147483648};
+    for k in 0:11 {
+        divide_i32(es32[k]);
+    }
+    return 0;
+}

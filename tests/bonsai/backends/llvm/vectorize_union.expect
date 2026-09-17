@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 %struct.Blob = type { i8, %union.Blob_payload }
-%union.Blob_payload = type { [2 x <16 x i8>] }
+%union.Blob_payload = type { [2 x i128] }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @__prod_diff_f32(float noundef %a, float noundef %b, float noundef %c, float noundef %d) local_unnamed_addr #0 {
@@ -136,7 +136,7 @@ linear_to_gamma_v_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define %struct.Blob @make_blob(float noundef %v, i32 noundef %i) local_unnamed_addr #0 {
 make_blob_entry:
-  %union_Wide.sroa.2 = alloca <16 x i8>, align 16
+  %union_Wide.sroa.29 = alloca i8, align 16
   %0 = srem i32 %i, 3
   switch i32 %0, label %next_bb3 [
     i32 0, label %then_bb
@@ -145,38 +145,39 @@ make_blob_entry:
 
 common.ret:                                       ; preds = %next_bb3, %then_bb2, %then_bb
   %.pn = phi %struct.Blob [ { i8 0, %union.Blob_payload undef }, %then_bb ], [ { i8 1, %union.Blob_payload undef }, %then_bb2 ], [ { i8 2, %union.Blob_payload undef }, %next_bb3 ]
-  %.pn14 = phi <16 x i8> [ %2, %then_bb ], [ %4, %then_bb2 ], [ %union_Wide.sroa.0.0.vecblend, %next_bb3 ]
-  %.pn12 = phi <16 x i8> [ undef, %then_bb ], [ undef, %then_bb2 ], [ %union_Wide.sroa.2.0.union_Wide.sroa.2.0.union_Wide.sroa.2.0.union_Wide.sroa.2.0.union_Wide.sroa.2.16.union_Wide5.fca.0.1.load, %next_bb3 ]
-  %union_Whole1.fca.0.0.insert.pn = insertvalue %union.Blob_payload poison, <16 x i8> %.pn14, 0, 0
-  %union_Whole1.fca.0.1.insert.pn = insertvalue %union.Blob_payload %union_Whole1.fca.0.0.insert.pn, <16 x i8> %.pn12, 0, 1
+  %union_Whole.sroa.0.0.insert.ext.pn = phi i128 [ %union_Whole.sroa.0.0.insert.ext, %then_bb ], [ %union_Split.sroa.0.0.insert.insert, %then_bb2 ], [ %union_Wide.sroa.0.0.insert.ext, %next_bb3 ]
+  %.pn10 = phi i128 [ undef, %then_bb ], [ undef, %then_bb2 ], [ %union_Wide.sroa.29.16.insert.ext, %next_bb3 ]
+  %union_Whole1.fca.0.0.insert.pn = insertvalue %union.Blob_payload poison, i128 %union_Whole.sroa.0.0.insert.ext.pn, 0, 0
+  %union_Whole1.fca.0.1.insert.pn = insertvalue %union.Blob_payload %union_Whole1.fca.0.0.insert.pn, i128 %.pn10, 0, 1
   %common.ret.op = insertvalue %struct.Blob %.pn, %union.Blob_payload %union_Whole1.fca.0.1.insert.pn, 1
   ret %struct.Blob %common.ret.op
 
 then_bb:                                          ; preds = %make_blob_entry
-  %1 = insertelement <4 x float> <float poison, float undef, float undef, float undef>, float %v, i64 0
-  %2 = bitcast <4 x float> %1 to <16 x i8>
+  %1 = bitcast float %v to i32
+  %union_Whole.sroa.0.0.insert.ext = zext i32 %1 to i128
   br label %common.ret
 
 then_bb2:                                         ; preds = %make_blob_entry
-  %3 = mul i32 %i, 10
-  %union_Split.sroa.0.0.vec.insert = insertelement <4 x i32> <i32 poison, i32 poison, i32 undef, i32 undef>, i32 %i, i64 0
-  %union_Split.sroa.0.4.vec.insert = insertelement <4 x i32> %union_Split.sroa.0.0.vec.insert, i32 %3, i64 1
-  %4 = bitcast <4 x i32> %union_Split.sroa.0.4.vec.insert to <16 x i8>
+  %2 = mul i32 %i, 10
+  %union_Split.sroa.2.0.insert.ext = zext i32 %2 to i128
+  %union_Split.sroa.2.0.insert.shift = shl nuw nsw i128 %union_Split.sroa.2.0.insert.ext, 32
+  %union_Split.sroa.0.0.insert.ext = zext i32 %i to i128
+  %union_Split.sroa.0.0.insert.insert = or disjoint i128 %union_Split.sroa.2.0.insert.shift, %union_Split.sroa.0.0.insert.ext
   br label %common.ret
 
 next_bb3:                                         ; preds = %make_blob_entry
-  %5 = insertelement <2 x float> poison, float %v, i64 0
-  %6 = shufflevector <2 x float> %5, <2 x float> poison, <2 x i32> zeroinitializer
-  %7 = fmul <2 x float> %6, <float 2.000000e+00, float 3.000000e+00>
-  %8 = insertelement <3 x float> poison, float %v, i64 0
-  %9 = shufflevector <2 x float> %7, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
-  %10 = shufflevector <3 x float> %8, <3 x float> %9, <3 x i32> <i32 0, i32 3, i32 4>
-  %11 = fcmp olt float %v, 0.000000e+00
-  %12 = bitcast <3 x float> %10 to <12 x i8>
-  %union_Wide.sroa.0.0.vec.expand = shufflevector <12 x i8> %12, <12 x i8> poison, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 poison, i32 poison, i32 poison, i32 poison>
-  %union_Wide.sroa.0.0.vecblend = shufflevector <16 x i8> %union_Wide.sroa.0.0.vec.expand, <16 x i8> <i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 poison, i8 undef, i8 undef, i8 undef, i8 undef>, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 28, i32 29, i32 30, i32 31>
-  store i1 %11, ptr %union_Wide.sroa.2, align 16
-  %union_Wide.sroa.2.0.union_Wide.sroa.2.0.union_Wide.sroa.2.0.union_Wide.sroa.2.0.union_Wide.sroa.2.16.union_Wide5.fca.0.1.load = load <16 x i8>, ptr %union_Wide.sroa.2, align 16
+  %3 = insertelement <2 x float> poison, float %v, i64 0
+  %4 = shufflevector <2 x float> %3, <2 x float> poison, <2 x i32> zeroinitializer
+  %5 = fmul <2 x float> %4, <float 2.000000e+00, float 3.000000e+00>
+  %6 = insertelement <3 x float> poison, float %v, i64 0
+  %7 = shufflevector <2 x float> %5, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
+  %9 = fcmp olt float %v, 0.000000e+00
+  store i1 %9, ptr %union_Wide.sroa.29, align 16
+  %10 = bitcast <3 x float> %8 to i96
+  %union_Wide.sroa.0.0.insert.ext = zext i96 %10 to i128
+  %union_Wide.sroa.29.0.union_Wide.sroa.29.0.union_Wide.sroa.29.0.union_Wide.sroa.29.0.union_Wide.sroa.29.16.union_Wide5.fca.0.1.load = load i8, ptr %union_Wide.sroa.29, align 16
+  %union_Wide.sroa.29.16.insert.ext = zext i8 %union_Wide.sroa.29.0.union_Wide.sroa.29.0.union_Wide.sroa.29.0.union_Wide.sroa.29.0.union_Wide.sroa.29.16.union_Wide5.fca.0.1.load to i128
   br label %common.ret
 }
 
@@ -343,36 +344,36 @@ weigh_entry:
   ]
 
 common.ret:                                       ; preds = %case1_bb, %case0_bb, %default_bb
-  %common.ret.op = phi float [ %8, %default_bb ], [ %10, %case0_bb ], [ %14, %case1_bb ]
+  %common.ret.op = phi float [ %9, %default_bb ], [ %11, %case0_bb ], [ %13, %case1_bb ]
   ret float %common.ret.op
 
 default_bb:                                       ; preds = %weigh_entry
+  %value_ptrto4.sroa.0.0.extract.trunc = trunc i128 %b.payload3.fca.0.0.extract to i96
+  %0 = bitcast i96 %value_ptrto4.sroa.0.0.extract.trunc to <3 x float>
   %b.payload3.fca.0.1.extract = extractvalue %union.Blob_payload %b.payload3, 0, 1
-  %0 = bitcast <16 x i8> %b.payload3.fca.0.0.extract to <4 x float>
-  %1 = shufflevector <4 x float> %0, <4 x float> poison, <3 x i32> <i32 0, i32 poison, i32 poison>
-  %2 = bitcast <16 x i8> %b.payload3.fca.0.1.extract to <128 x i1>
-  %3 = extractelement <128 x i1> %2, i64 0
-  %shift = shufflevector <4 x float> %0, <4 x float> poison, <3 x i32> <i32 1, i32 poison, i32 poison>
-  %4 = fadd <3 x float> %1, %shift
-  %shift7 = shufflevector <4 x float> %0, <4 x float> poison, <3 x i32> <i32 2, i32 poison, i32 poison>
-  %5 = fadd <3 x float> %shift7, %4
-  %6 = extractelement <3 x float> %5, i64 0
-  %7 = fsub float 0.000000e+00, %6
-  %8 = select i1 %3, float %7, float %6
+  %1 = trunc i128 %b.payload3.fca.0.1.extract to i1
+  %2 = trunc i128 %b.payload3.fca.0.0.extract to i32
+  %3 = bitcast i32 %2 to float
+  %4 = extractelement <3 x float> %0, i64 1
+  %5 = fadd float %4, %3
+  %6 = extractelement <3 x float> %0, i64 2
+  %7 = fadd float %6, %5
+  %8 = fsub float 0.000000e+00, %7
+  %9 = select i1 %1, float %8, float %7
   br label %common.ret
 
 case0_bb:                                         ; preds = %weigh_entry
-  %bc = bitcast <16 x i8> %b.payload3.fca.0.0.extract to <4 x float>
-  %9 = extractelement <4 x float> %bc, i64 0
-  %10 = fmul float %9, 2.000000e+00
+  %value_ptrto.sroa.0.0.extract.trunc = trunc i128 %b.payload3.fca.0.0.extract to i32
+  %10 = bitcast i32 %value_ptrto.sroa.0.0.extract.trunc to float
+  %11 = fmul float %10, 2.000000e+00
   br label %common.ret
 
 case1_bb:                                         ; preds = %weigh_entry
-  %11 = bitcast <16 x i8> %b.payload3.fca.0.0.extract to <4 x i32>
-  %shift8 = shufflevector <4 x i32> %11, <4 x i32> poison, <4 x i32> <i32 1, i32 poison, i32 poison, i32 poison>
-  %12 = add <4 x i32> %shift8, %11
-  %13 = extractelement <4 x i32> %12, i64 0
-  %14 = sitofp i32 %13 to float
+  %value_ptrto2.sroa.0.0.extract.trunc = trunc i128 %b.payload3.fca.0.0.extract to i32
+  %value_ptrto2.sroa.2.0.extract.shift = lshr i128 %b.payload3.fca.0.0.extract, 32
+  %value_ptrto2.sroa.2.0.extract.trunc = trunc i128 %value_ptrto2.sroa.2.0.extract.shift to i32
+  %12 = add i32 %value_ptrto2.sroa.2.0.extract.trunc, %value_ptrto2.sroa.0.0.extract.trunc
+  %13 = sitofp i32 %12 to float
   br label %common.ret
 }
 

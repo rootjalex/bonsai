@@ -3,6 +3,7 @@
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
 #include "SSA/DemoteAtomics.h"
+#include "SSA/InvariantDivision.h"
 #include "SSA/Rewrite.h"
 #include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
@@ -1592,6 +1593,18 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 loopify(fmap, name, size);
             }
         }
+    }
+
+    // Once every loop is a loop and before any is vectorized: a division by
+    // a value that does not change while its loop runs becomes a multiply,
+    // with the multiplier computed where the divisor is (see
+    // SSA/InvariantDivision.h). After loopify because a recursion's
+    // unchanging argument is a loop-invariant only once the recursion is a
+    // loop; before vectorize because what this leaves needs none of the
+    // guarding a vectorized division does, and the vectorizer widens the
+    // multiply like any other arithmetic.
+    for (const auto &[name, f] : fmap) {
+        divide_by_invariants(*f);
     }
 
     for (const auto &[name, ts] : transforms) {

@@ -20,6 +20,7 @@ add_bonsai_tests(
     libm-call.bonsai
     map-func.bonsai
     max-min.bonsai
+    mulhi.bonsai
     mut-array-literal.bonsai
     mut-element-field-argument.bonsai
     mut-basic.bonsai

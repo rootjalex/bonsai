@@ -325,6 +325,17 @@ struct CodeGen_LLVM : public ir::Visitor {
     void check_union_words(const ir::Union_t &as_union,
                            const ir::Struct_t &words);
 
+    // The high N bits of the 2N-bit product of two N-bit integers (the mulhi
+    // intrinsic), signed or unsigned as `is_signed` says, for a scalar or a
+    // vector of them.
+    llvm::Value *multiply_high(llvm::Value *a, llvm::Value *b, bool is_signed,
+                               const std::string &name);
+    // The multiplier a division by `d` becomes a multiply-high by (the
+    // div_multiplier intrinsic; see SSA/InvariantDivision.h), for a scalar
+    // or a vector of divisors. Defined for every `d`, zero included.
+    llvm::Value *division_multiplier(llvm::Value *d, bool is_signed,
+                                     const std::string &name);
+
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).
     llvm::Value *element_addresses(llvm::Type *element, llvm::Value *base,

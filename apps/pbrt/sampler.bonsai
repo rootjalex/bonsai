@@ -148,12 +148,15 @@ func [[export]] build_digit_permutations(seed : i32, offsets : array[i32],
     }
 }
 
-// pbrt: DigitPermutation::Permute, which is a load and an index.
-func permuted_digit(base_index : i32, base : i32, digit_index : i32,
+// pbrt: DigitPermutation::Permute, which is a load and an index. `offset` is
+// where this base's permutation starts in the table -- pbrt's
+// `DigitPermutation` object, which its caller looked up once for the base
+// and hands to every digit; looking it up here, per digit, was a gather the
+// digit loop could not hoist, since a lane that is off may index anything.
+func permuted_digit(offset : i32, base : i32, digit_index : i32,
                     digit_value : i32) -> i32 {
     return cast[[i32]](
-        digit_permutations[digit_permutation_offsets[base_index] +
-                           digit_index * base + digit_value]);
+        digit_permutations[offset + digit_index * base + digit_value]);
 }
 
 // pbrt: ScrambledRadicalInverse, the default randomization.
@@ -169,6 +172,9 @@ func permuted_digit(base_index : i32, base : i32, digit_index : i32,
 // digit indices here line up with the ones it stored.
 func scrambled_radical_inverse(base_index : i32, a : u64) -> Float {
     base = primes[base_index];
+    // pbrt: `(*digitPermutations)[dimension]`, the permutation for this
+    // base, found once (see permuted_digit).
+    offset = digit_permutation_offsets[base_index];
     b : u64 = cast[[u64]](base);
     limit = 0xffffffffffffffff / b - b;
     inv_base = 1.0 / cast[[Float]](base);
@@ -180,7 +186,7 @@ func scrambled_radical_inverse(base_index : i32, a : u64) -> Float {
           (reversed < limit) {
         next = v / b;
         digit_value = cast[[i32]](v - next * b);
-        permuted = permuted_digit(base_index, base, digit_index, digit_value);
+        permuted = permuted_digit(offset, base, digit_index, digit_value);
         reversed = reversed * b + cast[[u64]](permuted);
         inv_base_m = inv_base_m * inv_base;
         digit_index = digit_index + 1;

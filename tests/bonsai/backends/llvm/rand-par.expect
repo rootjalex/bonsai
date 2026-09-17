@@ -34,8 +34,9 @@ _parfunc0_entry:
   %19 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %9)
   %ctx0__alloc0 = getelementptr inbounds i8, ptr %ctx0, i64 8
   %ctx0__alloc0_ld = load ptr, ptr %ctx0__alloc0, align 8
-  %20 = sext i32 %0 to i64
-  %ctx0__alloc0_ld1 = getelementptr inbounds float, ptr %ctx0__alloc0_ld, i64 %20
+  %sext = shl i64 %_parfor_idx, 32
+  %20 = ashr exact i64 %sext, 30
+  %ctx0__alloc0_ld1 = getelementptr inbounds i8, ptr %ctx0__alloc0_ld, i64 %20
   store float %19, ptr %ctx0__alloc0_ld1, align 4, !tbaa !0
   ret void
 }

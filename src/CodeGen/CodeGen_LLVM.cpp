@@ -61,12 +61,17 @@ void to_llvm(const ir::Program &program, const CompilerOptions &options) {
     CodeGen_LLVM codegen;
     std::unique_ptr<llvm::Module> module =
         codegen.compile_program(program, options);
+    // Without the triple and data layout the module was generated against,
+    // so that the same program prints the same on every machine (see
+    // make_target_machine). A test that pins `--triple` gets the same code
+    // either way; one that follows the host would otherwise print the
+    // host's.
     if (options.output_file.empty()) {
-        module->print(llvm::outs(), /*AAW=*/nullptr);
+        codegen.print_module(*module, llvm::outs(), /*redacted=*/true);
         return;
     }
     auto os = make_raw_fd_ostream(options.output_file);
-    module->print(*os, /*AAW=*/nullptr);
+    codegen.print_module(*module, *os, /*redacted=*/true);
 }
 } // namespace codegen
 namespace {
@@ -186,20 +191,19 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         use_large_code_model ? llvm::CodeModel::Large : llvm::CodeModel::Small,
         llvm::CodeGenOptLevel::Aggressive);
 
-    switch (options.target) {
-    case BackendTarget::ASM:
-    case BackendTarget::CPP: {
-        // These two backends *require* a data layout.
-        module.setDataLayout(tm->createDataLayout());
-        module.setTargetTriple(target_triple);
-        break;
-    }
-    default:
-        // TODO(cgyurgyik): should all backends using LLVM be machine specific?
-        // Pros: we see the actual code being generated. Cons: our tests either
-        // become host-machine specific or are defaulted to a specific machine.
-        break;
-    }
+    // Every backend, not only the two that emit machine code. Generating the
+    // module reads the layout back -- a struct's field offsets for a gather,
+    // how many words a union is (check_union_words), what a store needs
+    // aligned to -- and without one LLVM answers from its default layout,
+    // which aligns a 64-bit integer to four bytes where x86-64 aligns it to
+    // eight. The LLVM and JIT backends generated their code against that
+    // layout and then ran or printed it for this machine, which put a union
+    // holding an i64 after an i32 at 20 bytes in one place and 24 in the
+    // other. What keeps the printed IR the same on every machine is printing
+    // it without the layout (see print_module and to_llvm), not generating it
+    // without one.
+    module.setDataLayout(tm->createDataLayout());
+    module.setTargetTriple(target_triple);
     return std::unique_ptr<llvm::TargetMachine>(tm);
 }
 
@@ -2563,6 +2567,154 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
                                        name);
 }
 
+llvm::Value *CodeGen_LLVM::multiply_high(llvm::Value *a, llvm::Value *b,
+                                         bool is_signed,
+                                         const std::string &name) {
+    llvm::Type *t = a->getType();
+    internal_assert(t == b->getType()) << "mulhi of two different types";
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t);
+    const unsigned bits = t->getScalarType()->getIntegerBitWidth();
+
+    if (bits < 64 || vt == nullptr) {
+        // Widen, multiply, keep the top half. On x86 the scalar 64-bit form
+        // is the one-instruction widening multiply (mul or imul r64) and the
+        // 32-bit vector form is vpmuludq or vpmuldq, which LLVM recognises
+        // from exactly this shape.
+        llvm::Type *wide_scalar = llvm::Type::getIntNTy(*context, 2 * bits);
+        llvm::Type *wide =
+            vt ? static_cast<llvm::Type *>(
+                     llvm::FixedVectorType::get(wide_scalar, vt->getNumElements()))
+               : wide_scalar;
+        llvm::Value *wa = is_signed ? builder->CreateSExt(a, wide)
+                                    : builder->CreateZExt(a, wide);
+        llvm::Value *wb = is_signed ? builder->CreateSExt(b, wide)
+                                    : builder->CreateZExt(b, wide);
+        llvm::Value *product = builder->CreateMul(wa, wb, name + "_wide");
+        llvm::Value *high = builder->CreateLShr(
+            product, llvm::ConstantInt::get(wide, bits), name + "_high");
+        return builder->CreateTrunc(high, t, name);
+    }
+
+    // A vector of 64-bit lanes. No vector instruction multiplies 64 by 64
+    // to 128, and LLVM scalarizes a vector of i128 products into eight
+    // scalar ones with the extracts and inserts around them, so the high
+    // half is assembled here from the 32-by-32-to-64 products the machine
+    // does have (vpmuludq), the way a long multiplication is done by hand:
+    // with a = ah*2^32 + al and b = bh*2^32 + bl, the top 64 bits of a*b
+    // are ah*bh plus the carries out of the two cross terms and the low
+    // product. Each partial sum below fits in 64 bits.
+    llvm::Constant *mask32 = llvm::ConstantInt::get(t, 0xffffffffULL);
+    llvm::Constant *c32 = llvm::ConstantInt::get(t, 32);
+    llvm::Value *al = builder->CreateAnd(a, mask32, name + "_al");
+    llvm::Value *ah = builder->CreateLShr(a, c32, name + "_ah");
+    llvm::Value *bl = builder->CreateAnd(b, mask32, name + "_bl");
+    llvm::Value *bh = builder->CreateLShr(b, c32, name + "_bh");
+    llvm::Value *ll = builder->CreateMul(al, bl, name + "_ll");
+    llvm::Value *hl = builder->CreateMul(ah, bl, name + "_hl");
+    llvm::Value *lh = builder->CreateMul(al, bh, name + "_lh");
+    llvm::Value *hh = builder->CreateMul(ah, bh, name + "_hh");
+    llvm::Value *mid = builder->CreateAdd(
+        builder->CreateAdd(builder->CreateLShr(ll, c32),
+                           builder->CreateAnd(hl, mask32)),
+        builder->CreateAnd(lh, mask32), name + "_mid");
+    llvm::Value *high = builder->CreateAdd(
+        builder->CreateAdd(hh, builder->CreateLShr(hl, c32)),
+        builder->CreateAdd(builder->CreateLShr(lh, c32),
+                           builder->CreateLShr(mid, c32)),
+        is_signed ? name + "_unsigned" : name);
+    if (!is_signed) {
+        return high;
+    }
+    // The signed high half from the unsigned one: a negative a stands for
+    // a - 2^64, whose product with b is a*b - b*2^64, so the high word loses
+    // b; likewise a for a negative b.
+    llvm::Constant *c63 = llvm::ConstantInt::get(t, 63);
+    llvm::Value *sa = builder->CreateAShr(a, c63, name + "_sa");
+    llvm::Value *sb = builder->CreateAShr(b, c63, name + "_sb");
+    high = builder->CreateSub(high, builder->CreateAnd(sa, b));
+    return builder->CreateSub(high, builder->CreateAnd(sb, a), name);
+}
+
+llvm::Value *CodeGen_LLVM::division_multiplier(llvm::Value *d, bool is_signed,
+                                               const std::string &name) {
+    llvm::Type *t = d->getType();
+    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t)) {
+        // One wide division per lane: what it costs is the division, and no
+        // machine has a vector one, so the lanes are taken apart here
+        // rather than by LLVM's legalization of a vector of i128.
+        llvm::Value *result = llvm::PoisonValue::get(t);
+        for (unsigned i = 0; i < vt->getNumElements(); i++) {
+            llvm::Value *lane = builder->CreateExtractElement(d, i);
+            lane = division_multiplier(lane, is_signed,
+                                       name + "_" + std::to_string(i));
+            result = builder->CreateInsertElement(result, lane, i);
+        }
+        return result;
+    }
+
+    const unsigned bits = t->getIntegerBitWidth();
+    llvm::Type *wide = llvm::Type::getIntNTy(*context, 2 * bits);
+    llvm::Constant *zero = llvm::ConstantInt::get(t, 0);
+    llvm::Constant *one = llvm::ConstantInt::get(t, 1);
+    llvm::Constant *width = llvm::ConstantInt::get(t, bits);
+    llvm::Constant *ctlz_zero_is_defined = llvm::ConstantInt::get(i1_t, 0);
+    // What is divided by below. A zero divisor divides by one instead: the
+    // multiplier for a zero is never used -- the program's own division by
+    // it would have trapped -- but this is computed where the divisor is
+    // defined, for lanes that never divide too (see ir::Intrinsic).
+    auto safe = [&](llvm::Value *v) {
+        return builder->CreateSelect(builder->CreateICmpEQ(v, zero), one, v,
+                                     name + "_safe");
+    };
+
+    if (!is_signed) {
+        // Granlund & Montgomery's round-up method: with l = ceil(log2 d),
+        // m' = floor(2^N (2^l - d) / d) + 1, which fits N bits since
+        // 2^l - d < d. The quotient then is (mulhi(m', n) + (n - mulhi(m',
+        // n)) / 2) >> (l - 1), and the caller special-cases d = 1.
+        llvm::Value *ds = safe(d);
+        llvm::Value *clz = builder->CreateIntrinsic(
+            t, llvm::Intrinsic::ctlz,
+            {builder->CreateSub(ds, one), ctlz_zero_is_defined});
+        llvm::Value *l = builder->CreateSub(width, clz, name + "_l");
+        // 2^l as an N-bit number, which for l = N is zero -- and a shift by
+        // the width is poison, so that case is taken as the zero it is.
+        llvm::Value *two_l = builder->CreateSelect(
+            builder->CreateICmpEQ(l, width), zero, builder->CreateShl(one, l));
+        llvm::Value *numerator_high =
+            builder->CreateSub(two_l, ds, name + "_num");
+        llvm::Value *numerator = builder->CreateShl(
+            builder->CreateZExt(numerator_high, wide),
+            llvm::ConstantInt::get(wide, bits));
+        llvm::Value *quotient =
+            builder->CreateUDiv(numerator, builder->CreateZExt(ds, wide));
+        return builder->CreateAdd(builder->CreateTrunc(quotient, t), one, name);
+    }
+
+    // The signed multiplier (Granlund & Montgomery section 5; Hacker's
+    // Delight, "magic"): for |d| with l = max(ceil(log2 |d|), 1), m =
+    // floor(2^(N+l-1) / |d|) + 1 - 2^N, taken modulo 2^N. The caller adds n
+    // to the multiply-high, shifts by l - 1, corrects the sign and negates
+    // for a negative d.
+    llvm::Value *negative = builder->CreateICmpSLT(d, zero);
+    llvm::Value *ad = builder->CreateSelect(negative, builder->CreateNeg(d), d,
+                                            name + "_abs");
+    llvm::Value *ads = safe(ad);
+    llvm::Value *clz = builder->CreateIntrinsic(
+        t, llvm::Intrinsic::ctlz,
+        {builder->CreateSub(ads, one), ctlz_zero_is_defined});
+    llvm::Value *l = builder->CreateSelect(
+        builder->CreateICmpEQ(clz, width), one, builder->CreateSub(width, clz),
+        name + "_l");
+    llvm::Value *shift = builder->CreateAdd(
+        builder->CreateZExt(l, wide), llvm::ConstantInt::get(wide, bits - 1));
+    llvm::Value *numerator =
+        builder->CreateShl(llvm::ConstantInt::get(wide, 1), shift);
+    llvm::Value *quotient =
+        builder->CreateUDiv(numerator, builder->CreateZExt(ads, wide));
+    return builder->CreateAdd(builder->CreateTrunc(quotient, t), one, name);
+}
+
 void CodeGen_LLVM::visit(const Intrinsic *node) {
     llvm::Intrinsic::IndependentIntrinsics intrin;
     // llvm.abs for integers requires passing a constant `false` to it.
@@ -2573,6 +2725,26 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
                                                  : llvm::Intrinsic::abs;
         add_false_arg = node->args[0].type().is_int();
         break;
+    }
+    case Intrinsic::clz: {
+        // llvm.ctlz's second argument says whether a zero is poison. It is
+        // not: clz of zero is the width, as the intrinsic is defined.
+        intrin = llvm::Intrinsic::ctlz;
+        add_false_arg = true;
+        break;
+    }
+    case Intrinsic::mulhi: {
+        internal_assert(node->args.size() == 2);
+        llvm::Value *a = codegen_expr(node->args[0]);
+        llvm::Value *b = codegen_expr(node->args[1]);
+        value = multiply_high(a, b, node->type.is_int(), "mulhi");
+        return;
+    }
+    case Intrinsic::div_multiplier: {
+        internal_assert(node->args.size() == 1);
+        llvm::Value *d = codegen_expr(node->args[0]);
+        value = division_multiplier(d, node->type.is_int(), "div_multiplier");
+        return;
     }
     case Intrinsic::acos: {
         // An intrinsic since LLVM 19, along with asin and atan: on a scalar

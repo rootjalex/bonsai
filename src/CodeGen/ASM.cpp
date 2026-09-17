@@ -49,6 +49,11 @@ void emit_file(const std::string &filename,
     // https://lists.llvm.org/pipermail/llvm-dev/2021-April/150100.html
     // https://releases.llvm.org/13.0.0/docs/ReleaseNotes.html#changes-to-the-llvm-ir
     // https://groups.google.com/g/llvm-dev/c/HoS07gXx0p8
+    // The stream is declared before the pass manager so that it outlives it:
+    // the printer the pass manager owns wraps the stream and flushes into it
+    // when it is destroyed, which with the stream already gone was a write
+    // through a dangling pointer after every byte of assembly was out.
+    std::unique_ptr<llvm::raw_fd_ostream> os;
     llvm::legacy::PassManager pass_manager;
 
     pass_manager.add(new llvm::TargetLibraryInfoWrapperPass(library_info));
@@ -63,9 +68,12 @@ void emit_file(const std::string &filename,
     // Override default to generate verbose assembly.
     target_machine->Options.MCOptions.AsmVerbose = true;
 
-    // Ask the target to add backend passes as necessary.
+    // Ask the target to add backend passes as necessary. The stream has to
+    // outlive the run below, which is what writes to it: scoped to the
+    // branch that opened it, it was destroyed before the first byte of
+    // assembly was written into it.
     if (!filename.empty()) {
-        auto os = make_raw_fd_ostream(filename);
+        os = make_raw_fd_ostream(filename);
         target_machine->addPassesToEmitFile(pass_manager, *os, nullptr,
                                             file_type);
     } else {

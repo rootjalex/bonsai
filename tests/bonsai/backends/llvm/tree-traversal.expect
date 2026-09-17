@@ -109,7 +109,7 @@ while.body.i.lr.ph:                               ; preds = %after_bb72.i, %_i00
 
 while.body.i:                                     ; preds = %then_bb47.i, %while.body.i.lr.ph
   %"triangles_index!top.0.i32" = phi i32 [ %"triangles_index!top.0.i.ph42", %while.body.i.lr.ph ], [ %37, %then_bb47.i ]
-  %"!count.0.i31" = phi i32 [ %"!count.0.i.ph41", %while.body.i.lr.ph ], [ %40, %then_bb47.i ]
+  %"!count.0.i31" = phi i32 [ %"!count.0.i.ph41", %while.body.i.lr.ph ], [ %41, %then_bb47.i ]
   %4 = sext i32 %"triangles_index!top.0.i32" to i64
   %extract_ptr.i = getelementptr inbounds %struct._tree_layout1, ptr %triangles.group0_index.i, i64 %4
   %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
@@ -122,7 +122,7 @@ while.body.i:                                     ; preds = %then_bb47.i, %while
   %extract.unpack113.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 20
   %6 = load <2 x float>, ptr %extract.unpack113.elt122.i, align 1
   %extract.elt114.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 28
-  %7 = load i32, ptr %extract.elt114.i, align 1
+  %7 = load <4 x i8>, ptr %extract.elt114.i, align 1
   %8 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
   %9 = shufflevector <2 x float> %5, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %10 = shufflevector <3 x float> %8, <3 x float> %9, <3 x i32> <i32 0, i32 3, i32 4>
@@ -181,42 +181,45 @@ then_bb44.i:                                      ; preds = %then_bb30.i
 
 then_bb47.i:                                      ; preds = %then_bb44.i
   %37 = add i32 %"triangles_index!top.0.i32", 1
-  %38 = add i32 %"triangles_index!top.0.i32", %7
-  %39 = sext i32 %"!count.0.i31" to i64
-  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %39
-  store i32 %38, ptr %"!stack52.i", align 4, !tbaa !1
-  %40 = add i32 %"!count.0.i31", 1
+  %38 = bitcast <4 x i8> %7 to i32
+  %39 = add i32 %"triangles_index!top.0.i32", %38
+  %40 = sext i32 %"!count.0.i31" to i64
+  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %40
+  store i32 %39, ptr %"!stack52.i", align 4, !tbaa !1
+  %41 = add i32 %"!count.0.i31", 1
   br label %while.body.i
 
 next_bb48.i:                                      ; preds = %then_bb44.i
-  %41 = zext i16 %extract.unpack107.i to i32
+  %42 = bitcast <4 x i8> %7 to i32
+  %wide.trip.count = zext i16 %extract.unpack107.i to i64
   br label %while.body54.i
 
 while.body54.i:                                   ; preds = %next_bb48.i, %after_bb61.i
-  %_idx0.0.i38 = phi i32 [ 0, %next_bb48.i ], [ %46, %after_bb61.i ]
+  %indvars.iv = phi i64 [ 0, %next_bb48.i ], [ %indvars.iv.next, %after_bb61.i ]
   %"_best0$i27.sroa.0.237" = phi float [ %"_best0$i27.sroa.0.0.ph40", %next_bb48.i ], [ %"_best0$i27.sroa.0.3", %after_bb61.i ]
   %"_best0$i27.sroa.5.236" = phi i32 [ %"_best0$i27.sroa.5.0.ph39", %next_bb48.i ], [ %"_best0$i27.sroa.5.3", %after_bb61.i ]
-  %42 = add i32 %_idx0.0.i38, %7
-  %43 = sext i32 %42 to i64
-  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %43
+  %43 = trunc nuw nsw i64 %indvars.iv to i32
+  %44 = add i32 %43, %42
+  %45 = sext i32 %44 to i64
+  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %45
   %extract60.unpack.i = load <3 x float>, ptr %extract_ptr59.i, align 16
-  %44 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
+  %46 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
   %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 16
   %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
-  %45 = insertvalue %struct.Triangle %44, <3 x float> %extract60.unpack139.i, 1
+  %47 = insertvalue %struct.Triangle %46, <3 x float> %extract60.unpack139.i, 1
   %extract60.elt140.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 32
   %extract60.unpack141.i = load <3 x float>, ptr %extract60.elt140.i, align 16
-  %extract60142.i = insertvalue %struct.Triangle %45, <3 x float> %extract60.unpack141.i, 2
+  %extract60142.i = insertvalue %struct.Triangle %47, <3 x float> %extract60.unpack141.i, 2
   call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %extract, %struct.Triangle %extract60142.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
   br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
 after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i
-  %"_best0$i27.sroa.5.3" = phi i32 [ %42, %then_bb67.i ], [ %"_best0$i27.sroa.5.236", %then_bb62.i ], [ %"_best0$i27.sroa.5.236", %while.body54.i ]
+  %"_best0$i27.sroa.5.3" = phi i32 [ %44, %then_bb67.i ], [ %"_best0$i27.sroa.5.236", %then_bb62.i ], [ %"_best0$i27.sroa.5.236", %while.body54.i ]
   %"_best0$i27.sroa.0.3" = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %"_best0$i27.sroa.0.237", %then_bb62.i ], [ %"_best0$i27.sroa.0.237", %while.body54.i ]
-  %46 = add nuw nsw i32 %_idx0.0.i38, 1
-  %47 = icmp ult i32 %46, %41
-  br i1 %47, label %while.body54.i, label %after_bb34.i
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %after_bb34.i, label %while.body54.i
 
 then_bb62.i:                                      ; preds = %while.body54.i
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
@@ -253,8 +256,8 @@ after_bb:                                         ; preds = %_recloop_func0.exit
   %_alloc0 = getelementptr inbounds %struct._option0, ptr %_alloc0_untyped, i64 %1
   store %struct._option0 %deref_temp4.fca.1.insert, ptr %_alloc0, align 16
   %52 = add nuw i32 %0, 1
-  %.not15 = icmp ult i32 %52, %n
-  br i1 %.not15, label %_i00_for, label %_i00_for_end
+  %exitcond54.not = icmp eq i32 %52, %n
+  br i1 %exitcond54.not, label %_i00_for_end, label %_i00_for
 
 then_bb:                                          ; preds = %_recloop_func0.exit
   %53 = sext i32 %"_best0$i27.sroa.5.1" to i64
@@ -294,7 +297,7 @@ while.body.i.lr.ph:                               ; preds = %after_bb72.i, %_tra
 
 while.body.i:                                     ; preds = %then_bb47.i, %while.body.i.lr.ph
   %"triangles_index!top.0.i28" = phi i32 [ %"triangles_index!top.0.i.ph38", %while.body.i.lr.ph ], [ %35, %then_bb47.i ]
-  %"!count.0.i27" = phi i32 [ %"!count.0.i.ph37", %while.body.i.lr.ph ], [ %38, %then_bb47.i ]
+  %"!count.0.i27" = phi i32 [ %"!count.0.i.ph37", %while.body.i.lr.ph ], [ %39, %then_bb47.i ]
   %2 = sext i32 %"triangles_index!top.0.i28" to i64
   %extract_ptr.i = getelementptr inbounds %struct._tree_layout1, ptr %triangles.group0_index.i, i64 %2
   %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
@@ -307,7 +310,7 @@ while.body.i:                                     ; preds = %then_bb47.i, %while
   %extract.unpack113.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 20
   %4 = load <2 x float>, ptr %extract.unpack113.elt122.i, align 1
   %extract.elt114.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 28
-  %5 = load i32, ptr %extract.elt114.i, align 1
+  %5 = load <4 x i8>, ptr %extract.elt114.i, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
@@ -366,42 +369,45 @@ then_bb44.i:                                      ; preds = %then_bb30.i
 
 then_bb47.i:                                      ; preds = %then_bb44.i
   %35 = add i32 %"triangles_index!top.0.i28", 1
-  %36 = add i32 %"triangles_index!top.0.i28", %5
-  %37 = sext i32 %"!count.0.i27" to i64
-  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %37
-  store i32 %36, ptr %"!stack52.i", align 4, !tbaa !1
-  %38 = add i32 %"!count.0.i27", 1
+  %36 = bitcast <4 x i8> %5 to i32
+  %37 = add i32 %"triangles_index!top.0.i28", %36
+  %38 = sext i32 %"!count.0.i27" to i64
+  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %38
+  store i32 %37, ptr %"!stack52.i", align 4, !tbaa !1
+  %39 = add i32 %"!count.0.i27", 1
   br label %while.body.i
 
 next_bb48.i:                                      ; preds = %then_bb44.i
-  %39 = zext i16 %extract.unpack107.i to i32
+  %40 = bitcast <4 x i8> %5 to i32
+  %wide.trip.count = zext i16 %extract.unpack107.i to i64
   br label %while.body54.i
 
 while.body54.i:                                   ; preds = %next_bb48.i, %after_bb61.i
-  %_idx0.0.i34 = phi i32 [ 0, %next_bb48.i ], [ %44, %after_bb61.i ]
+  %indvars.iv = phi i64 [ 0, %next_bb48.i ], [ %indvars.iv.next, %after_bb61.i ]
   %_best0.sroa.0.233 = phi float [ %_best0.sroa.0.0.ph36, %next_bb48.i ], [ %_best0.sroa.0.3, %after_bb61.i ]
   %_best0.sroa.5.232 = phi i32 [ %_best0.sroa.5.0.ph35, %next_bb48.i ], [ %_best0.sroa.5.3, %after_bb61.i ]
-  %40 = add i32 %_idx0.0.i34, %5
-  %41 = sext i32 %40 to i64
-  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %41
+  %41 = trunc nuw nsw i64 %indvars.iv to i32
+  %42 = add i32 %41, %40
+  %43 = sext i32 %42 to i64
+  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %43
   %extract60.unpack.i = load <3 x float>, ptr %extract_ptr59.i, align 16
-  %42 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
+  %44 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
   %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 16
   %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
-  %43 = insertvalue %struct.Triangle %42, <3 x float> %extract60.unpack139.i, 1
+  %45 = insertvalue %struct.Triangle %44, <3 x float> %extract60.unpack139.i, 1
   %extract60.elt140.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 32
   %extract60.unpack141.i = load <3 x float>, ptr %extract60.elt140.i, align 16
-  %extract60142.i = insertvalue %struct.Triangle %43, <3 x float> %extract60.unpack141.i, 2
+  %extract60142.i = insertvalue %struct.Triangle %45, <3 x float> %extract60.unpack141.i, 2
   call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract60142.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
   br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
 after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i
-  %_best0.sroa.5.3 = phi i32 [ %40, %then_bb67.i ], [ %_best0.sroa.5.232, %then_bb62.i ], [ %_best0.sroa.5.232, %while.body54.i ]
+  %_best0.sroa.5.3 = phi i32 [ %42, %then_bb67.i ], [ %_best0.sroa.5.232, %then_bb62.i ], [ %_best0.sroa.5.232, %while.body54.i ]
   %_best0.sroa.0.3 = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %_best0.sroa.0.233, %then_bb62.i ], [ %_best0.sroa.0.233, %while.body54.i ]
-  %44 = add nuw nsw i32 %_idx0.0.i34, 1
-  %45 = icmp ult i32 %44, %39
-  br i1 %45, label %while.body54.i, label %after_bb34.i
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %after_bb34.i, label %while.body54.i
 
 then_bb62.i:                                      ; preds = %while.body54.i
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
@@ -473,7 +479,7 @@ while.body.i.lr.ph:                               ; preds = %after_bb72.i, %_une
 
 while.body.i:                                     ; preds = %then_bb47.i, %while.body.i.lr.ph
   %"triangles_index!top.0.i29" = phi i32 [ %"triangles_index!top.0.i.ph39", %while.body.i.lr.ph ], [ %35, %then_bb47.i ]
-  %"!count.0.i28" = phi i32 [ %"!count.0.i.ph38", %while.body.i.lr.ph ], [ %38, %then_bb47.i ]
+  %"!count.0.i28" = phi i32 [ %"!count.0.i.ph38", %while.body.i.lr.ph ], [ %39, %then_bb47.i ]
   %2 = sext i32 %"triangles_index!top.0.i29" to i64
   %extract_ptr.i = getelementptr inbounds %struct._tree_layout1, ptr %triangles.group0_index.i, i64 %2
   %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
@@ -486,7 +492,7 @@ while.body.i:                                     ; preds = %then_bb47.i, %while
   %extract.unpack113.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 20
   %4 = load <2 x float>, ptr %extract.unpack113.elt122.i, align 1
   %extract.elt114.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 28
-  %5 = load i32, ptr %extract.elt114.i, align 1
+  %5 = load <4 x i8>, ptr %extract.elt114.i, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
@@ -545,42 +551,45 @@ then_bb44.i:                                      ; preds = %then_bb30.i
 
 then_bb47.i:                                      ; preds = %then_bb44.i
   %35 = add i32 %"triangles_index!top.0.i29", 1
-  %36 = add i32 %"triangles_index!top.0.i29", %5
-  %37 = sext i32 %"!count.0.i28" to i64
-  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %37
-  store i32 %36, ptr %"!stack52.i", align 4, !tbaa !1
-  %38 = add i32 %"!count.0.i28", 1
+  %36 = bitcast <4 x i8> %5 to i32
+  %37 = add i32 %"triangles_index!top.0.i29", %36
+  %38 = sext i32 %"!count.0.i28" to i64
+  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %38
+  store i32 %37, ptr %"!stack52.i", align 4, !tbaa !1
+  %39 = add i32 %"!count.0.i28", 1
   br label %while.body.i
 
 next_bb48.i:                                      ; preds = %then_bb44.i
-  %39 = zext i16 %extract.unpack107.i to i32
+  %40 = bitcast <4 x i8> %5 to i32
+  %wide.trip.count = zext i16 %extract.unpack107.i to i64
   br label %while.body54.i
 
 while.body54.i:                                   ; preds = %next_bb48.i, %after_bb61.i
-  %_idx0.0.i35 = phi i32 [ 0, %next_bb48.i ], [ %44, %after_bb61.i ]
+  %indvars.iv = phi i64 [ 0, %next_bb48.i ], [ %indvars.iv.next, %after_bb61.i ]
   %"_best0$i25.sroa.0.234" = phi float [ %"_best0$i25.sroa.0.0.ph37", %next_bb48.i ], [ %"_best0$i25.sroa.0.3", %after_bb61.i ]
   %"_best0$i25.sroa.5.233" = phi i32 [ %"_best0$i25.sroa.5.0.ph36", %next_bb48.i ], [ %"_best0$i25.sroa.5.3", %after_bb61.i ]
-  %40 = add i32 %_idx0.0.i35, %5
-  %41 = sext i32 %40 to i64
-  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %41
+  %41 = trunc nuw nsw i64 %indvars.iv to i32
+  %42 = add i32 %41, %40
+  %43 = sext i32 %42 to i64
+  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %triangles.prims.i, i64 %43
   %extract60.unpack.i = load <3 x float>, ptr %extract_ptr59.i, align 16
-  %42 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
+  %44 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
   %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 16
   %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
-  %43 = insertvalue %struct.Triangle %42, <3 x float> %extract60.unpack139.i, 1
+  %45 = insertvalue %struct.Triangle %44, <3 x float> %extract60.unpack139.i, 1
   %extract60.elt140.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 32
   %extract60.unpack141.i = load <3 x float>, ptr %extract60.elt140.i, align 16
-  %extract60142.i = insertvalue %struct.Triangle %43, <3 x float> %extract60.unpack141.i, 2
+  %extract60142.i = insertvalue %struct.Triangle %45, <3 x float> %extract60.unpack141.i, 2
   call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %ray, %struct.Triangle %extract60142.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
   br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
 after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i
-  %"_best0$i25.sroa.5.3" = phi i32 [ %40, %then_bb67.i ], [ %"_best0$i25.sroa.5.233", %then_bb62.i ], [ %"_best0$i25.sroa.5.233", %while.body54.i ]
+  %"_best0$i25.sroa.5.3" = phi i32 [ %42, %then_bb67.i ], [ %"_best0$i25.sroa.5.233", %then_bb62.i ], [ %"_best0$i25.sroa.5.233", %while.body54.i ]
   %"_best0$i25.sroa.0.3" = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %"_best0$i25.sroa.0.234", %then_bb62.i ], [ %"_best0$i25.sroa.0.234", %while.body54.i ]
-  %44 = add nuw nsw i32 %_idx0.0.i35, 1
-  %45 = icmp ult i32 %44, %39
-  br i1 %45, label %while.body54.i, label %after_bb34.i
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %after_bb34.i, label %while.body54.i
 
 then_bb62.i:                                      ; preds = %while.body54.i
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
@@ -2049,7 +2058,7 @@ while.body.i.lr.ph:                               ; preds = %after_bb72.i, %trac
 
 while.body.i:                                     ; preds = %then_bb47.i, %while.body.i.lr.ph
   %"triangles_index!top.0.i46" = phi i32 [ %"triangles_index!top.0.i.ph56", %while.body.i.lr.ph ], [ %35, %then_bb47.i ]
-  %"!count.0.i45" = phi i32 [ %"!count.0.i.ph55", %while.body.i.lr.ph ], [ %38, %then_bb47.i ]
+  %"!count.0.i45" = phi i32 [ %"!count.0.i.ph55", %while.body.i.lr.ph ], [ %39, %then_bb47.i ]
   %2 = sext i32 %"triangles_index!top.0.i46" to i64
   %extract_ptr.i = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack16, i64 %2
   %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
@@ -2062,7 +2071,7 @@ while.body.i:                                     ; preds = %then_bb47.i, %while
   %extract.unpack113.elt122.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 20
   %4 = load <2 x float>, ptr %extract.unpack113.elt122.i, align 1
   %extract.elt114.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 28
-  %5 = load i32, ptr %extract.elt114.i, align 1
+  %5 = load <4 x i8>, ptr %extract.elt114.i, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
@@ -2121,42 +2130,45 @@ then_bb44.i:                                      ; preds = %then_bb30.i
 
 then_bb47.i:                                      ; preds = %then_bb44.i
   %35 = add i32 %"triangles_index!top.0.i46", 1
-  %36 = add i32 %"triangles_index!top.0.i46", %5
-  %37 = sext i32 %"!count.0.i45" to i64
-  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %37
-  store i32 %36, ptr %"!stack52.i", align 4, !tbaa !1
-  %38 = add i32 %"!count.0.i45", 1
+  %36 = bitcast <4 x i8> %5 to i32
+  %37 = add i32 %"triangles_index!top.0.i46", %36
+  %38 = sext i32 %"!count.0.i45" to i64
+  %"!stack52.i" = getelementptr inbounds i32, ptr %"!stack105.i", i64 %38
+  store i32 %37, ptr %"!stack52.i", align 4, !tbaa !1
+  %39 = add i32 %"!count.0.i45", 1
   br label %while.body.i
 
 next_bb48.i:                                      ; preds = %then_bb44.i
-  %39 = zext i16 %extract.unpack107.i to i32
+  %40 = bitcast <4 x i8> %5 to i32
+  %wide.trip.count = zext i16 %extract.unpack107.i to i64
   br label %while.body54.i
 
 while.body54.i:                                   ; preds = %next_bb48.i, %after_bb61.i
-  %_idx0.0.i52 = phi i32 [ 0, %next_bb48.i ], [ %44, %after_bb61.i ]
+  %indvars.iv = phi i64 [ 0, %next_bb48.i ], [ %indvars.iv.next, %after_bb61.i ]
   %"_best0$i25.sroa.0.251" = phi float [ %"_best0$i25.sroa.0.0.ph54", %next_bb48.i ], [ %"_best0$i25.sroa.0.3", %after_bb61.i ]
   %"_best0$i25.sroa.5.250" = phi i32 [ %"_best0$i25.sroa.5.0.ph53", %next_bb48.i ], [ %"_best0$i25.sroa.5.3", %after_bb61.i ]
-  %40 = add i32 %_idx0.0.i52, %5
-  %41 = sext i32 %40 to i64
-  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %deref_temp.unpack12, i64 %41
+  %41 = trunc nuw nsw i64 %indvars.iv to i32
+  %42 = add i32 %41, %40
+  %43 = sext i32 %42 to i64
+  %extract_ptr59.i = getelementptr inbounds %struct.Triangle, ptr %deref_temp.unpack12, i64 %43
   %extract60.unpack.i = load <3 x float>, ptr %extract_ptr59.i, align 16
-  %42 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
+  %44 = insertvalue %struct.Triangle poison, <3 x float> %extract60.unpack.i, 0
   %extract60.elt138.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 16
   %extract60.unpack139.i = load <3 x float>, ptr %extract60.elt138.i, align 16
-  %43 = insertvalue %struct.Triangle %42, <3 x float> %extract60.unpack139.i, 1
+  %45 = insertvalue %struct.Triangle %44, <3 x float> %extract60.unpack139.i, 1
   %extract60.elt140.i = getelementptr inbounds i8, ptr %extract_ptr59.i, i64 32
   %extract60.unpack141.i = load <3 x float>, ptr %extract60.elt140.i, align 16
-  %extract60142.i = insertvalue %struct.Triangle %43, <3 x float> %extract60.unpack141.i, 2
+  %extract60142.i = insertvalue %struct.Triangle %45, <3 x float> %extract60.unpack141.i, 2
   call void @intersectsp_ray_tri(ptr sret(%struct._option2) %_ret.i, %struct.Ray %deref_temp1, %struct.Triangle %extract60142.i)
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
   br i1 %.fca.1.load.i, label %then_bb62.i, label %after_bb61.i
 
 after_bb61.i:                                     ; preds = %then_bb67.i, %then_bb62.i, %while.body54.i
-  %"_best0$i25.sroa.5.3" = phi i32 [ %40, %then_bb67.i ], [ %"_best0$i25.sroa.5.250", %then_bb62.i ], [ %"_best0$i25.sroa.5.250", %while.body54.i ]
+  %"_best0$i25.sroa.5.3" = phi i32 [ %42, %then_bb67.i ], [ %"_best0$i25.sroa.5.250", %then_bb62.i ], [ %"_best0$i25.sroa.5.250", %while.body54.i ]
   %"_best0$i25.sroa.0.3" = phi float [ %.fca.0.3.load.i, %then_bb67.i ], [ %"_best0$i25.sroa.0.251", %then_bb62.i ], [ %"_best0$i25.sroa.0.251", %while.body54.i ]
-  %44 = add nuw nsw i32 %_idx0.0.i52, 1
-  %45 = icmp ult i32 %44, %39
-  br i1 %45, label %while.body54.i, label %after_bb34.i
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %after_bb34.i, label %while.body54.i
 
 then_bb62.i:                                      ; preds = %while.body54.i
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4

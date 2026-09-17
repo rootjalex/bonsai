@@ -636,6 +636,20 @@ void CodeGen_CUDA::visit(const ir::Intrinsic *node) {
         os << ')';
         return;
     }
+    case ir::Intrinsic::OpType::clz:
+    case ir::Intrinsic::OpType::div_multiplier:
+    case ir::Intrinsic::OpType::mulhi: {
+        // Templates in runtime/CUDA/helpers.h, under the intrinsic's own
+        // name, which pick their width and signedness from the argument.
+        internal_assert(node->args.front().type().is_int_or_uint() &&
+                        !node->args.front().type().is_vector())
+            << "[unimplemented] " << to_string(node->op)
+            << " of a non-scalar integer on CUDA: " << Expr(node);
+        os << to_string(node->op) << '(';
+        print_expr_list(node->args);
+        os << ')';
+        return;
+    }
     case ir::Intrinsic::OpType::norm: {
         os << "length" << '(';
         print_expr_list(node->args);

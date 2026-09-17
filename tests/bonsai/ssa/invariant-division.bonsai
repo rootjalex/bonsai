@@ -1,0 +1,54 @@
+//! flags: -p ssa
+
+// Division by an invariant integer using multiplication (Granlund &
+// Montgomery, PLDI 1994; see SSA/InvariantDivision.h), as the SSA pipeline
+// leaves it.
+//
+// `digits` peels the base-b digits of an index, dividing by `b` once per
+// digit, and `b` does not change while the loop runs. What to read for in the
+// golden:
+//
+//   * At the top of `digits`, before the loop: `div_multiplier(b)`, and the
+//     two shifts of the round-up method from `clz(b - 1)` -- computed once,
+//     where the divisor is.
+//   * In the loop body: no division. `next` is a `mulhi` by the multiplier,
+//     a subtraction, two shifts and an addition.
+//   * `limit`, the one division by `b` outside the loop, uses the same
+//     multiplier, since it is there.
+//   * The vectorized gang divides by a `b` each lane has its own of, and the
+//     same arithmetic widens to the gang: the multiplier is a vector, taken
+//     once per lane before the loop, and the loop body is vector multiplies
+//     and shifts where it was eight scalar divisions.
+//   * The division by the constant `4u` in `quarters` is left alone; the
+//     backend does that one itself.
+func digits(n : u64, b : u64) -> u64 {
+    v : mut u64 = n;
+    r : mut u64 = 0u;
+    limit = 0xffffffffffffffff / b - b;
+    while (v != 0u) && (r < limit) {
+        next = v / b;
+        r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func quarters(n : u64) -> u64 {
+    total : mut u64 = 0u;
+    v : mut u64 = n;
+    while v != 0u {
+        total = total + (v % 4u);
+        v = v / 4u;
+    }
+    return total;
+}
+
+func [[export]] run(out : mut array[u64, 8], bases : array[u64, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = digits(cast[[u64]](i) * 1000003u, bases[i]);
+    }
+}
+
+schedule {
+    run.vectorize(i);
+}
