@@ -77,189 +77,125 @@ func weigh(b : Blob, k : f32) -> f32 {
 }
 
 func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
-  @5!skip : mut Blob$v8
   @33!skip : mut Blob$v8
-  @10!skip : mut Blob$v8
   @17!skip : mut Blob$v8
   weigh$r8 : mut f32x8
   let _t26 = a[ramp(0, 1, 8)] in
-  let @53 = i32x8(3) in
-  let _t18$i7 = ramp(0, 1, 8) % @53 in
-  let @54 = i32x8(0) in
-  let @2 = _t18$i7 == @54 in
-  let @55 = boolx8(false) in
-  let @56 = boolx8(true) in
-  let @24 = select(@2, @55, @56) in
-  let @35 = reduce<any>(@2) in
+  let @45 = i32x8(3) in
+  let _t18$i7 = ramp(0, 1, 8) % @45 in
+  let @46 = i32x8(0) in
+  let @2 = _t18$i7 == @46 in
+  let @47 = boolx8(false) in
+  let @48 = boolx8(true) in
+  let @24 = select(@2, @47, @48) in
+  let @3 = build<Whole$v8>(_t26) in
+  let @4 = Blob_payload$v8{.Whole = @3} in
+  let @49 = u8x8(0u) in
+  let @5 = build<Blob$v8>(@49, @4) in
+  let @35 = reduce<any>(@24) in
   let @36 = build<Whole>(0f) in
   let @37 = Blob_payload{.Whole = @36} in
   let @38 = build<Blob>(0u, @37) in
-  let @117 = @38.tag in
-  let @118 = u8x8(@117) in
-  let @119 = @38.payload in
-  let @120 = reinterpret_cast<[[packed]] u32x8>(@119) in
-  let @121 = @120[0u] in
-  let @122 = u32x8(@121) in
-  let @123 = @120[1u] in
-  let @124 = u32x8(@123) in
-  let @125 = @120[2u] in
-  let @126 = u32x8(@125) in
-  let @127 = @120[3u] in
-  let @128 = u32x8(@127) in
-  let @129 = @120[4u] in
-  let @130 = u32x8(@129) in
-  let @131 = @120[5u] in
-  let @132 = u32x8(@131) in
-  let @133 = @120[6u] in
-  let @134 = u32x8(@133) in
-  let @135 = @120[7u] in
-  let @136 = u32x8(@135) in
-  let @137 = build<Blob_payload$v8>(@122, @124, @126, @128, @130, @132, @134, @136) in
-  let @138 = build<Blob$v8>(@118, @137) in
-  if (@35) {
-    let @3 = build<Whole$v8>(_t26) in
-    let @4 = Blob_payload$v8{.Whole = @3} in
-    let @57 = u8x8(0u) in
-    let @5 = build<Blob$v8>(@57, @4) in
-    @5!skip = @5
-  } else {
-    @5!skip = @138
-  }
-  let @39 = reduce<any>(@24) in
-  let @40 = build<Whole>(0f) in
-  let @41 = Blob_payload{.Whole = @40} in
-  let @42 = build<Blob>(0u, @41) in
-  let @72 = @42.tag in
-  let @73 = u8x8(@72) in
-  let @74 = @42.payload in
-  let @75 = reinterpret_cast<[[packed]] u32x8>(@74) in
-  let @76 = @75[0u] in
+  let @64 = @38.tag in
+  let @65 = u8x8(@64) in
+  let @66 = @38.payload in
+  let @67 = reinterpret_cast<[[packed]] u32x8>(@66) in
+  let @68 = @67[0u] in
+  let @69 = u32x8(@68) in
+  let @70 = @67[1u] in
+  let @71 = u32x8(@70) in
+  let @72 = @67[2u] in
+  let @73 = u32x8(@72) in
+  let @74 = @67[3u] in
+  let @75 = u32x8(@74) in
+  let @76 = @67[4u] in
   let @77 = u32x8(@76) in
-  let @78 = @75[1u] in
+  let @78 = @67[5u] in
   let @79 = u32x8(@78) in
-  let @80 = @75[2u] in
+  let @80 = @67[6u] in
   let @81 = u32x8(@80) in
-  let @82 = @75[3u] in
+  let @82 = @67[7u] in
   let @83 = u32x8(@82) in
-  let @84 = @75[4u] in
-  let @85 = u32x8(@84) in
-  let @86 = @75[5u] in
-  let @87 = u32x8(@86) in
-  let @88 = @75[6u] in
-  let @89 = u32x8(@88) in
-  let @90 = @75[7u] in
-  let @91 = u32x8(@90) in
-  let @92 = build<Blob_payload$v8>(@77, @79, @81, @83, @85, @87, @89, @91) in
-  let @93 = build<Blob$v8>(@73, @92) in
-  if (@39) {
-    let @58 = i32x8(1) in
-    let @6 = _t18$i7 == @58 in
-    let @59 = boolx8(false) in
-    let @60 = boolx8(true) in
-    let @25 = select(@6, @59, @60) in
+  let @84 = build<Blob_payload$v8>(@69, @71, @73, @75, @77, @79, @81, @83) in
+  let @85 = build<Blob$v8>(@65, @84) in
+  if (@35) {
+    let @50 = i32x8(1) in
+    let @6 = _t18$i7 == @50 in
+    let @51 = boolx8(false) in
+    let @52 = boolx8(true) in
+    let @25 = select(@6, @51, @52) in
     let @26 = @24 && @25 in
     let @27 = @24 && @6 in
-    let @43 = reduce<any>(@27) in
-    let @44 = build<Whole>(0f) in
-    let @45 = Blob_payload{.Whole = @44} in
-    let @46 = build<Blob>(0u, @45) in
-    let @139 = @46.tag in
-    let @140 = u8x8(@139) in
-    let @141 = @46.payload in
-    let @142 = reinterpret_cast<[[packed]] u32x8>(@141) in
-    let @143 = @142[0u] in
-    let @144 = u32x8(@143) in
-    let @145 = @142[1u] in
-    let @146 = u32x8(@145) in
-    let @147 = @142[2u] in
-    let @148 = u32x8(@147) in
-    let @149 = @142[3u] in
-    let @150 = u32x8(@149) in
-    let @151 = @142[4u] in
-    let @152 = u32x8(@151) in
-    let @153 = @142[5u] in
-    let @154 = u32x8(@153) in
-    let @155 = @142[6u] in
-    let @156 = u32x8(@155) in
-    let @157 = @142[7u] in
-    let @158 = u32x8(@157) in
-    let @159 = build<Blob_payload$v8>(@144, @146, @148, @150, @152, @154, @156, @158) in
-    let @160 = build<Blob$v8>(@140, @159) in
-    if (@43) {
-      let @61 = i32x8(10) in
-      let @7 = ramp(0, 1, 8) * @61 in
-      let @8 = build<Split$v8>(ramp(0, 1, 8), @7) in
-      let @9 = Blob_payload$v8{.Split = @8} in
-      let @62 = u8x8(1u) in
-      let @10 = build<Blob$v8>(@62, @9) in
-      @10!skip = @10
-    } else {
-      @10!skip = @160
-    }
-    let @47 = reduce<any>(@26) in
-    let @48 = build<Whole>(0f) in
-    let @49 = Blob_payload{.Whole = @48} in
-    let @50 = build<Blob>(0u, @49) in
-    let @94 = @50.tag in
-    let @95 = u8x8(@94) in
-    let @96 = @50.payload in
-    let @97 = reinterpret_cast<[[packed]] u32x8>(@96) in
-    let @98 = @97[0u] in
+    let @53 = i32x8(10) in
+    let @7 = ramp(0, 1, 8) * @53 in
+    let @8 = build<Split$v8>(ramp(0, 1, 8), @7) in
+    let @9 = Blob_payload$v8{.Split = @8} in
+    let @54 = u8x8(1u) in
+    let @10 = build<Blob$v8>(@54, @9) in
+    let @39 = reduce<any>(@26) in
+    let @40 = build<Whole>(0f) in
+    let @41 = Blob_payload{.Whole = @40} in
+    let @42 = build<Blob>(0u, @41) in
+    let @86 = @42.tag in
+    let @87 = u8x8(@86) in
+    let @88 = @42.payload in
+    let @89 = reinterpret_cast<[[packed]] u32x8>(@88) in
+    let @90 = @89[0u] in
+    let @91 = u32x8(@90) in
+    let @92 = @89[1u] in
+    let @93 = u32x8(@92) in
+    let @94 = @89[2u] in
+    let @95 = u32x8(@94) in
+    let @96 = @89[3u] in
+    let @97 = u32x8(@96) in
+    let @98 = @89[4u] in
     let @99 = u32x8(@98) in
-    let @100 = @97[1u] in
+    let @100 = @89[5u] in
     let @101 = u32x8(@100) in
-    let @102 = @97[2u] in
+    let @102 = @89[6u] in
     let @103 = u32x8(@102) in
-    let @104 = @97[3u] in
+    let @104 = @89[7u] in
     let @105 = u32x8(@104) in
-    let @106 = @97[4u] in
-    let @107 = u32x8(@106) in
-    let @108 = @97[5u] in
-    let @109 = u32x8(@108) in
-    let @110 = @97[6u] in
-    let @111 = u32x8(@110) in
-    let @112 = @97[7u] in
-    let @113 = u32x8(@112) in
-    let @114 = build<Blob_payload$v8>(@99, @101, @103, @105, @107, @109, @111, @113) in
-    let @115 = build<Blob$v8>(@95, @114) in
-    if (@47) {
-      let @63 = f32x8(2f) in
-      let @11 = @63 * _t26 in
-      let @64 = f32x8(3f) in
-      let @12 = @64 * _t26 in
-      let @65 = f32x8(0f) in
-      let @14 = _t26 < @65 in
-      let @52 = build<f32x3$v8>(_t26, @11, @12) in
-      let @15 = build<Wide$v8>(@52, @14) in
+    let @106 = build<Blob_payload$v8>(@91, @93, @95, @97, @99, @101, @103, @105) in
+    let @107 = build<Blob$v8>(@87, @106) in
+    if (@39) {
+      let @55 = f32x8(2f) in
+      let @11 = @55 * _t26 in
+      let @56 = f32x8(3f) in
+      let @12 = @56 * _t26 in
+      let @57 = f32x8(0f) in
+      let @14 = _t26 < @57 in
+      let @44 = build<f32x3$v8>(_t26, @11, @12) in
+      let @15 = build<Wide$v8>(@44, @14) in
       let @16 = Blob_payload$v8{.Wide = @15} in
-      let @66 = u8x8(2u) in
-      let @17 = build<Blob$v8>(@66, @16) in
+      let @58 = u8x8(2u) in
+      let @17 = build<Blob$v8>(@58, @16) in
       @17!skip = @17
     } else {
-      @17!skip = @115
+      @17!skip = @107
     }
-    let @33 = select(@26, (*@17!skip), (*@10!skip)) in
+    let @33 = select(@26, (*@17!skip), @10) in
     @33!skip = @33
   } else {
-    @33!skip = @93
+    @33!skip = @85
   }
-  let @34 = select(@24, (*@33!skip), (*@5!skip)) in
+  let @34 = select(@24, (*@33!skip), @5) in
   let @19 = @34.tag in
-  let @67 = u8x8(0u) in
-  let @28 = @19 == @67 in
-  let @68 = u8x8(1u) in
-  let @29 = @19 == @68 in
-  let @69 = u8x8(0u) in
-  let @30 = @19 != @69 in
-  let @70 = u8x8(1u) in
-  let @31 = @19 != @70 in
+  let @59 = u8x8(0u) in
+  let @28 = @19 == @59 in
+  let @60 = u8x8(1u) in
+  let @29 = @19 == @60 in
+  let @61 = u8x8(0u) in
+  let @30 = @19 != @61 in
+  let @62 = u8x8(1u) in
+  let @31 = @19 != @62 in
   let @32 = @30 && @31 in
   if (false) {
-    let @116 = f32x8(0f) in
-    weigh$r8 = @116
+    let @108 = f32x8(0f) in
+    weigh$r8 = @108
   } else {
-    let @71 = f32x8(2f) in
-    let @21 = _t26 * @71 in
+    let @63 = f32x8(2f) in
+    let @21 = _t26 * @63 in
     weigh$r8 = @21
   }
   let i = ramp(0, 1, 8) in

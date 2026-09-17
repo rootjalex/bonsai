@@ -138,6 +138,59 @@ bool implies(const Value &narrow, const Value &wide) {
                        });
 }
 
+// The run of blocks one guard skips: the blocks, and the mask no lane is on
+// in when the guard bypasses them.
+struct Run {
+    vector<shared_ptr<Block>> blocks;
+    set<const Block *> inside;
+    shared_ptr<Value> mask;
+
+    // Whether `v` is one of the run's own values: an instruction of one of
+    // its blocks, or an argument of one other than the first, whose
+    // arguments move to the guard.
+    bool defines(const Value &v) const {
+        if (const Instruction *i = instruction_of(v)) {
+            return inside.count(i->owner.lock().get()) > 0;
+        }
+        const auto *a = std::get_if<Argument>(&v.data);
+        if (a == nullptr) {
+            return false;
+        }
+        for (size_t k = 1; k < blocks.size(); k++) {
+            for (const Argument &arg : blocks[k]->args) {
+                if (arg.name == a->name) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // What `v`, one of the run's values, is when the run is bypassed: for a
+    // blend the run made -- `select(mask, value, before)` with a mask no
+    // lane can be on when the run's own is empty -- it is `before`, and so
+    // on down a chain of them, until a value from outside the run. That is
+    // exactly the value a lane not in the arm reads from the blend when the
+    // arm does run, so the bypass hands the join the same thing the arm
+    // would have: nothing downstream can tell the arm was skipped. Null for
+    // anything else, which the caller passes a zero for -- a raw value of
+    // the arm's, read only under the arm's mask or through such a blend.
+    shared_ptr<Value> when_bypassed(const shared_ptr<Value> &v) const {
+        shared_ptr<Value> current = v;
+        for (;;) {
+            if (!defines(*current)) {
+                return current;
+            }
+            const Instruction *i = instruction_of(*current);
+            if (i == nullptr || i->op != Instruction::Op::Select ||
+                i->operands.size() != 3 || !implies(*i->operands[0], *mask)) {
+                return nullptr;
+            }
+            current = i->operands[2];
+        }
+    }
+};
+
 // The logic a mask is made of: no work worth a branch to skip, and what a
 // block's mask may be computed from ahead of the test.
 bool is_mask_logic(Instruction::Op op) {
@@ -224,10 +277,12 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
     }
     AdjacencyMap preds = compute_predecessors(succs);
 
-    // The guards made here, by name. A block whose only ways in are the block
-    // before it and guards' bypasses is still one live path: the bypasses
-    // hand it zeros, so it can take a bypass more.
+    // The guards made here, by name, and the run each one skips. A block
+    // whose only ways in are the block before it and guards' bypasses is
+    // still one live path: the bypasses hand it what the run would have, so
+    // it can take a bypass more.
     set<string> guards;
+    map<string, Run> runs;
 
     auto is_header = [&](const string &name) {
         const auto p = preds.find(name);
@@ -439,7 +494,10 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
                    live.end());
 
         // Worth a test, judged on what is left in the run: memory it must
-        // not touch, or enough arithmetic to outweigh the test.
+        // not touch, or enough arithmetic to outweigh the test -- six
+        // operations, which is where ispc draws the line between
+        // predicating both arms straight through and branching around them
+        // (PREDICATE_SAFE_IF_STATEMENT_COST).
         {
             bool worth = false;
             size_t work = 0;
@@ -452,7 +510,7 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
                     work += is_mask_logic(instr->op) ? 0 : 1;
                 }
             }
-            if (!worth && work < 3) {
+            if (!worth && work < 6) {
                 continue;
             }
         }
@@ -493,19 +551,29 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
         guard->instrs.push_back(any);
 
         // What the bypass hands the block after the run: what the run would
-        // have, with zero for what only the run computes, whether passed on
-        // already or threaded below.
+        // have. A blend of the run's is the value from before it (see
+        // Run::when_bypassed); anything else only the run computes is a
+        // zero, which nothing reads.
+        const Run this_run{run, inside, mask};
+        auto bypassed = [&](const Run &r, const shared_ptr<Value> &v,
+                            const shared_ptr<Block> &into) {
+            if (!r.defines(*v)) {
+                return v;
+            }
+            if (shared_ptr<Value> before = r.when_bypassed(v)) {
+                return before;
+            }
+            return zero_value(v->get_type(), func, into);
+        };
         Terminator::Jump skip{.name = z_name, .args = {}};
         for (const shared_ptr<Value> &a : out->args) {
-            skip.args.push_back(defined_inside(*a)
-                                    ? zero_value(a->get_type(), func, guard)
-                                    : a);
+            skip.args.push_back(bypassed(this_run, a, guard));
         }
 
         // A value of the run's that a later block uses becomes an argument
         // of the block after the run, and those uses take the argument. The
-        // bypasses of earlier guards that already land there hand it zero
-        // too.
+        // bypasses of earlier guards that already land there -- around runs
+        // this one is inside -- hand it what their own run would have.
         for (const shared_ptr<Value> &v : live) {
             const Type type = v->get_type();
             const string name =
@@ -514,7 +582,7 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
             const shared_ptr<Value> passed =
                 z->add_argument(Argument{type, name + "!skip"});
             out->args.push_back(v);
-            skip.args.push_back(zero_value(type, func, guard));
+            skip.args.push_back(bypassed(this_run, v, guard));
             for (const string &p : preds[z_name]) {
                 if (p == last->name) {
                     continue;
@@ -524,7 +592,7 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
                 const shared_ptr<Block> g = blocks.at(p);
                 for (Terminator::Jump *jump : jumps_of(*g)) {
                     if (jump->name == z_name) {
-                        jump->args.push_back(zero_value(type, func, g));
+                        jump->args.push_back(bypassed(runs.at(p), v, g));
                     }
                 }
             }
@@ -550,6 +618,7 @@ size_t skip_inactive_blocks(Function &func, const string &entry,
         func.blocks.insert(at, guard);
         blocks[guard->name] = guard;
         guards.insert(guard->name);
+        runs[guard->name] = this_run;
         preds[guard->name] = x_preds;
         preds[x_name] = {guard->name};
         preds[z_name].push_back(guard->name);

@@ -42,8 +42,8 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   !live : mut boolx8
   !exit.while_end_2 : mut boolx8
   !track.while_end_2.0 : mut u64x8
-  next!skip : mut u64x8
-  @14!skip : mut u64x8
+  @35!skip : mut u64x8
+  @37!skip : mut u64x8
   let @16 = div_multiplier(b) in
   let @43 = u64x8(1u) in
   let @17 = b - @43 in
@@ -84,8 +84,6 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
     let @33 = (*!live) && @32 in
     let @34 = (*!live) && @6 in
     let @42 = reduce<any>(@34) in
-    let @59 = u64x8(0u) in
-    let @60 = u64x8(0u) in
     if (@42) {
       let @23 = mulhi(@16, (*v!loop)) in
       let @24 = (*v!loop) - @23 in
@@ -96,21 +94,21 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
       let @12 = next * b in
       let @13 = (*v!loop) - @12 in
       let @14 = @10 + @13 in
-      next!skip = next
-      @14!skip = @14
+      let @35 = select(@34, next, (*v!loop)) in
+      let @37 = select(@34, @14, (*r!loop)) in
+      @35!skip = @35
+      @37!skip = @37
     } else {
-      next!skip = @59
-      @14!skip = @60
+      @35!skip = (*v!loop)
+      @37!skip = (*r!loop)
     }
-    let @35 = select(@34, (*next!skip), (*v!loop)) in
-    let @36 = select(@33, (*v!loop), @35) in
-    let @37 = select(@34, (*@14!skip), (*r!loop)) in
-    let @38 = select(@33, (*r!loop), @37) in
     let @53 = boolx8(false) in
     let @39 = select(@33, @53, (*!live)) in
     let @54 = boolx8(true) in
     let @40 = select(@33, @54, (*!exit.while_end_2)) in
     let @41 = select(@33, (*r!loop), (*!track.while_end_2.0)) in
+    let @36 = select(@33, (*v!loop), (*@35!skip)) in
+    let @38 = select(@33, (*r!loop), (*@37!skip)) in
     v!loop = @36
     r!loop = @38
     !live = @39

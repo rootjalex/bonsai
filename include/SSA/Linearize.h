@@ -32,7 +32,12 @@ namespace ssa {
 //     lanes would have reached it in the original control flow;
 //   * a block argument (this IR's phi) becomes a chain of selects over those
 //     masks, since after linearization the values from every path are
-//     computed and only one of them is right for a given lane;
+//     computed and only one of them is right for a given lane. Each select
+//     sits at the end of the path whose value it lets in, as ispc places its
+//     masked assignments, rather than at the join as the Region Vectorizer
+//     places its blends: a path's mask and raw value then die with the path,
+//     and a path that is skipped (SSA/SkipInactiveBlocks.h) hands on the
+//     value from before it;
 //   * a store in a block that is not always executed takes its block's mask,
 //     so the disabled lanes do not write.
 //

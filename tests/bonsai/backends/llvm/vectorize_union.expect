@@ -402,8 +402,8 @@ weigh_all:
   %18 = add <8 x i32> %5, %4
   %19 = sitofp <8 x i32> %18 to <8 x float>
   %20 = fmul <8 x float> %11, <float 2.000000e+00, float poison, float poison, float 2.000000e+00, float poison, float poison, float 2.000000e+00, float poison>
-  %21 = shufflevector <8 x float> %20, <8 x float> %17, <8 x i32> <i32 0, i32 poison, i32 10, i32 3, i32 poison, i32 13, i32 6, i32 poison>
-  %22 = shufflevector <8 x float> %21, <8 x float> %19, <8 x i32> <i32 0, i32 9, i32 2, i32 3, i32 12, i32 5, i32 6, i32 15>
+  %21 = shufflevector <8 x float> %17, <8 x float> %19, <8 x i32> <i32 poison, i32 9, i32 2, i32 poison, i32 12, i32 5, i32 poison, i32 15>
+  %22 = shufflevector <8 x float> %20, <8 x float> %21, <8 x i32> <i32 0, i32 9, i32 10, i32 3, i32 12, i32 13, i32 6, i32 15>
   store <8 x float> %22, ptr %out, align 4
   ret void
 }

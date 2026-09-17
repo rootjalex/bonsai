@@ -830,23 +830,73 @@ BlockMasks linearize(Function &func, const string &entry,
                     loop_header = blocks.at(loop.header).get();
                 }
             }
+            // The sources in the order the linearized code runs them, which
+            // is the block index's (see compute_block_index).
+            vector<const Incoming *> in_order;
+            for (const Incoming &source : sources) {
+                in_order.push_back(&source);
+            }
+            std::sort(in_order.begin(), in_order.end(),
+                      [&](const Incoming *p, const Incoming *q) {
+                          return index.at(p->from) < index.at(q->from);
+                      });
             for (size_t j = leading; j < block->args.size(); j++) {
-                // Fold from the last source backwards, so the first source
-                // ends up as the outermost condition.
+                // The blend of each source goes at the end of that source,
+                // where its value and its edge mask are, rather than here at
+                // the join: `x = select(mask, value, x)`, source by source in
+                // running order, so that the value arriving at the join is
+                // the last source's blend and each source's mask and raw
+                // value die with the source. This is where ispc puts them --
+                // it stores a variable under the current mask as it is
+                // assigned (ctx.cpp, maskedStore, lowered to a blend "since
+                // it lets us keep values in registers rather than going out
+                // to the stack") -- and what lets a skipped source hand the
+                // join the value from before it instead of a zero (see
+                // SSA/SkipInactiveBlocks.h). Blending at the join, as the
+                // Region Vectorizer does, kept every source's mask and value
+                // live until here.
+                //
+                // A source that does not dominate the next one -- reached
+                // by a uniform branch the next one is not on -- has nowhere
+                // to keep the running value, and its blend goes at the join
+                // as before.
                 shared_ptr<Value> value;
+                const Block *value_at = nullptr; // where `value` was blended
                 if (loop_header != nullptr) {
-                    const auto held =
-                        loop_header->lookups.find(block->args[j].name);
-                    if (held != loop_header->lookups.end()) {
-                        value = held->second;
+                    // The header's value of what this argument carries: the
+                    // latch hands its argument k on as the header's argument
+                    // k, under the header's name for it (see the pure latch
+                    // in UniformizeLoops.cpp, whose arguments are the
+                    // header's with `.upd` appended). A lane in none of the
+                    // sources' masks -- one that left the loop on an earlier
+                    // iteration -- has to come out of the blends with this,
+                    // whichever source is blended first.
+                    const auto *back =
+                        std::get_if<Terminator::Jump>(&block->terminator.data);
+                    if (back != nullptr && back->name == loop_header->name) {
+                        for (size_t k = 0; k < back->args.size() &&
+                                           k < loop_header->args.size();
+                             k++) {
+                            const auto *a =
+                                std::get_if<Argument>(&back->args[k]->data);
+                            if (a == nullptr || a->name != block->args[j].name) {
+                                continue;
+                            }
+                            const auto held = loop_header->lookups.find(
+                                loop_header->args[k].name);
+                            if (held != loop_header->lookups.end()) {
+                                value = held->second;
+                            }
+                            break;
+                        }
                     }
                 }
-                for (size_t s = sources.size(); s-- > 0;) {
-                    const Incoming &source = sources[s];
-                    shared_ptr<Value> incoming_value = value_from(source, j);
+                for (const Incoming *source : in_order) {
+                    shared_ptr<Value> incoming_value = value_from(*source, j);
 
                     if (!value) {
                         value = incoming_value;
+                        value_at = blocks.at(source->from).get();
                         continue;
                     }
                     // Every path passing the same definition is the common
@@ -858,15 +908,27 @@ BlockMasks linearize(Function &func, const string &entry,
                     if (same_definition(*value, *incoming_value)) {
                         continue;
                     }
-                    const auto edge = masks.edge.find({source.from, b});
+                    const auto edge = masks.edge.find({source->from, b});
                     internal_assert(edge != masks.edge.end())
-                        << "Folded edge " << source.from << "->" << b
+                        << "Folded edge " << source->from << "->" << b
                         << " has no mask to blend on";
-                    value = append(func, block, block->args[j].type,
-                                   Instruction::Op::Select,
-                                   {edge->second, incoming_value, value});
-                    blends.insert(
-                        std::get<shared_ptr<Instruction>>(value->data).get());
+                    const shared_ptr<Block> at = blocks.at(source->from);
+                    const bool in_source =
+                        value_at == nullptr ||
+                        dom.dominates(value_at->name, source->from);
+                    if (in_source) {
+                        value = append(func, at, block->args[j].type,
+                                       Instruction::Op::Select,
+                                       {edge->second, incoming_value, value});
+                        value_at = at.get();
+                    } else {
+                        value = append(func, block, block->args[j].type,
+                                       Instruction::Op::Select,
+                                       {edge->second, incoming_value, value});
+                        blends.insert(
+                            std::get<shared_ptr<Instruction>>(value->data).get());
+                        value_at = block.get();
+                    }
                 }
                 blended[j] = value;
             }

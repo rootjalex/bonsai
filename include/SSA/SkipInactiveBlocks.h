@@ -33,16 +33,21 @@ namespace ssa {
 // inside or at the end of the outer run. The first block's arguments move to
 // the guard, so the edges into it need no change. A value the run defines and
 // a later block uses is not defined along the bypass, so it becomes an
-// argument of the block after the run -- the value from the run, zero from
-// the guard -- and the later uses take that argument; the zero is never read,
-// since every such use is under a mask that is empty when the run was
-// skipped, or a blend that selects the other side. Values used only inside
+// argument of the block after the run and the later uses take that argument.
+// What the guard hands it is what the run would have: for a blend the run
+// made -- `select(mask, value, before)`, which is how linearization merges an
+// arm's value into a join, at the end of the arm (see SSA/Linearize.h) -- the
+// value from before the arm, since no lane is in the mask; that is what a
+// lane outside the arm reads from the blend when the arm does run, so nothing
+// downstream can tell the arm was skipped. Anything else only the run
+// computes gets a zero, which nothing reads: every use of such a value is
+// under a mask that is empty when the run was skipped. Values used only inside
 // the run are left alone, which is most of what an arm computes. A run is
 // skipped only when it does real work, and only when the block after it is
 // reached from the run alone, or from the run and other guards' bypasses,
-// which hand it zeros too: a join with several live paths (see the
-// `remaining > 1` case in Linearize.cpp) has a previous value to fall back
-// on, not zero, and is not touched.
+// which hand it the same: a join with several live paths (see the
+// `remaining > 1` case in Linearize.cpp) has no one path to take a value
+// from, and is not touched.
 //
 // `masks` are the masks linearization returned, updated here where a mask
 // became an argument of a later block. `entry_mask` is the mask the region
