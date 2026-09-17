@@ -1,6 +1,6 @@
 //! flags: -b llvm
 
-func check0(a : i32, b : array[f32]) {
+func [[export]]check0(a : i32, b : array[f32]) {
     if a >= 0 && b[a] < 0 {
         return 1;
     } else {
@@ -8,7 +8,7 @@ func check0(a : i32, b : array[f32]) {
     }
 }
 
-func check1(a : i32, b : array[f32]) {
+func [[export]]check1(a : i32, b : array[f32]) {
     if a < 0 || b[a] < 0 {
         return 1;
     } else {
@@ -19,7 +19,7 @@ func check1(a : i32, b : array[f32]) {
 // Expected to simplify to no short circuiting
 // TODO(ajr): investigate why this still short circuits?
 // Oddly, this is the same codegen for C++ https://godbolt.org/z/bYE7qrfrx
-func check2_noshortcircuit(a : i32, b : array[f32]) {
+func [[export]]check2_noshortcircuit(a : i32, b : array[f32]) {
     if a >= 0 && a <= 4 {
         return b[a];
     } else {
@@ -27,7 +27,7 @@ func check2_noshortcircuit(a : i32, b : array[f32]) {
     }
 }
 
-func check3(a : i32, b : array[f32]) {
+func [[export]]check3(a : i32, b : array[f32]) {
     if !(a >= 0 && b[a] < 0) {
         return 1;
     } else {
@@ -35,7 +35,7 @@ func check3(a : i32, b : array[f32]) {
     }
 }
 
-func check4(a : i32, b : array[f32]) {
+func [[export]]check4(a : i32, b : array[f32]) {
     if !(a < 0 || b[a] < 0) {
         return 1;
     } else {

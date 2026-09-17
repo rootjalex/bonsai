@@ -8,18 +8,18 @@ element Ray {
     t : f32 = 0;
 }
 
-func build_ray() = Ray{};
+func [[export]]build_ray() = Ray{};
 
-func build_ray_params(o : vec3f, d : vec3f, t : f32) = Ray{o, d, t};
+func [[export]]build_ray_params(o : vec3f, d : vec3f, t : f32) = Ray{o, d, t};
 
 // Tests default parameter build.
-func build_ray_params1(o : vec3f, d : vec3f) = Ray{o, d};
+func [[export]]build_ray_params1(o : vec3f, d : vec3f) = Ray{o, d};
 
 // Tests named struct build
-func build_ray_params2(o : vec3f, d : vec3f) = Ray{.o = o, .d = d};
+func [[export]]build_ray_params2(o : vec3f, d : vec3f) = Ray{.o = o, .d = d};
 
 // Tests constant casting through struct building.
-func build_ray_params3(oall : f32, dall : f32) = Ray{.o = oall, .d = dall};
+func [[export]]build_ray_params3(oall : f32, dall : f32) = Ray{.o = oall, .d = dall};
 
 element Ray1 {
     o : vec3f;
@@ -27,18 +27,18 @@ element Ray1 {
     t : f32 = 1;
 }
 
-func build_ray1() = Ray1{};
+func [[export]]build_ray1() = Ray1{};
 
 element Ray2 {
     o, d : vec3f = 1;
     t : f32 = 1;
 }
 
-func build_ray2() = Ray2{};
+func [[export]]build_ray2() = Ray2{};
 
 element Ray3 {
     o = 0, d = 1 : vec3f;
     t : f32 = 1;
 }
 
-func build_ray3() = Ray3{};
+func [[export]]build_ray3() = Ray3{};

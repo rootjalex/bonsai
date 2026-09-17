@@ -2,13 +2,10 @@
 source_filename = "bonsai_module"
 
 %struct.F4 = type { float, float, float, float }
-%struct.F2 = type { float, float }
-%struct.I3 = type { i32, i32, i32 }
-%struct.I4 = type { i32, i32, i32, i32 }
 %struct.VN = type { <3 x float>, i32 }
 
 ; Function Attrs: nofree nosync nounwind memory(argmem: write)
-define void @_unexported_count_up(ptr noalias nocapture noundef nonnull writeonly sret(%struct.F4) align 4 %_sret, %struct.F4 noundef %acc, i32 noundef %n) local_unnamed_addr #0 {
+define internal fastcc void @_unexported_count_up(ptr noalias nocapture noundef nonnull writeonly align 4 %_sret, %struct.F4 noundef %acc, i32 noundef %n) unnamed_addr #0 {
 _unexported_count_up_entry:
   %_ret = alloca %struct.F4, align 16
   %0 = icmp eq i32 %n, 0
@@ -41,74 +38,13 @@ next_bb:                                          ; preds = %_unexported_count_u
   %10 = insertvalue %struct.F4 %9, float %acc.c, 2
   %11 = insertvalue %struct.F4 %10, float %acc.d, 3
   %12 = add i32 %n, -1
-  call void @_unexported_count_up(ptr sret(%struct.F4) %_ret, %struct.F4 %11, i32 %12)
+  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %11, i32 %12)
   %13 = load <4 x float>, ptr %_ret, align 16
   br label %common.ret
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.F2 @_unexported_make_f2(float noundef %x) local_unnamed_addr #1 {
-_unexported_make_f2_entry:
-  %0 = fmul float %x, 2.000000e+00
-  %1 = insertvalue %struct.F2 undef, float %x, 0
-  %2 = insertvalue %struct.F2 %1, float %0, 1
-  ret %struct.F2 %2
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @_unexported_make_f4(ptr noalias nocapture noundef nonnull writeonly sret(%struct.F4) align 4 %_sret, float noundef %x) local_unnamed_addr #2 {
-_unexported_make_f4_entry:
-  %0 = insertelement <2 x float> poison, float %x, i64 0
-  %1 = shufflevector <2 x float> %0, <2 x float> poison, <2 x i32> zeroinitializer
-  %2 = fmul <2 x float> %1, <float 2.000000e+00, float 3.000000e+00>
-  %3 = fmul float %x, 4.000000e+00
-  store float %x, ptr %_sret, align 4
-  %_sret.repack1 = getelementptr inbounds i8, ptr %_sret, i64 4
-  store <2 x float> %2, ptr %_sret.repack1, align 4
-  %_sret.repack5 = getelementptr inbounds i8, ptr %_sret, i64 12
-  store float %3, ptr %_sret.repack5, align 4
-  ret void
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.I3 @_unexported_make_i3(i32 noundef %x) local_unnamed_addr #1 {
-_unexported_make_i3_entry:
-  %0 = add i32 %x, 1
-  %1 = add i32 %x, 2
-  %2 = insertvalue %struct.I3 undef, i32 %x, 0
-  %3 = insertvalue %struct.I3 %2, i32 %0, 1
-  %4 = insertvalue %struct.I3 %3, i32 %1, 2
-  ret %struct.I3 %4
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @_unexported_make_i4(ptr noalias nocapture noundef nonnull writeonly sret(%struct.I4) align 4 %_sret, i32 noundef %x) local_unnamed_addr #2 {
-_unexported_make_i4_entry:
-  %0 = add i32 %x, 1
-  %1 = add i32 %x, 2
-  %2 = add i32 %x, 3
-  store i32 %x, ptr %_sret, align 4
-  %_sret.repack1 = getelementptr inbounds i8, ptr %_sret, i64 4
-  store i32 %0, ptr %_sret.repack1, align 4
-  %_sret.repack3 = getelementptr inbounds i8, ptr %_sret, i64 8
-  store i32 %1, ptr %_sret.repack3, align 4
-  %_sret.repack5 = getelementptr inbounds i8, ptr %_sret, i64 12
-  store i32 %2, ptr %_sret.repack5, align 4
-  ret void
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.VN @_unexported_make_vn(float noundef %x, i32 noundef %n) local_unnamed_addr #1 {
-_unexported_make_vn_entry:
-  %0 = insertelement <3 x float> poison, float %x, i64 0
-  %1 = shufflevector <3 x float> %0, <3 x float> poison, <3 x i32> zeroinitializer
-  %2 = insertvalue %struct.VN undef, <3 x float> %1, 0
-  %3 = insertvalue %struct.VN %2, i32 %n, 1
-  ret %struct.VN %3
-}
-
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
-define void @count_up(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %acc, i32 noundef %n) local_unnamed_addr #3 {
+define void @count_up(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %acc, i32 noundef %n) local_unnamed_addr #1 {
 count_up_entry:
   %_ret = alloca %struct.F4, align 8
   %0 = icmp eq i32 %n, 0
@@ -146,7 +82,7 @@ next_bb:                                          ; preds = %count_up_entry
   %11 = insertvalue %struct.F4 %10, float %deref_temp1.unpack8, 2
   %12 = insertvalue %struct.F4 %11, float %deref_temp1.unpack10, 3
   %13 = add i32 %n, -1
-  call void @_unexported_count_up(ptr sret(%struct.F4) %_ret, %struct.F4 %12, i32 %13)
+  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %12, i32 %13)
   %.fca.1.gep = getelementptr inbounds i8, ptr %_ret, i64 4
   %14 = load <2 x float>, ptr %.fca.1.gep, align 4
   br label %common.ret
@@ -218,7 +154,7 @@ make_vn_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef float @sum_f4(float noundef %x) local_unnamed_addr #1 {
+define noundef float @sum_f4(float noundef %x) local_unnamed_addr #3 {
 sum_f4_entry:
   %0 = fmul float %x, 2.000000e+00
   %1 = fmul float %x, 3.000000e+00
@@ -230,7 +166,7 @@ sum_f4_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @sum_i4(i32 noundef %x) local_unnamed_addr #1 {
+define noundef i32 @sum_i4(i32 noundef %x) local_unnamed_addr #3 {
 sum_i4_entry:
   %0 = shl i32 %x, 2
   %1 = add i32 %0, 6
@@ -238,6 +174,6 @@ sum_i4_entry:
 }
 
 attributes #0 = { nofree nosync nounwind memory(argmem: write) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none) }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-attributes #3 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none) }
+attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

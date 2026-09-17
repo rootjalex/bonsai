@@ -383,45 +383,41 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     llvm::FunctionType *ftype =
         llvm::FunctionType::get(ret_type, arg_types, /*isVarArg=*/false);
 
-    // TODO(ajr): a function the program does not export cannot be called from
-    // outside this module, and giving it internal linkage lets LLVM fold it
-    // into its only caller and delete it -- on the tree query in
-    // tests/bonsai/backends/llvm/tree-traversal.bonsai that is 35 functions
-    // and 1650 lines of IR down to 4 and 580, either way it is compiled. But
-    // it also lets LLVM inline a loopified traversal, stack and all, into a
-    // recursive caller, and the SSA pipeline does not survive that: rtiow goes
-    // from 4004ms to 7695ms, because that path materializes struct temporaries
-    // into allocas (the `@N = alloca %struct.Ray` in its output) which are
-    // already costing it loads and which the extra register pressure then
-    // makes much worse. Worth turning on once those are gone.
-    // TODO(ajr): a function the program does not export cannot be called from
-    // outside this module, and giving it internal linkage lets LLVM fold it
-    // into its only caller and delete it -- on the tree query in
-    // tests/bonsai/backends/llvm/tree-traversal.bonsai that is 35 functions
-    // and 1650 lines of IR down to 4 and 580, either way it is compiled.
+    // A function the program does not export cannot be called from outside
+    // this module, so it has internal linkage, as every non-exported function
+    // of an ispc module does. That is what lets LLVM fold it into its callers
+    // and delete it: with external linkage it has to keep a standalone copy
+    // for a caller that cannot exist, and inlining while still paying for the
+    // original is a trade its cost model declines for anything but the
+    // smallest functions. The render's gang functions -- a sampler dimension,
+    // a radical inverse, a BSDF -- were all staying out of line that way,
+    // and a third of a small one's time was its prologue, epilogue and the
+    // spills around the call. Exported functions and kernels are looked up by
+    // name from outside and stay external, and so does `main`, which the JIT
+    // looks up to run a program (see JIT.cpp). (A function marked `imported`
+    // was parsed from an imported file; it is defined in this module like
+    // any other and is internal like any other.)
     //
-    // What stops it is that LLVM then inlines a loopified traversal into a
-    // caller that is itself recursive, and a loopified traversal owns a
-    // fixed-size stack: rtiow ends up with the `[64 x i16]` inside `sample`,
-    // which recurses once per bounce, and goes from 3983ms to 7542ms. The
-    // inliner does not charge for an alloca it duplicates down a recursion.
-    // Loopifying the recursive caller as well avoids it, but that is the
-    // schedule's choice to make, not something to assume here.
-    // A function asked to be inlined can only actually be folded into its
-    // caller and dropped if nothing outside this module might call it, so it
-    // needs internal linkage to go with the request -- otherwise LLVM has to
-    // keep a standalone copy for a caller that cannot exist, and inlining
-    // while still paying for the original is a trade it declines. Exported
-    // functions and kernels are looked up by name from outside and stay put.
-    const bool fold_into_callers =
-        func.is_always_inlined() && !func.is_exported() && !func.is_kernel();
+    // This once slowed the rtiow app, whose recursive `sample` then had a
+    // loopified traversal's fixed-size stack inlined into it once per bounce;
+    // pbrt's recursions are all loopified by its schedule, and it is the
+    // program the generated code is measured on.
+    const bool internal =
+        !func.is_exported() && !func.is_kernel() && func.name != "main";
     llvm::Function *fn = llvm::Function::Create(
         ftype,
-        fold_into_callers ? llvm::GlobalValue::InternalLinkage
-                          : llvm::GlobalValue::ExternalLinkage,
+        internal ? llvm::GlobalValue::InternalLinkage
+                 : llvm::GlobalValue::ExternalLinkage,
         func.name, module.get());
-    if (fold_into_callers) {
+    // A function asked to be inlined is folded into every caller; internal
+    // linkage is what lets the original then be dropped. One asked not to be
+    // stays a call, which with internal linkage it would otherwise not: the
+    // inliner folds an internal function into its only caller for free.
+    if (internal && func.is_always_inlined()) {
         fn->addFnAttr(llvm::Attribute::AlwaysInline);
+    }
+    if (func.is_noinline()) {
+        fn->addFnAttr(llvm::Attribute::NoInline);
     }
 
     if (sret) {

@@ -152,16 +152,24 @@ void split_functions_with_rand(FuncMap &funcs) {
     }
 }
 
+// Passes the random state to every call of a function in `funcs_call_rand`,
+// except one in `sets_up_own`: a function that makes its own state -- main,
+// a kernel, an exported function, which may be entered from outside with no
+// state to hand it -- takes no state parameter, so a call to it from inside
+// the module (its own recursion, say) must not pass one.
 Stmt insert_rand_state(const Stmt &stmt,
-                       const std::set<std::string> &funcs_call_rand) {
+                       const std::set<std::string> &funcs_call_rand,
+                       const std::set<std::string> &sets_up_own) {
     // Purposefully does not look through Launch()!
     // RNG state is thread-specific.
     struct CallsRandFinder : public Mutator {
         bool found = false;
         const std::set<std::string> &funcs_call_rand;
+        const std::set<std::string> &sets_up_own;
 
-        CallsRandFinder(const std::set<std::string> &funcs_call_rand)
-            : funcs_call_rand(funcs_call_rand) {}
+        CallsRandFinder(const std::set<std::string> &funcs_call_rand,
+                        const std::set<std::string> &sets_up_own)
+            : funcs_call_rand(funcs_call_rand), sets_up_own(sets_up_own) {}
 
         std::pair<std::vector<Expr>, bool>
         visit_list(const std::vector<Expr> &args) {
@@ -184,7 +192,8 @@ Stmt insert_rand_state(const Stmt &stmt,
         CallSig handle(const Expr &func, const std::vector<Expr> args) {
             auto [new_args, not_changed] = visit_list(args);
             if (const Var *var = func.as<Var>()) {
-                if (funcs_call_rand.contains(var->name)) {
+                if (funcs_call_rand.contains(var->name) &&
+                    !sets_up_own.contains(var->name)) {
                     new_args.push_back(rng_state_var);
                     const Function_t *func_t = var->type.as<Function_t>();
                     internal_assert(func_t);
@@ -246,7 +255,7 @@ Stmt insert_rand_state(const Stmt &stmt,
                                       std::move(keys));
         }
     };
-    CallsRandFinder finder(funcs_call_rand);
+    CallsRandFinder finder(funcs_call_rand, sets_up_own);
     return finder.mutate(stmt);
 }
 
@@ -296,12 +305,16 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
             if (!func->is_kernel()) {
                 continue;
             }
-            func->body = insert_rand_state(std::move(func->body), call_rand);
+            // Kernels are not in `call_rand` (see above), so no call passes
+            // one a state.
+            func->body = insert_rand_state(std::move(func->body), call_rand,
+                                           /*sets_up_own=*/{});
         }
         // Insert the random state.
         for (const std::string &name : call_rand) {
             auto &func = funcs[name];
-            func->body = insert_rand_state(func->body, call_rand);
+            func->body =
+                insert_rand_state(func->body, call_rand, /*sets_up_own=*/{});
             func->args.emplace_back(rng_state_name, Rand_State_t::make(),
                                     /*default_value=*/Expr(),
                                     /*mutating=*/true);
@@ -334,12 +347,21 @@ FuncMap LowerRandom::run(FuncMap funcs, const CompilerOptions &options) const {
             }
             new_size = call_rand.size();
         } while (new_size != old_size);
+        // Parallel functions, and those entered from outside, must set up
+        // their own random state: they take no state parameter, and a call
+        // to one from inside the module -- an exported function's recursion
+        // -- passes none.
+        std::set<std::string> sets_up_own;
+        for (const auto &fname : call_rand) {
+            if (fname == "main" || funcs[fname]->is_kernel() ||
+                funcs[fname]->is_exported()) {
+                sets_up_own.insert(fname);
+            }
+        }
         for (const auto &fname : call_rand) {
             funcs[fname]->body =
-                insert_rand_state(funcs[fname]->body, call_rand);
-            // Parallel functions must set up their own random state.
-            if (!(fname == "main" || funcs[fname]->is_kernel() ||
-                  funcs[fname]->is_exported())) {
+                insert_rand_state(funcs[fname]->body, call_rand, sets_up_own);
+            if (!sets_up_own.contains(fname)) {
                 funcs[fname]->args.emplace_back(rng_state_name,
                                                 Rand_State_t::make(),
                                                 /*default_value=*/Expr(),

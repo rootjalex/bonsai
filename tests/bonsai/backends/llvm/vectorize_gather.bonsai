@@ -9,14 +9,14 @@
 // The point of diffing the IR is that a wrong lowering here still computes
 // plausible values: only the shape of the memory operations shows whether the
 // addresses really went per-lane.
-func reorder(a : array[f32, 8], idx : array[i32, 8], out : mut array[f32, 8]) {
+func [[export]]reorder(a : array[f32, 8], idx : array[i32, 8], out : mut array[f32, 8]) {
   parfor i in 0:8 {
     out[i] = a[idx[i]];
   }
   return;
 }
 
-func double_evens(a : array[f32, 16], out : mut array[f32, 16]) {
+func [[export]]double_evens(a : array[f32, 16], out : mut array[f32, 16]) {
   parfor i in 0:16:2 {
     out[i] = a[i] * 2.0;
   }

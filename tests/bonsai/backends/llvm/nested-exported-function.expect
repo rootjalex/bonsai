@@ -1,8 +1,6 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.X = type { i32 }
-
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @A(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
 A_entry:
@@ -35,29 +33,4 @@ D_entry:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef %struct.X @_unexported_A(%struct.X noundef returned %x) local_unnamed_addr #1 {
-_unexported_A_entry:
-  ret %struct.X %x
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef %struct.X @_unexported_B(%struct.X noundef returned %x) local_unnamed_addr #1 {
-_unexported_B_entry:
-  ret %struct.X %x
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef %struct.X @_unexported_C(%struct.X noundef returned %x) local_unnamed_addr #1 {
-_unexported_C_entry:
-  ret %struct.X %x
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef %struct.X @_unexported_D(%struct.X noundef returned %x) local_unnamed_addr #1 {
-_unexported_D_entry:
-  ret %struct.X %x
-}
-
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

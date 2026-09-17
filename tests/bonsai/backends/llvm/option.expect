@@ -3,41 +3,46 @@ source_filename = "bonsai_module"
 
 %struct._option0 = type { i32, i1 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct._option0 @make_option0(i32 noundef %i) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @make_option0(ptr nocapture noundef nonnull writeonly %_ret0, i32 noundef %i) local_unnamed_addr #0 {
 make_option0_entry:
   %0 = insertvalue %struct._option0 undef, i32 %i, 0
   %1 = insertvalue %struct._option0 %0, i1 true, 1
-  ret %struct._option0 %1
+  store %struct._option0 %1, ptr %_ret0, align 4
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct._option0 @make_option1(i32 noundef %i) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @make_option1(ptr nocapture noundef nonnull writeonly %_ret1, i32 noundef %i) local_unnamed_addr #0 {
 make_option1_entry:
   %0 = icmp sgt i32 %i, 0
   %1 = insertvalue %struct._option0 undef, i32 %i, 0
   %2 = insertvalue %struct._option0 %1, i1 true, 1
-  %common.ret.op = select i1 %0, %struct._option0 %2, %struct._option0 zeroinitializer
-  ret %struct._option0 %common.ret.op
+  %storemerge = select i1 %0, %struct._option0 %2, %struct._option0 zeroinitializer
+  store %struct._option0 %storemerge, ptr %_ret1, align 4
+  ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @use_option(%struct._option0 noundef %i) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define i32 @use_option(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
 use_option_entry:
-  %i.set = extractvalue %struct._option0 %i, 1
-  %i.value = extractvalue %struct._option0 %i, 0
-  %common.ret.op = select i1 %i.set, i32 %i.value, i32 0
-  ret i32 %common.ret.op
+  %deref_temp = load %struct._option0, ptr %i, align 4
+  %set = extractvalue %struct._option0 %deref_temp, 1
+  %value = extractvalue %struct._option0 %deref_temp, 0
+  %spec.select = select i1 %set, i32 %value, i32 0
+  ret i32 %spec.select
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @use_option1(%struct._option0 noundef %i) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+define i32 @use_option1(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
 use_option1_entry:
-  %i.set = extractvalue %struct._option0 %i, 1
-  %i.value = extractvalue %struct._option0 %i, 0
-  %0 = add i32 %i.value, 10
-  %common.ret.op = select i1 %i.set, i32 %0, i32 0
+  %deref_temp = load %struct._option0, ptr %i, align 4
+  %set = extractvalue %struct._option0 %deref_temp, 1
+  %value = extractvalue %struct._option0 %deref_temp, 0
+  %0 = add i32 %value, 10
+  %common.ret.op = select i1 %set, i32 %0, i32 0
   ret i32 %common.ret.op
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }

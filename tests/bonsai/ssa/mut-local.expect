@@ -1,8 +1,6 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.Pair = type { float, float }
-
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @clamp_low(float noundef %x, float noundef %lo) local_unnamed_addr #0 {
 clamp_low_entry:
@@ -20,14 +18,14 @@ running_total_entry:
   ret float %1
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Pair @swap_fields(%struct.Pair noundef %p) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @swap_fields(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %p) local_unnamed_addr #1 {
 swap_fields_entry:
-  %p.b = extractvalue %struct.Pair %p, 1
-  %p.a = extractvalue %struct.Pair %p, 0
-  %deref_temp.fca.0.insert = insertvalue %struct.Pair poison, float %p.b, 0
-  %deref_temp.fca.1.insert = insertvalue %struct.Pair %deref_temp.fca.0.insert, float %p.a, 1
-  ret %struct.Pair %deref_temp.fca.1.insert
+  %0 = load <2 x float>, ptr %p, align 4
+  %1 = shufflevector <2 x float> %0, <2 x float> poison, <2 x i32> <i32 1, i32 0>
+  store <2 x float> %1, ptr %_ret0, align 4
+  ret void
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

@@ -1,12 +1,13 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.MyPackedStruct = type <{ i32, i8 }>
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.MyPackedStruct @build_struct() local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+define void @build_struct(ptr nocapture noundef nonnull writeonly %_ret0) local_unnamed_addr #0 {
 build_struct_entry:
-  ret %struct.MyPackedStruct zeroinitializer
+  store i32 0, ptr %_ret0, align 1
+  %_ret0.repack1 = getelementptr inbounds i8, ptr %_ret0, i64 4
+  store i8 0, ptr %_ret0.repack1, align 1
+  ret void
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }

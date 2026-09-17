@@ -22,14 +22,14 @@
 // which is what apps/pbrt's gangs get; that output depends on the machine
 // and is not what a golden can hold. Getting either wrong is not a miscompile
 // that shows up as a wrong number; it is one that fails to build.
-func scalar_atanh(x : f32) -> f32 = atanh(x);
-func scalar_cosh(x : f32) -> f32 = cosh(x);
+func [[export]]scalar_atanh(x : f32) -> f32 = atanh(x);
+func [[export]]scalar_cosh(x : f32) -> f32 = cosh(x);
 // It is what AngleBetween in the mesh-light sampling rests on.
-func scalar_asin(x : f32) -> f32 = asin(x);
+func [[export]]scalar_asin(x : f32) -> f32 = asin(x);
 
-func vector_atanh(v : vector[f32, 4]) -> vector[f32, 4] = atanh(v);
-func vector_cosh(v : vector[f32, 4]) -> vector[f32, 4] = cosh(v);
-func vector_asin(v : vector[f32, 4]) -> vector[f32, 4] = asin(v);
+func [[export]]vector_atanh(v : vector[f32, 4]) -> vector[f32, 4] = atanh(v);
+func [[export]]vector_cosh(v : vector[f32, 4]) -> vector[f32, 4] = cosh(v);
+func [[export]]vector_asin(v : vector[f32, 4]) -> vector[f32, 4] = asin(v);
 
 // Double precision goes to the unsuffixed entry point, as C's overloads do.
-func double_atanh(x : f64) -> f64 = atanh(x);
+func [[export]]double_atanh(x : f64) -> f64 = atanh(x);

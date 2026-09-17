@@ -5,7 +5,7 @@
 // uniform `scale` alongside the widened <8 x float> load/fmul/store. See
 // correctness/cpp/vectorize_scale.bonsai for the runtime-correctness
 // counterpart of this same program.
-func scale_all(a : array[f32, 8], scale : f32, out : mut array[f32, 8]) {
+func [[export]]scale_all(a : array[f32, 8], scale : f32, out : mut array[f32, 8]) {
   parfor i in 0:8 {
     out[i] = a[i] * scale;
   }

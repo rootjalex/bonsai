@@ -1,5 +1,5 @@
 //! flags: -b llvm
 
-func id1(x: bf16) -> bf16 { return x; }
+func [[export]]id1(x: bf16) -> bf16 { return x; }
 // This should also lower to bfloat16 (e8m7).
-func id2(x: f8_7) -> f8_7 { return x; }
+func [[export]]id2(x: f8_7) -> f8_7 { return x; }

@@ -8,7 +8,7 @@
 // per-lane rather than branched on. A lowering that kept a per-lane branch,
 // or that updated the live mask a step early, still computes numbers that
 // look reasonable; only the instructions show which.
-func sum_to(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+func [[export]]sum_to(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
   if (n <= 0) {
     out[i] = acc;
     return;
@@ -17,7 +17,7 @@ func sum_to(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
   return;
 }
 
-func triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+func [[export]]triangles(n : array[i32, 8], out : mut array[i32, 8]) {
   parfor i in 0:8 {
     sum_to(n[i], 0, out, i);
   }

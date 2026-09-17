@@ -20,24 +20,8 @@ void add(Position& _ret0, const Position& i, const Position& j);
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.Position = type { i32, i32 }
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Position @_unexported_add(%struct.Position noundef %i, %struct.Position noundef %j) local_unnamed_addr #0 {
-_unexported_add_entry:
-  %i.x = extractvalue %struct.Position %i, 0
-  %j.x = extractvalue %struct.Position %j, 0
-  %0 = add i32 %j.x, %i.x
-  %i.y = extractvalue %struct.Position %i, 1
-  %j.y = extractvalue %struct.Position %j, 1
-  %1 = add i32 %j.y, %i.y
-  %2 = insertvalue %struct.Position undef, i32 %0, 0
-  %3 = insertvalue %struct.Position %2, i32 %1, 1
-  ret %struct.Position %3
-}
-
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @add(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #1 {
+define void @add(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
 add_entry:
   %0 = load <2 x i32>, ptr %i, align 4
   %1 = load <2 x i32>, ptr %j, align 4
@@ -46,5 +30,4 @@ add_entry:
   ret void
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

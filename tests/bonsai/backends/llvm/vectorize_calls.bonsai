@@ -1,23 +1,24 @@
 //! flags: -p ssa -b llvm
 
-// Golden for the signatures a gang's calls are compiled to.
+// Golden for the code a gang's calls are compiled to.
 //
-// `scale` should appear three times: the original scalar function, a variant
-// taking <8 x float>, and a masked variant taking a further <8 x i1>. Only
-// the last one is predicated -- and it is generated only because there is a
-// call site inside folded control flow.
-//
-// The callee's varying parameters become vectors while `k` stays a scalar,
-// which is the difference that makes uniform arguments worth tracking: a
-// scalar multiply against a broadcast is cheaper than passing eight copies.
-func scale(x : f32, k : f32) -> f32 = x * k;
+// The vectorizer makes three of `scale`: the original scalar function, a
+// variant taking <8 x float>, and a masked variant taking a further <8 x i1>,
+// the last generated only because there is a call site inside folded control
+// flow. The two variants are internal to the module and small, so LLVM folds
+// them into `both_ways` and drops them: what the golden shows is the exported
+// scalar `scale` and, inside `both_ways`, the vector multiply by the splat of
+// `k` -- the callee's varying parameter became a vector while `k` stayed a
+// scalar, which is the difference that makes uniform arguments worth
+// tracking -- and the multiply by a hundred selected under the mask.
+func [[export]] scale(x : f32, k : f32) -> f32 = x * k;
 
-func store_to(out : mut array[f32, 8], i : i32, v : f32) -> void {
+func [[export]] store_to(out : mut array[f32, 8], i : i32, v : f32) -> void {
   out[i] = v;
   return;
 }
 
-func both_ways(a : array[f32, 8], k : f32, out : mut array[f32, 8]) {
+func [[export]] both_ways(a : array[f32, 8], k : f32, out : mut array[f32, 8]) {
   parfor i in 0:8 {
     out[i] = scale(a[i], k);
     if (a[i] > 0.0) {
@@ -28,8 +29,9 @@ func both_ways(a : array[f32, 8], k : f32, out : mut array[f32, 8]) {
 }
 
 // The masked variant of a callee that stores: its store has to be predicated
-// by the mask it was handed, not by anything it computed itself.
-func conditional_store(a : array[f32, 8], out : mut array[f32, 8]) {
+// by the mask it was handed, not by anything it computed itself. Folded into
+// `conditional_store`, that is the masked store under the compare's mask.
+func [[export]] conditional_store(a : array[f32, 8], out : mut array[f32, 8]) {
   parfor i in 0:8 {
     if (a[i] > 0.0) {
       store_to(out, i, a[i] * 100.0);

@@ -19,6 +19,7 @@ add_bonsai_tests(
     exported-function.bonsai
     exp-log.bonsai
     exported-recursive-function.bonsai
+    exported-recursive-rand.bonsai
     extrema.bonsai
     field-store-ssa.bonsai
     float-self-subtract.bonsai

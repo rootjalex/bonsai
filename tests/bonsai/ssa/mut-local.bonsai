@@ -14,7 +14,7 @@
 //
 // The generated IR should carry no alloca at all: LLVM's own mem2reg turns
 // these into registers, so what comes out is the arithmetic.
-func running_total(a : f32, b : f32) -> f32 {
+func [[export]]running_total(a : f32, b : f32) -> f32 {
     t : mut = a;
     t += b;
     t *= 2.0;
@@ -23,7 +23,7 @@ func running_total(a : f32, b : f32) -> f32 {
 
 // A mutable local assigned in both arms of a branch, which is the shape that
 // needs a real phi rather than a straight-line store.
-func clamp_low(x : f32, lo : f32) -> f32 {
+func [[export]]clamp_low(x : f32, lo : f32) -> f32 {
     y : mut = x;
     if (x < lo) {
         y = lo;
@@ -39,7 +39,7 @@ element Pair {
     b : f32;
 }
 
-func swap_fields(p : Pair) -> Pair {
+func [[export]]swap_fields(p : Pair) -> Pair {
     q : mut Pair = {p.b, p.a};
     return q;
 }

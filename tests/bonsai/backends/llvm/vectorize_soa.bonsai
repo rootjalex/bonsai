@@ -10,7 +10,7 @@
 // produce plausible floats at run time, so only the addresses tell.
 element vec3f = vector[f32, 3];
 
-func sum_components(inp : array[vec3f, 8], out : mut array[f32, 8]) {
+func [[export]]sum_components(inp : array[vec3f, 8], out : mut array[f32, 8]) {
   parfor i in 0:8 {
     v = inp[i];
     out[i] = v.x + v.y + v.z;

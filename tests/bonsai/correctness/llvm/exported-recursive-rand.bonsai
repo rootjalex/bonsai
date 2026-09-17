@@ -1,0 +1,29 @@
+//! flags: -b llvm -e
+
+// An exported function that recurses and draws random numbers.
+//
+// A function that uses rand() is handed the random state as an extra
+// argument by Lower/Random.cpp -- except one entered from outside the
+// module, main, a kernel or an exported function, which sets the state up
+// itself and takes no such argument. The pass used to add the argument to
+// every call of a rand-using function all the same, so an exported function
+// calling itself passed one argument more than it takes, and LLVM refused
+// the call ("Calling a function with bad signature"). backends/llvm/tail-call
+// is the golden for the shape; this runs it.
+func [[export]] walk(x : f32, depth : i32) -> f32 {
+    if depth <= 0 {
+        return x;
+    }
+    return walk(x + rand(), depth - 1);
+}
+
+func main() -> i32 {
+    // Three draws in [0, 1): the sum lies in [0, 3) whatever they are.
+    r : f32 = walk(0.0, 3);
+    if r >= 0.0 && r < 3.0 {
+        print(1);
+    } else {
+        print(0);
+    }
+    return 0;
+}

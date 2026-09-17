@@ -22,7 +22,7 @@ func [[noinline]] advance(r : mut Ray, t : f32) -> void {
     return;
 }
 
-func flip_negative(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+func [[export]] flip_negative(a : array[f32, 8], out : mut array[f32, 8]) -> void {
     parfor i in 0:8 {
         d = vec3f{a[i], a[i] * 2.0, a[i] * 3.0};
         r : mut Ray = {d, d, 1.0};

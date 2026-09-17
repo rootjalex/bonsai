@@ -5,4 +5,4 @@ element [[packed]] MyPackedStruct {
     f: i8;
 }
 
-func build_struct() = MyPackedStruct{};
+func [[export]]build_struct() = MyPackedStruct{};

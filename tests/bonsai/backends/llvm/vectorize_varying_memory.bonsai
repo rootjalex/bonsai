@@ -24,7 +24,7 @@ func [[noinline]] bump(t : mut Tally, x : f32) -> void {
     return;
 }
 
-func tally_some(a : array[f32, 8], out : mut array[f32, 8]) -> void {
+func [[export]] tally_some(a : array[f32, 8], out : mut array[f32, 8]) -> void {
     parfor i in 0:8 {
         t : mut Tally = {1.0, 0};
         if (a[i] > 0.0) {

@@ -14,7 +14,7 @@
 // RESTRICT_VISITOR, so a parfor could not be compiled at all without a
 // schedule to remove it first -- there was no sequential fallback.
 // A constant trip count, which LLVM unrolls away.
-func add_one(a : array[f32, 8], out : mut array[f32, 8]) {
+func [[export]]add_one(a : array[f32, 8], out : mut array[f32, 8]) {
   parfor i in 0:8 {
     out[i] = a[i] + 1.0;
   }
@@ -24,7 +24,7 @@ func add_one(a : array[f32, 8], out : mut array[f32, 8]) {
 // A trip count only known at run time, so the loop survives to the golden and
 // what codegen_counted_loop emits -- the guard on the entry, the index phi,
 // the increment and the exit test -- is actually pinned by this test.
-func scale(n : i32, a : array[f32, n], out : mut array[f32, n]) {
+func [[export]]scale(n : i32, a : array[f32, n], out : mut array[f32, n]) {
   parfor i in 0:n {
     out[i] = a[i] * 3.0;
   }

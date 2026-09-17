@@ -1,34 +1,10 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.Position = type { i32, i32, i32, float }
-
 @0 = private unnamed_addr constant [46 x i8] c"Position {\0A  x: %d\0A  y: %d\0A  z: %d\0A  c: %f\0A}\0A\00", align 1
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define %struct.Position @_unexported_foo(%struct.Position noundef %i, %struct.Position noundef %j) local_unnamed_addr #0 {
-_unexported_foo_entry:
-  %i.x = extractvalue %struct.Position %i, 0
-  %j.x = extractvalue %struct.Position %j, 0
-  %0 = add i32 %j.x, %i.x
-  %i.y = extractvalue %struct.Position %i, 1
-  %j.y = extractvalue %struct.Position %j, 1
-  %1 = add i32 %j.y, %i.y
-  %i.z = extractvalue %struct.Position %i, 2
-  %j.z = extractvalue %struct.Position %j, 2
-  %2 = add i32 %j.z, %i.z
-  %i.c = extractvalue %struct.Position %i, 3
-  %j.c = extractvalue %struct.Position %j, 3
-  %3 = fadd float %i.c, %j.c
-  %4 = insertvalue %struct.Position undef, i32 %0, 0
-  %5 = insertvalue %struct.Position %4, i32 %1, 1
-  %6 = insertvalue %struct.Position %5, i32 %2, 2
-  %7 = insertvalue %struct.Position %6, float %3, 3
-  ret %struct.Position %7
-}
-
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @foo(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #1 {
+define void @foo(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
 foo_entry:
   %deref_temp.elt14 = getelementptr inbounds i8, ptr %i, i64 8
   %deref_temp.unpack15 = load i32, ptr %deref_temp.elt14, align 4
@@ -52,15 +28,14 @@ foo_entry:
 }
 
 ; Function Attrs: nofree nounwind
-define noundef i32 @main() local_unnamed_addr #2 {
+define noundef i32 @main() local_unnamed_addr #1 {
 main_entry:
   %0 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 11, i32 22, i32 33, double 4.200000e+01)
   ret i32 0
 }
 
 ; Function Attrs: nofree nounwind
-declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #2
+declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #1
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #2 = { nofree nounwind }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #1 = { nofree nounwind }
