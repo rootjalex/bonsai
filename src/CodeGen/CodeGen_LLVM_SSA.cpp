@@ -122,14 +122,9 @@ struct CodeGen_LLVM::SSALowering {
                     << "FieldPtr index " << idx << " past the end of "
                     << pointee;
                 field = s->fields[idx].name;
-            } else if (const Union_t *u = pointee.as<Union_t>()) {
-                internal_assert(idx < u->members.size())
-                    << "FieldPtr index " << idx << " past the end of "
-                    << pointee;
-                field = u->members[idx].name;
             } else {
                 internal_error << "the address of a field of " << pointee
-                               << ", which is neither a struct nor a union";
+                               << ", which is not a struct";
             }
             return PtrTo::make(Access::make(field, Deref::make(base)));
         }
@@ -310,38 +305,8 @@ struct CodeGen_LLVM::SSALowering {
             return Access::make(struct_t->fields[*idx].name,
                                 std::move(args[0]));
         }
-        case Instruction::Op::LoadMember: {
-            // A member of a union, or of every lane's union at once (see
-            // Instruction::Op::LoadMember); the type is the instruction's,
-            // since the widened form's is not one Access::make can infer.
-            internal_assert(n == 2)
-                << "load_member takes a union and a member index";
-            const Union_t *union_t = union_behind(args[0].type());
-            internal_assert(union_t)
-                << "load_member of a non-union " << args[0].type() << " in "
-                << instr.name;
-            const auto idx = get_constant_value<uint64_t>(args[1]);
-            internal_assert(idx.has_value() && *idx < union_t->members.size())
-                << "load_member of member " << args[1] << " of "
-                << args[0].type();
-            return Access::make(union_t->members[*idx].name,
-                                std::move(args[0]), instr.type);
-        }
         case Instruction::Op::MakeStruct:
             return Build::make(instr.type, std::move(args));
-        case Instruction::Op::MakeUnion: {
-            internal_assert(n == 2)
-                << "make_union takes a member value and a member index";
-            const Union_t *union_t = union_behind(instr.type);
-            internal_assert(union_t)
-                << "make_union of a non-union " << instr.type << " in "
-                << instr.name;
-            const auto idx = get_constant_value<uint64_t>(args[1]);
-            internal_assert(idx.has_value() && *idx < union_t->members.size())
-                << "make_union of member " << args[1] << " of " << instr.type;
-            return UnionOf::make(instr.type, union_t->members[*idx].name,
-                                 std::move(args[0]));
-        }
         case Instruction::Op::Shuffle:
             return Shuffle::make(std::move(args), instr.shuffle);
         case Instruction::Op::Eps:

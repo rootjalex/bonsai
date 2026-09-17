@@ -134,19 +134,8 @@ struct Instruction {
         Leq,
         Load, // from ptr
         LoadField,
-        // One member of a union, by index: the union's bytes read at that
-        // member's type (ir::Access on a union). Not a LoadField, though it
-        // has the same shape, because on the struct a vectorized union
-        // widens to -- one scalar union per lane, see ir::union_behind --
-        // a field index would name a lane where this names a member of
-        // every lane at once, and the two must not be confused.
-        LoadMember,
         Lt,
         MakeStruct,
-        // A union holding one member, by index, from that member's value
-        // (ir::UnionOf). On the widened form, one union per lane from one
-        // member value per lane.
-        MakeUnion,
         Max,
         Min,
         Mod,

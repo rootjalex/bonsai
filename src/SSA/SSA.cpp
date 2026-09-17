@@ -124,14 +124,10 @@ const char *op_name(Instruction::Op op) {
         return "load";
     case Instruction::Op::LoadField:
         return "load_field";
-    case Instruction::Op::LoadMember:
-        return "load_member";
     case Instruction::Op::Lt:
         return "lt";
     case Instruction::Op::MakeStruct:
         return "make_struct";
-    case Instruction::Op::MakeUnion:
-        return "make_union";
     case Instruction::Op::Max:
         return "max";
     case Instruction::Op::Min:
@@ -212,10 +208,8 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Leq:
     case Instruction::Op::Load:
     case Instruction::Op::LoadField:
-    case Instruction::Op::LoadMember:
     case Instruction::Op::Lt:
     case Instruction::Op::MakeStruct:
-    case Instruction::Op::MakeUnion:
     case Instruction::Op::Max:
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
@@ -297,7 +291,6 @@ void Instruction::dump(std::ostream &os) const {
     if (op == Instruction::Op::Alloc || op == Instruction::Op::Alloca ||
         op == Instruction::Op::Cast || op == Instruction::Op::Eps ||
         op == Instruction::Op::MakeStruct ||
-        op == Instruction::Op::MakeUnion ||
         op == Instruction::Op::Reinterpret) {
         os << "<" << type << ">";
     }
@@ -772,19 +765,6 @@ std::shared_ptr<Value> zero_value(const Type &type, Function &func,
         for (const TypedVar &f : s->fields) {
             parts.push_back(zero_value(f.type, func, into));
         }
-    } else if (const Union_t *u = type.as<Union_t>()) {
-        // A union holding the zero of its first member: as much of a zero as
-        // a union has, and the value a slot of one starts with.
-        internal_assert(!u->members.empty()) << "An empty union: " << type;
-        auto made = std::make_shared<Instruction>(
-            func.get_unique_name(), type, Instruction::Op::MakeUnion,
-            std::vector<std::shared_ptr<Value>>{
-                zero_value(u->members[0].type, func, into),
-                std::make_shared<Value>(
-                    Constant{UInt_t::make(32), uint64_t(0)})},
-            into);
-        into->instrs.push_back(made);
-        return std::make_shared<Value>(std::move(made));
     } else {
         internal_error << "No zero for a value of type " << type;
     }

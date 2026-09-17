@@ -522,7 +522,6 @@ struct IsPureValue : Visitor {
     void visit(const Deref *) override { pure = false; }
     void visit(const PtrTo *) override { pure = false; }
     void visit(const Construct *) override { pure = false; }
-    void visit(const UnionOf *) override { pure = false; }
     void visit(const Unwrap *) override { pure = false; }
     void visit(const VectorReduce *) override { pure = false; }
     void visit(const VectorShuffle *) override { pure = false; }

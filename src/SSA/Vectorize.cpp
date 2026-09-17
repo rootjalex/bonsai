@@ -68,8 +68,8 @@ uint32_t gang_width(const Terminator::ParFor &parfor) {
 
 // The vector form of a value that a lane holds one of is ir::widen (see
 // IR/Type.h), shared with the backends, which have to recognize the shapes it
-// makes: a struct of gang-wide fields, a struct of one gang-wide vector per
-// component of a short vector, and a struct of one scalar union per lane.
+// makes: a struct of gang-wide fields, and a struct of one gang-wide vector
+// per component of a short vector.
 
 // Is `type` what widen() makes of a short vector: a struct of gang-wide
 // vectors, one per component? Reading a component of a per-lane vector is
@@ -218,11 +218,8 @@ vector<size_t> value_operands(const Instruction &instr) {
 
     // Reads one field of a struct: the struct is the per-lane value, and the
     // field named beside it is structural. The result -- that field, one per
-    // lane -- is widened like any other. The same for a member of a union,
-    // and for a union made from a member: the member number is structural.
+    // lane -- is widened like any other.
     case Instruction::Op::LoadField:
-    case Instruction::Op::LoadMember:
-    case Instruction::Op::MakeUnion:
         return {0};
 
     // Every vector shuffled is a value; the indices ride on the instruction.
@@ -502,40 +499,6 @@ shared_ptr<Value> broadcast(Function &func, const shared_ptr<Block> &block,
         auto make = std::make_shared<Instruction>(
             func.get_unique_name(), widen(type, lanes),
             Instruction::Op::MakeStruct, fields, block);
-        sink.push_back(make);
-        return std::make_shared<Value>(make);
-    }
-    // A uniform union meets the gang a word at a time (see widen()): its
-    // bytes read as 32-bit words, each splatted. Which member it holds is
-    // not known here and does not need to be.
-    if (type.is<Union_t>()) {
-        const Type wide = widen(type, lanes);
-        const Struct_t *words_t = wide.as<Struct_t>();
-        const uint32_t words = uint32_t(words_t->fields.size());
-        const Type word = UInt_t::make(32);
-        auto as_words = std::make_shared<Instruction>(
-            func.get_unique_name(),
-            Vector_t::make(word, words, /*packed=*/true),
-            Instruction::Op::Reinterpret, vector<shared_ptr<Value>>{value},
-            block);
-        sink.push_back(as_words);
-        vector<shared_ptr<Value>> splats;
-        splats.reserve(words);
-        for (uint32_t j = 0; j < words; j++) {
-            auto idx = std::make_shared<Value>(
-                Constant{UInt_t::make(32), uint64_t(j)});
-            auto read = std::make_shared<Instruction>(
-                func.get_unique_name(), word, Instruction::Op::ExtractIdx,
-                vector<shared_ptr<Value>>{std::make_shared<Value>(as_words),
-                                          idx},
-                block);
-            sink.push_back(read);
-            splats.push_back(broadcast(
-                func, block, std::make_shared<Value>(read), lanes, sink));
-        }
-        auto make = std::make_shared<Instruction>(
-            func.get_unique_name(), wide, Instruction::Op::MakeStruct,
-            std::move(splats), block);
         sink.push_back(make);
         return std::make_shared<Value>(make);
     }

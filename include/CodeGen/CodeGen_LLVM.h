@@ -116,12 +116,6 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     void declare_struct_types(const std::vector<const ir::Struct_t *> structs);
 
-    /** Give a union the body that stands in for it: the member needing the
-     * strictest alignment, then enough bytes to reach the size of the largest.
-     * Answers false if a member has no size yet, which is how a union reached
-     * while struct bodies are still being built gets left for later. */
-    bool set_union_body(const ir::Union_t *node, llvm::StructType *made);
-
     /** Get a unique name for the actual block of memory that an
      * allocate node uses. Used so that alias analysis understands
      * when multiple Allocate nodes shared the same memory. */
@@ -148,7 +142,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;
-    virtual void visit(const ir::Union_t *) override;
     virtual void visit(const ir::Function_t *) override;
     virtual void visit(const ir::Rand_State_t *) override;
     // These should have been lowered already.
@@ -186,7 +179,6 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Build *) override;
     // LowerADTs turns this into a Build of the storage the layout chose.
     RESTRICT_VISITOR(ir::Construct);
-    virtual void visit(const ir::UnionOf *) override;
     virtual void visit(const ir::Access *) override;
     virtual void visit(const ir::Unwrap *) override;
     // LowerADTs turns this into a branch per variant.
@@ -297,33 +289,30 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *as_vector(llvm::Value *v);
 
     //===------------------------------------------------------------------===//
-    // Unions, word by word
+    // Per-lane aggregates, unit by unit
     //===------------------------------------------------------------------===//
     //
-    // A vectorized union is the union's 32-bit words, each one gang vector
-    // (see ir::widen). A member's field lies at the same offset in every
-    // lane, so reading a member of every lane at once is reading its fields
-    // out of the words -- a bitcast for a word-sized field, a shift for a
-    // narrower one, two words for a wider -- and making every lane's union
-    // from one member value per lane is putting them in. Nothing is
-    // transposed; the shuffle network above is for the per-lane
-    // reinterpretation of one aggregate as another (see the Cast visitor),
-    // which the same unit-wise helpers do at whatever unit divides both.
+    // One aggregate per lane read at another type -- a tree's node, gathered
+    // as a struct of gang-wide fields, read as the struct of the arm its tag
+    // says it is (see the Cast visitor). Per lane it is that lane's bytes at
+    // the other type, so each lane's fields are spread into vectors of
+    // fixed-size units as the source lays them out and gathered back as the
+    // destination does. A field lies at the same offset in every lane, so a
+    // unit-sized field is a bitcast of one unit vector, a narrower one a
+    // shift out of the unit it shares, and a wider one several units
+    // interleaved; the shuffle network above does the interleaving.
 
     // `v`, whose storage is the size of `as`, read as `as`: through a stack
     // slot, which is how a value of one aggregate type is read at another.
     llvm::Value *reinterpret_via_memory(llvm::Value *v, llvm::Type *as);
     // The unit the per-lane reinterpretation of an aggregate works in, in
     // bytes: the largest that divides every field's size and offset.
-    uint64_t union_unit(const ir::Type &member, uint64_t offset,
+    uint64_t common_unit(const ir::Type &member, uint64_t offset,
                         uint64_t so_far);
     // Every lane's `member` value, held gang-wide as `wide` (of type
     // ir::widen(member)), spread into unit vectors at byte offset `offset`:
     // `slots[u]` is the vector of every lane's unit `u`. A field narrower than
-    // a unit is shifted into its place in the unit it shares. With a unit of
-    // four this is how a member goes into a widened union's words (see
-    // ir::widen), and no transpose is involved: a field is a word, or a part
-    // of one, or two.
+    // a unit is shifted into its place in the unit it shares.
     void scatter_units(const ir::Type &member, llvm::Value *wide,
                        uint64_t offset, uint64_t unit,
                        std::vector<llvm::Value *> &slots);
@@ -332,10 +321,6 @@ struct CodeGen_LLVM : public ir::Visitor {
                               uint64_t offset, uint64_t unit,
                               const std::vector<llvm::Value *> &slots,
                               uint32_t lanes);
-    // That the IR's count of a widened union's words (ir::layout_bytes)
-    // agrees with this target's layout of the union.
-    void check_union_words(const ir::Union_t &as_union,
-                           const ir::Struct_t &words);
 
     // The high N bits of the 2N-bit product of two N-bit integers (the mulhi
     // intrinsic), signed or unsigned as `is_signed` says, for a scalar or a
@@ -607,11 +592,6 @@ struct CodeGen_LLVM : public ir::Visitor {
                                         llvm::Value *size = nullptr);
     llvm::Value *materialize_for_address(llvm::Value *pointee,
                                          const std::string &name);
-    // Built on demand rather than up front like the structs, since a union is
-    // named by the type that holds it rather than declared on its own.
-    std::map<std::string, llvm::StructType *> union_types;
-    // The unions reached before their members had a size, waiting for one.
-    std::vector<const ir::Union_t *> pending_unions;
     // One counted loop, shared by every statement that is one: `ForAll`, and
     // a `ParFor` that no schedule placed on any hardware.
     void codegen_counted_loop(const std::string &index,

@@ -154,19 +154,15 @@ bool Type::is_primitive() const {
                         as<Tuple_t>()->etypes.cend(),
                         [](const auto &p) { return p.is_primitive(); })) ||
            // A variant type is plain data when every variant is: what it
-           // becomes is a tag beside a union of them, and neither the tag nor
-           // the union adds anything that needs looking after. The union is
-           // here as well because that lowered form has to stay primitive --
-           // an ADT that could be laid out in a tree before LowerADTs and not
-           // after would be a strange thing to explain.
+           // becomes is a tag beside the words of the arms' fields, and
+           // neither adds anything that needs looking after. That lowered
+           // form is primitive too -- an ADT that could be laid out in a tree
+           // before LowerADTs and not after would be a strange thing to
+           // explain.
            (is<ADT_t>() &&
             std::all_of(as<ADT_t>()->variants.cbegin(),
                         as<ADT_t>()->variants.cend(),
                         [](const auto &v) { return v.is_primitive(); })) ||
-           (is<Union_t>() &&
-            std::all_of(as<Union_t>()->members.cbegin(),
-                        as<Union_t>()->members.cend(),
-                        [](const auto &m) { return m.type.is_primitive(); })) ||
            (is<Array_t>() && as<Array_t>()->etype.is_primitive());
 }
 
@@ -509,34 +505,6 @@ const std::string &ADT_t::variant_name(size_t index) const {
     return variants[index].as<Struct_t>()->name;
 }
 
-Type Union_t::make(std::string name, Map members) {
-    internal_assert(!name.empty()) << "Union_t::make received an unnamed type";
-    internal_assert(!members.empty())
-        << "Union_t::make received no members for " << name
-        << ". A union of nothing has no size to take.";
-    std::set<std::string> seen;
-    for (const TypedVar &member : members) {
-        internal_assert(member.type.defined())
-            << "Member " << member.name << " of union " << name
-            << " has no type";
-        internal_assert(seen.insert(member.name).second)
-            << "Union " << name << " has two members called " << member.name;
-    }
-    Union_t *node = new Union_t;
-    node->name = std::move(name);
-    node->members = std::move(members);
-    return node;
-}
-
-Type Union_t::member(const std::string &name) const {
-    for (const TypedVar &m : members) {
-        if (m.name == name) {
-            return m.type;
-        }
-    }
-    return Type();
-}
-
 std::string component_field(uint32_t k) { return "!" + std::to_string(k); }
 
 uint64_t layout_align(const Type &type) {
@@ -563,13 +531,6 @@ uint64_t layout_align(const Type &type) {
             if (!f.type.is<Ref_t>()) {
                 align = std::max(align, layout_align(f.type));
             }
-        }
-        return align;
-    }
-    if (const Union_t *u = type.as<Union_t>()) {
-        uint64_t align = 1;
-        for (const TypedVar &m : u->members) {
-            align = std::max(align, layout_align(m.type));
         }
         return align;
     }
@@ -604,17 +565,6 @@ uint64_t layout_bytes(const Type &type) {
         const uint64_t align = layout_align(type);
         return (offset + align - 1) / align * align;
     }
-    if (const Union_t *u = type.as<Union_t>()) {
-        // Its largest member, rounded up to the alignment of the most
-        // aligned, so that an array of the union steps from one aligned
-        // value to the next (see set_union_body in CodeGen/CodeGen_LLVM.cpp).
-        uint64_t size = 0;
-        for (const TypedVar &m : u->members) {
-            size = std::max(size, layout_bytes(m.type));
-        }
-        const uint64_t align = layout_align(type);
-        return (size + align - 1) / align * align;
-    }
     internal_error << "[unimplemented] layout_bytes of " << type;
 }
 
@@ -638,21 +588,6 @@ uint64_t layout_offset(const Struct_t &s, size_t index) {
     }
 }
 
-namespace {
-
-// The struct a union widens to, by its name, back to the union (see widen):
-// nothing about the struct itself -- so many words of so many lanes -- says
-// which union, or that it was one.
-std::map<std::string, Type> &widened_unions() {
-    static std::map<std::string, Type> unions;
-    return unions;
-}
-
-// The k-th word of a widened union.
-std::string word_field(uint64_t k) { return "!w" + std::to_string(k); }
-
-} // namespace
-
 Type widen(const Type &type, uint32_t lanes) {
     if (const Struct_t *s = type.as<Struct_t>()) {
         Struct_t::Map fields;
@@ -673,22 +608,6 @@ Type widen(const Type &type, uint32_t lanes) {
         std::ostringstream name;
         name << type << "$v" << lanes;
         return Struct_t::make(name.str(), fields);
-    }
-    if (const Union_t *u = type.as<Union_t>()) {
-        // One gang vector per 32-bit word of the union's storage: word j of
-        // every lane's union, side by side. Every member's field is at its
-        // own offset in every lane, so a field is a word (or a part of one,
-        // or two) of this, whichever member it belongs to.
-        const uint64_t words = (layout_bytes(type) + 3) / 4;
-        Struct_t::Map fields;
-        fields.reserve(words);
-        for (uint64_t j = 0; j < words; j++) {
-            fields.emplace_back(word_field(j),
-                                Vector_t::make(UInt_t::make(32), lanes));
-        }
-        const std::string name = u->name + "$v" + std::to_string(lanes);
-        widened_unions()[name] = type;
-        return Struct_t::make(name, fields);
     }
     return Vector_t::make(type, lanes);
 }
@@ -726,11 +645,6 @@ Type narrow(const Type &type, uint32_t lanes) {
         << "narrow of " << type << ", which widen() did not make for "
         << lanes << " lanes";
     std::string name = s->name.substr(0, s->name.size() - suffix.size());
-    // The words of a union (see widen): the union it was made from.
-    if (const auto known = widened_unions().find(s->name);
-        known != widened_unions().end()) {
-        return known->second;
-    }
     // One gang vector per component of a short vector, named for the vector:
     // `f32x3` or `[[packed]] f32x3`. Told from a struct of vector fields by
     // the name, which is the vector's own spelling.
@@ -760,19 +674,6 @@ Type narrow(const Type &type, uint32_t lanes) {
         fields.emplace_back(f.name, narrow(f.type, lanes));
     }
     return Struct_t::make(std::move(name), std::move(fields), s->attributes);
-}
-
-const Union_t *union_behind(const Type &type) {
-    if (const Union_t *as_union = type.as<Union_t>()) {
-        return as_union;
-    }
-    const Struct_t *as_struct = type.as<Struct_t>();
-    if (as_struct == nullptr) {
-        return nullptr;
-    }
-    const auto known = widened_unions().find(as_struct->name);
-    return known == widened_unions().end() ? nullptr
-                                           : known->second.as<Union_t>();
 }
 
 Type Set_t::make(Type etype) {
@@ -937,21 +838,13 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
                 return value;
             }
         }
-        // The struct a vectorized union widens to, asked for a member of the
-        // union: that member, gang-wide (see widen and union_behind).
-        if (const Union_t *lane = union_behind(struct_type)) {
-            const Type member = lane->member(field);
-            if (member.defined()) {
-                return widen(member, *widened_lanes(struct_type));
-            }
-        }
         internal_error << "Failed to find field: " << field
                        << " in struct type: " << struct_type;
     } else if (const Vector_t *as_vec = struct_type.as<Vector_t>()) {
         // A vector of aggregates is one aggregate per lane -- the place a
         // vector of pointers dereferences to (see Deref::make) -- and its
         // field is that field, one per lane.
-        if (as_vec->etype.is<Struct_t, Union_t>()) {
+        if (as_vec->etype.is<Struct_t>()) {
             return Vector_t::make(get_field_type(as_vec->etype, field),
                                   as_vec->lanes);
         }
@@ -976,12 +869,6 @@ Type get_field_type(const Type &struct_type, const std::string &field) {
         internal_assert(ss >> position) << field;
         internal_assert(position < as_tuple->etypes.size());
         return as_tuple->etypes[position];
-    } else if (const Union_t *as_union = struct_type.as<Union_t>()) {
-        // Naming a member of a union says which type to read its bytes at.
-        const Type member = as_union->member(field);
-        internal_assert(member.defined())
-            << "Union " << as_union->name << " has no member " << field;
-        return member;
     } else if (const Ptr_t *as_ptr = struct_type.as<Ptr_t>()) {
         return get_field_type(as_ptr->etype, field);
     } else {

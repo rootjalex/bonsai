@@ -829,55 +829,11 @@ struct FunctionBuilder : Visitor {
         auto v = get_value(node->value);
         static const Type u32 = UInt_t::make(32);
 
-        // A union's members all begin at the same address, so reading one is
-        // reading those bytes at that member's type: a LoadMember, by the
-        // member's number, which the backends spell as the read of storage
-        // it is (see CodeGen_LLVM::visit(const Access *)).
-        if (const Union_t *union_t = node->value.type().as<Union_t>()) {
-            size_t idx = 0;
-            while (idx < union_t->members.size() &&
-                   union_t->members[idx].name != node->field) {
-                idx++;
-            }
-            internal_assert(idx < union_t->members.size())
-                << "no member `" << node->field << "` in "
-                << node->value.type();
-            auto vidx = make_constant(u32, (uint64_t)idx);
-            value = block->make_instruction(node->type,
-                                            Instruction::Op::LoadMember,
-                                            {std::move(v), std::move(vidx)});
-            return;
-        }
-
         const Struct_t *struct_t = node->value.type().as<Struct_t>();
         internal_assert(struct_t) << node->value.type() << " of " << Expr(node);
         auto idx = find_struct_index(node->field, struct_t->fields);
         auto vidx = make_constant(u32, (uint64_t)idx);
         value = block->make_instruction(node->type, Instruction::Op::LoadField,
-                                        {std::move(v), std::move(vidx)});
-    }
-
-    // A union holding one of its members: a MakeUnion, by the member's
-    // number. The mirror of reading one out above. A value, not a slot on the
-    // stack written and read back: what a union is made of is the backend's
-    // business (CodeGen_LLVM::visit(const UnionOf *) does write storage the
-    // size of the union and read it back), and a pass that sees a union
-    // built -- the vectorizer, which makes one per lane -- needs to see that
-    // and not a store.
-    void visit(const UnionOf *node) override {
-        auto v = get_value(node->value);
-        const Union_t *union_t = node->type.as<Union_t>();
-        internal_assert(union_t) << "UnionOf of a non-union " << node->type;
-        size_t idx = 0;
-        while (idx < union_t->members.size() &&
-               union_t->members[idx].name != node->member) {
-            idx++;
-        }
-        internal_assert(idx < union_t->members.size())
-            << "no member `" << node->member << "` in " << node->type;
-        static const Type u32 = UInt_t::make(32);
-        auto vidx = make_constant(u32, (uint64_t)idx);
-        value = block->make_instruction(node->type, Instruction::Op::MakeUnion,
                                         {std::move(v), std::move(vidx)});
     }
 
@@ -1281,21 +1237,10 @@ struct FunctionBuilder : Visitor {
         }
         for (auto it = accesses.rbegin(); it != accesses.rend(); ++it) {
             if (const auto *field = std::get_if<std::string>(&*it)) {
-                // A union's member is at its start, so its address is the
-                // union's; FieldPtr carries the member's position and the
-                // backends give it offset zero (see CodeGen_LLVM's PtrTo).
                 size_t idx = 0;
                 if (const Struct_t *struct_t = current.as<Struct_t>()) {
                     idx = find_struct_index(*field, struct_t->fields);
                     current = get_field_type(current, *field);
-                } else if (const Union_t *union_t = current.as<Union_t>()) {
-                    while (idx < union_t->members.size() &&
-                           union_t->members[idx].name != *field) {
-                        idx++;
-                    }
-                    internal_assert(idx < union_t->members.size())
-                        << "no member `" << *field << "` in " << current;
-                    current = union_t->members[idx].type;
                 } else {
                     return nullptr;
                 }

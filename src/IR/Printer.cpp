@@ -607,22 +607,6 @@ void Printer::visit(const ADT_t *node) {
     }
 }
 
-void Printer::visit(const Union_t *node) {
-    if (!verbose) {
-        os << node->name;
-        return;
-    }
-    os << "union " << node->name << "{ ";
-    for (size_t i = 0; i < node->members.size(); i++) {
-        if (i != 0) {
-            os << "; ";
-        }
-        os << node->members[i].name << " : ";
-        print(node->members[i].type);
-    }
-    os << " }";
-}
-
 void Printer::visit(const Set_t *node) {
     os << "set<";
     print(node->etype);
@@ -1103,13 +1087,6 @@ void Printer::visit(const Construct *node) {
     os << node->variant << "(";
     print_expr_list(node->args);
     os << ")";
-}
-
-void Printer::visit(const UnionOf *node) {
-    print(node->type);
-    os << "{." << node->member << " = ";
-    print(node->value);
-    os << "}";
 }
 
 void Printer::visit(const Access *node) {

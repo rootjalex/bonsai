@@ -602,8 +602,8 @@ void add_variant_constructors(ir::Program &program) {
 FuncMap make_appenders(const LayoutMap &layouts) {
     FuncMap appenders;
     // The counter is a `u64` whichever storage the value has; a pool can hold
-    // more than an index in a union names, and the count is what says whether
-    // it has.
+    // more than a `u32` index in a payload names, and the count is what says
+    // whether it has.
     const Type counter = UInt_t::make(64);
     for (const auto &[adt_name, layout] : layouts) {
         for (const Type &variant : layout.variants) {
@@ -641,8 +641,8 @@ FuncMap make_appenders(const LayoutMap &layouts) {
             slot.add_index_access(Var::make(counter, index));
 
             // What the caller gets back: the whole handle, tag and index, when
-            // the value is one; the index alone, as the union member it
-            // becomes, when the value is a tag beside a union.
+            // the value is one; the index alone, which the payload's words
+            // then hold, when the value is a tag beside a payload.
             Expr answer;
             if (layout.kind == ir::AdtLayout::TaggedIndex) {
                 const Expr tag =

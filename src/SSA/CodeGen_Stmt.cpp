@@ -86,23 +86,18 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                                              c->data))
                         << "FieldPtr index is not a constant";
                     const uint64_t idx = std::get<uint64_t>(c->data);
-                    // A struct's field, or a union's member (see
-                    // address_of_place in SSA/Convert.cpp), by position.
+                    // A struct's field (see address_of_place in
+                    // SSA/Convert.cpp), by position.
                     std::string field;
                     if (const Struct_t *struct_t = pointee.as<Struct_t>()) {
                         internal_assert(idx < struct_t->fields.size())
                             << "FieldPtr index " << idx << " past the end of "
                             << pointee;
                         field = struct_t->fields[idx].name;
-                    } else if (const Union_t *union_t = pointee.as<Union_t>()) {
-                        internal_assert(idx < union_t->members.size())
-                            << "FieldPtr index " << idx << " past the end of "
-                            << pointee;
-                        field = union_t->members[idx].name;
                     } else {
                         internal_error
                             << "[unimplemented] the address of a field of "
-                            << base << ", which is neither a struct nor a union";
+                            << base << ", which is not a struct";
                     }
                     return PtrTo::make(Access::make(field, Deref::make(base)));
                 }
@@ -239,10 +234,8 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Leq:
     case Instruction::Op::Load:
     case Instruction::Op::LoadField:
-    case Instruction::Op::LoadMember:
     case Instruction::Op::Lt:
     case Instruction::Op::MakeStruct:
-    case Instruction::Op::MakeUnion:
     case Instruction::Op::Max:
     case Instruction::Op::Min:
     case Instruction::Op::Mod:
@@ -685,22 +678,6 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         value = Access::make(struct_t->fields[idx].name, std::move(args[0]));
         break;
     }
-    case Instruction::Op::LoadMember: {
-        // A member of a union, or of every lane's union at once (see
-        // Instruction::Op::LoadMember): either way an Access by the member's
-        // name, whose type is the instruction's rather than inferred, since
-        // the widened form's type is not one Access::make can work out.
-        internal_assert(args.size() == 2) << args.size();
-        const Union_t *union_t = union_behind(args[0].type());
-        internal_assert(union_t) << args[0].type();
-        const uint64_t idx = get_const_u64(args[1]);
-        internal_assert(idx < union_t->members.size())
-            << idx << " versus " << union_t->members.size() << " in "
-            << args[0].type();
-        value = Access::make(union_t->members[idx].name, std::move(args[0]),
-                             instr.type);
-        break;
-    }
     case Instruction::Op::Lt: {
         internal_assert(args.size() == 2) << args.size();
         value = BinOp::make(BinOp::OpType::Lt, std::move(args[0]),
@@ -709,18 +686,6 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
     }
     case Instruction::Op::MakeStruct: {
         value = Build::make(instr.type, std::move(args));
-        break;
-    }
-    case Instruction::Op::MakeUnion: {
-        internal_assert(args.size() == 2) << args.size();
-        const Union_t *union_t = union_behind(instr.type);
-        internal_assert(union_t) << instr.type;
-        const uint64_t idx = get_const_u64(args[1]);
-        internal_assert(idx < union_t->members.size())
-            << idx << " versus " << union_t->members.size() << " in "
-            << instr.type;
-        value = UnionOf::make(instr.type, union_t->members[idx].name,
-                              std::move(args[0]));
         break;
     }
     case Instruction::Op::Max: {

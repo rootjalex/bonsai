@@ -929,24 +929,6 @@ Expr Construct::make(Type adt, std::string variant, std::vector<Expr> args) {
     return node;
 }
 
-Expr UnionOf::make(Type union_type, std::string member, Expr value) {
-    // A union, or one union per lane (see union_behind): the latter holding
-    // the member in every lane, from one member value per lane.
-    const Union_t *as_union = union_behind(union_type);
-    internal_assert(as_union)
-        << "UnionOf::make received a non-union type: " << union_type;
-    internal_assert(as_union->member(member).defined())
-        << as_union->name << " has no member called " << member;
-    internal_assert(value.defined())
-        << "UnionOf::make received no value for " << member;
-
-    UnionOf *node = new UnionOf;
-    node->type = std::move(union_type);
-    node->member = std::move(member);
-    node->value = std::move(value);
-    return node;
-}
-
 Expr Build::make(Type type, std::vector<Expr> values) {
     Build *node = new Build;
     const bool infer_types = type_enforcement_enabled();

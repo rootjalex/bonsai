@@ -214,13 +214,13 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
 
     // Every backend, not only the two that emit machine code. Generating the
     // module reads the layout back -- a struct's field offsets for a gather,
-    // how many words a union is (check_union_words), what a store needs
-    // aligned to -- and without one LLVM answers from its default layout,
-    // which aligns a 64-bit integer to four bytes where x86-64 aligns it to
-    // eight. The LLVM and JIT backends generated their code against that
-    // layout and then ran or printed it for this machine, which put a union
-    // holding an i64 after an i32 at 20 bytes in one place and 24 in the
-    // other. What keeps the printed IR the same on every machine is printing
+    // what a store needs aligned to -- and without one LLVM answers from its
+    // default layout, which aligns a 64-bit integer to four bytes where
+    // x86-64 aligns it to eight. The LLVM and JIT backends generated their
+    // code against that layout and then ran or printed it for this machine,
+    // which put a struct holding an i64 after an i32 at 20 bytes in one
+    // place and 24 in the other. What keeps the printed IR the same on every
+    // machine is printing
     // it without the layout (see print_module and to_llvm), not generating it
     // without one.
     module.setDataLayout(tm->createDataLayout());
@@ -1678,16 +1678,14 @@ void CodeGen_LLVM::visit(const Cast *node) {
     // TODO: upgrade_type_for_arithmetic?
     llvm::Value *inner = codegen_expr(node->value);
 
-    // An aggregate read as the packed words of its storage, or the reverse:
-    // how a uniform union meets a gang word by word (see broadcast in
-    // SSA/Vectorize.cpp). Through memory, as any reinterpretation of an
-    // aggregate is.
+    // An aggregate read as the packed words of its storage, or the reverse.
+    // Through memory, as any reinterpretation of an aggregate is.
     if (node->mode == Cast::Mode::Reinterpret) {
         const auto *packed_src = src.as<Vector_t>();
         const auto *packed_dst = dst.as<Vector_t>();
-        if ((src.is<Struct_t, Union_t>() && packed_dst != nullptr &&
+        if ((src.is<Struct_t>() && packed_dst != nullptr &&
              packed_dst->packed) ||
-            (dst.is<Struct_t, Union_t>() && packed_src != nullptr &&
+            (dst.is<Struct_t>() && packed_src != nullptr &&
              packed_src->packed)) {
             value = reinterpret_via_memory(inner, codegen_type(dst));
             return;
@@ -1760,9 +1758,8 @@ void CodeGen_LLVM::visit(const Cast *node) {
         // One aggregate per lane read at another type -- a tree's node,
         // gathered as a struct of gang-wide fields, read as the struct of the
         // arm its tag says it is. Per lane it is that lane's bytes at the
-        // other type, which is the same transpose a union per lane goes
-        // through (see scatter_units): each lane's bytes spread into unit
-        // vectors as the source lays them out, and gathered back as the
+        // other type: each lane's bytes spread into unit vectors as the
+        // source lays them out (see scatter_units), and gathered back as the
         // destination does.
         const std::optional<uint32_t> src_lanes = widened_lanes(src);
         const std::optional<uint32_t> dst_lanes = widened_lanes(dst);
@@ -1780,7 +1777,7 @@ void CodeGen_LLVM::visit(const Cast *node) {
                 dl.getTypeAllocSize(codegen_type(to)).getFixedValue();
             const uint64_t size = std::max(from_size, to_size);
             const uint64_t unit = std::min<uint64_t>(
-                union_unit(to, 0, union_unit(from, 0, size)), 8);
+                common_unit(to, 0, common_unit(from, 0, size)), 8);
             llvm::Type *unit_t =
                 llvm::Type::getIntNTy(*context, unsigned(unit * 8));
             std::vector<llvm::Value *> slots(size_t(size / unit), nullptr);
@@ -2426,7 +2423,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
         // An aggregate per lane -- a tree's node, a light, a primitive, at
         // each lane's own index -- is gathered a leaf at a time into the
         // struct of gang-wide fields it is carried as (see gather_elements).
-        if (element.is<Struct_t, Union_t, Vector_t>()) {
+        if (element.is<Struct_t, Vector_t>()) {
             // Each lane's byte offset to its element, in 32 bits (see
             // element_addresses): what every field's gather is the base
             // plus. An index wider than that is taken in 32 bits, which is
@@ -2556,28 +2553,6 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
                 v->etype, ws->fields[c].type, base, offsets, disp + c * esize,
                 whole, lanes, mask, name + "_" + std::to_string(c));
             result = builder->CreateInsertValue(result, component, c);
-        }
-        return result;
-    }
-    if (const Union_t *u = element.as<Union_t>()) {
-        // One union per lane in memory, read into its words (see ir::widen):
-        // word j of every lane's union is one gather, at byte 4j from each
-        // lane's element. A lane that is off does not load, and its words are
-        // zero.
-        const Struct_t *words_t = wide_t.as<Struct_t>();
-        internal_assert(words_t) << wide_t << " is not " << element << " widened";
-        check_union_words(*u, *words_t);
-        internal_assert(dl.getTypeAllocSize(elem_llvm).getFixedValue() % 4 == 0)
-            << "[unimplemented] gathering a union of "
-            << dl.getTypeAllocSize(elem_llvm).getFixedValue()
-            << " bytes, which is not whole words: " << element;
-        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
-        for (unsigned j = 0; j < words_t->fields.size(); j++) {
-            llvm::Value *word =
-                gather_words(i32_t, base, offsets, disp + 4 * uint64_t(j),
-                             whole.align, lanes, mask,
-                             name + "_w" + std::to_string(j));
-            result = builder->CreateInsertValue(result, word, j);
         }
         return result;
     }
@@ -3363,16 +3338,6 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
                 internal_assert(std::holds_alternative<std::string>(access));
                 const std::string &field_name = std::get<std::string>(access);
 
-                // A union's member starts where the union does, so its
-                // address is the same pointer read at the member's type.
-                if (const Union_t *union_t = bonsai_type.as<Union_t>()) {
-                    bonsai_type = union_t->member(field_name);
-                    internal_assert(bonsai_type.defined())
-                        << "no member `" << field_name << "` in " << union_t->name;
-                    llvm_t = codegen_type(bonsai_type);
-                    continue;
-                }
-
                 const Struct_t *struct_t = bonsai_type.as<Struct_t>();
                 internal_assert(struct_t)
                     << "Field access (" << field_name << ") on non-struct type "
@@ -3446,8 +3411,7 @@ void CodeGen_LLVM::visit(const Deref *node) {
         // stepped into by an address chain (see the PtrTo visitor), never
         // loaded whole.
         const bool scalar_lanes =
-            node->type.is_vector() &&
-            !node->type.element_of().is<Struct_t, Union_t>();
+            node->type.is_vector() && !node->type.element_of().is<Struct_t>();
         internal_assert(scalar_lanes)
             << "[unimplemented] gathering an aggregate a field at a time: "
             << Expr(node);
@@ -3608,16 +3572,11 @@ void CodeGen_LLVM::visit(const Build *node) {
     }
 }
 
-// A union holding one of its members: the member's bytes, read as the union.
-//
-// The mirror of reading one out in visit(const Access *). There is no
-// insertvalue for this either -- LLVM's takes an index into a struct and wants
-// that field's type, and a union's members are not fields -- so it goes
-// through the storage. Storing the member writes its own size at offset zero,
-// which is where every member of a union starts, and loading the whole thing
-// back gives the first-class value a surrounding Build needs. Whatever of the
-// storage the member did not cover stays undefined, which is what clang leaves
-// in a union's padding too.
+// A value of one aggregate type read as another of the same size: an
+// aggregate's bytes as the packed words of its storage, or the reverse. There
+// is no bitcast for an aggregate, so it goes through a stack slot: the value
+// is stored at its own type and loaded back at the other. Whatever of the
+// storage the value did not cover -- padding -- stays undefined.
 llvm::Value *CodeGen_LLVM::reinterpret_via_memory(llvm::Value *v,
                                                   llvm::Type *as) {
     const llvm::DataLayout &dl = module->getDataLayout();
@@ -3642,21 +3601,7 @@ llvm::Value *CodeGen_LLVM::reinterpret_via_memory(llvm::Value *v,
     return create_aligned_load(as, slot, "transposed");
 }
 
-void CodeGen_LLVM::check_union_words(const Union_t &as_union,
-                                     const Struct_t &words) {
-    // The IR decided how many words the union is from its own account of
-    // the layout (see ir::layout_bytes); this is the target's, and the two
-    // have to agree or a field's offset lands in the wrong word.
-    const llvm::DataLayout &dl = module->getDataLayout();
-    const uint64_t size =
-        dl.getTypeAllocSize(codegen_type(Type(&as_union))).getFixedValue();
-    internal_assert((size + 3) / 4 == words.fields.size())
-        << "Union " << as_union.name << " is " << size
-        << " bytes on this target, but its gang-wide form " << Type(&words)
-        << " has " << words.fields.size() << " words";
-}
-
-uint64_t CodeGen_LLVM::union_unit(const ir::Type &member, uint64_t offset,
+uint64_t CodeGen_LLVM::common_unit(const ir::Type &member, uint64_t offset,
                                   uint64_t so_far) {
     const llvm::DataLayout &dl = module->getDataLayout();
     if (const Struct_t *s = member.as<Struct_t>()) {
@@ -3664,9 +3609,9 @@ uint64_t CodeGen_LLVM::union_unit(const ir::Type &member, uint64_t offset,
         const llvm::StructLayout *layout = dl.getStructLayout(st);
         for (size_t i = 0; i < s->fields.size(); i++) {
             internal_assert(!s->fields[i].type.is<Ref_t>())
-                << "[unimplemented] a per-lane union member with a reference "
+                << "[unimplemented] a per-lane aggregate with a reference "
                 << "field: " << member;
-            so_far = union_unit(s->fields[i].type,
+            so_far = common_unit(s->fields[i].type,
                                 offset + layout->getElementOffset(unsigned(i)),
                                 so_far);
         }
@@ -3676,7 +3621,7 @@ uint64_t CodeGen_LLVM::union_unit(const ir::Type &member, uint64_t offset,
         const uint64_t esize =
             dl.getTypeAllocSize(codegen_type(v->etype)).getFixedValue();
         for (uint32_t c = 0; c < v->lanes; c++) {
-            so_far = union_unit(v->etype, offset + c * esize, so_far);
+            so_far = common_unit(v->etype, offset + c * esize, so_far);
         }
         return so_far;
     }
@@ -3710,19 +3655,6 @@ void CodeGen_LLVM::scatter_units(const ir::Type &member, llvm::Value *wide,
         }
         return;
     }
-    if (member.is<Union_t>()) {
-        // A union inside the member: `wide` is its words (see ir::widen),
-        // which are these words from its offset on.
-        internal_assert(unit == 4 && offset % 4 == 0)
-            << "[unimplemented] a union inside a per-lane union at byte "
-            << offset << " in units of " << unit << ": " << member;
-        auto *words_t = llvm::cast<llvm::StructType>(wide->getType());
-        for (unsigned u = 0; u < words_t->getNumElements(); u++) {
-            slots[size_t(offset / unit) + u] =
-                builder->CreateExtractValue(wide, u);
-        }
-        return;
-    }
     // A scalar: `wide` is <lanes x T>. A bool is a byte in storage.
     const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
     llvm::Value *bits = wide;
@@ -3735,9 +3667,9 @@ void CodeGen_LLVM::scatter_units(const ir::Type &member, llvm::Value *wide,
         // neighbours, so its bits go in at their byte offset within it, ORed
         // into whatever the unit already holds.
         internal_assert(offset % unit + size <= unit)
-            << "[unimplemented] a field of a per-lane union straddling two "
-            << "units: " << member << " at byte " << offset << " in units of "
-            << unit;
+            << "[unimplemented] a field of a per-lane aggregate straddling "
+            << "two units: " << member << " at byte " << offset
+            << " in units of " << unit;
         const unsigned n = vector_lanes(bits->getType());
         llvm::Type *narrow_t =
             llvm::FixedVectorType::get(llvm::Type::getIntNTy(*context, size * 8), n);
@@ -3753,8 +3685,8 @@ void CodeGen_LLVM::scatter_units(const ir::Type &member, llvm::Value *wide,
         return;
     }
     internal_assert(offset % unit == 0)
-        << "[unimplemented] a field of a per-lane union not aligned to its "
-        << "unit: " << member << " at byte " << offset << " in units of "
+        << "[unimplemented] a field of a per-lane aggregate not aligned to "
+        << "its unit: " << member << " at byte " << offset << " in units of "
         << unit;
     const int m = int(size / unit);
     const int n = vector_lanes(bits->getType());
@@ -3813,31 +3745,14 @@ llvm::Value *CodeGen_LLVM::gather_units(const ir::Type &member,
         }
         return result;
     }
-    if (member.is<Union_t>()) {
-        // A union inside the member: its words (see ir::widen) are these
-        // words from its offset on.
-        internal_assert(unit == 4 && offset % 4 == 0)
-            << "[unimplemented] a union inside a per-lane union at byte "
-            << offset << " in units of " << unit << ": " << member;
-        auto *words_t = llvm::cast<llvm::StructType>(wide_llvm);
-        llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
-        for (unsigned u = 0; u < words_t->getNumElements(); u++) {
-            llvm::Value *word = slots[size_t(offset / unit) + u];
-            if (word == nullptr) {
-                word = llvm::Constant::getNullValue(words_t->getElementType(u));
-            }
-            result = builder->CreateInsertValue(result, word, u);
-        }
-        return result;
-    }
     const uint64_t size = dl.getTypeAllocSize(codegen_type(member)).getFixedValue();
     if (size < unit) {
         // Narrower than a unit: shifted out of its place in the unit it
         // shares (see scatter_units).
         internal_assert(offset % unit + size <= unit)
-            << "[unimplemented] a field of a per-lane union straddling two "
-            << "units: " << member << " at byte " << offset << " in units of "
-            << unit;
+            << "[unimplemented] a field of a per-lane aggregate straddling "
+            << "two units: " << member << " at byte " << offset
+            << " in units of " << unit;
         llvm::Value *word = slots[size_t(offset / unit)];
         internal_assert(word != nullptr) << "No unit for " << member;
         llvm::Type *unit_vt = llvm::FixedVectorType::get(unit_t, lanes);
@@ -3854,8 +3769,8 @@ llvm::Value *CodeGen_LLVM::gather_units(const ir::Type &member,
                    : builder->CreateBitCast(narrowed, wide_llvm);
     }
     internal_assert(offset % unit == 0)
-        << "[unimplemented] a field of a per-lane union not aligned to its "
-        << "unit: " << member << " at byte " << offset << " in units of "
+        << "[unimplemented] a field of a per-lane aggregate not aligned to "
+        << "its unit: " << member << " at byte " << offset << " in units of "
         << unit;
     const int m = int(size / unit);
     std::vector<llvm::Value *> parts(static_cast<size_t>(m));
@@ -3877,43 +3792,6 @@ llvm::Value *CodeGen_LLVM::gather_units(const ir::Type &member,
     return bits;
 }
 
-void CodeGen_LLVM::visit(const UnionOf *node) {
-    llvm::Type *union_type = codegen_type(node->type);
-    llvm::Value *member = codegen_expr(node->value);
-
-    // The words of every lane's union, from one member value per lane (see
-    // ir::widen): the member's gang-wide fields go into the words at their
-    // offsets, a field narrower than a word shifted into its place in one.
-    // A word no field of this member reaches is zero.
-    if (const Struct_t *words_t = node->type.as<Struct_t>()) {
-        const Union_t *as_union = union_behind(node->type);
-        internal_assert(as_union) << "UnionOf of " << node->type;
-        const Type member_t = as_union->member(node->member);
-        internal_assert(member_t.defined())
-            << "Union " << as_union->name << " has no member " << node->member;
-        const uint32_t lanes = *widened_lanes(node->type);
-        check_union_words(*as_union, *words_t);
-        std::vector<llvm::Value *> slots(words_t->fields.size(), nullptr);
-        scatter_units(member_t, member, 0, 4, slots);
-        llvm::Value *result = llvm::PoisonValue::get(union_type);
-        for (unsigned j = 0; j < slots.size(); j++) {
-            llvm::Value *word =
-                slots[j] != nullptr
-                    ? slots[j]
-                    : llvm::Constant::getNullValue(
-                          llvm::FixedVectorType::get(i32_t, lanes));
-            result = builder->CreateInsertValue(result, word, j);
-        }
-        value = result;
-        return;
-    }
-
-    llvm::Value *storage =
-        create_alloca_at_entry(union_type, "union_" + node->member);
-    builder->CreateStore(member, storage);
-    value = create_aligned_load(union_type, storage, "union_" + node->member);
-}
-
 void CodeGen_LLVM::visit(const Access *node) {
     ir::Expr value_e = node->value;
 
@@ -3921,39 +3799,6 @@ void CodeGen_LLVM::visit(const Access *node) {
     std::string name = node->field;
     if (const auto *var = value_e.as<Var>()) {
         name = var->name + "." + name;
-    }
-
-    // A union's members all begin at the same address, so reading one is
-    // reading those bytes at that member's type. There is no extractvalue for
-    // that -- LLVM's takes an index into a struct and gives that field's type
-    // -- so it goes through the storage, which is what a union is.
-    if (const Union_t *as_union = value_e.type().as<Union_t>()) {
-        const Type member = as_union->member(node->field);
-        internal_assert(member.defined())
-            << "Union " << as_union->name << " has no member " << node->field
-            << " in " << Expr(node);
-        llvm::Value *storage = codegen_expr(PtrTo::make(value_e));
-        value = create_aligned_load(codegen_type(member), storage, name);
-        return;
-    }
-
-    // A member of every lane's union at once (see ir::widen): the member's
-    // gang-wide fields read out of the union's words at their offsets, a
-    // field narrower than a word shifted out of its place in one.
-    if (const Union_t *as_union = union_behind(value_e.type());
-        as_union != nullptr && value_e.type().is<Struct_t>() &&
-        as_union->member(node->field).defined()) {
-        const Type member_t = as_union->member(node->field);
-        const Struct_t *words_t = value_e.type().as<Struct_t>();
-        const uint32_t lanes = *widened_lanes(value_e.type());
-        check_union_words(*as_union, *words_t);
-        llvm::Value *whole = codegen_expr(value_e);
-        std::vector<llvm::Value *> slots(words_t->fields.size());
-        for (unsigned j = 0; j < slots.size(); j++) {
-            slots[j] = builder->CreateExtractValue(whole, j);
-        }
-        value = gather_units(member_t, node->type, 0, 4, slots, lanes);
-        return;
     }
 
     internal_assert(value_e.type().is<Struct_t>()) << value_e;
@@ -5286,8 +5131,8 @@ void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,
 
     if (auto *st = llvm::dyn_cast<llvm::StructType>(t)) {
         // A widened struct is a struct of per-lane fields (see widen() in
-        // SSA/Vectorize.cpp) -- a widened union one of per-lane words -- each
-        // written under the same mask at its own address.
+        // SSA/Vectorize.cpp), each written under the same mask at its own
+        // address.
         for (unsigned i = 0; i < st->getNumElements(); i++) {
             create_masked_store_at(builder->CreateExtractValue(value, i),
                                    builder->CreateStructGEP(st, dest, i), mask);
@@ -5625,7 +5470,7 @@ llvm::MDNode *CodeGen_LLVM::tbaa_type_node(const Type &type) {
     // An access to an aggregate has no tag: LLVM's access type has to be one
     // of its scalar nodes, so there is no way to say "all of this struct".
     // Untagged means "may alias anything", which is always safe.
-    if (type.is<Struct_t, Tuple_t, Option_t, Union_t>()) {
+    if (type.is<Struct_t, Tuple_t, Option_t>()) {
         return nullptr;
     }
 
@@ -5763,110 +5608,6 @@ void CodeGen_LLVM::declare_struct_types(
             struct_types[_struct->name]->setBody(types, _struct->is_packed());
         }
     }
-
-    // Union bodies last. A struct body may name a type that is still opaque,
-    // so the order above does not matter; a union has to be as big as its
-    // largest member, so it cannot be measured until that member has a size.
-    // Repeated because a union can hold a struct that holds another union, and
-    // each round either settles one or has nothing left it can settle.
-    while (!pending_unions.empty()) {
-        std::vector<const Union_t *> again;
-        for (const Union_t *node : pending_unions) {
-            if (!set_union_body(node, union_types.at(node->name))) {
-                again.push_back(node);
-            }
-        }
-        internal_assert(again.size() < pending_unions.size())
-            << "Union " << again.front()->name << " contains itself";
-        pending_unions = std::move(again);
-    }
-}
-
-// A union: enough storage for the largest member, aligned for the strictest.
-//
-// LLVM has no union type, so this is storage -- an array of units, each one
-// the alignment wide. Only here can it be worked out: sizes and alignments
-// belong to the target, which is why Type::bytes() refuses to answer for an
-// aggregate and says to ask the backend.
-//
-// Not clang's encoding, which is the most-aligned member followed by enough
-// bytes to reach the largest. That relies on a union only ever being touched
-// through memory. Bonsai builds one with insertvalue, and a first-class LLVM
-// aggregate does not carry its padding: given `{<3 x float>, float}`, bytes
-// 12-15 and 20-31 belong to no field of it, so loading the union as a value
-// would leave them undefined -- and another member's fields can sit exactly
-// there. So the body has to have no padding of its own to lose, which an array
-// of a type as wide as its own alignment does not.
-//
-// Unlike a struct, whose body may name a type that is still opaque, this needs
-// its members to have a size already. Answering false rather than asserting is
-// what lets declare_struct_types reach a union early and come back to it.
-bool CodeGen_LLVM::set_union_body(const Union_t *node, llvm::StructType *made) {
-    internal_assert(!node->members.empty())
-        << "Union " << node->name << " has no members";
-
-    const llvm::DataLayout &dl = module->getDataLayout();
-    uint64_t align = 1;
-    uint64_t size = 0;
-    for (const TypedVar &member : node->members) {
-        llvm::Type *as_llvm = codegen_type(member.type);
-        if (!as_llvm->isSized()) {
-            return false;
-        }
-        align = std::max(align, dl.getABITypeAlign(as_llvm).value());
-        size = std::max(size, dl.getTypeAllocSize(as_llvm).getFixedValue());
-    }
-    // Rounded up to the alignment, so that an array of the union steps from
-    // one aligned value to the next. This is the size Rust gives an enum.
-    size = ((size + align - 1) / align) * align;
-
-    // One unit of storage: an integer as wide as the alignment, or the same
-    // number of bytes as a vector. Which of them a target actually aligns the
-    // way it is asked to varies -- x86-64 and AArch64 both say i128 is aligned
-    // to 16, but neither says anything about i256 -- so the choice is made by
-    // measuring rather than by knowing.
-    llvm::Type *unit = nullptr;
-    const std::vector<llvm::Type *> candidates{
-        llvm::Type::getIntNTy(*context, align * 8),
-        llvm::FixedVectorType::get(i8_t, align)};
-    for (llvm::Type *candidate : candidates) {
-        if (dl.getTypeAllocSize(candidate).getFixedValue() == align &&
-            dl.getABITypeAlign(candidate).value() == align) {
-            unit = candidate;
-            break;
-        }
-    }
-    internal_assert(unit) << "No type on this target is " << align
-                          << " bytes aligned to " << align << ", which union "
-                          << node->name << " needs";
-
-    made->setBody({llvm::ArrayType::get(unit, size / align)},
-                  /*isPacked=*/false);
-    internal_assert(dl.getTypeAllocSize(made).getFixedValue() == size &&
-                    dl.getABITypeAlign(made).value() == align)
-        << "Union " << node->name << " wanted " << size << " bytes aligned to "
-        << align << " but its storage is "
-        << dl.getTypeAllocSize(made).getFixedValue() << " aligned to "
-        << dl.getABITypeAlign(made).value();
-    return true;
-}
-
-void CodeGen_LLVM::visit(const Union_t *node) {
-    const auto found = union_types.find(node->name);
-    if (found != union_types.end()) {
-        type = found->second;
-        return;
-    }
-
-    llvm::StructType *made =
-        llvm::StructType::create(*context, "union." + node->name);
-    // Registered before the body is built, so that a union reachable from its
-    // own members does not recurse for ever.
-    union_types[node->name] = made;
-    if (!set_union_body(node, made)) {
-        pending_unions.push_back(node);
-    }
-    type = made;
 }
 
 llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,

@@ -175,20 +175,6 @@ Type Mutator::visit(const ADT_t *node) {
     return ADT_t::make(node->name, std::move(variants));
 }
 
-Type Mutator::visit(const Union_t *node) {
-    Union_t::Map members;
-    members.reserve(node->members.size());
-    bool changed = false;
-    for (const TypedVar &member : node->members) {
-        members.push_back(TypedVar{member.name, mutate(member.type)});
-        changed = changed || !members.back().type.same_as(member.type);
-    }
-    if (!changed) {
-        return node;
-    }
-    return Union_t::make(node->name, std::move(members));
-}
-
 Type Mutator::visit(const Set_t *node) {
     Type etype = mutate(node->etype);
     if (etype.same_as(node->etype)) {
@@ -411,14 +397,6 @@ Expr Mutator::visit(const Construct *node) {
         return node;
     }
     return Construct::make(node->type, node->variant, std::move(args));
-}
-
-Expr Mutator::visit(const UnionOf *node) {
-    Expr value = mutate(node->value);
-    if (value.same_as(node->value)) {
-        return node;
-    }
-    return UnionOf::make(node->type, node->member, std::move(value));
 }
 
 Expr Mutator::visit(const Build *node) {

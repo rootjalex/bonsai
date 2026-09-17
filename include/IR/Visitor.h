@@ -24,7 +24,6 @@ struct Visitor {
     virtual void visit(const DynArray_t *);
     virtual void visit(const Option_t *);
     virtual void visit(const ADT_t *);
-    virtual void visit(const Union_t *);
     virtual void visit(const Set_t *);
     virtual void visit(const Function_t *);
     virtual void visit(const Generic_t *);
@@ -56,7 +55,6 @@ struct Visitor {
     virtual void visit(const Extract *);
     virtual void visit(const Build *);
     virtual void visit(const Construct *);
-    virtual void visit(const UnionOf *);
     virtual void visit(const Access *);
     virtual void visit(const Unwrap *);
     virtual void visit(const MatchExpr *);

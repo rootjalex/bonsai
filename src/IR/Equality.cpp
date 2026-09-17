@@ -230,28 +230,6 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         return compare_types(t0.as<Option_t>()->etype,
                              t1.as<Option_t>()->etype);
     }
-    case IRTypeEnum::Union_t: {
-        const Union_t *u0 = t0.as<Union_t>();
-        const Union_t *u1 = t1.as<Union_t>();
-        if (u0->name != u1->name) {
-            return compare_primitives(u0->name, u1->name);
-        }
-        if (u0->members.size() != u1->members.size()) {
-            return compare_primitives(u0->members.size(), u1->members.size());
-        }
-        for (size_t i = 0; i < u0->members.size(); i++) {
-            if (u0->members[i].name != u1->members[i].name) {
-                return compare_primitives(u0->members[i].name,
-                                          u1->members[i].name);
-            }
-            if (const Cmp rec =
-                    compare_types(u0->members[i].type, u1->members[i].type);
-                rec != Cmp::Equals) {
-                return rec;
-            }
-        }
-        return Cmp::Equals;
-    }
     case IRTypeEnum::ADT_t: {
         const ADT_t *a0 = t0.as<ADT_t>();
         const ADT_t *a1 = t1.as<ADT_t>();
@@ -687,15 +665,6 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
             return variant;
         }
         return compare_lists(v0->args, v1->args, compare_exprs);
-    }
-    case IRExprEnum::UnionOf: {
-        const UnionOf *v0 = e0.as<UnionOf>();
-        const UnionOf *v1 = e1.as<UnionOf>();
-        if (const Cmp member = compare_primitives(v0->member, v1->member);
-            member != Cmp::Equals) {
-            return member;
-        }
-        return compare_exprs(v0->value, v1->value);
     }
     case IRExprEnum::Access: {
         const Access *v0 = e0.as<Access>();

@@ -36,7 +36,6 @@ enum class IRTypeEnum {
     DynArray_t,
     Option_t,
     ADT_t,
-    Union_t,
     Set_t,
     Function_t,
     Generic_t,
@@ -418,27 +417,6 @@ uint64_t layout_offset(const Struct_t &s, size_t index);
 // its name says -- or nothing for any other type. A vector alone does not
 // tell: a lane's own short vector can be as wide as a gang.
 std::optional<uint32_t> widened_lanes(const Type &type);
-
-// The union a value of `type` holds one of per lane: `type` itself when it is
-// a union, or the union `type` is the words of when `type` is the struct a
-// vectorized union widens to (see widen). Nothing otherwise. What is asked
-// about a union's members (which member a name is, what type it has) is the
-// same for the widened form, and this is what lets the two be asked alike.
-const Union_t *union_behind(const Type &type);
-
-struct Union_t : TypeNode<Union_t> {
-    using Map = std::vector<TypedVar>;
-
-    std::string name;
-    Map members;
-
-    static Type make(std::string name, Map members);
-
-    // The type of a member, or an undefined Type if there is no such member.
-    Type member(const std::string &name) const;
-
-    static const IRTypeEnum node_type = IRTypeEnum::Union_t;
-};
 
 struct Set_t : TypeNode<Set_t> {
     Type etype;

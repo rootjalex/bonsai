@@ -74,11 +74,6 @@ void Visitor::visit(const ADT_t *node) {
     }
 }
 
-void Visitor::visit(const Union_t *node) {
-    for (const TypedVar &member : node->members) {
-        member.type.accept(this);
-    }
-}
 
 void Visitor::visit(const Set_t *node) { node->etype.accept(this); }
 
@@ -176,8 +171,6 @@ void Visitor::visit(const Extract *node) {
 void Visitor::visit(const Build *node) { visit_list(this, node->values); }
 
 void Visitor::visit(const Construct *node) { visit_list(this, node->args); }
-
-void Visitor::visit(const UnionOf *node) { node->value.accept(this); }
 
 void Visitor::visit(const Access *node) { node->value.accept(this); }
 

@@ -40,7 +40,6 @@ enum class IRExprEnum {
     // Struct ops.
     Build,
     Construct,
-    UnionOf,
     Access,
     Unwrap,
     MatchExpr,
@@ -323,8 +322,8 @@ struct VectorShuffle : ExprNode<VectorShuffle> {
 //   broadcast(v, k)       v v .. v                 k copies
 //
 // The interleave and the transpose are how an array of structures in a gang
-// of lanes -- one union per lane, one struct per lane -- is turned into the
-// structure of vectors the lanes compute on and back; see
+// of lanes -- one struct per lane -- is turned into the structure of vectors
+// the lanes compute on and back; see
 // CodeGen_LLVM::interleave_vectors for the lowering, which follows Halide's,
 // after Catanzaro, Keller and Garland, "A Decomposition for In-place Matrix
 // Transposition", PPoPP 2014.
@@ -401,8 +400,9 @@ struct Extract : ExprNode<Extract> {
 // A value of an ADT: one of its variants, with that variant's fields.
 //
 // `type` is the ADT. Lower/ADTs.cpp turns this into whatever the layout says a
-// value of it looks like -- today a tag beside a union -- so nothing before
-// that pass has to know how one is stored.
+// value of it looks like -- a tag beside the arm's fields as 32-bit words, or
+// a handle into a pool -- so nothing before that pass has to know how one is
+// stored.
 struct Construct : ExprNode<Construct> {
     std::string variant;
     std::vector<Expr> args;
@@ -410,20 +410,6 @@ struct Construct : ExprNode<Construct> {
     static Expr make(Type adt, std::string variant, std::vector<Expr> args);
 
     static const IRExprEnum node_type = IRExprEnum::Construct;
-};
-
-// A union holding one of its members: C's `(union U){.member = value}`.
-//
-// A union is storage read at one of several types, so a value of one is really
-// a value written into that storage -- which is why this exists rather than
-// Build, whose arguments line up with fields at their own offsets.
-struct UnionOf : ExprNode<UnionOf> {
-    std::string member;
-    Expr value;
-
-    static Expr make(Type union_type, std::string member, Expr value);
-
-    static const IRExprEnum node_type = IRExprEnum::UnionOf;
 };
 
 struct Build : ExprNode<Build> {
