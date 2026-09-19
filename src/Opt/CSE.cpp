@@ -33,7 +33,10 @@ std::string fresh_name() { return T_PREFIX + std::to_string(counter++); }
 using MutableVariableStack = ir::SetStack<std::string>;
 
 // A set of expressions using IR comparison rather than pointer comparison.
-using ExprSet = std::set<ir::Expr, ir::ExprLessThan>;
+// Hashed rather than ordered: it is only ever asked whether it holds an
+// expression, and ordering expressions costs a walk of two trees per
+// comparison (see ExprLessThan in IR/Equality.h).
+using ExprSet = std::unordered_set<ir::Expr, ir::ExprHash, ir::ExprEquals>;
 
 // For checking whether an expression can legally be CSE'd. This is used in two
 // different classes (rename analysis and LVN), so we leave it here.
@@ -244,8 +247,10 @@ class RenameAnalysis : public ir::Visitor {
         }
         ++expression_count[e];
     }
-    // The count of each expression.
-    std::map<ir::Expr, int64_t, ir::ExprLessThan> expression_count;
+    // The count of each expression. Hashed: post_process reads it only to
+    // build a set, so its order is nothing.
+    std::unordered_map<ir::Expr, int64_t, ir::ExprHash, ir::ExprEquals>
+        expression_count;
 
     ir::Expr substitute(ir::Expr e) {
         const auto *v = e.as<ir::Var>();
@@ -939,8 +944,11 @@ class LVN : public ir::Mutator {
     // the same number in conjunction with a stack to ensure the values remain
     // truly local to their scope.
     int64_t value_number = 0;
-    // expression -> value number
-    ir::MapStack<ir::Expr, int64_t, ir::ExprLessThan> e_to_vn;
+    // expression -> value number. Hashed: only ever looked up.
+    ir::MapStack<ir::Expr, int64_t,
+                 std::unordered_map<ir::Expr, int64_t, ir::ExprHash,
+                                    ir::ExprEquals>>
+        e_to_vn;
     // variable -> expression
     ir::MapStack<std::string, ir::Expr> var_to_e;
     // value number -> variable (for subsequent replacement)

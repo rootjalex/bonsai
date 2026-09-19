@@ -5,7 +5,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "IR/Equality.h"
 #include "IR/Printer.h"
@@ -248,6 +250,136 @@ Type Type::with_etype(Type etype) const {
                    << " which is not a collection.";
 }
 
+namespace {
+
+//===--------------------------------------------------------------------===//
+// Interning
+//===--------------------------------------------------------------------===//
+//
+// One node per distinct type. Every constructor below hands its node to
+// `intern`, which returns the node already made for that type if there is
+// one and keeps this one otherwise, so two types that are the same are the
+// same pointer. That is what lets compare_types (IR/Equality.cpp) answer the
+// common question, whether two types are equal, with a pointer comparison:
+// before this, comparing two expressions compared their types first, field
+// by field through every nested struct, and that alone was a fifth of a
+// compile. LLVM uniques its types the same way, in the LLVMContext.
+//
+// Identity here is exact, and stricter than equals(): equals() ignores an
+// array's size and a struct's defaults and attributes, and two types that
+// differ in those must stay two nodes. Children are compared by pointer,
+// which is exact because they were interned before their parent was; a node
+// somehow made behind the constructors' back would merely go unshared, never
+// be confused with another. A type made once anyway -- a tree's, a generic's
+// -- is not interned. The table keeps its types alive for the run of the
+// compiler, which is what a canonical instance has to be.
+
+template <typename T>
+bool same_pointers(const std::vector<T> &a, const std::vector<T> &b) {
+    return a.size() == b.size() &&
+           std::equal(a.begin(), a.end(), b.begin(),
+                      [](const T &x, const T &y) { return x.same_as(y); });
+}
+
+bool same_exactly(const Type &a, const Type &b) {
+    if (a.node_type() != b.node_type()) {
+        return false;
+    }
+    switch (a.node_type()) {
+    case IRTypeEnum::Int_t:
+        return a.as<Int_t>()->bits == b.as<Int_t>()->bits;
+    case IRTypeEnum::UInt_t:
+        return a.as<UInt_t>()->bits == b.as<UInt_t>()->bits;
+    case IRTypeEnum::Float_t:
+        return a.as<Float_t>()->exponent == b.as<Float_t>()->exponent &&
+               a.as<Float_t>()->mantissa == b.as<Float_t>()->mantissa;
+    case IRTypeEnum::Ptr_t:
+        return a.as<Ptr_t>()->etype.same_as(b.as<Ptr_t>()->etype);
+    case IRTypeEnum::Ref_t:
+        return a.as<Ref_t>()->name == b.as<Ref_t>()->name;
+    case IRTypeEnum::ElementRef_t:
+        return a.as<ElementRef_t>()->tree == b.as<ElementRef_t>()->tree &&
+               a.as<ElementRef_t>()->etype.same_as(
+                   b.as<ElementRef_t>()->etype);
+    case IRTypeEnum::Vector_t: {
+        const Vector_t *x = a.as<Vector_t>(), *y = b.as<Vector_t>();
+        return x->lanes == y->lanes && x->packed == y->packed &&
+               x->etype.same_as(y->etype);
+    }
+    case IRTypeEnum::Struct_t: {
+        const Struct_t *x = a.as<Struct_t>(), *y = b.as<Struct_t>();
+        if (x->name != y->name || x->attributes != y->attributes ||
+            x->fields.size() != y->fields.size() ||
+            x->defaults.size() != y->defaults.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < x->fields.size(); i++) {
+            if (x->fields[i].name != y->fields[i].name ||
+                !x->fields[i].type.same_as(y->fields[i].type)) {
+                return false;
+            }
+        }
+        for (const auto &[name, value] : x->defaults) {
+            const auto other = y->defaults.find(name);
+            if (other == y->defaults.end() || !equals(value, other->second)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case IRTypeEnum::Tuple_t:
+        return same_pointers(a.as<Tuple_t>()->etypes, b.as<Tuple_t>()->etypes);
+    case IRTypeEnum::Array_t: {
+        const Array_t *x = a.as<Array_t>(), *y = b.as<Array_t>();
+        return x->etype.same_as(y->etype) &&
+               x->size.defined() == y->size.defined() &&
+               (!x->size.defined() || equals(x->size, y->size));
+    }
+    case IRTypeEnum::DynArray_t: {
+        const DynArray_t *x = a.as<DynArray_t>(), *y = b.as<DynArray_t>();
+        return x->etype.same_as(y->etype) && equals(x->capacity, y->capacity);
+    }
+    case IRTypeEnum::Option_t:
+        return a.as<Option_t>()->etype.same_as(b.as<Option_t>()->etype);
+    case IRTypeEnum::ADT_t:
+        return a.as<ADT_t>()->name == b.as<ADT_t>()->name &&
+               same_pointers(a.as<ADT_t>()->variants,
+                             b.as<ADT_t>()->variants);
+    case IRTypeEnum::Set_t:
+        return a.as<Set_t>()->etype.same_as(b.as<Set_t>()->etype);
+    case IRTypeEnum::Function_t: {
+        const Function_t *x = a.as<Function_t>(), *y = b.as<Function_t>();
+        if (!x->ret_type.same_as(y->ret_type) ||
+            x->arg_types.size() != y->arg_types.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < x->arg_types.size(); i++) {
+            if (x->arg_types[i].is_mutable != y->arg_types[i].is_mutable ||
+                !x->arg_types[i].type.same_as(y->arg_types[i].type)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return false; // a kind that is not interned
+    }
+}
+
+Type intern(Type type) {
+    static std::unordered_map<uint64_t, std::vector<Type>> table;
+    std::vector<Type> &bucket = table[hash(type)];
+    for (const Type &existing : bucket) {
+        if (same_exactly(existing, type)) {
+            return existing;
+        }
+    }
+    bucket.push_back(type);
+    return type;
+}
+
+} // namespace
+
 Type Void_t::make() {
     static Type global_void = new Void_t;
     return global_void;
@@ -258,7 +390,7 @@ Type Int_t::make(uint32_t bits) {
         << "Unsupported bitwidth in Int_t: " << bits;
     Int_t *node = new Int_t;
     node->bits = bits;
-    return node;
+    return intern(node);
 }
 
 Type UInt_t::make(uint32_t bits) {
@@ -266,7 +398,7 @@ Type UInt_t::make(uint32_t bits) {
         << "Unsupported bitwidth in UInt_t: " << bits;
     UInt_t *node = new UInt_t;
     node->bits = bits;
-    return node;
+    return intern(node);
 }
 
 Type Index_t::make() {
@@ -278,35 +410,30 @@ Type Float_t::make(uint32_t exponent, uint32_t mantissa) {
     Float_t *node = new Float_t;
     node->exponent = exponent;
     node->mantissa = mantissa;
-    return node;
+    return intern(node);
 }
 
+// The named floats go through make, so that they are the interned node any
+// other request for the same format gets; kept in a static so that asking
+// for one does not build a candidate to throw away each time.
 Type Float_t::make_f64() {
-    static Float_t *node = new Float_t;
-    node->exponent = IEEE754_F64.exponent;
-    node->mantissa = IEEE754_F64.mantissa;
-    return node;
+    static Type f64 = make(IEEE754_F64.exponent, IEEE754_F64.mantissa);
+    return f64;
 }
 
 Type Float_t::make_f32() {
-    static Float_t *node = new Float_t;
-    node->exponent = IEEE754_F32.exponent;
-    node->mantissa = IEEE754_F32.mantissa;
-    return node;
+    static Type f32 = make(IEEE754_F32.exponent, IEEE754_F32.mantissa);
+    return f32;
 }
 
 Type Float_t::make_f16() {
-    static Float_t *node = new Float_t;
-    node->exponent = IEEE754_F16.exponent;
-    node->mantissa = IEEE754_F16.mantissa;
-    return node;
+    static Type f16 = make(IEEE754_F16.exponent, IEEE754_F16.mantissa);
+    return f16;
 }
 
 Type Float_t::make_bf16() {
-    static Float_t *node = new Float_t;
-    node->exponent = BFLOAT16.exponent;
-    node->mantissa = BFLOAT16.mantissa;
-    return node;
+    static Type bf16 = make(BFLOAT16.exponent, BFLOAT16.mantissa);
+    return bf16;
 }
 
 uint32_t Float_t::bits() const {
@@ -350,14 +477,14 @@ Type Ptr_t::make(Type etype) {
     internal_assert(etype.defined()) << "Ptr_t::make received undefined etype";
     Ptr_t *node = new Ptr_t;
     node->etype = std::move(etype);
-    return node;
+    return intern(node);
 }
 
 Type Ref_t::make(std::string name) {
     internal_assert(!name.empty()) << "Ref_t::make received empty name";
     Ref_t *node = new Ref_t;
     node->name = std::move(name);
-    return node;
+    return intern(node);
 }
 
 Type ElementRef_t::make(Type etype, std::string tree) {
@@ -367,7 +494,7 @@ Type ElementRef_t::make(Type etype, std::string tree) {
     ElementRef_t *node = new ElementRef_t;
     node->etype = std::move(etype);
     node->tree = std::move(tree);
-    return node;
+    return intern(node);
 }
 
 Type Vector_t::make(Type etype, uint32_t lanes, bool packed) {
@@ -377,7 +504,7 @@ Type Vector_t::make(Type etype, uint32_t lanes, bool packed) {
     node->etype = std::move(etype);
     node->lanes = lanes;
     node->packed = packed;
-    return node;
+    return intern(node);
 }
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
@@ -391,7 +518,7 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
     node->name = std::move(name);
     node->fields = std::move(fields);
     node->attributes = std::move(attributes);
-    return node;
+    return intern(node);
 }
 
 Type Struct_t::make(std::string name, Struct_t::Map fields,
@@ -413,7 +540,7 @@ Type Struct_t::make(std::string name, Struct_t::Map fields,
     node->fields = std::move(fields);
     node->defaults = std::move(defaults);
     node->attributes = std::move(attributes);
-    return node;
+    return intern(node);
 }
 
 bool Struct_t::is_packed() const {
@@ -429,7 +556,7 @@ bool Struct_t::is_layout() const {
 Type Tuple_t::make(std::vector<Type> etypes) {
     Tuple_t *node = new Tuple_t;
     node->etypes = std::move(etypes);
-    return node;
+    return intern(node);
 }
 
 Type Array_t::make(Type etype, Expr size) {
@@ -442,7 +569,7 @@ Type Array_t::make(Type etype, Expr size) {
     Array_t *node = new Array_t;
     node->etype = std::move(etype);
     node->size = std::move(size);
-    return node;
+    return intern(node);
 }
 
 Type DynArray_t::make(Type etype, Expr capacity) {
@@ -454,7 +581,7 @@ Type DynArray_t::make(Type etype, Expr capacity) {
     DynArray_t *node = new DynArray_t;
     node->etype = std::move(etype);
     node->capacity = std::move(capacity);
-    return node;
+    return intern(node);
 }
 
 Type Option_t::make(Type etype) {
@@ -462,7 +589,7 @@ Type Option_t::make(Type etype) {
         << "Option_t::make received undefined etype";
     Option_t *node = new Option_t;
     node->etype = std::move(etype);
-    return node;
+    return intern(node);
 }
 
 Type ADT_t::make(std::string name, Variants variants) {
@@ -481,7 +608,7 @@ Type ADT_t::make(std::string name, Variants variants) {
     ADT_t *node = new ADT_t;
     node->name = std::move(name);
     node->variants = std::move(variants);
-    return node;
+    return intern(node);
 }
 
 std::optional<size_t> ADT_t::index_of(const std::string &variant) const {
@@ -680,7 +807,7 @@ Type Set_t::make(Type etype) {
     internal_assert(etype.defined()) << "Set_t::make received undefined etype";
     Set_t *node = new Set_t;
     node->etype = std::move(etype);
-    return node;
+    return intern(node);
 }
 
 Type Function_t::make(Type ret_type, std::vector<ArgSig> arg_types) {
@@ -692,7 +819,7 @@ Type Function_t::make(Type ret_type, std::vector<ArgSig> arg_types) {
     Function_t *node = new Function_t;
     node->ret_type = std::move(ret_type);
     node->arg_types = std::move(arg_types);
-    return node;
+    return intern(node);
 }
 
 Type Generic_t::make(std::string name, Interface interface) {

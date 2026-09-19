@@ -22,7 +22,11 @@ namespace ir {
 // fs.pop_frame();                             // [{x: Var(i32, v)}]
 // fs.pop_frame();                             // []
 // fs.contains("x");                           // false
-template <typename K, typename V, typename H = std::less<K>>
+//
+// `Map` is the container of each frame: std::map by default, or an
+// std::unordered_map with the key's hash and equality for a key whose
+// ordering is expensive to compute and whose iteration order nothing reads.
+template <typename K, typename V, typename Map = std::map<K, V>>
 struct MapStack {
     // Retrieves the variable from this frame stack if it exists, and
     // {} otherwise.
@@ -95,7 +99,7 @@ struct MapStack {
     void pop_frame() { frames.pop_back(); }
 
   private:
-    std::vector<std::map<K, V, H>> frames = {{}};
+    std::vector<Map> frames = {{}};
 };
 
 // Similar to MapStack, but only inserts keys.

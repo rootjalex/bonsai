@@ -35,6 +35,11 @@ struct IRNode {
      */
     _TypeEnum node_type_;
 
+    // The node's structural hash (see hash() in IR/Equality.h), computed the
+    // first time it is asked for and kept, since a node never changes once
+    // made. Zero means not yet computed; a computed hash is never zero.
+    mutable uint64_t structural_hash = 0;
+
     using TypeEnum = _TypeEnum;
 
     // Appends `value` to this node's annotation.

@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <cstdint>
+#include <type_traits>
 
 #include "IR/Printer.h"
 
@@ -130,6 +131,13 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1);
 Cmp compare_types(const Type &t0, const Type &t1);
 
 Cmp compare_types(const Type &t0, const Type &t1) {
+    // Types are interned (see intern in IR/Type.cpp), so equal types are
+    // nearly always one pointer, and this answers the common question at
+    // once. Two distinct pointers may still be equal -- arrays of different
+    // sizes, which equals() does not distinguish -- and go on to the walk.
+    if (t0.same_as(t1)) {
+        return Cmp::Equals;
+    }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(t0, t1)) {
         return *nodes_cmp;
     }
@@ -374,7 +382,7 @@ Cmp compare_types(const Type &t0, const Type &t1) {
 
                 for (size_t i = 0, e = agg0->args.size(); i < e; i++) {
                     if (const Cmp cmp =
-                            compare_primitives(agg0->args[i], agg0->args[i]);
+                            compare_primitives(agg0->args[i], agg1->args[i]);
                         cmp != Cmp::Equals) {
                         return cmp;
                     }
@@ -487,6 +495,11 @@ Cmp compare_writelocs(const WriteLoc &w0, const WriteLoc &w1) {
 }
 
 Cmp compare_exprs(const Expr &e0, const Expr &e1) {
+    // One node reached twice -- a subexpression shared after CSE, a Var
+    // threaded through a rewrite -- is equal to itself without a walk.
+    if (e0.same_as(e1)) {
+        return Cmp::Equals;
+    }
     if (std::optional<Cmp> nodes_cmp = compare_node_types(e0, e1)) {
         return *nodes_cmp;
     }
@@ -929,9 +942,464 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
     }
 }
 
+//===--------------------------------------------------------------------===//
+// Hashing
+//===--------------------------------------------------------------------===//
+//
+// A structural hash per node, cached on the node the first time it is asked
+// for (IRNode::structural_hash): a tree is walked once ever, and a node whose
+// children are hashed costs a few multiplies. The hash is a function of
+// exactly what compare_types and compare_exprs above look at, so that two
+// values equals() calls equal hash the same; what the comparison ignores --
+// an array's size, a struct's defaults and attributes -- is left out here for
+// the same reason. FNV-1a, over the bytes of strings and the words of
+// everything else, rather than std::hash, so that the hash is the same on
+// every platform and nothing that hangs off it can differ between machines.
+
+constexpr uint64_t FNV_OFFSET = 0xcbf29ce484222325ull;
+constexpr uint64_t FNV_PRIME = 0x100000001b3ull;
+// What an undefined type or expression hashes to: one value for all of them,
+// as compare_node_types orders them as one.
+constexpr uint64_t UNDEFINED_HASH = 0x9e3779b97f4a7c15ull;
+
+uint64_t hash_bytes(uint64_t h, const void *data, size_t n) {
+    const auto *bytes = static_cast<const unsigned char *>(data);
+    for (size_t i = 0; i < n; i++) {
+        h = (h ^ bytes[i]) * FNV_PRIME;
+    }
+    return h;
+}
+
+// Mixes a primitive into `h`: a string by its length and bytes, anything else
+// -- an integer, a bool, an enumeration -- by its value widened to 64 bits.
+template <typename T>
+uint64_t hash_value(uint64_t h, const T &value) {
+    if constexpr (std::is_same_v<T, std::string>) {
+        h = hash_value(h, value.size());
+        return hash_bytes(h, value.data(), value.size());
+    } else {
+        static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
+        const uint64_t word = static_cast<uint64_t>(value);
+        return hash_bytes(h, &word, sizeof(word));
+    }
+}
+
+template <typename T, typename F>
+uint64_t hash_list(uint64_t h, const std::vector<T> &list, const F &f) {
+    h = hash_value(h, list.size());
+    for (const T &x : list) {
+        h = f(h, x);
+    }
+    return h;
+}
+
+uint64_t hash_of(const Type &t);
+uint64_t hash_of(const Expr &e);
+
+uint64_t hash_types(uint64_t h, const Type &t) {
+    return hash_value(h, hash_of(t));
+}
+
+uint64_t hash_exprs(uint64_t h, const Expr &e) {
+    return hash_value(h, hash_of(e));
+}
+
+uint64_t hash_interfaces(uint64_t h, const Interface &i) {
+    if (!i.defined()) {
+        return hash_value(h, UNDEFINED_HASH);
+    }
+    h = hash_value(h, static_cast<uint64_t>(i.node_type()) + 1);
+    switch (i.node_type()) {
+    case IRInterfaceEnum::IEmpty:
+    case IRInterfaceEnum::IFloat:
+        return h;
+    case IRInterfaceEnum::IVector:
+        return hash_interfaces(h, i.as<IVector>()->etype);
+    }
+    return h;
+}
+
+// Mirrors compare_annotation, field for field.
+uint64_t hash_annotation(uint64_t h, const Annotation &annot) {
+    h = hash_value(h, annot.type.index());
+    if (const auto *data = annot.as<Annotation::Data>()) {
+        return hash_value(h, data->name);
+    }
+    if (const auto *vol = annot.as<Annotation::Volume>()) {
+        h = hash_value(h, vol->geometry);
+        h = hash_value(h, vol->broadcast);
+        h = hash_types(h, vol->struct_type);
+        return hash_list(h, vol->initializers,
+                         [](uint64_t h, const std::string &s) {
+                             return hash_value(h, s);
+                         });
+    }
+    if (const auto *interval = annot.as<Annotation::Interval>()) {
+        h = hash_value(h, interval->scalar);
+        h = hash_value(h, interval->low);
+        return hash_value(h, interval->high);
+    }
+    if (const auto *agg = annot.as<Annotation::Aggregate>()) {
+        h = hash_value(h, agg->op);
+        h = hash_list(h, agg->args, [](uint64_t h, const std::string &s) {
+            return hash_value(h, s);
+        });
+        return hash_value(h, agg->value);
+    }
+    return h;
+}
+
+uint64_t hash_of(const Type &t) {
+    if (!t.defined()) {
+        return UNDEFINED_HASH;
+    }
+    const auto *node = t.get();
+    if (node->structural_hash != 0) {
+        return node->structural_hash;
+    }
+    uint64_t h =
+        hash_value(FNV_OFFSET, static_cast<uint64_t>(t.node_type()) + 1);
+    switch (t.node_type()) {
+    case IRTypeEnum::Void_t:
+    case IRTypeEnum::Index_t:
+    case IRTypeEnum::Bool_t:
+    case IRTypeEnum::String_t:
+    case IRTypeEnum::Rand_State_t:
+        break;
+    case IRTypeEnum::Int_t:
+        h = hash_value(h, t.as<Int_t>()->bits);
+        break;
+    case IRTypeEnum::UInt_t:
+        h = hash_value(h, t.as<UInt_t>()->bits);
+        break;
+    case IRTypeEnum::Float_t:
+        h = hash_value(h, t.as<Float_t>()->exponent);
+        h = hash_value(h, t.as<Float_t>()->mantissa);
+        break;
+    case IRTypeEnum::Ptr_t:
+        h = hash_types(h, t.as<Ptr_t>()->etype);
+        break;
+    case IRTypeEnum::ElementRef_t:
+        h = hash_value(h, t.as<ElementRef_t>()->tree);
+        h = hash_types(h, t.as<ElementRef_t>()->etype);
+        break;
+    case IRTypeEnum::Ref_t:
+        h = hash_value(h, t.as<Ref_t>()->name);
+        break;
+    case IRTypeEnum::Vector_t: {
+        const Vector_t *v = t.as<Vector_t>();
+        h = hash_value(h, v->lanes);
+        h = hash_value(h, v->packed);
+        h = hash_types(h, v->etype);
+        break;
+    }
+    case IRTypeEnum::Struct_t: {
+        const Struct_t *s = t.as<Struct_t>();
+        h = hash_value(h, s->name);
+        h = hash_list(h, s->fields, [](uint64_t h, const TypedVar &f) {
+            return hash_types(hash_value(h, f.name), f.type);
+        });
+        break;
+    }
+    case IRTypeEnum::Tuple_t:
+        h = hash_list(h, t.as<Tuple_t>()->etypes, hash_types);
+        break;
+    case IRTypeEnum::Array_t:
+        h = hash_types(h, t.as<Array_t>()->etype);
+        break;
+    case IRTypeEnum::DynArray_t:
+        h = hash_types(h, t.as<DynArray_t>()->etype);
+        break;
+    case IRTypeEnum::Option_t:
+        h = hash_types(h, t.as<Option_t>()->etype);
+        break;
+    case IRTypeEnum::ADT_t: {
+        const ADT_t *a = t.as<ADT_t>();
+        h = hash_value(h, a->name);
+        h = hash_list(h, a->variants, hash_types);
+        break;
+    }
+    case IRTypeEnum::Set_t:
+        h = hash_types(h, t.as<Set_t>()->etype);
+        break;
+    case IRTypeEnum::Function_t: {
+        const Function_t *f = t.as<Function_t>();
+        h = hash_list(h, f->arg_types,
+                      [](uint64_t h, const Function_t::ArgSig &a) {
+                          return hash_types(hash_value(h, a.is_mutable),
+                                            a.type);
+                      });
+        h = hash_types(h, f->ret_type);
+        break;
+    }
+    case IRTypeEnum::Generic_t: {
+        const Generic_t *g = t.as<Generic_t>();
+        h = hash_value(h, g->name);
+        h = hash_interfaces(h, g->interface);
+        break;
+    }
+    case IRTypeEnum::BVH_t: {
+        const BVH_t *b = t.as<BVH_t>();
+        h = hash_value(h, b->name);
+        h = hash_list(h, b->nodes, [](uint64_t h, const BVH_t::Node &n) {
+            h = hash_types(h, n.struct_type);
+            return hash_list(h, n.annotations, hash_annotation);
+        });
+        break;
+    }
+    }
+    if (h == 0) {
+        h = 1; // zero means "not yet computed"
+    }
+    node->structural_hash = h;
+    return h;
+}
+
+uint64_t hash_of(const Expr &e) {
+    if (!e.defined()) {
+        return UNDEFINED_HASH;
+    }
+    const auto *node = e.get();
+    if (node->structural_hash != 0) {
+        return node->structural_hash;
+    }
+    uint64_t h =
+        hash_value(FNV_OFFSET, static_cast<uint64_t>(e.node_type()) + 1);
+    // The comparison tells a typed expression from an untyped one, then
+    // compares the types.
+    h = hash_value(h, e.type().defined());
+    if (e.type().defined()) {
+        h = hash_types(h, e.type());
+    }
+    switch (e.node_type()) {
+    case IRExprEnum::IntImm:
+        h = hash_value(h, e.as<IntImm>()->value);
+        break;
+    case IRExprEnum::UIntImm:
+        h = hash_value(h, e.as<UIntImm>()->value);
+        break;
+    case IRExprEnum::IdxImm:
+        h = hash_value(h, e.as<IdxImm>()->value);
+        break;
+    case IRExprEnum::FloatImm:
+        // By bit pattern, as the comparison is.
+        h = hash_value(h, std::bit_cast<uint64_t>(e.as<FloatImm>()->value));
+        break;
+    case IRExprEnum::BoolImm:
+        h = hash_value(h, e.as<BoolImm>()->value);
+        break;
+    case IRExprEnum::VecImm:
+        h = hash_list(h, e.as<VecImm>()->values, hash_exprs);
+        break;
+    case IRExprEnum::StringImm:
+        h = hash_value(h, e.as<StringImm>()->value);
+        break;
+    case IRExprEnum::Var:
+        h = hash_value(h, e.as<Var>()->name);
+        break;
+    case IRExprEnum::SizeOf:
+        h = hash_types(h, e.as<SizeOf>()->of);
+        break;
+    case IRExprEnum::Extrema:
+        h = hash_value(h, e.as<Extrema>()->op);
+        break;
+    case IRExprEnum::BinOp: {
+        const BinOp *b = e.as<BinOp>();
+        h = hash_value(h, b->op);
+        h = hash_exprs(h, b->a);
+        h = hash_exprs(h, b->b);
+        break;
+    }
+    case IRExprEnum::UnOp: {
+        const UnOp *u = e.as<UnOp>();
+        h = hash_value(h, u->op);
+        h = hash_exprs(h, u->a);
+        break;
+    }
+    case IRExprEnum::Select: {
+        const Select *s = e.as<Select>();
+        h = hash_exprs(h, s->cond);
+        h = hash_exprs(h, s->tvalue);
+        h = hash_exprs(h, s->fvalue);
+        break;
+    }
+    case IRExprEnum::Cast:
+        h = hash_exprs(h, e.as<Cast>()->value);
+        break;
+    case IRExprEnum::Broadcast:
+        h = hash_exprs(h, e.as<Broadcast>()->value);
+        break;
+    case IRExprEnum::VectorReduce: {
+        const VectorReduce *v = e.as<VectorReduce>();
+        h = hash_value(h, v->op);
+        h = hash_exprs(h, v->value);
+        break;
+    }
+    case IRExprEnum::VectorShuffle: {
+        const VectorShuffle *v = e.as<VectorShuffle>();
+        h = hash_list(h, v->idxs, hash_exprs);
+        h = hash_exprs(h, v->value);
+        break;
+    }
+    case IRExprEnum::Shuffle: {
+        const Shuffle *v = e.as<Shuffle>();
+        h = hash_list(h, v->indices, [](uint64_t h, int i) {
+            return hash_value(h, i);
+        });
+        h = hash_list(h, v->vectors, hash_exprs);
+        break;
+    }
+    case IRExprEnum::Ramp: {
+        const Ramp *v = e.as<Ramp>();
+        h = hash_value(h, v->lanes);
+        h = hash_exprs(h, v->base);
+        h = hash_exprs(h, v->stride);
+        break;
+    }
+    case IRExprEnum::Extract: {
+        const Extract *v = e.as<Extract>();
+        h = hash_exprs(h, v->vec);
+        h = hash_exprs(h, v->idx);
+        h = hash_value(h, v->mask.defined());
+        if (v->mask.defined()) {
+            h = hash_exprs(h, v->mask);
+        }
+        break;
+    }
+    case IRExprEnum::Build:
+        h = hash_list(h, e.as<Build>()->values, hash_exprs);
+        break;
+    case IRExprEnum::Construct: {
+        const Construct *v = e.as<Construct>();
+        h = hash_value(h, v->variant);
+        h = hash_list(h, v->args, hash_exprs);
+        break;
+    }
+    case IRExprEnum::Access: {
+        const Access *v = e.as<Access>();
+        h = hash_value(h, v->field);
+        h = hash_exprs(h, v->value);
+        break;
+    }
+    case IRExprEnum::MatchExpr: {
+        const MatchExpr *v = e.as<MatchExpr>();
+        h = hash_exprs(h, v->value);
+        h = hash_list(h, v->arms, [](uint64_t h, const MatchExpr::Arm &arm) {
+            return hash_exprs(hash_value(h, arm.variant), arm.value);
+        });
+        break;
+    }
+    case IRExprEnum::Unwrap: {
+        const Unwrap *v = e.as<Unwrap>();
+        h = hash_value(h, v->index);
+        h = hash_exprs(h, v->value);
+        break;
+    }
+    case IRExprEnum::Intrinsic: {
+        const Intrinsic *v = e.as<Intrinsic>();
+        h = hash_value(h, v->op);
+        h = hash_list(h, v->args, hash_exprs);
+        break;
+    }
+    case IRExprEnum::Generator: {
+        const Generator *v = e.as<Generator>();
+        h = hash_value(h, v->op);
+        h = hash_list(h, v->args, hash_exprs);
+        break;
+    }
+    case IRExprEnum::Lambda: {
+        const Lambda *v = e.as<Lambda>();
+        h = hash_exprs(h, v->value);
+        h = hash_list(h, v->args, [](uint64_t h, const TypedVar &a) {
+            return hash_types(h, a.type);
+        });
+        break;
+    }
+    case IRExprEnum::GeomOp: {
+        const GeomOp *v = e.as<GeomOp>();
+        h = hash_value(h, v->op);
+        h = hash_exprs(h, v->a);
+        h = hash_exprs(h, v->b);
+        break;
+    }
+    case IRExprEnum::SetOp: {
+        const SetOp *v = e.as<SetOp>();
+        h = hash_value(h, v->op);
+        h = hash_exprs(h, v->a);
+        h = hash_exprs(h, v->b);
+        break;
+    }
+    case IRExprEnum::AggOp: {
+        const AggOp *v = e.as<AggOp>();
+        h = hash_value(h, v->op);
+        if (v->op == AggOp::reduce) {
+            h = hash_exprs(h, v->identity);
+            h = hash_exprs(h, v->combiner);
+        }
+        h = hash_exprs(h, v->a);
+        break;
+    }
+    case IRExprEnum::Call: {
+        const Call *v = e.as<Call>();
+        h = hash_exprs(h, v->func);
+        h = hash_list(h, v->args, hash_exprs);
+        break;
+    }
+    case IRExprEnum::Instantiate: {
+        const Instantiate *v = e.as<Instantiate>();
+        h = hash_exprs(h, v->expr);
+        h = hash_value(h, v->types.size());
+        for (const auto &[name, type] : v->types) {
+            h = hash_types(hash_value(h, name), type);
+        }
+        break;
+    }
+    case IRExprEnum::PtrTo:
+        h = hash_exprs(h, e.as<PtrTo>()->expr);
+        break;
+    case IRExprEnum::RefTo: {
+        const RefTo *v = e.as<RefTo>();
+        h = hash_value(h, v->tree);
+        h = hash_exprs(h, v->place);
+        break;
+    }
+    case IRExprEnum::Deref: {
+        const Deref *v = e.as<Deref>();
+        h = hash_exprs(h, v->expr);
+        h = hash_exprs(h, v->mask);
+        break;
+    }
+    case IRExprEnum::AtomicAdd: {
+        const AtomicAdd *v = e.as<AtomicAdd>();
+        h = hash_exprs(h, v->ptr);
+        h = hash_exprs(h, v->value);
+        break;
+    }
+    }
+    if (h == 0) {
+        h = 1; // zero means "not yet computed"
+    }
+    node->structural_hash = h;
+    return h;
+}
+
 } // namespace
 
+uint64_t hash(const Type &t) { return hash_of(t); }
+
+uint64_t hash(const Expr &e) { return hash_of(e); }
+
+// Equality asks the hashes first: two values that hash differently are not
+// equal, and finding that out costs two cached lookups rather than a walk.
+// Only values that hash the same -- nearly always because they are equal --
+// are compared in full.
 bool equals(const Type &t0, const Type &t1) {
+    if (t0.same_as(t1)) {
+        return true;
+    }
+    if (hash_of(t0) != hash_of(t1)) {
+        return false;
+    }
     return compare_types(t0, t1) == Cmp::Equals;
 }
 
@@ -940,6 +1408,12 @@ bool TypeLessThan::operator()(const Type &t0, const Type &t1) const {
 }
 
 bool equals(const Expr &e0, const Expr &e1) {
+    if (e0.same_as(e1)) {
+        return true;
+    }
+    if (hash_of(e0) != hash_of(e1)) {
+        return false;
+    }
     return compare_exprs(e0, e1) == Cmp::Equals;
 }
 
