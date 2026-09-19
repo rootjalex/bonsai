@@ -15,6 +15,26 @@ To update the golden outputs during a test run, set the environment variable
 $ BONSAI_UPDATE_EXPECT=1 ctest -L llvm
 ```
 
+### Tests that build and run a C++ driver
+
+A `correctness/cpp` test's second line is `//! commands:`, a comma-separated
+list of shell commands the runner executes after the compiler, with `$<>`
+standing for the test's directory: compile the driver, link it against the
+object the compiler produced, run it, clean up. Each command other than the
+`rm`s is echoed into the output as written, so the golden records the test's
+own command line and nothing about the machine it ran on.
+
+What the machine does contribute is added by the runner when a command runs
+and is not echoed. The runtime's parallel loop (`runtime/bonsai_parallel.h`)
+uses Intel TBB wherever TBB's header is reachable and `std::thread` where it
+is not, and a driver built on TBB has to link the library. The runner looks
+for TBB beside the compiler a command names -- the directory above its `bin`,
+which is where a conda environment installs both -- and, when
+`include/tbb/parallel_for.h` is there, adds `-isystem <prefix>/include` to a
+command that compiles and `-L<prefix>/lib -Wl,-rpath,<prefix>/lib -ltbb` to a
+command that links. `apps/pbrt/compare.sh` finds TBB the same way. A test
+should not name TBB itself.
+
 ### Goldens of the SSA block graph
 
 Most tests under `tests/bonsai/ssa/` diff the *relooper's* output: `-p ssa`

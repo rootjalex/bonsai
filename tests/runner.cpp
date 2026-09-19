@@ -2,8 +2,10 @@
 #include "Error.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <ranges>
 #include <sstream>
 #include <thread>
@@ -184,7 +186,107 @@ std::vector<std::string> get_commands_for_file(const std::string &filename) {
     return commands;
 }
 
-// Runs the commands using default shell. Any non-`rm` commands are printed.
+// The first whitespace-separated token of a command, e.g. the program it runs.
+std::string first_token(const std::string &command) {
+    std::istringstream stream(command);
+    std::string token;
+    stream >> token;
+    return token;
+}
+
+// Does the command contain `flag` as a token of its own?
+bool has_token(const std::string &command, const std::string &flag) {
+    std::istringstream stream(command);
+    std::string token;
+    while (stream >> token) {
+        if (token == flag) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Where the C++ compiler a command names is installed: the directory above its
+// `bin`, found by resolving the name on PATH and following the symlink that
+// `clang++` usually is. Empty when the command is not a C++ compiler or it
+// cannot be found; the shell will then report the latter itself.
+std::string compiler_prefix(const std::string &command) {
+    const std::string name = first_token(command);
+    if (!name.ends_with("clang++") && !name.ends_with("g++") &&
+        !name.ends_with("c++")) {
+        return "";
+    }
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path found;
+    if (name.find('/') != std::string::npos) {
+        found = name;
+    } else if (const char *path = std::getenv("PATH")) {
+        std::istringstream dirs(path);
+        std::string dir;
+        while (std::getline(dirs, dir, ':')) {
+            const fs::path candidate = fs::path(dir) / name;
+            const fs::file_status status = fs::status(candidate, ec);
+            if (!ec && fs::is_regular_file(status) &&
+                (status.permissions() & fs::perms::owner_exec) !=
+                    fs::perms::none) {
+                found = candidate;
+                break;
+            }
+        }
+    }
+    if (found.empty()) {
+        return "";
+    }
+    const fs::path resolved = fs::canonical(found, ec);
+    if (ec) {
+        return "";
+    }
+    return resolved.parent_path().parent_path().string();
+}
+
+// What the environment adds to a test's C++ commands: Intel TBB, when it is
+// installed beside the compiler -- which is where a conda environment puts it,
+// and how apps/pbrt/compare.sh finds it too.
+//
+// The runtime's parallel loop (runtime/bonsai_parallel.h) runs on TBB wherever
+// TBB's header is reachable and on std::thread where it is not, and a driver
+// built on TBB has to link the library. Whether the header is reachable
+// depends on the compiler's default include path -- conda's clang searches its
+// environment's `include`, a system clang does not -- so a test that spelled
+// the link flag itself would fail on one machine or the other. The test's
+// command line stays as written and as echoed, which is what keeps the goldens
+// the same from one machine to the next; what the environment supplies is
+// added here when the command runs: the include directory for a step that
+// compiles, so that every driver in an environment with TBB is built on it,
+// and the library, its search path and its run path for a step that links.
+std::string environment_flags(const std::string &command) {
+    static std::map<std::string, std::string> prefixes;
+    const std::string name = first_token(command);
+    auto it = prefixes.find(name);
+    if (it == prefixes.end()) {
+        it = prefixes.emplace(name, compiler_prefix(command)).first;
+    }
+    const std::string &prefix = it->second;
+    if (prefix.empty()) {
+        return "";
+    }
+    namespace fs = std::filesystem;
+    if (!fs::exists(fs::path(prefix) / "include" / "tbb" / "parallel_for.h")) {
+        return "";
+    }
+    const bool compiles_only = has_token(command, "-c") ||
+                               has_token(command, "-E") ||
+                               has_token(command, "-S") ||
+                               has_token(command, "-fsyntax-only");
+    if (compiles_only) {
+        return " -isystem " + prefix + "/include";
+    }
+    return " -L" + prefix + "/lib -Wl,-rpath," + prefix + "/lib -ltbb";
+}
+
+// Runs the commands using default shell. Any non-`rm` commands are printed, as
+// the test wrote them; see environment_flags for what is added when they run.
 void run_commands(const std::vector<std::string> &commands) {
     int rc = 0;
     for (const std::string &command : commands) {
@@ -194,7 +296,7 @@ void run_commands(const std::vector<std::string> &commands) {
         }
 
         // Launch via the default shell.
-        rc = std::system(command.c_str());
+        rc = std::system((command + environment_flags(command)).c_str());
         if (rc == 0) {
             continue;
         }
