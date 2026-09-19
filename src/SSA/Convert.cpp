@@ -18,6 +18,8 @@
 
 #include "Utils.h"
 
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <set>
 
@@ -1562,11 +1564,34 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
     }
 
+    // See BONSAI_TIME_PASSES in Lower/Lower.cpp: the time each transform
+    // takes, since this one pass is most of a vectorized compile.
+    const bool timing = std::getenv("BONSAI_TIME_PASSES") != nullptr;
     for (const auto &[name, index] : ordered) {
         if (!fmap.contains(name)) {
             continue;
         }
         const ir::Transform &t = transforms.at(name).at(index);
+        const auto started = std::chrono::steady_clock::now();
+        const auto report = [&] {
+            if (!timing) {
+                return;
+            }
+            const std::chrono::duration<double> took =
+                std::chrono::steady_clock::now() - started;
+            const char *kind = std::visit(
+                overloads{[](const ir::Bind &) { return "bind"; },
+                          [](const ir::Collapse &) { return "collapse"; },
+                          [](const ir::Defer &) { return "defer"; },
+                          [](const ir::Loopify &) { return "loopify"; },
+                          [](const ir::MakeQueue &) { return "make_queue"; },
+                          [](const ir::Split &) { return "split"; },
+                          [](const ir::Sort &) { return "sort"; },
+                          [](const ir::Vectorize &) { return "vectorize"; }},
+                t);
+            std::cerr << "[time]   " << name << "." << kind << ": "
+                      << took.count() << " s\n";
+        };
         const auto unimplemented = [&name](const std::string &what) {
             internal_error
                 << what << "() is in the schedule for " << name
@@ -1670,6 +1695,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 },
                 t);
         }
+        report();
     }
     if (!divided) {
         divide_all();

@@ -47,6 +47,7 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -102,8 +103,19 @@ void lower(ir::Program &program, const CompilerOptions &options) {
         }
         return false;
     };
+    // BONSAI_TIME_PASSES prints how long each pass took, to stderr, for
+    // finding where a compile's time goes; the SSA pass breaks its own time
+    // down by schedule transform the same way (see SSA/Convert.cpp).
+    const bool timing = std::getenv("BONSAI_TIME_PASSES") != nullptr;
     for (Pass *pass : passes) {
+        const auto started = std::chrono::steady_clock::now();
         program = pass->run(std::move(program), options);
+        if (timing) {
+            const std::chrono::duration<double> took =
+                std::chrono::steady_clock::now() - started;
+            std::cerr << "[time] " << pass->name() << ": " << took.count()
+                      << " s\n";
+        }
         if (dumps(pass->name())) {
             // Verbosely, so that imported functions -- most of a program
             // that spans files -- are printed too.
