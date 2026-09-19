@@ -1532,7 +1532,7 @@ Read in dependency order rather than by count, the road is:
 ## What is next, in order
 
 Numbered by how long they have been open rather than by what to do first. Items
-1, 2 and 5 are answered.
+1, 2, 5 and 6 are answered.
 
 These are the items that came out of comparing against pbrt on the scenes that
 already work. They are not the same list as the section above, which is about
@@ -1822,47 +1822,84 @@ The general lesson is worth keeping: a query written the more specific way is
 not automatically lowered the better way, and the place to look when it is not
 is what the *other* lowerings of the same shape already do.
 
-### 6. Specialize the traversal on a uniform node — next
+### 6. The traversal is a packet — done, by the order of two directives
 
-**Open, and the next thing to do for the vectorized render.** Profiling book
-at depth 1 -- camera rays only, sixteen lanes -- put two thirds of the
-vectorized time inside gather instructions (`vpgatherdd`, `vgatherdps`), at an
-IPC of 0.66 against the scalar render's 1.88, with fewer cache misses than the
-scalar render: the gang is bound on the gather units, not on memory. A gang at
-depth 1 is sixteen samples of one pixel, so its lanes are at the same BVH node
-and test the same triangles nearly every step, and each gather fetches one
-address sixteen times.
+**Done.** Profiling book at depth 1 -- camera rays only, sixteen lanes -- had
+put two thirds of the vectorized time inside gather instructions at an IPC of
+0.66: a gang at depth 1 is sixteen samples of one pixel, its lanes are at the
+same BVH node nearly every step, and each gather fetched one address sixteen
+times. The plan here was a `specialize(uniform(...))` directive with the
+per-lane traversal as its fallback. What was built instead is simpler and is
+the classic answer: the whole traversal is a packet, and it falls out of the
+order the schedule already had the words for.
 
-The fix belongs in the schedule, since it changes no result and pays only
-where the workload is coherent, which the scene and the sampling decide and
-the compiler cannot. The shape is Halide's `Func::specialize(cond)` -- a
-run-time condition selecting between two copies of the loop nest, each with
-its own schedule -- with a per-lane predicate:
+    render.split(s, s_gang, s_lane, 16, false).vectorize(s_lane);
+    trace.sort(primitives.Interior, ...).sort(Inst.blas.Interior, ...).loopify(64);
+    trace_any.loopify(64);
 
-    trace.loopify(64)
-         .specialize(uniform(primitives.Interior))
-         .specialize(uniform(primitives.Leaf));
+Loopified first and then vectorized, a traversal is a loop each lane walks at
+its own pace over a stack of its own -- the per-lane form, still available by
+writing it that way. Vectorized first, the recursion is made by the gang as a
+whole: the callee is specialized for one node the lanes share and a mask of
+the lanes whose ray reached it, and `loopify()` then puts that recursion on a
+stack -- one of scalar node indices, `u32[64]`, beside one of masks,
+`boolx16[64]`, with one count. Each node's bounds, children and primitive
+range are one scalar load broadcast into the lanes' arithmetic, and only the
+ray tests are per lane. Both levels of an instanced scene come out this way,
+the instance's tree entered for the instance the gang is at with the lanes
+that reached it (Wald, Slusallek, Benthin & Wagner, "Interactive Rendering
+with Coherent Ray Tracing", Eurographics 2001).
 
-Where the traversal loads the node the lanes are at, test `all_equal` on the
-lanes' references (one compare and a `kortest`) and branch to a copy of the
-region in which that reference is uniform. Everything else the compiler
-derives by re-running divergence analysis on the copy with the reference
-marked uniform: the node's bounds, children and primitive range become scalar
-loads plus broadcasts, the stack push of the children becomes one push, and
-only the ray-dependent tests stay per lane. The general copy is the fallback,
-so a divergent gang traverses per lane as now rather than serializing, which
-is where this differs from a hand-written packet traversal. The value to
-specialize on is nameable already: `sort()` takes tree-arm locations. The same
-directive on a material or light index would give the "sort by material"
-effect at a hit without a sort.
+Three things had to be true of the compiler for the order to mean this, and
+each is a rule rather than a special case. The sort's order is one decision for
+the gang: every compare-and-swap of the sorting network is a `vote`
+(Instruction::Op::Vote), which the vectorizer settles as the majority of the
+lanes that are on -- `2 * popcount(cmp & mask) > popcount(mask)`, two `ctpop`
+and a compare -- when it decides between children the lanes share, and drops
+when the children are already per lane. A child is descended into or pushed
+only if some lane wants it: the pushes `loopify()` makes carry the `any(mask)`
+test the masked call they replace was entered under, without which a packet
+no ray reached the node with pushed children read off a bypassed, zeroed node
+and descended without end. And the divergence analysis had to stop calling a
+loop header divergent for running inside a divergent branch's arm -- the join
+rule now finds the joins of a divergent branch by propagating labels along
+forward edges, as LLVM's sync dependence analysis does, and a header's lanes
+are at different iterations only when a latch leaves through a branch inside
+the loop -- since that misreading made the TLAS leaf's loop over its
+primitives varying, and with it the instance and the BLAS root, and would have
+left the instance's tree per lane. Schedules are applied in the order written,
+across functions, which is what makes the order sayable (ir::TransformOrder).
 
-Precedents: ISPC's `uniform` qualifier and its ray tracer's hand-written
-uniform node traversal (static); AMD's GPU compiler's "waterfall loops", which
-peel a divergent operand's distinct values with `readfirstlane` and loop over
-them, one trip when all lanes agree (dynamic and automatic); NVIDIA's uniform
-datapath (static analysis). It composes with the load-and-transpose codegen
-that is done: the uniform copy takes scalar loads, the divergent fallback the
-transposed loads.
+Measured, depth 1 and 64 spp, sixteen lanes, best of three, each render alone
+on the machine; the same compiler for all three, the scalar schedule from
+commit 864c2c1a, the per-lane one HEAD's before this change:
+
+    scene            scalar    per-lane    packet    packet/scalar  packet/per-lane
+    bvh-lights       0.226 s   0.087 s     0.069 s   3.27x          1.26x
+    killeroo-simple  1.74 s    1.30 s      0.70 s    2.49x          1.86x
+    book             12.96 s   15.11 s     5.65 s    2.29x          2.68x
+    ganesha          10.01 s   9.31 s      5.69 s    1.76x          1.64x
+    instances        1.82 s    0.78 s      0.59 s    3.06x          1.31x
+
+Book, the divergent scene the per-lane traversal made slower than scalar, is
+2.3x faster than scalar as a packet. At the scenes' own depth, 16 spp, one run
+each: killeroo 0.565 s scalar, 0.599 s per-lane, 0.343 s packet; instances
+0.447 / 0.193 / 0.149 s. Against pbrt on the same integrator (`compare.sh
+--spp 16`, pbrt's own render timer): killeroo pbrt 870 ms, packet 348 ms,
+2.50x faster, where the per-lane schedule had been 1.42x (655 vs 930 ms);
+book pbrt 4930 ms, packet 1876 ms, 2.63x faster; both images match pbrt. The
+images against each other: packet and per-lane are identical to the bit on
+every scene, radiance, normals and albedo alike, and both differ from scalar
+only where vectorized arithmetic contracts differently (a few ulp).
+
+What the plan's `specialize(uniform(...))` would still add is the *divergent*
+gang: a packet whose lanes are at different nodes is not a packet, and here a
+gang enters an instance only for the lanes that reached it, so the case does
+not arise inside a traversal; it would for a gang of paths at their second
+bounce entering the top-level tree, where the lanes agree on the root and
+diverge below it -- exactly what a packet handles by masking, at the cost of
+visiting the union of the lanes' nodes. Whether a per-lane fallback there is
+worth having is a measurement not yet taken.
 
 ## What has been built, and what it cost
 

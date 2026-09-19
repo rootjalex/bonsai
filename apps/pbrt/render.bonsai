@@ -2109,6 +2109,38 @@ schedule {
         };
     };
 
+    // The random walk is a tail recursion, so this turns it into a loop. Said
+    // here rather than written as one: what the source says is that a path's
+    // next step depends on its last, and how that is run -- a loop per pixel
+    // now, a queue of suspended paths advanced together later -- is this
+    // block's to decide.
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+
+    // The samples of a pixel are a gang on the SIMD unit: ISPC-style, one lane
+    // per sample, the whole path trace run a register's worth at a time --
+    // sixteen 32-bit lanes, the machine's AVX-512 register. `spp` is a
+    // runtime count, and vectorize wants a constant gang width, so split
+    // peels a width-sixteen inner loop off it first and that is what is
+    // vectorized; a scene whose spp is not a multiple of sixteen is the tail
+    // split's to carry.
+    render.split(s, s_gang, s_lane, 16, false)
+          .vectorize(s_lane);
+
+    // The gang is made before the traversals below are put on their stacks,
+    // and the order is the point. A traversal loopified first is a loop each
+    // lane walks at its own pace over a stack of its own: sixteen nodes
+    // gathered at every step, sixteen samples of one pixel fetching one
+    // address sixteen times. Vectorized first, the recursion is made by the
+    // gang as a whole -- one node the lanes share, a mask of the lanes whose
+    // ray reached it -- and that is what loopify() then puts on a stack: one
+    // of nodes and one of masks, each node's bounds and children loaded once
+    // and broadcast, only the ray tests per lane. That is a packet traversal
+    // (Wald, Slusallek, Benthin & Wagner 2001), written as the composition of
+    // two directives. The sort's order is then one decision for the gang, by a
+    // vote of the lanes' keys (see SSA/SortRecursion.h).
+    //
     // pbrt: `if (dirIsNeg[node->axis])`, which is the whole of how
     // BVHAggregate::Intersect decides which child to descend into first.
     //
@@ -2158,23 +2190,5 @@ schedule {
     layout mesh_positions { tight(root); };
     layout mesh_normals { tight(root); };
 
-    // The random walk is a tail recursion, so this turns it into a loop. Said
-    // here rather than written as one: what the source says is that a path's
-    // next step depends on its last, and how that is run -- a loop per pixel
-    // now, a queue of suspended paths advanced together later -- is this
-    // block's to decide.
-    walk_step.loopify();
-    path_step.loopify();
-    full_path_step.loopify();
-
-    // The samples of a pixel are a gang on the SIMD unit: ISPC-style, one lane
-    // per sample, the whole path trace run a register's worth at a time --
-    // sixteen 32-bit lanes, the machine's AVX-512 register. `spp` is a
-    // runtime count, and vectorize wants a constant gang width, so split
-    // peels a width-sixteen inner loop off it first and that is what is
-    // vectorized; a scene whose spp is not a multiple of sixteen is the tail
-    // split's to carry.
-    render.split(s, s_gang, s_lane, 16, false)
-          .vectorize(s_lane);
     render.bind(p, CPUThread);
 }

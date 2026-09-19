@@ -194,13 +194,30 @@ weakest it will be and a leaf is never skipped that should have been entered.
 What is given up is abandoning the rest of a leaf part-way through, which for
 four primitives is not worth one box intersection each.
 
-## 6. Nothing is vectorized
+## 6. Nothing is vectorized -- DONE, and the traversal is a packet
 
-The renderer is entirely scalar. `vectorize()` is the schedule directive with
-the most headroom here and the least applied: a wavefront of suspended paths, or
-the sample loop of a pixel, are both wide and independent. The obstacle is
-divergence -- a layered BSDF's random walk takes a different number of steps per
-lane -- which is exactly the case ISPC-style vectorization is built for.
+The renderer was entirely scalar; the note said `vectorize()` was the schedule
+directive with the most headroom and the least applied. It is applied now:
+`render.split(s, s_gang, s_lane, 16, false).vectorize(s_lane)` runs a pixel's
+samples as a sixteen-lane gang, the whole path trace at once, with divergence
+-- a layered BSDF's random walk taking a different number of steps per lane --
+handled by ISPC-style masking and Moll & Hack's partial linearization.
+
+The traversal's form is decided by the order of two directives, and the order
+was the second half of the work. Written `trace.loopify(64)` and then
+`render.vectorize(s_lane)`, the traversal is a loop each lane walks at its own
+pace over a stack of its own: sixteen node indices gathered at every step,
+which for the coherent gang a pixel's samples make is one address fetched
+sixteen times, and was two thirds of the vectorized time on book. Written the
+other way round -- `vectorize` first, `trace.sort(...).loopify(64)` after --
+the recursion is made by the gang as a whole, on one node the lanes share with
+a mask of the lanes whose ray reached it, and loopify puts *that* on a stack:
+one of scalar node indices and one of masks, each node's bounds and children
+loaded once and broadcast, the sort's order settled by a vote of the lanes, and
+a child pushed only if some lane is on. That is Wald's packet traversal
+(Wald, Slusallek, Benthin & Wagner, Eurographics 2001), for the top-level tree
+and for every instance's tree beneath it, derived rather than written. See
+PLAN.md, "What is next", item 6, for the measurements.
 
 ## 7. The sample loop is deliberately sequential
 
@@ -268,9 +285,9 @@ node cost far more there than in an empty loop. And on a coherent gang --
 sixteen samples of one pixel at the same node -- a gather's sixteen addresses
 fall in one or two cache lines and it is cheap; the profile's two thirds
 "inside gathers" was the gang fetching the same address sixteen times, which
-is what item 6 of PLAN.md's "What is next" (`specialize(uniform(...))`)
-addresses. If a transpose is ever worth revisiting it is as the divergent
-fallback beside that uniform fast path, judged on the render.
+the packet traversal (item 6 above) removes outright: the gang shares the
+node, so there is no gather to transpose. If a transpose is ever worth
+revisiting it is for the per-lane schedule alone, judged on the render.
 
 ## Done, kept for the record
 
