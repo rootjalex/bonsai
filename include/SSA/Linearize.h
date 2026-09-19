@@ -36,10 +36,40 @@ namespace ssa {
 //     sits at the end of the path whose value it lets in, as ispc places its
 //     masked assignments, rather than at the join as the Region Vectorizer
 //     places its blends: a path's mask and raw value then die with the path,
-//     and a path that is skipped (SSA/SkipInactiveBlocks.h) hands on the
-//     value from before it;
+//     and a path that is skipped (below) hands on the value from before it;
 //   * a store in a block that is not always executed takes its block's mask,
 //     so the disabled lanes do not write.
+//
+// Linearized code computes every arm whether or not any lane takes it, and in
+// a path tracer most arms are taken by no lane of a gang once a few bounces
+// are in. So an arm that does real work is put behind a uniform branch on
+// `any(mask)` -- Shin's branch-on-superword-condition-code (Shin, Hall &
+// Chame, "Superword-Level Parallelism in the Presence of Control Flow",
+// CGO 2005), as ispc emits it around each arm of a varying `if`
+// (IfStmt::emitMaskMixed) and as Moll & Hack install it with their "BOSCC
+// gadget" (section 6). The gadget is a block on the edge into the arm holding
+// the test and a uniform branch: to the arm when some lane is on, and past
+// the arm's whole dominance region otherwise, to the block that region leaves
+// for in the linearized graph. It is installed here, once the fold has said
+// what that block is, so that every arm of a branch gets one -- the second
+// arm's bypass lands where the first arm's does, after both -- where a gadget
+// installed before the fold, as Moll & Hack do, can skip only the arm the
+// index puts first.
+//
+// What makes the bypass sound is that nothing computed inside a skipped region
+// is read outside it except through a join's argument, by SSA dominance in
+// the original graph, and a join's argument is blended in running order along
+// the linearized path. Where that path passes a bypass's landing, the running
+// value becomes an argument of the landing block: the blend so far from
+// inside the region, and the value from before the region along the bypass,
+// which is exactly what a lane outside the arm would have read from the blend.
+// The masks of edges inside a region that decide a later block's mask are
+// threaded the same way, with `false` along the bypass, since no lane took
+// them. No value is ever invented for the bypass. A region is skipped only
+// when it touches memory or makes a call -- work that must not be done for no
+// lane at all -- or does at least six operations' worth of arithmetic, which
+// is where ispc draws the line between predicating an arm straight through
+// and branching around it (PREDICATE_SAFE_IF_STATEMENT_COST).
 //
 // The masks are ordinary boolean values here; the widening in vectorize()
 // turns them into vectors along with everything else derived from the loop

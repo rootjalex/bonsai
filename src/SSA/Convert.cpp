@@ -1483,6 +1483,7 @@ void dump_ssa(std::ostream &os, const std::string &when, const FuncMap &fmap,
 // through the SSA representation. A transform this pipeline cannot apply is
 // reported, not skipped -- see the visit below.
 ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
+                    const ir::TransformOrder &order,
                     const CompilerOptions &options,
                     ir::Program *keep_ssa = nullptr) {
     FuncMap fmap;
@@ -1517,45 +1518,55 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         simplify(*f);
     }
 
-    // Loopify next, whichever order the schedule names the functions in: it
-    // turns a function's self tail-calls into a loop, and vectorizing a caller
-    // has to see the callee in its final shape -- as a loop it can make
-    // uniform, rather than as a recursion it would specialize forever.
-    for (const auto &[name, ts] : transforms) {
-        if (!fmap.contains(name)) {
-            continue;
+    // A division by a value that does not change while its loop runs becomes
+    // a multiply, with the multiplier computed where the divisor is (see
+    // SSA/InvariantDivision.h). It has to see a loop as a loop -- a
+    // recursion's unchanging argument is a loop-invariant only once loopify()
+    // has made the recursion one -- and see it before it is vectorized,
+    // because what it leaves needs none of the guarding a vectorized division
+    // does, and the vectorizer widens the multiply like any other arithmetic.
+    // So it runs over every function just before the first vectorize, and
+    // again after each loopify written later, over the functions that are not
+    // a gang's: a loop such a loopify makes inside a gang's function has its
+    // divisions guarded already.
+    bool divided = false;
+    const auto divide_all = [&]() {
+        for (const auto &[fname, f] : fmap) {
+            const bool gang =
+                std::find(f->attributes.begin(), f->attributes.end(),
+                          ir::Function::Attribute::vectorized) !=
+                f->attributes.end();
+            if (!gang) {
+                divide_by_invariants(*f);
+            }
         }
-        for (const auto &t : ts) {
-            if (const auto *l = std::get_if<ir::Loopify>(&t)) {
-                int size = 0;
-                if (l->queue_size.has_value()) {
-                    const auto n = get_constant_value<int64_t>(*l->queue_size);
-                    internal_assert(n.has_value() && *n > 0)
-                        << "loopify(" << *l->queue_size << ") on " << name
-                        << " needs a constant, positive stack depth";
-                    size = int(*n);
-                }
-                loopify(fmap, name, size);
+    };
+
+    // The rest in the order the schedule wrote them, across functions as much
+    // as within one, because the order decides what is built. A recursion
+    // loopified and then vectorized is a loop each lane walks at its own
+    // pace, over a stack of its own; vectorized and then loopified it is a
+    // recursion the gang makes together, on one node with a mask of the lanes
+    // that reached it, which loopify then puts on one stack of nodes and one
+    // of masks -- a packet traversal. Only the schedule can say which.
+    //
+    // A schedule built without a source order -- none is today -- is applied
+    // function by function in name order, each function's directives in the
+    // order they were listed.
+    ir::TransformOrder ordered = order;
+    if (ordered.empty()) {
+        for (const auto &[name, ts] : transforms) {
+            for (size_t i = 0; i < ts.size(); i++) {
+                ordered.emplace_back(name, i);
             }
         }
     }
 
-    // Once every loop is a loop and before any is vectorized: a division by
-    // a value that does not change while its loop runs becomes a multiply,
-    // with the multiplier computed where the divisor is (see
-    // SSA/InvariantDivision.h). After loopify because a recursion's
-    // unchanging argument is a loop-invariant only once the recursion is a
-    // loop; before vectorize because what this leaves needs none of the
-    // guarding a vectorized division does, and the vectorizer widens the
-    // multiply like any other arithmetic.
-    for (const auto &[name, f] : fmap) {
-        divide_by_invariants(*f);
-    }
-
-    for (const auto &[name, ts] : transforms) {
+    for (const auto &[name, index] : ordered) {
         if (!fmap.contains(name)) {
             continue;
         }
+        const ir::Transform &t = transforms.at(name).at(index);
         const auto unimplemented = [&name](const std::string &what) {
             internal_error
                 << what << "() is in the schedule for " << name
@@ -1565,7 +1576,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                    "to use it today.";
         };
 
-        for (const auto &t : ts) {
+        {
             // Deliberately no catch-all arm. A transform this pipeline does
             // not apply has to say so: the Stmt-level LoopTransforms pass
             // that used to pick up the rest does not run here, so anything
@@ -1579,13 +1590,30 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     [&](const ir::Vectorize &v) {
                         internal_assert(!v.i.names.empty())
                             << "vectorize() requires a loop name for: " << name;
+                        if (!divided) {
+                            divide_all();
+                            divided = true;
+                        }
                         const LoopSite at = resolve_loop(
                             fmap, name, v.i.names.back(), "vectorize");
                         vectorize(fmap, at.func, at.index);
                     },
-                    // Applied by the loop above, before anything else
-                    // sees the function.
-                    [&](const ir::Loopify &) {},
+                    [&](const ir::Loopify &l) {
+                        int size = 0;
+                        if (l.queue_size.has_value()) {
+                            const auto n =
+                                get_constant_value<int64_t>(*l.queue_size);
+                            internal_assert(n.has_value() && *n > 0)
+                                << "loopify(" << *l.queue_size << ") on "
+                                << name
+                                << " needs a constant, positive stack depth";
+                            size = int(*n);
+                        }
+                        loopify(fmap, name, size);
+                        if (divided) {
+                            divide_all();
+                        }
+                    },
                     // Applied earlier in lowering, by the pass named.
                     [&](const ir::Defer &) {},     // Lower/Defers.cpp
                     [&](const ir::MakeQueue &) {}, // Lower/Defers.cpp
@@ -1642,6 +1670,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 },
                 t);
         }
+    }
+    if (!divided) {
+        divide_all();
     }
 
     // Now that every bind has been applied, it is settled which loops run
@@ -1722,23 +1753,25 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
 ir::Program ConvertToSSA::run(ir::Program program,
                               const CompilerOptions &options) const {
     ir::TransformMap transforms;
+    ir::TransformOrder order;
     if (const auto it = program.schedules.find(ir::Target::Host);
         it != program.schedules.end()) {
         transforms = it->second.func_transforms;
+        order = it->second.transform_order;
     }
 
     ir::Program new_program;
     new_program.types = program.types;
     new_program.externs = program.externs;
     new_program.schedules = program.schedules;
-    new_program.funcs =
-        convert(std::move(program.funcs), transforms, options, &new_program);
+    new_program.funcs = convert(std::move(program.funcs), transforms, order,
+                                options, &new_program);
     return new_program;
 }
 
 ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
-    return convert(std::move(funcs), {}, options);
+    return convert(std::move(funcs), {}, {}, options);
 }
 
 } // namespace ssa

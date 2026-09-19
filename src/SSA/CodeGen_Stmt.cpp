@@ -202,6 +202,8 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Add:
     case Instruction::Op::AddressOf:
     case Instruction::Op::Any:
+    case Instruction::Op::Popcount:
+    case Instruction::Op::Vote:
     // As `rand` below: it writes to memory, so it is not pure, but it produces
     // a value and is bound to a name rather than emitted as a bare statement.
     // Being bound in the order the block put it in is what makes the fetch and
@@ -506,6 +508,12 @@ Stmt codegen_instruction(const Instruction &instr) {
 Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
     Expr value;
 
+    for (size_t i = 0; i < args.size(); i++) {
+        internal_assert(args[i].defined() && args[i].type().defined())
+            << "Operand " << i << " of " << instr.name << " ("
+            << op_name(instr.op) << ") has no typed expression";
+    }
+
     switch (instr.op) {
     case Instruction::Op::Abs: {
         value = Intrinsic::make(Intrinsic::OpType::abs, std::move(args));
@@ -542,6 +550,31 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         } else {
             value = std::move(args[0]);
         }
+        break;
+    }
+    case Instruction::Op::Popcount: {
+        internal_assert(args.size() == 1) << args.size();
+        // The lanes that are on, counted: each as a one, summed. LLVM's x86
+        // backend makes `kmov` and `popcnt` of that. Before widening the
+        // gang is one bool, and its count is that bool as a number.
+        const Type count = UInt_t::make(32);
+        const Type held = args[0].type();
+        if (held.is_vector()) {
+            value = VectorReduce::make(
+                VectorReduce::Add,
+                Cast::make(Vector_t::make(count, held.lanes()),
+                           std::move(args[0])));
+        } else {
+            value = Cast::make(count, std::move(args[0]));
+        }
+        break;
+    }
+    case Instruction::Op::Vote: {
+        internal_assert(args.size() == 1) << args.size();
+        // A vote that reaches code generation was never a gang's: the run it
+        // decides is made by one visitor, whose comparison is the decision
+        // (see Instruction::Op::Vote).
+        value = std::move(args[0]);
         break;
     }
     case Instruction::Op::Bc: {

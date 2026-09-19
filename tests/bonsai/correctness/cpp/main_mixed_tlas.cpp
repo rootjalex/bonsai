@@ -10,8 +10,12 @@
 // best crossing between the two arms: a standalone triangle in front of an
 // instance's triangle in the same lane, and an instance's triangle in front of
 // a standalone one in another, each of which the other arm has to lose to.
+// PACKET is a VECTORIZED build of the packet schedule: it selects the header
+// here, and VECTORIZED still selects the gang run and its check below.
 #ifdef PER_ARM
 #include "mixed-tlas-per-arm.h"
+#elif defined(PACKET)
+#include "vectorize_tree_traversal_mixed_packet.h"
 #elif defined(VECTORIZED)
 #include "vectorize_tree_traversal_mixed.h"
 #elif defined(SORTED)

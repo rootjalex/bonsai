@@ -26,6 +26,12 @@ namespace ssa {
 // SSA/QueueRecursion.h), because that replaces the run with pushes and there is
 // then nothing left to permute.
 //
+// Each comparison of the network is wrapped in a Vote (see Instruction::Op),
+// since the run is made in one order by whoever makes it: for a scalar
+// traversal that is the comparison, and for a gang it is the lanes' majority,
+// which is what keeps the children a gang descends into uniform when its rays
+// would each have ordered them differently.
+//
 // Returns the number of runs it reordered, which is zero for a function whose
 // recursion no schedule sorted.
 size_t sort_recursion(Function &func);

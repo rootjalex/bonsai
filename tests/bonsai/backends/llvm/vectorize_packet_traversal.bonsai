@@ -1,0 +1,103 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM a packet traversal lowers to: the program of
+// ssa/vectorize-packet-traversal.bonsai, vectorized before it is loopified.
+//
+// What to look for. The traversal's stack is two allocations, `[64 x i16]` of
+// nodes and `[64 x <8 x i1>]` of masks, where the per-lane schedule has one
+// `[64 x <8 x i16>]` -- the gang shares a node and carries which lanes are on
+// at it. Each node is one scalar load of its row, broadcast into the lanes'
+// arithmetic, rather than a gather per field. And the sort's order is a vote:
+// the lanes' comparison is `and`ed with the mask and counted with
+// `llvm.ctpop.i8`, twice, and a compare of the two counts picks which child
+// the whole gang descends into first.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+import stdlib/triangle;
+
+element Shape =
+    | Sph(s : Sphere)
+    | Tri(t : Triangle);
+
+func distmin(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmin(r, s);
+        Tri(t) => return distmin(r, t);
+    }
+}
+
+func distmax(r : Ray, sh : Shape) -> Float {
+    match sh {
+        Sph(s) => return distmax(r, s);
+        Tri(t) => return distmax(r, t);
+    }
+}
+
+func intersects(r : Ray, sh : Shape) -> bool {
+    match sh {
+        Sph(s) => return intersects(r, s);
+        Tri(t) => return intersects(r, t);
+    }
+}
+
+extern shapes : set[Shape];
+
+func trace(r : Ray) =
+    argmin(|sh : Shape| distmin(r, sh),
+           filter(|sh : Shape| intersects(r, sh) && distmin(r, sh) > 0.001,
+                  shapes));
+
+func hit_z(r : Ray) -> f32 {
+    h = trace(r);
+    if !h {
+        return -1.0;
+    }
+    s = *h;
+    match s {
+        Sph(sp) => return sp.center.z;
+        Tri(t) => return t.p2.z;
+    }
+}
+
+func [[export]] hit_z_all(rs : array[Ray, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = hit_z(rs[i]);
+    }
+    return;
+}
+
+schedule {
+    tree[[Shape]] ShapeBVH(center : vec3f, radius : Float)
+        with Sphere(center, radius) =
+    | Interior(left : ShapeBVH, right : ShapeBVH, axis : u8)
+    | Leaf(data : array[Shape]) with data = data;
+
+    shapes : ShapeBVH;
+
+    layout shapes {
+        pCount : u32;
+        prims : array[Shape, pCount];
+        nCount : u32;
+        group[nCount] index : u16 {
+            center : vec3f;
+            radius : Float;
+            nPrims : u8;
+            axis : u8;
+            switch nPrims {
+                0 => Interior { offset : u16; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u16; data = range(prims, pOffset, cast[[u16]](nPrims)); };
+            };
+        };
+    };
+
+    // The gang first, then the stack.
+    hit_z_all.vectorize(i);
+    trace.sort(shapes.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+}

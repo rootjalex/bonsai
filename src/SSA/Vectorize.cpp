@@ -5,7 +5,6 @@
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
-#include "SSA/SkipInactiveBlocks.h"
 #include "SSA/SplitAggregates.h"
 #include "SSA/UniformizeLoops.h"
 
@@ -261,6 +260,15 @@ vector<size_t> value_operands(const Instruction &instr) {
 
     // Reduces the lanes of one value, which is that value per gang lane.
     case Instruction::Op::Reduce:
+        return {0};
+
+    // Ask about the gang as a whole, so they are uniform and never widened
+    // (see analyze_divergence); their one operand is the per-lane value
+    // asked about. Listed so that a widening that did reach one would say
+    // which operand is the value rather than fall through to the error.
+    case Instruction::Op::Any:
+    case Instruction::Op::Popcount:
+    case Instruction::Op::Vote:
         return {0};
 
     // An intrinsic computes on values, so every operand goes per-lane -- with
@@ -1034,27 +1042,135 @@ void broadcast_call_arguments(const FuncMap &funcs, Function &func,
     const BlockMap blocks = make_block_map(func);
     for (const string &name : region) {
         Block &block = *blocks.at(name);
-        auto *call = std::get_if<Terminator::Call>(&block.terminator.data);
+        Terminator::Jump *call = block.terminator.callee();
         if (call == nullptr) {
             continue;
         }
-        const auto callee = funcs.find(call->call.name);
+        const auto callee = funcs.find(call->name);
         if (callee == funcs.end() || callee->second->blocks.empty()) {
             continue;
         }
         const vector<Argument> &params = callee->second->blocks.front()->args;
-        internal_assert(params.size() == call->call.args.size())
-            << "Call in " << name << " passes " << call->call.args.size()
-            << " arguments to " << call->call.name << ", which takes "
+        internal_assert(params.size() == call->args.size())
+            << "Call in " << name << " passes " << call->args.size()
+            << " arguments to " << call->name << ", which takes "
             << params.size();
-        for (size_t i = 0; i < params.size(); i++) {
-            shared_ptr<Value> &arg = call->call.args[i];
+        const auto widen_to = [&](size_t i, shared_ptr<Value> &arg) {
             if (!is_gang_wide(params[i].type, lanes) ||
                 is_gang_wide(arg->get_type(), lanes)) {
-                continue;
+                return;
             }
             arg = broadcast(func, block.shared_from_this(), arg, lanes,
                             block.instrs);
+        };
+        for (size_t i = 0; i < params.size(); i++) {
+            widen_to(i, call->args[i]);
+        }
+        // A run's per-call values stand in for the parameters at
+        // `varying_at`, and fall short the same way.
+        if (auto *run =
+                std::get_if<Terminator::MultiCall>(&block.terminator.data)) {
+            for (auto &vs : run->varying) {
+                for (size_t k = 0; k < vs.size(); k++) {
+                    widen_to(run->varying_at[k], vs[k]);
+                }
+            }
+        }
+    }
+}
+
+// Settles every vote in the region (see Instruction::Op::Vote) now that the
+// region is a gang's and its masks are known.
+//
+// A vote on a value the lanes agree about is that value. So is a vote that
+// decides between values that are already the lanes' own: a run whose
+// children are one node per lane -- a traversal entered at a different root
+// by every lane, an instance's tree -- is descended one node per lane
+// whichever way each is ordered, so there each lane's comparison stands. The
+// vote is for the run whose children the lanes share, where deciding per lane
+// would make them per lane and the gang could no longer descend as one. There
+// it is the majority of the lanes that are on: `2 * popcount(x & m) >
+// popcount(m)`, with `m` the block's execution mask -- the region's own when
+// the block has no narrower one, and every lane when it has none -- so that a
+// lane that is off has no say, and a tie leaves the order as written. The
+// count over the mask is what a packet tracer does by hand at every node
+// (Wald et al. 2001 take the direction sign the packet's rays share; Embree's
+// packet traversal reduces the rays' entry distances to one per child before
+// ordering them -- Wald, Woop, Benthin, Johnson & Ernst, "Embree: A Kernel
+// Framework for Efficient CPU Ray Tracing", SIGGRAPH 2014), and here it falls
+// out of treating the run's order as one decision.
+void lower_votes(Function &func, const string &entry, const Divergence &div,
+                 const BlockMasks &masks, const shared_ptr<Value> &entry_mask,
+                 uint32_t lanes) {
+    const BlockMap blocks = make_block_map(func);
+    const Type count_type = UInt_t::make(32);
+    for (const string &name : reachable_from(entry, compute_successors(func))) {
+        auto block = blocks.at(name);
+        vector<shared_ptr<Instruction>> votes;
+        for (const auto &instr : block->instrs) {
+            if (instr->op == Instruction::Op::Vote) {
+                votes.push_back(instr);
+            }
+        }
+        for (const auto &vote : votes) {
+            internal_assert(vote->operands.size() == 1)
+                << "A vote on " << vote->operands.size() << " values in "
+                << name;
+            const shared_ptr<Value> asked = vote->operands[0];
+
+            // Does the vote decide between values the lanes share? The
+            // network's selects are in this block, and the ones over the
+            // run's children have those children as their arms.
+            bool decides_shared = false;
+            for (const auto &instr : block->instrs) {
+                if (instr->op != Instruction::Op::Select ||
+                    instr->operands.size() != 3) {
+                    continue;
+                }
+                const auto *cond = std::get_if<shared_ptr<Instruction>>(
+                    &instr->operands[0]->data);
+                if (cond == nullptr || cond->get() != vote.get()) {
+                    continue;
+                }
+                if (!div.is_varying(name, *instr->operands[1]) &&
+                    !div.is_varying(name, *instr->operands[2])) {
+                    decides_shared = true;
+                    break;
+                }
+            }
+            if (!div.is_varying(name, *asked) || !decides_shared) {
+                replace_uses(func, vote.get(), asked);
+                continue;
+            }
+
+            // Before the vote, where its operand is already defined.
+            auto at = std::find(block->instrs.begin(), block->instrs.end(),
+                                vote);
+            internal_assert(at != block->instrs.end());
+            const auto emit = [&](Type type, Instruction::Op op,
+                                  vector<shared_ptr<Value>> operands) {
+                auto instr = std::make_shared<Instruction>(
+                    func.get_unique_name(), std::move(type), op,
+                    std::move(operands), block);
+                at = block->instrs.insert(at, instr) + 1;
+                return std::make_shared<Value>(instr);
+            };
+
+            const auto found = masks.find(name);
+            const shared_ptr<Value> mask =
+                found != masks.end() ? found->second : entry_mask;
+            shared_ptr<Value> on = asked;
+            shared_ptr<Value> total = std::make_shared<Value>(
+                Constant{count_type, uint64_t(lanes)});
+            if (mask != nullptr) {
+                on = emit(Bool_t::make(), Instruction::Op::LAnd, {asked, mask});
+                total = emit(count_type, Instruction::Op::Popcount, {mask});
+            }
+            auto yes = emit(count_type, Instruction::Op::Popcount, {on});
+            auto twice = emit(count_type, Instruction::Op::Add, {yes, yes});
+            auto majority =
+                emit(Bool_t::make(), Instruction::Op::Lt, {total, twice});
+            replace_uses(func, vote.get(), majority);
         }
     }
 }
@@ -1064,81 +1180,6 @@ void broadcast_call_arguments(const FuncMap &funcs, Function &func,
 // lane -- the caller's own `mut` local, say, that every lane has its own copy
 // of (see Divergence::pointee_instrs).
 enum class Shape { Uniform, Varying, Pointee };
-
-// Why `v`, as referenced from `block`, is varying: the value, and beneath it
-// the varying operands it is computed from, down to the arguments and seeds
-// the divergence started at -- and for an argument, the blocks that declare
-// it varying and what each of their predecessors passes for it. For reading a
-// diagnostic; see the assertion that linearization left nothing divergent.
-void explain_varying(const Function &func, const Divergence &div,
-                     const string &block, const Value &v, int depth) {
-    if (depth > 12) {
-        std::cerr << string(2 * depth, ' ') << "...\n";
-        return;
-    }
-    const string pad(2 * depth, ' ');
-    std::visit(
-        overloads{
-            [&](const shared_ptr<Instruction> &i) {
-                std::cerr << pad;
-                i->dump(std::cerr);
-                std::cerr << "\n";
-                for (const auto &operand : i->operands) {
-                    if (div.is_varying(block, *operand)) {
-                        explain_varying(func, div, block, *operand, depth + 1);
-                    }
-                }
-            },
-            [&](const Constant &c) {
-                std::cerr << pad;
-                c.dump(std::cerr);
-                std::cerr << "\n";
-            },
-            [&](const Argument &a) {
-                std::cerr << pad << "argument " << a.name << " : " << a.type
-                          << ", declared varying by:\n";
-                for (const auto &owner : func.blocks) {
-                    if (!div.args.count({owner->name, a.name})) {
-                        continue;
-                    }
-                    std::cerr << pad << "  " << owner->name
-                              << (div.masked.count(owner->name) ? " (masked)"
-                                                                : "")
-                              << ", passed:\n";
-                    size_t index = 0;
-                    for (; index < owner->args.size(); index++) {
-                        if (owner->args[index].name == a.name) {
-                            break;
-                        }
-                    }
-                    for (const auto &pred : func.blocks) {
-                        for (Terminator::Jump *jump : jumps_of(*pred)) {
-                            if (jump->name != owner->name) {
-                                continue;
-                            }
-                            const size_t offset =
-                                owner->args.size() - jump->args.size();
-                            if (index < offset) {
-                                continue;
-                            }
-                            const Value &passed = *jump->args[index - offset];
-                            std::cerr << pad << "    from " << pred->name
-                                      << (div.masked.count(pred->name)
-                                              ? " (masked)"
-                                              : "")
-                                      << ": ";
-                            passed.dump(std::cerr);
-                            std::cerr << (div.is_varying(pred->name, passed)
-                                              ? " (varying)"
-                                              : " (uniform)")
-                                      << "\n";
-                        }
-                    }
-                }
-            },
-        },
-        v.data);
-}
 
 // A callee, specialized for how a gang calls it: the shape each of its
 // parameters arrives in, and whether the call is made under a mask.
@@ -1192,15 +1233,49 @@ void specialize_calls(FuncMap &funcs, Function &func, const set<string> &region,
 
     for (const string &name : region) {
         auto block = blocks.at(name);
-        auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        Terminator::Jump *call = block->terminator.callee();
         if (call == nullptr) {
             continue;
         }
+        // A run of calls (see Terminator::MultiCall) is specialized once for
+        // all of them: they share every argument but the ones at
+        // `varying_at`, and a parameter there arrives in whatever shape the
+        // widest of the run's values for it has.
+        const auto *run =
+            std::get_if<Terminator::MultiCall>(&block->terminator.data);
+        const auto values_at = [&](size_t position) {
+            vector<const Value *> values{call->args[position].get()};
+            if (run != nullptr) {
+                for (size_t k = 0; k < run->varying_at.size(); k++) {
+                    if (run->varying_at[k] != position) {
+                        continue;
+                    }
+                    values.clear();
+                    for (const auto &vs : run->varying) {
+                        values.push_back(vs[k].get());
+                    }
+                }
+            }
+            return values;
+        };
 
         VariantKey key;
-        key.callee = call->call.name;
+        key.callee = call->name;
         key.lanes = lanes;
-        key.masked = conditional_calls.count(name) > 0;
+        // A recursive callee takes the masked form whether or not this call
+        // is conditional. Its own recursive calls are conditional -- a
+        // traversal descends into a child for the lanes whose ray meets the
+        // node, and no others -- so the masked variant exists anyway, and an
+        // unmasked one besides it would be the same recursion twice over:
+        // the root visited by one copy, every other node by the other, and
+        // loopify() finding a stack to make of only the second. A call every
+        // lane makes passes a full mask instead, the way a packet tracer
+        // starts at the root with every ray in the packet.
+        const bool conditional = conditional_calls.count(name) > 0;
+        const auto callee = funcs.find(call->name);
+        const bool recurses =
+            callee != funcs.end() && is_recursive(*callee->second);
+        key.masked = conditional || recurses;
 
         // The key describes the callee's own parameters, not the values being
         // passed: a per-lane vector argument was split into components, and
@@ -1208,24 +1283,27 @@ void specialize_calls(FuncMap &funcs, Function &func, const set<string> &region,
         // line up. `call_shapes` says how many values each parameter took.
         const auto shape = call_shapes.find(name);
         const vector<uint32_t> components =
-            shape != call_shapes.end()
-                ? shape->second
-                : vector<uint32_t>(call->call.args.size(), 1);
+            shape != call_shapes.end() ? shape->second
+                                       : vector<uint32_t>(call->args.size(), 1);
 
         size_t arg = 0;
         for (const uint32_t count : components) {
-            internal_assert(arg < call->call.args.size())
+            internal_assert(arg < call->args.size())
                 << "Call in " << name << " passes fewer arguments than the "
                 << "split recorded";
             // A split argument is varying by construction; an unsplit one is
             // whatever the analysis says. Which arguments vary cannot come
             // from their types here, since the region is not widened yet.
-            const Value &v = *call->call.args[arg];
-            key.shapes.push_back(count > 1 || div.is_varying(name, v)
-                                     ? Shape::Varying
-                                 : div.points_to_varying(name, v)
-                                     ? Shape::Pointee
-                                     : Shape::Uniform);
+            Shape shape_of = count > 1 ? Shape::Varying : Shape::Uniform;
+            for (const Value *v : values_at(arg)) {
+                if (div.is_varying(name, *v)) {
+                    shape_of = Shape::Varying;
+                } else if (shape_of == Shape::Uniform &&
+                           div.points_to_varying(name, *v)) {
+                    shape_of = Shape::Pointee;
+                }
+            }
+            key.shapes.push_back(shape_of);
             arg += count;
         }
 
@@ -1251,16 +1329,24 @@ void specialize_calls(FuncMap &funcs, Function &func, const set<string> &region,
             variants[key] = name_of_variant;
             specialize(funcs, key, name_of_variant, variants);
         }
-        call->call.name = name_of_variant;
+        call->name = name_of_variant;
 
-        if (key.masked) {
+        if (conditional) {
             // The mask the call site runs under, which linearization computed
-            // when it folded the branch that made the call conditional.
+            // when it folded the branch that made the call conditional. For a
+            // run it is shared by every call, as the arguments after
+            // `varying_at` are.
             const auto mask = masks.find(name);
             internal_assert(mask != masks.end())
                 << "Call in " << name << " is conditional but its block has "
                 << "no mask";
-            call->call.args.push_back(mask->second);
+            call->args.push_back(mask->second);
+        } else if (key.masked) {
+            // Every lane is on. One bool, as every mask is before widening,
+            // which broadcasts it where the variant's parameter is per lane
+            // (see broadcast_call_arguments).
+            call->args.push_back(
+                std::make_shared<Value>(Constant{Bool_t::make(), true}));
         }
     }
 }
@@ -1281,6 +1367,7 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         << "Cannot vectorize a call to unknown function: " << key.callee;
 
     auto variant = clone_function(*original->second);
+    variant->specialized_from = key.callee;
     // Only what the entry reaches: a block an earlier rewrite disconnected --
     // the continuation of a call loopify() turned into a jump -- is not part
     // of the region the passes below work on, and yet still passes arguments
@@ -1392,8 +1479,7 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
             reachable_from(entry, compute_successors(*variant));
         const BlockMap blocks = make_block_map(*variant);
         for (const string &block_name : region) {
-            if (std::holds_alternative<Terminator::Call>(
-                    blocks.at(block_name)->terminator.data) &&
+            if (blocks.at(block_name)->terminator.callee() != nullptr &&
                 (key.masked || linearizable.masked.count(block_name))) {
                 conditional_calls.insert(block_name);
             }
@@ -1407,12 +1493,20 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         std::cerr << "--- before linearizing " << name << ":\n";
         variant->dump(std::cerr);
     }
+    // Which also puts a uniform branch around each arm no lane may be on, so
+    // that a gang skips the arms none of its lanes take.
     BlockMasks masks =
         linearize(*variant, entry, linearizable, mask, uniform.loops);
-    // Then a uniform branch around each block no lane may be on, so that a
-    // gang skips the arms none of its lanes take (see
-    // SSA/SkipInactiveBlocks.h).
-    skip_inactive_blocks(*variant, entry, masks, mask);
+    if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
+        std::cerr << "--- after linearizing " << name << ":\n";
+        variant->dump(std::cerr);
+    }
+
+    // With the masks known, a run's votes on its order become counts of the
+    // lanes that are on (see lower_votes). Before the analysis below, which
+    // has to see the counts and not the votes.
+    lower_votes(*variant, entry, analyze(varying_args, masked_blocks), masks,
+                mask, key.lanes);
 
     // Uniformizing a loop adds blocks, so the region is only settled now.
     const set<string> region =
@@ -1542,8 +1636,7 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
         const BlockMap blocks = make_block_map(f);
         for (const string &name :
              reachable_from(entry, compute_successors(*f))) {
-            if (std::holds_alternative<Terminator::Call>(
-                    blocks.at(name)->terminator.data) &&
+            if (blocks.at(name)->terminator.callee() != nullptr &&
                 before.masked.count(name)) {
                 conditional_calls.insert(name);
             }
@@ -1554,7 +1647,10 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // is control flow every lane follows together, with masks standing in for
     // the branches that were folded (see SSA/Linearize.h).
     BlockMasks masks = linearize(*f, entry, before, nullptr, uniform.loops);
-    skip_inactive_blocks(*f, entry, masks);
+    lower_votes(*f, entry,
+                analyze_divergence(*f, entry, {idx}, {}, varying_args, {},
+                                   nullptr, masked_blocks),
+                masks, nullptr, lanes);
 
     const BlockMap blocks = make_block_map(f);
     const AdjacencyMap all_succs = compute_successors(*f);

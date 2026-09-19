@@ -47,6 +47,11 @@ struct Divergence {
     // the blocks whose side effects have to be masked.
     std::set<std::string> masked;
 
+    // For each loop header whose lanes may be at different iterations, why:
+    // the latch found to leave divergently and the branch inside the loop
+    // that decides it, or the seed that said so. Read by explain_varying.
+    std::map<std::string, std::string> divergent_headers;
+
     // Which varying argument names are in scope in each block: its own, and
     // those of every block that dominates it.
     //
@@ -120,6 +125,15 @@ Divergence analyze_divergence(
     const std::set<std::string> &pointee_seeds = {},
     const std::shared_ptr<Value> &entry_mask = nullptr,
     const std::set<std::string> &masked_seeds = {});
+
+// Prints to stderr why `v`, as referenced from `block`, is varying: the
+// value, and beneath it the varying operands it is computed from, down to the
+// arguments and seeds the divergence started at -- and for an argument, the
+// blocks that declare it varying and what each of their predecessors passes
+// for it. For reading a diagnostic: the assertion that linearization left
+// nothing divergent, and BONSAI_EXPLAIN_LOOP in SSA/UniformizeLoops.cpp.
+void explain_varying(const Function &func, const Divergence &div,
+                     const std::string &block, const Value &v, int depth = 0);
 
 } // namespace ssa
 } // namespace ir

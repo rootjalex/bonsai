@@ -22,12 +22,18 @@ namespace {
 // where the run is, so nothing needs threading through block arguments.
 shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
                          Type type, Instruction::Op op,
-                         vector<shared_ptr<Value>> operands) {
-    auto instr = std::make_shared<Instruction>(func.get_unique_name(),
-                                               std::move(type), op,
-                                               std::move(operands), block);
+                         vector<shared_ptr<Value>> operands,
+                         const string &name = "") {
+    auto instr = std::make_shared<Instruction>(
+        name.empty() ? func.get_unique_name() : name, std::move(type), op,
+        std::move(operands), block);
     block->instrs.push_back(instr);
     return std::make_shared<Value>(std::move(instr));
+}
+
+// The name an instruction's value goes by.
+const string &name_of(const shared_ptr<Value> &v) {
+    return std::get<shared_ptr<Instruction>>(v->data)->name;
 }
 
 // One compare-and-swap of a sorting network, applied to the keys and to
@@ -37,6 +43,14 @@ shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
 // are rewritten to selects on it. Note that both arms of every select are
 // values that already exist -- the point of doing this here is that they are
 // node indices by now, so a select is a select and not a materialisation.
+//
+// The comparison is put to a vote (Instruction::Op::Vote). The run is made
+// once by whoever executes it, in one order; when that is a gang whose lanes
+// hold different keys -- rays of both signs along the split axis -- the order
+// cannot be each lane's own, and the vote is how the gang settles on one. For
+// a gang of one, which is every scalar traversal, the vote is the comparison
+// itself; and a run that loopify() puts on a stack is visited lane by lane
+// again, so queue_recursion() drops the votes it finds there.
 void compare_and_swap(Function &func, const shared_ptr<Block> &block,
                       vector<shared_ptr<Value>> &keys,
                       vector<vector<shared_ptr<Value>>> &varying, size_t i,
@@ -46,10 +60,16 @@ void compare_and_swap(Function &func, const shared_ptr<Block> &block,
         << "A sort's keys have different types, " << key_type << " and "
         << keys[l]->get_type();
 
-    shared_ptr<Value> keep =
+    shared_ptr<Value> compared =
         append(func, block, Bool_t::make(), Instruction::Op::Lt,
                ascending ? vector<shared_ptr<Value>>{keys[i], keys[l]}
                          : vector<shared_ptr<Value>>{keys[l], keys[i]});
+    // Named after the comparison it decides, so that the vote reads as what
+    // it is in a dump, and so that a scalar traversal -- where loopify drops
+    // it again -- numbers everything after it as before.
+    shared_ptr<Value> keep =
+        append(func, block, Bool_t::make(), Instruction::Op::Vote, {compared},
+               name_of(compared) + "!vote");
 
     auto pick = [&](const shared_ptr<Value> &a, const shared_ptr<Value> &b) {
         return append(func, block, a->get_type(), Instruction::Op::Select,

@@ -10,6 +10,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace bonsai {
@@ -70,6 +71,18 @@ void refresh_preds(Function &func);
 // may have removed. Returns how many blocks were dropped.
 size_t remove_unreachable_blocks(Function &func);
 
+// Does `func` call itself? Through a Call or a run of them: a branching
+// recursion terminates its block with a MultiCall, and that is exactly the
+// case loopify() needs to find in order to queue it.
+bool is_recursive(const Function &func);
+
+// Points every use of the instruction `of` at `with` -- operands, the values
+// a terminator reads or passes, the names a block looks up -- and removes
+// `of` from its block. `with` has to be defined wherever `of` was visible,
+// which one of its own operands is.
+void replace_uses(Function &func, const Instruction *of,
+                  const std::shared_ptr<Value> &with);
+
 // Blocks reachable from `entry`, in reverse postorder. Every analysis below
 // iterates in this order, which is what makes the iterative dataflow solvers
 // converge in few passes.
@@ -86,6 +99,17 @@ std::set<std::string> reachable_from(const std::string &from,
 
 // A dominator tree, as a map from block name to immediate dominator. The root
 // maps to itself. Blocks unreachable from the root are absent.
+//
+// The tree is numbered in preorder when it is built (see `number`), so that
+// a dominance query is two lookups and a comparison: `a` dominates `b` iff
+// `b`'s number lies in the range `a`'s subtree occupies. This is the interval
+// labelling every production dominator tree answers queries with (LLVM's
+// DominatorTree, Tarjan's "Finding Dominators in Directed Graphs" for the
+// idea); walking the chain of immediate dominators instead costs a map lookup
+// per level, and linearization asks the question for every block of a region
+// against every join, which made those walks most of a vectorized compile.
+// `idom` stays public because passes walk the chain by name; a tree is not to
+// be edited after it is numbered.
 struct DomTree {
     std::string root;
     std::map<std::string, std::string> idom;
@@ -97,8 +121,24 @@ struct DomTree {
     std::string nearest_common_ancestor(const std::string &a,
                                         const std::string &b) const;
 
-    // Children of each node, in deterministic order.
-    AdjacencyMap children() const;
+    // Children of each node, in the order `idom` lists them. By value, so
+    // that it can be taken off a tree that is a temporary.
+    AdjacencyMap children() const { return kids; }
+
+    // The blocks `a` dominates, `a` itself first, in preorder of the tree.
+    // Empty when `a` is not in the tree.
+    std::vector<std::string> subtree(const std::string &a) const;
+
+    // Numbers the tree from `idom`. compute_dominator_tree calls this once
+    // the immediate dominators are settled; a tree built any other way has
+    // to call it before it is queried.
+    void number();
+
+  private:
+    AdjacencyMap kids;
+    // Per block: its preorder number, and one past the last number in its
+    // subtree.
+    std::unordered_map<std::string, std::pair<size_t, size_t>> range;
 };
 
 // Cooper/Harvey/Kennedy iterative dominator construction over `rpo`.
@@ -187,10 +227,20 @@ ControlDependence compute_control_dependence(const AdjacencyMap &succs,
 // Partial linearization (Moll & Hack, PLDI 2018, section 3.1) requires both
 // properties -- their figure 8 shows the algorithm producing incorrect code
 // when the index is not compact.
-std::map<std::string, size_t> compute_block_index(const std::string &entry,
-                                                  const AdjacencyMap &succs,
-                                                  const DomTree &dom,
-                                                  const LoopForest &loops);
+//
+// `last` names blocks to place after every other block that could go in
+// their place -- the blocks that call the function itself. Linearization
+// runs the blocks of a folded branch one after another, in this order, so
+// the order decides what follows a recursive call: a leaf's work placed
+// after it would be work deferred past the call once the recursion is put
+// on a stack, which SSA/QueueRecursion.h has to reject. Placed last, the call
+// keeps the tail position it had in the program. The choice is free where
+// the order is, and only there: compactness and topological order come
+// first.
+std::map<std::string, size_t>
+compute_block_index(const std::string &entry, const AdjacencyMap &succs,
+                    const DomTree &dom, const LoopForest &loops,
+                    const std::set<std::string> &last = {});
 
 //===--------------------------------------------------------------------===//
 // Generic dataflow

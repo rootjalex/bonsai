@@ -164,6 +164,14 @@ using AdtLayoutMap = std::map<std::string, AdtArmLayouts>;
 // Keys are function names.
 using TransformMap = std::map<std::string, std::vector<Transform>>;
 
+// Every transform of a schedule in the order the schedule wrote it, as (the
+// function it names, its index in that function's list). The map above keeps
+// each function's directives in order but says nothing about the order
+// between functions, and that order matters: `render.vectorize(s)` before
+// `trace.loopify(64)` puts the gang's traversal on a stack -- a packet
+// traversal -- where the other way round each lane keeps a stack of its own.
+using TransformOrder = std::vector<std::pair<std::string, size_t>>;
+
 // https://en.cppreference.com/w/cpp/utility/variant/visit
 template <class... Ts>
 struct Overloaded : Ts... {
@@ -179,6 +187,8 @@ struct Schedule {
     // How an extern array is stored; see ir::ArrayLayout.
     ArrayLayoutMap array_layouts;
     TransformMap func_transforms;
+    // The order `func_transforms` was written in; see TransformOrder.
+    TransformOrder transform_order;
     // Which group backs a tree held in a field, keyed the same way
     // `tree_types` is: `Instance.blas -> BlasNodes`.
     //

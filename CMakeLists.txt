@@ -193,7 +193,6 @@ target_sources(
     src/SSA/InsertPreheader.cpp
     src/SSA/InvariantDivision.cpp
     src/SSA/Linearize.cpp
-    src/SSA/SkipInactiveBlocks.cpp
     src/SSA/MergeLatches.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
@@ -306,7 +305,6 @@ target_sources(
     include/SSA/InsertPreheader.h
     include/SSA/InvariantDivision.h
     include/SSA/Linearize.h
-    include/SSA/SkipInactiveBlocks.h
     include/SSA/PromoteAllocas.h
     include/SSA/QueueRecursion.h
     include/SSA/Simplify.h

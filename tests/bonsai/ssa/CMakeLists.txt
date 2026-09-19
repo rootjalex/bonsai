@@ -32,7 +32,9 @@ add_bonsai_tests(
     vectorize-arm-local.bonsai
     vectorize-loop.bonsai
     vectorize-masked-accumulate.bonsai
+    vectorize-packet-traversal.bonsai
     vectorize-short-vectors.bonsai
+    vectorize-skip-arms.bonsai
     vectorize-soa.bonsai
     vectorize-sorted-traversal.bonsai
     vectorize-switch-constant-merge.bonsai

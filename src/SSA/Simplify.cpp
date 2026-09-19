@@ -171,6 +171,7 @@ bool pure(const Instruction &in) {
     case Instruction::Op::Mul:
     case Instruction::Op::Ne:
     case Instruction::Op::Not:
+    case Instruction::Op::Popcount:
     case Instruction::Op::Ramp:
     case Instruction::Op::Reduce:
     case Instruction::Op::Reinterpret:
@@ -181,6 +182,7 @@ bool pure(const Instruction &in) {
     case Instruction::Op::Shuffle:
     case Instruction::Op::SizeOf:
     case Instruction::Op::Sub:
+    case Instruction::Op::Vote:
     case Instruction::Op::Xor:
         return true;
     case Instruction::Op::Intrinsic:
@@ -287,6 +289,16 @@ struct Simplifier {
             }
             if (same_value(ops[1], ops[2])) {
                 return ops[1];
+            }
+            break;
+        }
+        case Instruction::Op::Vote: {
+            // Every lane holds the same constant, so that is the decision.
+            // Anything else stays a vote until a gang is there to hold it
+            // (see lower_votes in SSA/Vectorize.cpp) or the run it decides
+            // is put on a stack (SSA/QueueRecursion.cpp).
+            if (ops.size() == 1 && const_bool(ops[0]).has_value()) {
+                return ops[0];
             }
             break;
         }

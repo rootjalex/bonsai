@@ -45,6 +45,18 @@ namespace ssa {
 // `size` is the stack's depth, which the schedule gives and which nothing
 // here checks against the tree: overflowing it is the program's problem, the
 // same as it is for the recursion this replaces.
+//
+// The function may already be a gang's -- vectorize() applied first, so that
+// the recursion was specialized for one node the lanes share and a mask of
+// the lanes that reached it. Then what varies from call to call is that node
+// and that mask, and those are what go on the stack: one stack of node
+// references and one of masks, the packet traversal of Wald et al. 2001. The
+// pushes are made only if some lane is on, as the calls they replace were
+// only made then: a node no ray in the packet reached is neither descended
+// into nor pushed. A run's votes on its order (Instruction::Op::Vote) are
+// dropped here either way, since a run that is pushes on a stack is visited
+// entry by entry; and a gang's accumulator is one bool per lane, so `any` is
+// settled only when every lane's is.
 void queue_recursion(Function &func, size_t size);
 
 } // namespace ssa

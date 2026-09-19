@@ -730,28 +730,28 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
 
 namespace {
 
-// Does `func` call itself?
-bool is_recursive(const Function &func) {
-    for (const auto &block : func.blocks) {
-        // `callee()` rather than a Call test: a branching recursion terminates
-        // its block with a MultiCall, and that is exactly the case loopify
-        // needs to find in order to queue it.
-        const auto *call = block->terminator.callee();
-        if (call != nullptr && call->name == func.blocks.front()->name) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // The functions that call themselves, among those `start` can reach.
 //
 // The schedule names the function the programmer wrote, but the recursion is
 // not always in it. A tree query is lowered into a traversal function of its
 // own before any of this runs, so `trace.loopify(64)` names a function whose
 // body is a call to the traversal, and it is the traversal that recurses.
+//
+// Nor is it always in a function the walk reaches by calls: a vectorize()
+// written earlier in the schedule has copied functions for the gang that
+// calls them (Function::specialized_from), and the gang's copies call each
+// other, not the originals -- `hit_z_all`'s gang calls the gang's copy of the
+// traversal, which the scalar `trace` never mentions. Every copy of a
+// function the walk reaches is as much what `trace.loopify(64)` names as the
+// function itself, so the walk takes them in as it goes.
 std::set<std::string> recursive_functions_from(const FuncMap &funcs,
                                                const std::string &start) {
+    std::map<std::string, std::vector<std::string>> copies_of;
+    for (const auto &[name, f] : funcs) {
+        if (!f->specialized_from.empty()) {
+            copies_of[f->specialized_from].push_back(name);
+        }
+    }
     std::set<std::string> found;
     std::set<std::string> seen;
     std::vector<std::string> work{start};
@@ -771,6 +771,12 @@ std::set<std::string> recursive_functions_from(const FuncMap &funcs,
         for (const auto &block : it->second->blocks) {
             if (const auto *call = block->terminator.callee()) {
                 work.push_back(call->name);
+            }
+        }
+        if (const auto copies = copies_of.find(name);
+            copies != copies_of.end()) {
+            for (const std::string &copy : copies->second) {
+                work.push_back(copy);
             }
         }
     }

@@ -327,6 +327,86 @@ size_t remove_unreachable_blocks(Function &func) {
     return before - func.blocks.size();
 }
 
+bool is_recursive(const Function &func) {
+    if (func.blocks.empty()) {
+        return false;
+    }
+    for (const auto &block : func.blocks) {
+        const auto *call = block->terminator.callee();
+        if (call != nullptr && call->name == func.blocks.front()->name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void replace_uses(Function &func, const Instruction *of,
+                  const shared_ptr<Value> &with) {
+    const auto replace = [&](shared_ptr<Value> &v) {
+        if (v == nullptr) {
+            return;
+        }
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (held != nullptr && held->get() == of) {
+            v = with;
+        }
+    };
+    const auto replace_jump = [&](Terminator::Jump &jump) {
+        for (auto &arg : jump.args) {
+            replace(arg);
+        }
+    };
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            for (auto &operand : instr->operands) {
+                replace(operand);
+            }
+        }
+        std::visit(overloads{
+                       [](std::monostate &) {},
+                       [&](Terminator::Jump &j) { replace_jump(j); },
+                       [&](Terminator::Dispatch &d) {
+                           replace(d.cond);
+                           for (auto &t : d.targets) {
+                               replace_jump(t);
+                           }
+                       },
+                       [&](Terminator::Return &r) { replace(r.value); },
+                       [&](Terminator::ParFor &p) {
+                           replace(p.start);
+                           replace(p.end);
+                           replace(p.stride);
+                           replace_jump(p.body);
+                           replace_jump(p.cont);
+                       },
+                       [](Terminator::Yield &) {},
+                       [&](Terminator::Call &c) {
+                           replace_jump(c.call);
+                           replace_jump(c.cont);
+                       },
+                       [&](Terminator::MultiCall &c) {
+                           replace_jump(c.call);
+                           replace_jump(c.cont);
+                           for (auto &vs : c.varying) {
+                               for (auto &v : vs) {
+                                   replace(v);
+                               }
+                           }
+                           for (auto &k : c.keys) {
+                               replace(k);
+                           }
+                       },
+                   },
+                   block->terminator.data);
+        for (auto &[_, value] : block->lookups) {
+            replace(value);
+        }
+        std::erase_if(block->instrs, [&](const shared_ptr<Instruction> &in) {
+            return in.get() == of;
+        });
+    }
+}
+
 vector<Terminator::Jump *> jumps_of(Block &block) {
     vector<Terminator::Jump *> jumps;
     std::visit(overloads{
@@ -417,21 +497,70 @@ set<string> reachable_from(const string &from, const AdjacencyMap &succs) {
 // Dominance
 //===--------------------------------------------------------------------===//
 
+void DomTree::number() {
+    kids.clear();
+    range.clear();
+    for (const auto &[name, _] : idom) {
+        kids[name];
+    }
+    for (const auto &[name, parent] : idom) {
+        if (parent != name) {
+            kids[parent].push_back(name);
+        }
+    }
+    if (!idom.count(root)) {
+        return;
+    }
+    // Iterative preorder walk, so a deep tree cannot overflow the stack. The
+    // second element is the index of the next child to visit.
+    size_t next_number = 0;
+    vector<pair<string, size_t>> stack;
+    range[root].first = next_number++;
+    stack.emplace_back(root, 0);
+    while (!stack.empty()) {
+        const string name = stack.back().first;
+        const size_t next = stack.back().second++;
+        const vector<string> &children_of = kids.at(name);
+        if (next < children_of.size()) {
+            const string &child = children_of[next];
+            range[child].first = next_number++;
+            stack.emplace_back(child, 0);
+        } else {
+            range[name].second = next_number;
+            stack.pop_back();
+        }
+    }
+}
+
 bool DomTree::dominates(const string &a, const string &b) const {
-    if (!idom.count(a) || !idom.count(b)) {
+    internal_assert(range.size() == idom.size())
+        << "The dominator tree was queried before it was numbered";
+    const auto ra = range.find(a);
+    const auto rb = range.find(b);
+    if (ra == range.end() || rb == range.end()) {
         return false;
     }
-    string cur = b;
-    while (true) {
-        if (cur == a) {
-            return true;
-        }
-        const auto it = idom.find(cur);
-        if (it == idom.end() || it->second == cur) {
-            return false; // reached the root without finding `a`
-        }
-        cur = it->second;
+    return ra->second.first <= rb->second.first &&
+           rb->second.first < ra->second.second;
+}
+
+vector<string> DomTree::subtree(const string &a) const {
+    vector<string> blocks;
+    if (!kids.count(a)) {
+        return blocks;
     }
+    vector<string> stack{a};
+    while (!stack.empty()) {
+        const string name = std::move(stack.back());
+        stack.pop_back();
+        blocks.push_back(name);
+        const vector<string> &children_of = kids.at(name);
+        // Pushed in reverse so that they are visited in `idom`'s order.
+        for (auto it = children_of.rbegin(); it != children_of.rend(); ++it) {
+            stack.push_back(*it);
+        }
+    }
+    return blocks;
 }
 
 string DomTree::nearest_common_ancestor(const string &a,
@@ -458,19 +587,6 @@ string DomTree::nearest_common_ancestor(const string &a,
         cur = it->second;
     }
     return cur;
-}
-
-AdjacencyMap DomTree::children() const {
-    AdjacencyMap kids;
-    for (const auto &[name, _] : idom) {
-        kids[name];
-    }
-    for (const auto &[name, parent] : idom) {
-        if (parent != name) {
-            kids[parent].push_back(name);
-        }
-    }
-    return kids;
 }
 
 DomTree compute_dominator_tree(const string &entry, const AdjacencyMap &succs,
@@ -533,6 +649,7 @@ DomTree compute_dominator_tree(const string &entry, const AdjacencyMap &succs,
     }
 
     tree.idom = std::move(idom);
+    tree.number();
     return tree;
 }
 
@@ -785,7 +902,8 @@ std::optional<string> innermost_loop(const LoopForest &loops,
 map<string, size_t> compute_block_index(const string &entry,
                                         const AdjacencyMap &succs,
                                         const DomTree &dom,
-                                        const LoopForest &loops) {
+                                        const LoopForest &loops,
+                                        const set<string> &last) {
     // Partial linearization requires a topological order (over the CFG with
     // back edges removed) in which every dominance region and every loop is a
     // contiguous range.
@@ -845,16 +963,23 @@ map<string, size_t> compute_block_index(const string &entry,
 
     while (!ready.empty()) {
         // Pick the ready block that is deepest in the loop nest, breaking ties
-        // by RPO. Staying at maximum depth is what keeps loops contiguous.
+        // by RPO -- after holding back the blocks asked to go last, which at
+        // equal depth wait for every other ready block. Staying at maximum
+        // depth is what keeps loops contiguous.
         string best;
         size_t best_depth = 0;
+        bool best_last = false;
         for (const auto &name : ready) {
             const size_t depth = loop_depth(name);
+            const bool is_last = last.count(name) > 0;
             if (best.empty() || depth > best_depth ||
                 (depth == best_depth &&
-                 rpo_number.at(name) < rpo_number.at(best))) {
+                 (best_last && !is_last ||
+                  (best_last == is_last &&
+                   rpo_number.at(name) < rpo_number.at(best))))) {
                 best = name;
                 best_depth = depth;
+                best_last = is_last;
             }
         }
 

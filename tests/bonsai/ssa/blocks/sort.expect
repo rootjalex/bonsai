@@ -527,8 +527,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   @100 = load_field(@99, (u32)0)
   @101 = add(triangles_index, @100)
   @103 = not(_t19)
-  @128 = select(@103, @97, @101)
-  @129 = select(@103, @101, @97)
+  @125!vote = vote(@103)
+  @128 = select(@125!vote, @97, @101)
+  @129 = select(@125!vote, @101, @97)
   multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@128), (@129) } at { 0 } !_recloop_func0_multicall_cont_19()
 
 !else_17(_t64 : u16, _t623 : _tree_layout1, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !then_14
@@ -866,8 +867,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         let @100 = @99.offset in
         let @101 = triangles_index + @100 in
         let @103 = !_t19 in
-        let @128 = select(@103, @97, @101) in
-        let @129 = select(@103, @101, @97) in
+        let @125!vote = @103 in
+        let @128 = select(@125!vote, @97, @101) in
+        let @129 = select(@125!vote, @101, @97) in
         _recloop_func0(@128, triangles, ray, _best0)
         _recloop_func0(@129, triangles, ray, _best0)
       } else {

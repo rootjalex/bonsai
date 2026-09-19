@@ -140,6 +140,8 @@ const char *op_name(Instruction::Op op) {
         return "ne";
     case Instruction::Op::Not:
         return "not";
+    case Instruction::Op::Popcount:
+        return "popcount";
     case Instruction::Op::Print:
         return "print";
     case Instruction::Op::Ramp:
@@ -167,6 +169,8 @@ const char *op_name(Instruction::Op op) {
         return "store";
     case Instruction::Op::Sub:
         return "sub";
+    case Instruction::Op::Vote:
+        return "vote";
     }
 }
 
@@ -216,6 +220,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Mul:
     case Instruction::Op::Ne:
     case Instruction::Op::Not:
+    case Instruction::Op::Popcount:
     // Print has a side effect, but is not a store: it has no address
     // operand, and takes as many operands as it prints.
     case Instruction::Op::Print:
@@ -229,6 +234,7 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Shuffle:
     case Instruction::Op::SizeOf:
     case Instruction::Op::Sub:
+    case Instruction::Op::Vote:
     case Instruction::Op::Xor:
         return false;
     }

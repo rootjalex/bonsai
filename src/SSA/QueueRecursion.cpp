@@ -246,10 +246,16 @@ bool loads(const shared_ptr<Value> &v, const Block *at, const string &name,
            name_of((*instr)->operands[0]) == name;
 }
 
-// Whether `v` is the boolean constant `want`.
+// Whether `v` is the boolean constant `want` -- or that constant broadcast to
+// every lane, which is what a gang stores into a per-lane accumulator.
 bool is_bool_const(const shared_ptr<Value> &v, bool want) {
     if (!v) {
         return false;
+    }
+    if (const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data);
+        in != nullptr && *in != nullptr && (*in)->op == Instruction::Op::Bc &&
+        !(*in)->operands.empty()) {
+        return is_bool_const((*in)->operands[0], want);
     }
     const auto *constant = std::get_if<Constant>(&v->data);
     if (constant == nullptr) {
@@ -343,15 +349,20 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
                 }
                 continue;
             }
-            if (instr->operands.size() != 2) {
+            // A store made by a gang carries its execution mask as a third
+            // operand; the lanes that are off keep what they had, which
+            // moves nothing in either direction.
+            if (instr->operands.size() != 2 && instr->operands.size() != 3) {
                 continue;
             }
             const shared_ptr<Value> &dest = instr->operands[0];
             if (!dest) {
                 continue;
             }
+            // One bool, or one per lane of a gang -- a traversal vectorized
+            // before it was put on a stack accumulates a bool for each lane.
             const Ptr_t *ptr_type = dest->get_type().as<Ptr_t>();
-            if (ptr_type == nullptr || !ptr_type->etype.is<Bool_t>()) {
+            if (ptr_type == nullptr || !ptr_type->etype.is_bool()) {
                 continue;
             }
             std::optional<std::string> name = name_of(dest);
@@ -454,6 +465,29 @@ void queue_recursion(Function &func, size_t size) {
         return; // nothing to unrecurse
     }
 
+    // A sorted run votes on its order (see Instruction::Op::Vote), because a
+    // run is made once, in one order, by whoever makes it. Once the run is
+    // pushes onto a stack there is no run: each child is written down where
+    // its own key puts it and visited when it comes off, so the order is each
+    // visitor's own -- for a gang, each lane's -- and the comparison stands.
+    {
+        const BlockMap blocks = make_block_map(func);
+        vector<shared_ptr<Instruction>> votes;
+        for (const string &name : recursive) {
+            for (const auto &instr : blocks.at(name)->instrs) {
+                if (instr->op == Instruction::Op::Vote) {
+                    votes.push_back(instr);
+                }
+            }
+        }
+        for (const auto &vote : votes) {
+            internal_assert(vote->operands.size() == 1)
+                << "A vote on " << vote->operands.size() << " values in "
+                << entry_name;
+            replace_uses(func, vote.get(), vote->operands[0]);
+        }
+    }
+
     internal_assert(!func.ret_type.defined() || func.ret_type.is<Void_t>())
         << "Cannot put the recursion of " << entry_name << " on a stack: it "
         << "returns a value, and a call that has only been written down has "
@@ -464,6 +498,14 @@ void queue_recursion(Function &func, size_t size) {
     // being accumulated -- so they stay parameters and only what varies goes
     // on the stack.
     const vector<Argument> params = func.blocks.front()->args;
+    // The mask a gang's copy of the function runs under, if it is one: the
+    // parameter specialize() adds last, under this name (SSA/Vectorize.cpp).
+    std::optional<size_t> mask_param;
+    for (size_t i = 0; i < params.size(); i++) {
+        if (params[i].name == "!mask") {
+            mask_param = i;
+        }
+    }
     vector<bool> varies(params.size(), false);
     {
         const BlockMap blocks = make_block_map(func);
@@ -654,13 +696,20 @@ void queue_recursion(Function &func, size_t size) {
     // mean "stop when you find one" rather than "keep looking but ignore what
     // you find", and `all` likewise.
     const std::optional<Monotone> acc = find_monotone_accumulator(func);
-    // Whether the accumulator has yet to settle, read in `block`.
+    // Whether the accumulator has yet to settle, read in `block`. A gang's
+    // accumulator is one bool per lane, and the gang is done only when every
+    // lane is: it goes on while any lane is undecided.
     auto undecided_in = [&](const shared_ptr<Block> &block) {
-        auto now = append(func, block, Bool_t::make(), Instruction::Op::Load,
-                          {acc->ptr});
-        return acc->rising ? append(func, block, Bool_t::make(),
-                                    Instruction::Op::Not, {now})
-                           : now;
+        const Type held = acc->ptr->get_type().as<Ptr_t>()->etype;
+        auto now = append(func, block, held, Instruction::Op::Load, {acc->ptr});
+        if (acc->rising) {
+            now = append(func, block, held, Instruction::Op::Not, {now});
+        }
+        if (held.is_vector()) {
+            now = append(func, block, Bool_t::make(), Instruction::Op::Any,
+                         {now});
+        }
+        return now;
     };
     auto height = append(func, pop, count_type, Instruction::Op::Load, {count});
     auto more = append(func, pop, Bool_t::make(), Instruction::Op::Ne,
@@ -777,6 +826,34 @@ void queue_recursion(Function &func, size_t size) {
             call->cont.args.empty() && only_returns(call->cont.name);
         const size_t waiting_from = last ? 1 : 0;
 
+        // A gang's recursion is made only if some lane wants it. As a call
+        // that was the callee's business: a masked variant is entered under
+        // a test of its mask (see the `$masked` guard in
+        // CodeGen_LLVM_SSA.cpp), so a run no lane was on never ran. Once the
+        // calls are pushes there is no callee to test anything, so the test
+        // is made here: the pushes and the descent go in a block of their
+        // own, entered when any lane is on and bypassed straight to what
+        // followed the run otherwise. The arm the run sits in is normally
+        // behind the linearizer's own test of the same mask (the BOSCC
+        // gadget, SSA/Linearize.h), which makes this one redundant there and
+        // a test the backend folds; it stands for a run the linearizer could
+        // not skip. The mask is the argument every call of the run passes
+        // for the parameter specialize() added under the name `!mask`
+        // (SSA/Vectorize.cpp).
+        shared_ptr<Block> into = block;
+        if (mask_param.has_value()) {
+            const shared_ptr<Value> wanted = call->args[0][*mask_param];
+            auto on = append(func, block, Bool_t::make(), Instruction::Op::Any,
+                             {wanted});
+            into = new_block(func, name + "!push");
+            func.blocks.push_back(into);
+            // targets[0] is where a false condition goes: past the run, to
+            // its continuation, which for a run that was the last thing the
+            // node did is the return that becomes the pop below.
+            block->terminator.data = Terminator::Dispatch{
+                on, {call->cont, Terminator::Jump{into->name}}};
+        }
+
         // Write down what each waiting call would have been, on top of the
         // stack.
         //
@@ -793,21 +870,21 @@ void queue_recursion(Function &func, size_t size) {
         // was nothing at this level that could have said otherwise.
         for (size_t i = call->args.size(); i-- > waiting_from;) {
             auto top =
-                append(func, block, count_type, Instruction::Op::Load, {count});
+                append(func, into, count_type, Instruction::Op::Load, {count});
             for (const Stack &stack : stacks) {
                 auto slot =
-                    append(func, block, Ptr_t::make(params[stack.param].type),
+                    append(func, into, Ptr_t::make(params[stack.param].type),
                            Instruction::Op::GEP, {stack.storage, top});
-                append_store(block, slot, call->args[i][stack.param]);
+                append_store(into, slot, call->args[i][stack.param]);
             }
-            append_store(block, count,
-                         append(func, block, count_type, Instruction::Op::Add,
+            append_store(into, count,
+                         append(func, into, count_type, Instruction::Op::Add,
                                 {top, count_of(1)}));
         }
 
         if (!last) {
             // ...and carry straight on to what came after them.
-            block->terminator.data = call->cont;
+            into->terminator.data = call->cont;
             continue;
         }
 
@@ -817,13 +894,13 @@ void queue_recursion(Function &func, size_t size) {
         // found and the edge stays live, and otherwise it is asked here.
         shared_ptr<Value> alive = bool_of(true);
         if (acc.has_value() && may_settle_before(name)) {
-            alive = undecided_in(block);
+            alive = undecided_in(into);
         }
         vector<shared_ptr<Value>> child;
         for (const Stack &stack : stacks) {
             child.push_back(call->args[0][stack.param]);
         }
-        block->terminator.data = visit(std::move(child), std::move(alive));
+        into->terminator.data = visit(std::move(child), std::move(alive));
     }
 
     // Returning from a visit is the end of that node, not of the traversal:

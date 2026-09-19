@@ -148,6 +148,13 @@ struct Instruction {
         // it to a select works only for bools, and to an exclusive-or with
         // all ones only for integers.
         Not,
+        // How many lanes of a mask are set. A cross-lane reduction like Any:
+        // its operand is one bool per lane and its result one uniform count,
+        // which is what lets a gang decide something by counting itself.
+        // Vote is lowered to two of these and a compare (see lower_votes in
+        // SSA/Vectorize.cpp). Before widening a gang holds one bool, and the
+        // count of it is that bool as a number.
+        Popcount,
         Print, // side-effect-y
         // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
         // This is what a vectorized loop index becomes, and an index of
@@ -174,6 +181,21 @@ struct Instruction {
         SizeOf,
         Store, // side-effect-y
         Sub,
+        // The decision a gang makes once on a bool its lanes may hold
+        // differently: the majority of the lanes that are on, ties going to
+        // false. Scalar code is a gang of one, and there this is the bool.
+        //
+        // Emitted by sort_recursion() for every compare-and-swap of a run's
+        // sorting network. A run of recursive calls is made once by whoever
+        // executes it, in one order, so when a gang executes it the order
+        // cannot follow each lane's own key -- one child is descended into
+        // first for the whole gang, the way a packet tracer descends
+        // (Wald, Slusallek, Benthin & Wagner, "Interactive Rendering with
+        // Coherent Ray Tracing", Eurographics 2001, section 3), and the vote
+        // is how the gang picks it. When the run is instead put on a stack by
+        // loopify() the visits are each lane's own again, and
+        // queue_recursion() strips the vote (see SSA/QueueRecursion.h).
+        Vote,
         Xor,
     };
 
@@ -364,6 +386,14 @@ struct Function {
     // Carried through from the originating ir::Function so that codegen_stmt
     // can reconstruct it faithfully (e.g. [[export]]).
     std::vector<ir::Function::Attribute> attributes;
+
+    // The function this one is a copy of, specialized by vectorize() for the
+    // shape a gang calls it in (see specialize in SSA/Vectorize.cpp); empty
+    // for a function the program wrote. A schedule directive names the
+    // program's function, and one written after the vectorize has to find
+    // its work in the copies as well -- `trace.loopify(64)` after
+    // `render.vectorize(s)` puts the gang's traversal on a stack.
+    std::string specialized_from;
 
     void dump(std::ostream &os) const;
 

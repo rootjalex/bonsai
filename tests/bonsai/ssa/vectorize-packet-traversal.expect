@@ -466,789 +466,600 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
   return
 }
 
-func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : Ray$v8, _best0 : mut (__tuple_1$v8*)) -> void {
+func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout0, r : Ray$v8, _best0 : mut (__tuple_1$v8*), !mask : boolx8) -> void {
   intersectsp_ray_sphere$r34!skip : mut _option1$v8
   intersects_Ray_Sphere$r0!skip : mut boolx8
-  @294!skip : mut boolx8
-  @300!skip0 : mut boolx8
-  @303!skip2 : mut boolx8
-  @300!skip1 : mut boolx8
-  @303!skip4 : mut boolx8
-  shapes_index!top!latch!skip2 : mut u16x8
-  !count!latch!skip2 : mut u32x8
-  @300!skip : mut boolx8
-  @303!skip0 : mut boolx8
-  @303!skip1 : mut boolx8
-  @303!skip3 : mut boolx8
-  shapes_index!top!latch!skip1 : mut u16x8
-  !count!latch!skip1 : mut u32x8
-  @303!skip : mut boolx8
-  shapes_index!top!latch!skip0 : mut u16x8
-  !count!latch!skip0 : mut u32x8
-  shapes_index!top!latch!skip : mut u16x8
-  !count!latch!skip : mut u32x8
-  _idx0!loop : mut u16x8
-  !live_0 : mut boolx8
-  !exit.for__idx0_end_24 : mut boolx8
-  intersects_Ray_Shape$r3!skip0 : mut boolx8
-  intersects_Ray_Shape$r3!skip : mut boolx8
+  _idx0 : mut u16
+  a$i34 : mut f32x8
+  intersects_Ray_Shape$r3 : mut boolx8
   intersectsp_ray_sphere$r21$i35!skip : mut _option1$v8
   intersects_Ray_Sphere$r35!skip : mut boolx8
-  distmin_Ray_Shape$r4!skip0 : mut f32x8
-  distmin_Ray_Shape$r4!skip : mut f32x8
+  distmin_Ray_Shape$r4 : mut f32x8
   intersectsp_ray_sphere$r17$i36!skip : mut _option1$v8
-  shapes_index!top!loop : mut u16x8
-  !live!loop : mut boolx8
-  !count!loop : mut u32x8
-  !live_1 : mut boolx8
-  !exit.visited : mut boolx8
-  shapes_index!top!latch!skip3 : mut u16x8
-  !count!latch!skip3 : mut u32x8
-  _idx0!loop!skip : mut u16x8
-  shapes_index!top!loop!skip : mut u16x8
-  !live!loop!skip : mut boolx8
-  !count!loop!skip : mut u32x8
-  !stack : mut u16x8[64]
-  let @650 = u16x8(shapes_index) in
-  let @651 = boolx8(true) in
-  let @652 = u32x8(0u) in
-  let @653 = boolx8(true) in
-  let @654 = boolx8(false) in
-  shapes_index!top!loop = @650
-  !live!loop = @651
-  !count!loop = @652
-  !live_1 = @653
-  !exit.visited = @654
-  while (reduce<any>((*!live_1))) {
-    let @484 = boolx8(false) in
-    let @485 = boolx8(true) in
-    let @278 = select((*!live!loop), @484, @485) in
-    let @279 = (*!live_1) && @278 in
-    let @280 = (*!live_1) && (*!live!loop) in
-    let @352 = reduce<any>(@280) in
-    if (@352) {
-      let @0 = shapes.group0_index in
-      let _t905 = masked_extract(@0[(*shapes_index!top!loop)], @280) in
-      let @2 = _t905.center in
-      let @400 = @2.!0 in
-      let @401 = cast<f32x8>(@400) in
-      let @402 = @2.!1 in
-      let @403 = cast<f32x8>(@402) in
-      let @404 = @2.!2 in
-      let @405 = cast<f32x8>(@404) in
-      let @4 = _t905.radius in
-      let @406 = build<f32x3$v8>(@401, @403, @405) in
-      let _t909 = build<Sphere$v8>(@406, @4) in
-      let _t569 = r.o in
-      let @7 = _t909.center in
-      let @407 = @7.!0 in
-      let @408 = _t569.!0 in
-      let @409 = @407 - @408 in
-      let @410 = @7.!1 in
-      let @411 = _t569.!1 in
-      let @412 = @410 - @411 in
-      let @413 = @7.!2 in
-      let @414 = _t569.!2 in
-      let @415 = @413 - @414 in
-      let _t294$i34 = r.d in
-      let @416 = _t294$i34.!0 in
-      let @417 = @416 * @416 in
-      let @418 = _t294$i34.!1 in
-      let @419 = @418 * @418 in
-      let @420 = _t294$i34.!2 in
-      let @421 = @420 * @420 in
-      let @422 = @417 + @419 in
-      let @423 = @422 + @421 in
-      let @12 = _t294$i34.!0 in
-      let @14 = @12 * @409 in
-      let @15 = _t294$i34.!1 in
-      let @17 = @15 * @412 in
-      let @18 = @14 + @17 in
-      let @19 = _t294$i34.!2 in
-      let @21 = @19 * @415 in
-      let _t298$i34 = @18 + @21 in
-      let _t300$i34 = _t909.radius in
-      let @24 = _t298$i34 * _t298$i34 in
-      let @424 = @409 * @409 in
-      let @425 = @412 * @412 in
-      let @426 = @415 * @415 in
-      let @427 = @424 + @425 in
-      let @428 = @427 + @426 in
-      let @27 = _t300$i34 * _t300$i34 in
-      let @28 = @428 - @27 in
-      let @29 = @423 * @28 in
-      let _t917 = @24 - @29 in
-      let @486 = f32x8(0f) in
-      let @31 = _t917 < @486 in
-      let @487 = boolx8(false) in
-      let @488 = boolx8(true) in
-      let @281 = select(@31, @487, @488) in
-      let @282 = @280 && @281 in
-      let @283 = @280 && @31 in
-      let @32 = build<_option1>() in
-      let @353 = reduce<any>(@282) in
-      let @601 = @32.value in
-      let @602 = @601.low in
-      let @603 = f32x8(@602) in
-      let @604 = @601.high in
-      let @605 = f32x8(@604) in
-      let @606 = build<FInterval$v8>(@603, @605) in
-      let @607 = @32.set in
-      let @608 = boolx8(@607) in
-      let @609 = build<_option1$v8>(@606, @608) in
-      if (@353) {
-        let sqrtd$i34 = sqrt(_t917) in
-        let @34 = _t298$i34 - sqrtd$i34 in
-        let _t919 = @34 / @423 in
-        let @36 = _t298$i34 + sqrtd$i34 in
-        let _t921 = @36 / @423 in
-        let @38 = min(_t919, _t921) in
-        let @39 = max(_t919, _t921) in
-        let interval$i34 = build<FInterval$v8>(@38, @39) in
-        let @489 = boolx8(true) in
-        let @41 = build<_option1$v8>(interval$i34, @489) in
-        let @490 = @32.value in
-        let @491 = @490.low in
-        let @492 = f32x8(@491) in
-        let @493 = @490.high in
-        let @494 = f32x8(@493) in
-        let @495 = build<FInterval$v8>(@492, @494) in
-        let @496 = @32.set in
-        let @497 = boolx8(@496) in
-        let @498 = build<_option1$v8>(@495, @497) in
-        let @372 = select(@282, @41, @498) in
-        intersectsp_ray_sphere$r34!skip = @372
-      } else {
-        intersectsp_ray_sphere$r34!skip = @609
-      }
-      let _t583 = (*intersectsp_ray_sphere$r34!skip).set in
-      let @499 = boolx8(false) in
-      let @500 = boolx8(true) in
-      let @284 = select(_t583, @499, @500) in
-      let @285 = @280 && @284 in
-      let @286 = @280 && _t583 in
-      let @354 = reduce<any>(@286) in
-      let @641 = boolx8(false) in
-      if (@354) {
-        let extract$i0 = (*intersectsp_ray_sphere$r34!skip).value in
-        let @46 = extract$i0.low in
-        let @47 = r.tmax in
-        let @48 = @46 < @47 in
-        let @49 = extract$i0.high in
-        let @501 = f32x8(0f) in
-        let @50 = @501 < @49 in
-        let @51 = @48 & @50 in
-        intersects_Ray_Sphere$r0!skip = @51
-      } else {
-        intersects_Ray_Sphere$r0!skip = @641
-      }
-      let @502 = boolx8(false) in
-      let @373 = select(@285, @502, (*intersects_Ray_Sphere$r0!skip)) in
-      let @503 = boolx8(false) in
-      let @504 = boolx8(true) in
-      let @287 = select(@373, @503, @504) in
-      let @288 = @280 && @287 in
-      let @289 = @280 && @373 in
-      let @355 = reduce<any>(@289) in
-      let @643 = boolx8(false) in
-      let @644 = boolx8(false) in
-      let @645 = boolx8(false) in
-      let @646 = boolx8(false) in
-      let @647 = boolx8(false) in
-      let @648 = u16x8(0u) in
-      let @649 = u32x8(0u) in
-      if (@355) {
-        let @505 = boolx8(false) in
-        let @506 = boolx8(true) in
-        let @290 = select(_t583, @505, @506) in
-        let @291 = @289 && @290 in
-        let @292 = @289 && _t583 in
-        let extract$i1 = (*intersectsp_ray_sphere$r34!skip).value in
-        let @55 = extract$i1.high in
-        let @56 = (f32)inf in
-        let @507 = f32x8(@56) in
-        let @374 = select(@291, @507, @55) in
-        let @508 = f32x8(0.001f) in
-        let @58 = @508 < @374 in
-        let @509 = boolx8(false) in
-        let @510 = boolx8(true) in
-        let @293 = select(@58, @509, @510) in
-        let @294 = @289 && @293 in
-        let @295 = @289 && @58 in
-        let @356 = reduce<any>(@295) in
-        let @630 = boolx8(false) in
-        let @631 = boolx8(false) in
-        let @632 = boolx8(false) in
-        let @633 = boolx8(false) in
-        let @634 = u16x8(0u) in
-        let @635 = u32x8(0u) in
-        if (@356) {
-          let @511 = boolx8(false) in
-          let @512 = boolx8(true) in
-          let @296 = select(_t583, @511, @512) in
-          let @297 = @295 && @296 in
-          let @298 = @295 && _t583 in
-          let extract$i2 = (*intersectsp_ray_sphere$r34!skip).value in
-          let @61 = extract$i2.low in
-          let @62 = (f32)inf in
-          let @63 = 0f - @62 in
-          let @513 = f32x8(@63) in
-          let @375 = select(@297, @513, @61) in
-          let @65 = (*_best0) in
-          let @66 = @65._field0 in
-          let @67 = @375 < @66 in
-          let @514 = boolx8(false) in
-          let @515 = boolx8(true) in
-          let @299 = select(@67, @514, @515) in
-          let @300 = @295 && @299 in
-          let @301 = @295 && @67 in
-          let @357 = reduce<any>(@301) in
-          let @636 = boolx8(false) in
-          let @637 = u16x8(0u) in
-          let @638 = u32x8(0u) in
-          if (@357) {
-            let _t85 = _t905.nPrims in
-            let @516 = u8x8(0u) in
-            let @69 = _t85 == @516 in
-            let @517 = boolx8(false) in
-            let @518 = boolx8(true) in
-            let @302 = select(@69, @517, @518) in
-            let @303 = @301 && @302 in
-            let @304 = @301 && @69 in
-            let @359 = reduce<any>(@304) in
-            let @639 = u16x8(0u) in
-            let @640 = u32x8(0u) in
-            if (@359) {
-              let @70 = f32x3(1f) in
-              let @429 = @70[0u] in
-              let @430 = _t294$i34.!0 in
-              let @519 = f32x8(@429) in
-              let @431 = @519 / @430 in
-              let @432 = @70[1u] in
-              let @433 = _t294$i34.!1 in
-              let @520 = f32x8(@432) in
-              let @434 = @520 / @433 in
-              let @435 = @70[2u] in
-              let @436 = _t294$i34.!2 in
-              let @521 = f32x8(@435) in
-              let @437 = @521 / @436 in
-              let @72 = f32x3(0f) in
-              let @438 = @72[0u] in
-              let @522 = f32x8(@438) in
-              let @439 = @431 < @522 in
-              let @440 = @72[1u] in
-              let @523 = f32x8(@440) in
-              let @441 = @434 < @523 in
-              let @442 = @72[2u] in
-              let @524 = f32x8(@442) in
-              let @443 = @437 < @524 in
-              let @74 = _t905.axis in
-              let @525 = u8x8(1u) in
-              let @444 = @74 == @525 in
-              let @445 = select(@444, @441, @443) in
-              let @526 = u8x8(0u) in
-              let @446 = @74 == @526 in
-              let @447 = select(@446, @439, @445) in
-              let @527 = u16x8(1u) in
-              let @76 = (*shapes_index!top!loop) + @527 in
-              let @77 = _t905.split0on_nPrims in
-              let @78 = reinterpret_cast<_tree_layout2$v8>(@77) in
-              let @79 = @78.offset in
-              let @80 = (*shapes_index!top!loop) + @79 in
-              let @82 = !@447 in
-              let @266 = select(@82, @76, @80) in
-              let @267 = select(@82, @80, @76) in
-              let @528 = reinterpret_cast<u16[]>(!stack) in
-              let @530 = u32x8(8u) in
-              let @531 = (*!count!loop) * @530 in
-              let @532 = @531 + ramp(0u, 1u, 8) in
-              masked_store(@528[@532], @267, @304)
-              let @533 = u32x8(1u) in
-              let @275 = (*!count!loop) + @533 in
-              shapes_index!top!latch!skip = @266
-              !count!latch!skip = @275
-            } else {
-              shapes_index!top!latch!skip = @639
-              !count!latch!skip = @640
-            }
-            let @358 = reduce<any>(@303) in
-            if (@358) {
-              let @84 = cast<u16x8>(_t85) in
-              let @628 = u16x8(0u) in
-              let @629 = boolx8(false) in
-              _idx0!loop = @628
-              !live_0 = @303
-              !exit.for__idx0_end_24 = @629
-              while (reduce<any>((*!live_0))) {
-                let @85 = (*_idx0!loop) < @84 in
-                let @534 = boolx8(false) in
-                let @535 = boolx8(true) in
-                let @305 = select(@85, @534, @535) in
-                let @306 = (*!live_0) && @305 in
-                let @307 = (*!live_0) && @85 in
-                let @360 = reduce<any>(@307) in
-                if (@360) {
-                  let @86 = _t905.split0on_nPrims in
-                  let @87 = reinterpret_cast<_tree_layout3$v8>(@86) in
-                  let @88 = @87.pOffset in
-                  let _t927 = @88 + (*_idx0!loop) in
-                  let @90 = shapes.prims in
-                  let _t929 = masked_extract(@90[_t927], @307) in
-                  let _t361 = _t929.tag in
-                  let @536 = u8x8(0u) in
-                  let @308 = _t361 == @536 in
-                  let @309 = @307 && @308 in
-                  let @537 = u8x8(0u) in
-                  let @310 = _t361 != @537 in
-                  let @311 = @307 && @310 in
-                  let @362 = reduce<any>(@311) in
-                  let @599 = boolx8(false) in
-                  if (@362) {
-                    let _t262$i3 = _t929.payload in
-                    let @148 = _t262$i3.!0 in
-                    let @149 = reinterpret_cast<f32x8>(@148) in
-                    let @150 = _t262$i3.!1 in
-                    let @151 = reinterpret_cast<f32x8>(@150) in
-                    let @152 = _t262$i3.!2 in
-                    let @153 = reinterpret_cast<f32x8>(@152) in
-                    let @155 = _t262$i3.!4 in
-                    let @156 = reinterpret_cast<f32x8>(@155) in
-                    let @157 = _t262$i3.!5 in
-                    let @158 = reinterpret_cast<f32x8>(@157) in
-                    let @159 = _t262$i3.!6 in
-                    let @160 = reinterpret_cast<f32x8>(@159) in
-                    let @162 = _t262$i3.!8 in
-                    let @163 = reinterpret_cast<f32x8>(@162) in
-                    let @164 = _t262$i3.!9 in
-                    let @165 = reinterpret_cast<f32x8>(@164) in
-                    let @166 = _t262$i3.!10 in
-                    let @167 = reinterpret_cast<f32x8>(@166) in
-                    let @448 = build<f32x3$v8>(@149, @151, @153) in
-                    let @449 = build<f32x3$v8>(@156, @158, @160) in
-                    let @450 = build<f32x3$v8>(@163, @165, @167) in
-                    let t$i3 = build<Triangle$v8>(@448, @449, @450) in
-                    let @170 = intersectsp_ray_tri$gang8_v0_v1$masked(r, t$i3, @311) in
-                    let @171 = @170.set in
-                    intersects_Ray_Shape$r3!skip = @171
-                  } else {
-                    intersects_Ray_Shape$r3!skip = @599
-                  }
-                  let @361 = reduce<any>(@309) in
-                  if (@361) {
-                    let _t249$i3 = _t929.payload in
-                    let @94 = _t249$i3.!0 in
-                    let @95 = reinterpret_cast<f32x8>(@94) in
-                    let @96 = _t249$i3.!1 in
-                    let @97 = reinterpret_cast<f32x8>(@96) in
-                    let @98 = _t249$i3.!2 in
-                    let @99 = reinterpret_cast<f32x8>(@98) in
-                    let @101 = _t249$i3.!4 in
-                    let @102 = reinterpret_cast<f32x8>(@101) in
-                    let @451 = build<f32x3$v8>(@95, @97, @99) in
-                    let _t939 = build<Sphere$v8>(@451, @102) in
-                    let @104 = _t939.center in
-                    let @452 = @104.!0 in
-                    let @453 = _t569.!0 in
-                    let @454 = @452 - @453 in
-                    let @455 = @104.!1 in
-                    let @456 = _t569.!1 in
-                    let @457 = @455 - @456 in
-                    let @458 = @104.!2 in
-                    let @459 = _t569.!2 in
-                    let @460 = @458 - @459 in
-                    let @106 = _t294$i34.!0 in
-                    let @108 = @106 * @454 in
-                    let @109 = _t294$i34.!1 in
-                    let @111 = @109 * @457 in
-                    let @112 = @108 + @111 in
-                    let @113 = _t294$i34.!2 in
-                    let @115 = @113 * @460 in
-                    let _t298$i21$i35 = @112 + @115 in
-                    let _t300$i21$i35 = _t939.radius in
-                    let @118 = _t298$i21$i35 * _t298$i21$i35 in
-                    let @461 = @454 * @454 in
-                    let @462 = @457 * @457 in
-                    let @463 = @460 * @460 in
-                    let @464 = @461 + @462 in
-                    let @465 = @464 + @463 in
-                    let @121 = _t300$i21$i35 * _t300$i21$i35 in
-                    let @122 = @465 - @121 in
-                    let @123 = @423 * @122 in
-                    let _t947 = @118 - @123 in
-                    let @538 = f32x8(0f) in
-                    let @125 = _t947 < @538 in
-                    let @539 = boolx8(false) in
-                    let @540 = boolx8(true) in
-                    let @312 = select(@125, @539, @540) in
-                    let @313 = @309 && @312 in
-                    let @314 = @309 && @125 in
-                    let @126 = build<_option1>() in
-                    let @363 = reduce<any>(@313) in
-                    let @610 = @126.value in
-                    let @611 = @610.low in
-                    let @612 = f32x8(@611) in
-                    let @613 = @610.high in
-                    let @614 = f32x8(@613) in
-                    let @615 = build<FInterval$v8>(@612, @614) in
-                    let @616 = @126.set in
-                    let @617 = boolx8(@616) in
-                    let @618 = build<_option1$v8>(@615, @617) in
-                    if (@363) {
-                      let sqrtd$i21$i35 = sqrt(_t947) in
-                      let @128 = _t298$i21$i35 - sqrtd$i21$i35 in
-                      let _t949 = @128 / @423 in
-                      let @130 = _t298$i21$i35 + sqrtd$i21$i35 in
-                      let _t951 = @130 / @423 in
-                      let @132 = min(_t949, _t951) in
-                      let @133 = max(_t949, _t951) in
-                      let interval$i21$i35 = build<FInterval$v8>(@132, @133) in
-                      let @541 = boolx8(true) in
-                      let @135 = build<_option1$v8>(interval$i21$i35, @541) in
-                      let @542 = @126.value in
-                      let @543 = @542.low in
-                      let @544 = f32x8(@543) in
-                      let @545 = @542.high in
-                      let @546 = f32x8(@545) in
-                      let @547 = build<FInterval$v8>(@544, @546) in
-                      let @548 = @126.set in
-                      let @549 = boolx8(@548) in
-                      let @550 = build<_option1$v8>(@547, @549) in
-                      let @376 = select(@313, @135, @550) in
-                      intersectsp_ray_sphere$r21$i35!skip = @376
-                    } else {
-                      intersectsp_ray_sphere$r21$i35!skip = @618
-                    }
-                    let @137 = (*intersectsp_ray_sphere$r21$i35!skip).set in
-                    let @551 = boolx8(false) in
-                    let @552 = boolx8(true) in
-                    let @315 = select(@137, @551, @552) in
-                    let @316 = @309 && @315 in
-                    let @317 = @309 && @137 in
-                    let @364 = reduce<any>(@317) in
-                    let @642 = boolx8(false) in
-                    if (@364) {
-                      let extract$i35 = (*intersectsp_ray_sphere$r21$i35!skip).value in
-                      let @140 = extract$i35.low in
-                      let @141 = r.tmax in
-                      let @142 = @140 < @141 in
-                      let @143 = extract$i35.high in
-                      let @553 = f32x8(0f) in
-                      let @144 = @553 < @143 in
-                      let @145 = @142 & @144 in
-                      intersects_Ray_Sphere$r35!skip = @145
-                    } else {
-                      intersects_Ray_Sphere$r35!skip = @642
-                    }
-                    let @554 = boolx8(false) in
-                    let @377 = select(@316, @554, (*intersects_Ray_Sphere$r35!skip)) in
-                    let @378 = select(@309, @377, (*intersects_Ray_Shape$r3!skip)) in
-                    intersects_Ray_Shape$r3!skip0 = @378
-                  } else {
-                    intersects_Ray_Shape$r3!skip0 = (*intersects_Ray_Shape$r3!skip)
-                  }
-                  let @555 = boolx8(false) in
-                  let @556 = boolx8(true) in
-                  let @318 = select((*intersects_Ray_Shape$r3!skip0), @555, @556) in
-                  let @319 = @307 && @318 in
-                  let @320 = @307 && (*intersects_Ray_Shape$r3!skip0) in
-                  let @365 = reduce<any>(@320) in
-                  if (@365) {
-                    let @557 = u8x8(0u) in
-                    let @321 = _t361 == @557 in
-                    let @322 = @320 && @321 in
-                    let @558 = u8x8(0u) in
-                    let @323 = _t361 != @558 in
-                    let @324 = @320 && @323 in
-                    let @367 = reduce<any>(@324) in
-                    let @600 = f32x8(0f) in
-                    if (@367) {
-                      let _t194$i4 = _t929.payload in
-                      let @225 = _t194$i4.!0 in
-                      let @226 = reinterpret_cast<f32x8>(@225) in
-                      let @227 = _t194$i4.!1 in
-                      let @228 = reinterpret_cast<f32x8>(@227) in
-                      let @229 = _t194$i4.!2 in
-                      let @230 = reinterpret_cast<f32x8>(@229) in
-                      let @232 = _t194$i4.!4 in
-                      let @233 = reinterpret_cast<f32x8>(@232) in
-                      let @234 = _t194$i4.!5 in
-                      let @235 = reinterpret_cast<f32x8>(@234) in
-                      let @236 = _t194$i4.!6 in
-                      let @237 = reinterpret_cast<f32x8>(@236) in
-                      let @239 = _t194$i4.!8 in
-                      let @240 = reinterpret_cast<f32x8>(@239) in
-                      let @241 = _t194$i4.!9 in
-                      let @242 = reinterpret_cast<f32x8>(@241) in
-                      let @243 = _t194$i4.!10 in
-                      let @244 = reinterpret_cast<f32x8>(@243) in
-                      let @466 = build<f32x3$v8>(@226, @228, @230) in
-                      let @467 = build<f32x3$v8>(@233, @235, @237) in
-                      let @468 = build<f32x3$v8>(@240, @242, @244) in
-                      let @246 = build<Triangle$v8>(@466, @467, @468) in
-                      let @247 = intersectsp_ray_tri$gang8_v0_v1$masked(r, @246, @324) in
-                      let _t997 = @247 in
-                      let @248 = _t997.set in
-                      let @559 = boolx8(false) in
-                      let @560 = boolx8(true) in
-                      let @325 = select(@248, @559, @560) in
-                      let @326 = @324 && @325 in
-                      let @327 = @324 && @248 in
-                      let isect_$i37 = _t997.value in
-                      let @250 = isect_$i37.t in
-                      let @251 = (f32)inf in
-                      let @561 = f32x8(@251) in
-                      let @379 = select(@326, @561, @250) in
-                      distmin_Ray_Shape$r4!skip = @379
-                    } else {
-                      distmin_Ray_Shape$r4!skip = @600
-                    }
-                    let @366 = reduce<any>(@322) in
-                    if (@366) {
-                      let _t181$i4 = _t929.payload in
-                      let @174 = _t181$i4.!0 in
-                      let @175 = reinterpret_cast<f32x8>(@174) in
-                      let @176 = _t181$i4.!1 in
-                      let @177 = reinterpret_cast<f32x8>(@176) in
-                      let @178 = _t181$i4.!2 in
-                      let @179 = reinterpret_cast<f32x8>(@178) in
-                      let @181 = _t181$i4.!4 in
-                      let @182 = reinterpret_cast<f32x8>(@181) in
-                      let @469 = build<f32x3$v8>(@175, @177, @179) in
-                      let _t962 = build<Sphere$v8>(@469, @182) in
-                      let @184 = _t962.center in
-                      let @470 = @184.!0 in
-                      let @471 = _t569.!0 in
-                      let @472 = @470 - @471 in
-                      let @473 = @184.!1 in
-                      let @474 = _t569.!1 in
-                      let @475 = @473 - @474 in
-                      let @476 = @184.!2 in
-                      let @477 = _t569.!2 in
-                      let @478 = @476 - @477 in
-                      let @186 = _t294$i34.!0 in
-                      let @188 = @186 * @472 in
-                      let @189 = _t294$i34.!1 in
-                      let @191 = @189 * @475 in
-                      let @192 = @188 + @191 in
-                      let @193 = _t294$i34.!2 in
-                      let @195 = @193 * @478 in
-                      let _t298$i17$i36 = @192 + @195 in
-                      let _t300$i17$i36 = _t962.radius in
-                      let @198 = _t298$i17$i36 * _t298$i17$i36 in
-                      let @479 = @472 * @472 in
-                      let @480 = @475 * @475 in
-                      let @481 = @478 * @478 in
-                      let @482 = @479 + @480 in
-                      let @483 = @482 + @481 in
-                      let @201 = _t300$i17$i36 * _t300$i17$i36 in
-                      let @202 = @483 - @201 in
-                      let @203 = @423 * @202 in
-                      let _t970 = @198 - @203 in
-                      let @562 = f32x8(0f) in
-                      let @205 = _t970 < @562 in
-                      let @563 = boolx8(false) in
-                      let @564 = boolx8(true) in
-                      let @328 = select(@205, @563, @564) in
-                      let @329 = @322 && @328 in
-                      let @330 = @322 && @205 in
-                      let @206 = build<_option1>() in
-                      let @368 = reduce<any>(@329) in
-                      let @619 = @206.value in
-                      let @620 = @619.low in
-                      let @621 = f32x8(@620) in
-                      let @622 = @619.high in
-                      let @623 = f32x8(@622) in
-                      let @624 = build<FInterval$v8>(@621, @623) in
-                      let @625 = @206.set in
-                      let @626 = boolx8(@625) in
-                      let @627 = build<_option1$v8>(@624, @626) in
-                      if (@368) {
-                        let sqrtd$i17$i36 = sqrt(_t970) in
-                        let @208 = _t298$i17$i36 - sqrtd$i17$i36 in
-                        let _t972 = @208 / @423 in
-                        let @210 = _t298$i17$i36 + sqrtd$i17$i36 in
-                        let _t974 = @210 / @423 in
-                        let @212 = min(_t972, _t974) in
-                        let @213 = max(_t972, _t974) in
-                        let interval$i17$i36 = build<FInterval$v8>(@212, @213) in
-                        let @565 = boolx8(true) in
-                        let @215 = build<_option1$v8>(interval$i17$i36, @565) in
-                        let @566 = @206.value in
-                        let @567 = @566.low in
-                        let @568 = f32x8(@567) in
-                        let @569 = @566.high in
-                        let @570 = f32x8(@569) in
-                        let @571 = build<FInterval$v8>(@568, @570) in
-                        let @572 = @206.set in
-                        let @573 = boolx8(@572) in
-                        let @574 = build<_option1$v8>(@571, @573) in
-                        let @380 = select(@329, @215, @574) in
-                        intersectsp_ray_sphere$r17$i36!skip = @380
-                      } else {
-                        intersectsp_ray_sphere$r17$i36!skip = @627
-                      }
-                      let @217 = (*intersectsp_ray_sphere$r17$i36!skip).set in
-                      let @575 = boolx8(false) in
-                      let @576 = boolx8(true) in
-                      let @331 = select(@217, @575, @576) in
-                      let @332 = @322 && @331 in
-                      let @333 = @322 && @217 in
-                      let extract$i36 = (*intersectsp_ray_sphere$r17$i36!skip).value in
-                      let @220 = extract$i36.low in
-                      let @221 = (f32)inf in
-                      let @222 = 0f - @221 in
-                      let @577 = f32x8(@222) in
-                      let @381 = select(@332, @577, @220) in
-                      let @382 = select(@322, @381, (*distmin_Ray_Shape$r4!skip)) in
-                      distmin_Ray_Shape$r4!skip0 = @382
-                    } else {
-                      distmin_Ray_Shape$r4!skip0 = (*distmin_Ray_Shape$r4!skip)
-                    }
-                    let @578 = f32x8(0.001f) in
-                    let @254 = @578 < (*distmin_Ray_Shape$r4!skip0) in
-                    let @579 = boolx8(false) in
-                    let @580 = boolx8(true) in
-                    let @334 = select(@254, @579, @580) in
-                    let @335 = @320 && @334 in
-                    let @336 = @320 && @254 in
-                    let @369 = reduce<any>(@336) in
-                    if (@369) {
-                      let @256 = (*_best0) in
-                      let @257 = @256._field0 in
-                      let @258 = (*distmin_Ray_Shape$r4!skip0) < @257 in
-                      let @581 = boolx8(false) in
-                      let @582 = boolx8(true) in
-                      let @337 = select(@258, @581, @582) in
-                      let @338 = @336 && @337 in
-                      let @339 = @336 && @258 in
-                      let @370 = reduce<any>(@339) in
-                      if (@370) {
-                        let @260 = build<__tuple_0$v8>(_t927) in
-                        let @261 = build<__tuple_1$v8>((*distmin_Ray_Shape$r4!skip0), @260) in
-                        masked_store(_best0, @261, @339)
-                      }
-                    }
-                  }
-                  let @583 = u16x8(1u) in
-                  let @262 = (*_idx0!loop) + @583 in
-                  let @383 = select(@307, @262, (*_idx0!loop)) in
-                  _idx0!loop!skip = @383
-                } else {
-                  _idx0!loop!skip = (*_idx0!loop)
-                }
-                let @384 = select(@306, (*_idx0!loop), (*_idx0!loop!skip)) in
-                let @584 = boolx8(false) in
-                let @385 = select(@306, @584, (*!live_0)) in
-                let @585 = boolx8(true) in
-                let @386 = select(@306, @585, (*!exit.for__idx0_end_24)) in
-                _idx0!loop = @384
-                !live_0 = @385
-                !exit.for__idx0_end_24 = @386
-              }
-              @303!skip = @303
-              shapes_index!top!latch!skip0 = (*shapes_index!top!latch!skip)
-              !count!latch!skip0 = (*!count!latch!skip)
-            } else {
-              @303!skip = @303
-              shapes_index!top!latch!skip0 = (*shapes_index!top!latch!skip)
-              !count!latch!skip0 = (*!count!latch!skip)
+  shapes_index!top : mut u16
+  !mask!top : mut boolx8
+  !live : mut bool
+  !stack : mut u16[64]
+  !stack0 : mut boolx8[64]
+  !count : mut u32
+  !count = 0u
+  shapes_index!top = shapes_index
+  !mask!top = !mask
+  !live = true
+  while ((*!live)) {
+    let @0 = shapes.group0_index in
+    let _t905 = @0[(*shapes_index!top)] in
+    let @2 = _t905.center in
+    let @3 = cast<f32x3>(@2) in
+    let @4 = _t905.radius in
+    let _t909 = build<Sphere>(@3, @4) in
+    let _t569 = r.o in
+    let @7 = _t909.center in
+    let @338 = @7[0u] in
+    let @339 = _t569.!0 in
+    let @407 = f32x8(@338) in
+    let @340 = @407 - @339 in
+    let @341 = @7[1u] in
+    let @342 = _t569.!1 in
+    let @408 = f32x8(@341) in
+    let @343 = @408 - @342 in
+    let @344 = @7[2u] in
+    let @345 = _t569.!2 in
+    let @409 = f32x8(@344) in
+    let @346 = @409 - @345 in
+    let _t294$i34 = r.d in
+    let @347 = _t294$i34.!0 in
+    let @348 = @347 * @347 in
+    let @349 = _t294$i34.!1 in
+    let @350 = @349 * @349 in
+    let @351 = _t294$i34.!2 in
+    let @352 = @351 * @351 in
+    let @353 = @348 + @350 in
+    let @354 = @353 + @352 in
+    let @12 = _t294$i34.!0 in
+    let @14 = @12 * @340 in
+    let @15 = _t294$i34.!1 in
+    let @17 = @15 * @343 in
+    let @18 = @14 + @17 in
+    let @19 = _t294$i34.!2 in
+    let @21 = @19 * @346 in
+    let _t298$i34 = @18 + @21 in
+    let _t300$i34 = _t909.radius in
+    let @24 = _t298$i34 * _t298$i34 in
+    let @355 = @340 * @340 in
+    let @356 = @343 * @343 in
+    let @357 = @346 * @346 in
+    let @358 = @355 + @356 in
+    let @359 = @358 + @357 in
+    let @27 = _t300$i34 * _t300$i34 in
+    let @410 = f32x8(@27) in
+    let @28 = @359 - @410 in
+    let @29 = @354 * @28 in
+    let _t917 = @24 - @29 in
+    let @411 = f32x8(0f) in
+    let @31 = _t917 < @411 in
+    let @412 = boolx8(false) in
+    let @413 = boolx8(true) in
+    let @268 = select(@31, @412, @413) in
+    let @269 = (*!mask!top) && @268 in
+    let @270 = (*!mask!top) && @31 in
+    let @32 = build<_option1>() in
+    let @313 = reduce<any>(@269) in
+    let @503 = @32.value in
+    let @504 = @503.low in
+    let @505 = f32x8(@504) in
+    let @506 = @503.high in
+    let @507 = f32x8(@506) in
+    let @508 = build<FInterval$v8>(@505, @507) in
+    let @509 = @32.set in
+    let @510 = boolx8(@509) in
+    let @511 = build<_option1$v8>(@508, @510) in
+    if (@313) {
+      let sqrtd$i34 = sqrt(_t917) in
+      let @34 = _t298$i34 - sqrtd$i34 in
+      let _t919 = @34 / @354 in
+      let @36 = _t298$i34 + sqrtd$i34 in
+      let _t921 = @36 / @354 in
+      let @38 = min(_t919, _t921) in
+      let @39 = max(_t919, _t921) in
+      let interval$i34 = build<FInterval$v8>(@38, @39) in
+      let @414 = boolx8(true) in
+      let @41 = build<_option1$v8>(interval$i34, @414) in
+      let @415 = @32.value in
+      let @416 = @415.low in
+      let @417 = f32x8(@416) in
+      let @418 = @415.high in
+      let @419 = f32x8(@418) in
+      let @420 = build<FInterval$v8>(@417, @419) in
+      let @421 = @32.set in
+      let @422 = boolx8(@421) in
+      let @423 = build<_option1$v8>(@420, @422) in
+      let @324 = select(@269, @41, @423) in
+      intersectsp_ray_sphere$r34!skip = @324
+    } else {
+      intersectsp_ray_sphere$r34!skip = @511
+    }
+    let _t583 = (*intersectsp_ray_sphere$r34!skip).set in
+    let @424 = boolx8(false) in
+    let @425 = boolx8(true) in
+    let @271 = select(_t583, @424, @425) in
+    let @272 = (*!mask!top) && @271 in
+    let @273 = (*!mask!top) && _t583 in
+    let @314 = reduce<any>(@273) in
+    let @530 = boolx8(false) in
+    if (@314) {
+      let extract$i0 = (*intersectsp_ray_sphere$r34!skip).value in
+      let @46 = extract$i0.low in
+      let @47 = r.tmax in
+      let @48 = @46 < @47 in
+      let @49 = extract$i0.high in
+      let @426 = f32x8(0f) in
+      let @50 = @426 < @49 in
+      let @51 = @48 & @50 in
+      intersects_Ray_Sphere$r0!skip = @51
+    } else {
+      intersects_Ray_Sphere$r0!skip = @530
+    }
+    let @427 = boolx8(false) in
+    let @325 = select(@272, @427, (*intersects_Ray_Sphere$r0!skip)) in
+    let @428 = boolx8(false) in
+    let @429 = boolx8(true) in
+    let @274 = select(@325, @428, @429) in
+    let @275 = (*!mask!top) && @274 in
+    let @276 = (*!mask!top) && @325 in
+    let @315 = reduce<any>(@276) in
+    if (@315) {
+      let @430 = boolx8(false) in
+      let @431 = boolx8(true) in
+      let @277 = select(_t583, @430, @431) in
+      let @278 = @276 && @277 in
+      let @279 = @276 && _t583 in
+      let extract$i1 = (*intersectsp_ray_sphere$r34!skip).value in
+      let @55 = extract$i1.high in
+      let @56 = (f32)inf in
+      let @432 = f32x8(@56) in
+      let @326 = select(@278, @432, @55) in
+      let @433 = f32x8(0.001f) in
+      let @58 = @433 < @326 in
+      let @434 = boolx8(false) in
+      let @435 = boolx8(true) in
+      let @280 = select(@58, @434, @435) in
+      let @281 = @276 && @280 in
+      let @282 = @276 && @58 in
+      let @316 = reduce<any>(@282) in
+      if (@316) {
+        let @436 = boolx8(false) in
+        let @437 = boolx8(true) in
+        let @283 = select(_t583, @436, @437) in
+        let @284 = @282 && @283 in
+        let @285 = @282 && _t583 in
+        let extract$i2 = (*intersectsp_ray_sphere$r34!skip).value in
+        let @61 = extract$i2.low in
+        let @62 = (f32)inf in
+        let @63 = 0f - @62 in
+        let @438 = f32x8(@63) in
+        let @327 = select(@284, @438, @61) in
+        let @65 = (*_best0) in
+        let @66 = @65._field0 in
+        let @67 = @327 < @66 in
+        let @439 = boolx8(false) in
+        let @440 = boolx8(true) in
+        let @286 = select(@67, @439, @440) in
+        let @287 = @282 && @286 in
+        let @288 = @282 && @67 in
+        let @317 = reduce<any>(@288) in
+        if (@317) {
+          let _t85 = _t905.nPrims in
+          let @69 = _t85 == 0u in
+          if (@69) {
+            let @70 = f32x3(1f) in
+            let @360 = @70[0u] in
+            let @361 = _t294$i34.!0 in
+            let @441 = f32x8(@360) in
+            let @362 = @441 / @361 in
+            let @363 = @70[1u] in
+            let @364 = _t294$i34.!1 in
+            let @442 = f32x8(@363) in
+            let @365 = @442 / @364 in
+            let @366 = @70[2u] in
+            let @367 = _t294$i34.!2 in
+            let @443 = f32x8(@366) in
+            let @368 = @443 / @367 in
+            let @72 = f32x3(0f) in
+            let @369 = @72[0u] in
+            let @444 = f32x8(@369) in
+            let @370 = @362 < @444 in
+            let @371 = @72[1u] in
+            let @445 = f32x8(@371) in
+            let @372 = @365 < @445 in
+            let @373 = @72[2u] in
+            let @446 = f32x8(@373) in
+            let @374 = @368 < @446 in
+            let @74 = _t905.axis in
+            let @375 = @74 == 1u in
+            let @447 = boolx8(@375) in
+            let @376 = select(@447, @372, @374) in
+            let @377 = @74 == 0u in
+            let @448 = boolx8(@377) in
+            let @378 = select(@448, @370, @376) in
+            let @76 = (*shapes_index!top) + 1u in
+            let @77 = _t905.split0on_nPrims in
+            let @78 = reinterpret_cast<_tree_layout2>(@77) in
+            let @79 = @78.offset in
+            let @80 = (*shapes_index!top) + @79 in
+            let @82 = !@378 in
+            let @333 = @82 && @288 in
+            let @334 = reduce<+>(cast<u32x8>(@288)) in
+            let @335 = reduce<+>(cast<u32x8>(@333)) in
+            let @336 = @335 + @335 in
+            let @337 = @334 < @336 in
+            let @266 = select(@337, @76, @80) in
+            let @267 = select(@337, @80, @76) in
+            let @537 = reduce<any>(@288) in
+            if (@537) {
+              let @538 = (*!count) in
+              !stack[@538] = @267
+              !stack0[@538] = @288
+              let @541 = @538 + 1u in
+              !count = @541
+              shapes_index!top = @266
+              !mask!top = @288
+              !live = true
+              continue
             }
           } else {
-            @303!skip = @636
-            shapes_index!top!latch!skip0 = @637
-            !count!latch!skip0 = @638
+            let @84 = cast<u16>(_t85) in
+            _idx0 = 0u
+            a$i34 = @354
+            while ((*_idx0) < @84) {
+              let @86 = _t905.split0on_nPrims in
+              let @87 = reinterpret_cast<_tree_layout3>(@86) in
+              let @88 = @87.pOffset in
+              let _t927 = @88 + (*_idx0) in
+              let @90 = shapes.prims in
+              let _t929 = @90[_t927] in
+              let _t361 = _t929.tag in
+              switch (_t361) {
+              case 0: {
+                let _t249$i3 = _t929.payload in
+                let @94 = _t249$i3[0u] in
+                let @95 = reinterpret_cast<f32>(@94) in
+                let @96 = _t249$i3[1u] in
+                let @97 = reinterpret_cast<f32>(@96) in
+                let @98 = _t249$i3[2u] in
+                let @99 = reinterpret_cast<f32>(@98) in
+                let @100 = build<f32x3>(@95, @97, @99) in
+                let @101 = _t249$i3[4u] in
+                let @102 = reinterpret_cast<f32>(@101) in
+                let _t939 = build<Sphere>(@100, @102) in
+                let @104 = _t939.center in
+                let @379 = @104[0u] in
+                let @380 = _t569.!0 in
+                let @449 = f32x8(@379) in
+                let @381 = @449 - @380 in
+                let @382 = @104[1u] in
+                let @383 = _t569.!1 in
+                let @450 = f32x8(@382) in
+                let @384 = @450 - @383 in
+                let @385 = @104[2u] in
+                let @386 = _t569.!2 in
+                let @451 = f32x8(@385) in
+                let @387 = @451 - @386 in
+                let @106 = _t294$i34.!0 in
+                let @108 = @106 * @381 in
+                let @109 = _t294$i34.!1 in
+                let @111 = @109 * @384 in
+                let @112 = @108 + @111 in
+                let @113 = _t294$i34.!2 in
+                let @115 = @113 * @387 in
+                let _t298$i21$i35 = @112 + @115 in
+                let _t300$i21$i35 = _t939.radius in
+                let @118 = _t298$i21$i35 * _t298$i21$i35 in
+                let @388 = @381 * @381 in
+                let @389 = @384 * @384 in
+                let @390 = @387 * @387 in
+                let @391 = @388 + @389 in
+                let @392 = @391 + @390 in
+                let @121 = _t300$i21$i35 * _t300$i21$i35 in
+                let @452 = f32x8(@121) in
+                let @122 = @392 - @452 in
+                let @123 = (*a$i34) * @122 in
+                let _t947 = @118 - @123 in
+                let @453 = f32x8(0f) in
+                let @125 = _t947 < @453 in
+                let @454 = boolx8(false) in
+                let @455 = boolx8(true) in
+                let @289 = select(@125, @454, @455) in
+                let @290 = @288 && @289 in
+                let @291 = @288 && @125 in
+                let @126 = build<_option1>() in
+                let @318 = reduce<any>(@290) in
+                let @512 = @126.value in
+                let @513 = @512.low in
+                let @514 = f32x8(@513) in
+                let @515 = @512.high in
+                let @516 = f32x8(@515) in
+                let @517 = build<FInterval$v8>(@514, @516) in
+                let @518 = @126.set in
+                let @519 = boolx8(@518) in
+                let @520 = build<_option1$v8>(@517, @519) in
+                if (@318) {
+                  let sqrtd$i21$i35 = sqrt(_t947) in
+                  let @128 = _t298$i21$i35 - sqrtd$i21$i35 in
+                  let _t949 = @128 / (*a$i34) in
+                  let @130 = _t298$i21$i35 + sqrtd$i21$i35 in
+                  let _t951 = @130 / (*a$i34) in
+                  let @132 = min(_t949, _t951) in
+                  let @133 = max(_t949, _t951) in
+                  let interval$i21$i35 = build<FInterval$v8>(@132, @133) in
+                  let @456 = boolx8(true) in
+                  let @135 = build<_option1$v8>(interval$i21$i35, @456) in
+                  let @457 = @126.value in
+                  let @458 = @457.low in
+                  let @459 = f32x8(@458) in
+                  let @460 = @457.high in
+                  let @461 = f32x8(@460) in
+                  let @462 = build<FInterval$v8>(@459, @461) in
+                  let @463 = @126.set in
+                  let @464 = boolx8(@463) in
+                  let @465 = build<_option1$v8>(@462, @464) in
+                  let @328 = select(@290, @135, @465) in
+                  intersectsp_ray_sphere$r21$i35!skip = @328
+                } else {
+                  intersectsp_ray_sphere$r21$i35!skip = @520
+                }
+                let @137 = (*intersectsp_ray_sphere$r21$i35!skip).set in
+                let @466 = boolx8(false) in
+                let @467 = boolx8(true) in
+                let @292 = select(@137, @466, @467) in
+                let @293 = @288 && @292 in
+                let @294 = @288 && @137 in
+                let @319 = reduce<any>(@294) in
+                let @531 = boolx8(false) in
+                if (@319) {
+                  let extract$i35 = (*intersectsp_ray_sphere$r21$i35!skip).value in
+                  let @140 = extract$i35.low in
+                  let @141 = r.tmax in
+                  let @142 = @140 < @141 in
+                  let @143 = extract$i35.high in
+                  let @468 = f32x8(0f) in
+                  let @144 = @468 < @143 in
+                  let @145 = @142 & @144 in
+                  intersects_Ray_Sphere$r35!skip = @145
+                } else {
+                  intersects_Ray_Sphere$r35!skip = @531
+                }
+                let @469 = boolx8(false) in
+                let @329 = select(@293, @469, (*intersects_Ray_Sphere$r35!skip)) in
+                intersects_Ray_Shape$r3 = @329
+              } break;
+              default: {
+                let _t262$i3 = _t929.payload in
+                let @148 = _t262$i3[0u] in
+                let @149 = reinterpret_cast<f32>(@148) in
+                let @150 = _t262$i3[1u] in
+                let @151 = reinterpret_cast<f32>(@150) in
+                let @152 = _t262$i3[2u] in
+                let @153 = reinterpret_cast<f32>(@152) in
+                let @154 = build<f32x3>(@149, @151, @153) in
+                let @155 = _t262$i3[4u] in
+                let @156 = reinterpret_cast<f32>(@155) in
+                let @157 = _t262$i3[5u] in
+                let @158 = reinterpret_cast<f32>(@157) in
+                let @159 = _t262$i3[6u] in
+                let @160 = reinterpret_cast<f32>(@159) in
+                let @161 = build<f32x3>(@156, @158, @160) in
+                let @162 = _t262$i3[8u] in
+                let @163 = reinterpret_cast<f32>(@162) in
+                let @164 = _t262$i3[9u] in
+                let @165 = reinterpret_cast<f32>(@164) in
+                let @166 = _t262$i3[10u] in
+                let @167 = reinterpret_cast<f32>(@166) in
+                let @168 = build<f32x3>(@163, @165, @167) in
+                let t$i3 = build<Triangle>(@154, @161, @168) in
+                let @170 = intersectsp_ray_tri$gang8_v0$masked(r, t$i3, @288) in
+                let @171 = @170.set in
+                intersects_Ray_Shape$r3 = @171
+              }
+              }
+              let @470 = boolx8(false) in
+              let @471 = boolx8(true) in
+              let @295 = select((*intersects_Ray_Shape$r3), @470, @471) in
+              let @296 = @288 && @295 in
+              let @297 = @288 && (*intersects_Ray_Shape$r3) in
+              let @320 = reduce<any>(@297) in
+              if (@320) {
+                switch (_t361) {
+                case 0: {
+                  let _t181$i4 = _t929.payload in
+                  let @174 = _t181$i4[0u] in
+                  let @175 = reinterpret_cast<f32>(@174) in
+                  let @176 = _t181$i4[1u] in
+                  let @177 = reinterpret_cast<f32>(@176) in
+                  let @178 = _t181$i4[2u] in
+                  let @179 = reinterpret_cast<f32>(@178) in
+                  let @180 = build<f32x3>(@175, @177, @179) in
+                  let @181 = _t181$i4[4u] in
+                  let @182 = reinterpret_cast<f32>(@181) in
+                  let _t962 = build<Sphere>(@180, @182) in
+                  let @184 = _t962.center in
+                  let @393 = @184[0u] in
+                  let @394 = _t569.!0 in
+                  let @475 = f32x8(@393) in
+                  let @395 = @475 - @394 in
+                  let @396 = @184[1u] in
+                  let @397 = _t569.!1 in
+                  let @476 = f32x8(@396) in
+                  let @398 = @476 - @397 in
+                  let @399 = @184[2u] in
+                  let @400 = _t569.!2 in
+                  let @477 = f32x8(@399) in
+                  let @401 = @477 - @400 in
+                  let @186 = _t294$i34.!0 in
+                  let @188 = @186 * @395 in
+                  let @189 = _t294$i34.!1 in
+                  let @191 = @189 * @398 in
+                  let @192 = @188 + @191 in
+                  let @193 = _t294$i34.!2 in
+                  let @195 = @193 * @401 in
+                  let _t298$i17$i36 = @192 + @195 in
+                  let _t300$i17$i36 = _t962.radius in
+                  let @198 = _t298$i17$i36 * _t298$i17$i36 in
+                  let @402 = @395 * @395 in
+                  let @403 = @398 * @398 in
+                  let @404 = @401 * @401 in
+                  let @405 = @402 + @403 in
+                  let @406 = @405 + @404 in
+                  let @201 = _t300$i17$i36 * _t300$i17$i36 in
+                  let @478 = f32x8(@201) in
+                  let @202 = @406 - @478 in
+                  let @203 = (*a$i34) * @202 in
+                  let _t970 = @198 - @203 in
+                  let @479 = f32x8(0f) in
+                  let @205 = _t970 < @479 in
+                  let @480 = boolx8(false) in
+                  let @481 = boolx8(true) in
+                  let @301 = select(@205, @480, @481) in
+                  let @302 = @297 && @301 in
+                  let @303 = @297 && @205 in
+                  let @206 = build<_option1>() in
+                  let @321 = reduce<any>(@302) in
+                  let @521 = @206.value in
+                  let @522 = @521.low in
+                  let @523 = f32x8(@522) in
+                  let @524 = @521.high in
+                  let @525 = f32x8(@524) in
+                  let @526 = build<FInterval$v8>(@523, @525) in
+                  let @527 = @206.set in
+                  let @528 = boolx8(@527) in
+                  let @529 = build<_option1$v8>(@526, @528) in
+                  if (@321) {
+                    let sqrtd$i17$i36 = sqrt(_t970) in
+                    let @208 = _t298$i17$i36 - sqrtd$i17$i36 in
+                    let _t972 = @208 / (*a$i34) in
+                    let @210 = _t298$i17$i36 + sqrtd$i17$i36 in
+                    let _t974 = @210 / (*a$i34) in
+                    let @212 = min(_t972, _t974) in
+                    let @213 = max(_t972, _t974) in
+                    let interval$i17$i36 = build<FInterval$v8>(@212, @213) in
+                    let @482 = boolx8(true) in
+                    let @215 = build<_option1$v8>(interval$i17$i36, @482) in
+                    let @483 = @206.value in
+                    let @484 = @483.low in
+                    let @485 = f32x8(@484) in
+                    let @486 = @483.high in
+                    let @487 = f32x8(@486) in
+                    let @488 = build<FInterval$v8>(@485, @487) in
+                    let @489 = @206.set in
+                    let @490 = boolx8(@489) in
+                    let @491 = build<_option1$v8>(@488, @490) in
+                    let @331 = select(@302, @215, @491) in
+                    intersectsp_ray_sphere$r17$i36!skip = @331
+                  } else {
+                    intersectsp_ray_sphere$r17$i36!skip = @529
+                  }
+                  let @217 = (*intersectsp_ray_sphere$r17$i36!skip).set in
+                  let @492 = boolx8(false) in
+                  let @493 = boolx8(true) in
+                  let @304 = select(@217, @492, @493) in
+                  let @305 = @297 && @304 in
+                  let @306 = @297 && @217 in
+                  let extract$i36 = (*intersectsp_ray_sphere$r17$i36!skip).value in
+                  let @220 = extract$i36.low in
+                  let @221 = (f32)inf in
+                  let @222 = 0f - @221 in
+                  let @494 = f32x8(@222) in
+                  let @332 = select(@305, @494, @220) in
+                  distmin_Ray_Shape$r4 = @332
+                } break;
+                default: {
+                  let _t194$i4 = _t929.payload in
+                  let @225 = _t194$i4[0u] in
+                  let @226 = reinterpret_cast<f32>(@225) in
+                  let @227 = _t194$i4[1u] in
+                  let @228 = reinterpret_cast<f32>(@227) in
+                  let @229 = _t194$i4[2u] in
+                  let @230 = reinterpret_cast<f32>(@229) in
+                  let @231 = build<f32x3>(@226, @228, @230) in
+                  let @232 = _t194$i4[4u] in
+                  let @233 = reinterpret_cast<f32>(@232) in
+                  let @234 = _t194$i4[5u] in
+                  let @235 = reinterpret_cast<f32>(@234) in
+                  let @236 = _t194$i4[6u] in
+                  let @237 = reinterpret_cast<f32>(@236) in
+                  let @238 = build<f32x3>(@233, @235, @237) in
+                  let @239 = _t194$i4[8u] in
+                  let @240 = reinterpret_cast<f32>(@239) in
+                  let @241 = _t194$i4[9u] in
+                  let @242 = reinterpret_cast<f32>(@241) in
+                  let @243 = _t194$i4[10u] in
+                  let @244 = reinterpret_cast<f32>(@243) in
+                  let @245 = build<f32x3>(@240, @242, @244) in
+                  let @246 = build<Triangle>(@231, @238, @245) in
+                  let @247 = intersectsp_ray_tri$gang8_v0$masked(r, @246, @297) in
+                  let _t997 = @247 in
+                  let @248 = _t997.set in
+                  let @472 = boolx8(false) in
+                  let @473 = boolx8(true) in
+                  let @298 = select(@248, @472, @473) in
+                  let @299 = @297 && @298 in
+                  let @300 = @297 && @248 in
+                  let isect_$i37 = _t997.value in
+                  let @250 = isect_$i37.t in
+                  let @251 = (f32)inf in
+                  let @474 = f32x8(@251) in
+                  let @330 = select(@299, @474, @250) in
+                  distmin_Ray_Shape$r4 = @330
+                }
+                }
+                let @495 = f32x8(0.001f) in
+                let @254 = @495 < (*distmin_Ray_Shape$r4) in
+                let @496 = boolx8(false) in
+                let @497 = boolx8(true) in
+                let @307 = select(@254, @496, @497) in
+                let @308 = @297 && @307 in
+                let @309 = @297 && @254 in
+                let @322 = reduce<any>(@309) in
+                if (@322) {
+                  let @256 = (*_best0) in
+                  let @257 = @256._field0 in
+                  let @258 = (*distmin_Ray_Shape$r4) < @257 in
+                  let @498 = boolx8(false) in
+                  let @499 = boolx8(true) in
+                  let @310 = select(@258, @498, @499) in
+                  let @311 = @309 && @310 in
+                  let @312 = @309 && @258 in
+                  let @323 = reduce<any>(@312) in
+                  if (@323) {
+                    let @260 = build<__tuple_0>(_t927) in
+                    let @500 = @260._field0 in
+                    let @501 = u16x8(@500) in
+                    let @502 = build<__tuple_0$v8>(@501) in
+                    let @261 = build<__tuple_1$v8>((*distmin_Ray_Shape$r4), @502) in
+                    masked_store(_best0, @261, @312)
+                  }
+                }
+              }
+              let @262 = (*_idx0) + 1u in
+              _idx0 = @262
+            }
           }
-          let @340 = @300 || (*@303!skip) in
-          @300!skip = @300
-          @303!skip0 = (*@303!skip)
-          @303!skip1 = (*@303!skip)
-          @303!skip3 = (*@303!skip)
-          shapes_index!top!latch!skip1 = (*shapes_index!top!latch!skip0)
-          !count!latch!skip1 = (*!count!latch!skip0)
-        } else {
-          @300!skip = @630
-          @303!skip0 = @631
-          @303!skip1 = @632
-          @303!skip3 = @633
-          shapes_index!top!latch!skip1 = @634
-          !count!latch!skip1 = @635
         }
-        let @341 = @294 || (*@300!skip) in
-        let @342 = @341 || (*@303!skip0) in
-        @294!skip = @294
-        @300!skip0 = (*@300!skip)
-        @303!skip2 = (*@303!skip1)
-        @300!skip1 = (*@300!skip)
-        @303!skip4 = (*@303!skip3)
-        shapes_index!top!latch!skip2 = (*shapes_index!top!latch!skip1)
-        !count!latch!skip2 = (*!count!latch!skip1)
-      } else {
-        @294!skip = @643
-        @300!skip0 = @644
-        @303!skip2 = @645
-        @300!skip1 = @646
-        @303!skip4 = @647
-        shapes_index!top!latch!skip2 = @648
-        !count!latch!skip2 = @649
       }
-      let @343 = (*@294!skip) || (*@300!skip0) in
-      let @344 = @343 || @288 in
-      let @345 = @344 || (*@303!skip2) in
-      let @346 = (*@294!skip) || (*@300!skip1) in
-      let @347 = @346 || @288 in
-      let @348 = @347 || (*@303!skip4) in
-      let @586 = u32x8(0u) in
-      let @270 = (*!count!loop) != @586 in
-      let @587 = boolx8(false) in
-      let @588 = boolx8(true) in
-      let @349 = select(@270, @587, @588) in
-      let @350 = @348 && @349 in
-      let @351 = @348 && @270 in
-      let @371 = reduce<any>(@351) in
-      if (@371) {
-        let @589 = u32x8(1u) in
-        let @271 = (*!count!loop) - @589 in
-        let @590 = reinterpret_cast<u16[]>(!stack) in
-        let @592 = u32x8(8u) in
-        let @593 = @271 * @592 in
-        let @594 = @593 + ramp(0u, 1u, 8) in
-        let @272 = masked_extract(@590[@594], @351) in
-        let @387 = select(@351, @272, (*shapes_index!top!latch!skip2)) in
-        let @390 = select(@351, @271, (*!count!latch!skip2)) in
-        shapes_index!top!latch!skip3 = @387
-        !count!latch!skip3 = @390
-      } else {
-        shapes_index!top!latch!skip3 = (*shapes_index!top!latch!skip2)
-        !count!latch!skip3 = (*!count!latch!skip2)
-      }
-      let @388 = select(@350, (*shapes_index!top!loop), (*shapes_index!top!latch!skip3)) in
-      let @595 = boolx8(false) in
-      let @596 = boolx8(true) in
-      let @389 = select(@350, @595, @596) in
-      let @391 = select(@350, (*!count!loop), (*!count!latch!skip3)) in
-      let @392 = select(@280, @388, (*shapes_index!top!loop)) in
-      let @394 = select(@280, @389, (*!live!loop)) in
-      let @396 = select(@280, @391, (*!count!loop)) in
-      shapes_index!top!loop!skip = @392
-      !live!loop!skip = @394
-      !count!loop!skip = @396
-    } else {
-      shapes_index!top!loop!skip = (*shapes_index!top!loop)
-      !live!loop!skip = (*!live!loop)
-      !count!loop!skip = (*!count!loop)
     }
-    let @393 = select(@279, (*shapes_index!top!loop), (*shapes_index!top!loop!skip)) in
-    let @395 = select(@279, (*!live!loop), (*!live!loop!skip)) in
-    let @397 = select(@279, (*!count!loop), (*!count!loop!skip)) in
-    let @597 = boolx8(false) in
-    let @398 = select(@279, @597, (*!live_1)) in
-    let @598 = boolx8(true) in
-    let @399 = select(@279, @598, (*!exit.visited)) in
-    shapes_index!top!loop = @393
-    !live!loop = @395
-    !count!loop = @397
-    !live_1 = @398
-    !exit.visited = @399
+    let @532 = (*!count) in
+    let @533 = @532 != 0u in
+    if (@533) {
+      let @534 = @532 - 1u in
+      !count = @534
+      let @535 = !stack[@534] in
+      let @536 = !stack0[@534] in
+      shapes_index!top = @535
+      !mask!top = @536
+      !live = true
+    } else {
+      !live = false
+    }
   }
   return
 }
@@ -1657,7 +1468,8 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
   let @89 = build<__tuple_1$v8>(@84, @88) in
   _best0$i33$i44 = @89
   let @4 = (*shapes) in
-  _recloop_func0$gang8_v2_p3(0u, @4, r$i18, _best0$i33$i44)
+  let @231 = boolx8(true) in
+  _recloop_func0$gang8_v2_p3$masked(0u, @4, r$i18, _best0$i33$i44, @231)
   let @5 = build<_option0>() in
   let @6 = (*_best0$i33$i44) in
   let @7 = @6._field0 in

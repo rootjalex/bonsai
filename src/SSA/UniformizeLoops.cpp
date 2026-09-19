@@ -179,8 +179,31 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // are what jump out. A branch outside the loop does not count; a loop
         // that runs under an outer condition is left by every lane that
         // entered it together.
+        // BONSAI_EXPLAIN_LOOP=<header> says why that loop is being
+        // uniformized: the exit found divergent, the branch inside the loop
+        // it is control dependent on, and why that branch's condition varies
+        // (see explain_varying). For when a loop every lane should leave
+        // together is folded anyway, which costs its body a mask and makes
+        // its index vary.
+        const char *explain = std::getenv("BONSAI_EXPLAIN_LOOP");
+        const BlockMap blocks_now = make_block_map(func);
+        auto report = [&](const Loop &loop, const string &exiting,
+                          const string &culprit) {
+            if (explain == nullptr || loop.header != explain) {
+                return;
+            }
+            std::cerr << "--- loop " << loop.header << " leaves divergently at "
+                      << exiting << ", control dependent on the branch in "
+                      << culprit << ", whose condition varies because:\n";
+            const auto *d = std::get_if<Terminator::Dispatch>(
+                &blocks_now.at(culprit)->terminator.data);
+            if (d != nullptr && d->cond != nullptr) {
+                explain_varying(func, divergence, culprit, *d->cond, 1);
+            }
+        };
         auto divergent_exit = [&](const Loop &loop, const string &exiting) {
             if (divergence.branches.count(exiting)) {
+                report(loop, exiting, exiting);
                 return true; // the exiting block is the divergent branch
             }
             set<string> seen;
@@ -200,6 +223,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                         continue;
                     }
                     if (divergence.branches.count(from)) {
+                        report(loop, exiting, from);
                         return true;
                     }
                     work.push_back(from);

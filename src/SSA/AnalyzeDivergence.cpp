@@ -5,6 +5,8 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <map>
 #include <vector>
 
@@ -302,6 +304,7 @@ analyze_divergence(const Function &func, const string &entry,
     const AdjacencyMap preds = compute_predecessors(succs);
     const vector<string> rpo = reverse_postorder(entry, succs);
     const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
+    const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
     const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
     const ControlDependence cdep = compute_control_dependence(succs, pdom);
 
@@ -415,15 +418,61 @@ analyze_divergence(const Function &func, const string &entry,
     };
     vector<PendingWrite> pending;
 
-    // Blocks control dependent, directly or through others, on a branch the
-    // lanes disagree about. Grows monotonically with `result.branches`.
-    set<string> divergently_reached;
-    // Where each block comes in reverse postorder, to tell a back edge -- a
-    // predecessor no earlier than the block -- from a forward one.
+    // The joins where the paths out of a divergent branch meet again: the
+    // blocks two disjoint paths from two of its successors reach. Only at
+    // these does an argument passed differently along the incoming edges
+    // disagree between lanes -- Karrenberg & Hack's sync dependence ("Whole-
+    // Function Vectorization", CGO 2011). Found the way LLVM's
+    // SyncDependenceAnalysis finds them: each successor's paths carry its
+    // label forward, a block handed two labels is a join and carries its own
+    // from there on, so what is reached only through a join is reached one
+    // way. Along forward edges only: what a back edge carries is the same
+    // for every lane that reached the latch, and a loop some lanes leave
+    // early is the temporal case, decided at the header below.
+    //
+    // Not the iterated dominance frontier, though that is where Cytron et al.
+    // would place a phi for a value the two sides define differently: the
+    // frontier iterates through the latch to the header of a loop the branch
+    // sits in, and the header is reached the same way by every lane -- its
+    // two edges are chosen by the loop's own uniform test. Read as a join it
+    // made a leaf's loop over its primitives divergent, and with it the
+    // primitives, and the instance one of them was, whenever the leaf was
+    // visited by only the rays that hit its node.
+    //
+    // Grows monotonically with `result.branches`; `joins_of` remembers each
+    // branch's joins.
     map<string, size_t> rpo_index;
     for (size_t i = 0; i < rpo.size(); i++) {
         rpo_index[rpo[i]] = i;
     }
+    const auto joins_of_branch = [&](const string &branch) {
+        set<string> joins;
+        map<string, string> label;
+        for (const string &s : lookup_or(succs, branch, no_names)) {
+            label.emplace(s, s); // two edges to one block are one path
+        }
+        for (const string &x : rpo) {
+            const auto lx = label.find(x);
+            if (lx == label.end()) {
+                continue;
+            }
+            for (const string &y : lookup_or(succs, x, no_names)) {
+                if (rpo_index.at(y) <= rpo_index.at(x)) {
+                    continue; // a back edge
+                }
+                const auto ly = label.find(y);
+                if (ly == label.end()) {
+                    label.emplace(y, lx->second);
+                } else if (ly->second != lx->second) {
+                    joins.insert(y);
+                    ly->second = y;
+                }
+            }
+        }
+        return joins;
+    };
+    map<string, set<string>> joins_of;
+    set<string> sync_joins;
 
     // Monotone: every rule only ever adds to the sets, so this terminates.
     //
@@ -462,6 +511,15 @@ analyze_divergence(const Function &func, const string &entry,
 
         result.in_scope = compute_scope(rpo, dom, all_blocks, result.args);
 
+        for (const string &branch : result.branches) {
+            if (joins_of.count(branch)) {
+                continue;
+            }
+            const set<string> joins = joins_of_branch(branch);
+            sync_joins.insert(joins.begin(), joins.end());
+            joins_of[branch] = joins;
+        }
+
         for (const string &name : rpo) {
             const Block &block = *all_blocks.at(name);
 
@@ -473,60 +531,125 @@ analyze_divergence(const Function &func, const string &entry,
                 if (result.branches.count(from) || result.masked.count(from)) {
                     mark(result.masked, name);
                 }
-                // Reached through a divergent branch, as opposed to merely
-                // running under a mask seeded from outside (a loop's live
-                // mask, a masked variant's): what decides a join below.
-                if (result.branches.count(from) ||
-                    divergently_reached.count(from)) {
-                    mark(divergently_reached, name);
-                }
             }
             const bool under_mask = result.masked.count(name) > 0;
 
-            // At a join reached through a branch the lanes disagree about,
-            // lanes arrive along different edges, so an argument that is not
-            // passed the same definition along every edge disagrees between
-            // lanes. Running under a mask is not by itself that: a join of
-            // two edges a uniform branch chose between -- the guard around a
-            // block no lane is on (SSA/SkipInactiveBlocks.h), or an `if` on a
-            // uniform value inside a loop -- is reached the same way by every
-            // live lane, and its argument varies only if a value passed does.
-            // The exception is a loop header: a lane that left the loop on an
-            // earlier iteration keeps the value it had while the others go
-            // on, so a header handed values by a masked latch is divergent
-            // in time, whatever the branches inside (see
-            // SSA/UniformizeLoops.h).
+            // At a join where the paths of a branch the lanes disagree about
+            // meet (`sync_joins`), lanes arrive along different edges, so an
+            // argument that is not passed the same definition along every
+            // edge disagrees between lanes. Running under a mask is not by
+            // itself that: a join of two edges a uniform branch chose between
+            // -- the guard around an arm no lane is on (the BOSCC gadget in
+            // SSA/Linearize.h), an `if` on a uniform value inside a
+            // loop, or the header of a loop that runs inside a divergent
+            // branch's arm -- is reached the same way by every live lane, and
+            // its argument varies only if a value passed does.
+            // The exception is a loop header whose lanes are at different
+            // iterations: a lane that left the loop on an earlier iteration
+            // keeps the value it had while the others go on, so the header
+            // is divergent in time whatever the branches inside. That is so
+            // when the loop has an exit some lanes take and others do not --
+            // a latch control dependent, through blocks of the loop, on a
+            // branch the lanes disagree about, which is the question
+            // SSA/UniformizeLoops.h asks before folding a loop -- or when the
+            // loop has already been folded and its blocks seeded as masked.
+            // A branch outside the loop does not count: a loop that runs
+            // under an outer condition is entered and left by the same lanes
+            // together, and its latch's mask is the loop's own. Reading such
+            // a latch as divergent would fold a loop whose trips every lane
+            // agrees on, and everything indexed by it would vary -- a leaf's
+            // primitives, and the instance one of them is, when the leaf is
+            // only visited by the rays that hit its node.
             const vector<string> &block_preds =
                 lookup_or(preds, name, no_names);
-            const bool is_header = std::any_of(
-                block_preds.begin(), block_preds.end(), [&](const string &p) {
-                    const auto it = rpo_index.find(p);
-                    return it == rpo_index.end() ||
-                           it->second >= rpo_index.at(name);
-                });
+            const auto loop_it = loops.find(name);
+            const auto leaves_divergently = [&](const string &latch) {
+                if (loop_it == loops.end()) {
+                    return false;
+                }
+                if (masked_seeds.count(latch)) {
+                    result.divergent_headers.emplace(
+                        name, "latch " + latch + " is in a loop already folded");
+                    return true;
+                }
+                const Loop &loop = loop_it->second;
+                set<string> seen;
+                vector<string> work{latch};
+                while (!work.empty()) {
+                    const string b = work.back();
+                    work.pop_back();
+                    if (!seen.insert(b).second) {
+                        continue;
+                    }
+                    for (const auto &[from, to] : lookup_or(cdep, b, no_edges)) {
+                        if (!loop.blocks.count(from)) {
+                            continue;
+                        }
+                        if (result.branches.count(from)) {
+                            result.divergent_headers.emplace(
+                                name, "latch " + latch +
+                                          " is control dependent on the "
+                                          "branch in " +
+                                          from);
+                            return true;
+                        }
+                        work.push_back(from);
+                    }
+                }
+                return false;
+            };
             const bool divergent_join =
                 block_preds.size() > 1 &&
-                std::any_of(block_preds.begin(), block_preds.end(),
-                            [&](const string &p) {
-                                return divergently_reached.count(p) > 0 ||
-                                       (is_header && result.masked.count(p) > 0);
-                            });
+                (sync_joins.count(name) > 0 ||
+                 std::any_of(block_preds.begin(), block_preds.end(),
+                             [&](const string &p) {
+                                 return loop_it != loops.end() &&
+                                        loop_it->second.latches.count(p) &&
+                                        leaves_divergently(p);
+                             }));
 
             const vector<ArgumentFlow> &incoming =
                 lookup_or(flows, name, no_flows);
             for (size_t j = 0; j < block.args.size(); j++) {
                 std::optional<string> common_key;
                 bool varying = false;
+                // BONSAI_EXPLAIN_ARG=<name> prints the first time an argument
+                // of that name is marked varying in any block, and why: the
+                // edge that passed a varying value, or the join whose edges
+                // passed different ones.
+                static const char *const explain_arg =
+                    std::getenv("BONSAI_EXPLAIN_ARG");
+                const bool explain = explain_arg != nullptr &&
+                                     block.args[j].name == explain_arg &&
+                                     !result.args.count({name, block.args[j].name});
                 for (const ArgumentFlow &flow : incoming) {
                     if (j < flow.first_arg ||
                         j - flow.first_arg >= flow.values->size()) {
                         continue;
                     }
                     const Value &v = *(*flow.values)[j - flow.first_arg];
-                    varying |= result.is_varying(flow.from, v);
+                    const bool passed_varying = result.is_varying(flow.from, v);
                     const string key = value_key(v);
-                    varying |= divergent_join && common_key.has_value() &&
-                               *common_key != key;
+                    const bool differs = divergent_join &&
+                                         common_key.has_value() &&
+                                         *common_key != key;
+                    if (explain && (passed_varying || differs)) {
+                        std::cerr << "--- " << block.args[j].name << " of "
+                                  << name << " is varying: from " << flow.from
+                                  << " it is passed ";
+                        v.dump(std::cerr);
+                        std::cerr << (passed_varying ? ", which varies"
+                                                     : "")
+                                  << (differs ? ", unlike another edge into "
+                                                "this join of a divergent "
+                                                "branch's paths"
+                                              : "")
+                                  << "\n";
+                        if (passed_varying) {
+                            explain_varying(func, result, flow.from, v, 1);
+                        }
+                    }
+                    varying |= passed_varying || differs;
                     common_key = key;
                 }
                 if (varying) {
@@ -540,8 +663,14 @@ analyze_divergence(const Function &func, const string &entry,
                 // whole, so its answer is the same for every lane however
                 // much its operand varies. This is what makes the latch of a
                 // uniformized divergent loop a branch the gang can take
-                // together (Moll & Hack section 5).
+                // together (Moll & Hack section 5). A vote is the gang's one
+                // decision on a bool the lanes may disagree about, and is
+                // uniform for the same reason; it is what keeps the children
+                // of a sorted run uniform when each lane's key would have
+                // ordered them differently.
                 case Instruction::Op::Any:
+                case Instruction::Op::Popcount:
+                case Instruction::Op::Vote:
                     continue;
 
                 // The address of a value the lanes disagree about is one
@@ -765,6 +894,81 @@ analyze_divergence(const Function &func, const string &entry,
         compute_scope(rpo, dom, all_blocks, result.pointee_args);
 
     return result;
+}
+
+void explain_varying(const Function &func, const Divergence &div,
+                     const string &block, const Value &v, int depth) {
+    if (depth > 12) {
+        std::cerr << string(2 * depth, ' ') << "...\n";
+        return;
+    }
+    const string pad(2 * depth, ' ');
+    std::visit(
+        overloads{
+            [&](const shared_ptr<Instruction> &i) {
+                std::cerr << pad;
+                i->dump(std::cerr);
+                std::cerr << "\n";
+                for (const auto &operand : i->operands) {
+                    if (div.is_varying(block, *operand)) {
+                        explain_varying(func, div, block, *operand, depth + 1);
+                    }
+                }
+            },
+            [&](const Constant &c) {
+                std::cerr << pad;
+                c.dump(std::cerr);
+                std::cerr << "\n";
+            },
+            [&](const Argument &a) {
+                std::cerr << pad << "argument " << a.name << " : " << a.type
+                          << ", declared varying by:\n";
+                for (const auto &owner : func.blocks) {
+                    if (!div.args.count({owner->name, a.name})) {
+                        continue;
+                    }
+                    std::cerr << pad << "  " << owner->name
+                              << (div.masked.count(owner->name) ? " (masked)"
+                                                                : "");
+                    if (const auto why = div.divergent_headers.find(owner->name);
+                        why != div.divergent_headers.end()) {
+                        std::cerr << " (lanes at different iterations: "
+                                  << why->second << ")";
+                    }
+                    std::cerr << ", passed:\n";
+                    size_t index = 0;
+                    for (; index < owner->args.size(); index++) {
+                        if (owner->args[index].name == a.name) {
+                            break;
+                        }
+                    }
+                    for (const auto &pred : func.blocks) {
+                        for (Terminator::Jump *jump : jumps_of(*pred)) {
+                            if (jump->name != owner->name) {
+                                continue;
+                            }
+                            const size_t offset =
+                                owner->args.size() - jump->args.size();
+                            if (index < offset) {
+                                continue;
+                            }
+                            const Value &passed = *jump->args[index - offset];
+                            std::cerr << pad << "    from " << pred->name
+                                      << (div.masked.count(pred->name)
+                                              ? " (masked)"
+                                              : "")
+                                      << ": ";
+                            passed.dump(std::cerr);
+                            std::cerr << (div.is_varying(pred->name, passed)
+                                              ? " (varying)"
+                                              : " (uniform)")
+                                      << "\n";
+                        }
+                    }
+                }
+            },
+        },
+        v.data);
 }
 
 } // namespace ssa

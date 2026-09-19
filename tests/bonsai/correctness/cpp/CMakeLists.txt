@@ -41,8 +41,11 @@ add_bonsai_tests(
     vectorize_shapes.bonsai
     vectorize_sixteen.bonsai
     vectorize_skip.bonsai
+    vectorize_skip_arms.bonsai
     vectorize_tree_traversal.bonsai
     vectorize_tree_traversal_mixed.bonsai
+    vectorize_tree_traversal_mixed_packet.bonsai
+    vectorize_tree_traversal_packet.bonsai
     vectorize_tree_traversal_sorted.bonsai
     vectorize_uniform_branch.bonsai
     vectorize_union.bonsai

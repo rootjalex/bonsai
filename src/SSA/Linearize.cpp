@@ -7,6 +7,8 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -319,6 +321,71 @@ shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
     return std::make_shared<Value>(std::move(instr));
 }
 
+// The logic a mask is made of: no work worth a branch to skip.
+bool is_mask_logic(Instruction::Op op) {
+    return op == Instruction::Op::Select || op == Instruction::Op::LAnd ||
+           op == Instruction::Op::LOr || op == Instruction::Op::Not ||
+           op == Instruction::Op::Any || op == Instruction::Op::Popcount ||
+           op == Instruction::Op::Vote;
+}
+
+// Work a skipped region must not do at all, rather than merely do for
+// nothing: a load in it may be through an address only an active lane made
+// valid, and ispc branches around any arm that does such work whatever it
+// costs (SafeToRunWithMaskAllOff).
+bool touches_memory(Instruction::Op op) {
+    switch (op) {
+    case Instruction::Op::Load:
+    case Instruction::Op::Store:
+    case Instruction::Op::ExtractIdx:
+    case Instruction::Op::AccAdd:
+    case Instruction::Op::AccMul:
+    case Instruction::Op::AccSub:
+    case Instruction::Op::AccMin:
+    case Instruction::Op::AccMax:
+    case Instruction::Op::AccArgmin:
+    case Instruction::Op::AccArgmax:
+    case Instruction::Op::AtomicAdd:
+    case Instruction::Op::Alloc:
+    case Instruction::Op::Alloca:
+    case Instruction::Op::Append:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Whether a region is worth a test to skip: it goes to memory or makes a
+// call, or it does enough arithmetic to outweigh the test -- six operations,
+// which is where ispc draws the line between predicating both arms straight
+// through and branching around them (PREDICATE_SAFE_IF_STATEMENT_COST).
+bool worth_skipping(const BlockMap &blocks, const set<string> &region) {
+    size_t work = 0;
+    for (const string &name : region) {
+        const Block &block = *blocks.at(name);
+        if (block.terminator.callee() != nullptr) {
+            return true;
+        }
+        for (const shared_ptr<Instruction> &instr : block.instrs) {
+            if (touches_memory(instr->op)) {
+                return true;
+            }
+            work += is_mask_logic(instr->op) ? 0 : 1;
+        }
+    }
+    return work >= 6;
+}
+
+// Which block defines `v`, for an instruction; empty for anything else.
+string defined_in(const Value &v) {
+    const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data);
+    if (i == nullptr) {
+        return "";
+    }
+    const auto owner = (*i)->owner.lock();
+    return owner ? owner->name : "";
+}
+
 } // namespace
 
 BlockMasks linearize(Function &func, const string &entry,
@@ -329,7 +396,7 @@ BlockMasks linearize(Function &func, const string &entry,
         return {}; // nothing diverges; the control flow is already uniform
     }
 
-    const BlockMap blocks = make_block_map(func);
+    BlockMap blocks = make_block_map(func);
     const AdjacencyMap all_succs = compute_successors(func);
     const set<string> region = reachable_from(entry, all_succs);
 
@@ -388,9 +455,20 @@ BlockMasks linearize(Function &func, const string &entry,
     }
 
     // The index the algorithm walks in, which has to be dominance compact and
-    // loop compact for the result to be correct (figure 8 of the paper).
+    // loop compact for the result to be correct (figure 8 of the paper). A
+    // block that calls the function itself goes as late as that allows, so a
+    // recursion stays in tail position once its branch is folded (see
+    // compute_block_index): a run of recursive calls placed before a leaf's
+    // work would be a run that loopify() cannot put on a stack.
+    set<string> recursions;
+    for (const string &name : region) {
+        const auto *call = blocks.at(name)->terminator.callee();
+        if (call != nullptr && call->name == func.blocks.front()->name) {
+            recursions.insert(name);
+        }
+    }
     const map<string, size_t> index =
-        compute_block_index(entry, succs, dom, loops);
+        compute_block_index(entry, succs, dom, loops, recursions);
     vector<string> by_index(index.size());
     for (const auto &[name, i] : index) {
         by_index[i] = name;
@@ -410,7 +488,7 @@ BlockMasks linearize(Function &func, const string &entry,
         }
     }
 
-    const LinearEdges linear = partial_linearize(
+    LinearEdges linear = partial_linearize(
         blocks, by_index, index, divergence.branches, back_edges, loops);
 
     //===------------------------------------------------------------===//
@@ -587,6 +665,413 @@ BlockMasks linearize(Function &func, const string &entry,
     }
 
     //===------------------------------------------------------------===//
+    // Skipping the arms no lane is on
+    //===------------------------------------------------------------===//
+    //
+    // See the header: Shin's BOSCC, installed as Moll & Hack's gadget, but on
+    // the linearized graph. An arm is a target of a divergent branch that has
+    // the branch as its only predecessor. Its region is what it dominates,
+    // which the fold has laid out as one contiguous run of the path (the
+    // index is dominance compact) with one way in -- into the arm, from
+    // wherever the fold sent there -- and, for a region worth skipping, one
+    // way out: the landing. The guard goes on the way in, and tests the arm's
+    // mask, which is the mask of the edge into it and so defined before it.
+    //
+    // A region reached in more than one way, or leaving in more than one
+    // (through a uniform branch of the program's whose sides exit
+    // separately), or leaving by a back edge, is left alone: there is no one
+    // block for the bypass to land on. So is one whose landing is a loop
+    // header, since a bypass into a header would be a way into the loop that
+    // is not its preheader.
+
+    struct Gadget {
+        string guard;       // the block holding the test and the branch
+        string arm;         // the block it stands in front of
+        set<string> region; // the blocks the bypass skips: the arm's region
+        string landing;     // where the bypass lands: the region's one exit
+    };
+    vector<Gadget> gadgets;
+    set<string> guards;
+    auto fresh_block_name = [&](const string &stem) {
+        string name = stem;
+        for (size_t i = 0; blocks.count(name); i++) {
+            name = stem + "_" + std::to_string(i);
+        }
+        return name;
+    };
+
+    // For measuring what the skipping is worth on a program: with this set,
+    // every gang runs every arm, as linearized code does without it.
+    if (std::getenv("BONSAI_NO_BOSCC") == nullptr) {
+        for (const string &x : by_index) {
+            const auto d = dispatches.find(x);
+            if (!divergence.branches.count(x) || d == dispatches.end()) {
+                continue;
+            }
+            set<string> seen;
+            for (const Terminator::Jump &target : d->second.targets) {
+                const string &a = target.name;
+                if (!seen.insert(a).second || !region.count(a)) {
+                    continue;
+                }
+                const auto pa = preds.find(a);
+                if (pa == preds.end() || pa->second.size() != 1 ||
+                    pa->second[0] != x) {
+                    continue; // a join, or a header
+                }
+                if (innermost_loop(loops, a) != innermost_loop(loops, x)) {
+                    continue;
+                }
+                const vector<string> arm_subtree = dom.subtree(a);
+                const set<string> dominated(arm_subtree.begin(),
+                                            arm_subtree.end());
+                // One way out, forwards.
+                optional<string> out;
+                bool one_exit = true;
+                for (const string &u : dominated) {
+                    const auto edges = linear.find(u);
+                    if (edges != linear.end()) {
+                        for (const CfgEdge &e : edges->second) {
+                            if (dominated.count(e.to)) {
+                                continue;
+                            }
+                            one_exit = one_exit && (!out || *out == e.to);
+                            out = e.to;
+                        }
+                    }
+                    for (const Edge &back : back_edges) {
+                        if (back.first == u && !dominated.count(back.second)) {
+                            one_exit = false;
+                        }
+                    }
+                }
+                if (!one_exit || !out.has_value() || loops.count(*out)) {
+                    continue;
+                }
+                // One way in, into the arm -- not counting the bypasses of
+                // earlier arms that land on it, which the guard takes over:
+                // a gang that skips one arm lands on the next arm's test, as
+                // it does in ispc.
+                size_t ways_in = 0;
+                for (const auto &[u, edges] : linear) {
+                    if (dominated.count(u)) {
+                        continue;
+                    }
+                    for (const CfgEdge &e : edges) {
+                        if (dominated.count(e.to)) {
+                            internal_assert(e.to == a)
+                                << "The fold enters the region of " << a
+                                << " at " << e.to << ", not at the arm";
+                            if (!(guards.count(u) && e.index == 0)) {
+                                ways_in++;
+                            }
+                        }
+                    }
+                }
+                if (ways_in != 1) {
+                    continue;
+                }
+                const auto m = masks.block.find(a);
+                internal_assert(m != masks.block.end())
+                    << "Arm " << a << " of the divergent branch in " << x
+                    << " has no mask";
+                if (dominated.count(defined_in(*m->second))) {
+                    continue; // a mask the arm computes for itself
+                }
+                if (!worth_skipping(blocks, dominated)) {
+                    continue;
+                }
+
+                auto guard = std::make_shared<Block>();
+                guard->name = fresh_block_name(a + "!any");
+                guard->owner = blocks.at(a)->owner;
+                auto any = append(func, guard, bool_type, Instruction::Op::Any,
+                                  {m->second});
+                // targets[0] is where a false condition goes: past the arm.
+                guard->terminator.data = Terminator::Dispatch{
+                    .cond = any,
+                    .targets = {Terminator::Jump{.name = *out, .args = {}},
+                                Terminator::Jump{.name = a, .args = {}}}};
+                for (auto &[u, edges] : linear) {
+                    for (CfgEdge &e : edges) {
+                        if (e.to == a) {
+                            e.to = guard->name;
+                        }
+                    }
+                }
+                linear[guard->name] = {{guard->name, 0, *out},
+                                       {guard->name, 1, a}};
+                func.blocks.insert(std::find(func.blocks.begin(),
+                                             func.blocks.end(), blocks.at(a)),
+                                   guard);
+                blocks[guard->name] = guard;
+                masks.block[guard->name] = m->second;
+                for (Gadget &earlier : gadgets) {
+                    // The guard runs inside every region around the arm...
+                    if (earlier.region.count(a)) {
+                        earlier.region.insert(guard->name);
+                    }
+                    // ...and a bypass that landed on the arm lands on its
+                    // test now.
+                    if (earlier.landing == a) {
+                        earlier.landing = guard->name;
+                        std::get<Terminator::Dispatch>(
+                            blocks.at(earlier.guard)->terminator.data)
+                            .targets[0]
+                            .name = guard->name;
+                    }
+                }
+                gadgets.push_back({guard->name, a, dominated, *out});
+                guards.insert(guard->name);
+            }
+        }
+    }
+
+    // How many arguments each block declared before any landing gained one;
+    // the blending below is of these, and only these.
+    map<string, size_t> original_args;
+    for (const auto &[name, block] : blocks) {
+        original_args[name] = block->args.size();
+    }
+
+    // Dominance in the graph as it now is: the path the fold made, the
+    // bypasses, and the back edges. This is what decides where a value is
+    // in scope from here on; the original graph's dominators do not, since
+    // the fold has made every folded arm dominate what follows it, and a
+    // bypass has undone that for the arms that are skipped.
+    AdjacencyMap linear_succs;
+    for (const auto &[from, edges] : linear) {
+        for (const CfgEdge &e : edges) {
+            linear_succs[from].push_back(e.to);
+        }
+    }
+    for (const Edge &back : back_edges) {
+        linear_succs[back.first].push_back(back.second);
+    }
+    const AdjacencyMap linear_preds = compute_predecessors(linear_succs);
+    const DomTree linear_dom = compute_dominator_tree(
+        entry, linear_succs, linear_preds,
+        reverse_postorder(entry, linear_succs));
+
+    // A value defined inside a skipped region and read outside it has to
+    // reach the read along the bypass too, and the bypass computes nothing:
+    // so at the landing the value becomes an argument, handed one thing from
+    // inside the region and another by each bypass that lands there. A region
+    // nested in another that leaves through the same block lands there as
+    // well, and its bypass is one more predecessor of the same argument.
+    //
+    // One entry per argument added to a landing block: what each predecessor
+    // of the landing hands it -- the region's exit, each guard whose bypass
+    // lands there, and any other way in.
+    struct LandingArg {
+        shared_ptr<Value> arg;
+        map<string, shared_ptr<Value>> from;
+    };
+    map<string, vector<LandingArg>> landing_args;
+
+    // The landings between a definition in `at` and a read in `to`, innermost
+    // region first; regions that share a landing are one hop. At each, the
+    // block the region leaves from and any other way in -- a landing that is
+    // a join of a uniform branch of the program's.
+    struct Hop {
+        string landing;
+        string inside;
+        vector<string> others;
+    };
+    auto hops = [&](string at, const string &to) {
+        vector<Hop> path;
+        for (;;) {
+            vector<const Gadget *> enclosing;
+            for (const Gadget &g : gadgets) {
+                if (g.region.count(at) && !g.region.count(to)) {
+                    enclosing.push_back(&g);
+                }
+            }
+            if (enclosing.empty()) {
+                return path;
+            }
+            const Gadget *inner = enclosing.front();
+            for (const Gadget *g : enclosing) {
+                if (g != inner && inner->region.count(g->arm)) {
+                    inner = g;
+                }
+            }
+            Hop hop{inner->landing, "", {}};
+            for (const auto &[from, edges] : linear) {
+                for (const CfgEdge &e : edges) {
+                    if (e.to != hop.landing ||
+                        (guards.count(from) && e.index == 0)) {
+                        continue;
+                    }
+                    if (inner->region.count(from)) {
+                        internal_assert(hop.inside.empty())
+                            << "The region of " << inner->arm << " leaves "
+                            << "for " << hop.landing << " from both "
+                            << hop.inside << " and " << from;
+                        hop.inside = from;
+                    } else {
+                        hop.others.push_back(from);
+                    }
+                }
+            }
+            internal_assert(!hop.inside.empty())
+                << "The region of " << inner->arm << " does not leave for "
+                << "its landing " << hop.landing;
+            path.push_back(hop);
+            at = hop.landing;
+        }
+    };
+
+    // Threads `v`, defined in `at`, to `to`: an argument of every landing on
+    // the way, handed `v` (or the previous landing's argument) from inside
+    // and by every bypass landing there: `skipped(gadget)` from a guard whose
+    // region holds the definition, and `v` itself from one whose region does
+    // not -- that region is between the definition and the landing, so `v`
+    // is in scope at its guard. Along any other way in, `elsewhere`; when
+    // there is no such value to hand, nothing: the landings cannot carry
+    // `v`, and the caller merges through memory instead. `at` is left naming
+    // the block the returned value is defined in. A `memo` shares one
+    // argument between every reader of the same value.
+    using ThreadMemo =
+        map<std::pair<const Instruction *, string>, shared_ptr<Value>>;
+    set<string> landing_names;
+    map<const Value *, string> landing_arg_block;
+    auto thread = [&](shared_ptr<Value> v, string &at, const string &to,
+                      const string &stem,
+                      const std::function<shared_ptr<Value>(const Gadget &)>
+                          &skipped,
+                      const shared_ptr<Value> &elsewhere,
+                      ThreadMemo *memo) -> shared_ptr<Value> {
+        for (const Hop &hop : hops(at, to)) {
+            if (!hop.others.empty() && !elsewhere) {
+                return nullptr;
+            }
+            const auto *instr = std::get_if<shared_ptr<Instruction>>(&v->data);
+            const std::pair<const Instruction *, string> key{
+                instr ? instr->get() : nullptr, hop.landing};
+            if (memo != nullptr && instr != nullptr && memo->count(key)) {
+                v = memo->at(key);
+                at = hop.landing;
+                continue;
+            }
+            auto landing = blocks.at(hop.landing);
+            // Unique in the function, so that a name says which landing's
+            // argument it is (see definition_block).
+            string name = stem + "!skip";
+            for (size_t i = 0; landing_names.count(name); i++) {
+                name = stem + "!skip" + std::to_string(i);
+            }
+            landing_names.insert(name);
+            LandingArg entry_arg{
+                landing->add_argument(Argument{v->get_type(), name}), {}};
+            entry_arg.from[hop.inside] = v;
+            for (const Gadget &g : gadgets) {
+                if (g.landing == hop.landing) {
+                    entry_arg.from[g.guard] =
+                        g.region.count(at) ? skipped(g) : v;
+                }
+            }
+            for (const string &other : hop.others) {
+                entry_arg.from[other] = elsewhere;
+            }
+            v = entry_arg.arg;
+            at = hop.landing;
+            landing_arg_block[v.get()] = at;
+            if (memo != nullptr && instr != nullptr) {
+                (*memo)[key] = v;
+            }
+            landing_args[hop.landing].push_back(std::move(entry_arg));
+        }
+        return v;
+    };
+
+    // Where `v`, as `from` passes it, is defined: the block of an
+    // instruction; for an argument, the landing that declared it, or else
+    // the nearest block up `from`'s dominator chain that declares the name.
+    // Empty for a constant, or for a parameter -- something in scope
+    // everywhere, which no bypass can put out of reach.
+    auto definition_block = [&](const shared_ptr<Value> &v,
+                                const string &from) -> string {
+        if (std::holds_alternative<shared_ptr<Instruction>>(v->data)) {
+            return defined_in(*v);
+        }
+        const auto *arg = std::get_if<Argument>(&v->data);
+        if (arg == nullptr) {
+            return "";
+        }
+        const auto landing = landing_arg_block.find(v.get());
+        if (landing != landing_arg_block.end()) {
+            return landing->second;
+        }
+        for (string at = from;;) {
+            const Block &here = *blocks.at(at);
+            if (std::any_of(here.args.begin(), here.args.end(),
+                            [&](const Argument &a) {
+                                return a.name == arg->name;
+                            })) {
+                return at == entry ? "" : at;
+            }
+            const auto up = dom.idom.find(at);
+            if (up == dom.idom.end() || up->second == at) {
+                return "";
+            }
+            at = up->second;
+        }
+    };
+
+    // The masks. A block's mask is the OR of the masks of the edges it is
+    // control dependent on, and an early exit from inside an arm -- a return
+    // in it, an inner edge deciding what runs after the arm -- makes a block
+    // after the region depend on an edge inside it. Along the bypass no lane
+    // took that edge, so its mask there is false; and false is what every
+    // bypass hands on, so a chain of them lands the same.
+    if (!gadgets.empty()) {
+        const auto no_lane = std::make_shared<Value>(Constant{bool_type, false});
+        ThreadMemo threaded_masks;
+        for (auto &[b, block] : blocks) {
+            auto fix = [&](shared_ptr<Value> &v) {
+                if (!v) {
+                    return;
+                }
+                string def = defined_in(*v);
+                if (def.empty() || def == b) {
+                    return;
+                }
+                const bool crosses = std::any_of(
+                    gadgets.begin(), gadgets.end(), [&](const Gadget &g) {
+                        return g.region.count(def) && !g.region.count(b);
+                    });
+                if (!crosses) {
+                    return;
+                }
+                const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data);
+                internal_assert(is_mask_logic((*i)->op))
+                    << "The value " << (*i)->name << " of " << def
+                    << " is read in " << b << ", past a bypass of the region "
+                    << "that computes it, and is not a mask";
+                v = thread(
+                    v, def, b, (*i)->name,
+                    [&](const Gadget &) { return no_lane; }, no_lane,
+                    &threaded_masks);
+            };
+            for (const auto &instr : block->instrs) {
+                for (auto &operand : instr->operands) {
+                    fix(operand);
+                }
+            }
+            const auto m = masks.block.find(b);
+            if (m != masks.block.end()) {
+                fix(m->second);
+            }
+            for (auto &[edge, mask] : masks.edge) {
+                if (edge.first == b) {
+                    fix(mask);
+                }
+            }
+        }
+    }
+
+    //===------------------------------------------------------------===//
     // Blending
     //===------------------------------------------------------------===//
     //
@@ -635,10 +1120,13 @@ BlockMasks linearize(Function &func, const string &entry,
         // phi and has to stay. Back edges count: they were kept out of figure
         // 5 but are still edges, and a loop header reached both from its
         // preheader and from its latch is exactly such a join.
+        // A bypass is not a path of the program's: a landing block is still
+        // the one path the fold left it, and its argument for the bypass is
+        // made below, where the blends are.
         size_t remaining = 0;
         for (const auto &[from, edges] : linear) {
             for (const CfgEdge &e : edges) {
-                if (e.to == b) {
+                if (e.to == b && !(guards.count(from) && e.index == 0)) {
                     remaining++;
                 }
             }
@@ -648,17 +1136,21 @@ BlockMasks linearize(Function &func, const string &entry,
                 remaining++;
             }
         }
+        // The arguments to blend are the ones the block had before any
+        // landing gained an argument (see `thread`): those are appended after
+        // them, are handed along the edges rather than blended, and may have
+        // been added to this block already, by the joins before it.
+        const size_t n_args = original_args.at(b);
         // A call continuation is handed the returned value as its first
         // argument, which no predecessor passes. Those leading arguments have
         // nothing to blend and stay as they are.
-        size_t leading = block->args.size();
+        size_t leading = n_args;
         for (const Incoming &source : sources) {
-            internal_assert(source.values.size() <= block->args.size())
+            internal_assert(source.values.size() <= n_args)
                 << "Jump from " << source.from << " to " << b << " passes "
                 << source.values.size() << " arguments to a block taking "
-                << block->args.size();
-            leading =
-                std::min(leading, block->args.size() - source.values.size());
+                << n_args;
+            leading = std::min(leading, n_args - source.values.size());
         }
 
         if (remaining > 1 && remaining == sources.size()) {
@@ -679,11 +1171,10 @@ BlockMasks linearize(Function &func, const string &entry,
             // keep its arguments, so a block that keeps none must declare
             // none.
             bool threaded = true;
-            for (size_t j = leading; j < block->args.size() && threaded; j++) {
+            for (size_t j = leading; j < n_args && threaded; j++) {
                 const string &name = block->args[j].name;
                 for (const Incoming &source : sources) {
-                    const size_t offset =
-                        block->args.size() - source.values.size();
+                    const size_t offset = n_args - source.values.size();
                     if (j < offset) {
                         continue;
                     }
@@ -716,8 +1207,8 @@ BlockMasks linearize(Function &func, const string &entry,
                 threaded = declared_above;
             }
             if (threaded) {
-                block->args.erase(block->args.begin() + leading,
-                                  block->args.end());
+                block->args.erase(block->args.begin() + long(leading),
+                                  block->args.begin() + long(n_args));
             } else {
                 keeps_args.insert(b);
             }
@@ -735,7 +1226,7 @@ BlockMasks linearize(Function &func, const string &entry,
         // the way that still declares the name has not been processed, and
         // its argument is the definition meant.
         auto value_from = [&](const Incoming &source, size_t j) {
-            const size_t offset = block->args.size() - source.values.size();
+            const size_t offset = n_args - source.values.size();
             internal_assert(j >= offset)
                 << "Jump from " << source.from << " to " << b
                 << " passes too few arguments";
@@ -766,57 +1257,61 @@ BlockMasks linearize(Function &func, const string &entry,
             return incoming_value;
         };
 
-        vector<shared_ptr<Value>> blended(block->args.size());
+        vector<shared_ptr<Value>> blended(n_args);
         set<const Instruction *> blends;
 
+        // A join that kept some of its edges and lost others: a block several
+        // uniform paths still reach, and that the lanes of some folded branch
+        // reach along one of those paths as well. No single select chain can
+        // stand for its arguments, because the folded values are not all in
+        // scope at any one predecessor. What each lane brings is instead
+        // treated as a variable: every original predecessor assigns it,
+        // under the mask of its edge where the edge was folded -- a lane that
+        // did not take that edge keeps what it had -- and the block reads it.
+        // Written to a slot, so that the promotion pass
+        // (SSA/PromoteAllocas.h) can rebuild the merges over the rewired
+        // graph, which is exactly the SSA repair the phi needs; the slot
+        // itself is gone by the end of this function. This is how Moll's
+        // linearizer repairs a phi whose block keeps several predecessors.
+        // A bypass changes nothing here: a skipped region stores nothing,
+        // and the slot keeps what the sources before it stored.
+        auto blend_through_slot = [&](size_t j) {
+            const Type &type = block->args[j].type;
+            bool same = true;
+            for (const Incoming &source : sources) {
+                same = same && same_definition(*value_from(sources[0], j),
+                                               *value_from(source, j));
+            }
+            if (same) {
+                // Threaded through under its own name: still in scope.
+                blended[j] = value_from(sources[0], j);
+                return;
+            }
+            auto slot = append(func, entry_block, Ptr_t::make(type),
+                               Instruction::Op::Alloca, {});
+            append_store(entry_block, slot,
+                         zero_value(type, func, entry_block));
+            for (const Incoming &source : sources) {
+                const auto from = blocks.at(source.from);
+                shared_ptr<Value> value = value_from(source, j);
+                const auto edge = masks.edge.find({source.from, b});
+                if (edge != masks.edge.end()) {
+                    auto held =
+                        append(func, from, type, Instruction::Op::Load, {slot});
+                    value = append(func, from, type, Instruction::Op::Select,
+                                   {edge->second, value, held});
+                }
+                append_store(from, slot, value);
+            }
+            auto read = append(func, block, type, Instruction::Op::Load, {slot});
+            blends.insert(std::get<shared_ptr<Instruction>>(read->data).get());
+            blended[j] = read;
+            slots_made = true;
+        };
+
         if (remaining > 1) {
-            // A join that kept some of its edges and lost others: a block
-            // several uniform paths still reach, and that the lanes of some
-            // folded branch reach along one of those paths as well. No single
-            // select chain can stand for its arguments, because the folded
-            // values are not all in scope at any one predecessor. What each
-            // lane brings is instead treated as a variable: every original
-            // predecessor assigns it, under the mask of its edge where the
-            // edge was folded -- a lane that did not take that edge keeps
-            // what it had -- and the block reads it. Written to a slot, so
-            // that the promotion pass (SSA/PromoteAllocas.h) can rebuild the
-            // merges over the rewired graph, which is exactly the SSA repair
-            // the phi needs; the slot itself is gone by the end of this
-            // function. This is how Moll's linearizer repairs a phi whose
-            // block keeps several predecessors.
-            for (size_t j = leading; j < block->args.size(); j++) {
-                const Type &type = block->args[j].type;
-                bool same = true;
-                for (const Incoming &source : sources) {
-                    same = same && same_definition(*value_from(sources[0], j),
-                                                   *value_from(source, j));
-                }
-                if (same) {
-                    // Threaded through under its own name: still in scope.
-                    blended[j] = value_from(sources[0], j);
-                    continue;
-                }
-                auto slot = append(func, entry_block, Ptr_t::make(type),
-                                   Instruction::Op::Alloca, {});
-                append_store(entry_block, slot,
-                             zero_value(type, func, entry_block));
-                for (const Incoming &source : sources) {
-                    const auto from = blocks.at(source.from);
-                    shared_ptr<Value> value = value_from(source, j);
-                    const auto edge = masks.edge.find({source.from, b});
-                    if (edge != masks.edge.end()) {
-                        auto held = append(func, from, type,
-                                           Instruction::Op::Load, {slot});
-                        value = append(func, from, type, Instruction::Op::Select,
-                                       {edge->second, value, held});
-                    }
-                    append_store(from, slot, value);
-                }
-                auto read =
-                    append(func, block, type, Instruction::Op::Load, {slot});
-                blends.insert(std::get<shared_ptr<Instruction>>(read->data).get());
-                blended[j] = read;
-                slots_made = true;
+            for (size_t j = leading; j < n_args; j++) {
+                blend_through_slot(j);
             }
         } else {
             // The pure latch of a uniformized loop hands the header its
@@ -840,7 +1335,7 @@ BlockMasks linearize(Function &func, const string &entry,
                       [&](const Incoming *p, const Incoming *q) {
                           return index.at(p->from) < index.at(q->from);
                       });
-            for (size_t j = leading; j < block->args.size(); j++) {
+            for (size_t j = leading; j < n_args; j++) {
                 // The blend of each source goes at the end of that source,
                 // where its value and its edge mask are, rather than here at
                 // the join: `x = select(mask, value, x)`, source by source in
@@ -850,18 +1345,42 @@ BlockMasks linearize(Function &func, const string &entry,
                 // it stores a variable under the current mask as it is
                 // assigned (ctx.cpp, maskedStore, lowered to a blend "since
                 // it lets us keep values in registers rather than going out
-                // to the stack") -- and what lets a skipped source hand the
-                // join the value from before it instead of a zero (see
-                // SSA/SkipInactiveBlocks.h). Blending at the join, as the
-                // Region Vectorizer does, kept every source's mask and value
-                // live until here.
+                // to the stack"). Blending at the join, as the Region
+                // Vectorizer does, kept every source's mask and value live
+                // until here.
                 //
-                // A source that does not dominate the next one -- reached
-                // by a uniform branch the next one is not on -- has nowhere
-                // to keep the running value, and its blend goes at the join
-                // as before.
+                // Where the path from one source to the next passes the
+                // landing of a bypass, the running value is handed on as an
+                // argument of the landing block (see `thread` above): the
+                // blend so far from inside the skipped region, and from the
+                // bypass the value as it was before the region -- what a lane
+                // outside the arm would have read from the region's blends,
+                // so nothing downstream can tell the arm was skipped. When
+                // the region holds the join's first source there is no value
+                // from before it: the bypass then hands on a zero, which no
+                // lane reads. Every lane at the join comes in along one
+                // source's edge; a lane of a later source takes that source's
+                // value from its select, and a lane of a source in the region
+                // is not there when the region is bypassed. This is the
+                // Region Vectorizer's undef along a repaired phi's other
+                // edge, and the one value here that stands for nothing.
+                //
+                // A source that does not dominate the next one for any other
+                // reason -- reached by a uniform branch of the program's that
+                // the next one is not on -- has nowhere to keep the running
+                // value, and the argument is merged through a slot instead.
                 shared_ptr<Value> value;
-                const Block *value_at = nullptr; // where `value` was blended
+                string value_at; // where `value` was blended
+                // The running value as each region was entered, by guard.
+                map<string, shared_ptr<Value>> before_region;
+                const auto skipped = [&](const Gadget &g) {
+                    const auto it = before_region.find(g.guard);
+                    if (it != before_region.end() && it->second) {
+                        return it->second;
+                    }
+                    return zero_value(block->args[j].type, func,
+                                      blocks.at(g.guard));
+                };
                 if (loop_header != nullptr) {
                     // The header's value of what this argument carries: the
                     // latch hands its argument k on as the header's argument
@@ -891,12 +1410,32 @@ BlockMasks linearize(Function &func, const string &entry,
                         }
                     }
                 }
+                bool through_slot = false;
                 for (const Incoming *source : in_order) {
                     shared_ptr<Value> incoming_value = value_from(*source, j);
+                    // The running value, brought into scope at this source:
+                    // threaded through the landings on the way, which is
+                    // also what puts it in scope at the guard of any region
+                    // this source starts, where the bypass reads it.
+                    if (value && !value_at.empty()) {
+                        value = thread(value, value_at, source->from,
+                                       block->args[j].name, skipped, nullptr,
+                                       nullptr);
+                        if (!value ||
+                            !linear_dom.dominates(value_at, source->from)) {
+                            through_slot = true;
+                            break;
+                        }
+                    }
+                    for (const Gadget &g : gadgets) {
+                        if (g.region.count(source->from)) {
+                            before_region.emplace(g.guard, value);
+                        }
+                    }
 
                     if (!value) {
                         value = incoming_value;
-                        value_at = blocks.at(source->from).get();
+                        value_at = definition_block(value, source->from);
                         continue;
                     }
                     // Every path passing the same definition is the common
@@ -913,22 +1452,19 @@ BlockMasks linearize(Function &func, const string &entry,
                         << "Folded edge " << source->from << "->" << b
                         << " has no mask to blend on";
                     const shared_ptr<Block> at = blocks.at(source->from);
-                    const bool in_source =
-                        value_at == nullptr ||
-                        dom.dominates(value_at->name, source->from);
-                    if (in_source) {
-                        value = append(func, at, block->args[j].type,
-                                       Instruction::Op::Select,
-                                       {edge->second, incoming_value, value});
-                        value_at = at.get();
-                    } else {
-                        value = append(func, block, block->args[j].type,
-                                       Instruction::Op::Select,
-                                       {edge->second, incoming_value, value});
-                        blends.insert(
-                            std::get<shared_ptr<Instruction>>(value->data).get());
-                        value_at = block.get();
-                    }
+                    value = append(func, at, block->args[j].type,
+                                   Instruction::Op::Select,
+                                   {edge->second, incoming_value, value});
+                    value_at = source->from;
+                }
+                if (!through_slot && !value_at.empty()) {
+                    value = thread(value, value_at, b, block->args[j].name,
+                                   skipped, nullptr, nullptr);
+                    through_slot = value == nullptr;
+                }
+                if (through_slot) {
+                    blend_through_slot(j);
+                    continue;
                 }
                 blended[j] = value;
             }
@@ -957,7 +1493,7 @@ BlockMasks linearize(Function &func, const string &entry,
         // block declares, and so uniform, whatever the blend is. A dominated
         // block that declares the name itself, or is dominated by one that
         // does, means something else by it and is left alone.
-        for (size_t j = leading; j < block->args.size(); j++) {
+        for (size_t j = leading; j < n_args; j++) {
             const string name = block->args[j].name;
             auto replace = [&](shared_ptr<Value> &v) {
                 if (v && std::holds_alternative<Argument>(v->data) &&
@@ -1025,8 +1561,8 @@ BlockMasks linearize(Function &func, const string &entry,
                     in.terminator.data);
             };
 
-            for (const string &other : region) {
-                if (other == b || !dom.dominates(b, other)) {
+            for (const string &other : dom.subtree(b)) {
+                if (other == b) {
                     continue;
                 }
                 // Does a block between here and `b` -- this one included --
@@ -1112,8 +1648,9 @@ BlockMasks linearize(Function &func, const string &entry,
             replaced[{b, name}] = blended[j];
         }
         // Only the blended arguments go: a call's returned value is still
-        // delivered as an argument.
-        block->args.erase(block->args.begin() + leading, block->args.end());
+        // delivered as an argument, and so is what a landing was handed.
+        block->args.erase(block->args.begin() + long(leading),
+                          block->args.begin() + long(n_args));
     }
 
     //===------------------------------------------------------------===//
@@ -1187,12 +1724,34 @@ BlockMasks linearize(Function &func, const string &entry,
         }
     }
 
+    // The arguments the landings gained (see `thread`): every way into a
+    // landing hands over what it was recorded as handing, in the order the
+    // arguments were added.
+    for (const auto &[landing, args] : landing_args) {
+        for (const LandingArg &arg : args) {
+            for (const auto &[from, value] : arg.from) {
+                bool passed = false;
+                for (Terminator::Jump *jump : jumps_of(*blocks.at(from))) {
+                    if (jump->name == landing) {
+                        jump->args.push_back(value);
+                        passed = true;
+                    }
+                }
+                internal_assert(passed)
+                    << from << " does not go to " << landing
+                    << ", whose argument it was to hand a value";
+            }
+        }
+    }
+
     // Predecessor lists are rebuilt from the new terminators, since the
     // rewiring above invalidated them.
     const AdjacencyMap new_preds =
         compute_predecessors(compute_successors(func));
-    for (const string &name : region) {
-        auto block = blocks.at(name);
+    for (const auto &[name, block] : blocks) {
+        if (!region.count(name) && !guards.count(name)) {
+            continue;
+        }
         block->preds.clear();
         const auto it = new_preds.find(name);
         if (it == new_preds.end()) {

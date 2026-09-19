@@ -345,6 +345,26 @@ struct CodeGen_LLVM::SSALowering {
                 return VectorReduce::make(VectorReduce::Or, std::move(args[0]));
             }
             return std::move(args[0]);
+        case Instruction::Op::Popcount: {
+            internal_assert(n == 1) << "popcount takes one value";
+            // The lanes that are on, each as a one, summed: `kmov` and
+            // `popcnt` once the x86 backend has seen it. Before widening the
+            // gang is one bool, and its count is that bool as a number.
+            const Type count = UInt_t::make(32);
+            const Type held = args[0].type();
+            if (held.is_vector()) {
+                return VectorReduce::make(
+                    VectorReduce::Add,
+                    Cast::make(Vector_t::make(count, held.lanes()),
+                               std::move(args[0])));
+            }
+            return Cast::make(count, std::move(args[0]));
+        }
+        case Instruction::Op::Vote:
+            internal_assert(n == 1) << "vote takes one value";
+            // Settled by lower_votes (SSA/Vectorize.cpp) wherever a gang
+            // holds it; one that is still here is one visitor's own decision.
+            return std::move(args[0]);
         case Instruction::Op::AddressOf:
             internal_assert(n == 1) << "addressof takes one value";
             return PtrTo::make(std::move(args[0]));
@@ -1119,6 +1139,27 @@ struct CodeGen_LLVM::SSALowering {
                         << c.varying.size()
                         << " calls, but a run has one continuation and so at "
                            "most one result to give it.";
+                    // Under a mask the run is made only if some lane is on,
+                    // as a Call is (above); every call of the run shares the
+                    // mask, which is among the arguments they share, so one
+                    // test guards them all.
+                    const bool masked =
+                        c.call.name.size() > 7 &&
+                        c.call.name.compare(c.call.name.size() - 7, 7,
+                                            "$masked") == 0 &&
+                        !c.call.args.empty() &&
+                        c.call.args.back()->get_type().is_vector();
+                    llvm::BasicBlock *skip = nullptr;
+                    if (masked) {
+                        llvm::Value *any = cg.builder->CreateOrReduce(
+                            cg.codegen_expr(operand(c.call.args.back())));
+                        llvm::BasicBlock *do_calls = llvm::BasicBlock::Create(
+                            *cg.context, "run_any_lane", cg.current_function);
+                        skip = llvm::BasicBlock::Create(
+                            *cg.context, "run_after", cg.current_function);
+                        cg.builder->CreateCondBr(any, do_calls, skip);
+                        cg.builder->SetInsertPoint(do_calls);
+                    }
                     llvm::Value *result = nullptr;
                     for (size_t i = 0; i < c.varying.size(); i++) {
                         std::vector<llvm::Value *> args;
@@ -1126,6 +1167,13 @@ struct CodeGen_LLVM::SSALowering {
                             args.push_back(cg.codegen_expr(operand(a)));
                         }
                         result = cg.emit_call(callee, std::move(args));
+                    }
+                    if (masked) {
+                        internal_assert(c.drop)
+                            << block.name << " keeps the result of a run made "
+                            << "under a mask, which no lane may have made";
+                        cg.builder->CreateBr(skip);
+                        cg.builder->SetInsertPoint(skip);
                     }
                     llvm::BasicBlock *after = cg.builder->GetInsertBlock();
                     supply(c.cont, after, c.drop ? 0 : 1,

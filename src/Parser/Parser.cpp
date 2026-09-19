@@ -3062,6 +3062,14 @@ struct Parser {
     }
 
     void parse_rewrites(ir::Schedule &schedule, std::string func) {
+        // Recorded under the function and in the schedule's one sequence,
+        // since the order between functions' directives is part of what the
+        // schedule says (see ir::TransformOrder).
+        const auto add = [&](ir::Transform transform) {
+            auto &ts = schedule.func_transforms[func];
+            ts.push_back(std::move(transform));
+            schedule.transform_order.emplace_back(func, ts.size() - 1);
+        };
         do {
             expect(Token::Type::PERIOD);
             std::string rewrite = get_id();
@@ -3077,7 +3085,7 @@ struct Parser {
                 ir::Location ii = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Location i = parse_location();
-                schedule.func_transforms[func].emplace_back(ir::Collapse{
+                add(ir::Collapse{
                     .io = std::move(io),
                     .ii = std::move(ii),
                     .i = std::move(i),
@@ -3086,7 +3094,7 @@ struct Parser {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
                 const std::string resource = get_id();
-                schedule.func_transforms[func].emplace_back(
+                add(
                     ir::Bind{std::move(i), parse_resource(resource)});
             } else if (rewrite == "defer") {
                 ir::Location consumer = parse_location();
@@ -3094,14 +3102,14 @@ struct Parser {
                 ir::Location loop = parse_location();
                 expect(Token::Type::COMMA);
                 ir::Location queue = parse_location();
-                schedule.func_transforms[func].emplace_back(ir::Defer{
+                add(ir::Defer{
                     std::move(consumer), std::move(loop), std::move(queue)});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
                 if (peek().type != Token::Type::RPAREN) {
                     queue_size = parse_expr();
                 }
-                schedule.func_transforms[func].emplace_back(
+                add(
                     ir::Loopify{std::move(queue_size)});
             } else if (rewrite == "make_queue") {
                 // TODO(ajr): support dynamic queue sizes.
@@ -3113,7 +3121,7 @@ struct Parser {
                     expect(Token::Type::COMMA);
                     queue_size = parse_expr();
                 }
-                schedule.func_transforms[func].emplace_back(ir::MakeQueue{
+                add(ir::MakeQueue{
                     std::move(queue), std::move(loop), std::move(queue_size)});
             } else if (rewrite == "sort") {
                 ir::Location loc = parse_location();
@@ -3123,7 +3131,7 @@ struct Parser {
                     << "sort() expects a lambda as the second argument, "
                        "received: "
                     << lambda;
-                schedule.func_transforms[func].emplace_back(
+                add(
                     ir::Sort{std::move(loc), std::move(lambda)});
             } else if (rewrite == "split") {
                 ir::Location i = parse_location();
@@ -3138,12 +3146,12 @@ struct Parser {
                 if (!generate_tail) {
                     expect(Token::Type::FALSE);
                 }
-                schedule.func_transforms[func].emplace_back(
+                add(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
             } else if (rewrite == "vectorize") {
                 ir::Location i = parse_location();
-                schedule.func_transforms[func].emplace_back(
+                add(
                     ir::Vectorize{std::move(i)});
             } else {
                 report_error()

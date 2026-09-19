@@ -1,0 +1,74 @@
+//! flags: -p ssa
+
+// The arms a gang skips, as linearization lays them out (see the BOSCC
+// gadget in SSA/Linearize.h), and the values that have to survive a skip.
+//
+// What to read for in `weigh_all`. Both arms of the `if` are behind a test
+// of their own: `reduce<any>` of the arm's mask, the then arm's bypass landing
+// on the else arm's test and the else arm's bypass on the join after both --
+// ispc's layout of a varying `if`, which a gadget installed before the fold
+// could only give one arm. The three arms of the `match` line up the same
+// way. Every value an arm computes that is read after it arrives at the
+// landing as a `!skip` argument: the running blend from inside the arm, and
+// along the bypass the value from before the arm -- `acc` from before the
+// `if`, or the previous arm's blend -- so the join reads exactly what a lane
+// outside the arm would have read. The early `return` inside the then arm
+// makes the exit's mask depend on an edge inside the arm; that mask reaches
+// the exit as a `!skip` argument handed `boolx8(false)` along the bypass,
+// since no lane took the edge. And `acc`'s first source is the then arm
+// itself, so there is no value from before it to hand on: its bypass hands
+// a zero that no lane reads, the one such value here (see Linearize.cpp).
+// The same program runs in correctness/cpp/vectorize_skip_arms.bonsai.
+import stdlib/numerics;
+
+element Shape =
+    | Disc(r : f32)
+    | Box(w : f32, h : f32)
+    | Ring(ro : f32, ri : f32);
+
+func classify(x : f32) -> Shape {
+    if x < 0.0 {
+        return Disc(-x);
+    }
+    if x < 4.0 {
+        return Box(x, x * 0.5);
+    }
+    return Ring(x, x * 0.25);
+}
+
+func weigh(x : f32) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 {
+        t = sqrt(x) * 3.0 + 1.0;
+        if t > 7.0 {
+            return t;
+        }
+        acc = t * t - x;
+    } else {
+        u = x * x * 0.5 + 1.0;
+        acc = u * u + u * 3.0 - 1.0;
+    }
+    s = classify(x);
+    w : mut = 0.0;
+    match s {
+        Disc(r) => w = r * r * 3.0 + r * 0.5 - r;
+        Box(wd, h) => w = wd * h * 2.0 + h * h - wd;
+        Ring(ro, ri) => w = (ro * ro - ri * ri) * 3.0 + ri;
+    }
+    return acc + w;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

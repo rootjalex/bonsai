@@ -50,9 +50,11 @@ add_bonsai_tests(
     vectorize_gather.bonsai
     vectorize_loop.bonsai
     vectorize_masked_accumulate.bonsai
+    vectorize_packet_traversal.bonsai
     vectorize_scale.bonsai
     vectorize_short_vectors.bonsai
     vectorize_soa.bonsai
+    vectorize_skip_arms.bonsai
     vectorize_union.bonsai
     vectorize_varying_memory.bonsai
 )
