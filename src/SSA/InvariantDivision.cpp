@@ -55,9 +55,8 @@ struct Definition {
 // definition of its own, at the block that receives it.
 class Tracer {
   public:
-    Tracer(const Function &func, const BlockMap &blocks,
-           const AdjacencyMap &preds)
-        : entry(func.blocks.front()->name), blocks(blocks), preds(preds) {}
+    Tracer(const Function &func, const Cfg &cfg)
+        : entry(func.blocks.front()->name), cfg(cfg) {}
 
     optional<Definition> trace(const ValuePtr &v, const string &in_block) {
         if (const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data)) {
@@ -79,8 +78,7 @@ class Tracer {
 
   private:
     const string entry;
-    const BlockMap &blocks;
-    const AdjacencyMap &preds;
+    const Cfg &cfg;
 
     // What the argument `name` of `block` stands for: the one definition
     // every path in passes, or the argument itself when the paths disagree,
@@ -93,7 +91,8 @@ class Tracer {
             return std::nullopt;
         }
         const Definition here{block, nullptr, name};
-        const shared_ptr<Block> b = blocks.at(block);
+        const BlockId here_id = cfg.id(block);
+        const shared_ptr<Block> &b = cfg.block(here_id);
         size_t k = 0;
         for (; k < b->args.size(); k++) {
             if (b->args[k].name == name) {
@@ -105,13 +104,13 @@ class Tracer {
             // through.
             return here;
         }
-        const auto p = preds.find(block);
-        if (p == preds.end() || p->second.empty()) {
+        if (cfg.preds[here_id].empty()) {
             return here;
         }
         set<Definition> found;
-        for (const string &pred : p->second) {
-            for (Terminator::Jump *jump : jumps_of(*blocks.at(pred))) {
+        for (BlockId p : cfg.preds[here_id]) {
+            const string &pred = cfg.name(p);
+            for (Terminator::Jump *jump : jumps_of(cfg[p])) {
                 if (jump->name != block) {
                     continue;
                 }
@@ -304,17 +303,13 @@ size_t divide_by_invariants(Function &func) {
     if (func.blocks.empty()) {
         return 0;
     }
-    BlockMap blocks = make_block_map(func);
-    const string entry = func.blocks.front()->name;
-    const AdjacencyMap succs = compute_successors(func);
-    const AdjacencyMap preds = compute_predecessors(succs);
-    const vector<string> rpo = reverse_postorder(entry, succs);
-    const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
-    const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
+    const Cfg cfg(func);
+    const DomTree dom = compute_dominator_tree(cfg);
+    const LoopForest loops = compute_loop_forest(cfg, dom);
     if (loops.empty()) {
         return 0;
     }
-    Tracer tracer(func, blocks, preds);
+    Tracer tracer(func, cfg);
 
     // The divisions worth the multiplier: one whose divisor is defined
     // outside a loop the division is in. A scalar integer, not a constant.
@@ -324,9 +319,10 @@ size_t divide_by_invariants(Function &func) {
     };
     map<Definition, vector<Site>> worth;
     map<Definition, vector<Site>> others;
-    for (const string &name : rpo) {
-        const shared_ptr<Block> &block = blocks.at(name);
-        const optional<string> loop = innermost_loop(loops, name);
+    for (BlockId b : cfg.rpo) {
+        const shared_ptr<Block> &block = cfg.block(b);
+        const string &name = block->name;
+        const Loop *loop = loops.innermost(b);
         for (const shared_ptr<Instruction> &instr : block->instrs) {
             if ((instr->op != Instruction::Op::Div &&
                  instr->op != Instruction::Op::Mod) ||
@@ -340,7 +336,7 @@ size_t divide_by_invariants(Function &func) {
                 continue; // a constant divisor, which the backend handles
             }
             const bool invariant =
-                loop.has_value() && !loops.at(*loop).blocks.count(def->block);
+                loop != nullptr && !loop->blocks.contains(cfg.id(def->block));
             (invariant ? worth : others)[*def].push_back(Site{name, instr});
         }
     }
@@ -356,7 +352,7 @@ size_t divide_by_invariants(Function &func) {
     for (auto &[def, sites] : worth) {
         // The multiplier goes right after the divisor's definition: after
         // the instruction, or at the top of the block whose argument it is.
-        const shared_ptr<Block> &at = blocks.at(def.block);
+        const shared_ptr<Block> &at = cfg.block(cfg.id(def.block));
         size_t position = 0;
         ValuePtr divisor;
         if (def.instr) {
@@ -384,7 +380,7 @@ size_t divide_by_invariants(Function &func) {
             all.insert(all.end(), rest->second.begin(), rest->second.end());
         }
         for (const Site &site : all) {
-            const shared_ptr<Block> &block = blocks.at(site.block);
+            const shared_ptr<Block> &block = cfg.block(cfg.id(site.block));
             size_t index = 0;
             for (; index < block->instrs.size(); index++) {
                 if (block->instrs[index].get() == site.instr.get()) {

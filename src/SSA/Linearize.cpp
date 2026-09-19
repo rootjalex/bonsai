@@ -13,6 +13,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <unordered_set>
 #include <vector>
 
 namespace bonsai {
@@ -30,26 +31,29 @@ namespace {
 
 // One outgoing control-flow edge, in the paper's notation (b, i, s): the i-th
 // successor of the terminator of `from`. (SSA/Analysis.h has an `Edge` too,
-// which is just a pair of block names and does not carry the successor
-// index the algorithm needs.)
+// which is just a pair of blocks and does not carry the successor index the
+// algorithm needs.)
 struct CfgEdge {
-    string from;
+    BlockId from = NO_BLOCK;
     size_t index = 0;
-    string to;
+    BlockId to = NO_BLOCK;
 };
 
-vector<CfgEdge> outgoing_edges(const Block &block) {
+// The edges out of `from`, in terminator order, in the graph the region was
+// analyzed on -- which is the graph as it stands until the rewiring at the
+// end, since nothing before it retargets a jump.
+vector<CfgEdge> outgoing_edges(const Cfg &cfg, BlockId from) {
     vector<CfgEdge> edges;
-    const auto succs = successors(block);
+    const vector<BlockId> &succs = cfg.succs[from];
     for (size_t i = 0; i < succs.size(); i++) {
-        edges.push_back({block.name, i, succs[i]});
+        edges.push_back({from, i, succs[i]});
     }
     return edges;
 }
 
-// The result of running the paper's figure 5 over one block: the edges it has
-// in the linearized graph, in the same (b, i, s) form.
-using LinearEdges = map<string, vector<CfgEdge>>;
+// The result of running the paper's figure 5 over every block: the edges each
+// block has in the linearized graph, in the same (b, i, s) form. By block.
+using LinearEdges = vector<vector<CfgEdge>>;
 
 // Partial linearization proper (Moll & Hack, figure 5).
 //
@@ -74,49 +78,42 @@ using LinearEdges = map<string, vector<CfgEdge>>;
 // are relayed to the blocks the loop exits to, and only targets inside it
 // travel along the edges that stay inside. This is what Moll's own linearizer
 // (the Region Vectorizer) does with deferred targets at uniform loops.
-LinearEdges partial_linearize(const BlockMap &blocks,
-                              const vector<string> &by_index,
-                              const map<string, size_t> &index,
-                              const set<string> &divergent_branches,
+LinearEdges partial_linearize(const Cfg &cfg, const BlockIndex &index,
+                              const BlockSet &divergent_branches,
                               const set<Edge> &back_edges,
                               const LoopForest &loops) {
-    LinearEdges linear;
-    // The deferral relation, as (block, target) pairs.
-    set<std::pair<string, string>> deferred;
+    LinearEdges linear(cfg.size());
+    // The deferral relation: per block, the targets deferred to it.
+    vector<set<BlockId>> deferred(cfg.size());
 
-    auto least = [&](const set<string> &candidates) {
+    auto least = [&](const set<BlockId> &candidates) {
         internal_assert(!candidates.empty()) << "no successor to pick";
         return *std::min_element(candidates.begin(), candidates.end(),
-                                 [&](const string &a, const string &b) {
-                                     return index.at(a) < index.at(b);
+                                 [&](BlockId a, BlockId b) {
+                                     return index.of[a] < index.of[b];
                                  });
     };
 
-    for (const string &b : by_index) {
+    for (const BlockId b : index.order) {
         // T: what earlier blocks deferred to this one.
-        set<string> T;
-        for (const auto &[from, to] : deferred) {
-            if (from == b) {
-                T.insert(to);
-            }
-        }
+        set<BlockId> T = deferred[b];
 
         // Inside a loop, only the targets inside it may travel along its
         // edges; see above.
-        const optional<string> in_loop = innermost_loop(loops, b);
-        if (in_loop.has_value()) {
-            const Loop &loop = loops.at(*in_loop);
-            set<string> inside;
-            for (const string &t : T) {
-                if (loop.blocks.count(t)) {
+        const Loop *in_loop = loops.innermost(b);
+        if (in_loop != nullptr) {
+            set<BlockId> inside;
+            for (BlockId t : T) {
+                if (in_loop->blocks.contains(t)) {
                     inside.insert(t);
                 } else {
-                    internal_assert(b == loop.header)
-                        << "Block " << b << " inside loop " << loop.header
-                        << " was deferred " << t << ", which is outside it, "
+                    internal_assert(b == in_loop->header)
+                        << "Block " << cfg.name(b) << " inside loop "
+                        << cfg.name(in_loop->header) << " was deferred "
+                        << cfg.name(t) << ", which is outside it, "
                         << "and is not the header where that could be relayed";
-                    for (const Edge &exit : loop.exits) {
-                        deferred.insert({exit.second, t});
+                    for (const Edge &exit : in_loop->exits) {
+                        deferred[exit.second].insert(t);
                     }
                 }
             }
@@ -126,7 +123,7 @@ LinearEdges partial_linearize(const BlockMap &blocks,
         // Figure 5 wants an acyclic graph, so the back edges are left out and
         // put back at their latches afterwards (section 3.3).
         vector<CfgEdge> edges;
-        for (const CfgEdge &e : outgoing_edges(*blocks.at(b))) {
+        for (const CfgEdge &e : outgoing_edges(cfg, b)) {
             if (back_edges.count({b, e.to}) == 0) {
                 edges.push_back(e);
             }
@@ -143,55 +140,55 @@ LinearEdges partial_linearize(const BlockMap &blocks,
                 // order and the edges together.
                 std::cerr << "--- partial linearization of a region, in block "
                           << "index order:\n";
-                for (const string &name : by_index) {
-                    std::cerr << "  " << name
-                              << (divergent_branches.count(name) ? " (divergent)"
-                                                                  : "")
+                for (const BlockId x : index.order) {
+                    std::cerr << "  " << cfg.name(x)
+                              << (divergent_branches.contains(x) ? " (divergent)"
+                                                                 : "")
                               << " ->";
-                    for (const CfgEdge &e : outgoing_edges(*blocks.at(name))) {
-                        std::cerr << " " << e.to
-                                  << (back_edges.count({name, e.to}) ? "^" : "");
+                    for (const CfgEdge &e : outgoing_edges(cfg, x)) {
+                        std::cerr << " " << cfg.name(e.to)
+                                  << (back_edges.count({x, e.to}) ? "^" : "");
                     }
                     std::cerr << "\n";
                 }
-                std::cerr << "--- deferred to " << b << ":";
-                for (const string &t : T) {
-                    std::cerr << " " << t;
+                std::cerr << "--- deferred to " << cfg.name(b) << ":";
+                for (BlockId t : T) {
+                    std::cerr << " " << cfg.name(t);
                 }
                 std::cerr << "\n";
             }
             internal_assert(T.empty())
-                << "Block " << b << " has deferred successors but no way to "
-                << "reach them: the region's exits are not post-dominated by "
-                << "everything deferred to them";
+                << "Block " << cfg.name(b) << " has deferred successors but "
+                << "no way to reach them: the region's exits are not "
+                << "post-dominated by everything deferred to them";
             continue;
         }
 
-        if (divergent_branches.count(b) == 0) {
+        if (!divergent_branches.contains(b)) {
             // Uniform: every original successor still gets its own edge, so
             // the branch survives. This is the point of the algorithm.
             for (const CfgEdge &e : edges) {
-                set<string> candidates = T;
+                set<BlockId> candidates = T;
                 candidates.insert(e.to);
-                const string next = least(candidates);
+                const BlockId next = least(candidates);
                 linear[b].push_back({b, e.index, next});
-                for (const string &t : candidates) {
+                for (BlockId t : candidates) {
                     if (t != next) {
-                        deferred.insert({next, t});
+                        deferred[next].insert(t);
                     }
                 }
             }
         } else {
             // Divergent: one edge out, everything else deferred.
-            set<string> candidates = T;
+            set<BlockId> candidates = T;
             for (const CfgEdge &e : edges) {
                 candidates.insert(e.to);
             }
-            const string next = least(candidates);
+            const BlockId next = least(candidates);
             linear[b].push_back({b, 0, next});
-            for (const string &t : candidates) {
+            for (BlockId t : candidates) {
                 if (t != next) {
-                    deferred.insert({next, t});
+                    deferred[next].insert(t);
                 }
             }
         }
@@ -204,31 +201,31 @@ LinearEdges partial_linearize(const BlockMap &blocks,
 // the edges are rewritten: (predecessor, values). The values are needed to
 // rebuild the block arguments as blends afterwards.
 struct Incoming {
-    string from;
+    BlockId from = NO_BLOCK;
     // One entry per argument of the target block. A call continuation's
     // result argument has no incoming value here and is left alone.
     vector<shared_ptr<Value>> values;
 };
 
-map<string, vector<Incoming>> snapshot_arguments(const BlockMap &blocks,
-                                                 const set<string> &region) {
-    map<string, vector<Incoming>> incoming;
-    for (const string &name : region) {
-        const Block &block = *blocks.at(name);
+// By target block.
+vector<vector<Incoming>> snapshot_arguments(const Cfg &cfg) {
+    vector<vector<Incoming>> incoming(cfg.size());
+    for (BlockId from = 0; from < cfg.size(); from++) {
+        const Block &block = cfg[from];
+        const auto record = [&](const Terminator::Jump &j) {
+            incoming[cfg.id(j.name)].push_back({from, j.args});
+        };
         std::visit(overloads{
                        [&](const std::monostate &) {},
-                       [&](const Terminator::Jump &j) {
-                           incoming[j.name].push_back({name, j.args});
-                       },
+                       [&](const Terminator::Jump &j) { record(j); },
                        [&](const Terminator::Dispatch &d) {
                            for (const auto &target : d.targets) {
-                               incoming[target.name].push_back(
-                                   {name, target.args});
+                               record(target);
                            }
                        },
                        [&](const Terminator::Return &) {},
                        [&](const Terminator::ParFor &) {
-                           internal_error << "Nested ParFor in " << name
+                           internal_error << "Nested ParFor in " << block.name
                                           << " during linearization";
                        },
                        [&](const Terminator::Yield &) {},
@@ -239,13 +236,13 @@ map<string, vector<Incoming>> snapshot_arguments(const BlockMap &blocks,
                            // and is not passed here, which the blending
                            // accounts for by matching the values to the *last*
                            // arguments.
-                           incoming[c.cont.name].push_back({name, c.cont.args});
+                           record(c.cont);
                        },
                        [&](const Terminator::MultiCall &c) {
                            // Like Call: the run's calls all leave the region,
                            // and the only edge inside it is the one after
                            // them.
-                           incoming[c.cont.name].push_back({name, c.cont.args});
+                           record(c.cont);
                        },
                    },
                    block.terminator.data);
@@ -263,12 +260,12 @@ map<string, vector<Incoming>> snapshot_arguments(const BlockMap &blocks,
 // divergent branch has a uniform predicate and needs no mask at all
 // (theorem 4.1), which is why `Divergence::masked` decides who gets one.
 struct Masks {
-    // block -> its execution mask, absent when the block is always executed
+    // Per block, its execution mask; null when the block is always executed
     // with every lane enabled.
-    map<string, shared_ptr<Value>> block;
+    vector<shared_ptr<Value>> block;
     // (from, to) -> the mask of that edge, for edges out of divergent
     // branches; other edges carry their source block's mask.
-    map<std::pair<string, string>, shared_ptr<Value>> edge;
+    map<Edge, shared_ptr<Value>> edge;
 };
 
 // Do two values refer to the same definition? The SSA form threads a
@@ -359,10 +356,10 @@ bool touches_memory(Instruction::Op op) {
 // call, or it does enough arithmetic to outweigh the test -- six operations,
 // which is where ispc draws the line between predicating both arms straight
 // through and branching around them (PREDICATE_SAFE_IF_STATEMENT_COST).
-bool worth_skipping(const BlockMap &blocks, const set<string> &region) {
+bool worth_skipping(const Cfg &cfg, const BlockSet &region) {
     size_t work = 0;
-    for (const string &name : region) {
-        const Block &block = *blocks.at(name);
+    for (BlockId b : region) {
+        const Block &block = cfg[b];
         if (block.terminator.callee() != nullptr) {
             return true;
         }
@@ -376,19 +373,25 @@ bool worth_skipping(const BlockMap &blocks, const set<string> &region) {
     return work >= 6;
 }
 
-// Which block defines `v`, for an instruction; empty for anything else.
-string defined_in(const Value &v) {
+// Which block defines `v`, for an instruction; NO_BLOCK for anything else.
+BlockId defined_in(const Cfg &cfg, const Value &v) {
     const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data);
     if (i == nullptr) {
-        return "";
+        return NO_BLOCK;
     }
     const auto owner = (*i)->owner.lock();
-    return owner ? owner->name : "";
+    return owner ? cfg.find(*owner) : NO_BLOCK;
+}
+
+// Does `block` declare an argument called `name`?
+bool declares(const Block &block, const string &name) {
+    return std::any_of(block.args.begin(), block.args.end(),
+                       [&](const Argument &arg) { return arg.name == name; });
 }
 
 } // namespace
 
-BlockMasks linearize(Function &func, const string &entry,
+BlockMasks linearize(Function &func, const string &entry_name,
                      const Divergence &divergence,
                      const shared_ptr<Value> &entry_mask,
                      const vector<UniformLoop> &loops_in) {
@@ -396,44 +399,46 @@ BlockMasks linearize(Function &func, const string &entry,
         return {}; // nothing diverges; the control flow is already uniform
     }
 
-    BlockMap blocks = make_block_map(func);
-    const AdjacencyMap all_succs = compute_successors(func);
-    const set<string> region = reachable_from(entry, all_succs);
+    // The region, numbered; the guards below join it as they are made.
+    Cfg cfg(func, entry_name);
+    const BlockId entry = cfg.entry;
+    const DomTree dom = compute_dominator_tree(cfg);
+    const DomTree pdom = compute_post_dominator_tree(cfg);
+    const ControlDependence cdep = compute_control_dependence(cfg, pdom);
+    const LoopForest loops = compute_loop_forest(cfg, dom);
 
-    AdjacencyMap succs;
-    for (const string &name : region) {
-        succs[name];
-        for (const string &s : all_succs.at(name)) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
+    // What the analysis said about the region, by id.
+    BlockSet divergent_branches(cfg.size());
+    for (const string &name : divergence.branches) {
+        if (const BlockId b = cfg.find(name); b != NO_BLOCK) {
+            divergent_branches.insert(b);
         }
     }
-    const AdjacencyMap preds = compute_predecessors(succs);
-    const vector<string> rpo = reverse_postorder(entry, succs);
-    const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
-    const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
-    const ControlDependence cdep = compute_control_dependence(succs, pdom);
-    const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
+    BlockSet masked(cfg.size());
+    for (const string &name : divergence.masked) {
+        if (const BlockId b = cfg.find(name); b != NO_BLOCK) {
+            masked.insert(b);
+        }
+    }
 
     // The edges figure 5 is not allowed to see, and that the rewiring below
     // must leave exactly as they are.
     set<Edge> back_edges;
-    for (const auto &[header, loop] : loops) {
-        for (const string &latch : loop.latches) {
-            back_edges.insert({latch, header});
+    for (const Loop &loop : loops.loops()) {
+        for (BlockId latch : loop.latches) {
+            back_edges.insert({latch, loop.header});
         }
     }
 
     // Every loop still standing has to be uniform, which after
     // uniformize_loops() means every loop: its exits are folded into the live
     // mask and the only branch left is the one on `any`.
-    for (const auto &[header, loop] : loops) {
+    for (const Loop &loop : loops.loops()) {
         for (const Edge &exit : loop.exits) {
-            internal_assert(divergence.branches.count(exit.first) == 0)
-                << "Loop " << header << " still leaves divergently from "
-                << exit.first << "; it has to be uniformized first (Moll & "
-                << "Hack section 5)";
+            internal_assert(!divergent_branches.contains(exit.first))
+                << "Loop " << cfg.name(loop.header)
+                << " still leaves divergently from " << cfg.name(exit.first)
+                << "; it has to be uniformized first (Moll & Hack section 5)";
         }
     }
 
@@ -443,15 +448,26 @@ BlockMasks linearize(Function &func, const string &entry,
     // loops around them and lists them in that order, and a block of an inner
     // loop runs under the inner loop's live mask, which was seeded from the
     // outer's and has been narrowed since.
-    map<string, shared_ptr<Value>> loop_masks;
-    map<string, const UniformLoop *> loop_of;
-    map<string, const UniformLoop *> loop_seeds;
-    for (const UniformLoop &loop : loops_in) {
-        for (const string &block : loop.blocks) {
-            loop_masks.emplace(block, loop.live);
-            loop_of.emplace(block, &loop);
+    constexpr size_t NO_LOOP = size_t(-1);
+    vector<shared_ptr<Value>> loop_masks(cfg.size());
+    vector<size_t> loop_of(cfg.size(), NO_LOOP); // index into loops_in
+    vector<BlockSet> loop_blocks;                // per loops_in entry
+    vector<const UniformLoop *> loop_seeds(cfg.size(), nullptr);
+    vector<BlockId> latch_header(cfg.size(), NO_BLOCK); // pure latch -> header
+    for (size_t i = 0; i < loops_in.size(); i++) {
+        const UniformLoop &loop = loops_in[i];
+        BlockSet members(cfg.size());
+        for (const string &name : loop.blocks) {
+            const BlockId b = cfg.id(name);
+            members.insert(b);
+            if (!loop_masks[b]) {
+                loop_masks[b] = loop.live;
+                loop_of[b] = i;
+            }
         }
-        loop_seeds[loop.preheader] = &loop;
+        loop_blocks.push_back(std::move(members));
+        loop_seeds[cfg.id(loop.preheader)] = &loop;
+        latch_header[cfg.id(loop.latch)] = cfg.id(loop.header);
     }
 
     // The index the algorithm walks in, which has to be dominance compact and
@@ -460,36 +476,31 @@ BlockMasks linearize(Function &func, const string &entry,
     // recursion stays in tail position once its branch is folded (see
     // compute_block_index): a run of recursive calls placed before a leaf's
     // work would be a run that loopify() cannot put on a stack.
-    set<string> recursions;
-    for (const string &name : region) {
-        const auto *call = blocks.at(name)->terminator.callee();
+    BlockSet recursions(cfg.size());
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        const auto *call = cfg[b].terminator.callee();
         if (call != nullptr && call->name == func.blocks.front()->name) {
-            recursions.insert(name);
+            recursions.insert(b);
         }
     }
-    const map<string, size_t> index =
-        compute_block_index(entry, succs, dom, loops, recursions);
-    vector<string> by_index(index.size());
-    for (const auto &[name, i] : index) {
-        by_index[i] = name;
-    }
+    const BlockIndex index = compute_block_index(cfg, dom, loops, recursions);
+    const vector<BlockId> &by_index = index.order;
 
     // Everything the old edges carried, before they are rewritten.
-    const map<string, vector<Incoming>> incoming =
-        snapshot_arguments(blocks, region);
+    const vector<vector<Incoming>> incoming = snapshot_arguments(cfg);
 
     // The conditions of the branches being folded away, kept before their
     // terminators are replaced.
-    map<string, Terminator::Dispatch> dispatches;
-    for (const string &name : region) {
+    vector<optional<Terminator::Dispatch>> dispatches(cfg.size());
+    for (BlockId b = 0; b < cfg.size(); b++) {
         if (const auto *d = std::get_if<Terminator::Dispatch>(
-                &blocks.at(name)->terminator.data)) {
-            dispatches[name] = *d;
+                &cfg[b].terminator.data)) {
+            dispatches[b] = *d;
         }
     }
 
-    LinearEdges linear = partial_linearize(
-        blocks, by_index, index, divergence.branches, back_edges, loops);
+    LinearEdges linear = partial_linearize(cfg, index, divergent_branches,
+                                           back_edges, loops);
 
     //===------------------------------------------------------------===//
     // Masks
@@ -497,22 +508,22 @@ BlockMasks linearize(Function &func, const string &entry,
 
     const Type bool_type = Bool_t::make();
     Masks masks;
+    masks.block.resize(cfg.size());
 
     // Edge masks first: a divergent branch splits its source's mask by the
     // condition. A dispatch on a bool has target 0 as the false side and
     // target 1 the true side (see the IfElse visitor in SSA/Convert.cpp); a
     // dispatch on an integer is a switch, with target k taken on k (see the
     // SwitchStmt visitor there).
-    auto mask_of = [&](const string &name) -> optional<shared_ptr<Value>> {
-        const auto it = masks.block.find(name);
-        if (it == masks.block.end()) {
-            return std::nullopt;
+    auto mask_of = [&](BlockId b) -> optional<shared_ptr<Value>> {
+        if (b < masks.block.size() && masks.block[b]) {
+            return masks.block[b];
         }
-        return it->second;
+        return std::nullopt;
     };
 
-    for (const string &b : by_index) {
-        auto block = blocks.at(b);
+    for (const BlockId b : by_index) {
+        const shared_ptr<Block> &block = cfg.block(b);
 
         // The edges whose masks decide this block's: the edges it is control
         // dependent on, less two kinds that split no lanes.
@@ -531,16 +542,15 @@ BlockMasks linearize(Function &func, const string &entry,
         // the outer branch said and more. Only a divergent branch inside the
         // loop can narrow it further, and the masks of its edges start from
         // the live mask.
-        const auto loop_mask = loop_masks.find(b);
-        const UniformLoop *loop_of_b =
-            loop_of.count(b) ? loop_of.at(b) : nullptr;
+        const shared_ptr<Value> &loop_mask = loop_masks[b];
+        const size_t loop_of_b = loop_of[b];
         vector<Edge> deciding;
-        if (divergence.masked.count(b)) {
-            for (const auto &[from, to] : cdep.at(b)) {
-                if (index.at(from) >= index.at(b)) {
+        if (masked.contains(b)) {
+            for (const auto &[from, to] : cdep[b]) {
+                if (index.of[from] >= index.of[b]) {
                     continue; // through a back edge
                 }
-                if (loop_of_b != nullptr && !loop_of_b->blocks.count(from)) {
+                if (loop_of_b != NO_LOOP && !loop_blocks[loop_of_b].contains(from)) {
                     continue; // outside the loop the live mask stands for
                 }
                 deciding.push_back({from, to});
@@ -554,9 +564,9 @@ BlockMasks linearize(Function &func, const string &entry,
             for (const auto &[from, to] : deciding) {
                 const auto it = masks.edge.find({from, to});
                 internal_assert(it != masks.edge.end())
-                    << "Control dependence edge " << from << "->" << to
-                    << " of " << b << " has no mask yet; the block index is "
-                    << "not topological";
+                    << "Control dependence edge " << cfg.name(from) << "->"
+                    << cfg.name(to) << " of " << cfg.name(b)
+                    << " has no mask yet; the block index is not topological";
                 mask = mask ? append(func, block, bool_type,
                                      Instruction::Op::LOr, {mask, it->second})
                             : it->second;
@@ -567,47 +577,47 @@ BlockMasks linearize(Function &func, const string &entry,
             std::rotate(block->instrs.begin(), block->instrs.begin() + before,
                         block->instrs.end());
             masks.block[b] = mask;
-        } else if (loop_mask != loop_masks.end()) {
+        } else if (loop_mask) {
             // A block of a uniformized loop runs under that loop's live mask.
             // Control dependence cannot say this: after the transform the
             // only branch deciding whether the loop body runs is the uniform
             // one on `any`, and yet a lane that left on an earlier iteration
             // is still not executing.
-            masks.block[b] = loop_mask->second;
+            masks.block[b] = loop_mask;
         } else if (entry_mask) {
             // Everything in the region runs under the mask the region was
             // entered with, so a block whose own predicate is uniform still
             // carries it.
             masks.block[b] = entry_mask;
         } else {
-            internal_assert(!divergence.masked.count(b))
-                << "Masked block " << b << " has no control dependences";
+            internal_assert(!masked.contains(b))
+                << "Masked block " << cfg.name(b)
+                << " has no control dependences";
         }
 
         // A loop is entered under the mask of the block that jumps into it,
         // which is only known now. The transform seeded it with `true`,
         // standing for "every lane that got here".
-        const auto seed = loop_seeds.find(b);
-        if (seed != loop_seeds.end()) {
+        if (const UniformLoop *seed = loop_seeds[b]) {
             if (auto m = mask_of(b)) {
                 for (Terminator::Jump *jump : jumps_of(*block)) {
-                    if (jump->name != seed->second->header) {
+                    if (jump->name != seed->header) {
                         continue;
                     }
-                    internal_assert(seed->second->seed_arg < jump->args.size())
-                        << "Loop " << seed->second->header << " has no live "
-                        << "mask seed at index " << seed->second->seed_arg
-                        << " in the jump from " << b;
-                    jump->args[seed->second->seed_arg] = *m;
+                    internal_assert(seed->seed_arg < jump->args.size())
+                        << "Loop " << seed->header << " has no live "
+                        << "mask seed at index " << seed->seed_arg
+                        << " in the jump from " << cfg.name(b);
+                    jump->args[seed->seed_arg] = *m;
                 }
             }
         }
 
         // The masks of the edges leaving this block.
-        const auto dispatch = dispatches.find(b);
-        const bool folds = divergence.branches.count(b) > 0;
-        for (const CfgEdge &e : outgoing_edges(*block)) {
-            if (!folds || dispatch == dispatches.end()) {
+        const optional<Terminator::Dispatch> &dispatch = dispatches[b];
+        const bool folds = divergent_branches.contains(b);
+        for (const CfgEdge &e : outgoing_edges(cfg, b)) {
+            if (!folds || !dispatch.has_value()) {
                 // A uniform branch does not split the lanes: every edge out
                 // carries the block's own mask.
                 if (auto m = mask_of(b)) {
@@ -616,8 +626,8 @@ BlockMasks linearize(Function &func, const string &entry,
                 continue;
             }
 
-            const shared_ptr<Value> &tag = dispatch->second.cond;
-            const size_t n = dispatch->second.targets.size();
+            const shared_ptr<Value> &tag = dispatch->cond;
+            const size_t n = dispatch->targets.size();
             shared_ptr<Value> cond;
             if (tag->get_type().is_bool()) {
                 cond = tag;
@@ -685,67 +695,69 @@ BlockMasks linearize(Function &func, const string &entry,
     // is not its preheader.
 
     struct Gadget {
-        string guard;       // the block holding the test and the branch
-        string arm;         // the block it stands in front of
-        set<string> region; // the blocks the bypass skips: the arm's region
-        string landing;     // where the bypass lands: the region's one exit
+        BlockId guard;   // the block holding the test and the branch
+        BlockId arm;     // the block it stands in front of
+        BlockSet region; // the blocks the bypass skips: the arm's region
+        BlockId landing; // where the bypass lands: the region's one exit
     };
     vector<Gadget> gadgets;
-    set<string> guards;
+    BlockSet guards;
+    // Every block name in the function, so that a guard's is new.
+    std::unordered_set<string> taken;
+    for (const auto &block : func.blocks) {
+        taken.insert(block->name);
+    }
     auto fresh_block_name = [&](const string &stem) {
         string name = stem;
-        for (size_t i = 0; blocks.count(name); i++) {
+        for (size_t i = 0; taken.count(name); i++) {
             name = stem + "_" + std::to_string(i);
         }
+        taken.insert(name);
         return name;
     };
 
     // For measuring what the skipping is worth on a program: with this set,
     // every gang runs every arm, as linearized code does without it.
     if (std::getenv("BONSAI_NO_BOSCC") == nullptr) {
-        for (const string &x : by_index) {
-            const auto d = dispatches.find(x);
-            if (!divergence.branches.count(x) || d == dispatches.end()) {
+        for (const BlockId x : by_index) {
+            if (!divergent_branches.contains(x) || !dispatches[x].has_value()) {
                 continue;
             }
-            set<string> seen;
-            for (const Terminator::Jump &target : d->second.targets) {
-                const string &a = target.name;
-                if (!seen.insert(a).second || !region.count(a)) {
+            set<BlockId> seen;
+            for (const Terminator::Jump &target : dispatches[x]->targets) {
+                const BlockId a = cfg.find(target.name);
+                if (a == NO_BLOCK || !seen.insert(a).second) {
                     continue;
                 }
-                const auto pa = preds.find(a);
-                if (pa == preds.end() || pa->second.size() != 1 ||
-                    pa->second[0] != x) {
+                const vector<BlockId> &pa = cfg.preds[a];
+                if (pa.size() != 1 || pa[0] != x) {
                     continue; // a join, or a header
                 }
-                if (innermost_loop(loops, a) != innermost_loop(loops, x)) {
+                if (loops.innermost(a) != loops.innermost(x)) {
                     continue;
                 }
-                const vector<string> arm_subtree = dom.subtree(a);
-                const set<string> dominated(arm_subtree.begin(),
-                                            arm_subtree.end());
+                BlockSet dominated(cfg.size());
+                for (BlockId u : dom.subtree(a)) {
+                    dominated.insert(u);
+                }
                 // One way out, forwards.
-                optional<string> out;
+                BlockId out = NO_BLOCK;
                 bool one_exit = true;
-                for (const string &u : dominated) {
-                    const auto edges = linear.find(u);
-                    if (edges != linear.end()) {
-                        for (const CfgEdge &e : edges->second) {
-                            if (dominated.count(e.to)) {
-                                continue;
-                            }
-                            one_exit = one_exit && (!out || *out == e.to);
-                            out = e.to;
+                for (BlockId u : dominated) {
+                    for (const CfgEdge &e : linear[u]) {
+                        if (dominated.contains(e.to)) {
+                            continue;
                         }
+                        one_exit = one_exit && (out == NO_BLOCK || out == e.to);
+                        out = e.to;
                     }
                     for (const Edge &back : back_edges) {
-                        if (back.first == u && !dominated.count(back.second)) {
+                        if (back.first == u && !dominated.contains(back.second)) {
                             one_exit = false;
                         }
                     }
                 }
-                if (!one_exit || !out.has_value() || loops.count(*out)) {
+                if (!one_exit || out == NO_BLOCK || loops.find(out) != nullptr) {
                     continue;
                 }
                 // One way in, into the arm -- not counting the bypasses of
@@ -753,16 +765,17 @@ BlockMasks linearize(Function &func, const string &entry,
                 // a gang that skips one arm lands on the next arm's test, as
                 // it does in ispc.
                 size_t ways_in = 0;
-                for (const auto &[u, edges] : linear) {
-                    if (dominated.count(u)) {
+                for (BlockId u = 0; u < linear.size(); u++) {
+                    if (dominated.contains(u)) {
                         continue;
                     }
-                    for (const CfgEdge &e : edges) {
-                        if (dominated.count(e.to)) {
+                    for (const CfgEdge &e : linear[u]) {
+                        if (dominated.contains(e.to)) {
                             internal_assert(e.to == a)
-                                << "The fold enters the region of " << a
-                                << " at " << e.to << ", not at the arm";
-                            if (!(guards.count(u) && e.index == 0)) {
+                                << "The fold enters the region of "
+                                << cfg.name(a) << " at " << cfg.name(e.to)
+                                << ", not at the arm";
+                            if (!(guards.contains(u) && e.index == 0)) {
                                 ways_in++;
                             }
                         }
@@ -771,67 +784,69 @@ BlockMasks linearize(Function &func, const string &entry,
                 if (ways_in != 1) {
                     continue;
                 }
-                const auto m = masks.block.find(a);
-                internal_assert(m != masks.block.end())
-                    << "Arm " << a << " of the divergent branch in " << x
-                    << " has no mask";
-                if (dominated.count(defined_in(*m->second))) {
+                const shared_ptr<Value> m = masks.block[a];
+                internal_assert(m)
+                    << "Arm " << cfg.name(a) << " of the divergent branch in "
+                    << cfg.name(x) << " has no mask";
+                if (dominated.contains(defined_in(cfg, *m))) {
                     continue; // a mask the arm computes for itself
                 }
-                if (!worth_skipping(blocks, dominated)) {
+                if (!worth_skipping(cfg, dominated)) {
                     continue;
                 }
 
                 auto guard = std::make_shared<Block>();
-                guard->name = fresh_block_name(a + "!any");
-                guard->owner = blocks.at(a)->owner;
+                guard->name = fresh_block_name(cfg.name(a) + "!any");
+                guard->owner = cfg[a].owner;
                 auto any = append(func, guard, bool_type, Instruction::Op::Any,
-                                  {m->second});
+                                  {m});
                 // targets[0] is where a false condition goes: past the arm.
                 guard->terminator.data = Terminator::Dispatch{
                     .cond = any,
-                    .targets = {Terminator::Jump{.name = *out, .args = {}},
-                                Terminator::Jump{.name = a, .args = {}}}};
-                for (auto &[u, edges] : linear) {
+                    .targets = {
+                        Terminator::Jump{.name = cfg.name(out), .args = {}},
+                        Terminator::Jump{.name = cfg.name(a), .args = {}}}};
+                const BlockId g = cfg.add_block(guard);
+                for (vector<CfgEdge> &edges : linear) {
                     for (CfgEdge &e : edges) {
                         if (e.to == a) {
-                            e.to = guard->name;
+                            e.to = g;
                         }
                     }
                 }
-                linear[guard->name] = {{guard->name, 0, *out},
-                                       {guard->name, 1, a}};
+                linear.push_back({{g, 0, out}, {g, 1, a}});
+                masks.block.push_back(m);
+                internal_assert(linear.size() == cfg.size() &&
+                                masks.block.size() == cfg.size());
                 func.blocks.insert(std::find(func.blocks.begin(),
-                                             func.blocks.end(), blocks.at(a)),
+                                             func.blocks.end(), cfg.block(a)),
                                    guard);
-                blocks[guard->name] = guard;
-                masks.block[guard->name] = m->second;
                 for (Gadget &earlier : gadgets) {
                     // The guard runs inside every region around the arm...
-                    if (earlier.region.count(a)) {
-                        earlier.region.insert(guard->name);
+                    if (earlier.region.contains(a)) {
+                        earlier.region.insert(g);
                     }
                     // ...and a bypass that landed on the arm lands on its
                     // test now.
                     if (earlier.landing == a) {
-                        earlier.landing = guard->name;
+                        earlier.landing = g;
                         std::get<Terminator::Dispatch>(
-                            blocks.at(earlier.guard)->terminator.data)
+                            cfg[earlier.guard].terminator.data)
                             .targets[0]
                             .name = guard->name;
                     }
                 }
-                gadgets.push_back({guard->name, a, dominated, *out});
-                guards.insert(guard->name);
+                gadgets.push_back({g, a, dominated, out});
+                guards.insert(g);
             }
         }
     }
 
     // How many arguments each block declared before any landing gained one;
     // the blending below is of these, and only these.
-    map<string, size_t> original_args;
-    for (const auto &[name, block] : blocks) {
-        original_args[name] = block->args.size();
+    vector<size_t> original_args(cfg.size());
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        original_args[b] = cfg[b].args.size();
     }
 
     // Dominance in the graph as it now is: the path the fold made, the
@@ -839,19 +854,17 @@ BlockMasks linearize(Function &func, const string &entry,
     // in scope from here on; the original graph's dominators do not, since
     // the fold has made every folded arm dominate what follows it, and a
     // bypass has undone that for the arms that are skipped.
-    AdjacencyMap linear_succs;
-    for (const auto &[from, edges] : linear) {
-        for (const CfgEdge &e : edges) {
+    vector<vector<BlockId>> linear_succs(cfg.size());
+    for (BlockId from = 0; from < linear.size(); from++) {
+        for (const CfgEdge &e : linear[from]) {
             linear_succs[from].push_back(e.to);
         }
     }
     for (const Edge &back : back_edges) {
         linear_succs[back.first].push_back(back.second);
     }
-    const AdjacencyMap linear_preds = compute_predecessors(linear_succs);
     const DomTree linear_dom = compute_dominator_tree(
-        entry, linear_succs, linear_preds,
-        reverse_postorder(entry, linear_succs));
+        Graph::from_successors(std::move(linear_succs), entry));
 
     // A value defined inside a skipped region and read outside it has to
     // reach the read along the bypass too, and the bypass computes nothing:
@@ -865,25 +878,25 @@ BlockMasks linearize(Function &func, const string &entry,
     // lands there, and any other way in.
     struct LandingArg {
         shared_ptr<Value> arg;
-        map<string, shared_ptr<Value>> from;
+        map<BlockId, shared_ptr<Value>> from;
     };
-    map<string, vector<LandingArg>> landing_args;
+    vector<vector<LandingArg>> landing_args(cfg.size());
 
     // The landings between a definition in `at` and a read in `to`, innermost
     // region first; regions that share a landing are one hop. At each, the
     // block the region leaves from and any other way in -- a landing that is
     // a join of a uniform branch of the program's.
     struct Hop {
-        string landing;
-        string inside;
-        vector<string> others;
+        BlockId landing;
+        BlockId inside;
+        vector<BlockId> others;
     };
-    auto hops = [&](string at, const string &to) {
+    auto hops = [&](BlockId at, BlockId to) {
         vector<Hop> path;
         for (;;) {
             vector<const Gadget *> enclosing;
             for (const Gadget &g : gadgets) {
-                if (g.region.count(at) && !g.region.count(to)) {
+                if (g.region.contains(at) && !g.region.contains(to)) {
                     enclosing.push_back(&g);
                 }
             }
@@ -892,31 +905,32 @@ BlockMasks linearize(Function &func, const string &entry,
             }
             const Gadget *inner = enclosing.front();
             for (const Gadget *g : enclosing) {
-                if (g != inner && inner->region.count(g->arm)) {
+                if (g != inner && inner->region.contains(g->arm)) {
                     inner = g;
                 }
             }
-            Hop hop{inner->landing, "", {}};
-            for (const auto &[from, edges] : linear) {
-                for (const CfgEdge &e : edges) {
+            Hop hop{inner->landing, NO_BLOCK, {}};
+            for (BlockId from = 0; from < linear.size(); from++) {
+                for (const CfgEdge &e : linear[from]) {
                     if (e.to != hop.landing ||
-                        (guards.count(from) && e.index == 0)) {
+                        (guards.contains(from) && e.index == 0)) {
                         continue;
                     }
-                    if (inner->region.count(from)) {
-                        internal_assert(hop.inside.empty())
-                            << "The region of " << inner->arm << " leaves "
-                            << "for " << hop.landing << " from both "
-                            << hop.inside << " and " << from;
+                    if (inner->region.contains(from)) {
+                        internal_assert(hop.inside == NO_BLOCK)
+                            << "The region of " << cfg.name(inner->arm)
+                            << " leaves for " << cfg.name(hop.landing)
+                            << " from both " << cfg.name(hop.inside) << " and "
+                            << cfg.name(from);
                         hop.inside = from;
                     } else {
                         hop.others.push_back(from);
                     }
                 }
             }
-            internal_assert(!hop.inside.empty())
-                << "The region of " << inner->arm << " does not leave for "
-                << "its landing " << hop.landing;
+            internal_assert(hop.inside != NO_BLOCK)
+                << "The region of " << cfg.name(inner->arm)
+                << " does not leave for its landing " << cfg.name(hop.landing);
             path.push_back(hop);
             at = hop.landing;
         }
@@ -933,10 +947,10 @@ BlockMasks linearize(Function &func, const string &entry,
     // the block the returned value is defined in. A `memo` shares one
     // argument between every reader of the same value.
     using ThreadMemo =
-        map<std::pair<const Instruction *, string>, shared_ptr<Value>>;
+        map<std::pair<const Instruction *, BlockId>, shared_ptr<Value>>;
     set<string> landing_names;
-    map<const Value *, string> landing_arg_block;
-    auto thread = [&](shared_ptr<Value> v, string &at, const string &to,
+    map<const Value *, BlockId> landing_arg_block;
+    auto thread = [&](shared_ptr<Value> v, BlockId &at, BlockId to,
                       const string &stem,
                       const std::function<shared_ptr<Value>(const Gadget &)>
                           &skipped,
@@ -947,14 +961,14 @@ BlockMasks linearize(Function &func, const string &entry,
                 return nullptr;
             }
             const auto *instr = std::get_if<shared_ptr<Instruction>>(&v->data);
-            const std::pair<const Instruction *, string> key{
+            const std::pair<const Instruction *, BlockId> key{
                 instr ? instr->get() : nullptr, hop.landing};
             if (memo != nullptr && instr != nullptr && memo->count(key)) {
                 v = memo->at(key);
                 at = hop.landing;
                 continue;
             }
-            auto landing = blocks.at(hop.landing);
+            const shared_ptr<Block> &landing = cfg.block(hop.landing);
             // Unique in the function, so that a name says which landing's
             // argument it is (see definition_block).
             string name = stem + "!skip";
@@ -968,10 +982,10 @@ BlockMasks linearize(Function &func, const string &entry,
             for (const Gadget &g : gadgets) {
                 if (g.landing == hop.landing) {
                     entry_arg.from[g.guard] =
-                        g.region.count(at) ? skipped(g) : v;
+                        g.region.contains(at) ? skipped(g) : v;
                 }
             }
-            for (const string &other : hop.others) {
+            for (BlockId other : hop.others) {
                 entry_arg.from[other] = elsewhere;
             }
             v = entry_arg.arg;
@@ -988,34 +1002,29 @@ BlockMasks linearize(Function &func, const string &entry,
     // Where `v`, as `from` passes it, is defined: the block of an
     // instruction; for an argument, the landing that declared it, or else
     // the nearest block up `from`'s dominator chain that declares the name.
-    // Empty for a constant, or for a parameter -- something in scope
+    // NO_BLOCK for a constant, or for a parameter -- something in scope
     // everywhere, which no bypass can put out of reach.
     auto definition_block = [&](const shared_ptr<Value> &v,
-                                const string &from) -> string {
+                                BlockId from) -> BlockId {
         if (std::holds_alternative<shared_ptr<Instruction>>(v->data)) {
-            return defined_in(*v);
+            return defined_in(cfg, *v);
         }
         const auto *arg = std::get_if<Argument>(&v->data);
         if (arg == nullptr) {
-            return "";
+            return NO_BLOCK;
         }
         const auto landing = landing_arg_block.find(v.get());
         if (landing != landing_arg_block.end()) {
             return landing->second;
         }
-        for (string at = from;;) {
-            const Block &here = *blocks.at(at);
-            if (std::any_of(here.args.begin(), here.args.end(),
-                            [&](const Argument &a) {
-                                return a.name == arg->name;
-                            })) {
-                return at == entry ? "" : at;
+        for (BlockId at = from;;) {
+            if (declares(cfg[at], arg->name)) {
+                return at == entry ? NO_BLOCK : at;
             }
-            const auto up = dom.idom.find(at);
-            if (up == dom.idom.end() || up->second == at) {
-                return "";
+            if (!dom.contains(at) || dom.idom[at] == at) {
+                return NO_BLOCK;
             }
-            at = up->second;
+            at = dom.idom[at];
         }
     };
 
@@ -1028,27 +1037,28 @@ BlockMasks linearize(Function &func, const string &entry,
     if (!gadgets.empty()) {
         const auto no_lane = std::make_shared<Value>(Constant{bool_type, false});
         ThreadMemo threaded_masks;
-        for (auto &[b, block] : blocks) {
+        for (BlockId b = 0; b < cfg.size(); b++) {
+            const shared_ptr<Block> &block = cfg.block(b);
             auto fix = [&](shared_ptr<Value> &v) {
                 if (!v) {
                     return;
                 }
-                string def = defined_in(*v);
-                if (def.empty() || def == b) {
+                BlockId def = defined_in(cfg, *v);
+                if (def == NO_BLOCK || def == b) {
                     return;
                 }
                 const bool crosses = std::any_of(
                     gadgets.begin(), gadgets.end(), [&](const Gadget &g) {
-                        return g.region.count(def) && !g.region.count(b);
+                        return g.region.contains(def) && !g.region.contains(b);
                     });
                 if (!crosses) {
                     return;
                 }
                 const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data);
                 internal_assert(is_mask_logic((*i)->op))
-                    << "The value " << (*i)->name << " of " << def
-                    << " is read in " << b << ", past a bypass of the region "
-                    << "that computes it, and is not a mask";
+                    << "The value " << (*i)->name << " of " << cfg.name(def)
+                    << " is read in " << cfg.name(b) << ", past a bypass of "
+                    << "the region that computes it, and is not a mask";
                 v = thread(
                     v, def, b, (*i)->name,
                     [&](const Gadget &) { return no_lane; }, no_lane,
@@ -1059,9 +1069,8 @@ BlockMasks linearize(Function &func, const string &entry,
                     fix(operand);
                 }
             }
-            const auto m = masks.block.find(b);
-            if (m != masks.block.end()) {
-                fix(m->second);
+            if (masks.block[b]) {
+                fix(masks.block[b]);
             }
             for (auto &[edge, mask] : masks.edge) {
                 if (edge.first == b) {
@@ -1081,21 +1090,22 @@ BlockMasks linearize(Function &func, const string &entry,
     // the folded edges -- every value has been computed by the time the block
     // runs, and the mask says which one this lane wanted.
 
-    // What each blended-away argument was replaced by, so that a later block
-    // taking that argument as an incoming value picks up the blend instead of
-    // a name that no longer exists. Nested branches need this: the outer
-    // join's incoming value is the inner join's argument.
-    map<std::pair<string, string>, shared_ptr<Value>> replaced;
+    // What each blended-away argument was replaced by, per block and argument
+    // name, so that a later block taking that argument as an incoming value
+    // picks up the blend instead of a name that no longer exists. Nested
+    // branches need this: the outer join's incoming value is the inner join's
+    // argument.
+    vector<map<string, shared_ptr<Value>>> replaced(cfg.size());
 
     // Blocks that still merge values through their arguments -- a loop header,
     // say. An edge into one of these has to go on carrying what it passes;
     // dropping it would leave the phi with nothing to merge.
-    set<string> keeps_args;
+    BlockSet keeps_args(cfg.size());
 
     // Whether any argument was turned into a slot (see below), which the
     // promotion pass turns back into values once the graph is rewired.
     bool slots_made = false;
-    const auto entry_block = blocks.at(entry);
+    const shared_ptr<Block> &entry_block = cfg.block(entry);
     auto append_store = [&](const shared_ptr<Block> &into,
                             const shared_ptr<Value> &slot,
                             const shared_ptr<Value> &value) {
@@ -1104,16 +1114,16 @@ BlockMasks linearize(Function &func, const string &entry,
             into));
     };
 
-    for (const string &b : by_index) {
-        auto block = blocks.at(b);
+    for (const BlockId b : by_index) {
+        const shared_ptr<Block> &block = cfg.block(b);
         if (block->args.empty() || b == entry) {
             continue;
         }
 
-        const auto it = incoming.find(b);
-        internal_assert(it != incoming.end())
-            << "Block " << b << " takes arguments but nothing jumps to it";
-        const vector<Incoming> &sources = it->second;
+        const vector<Incoming> &sources = incoming[b];
+        internal_assert(!sources.empty())
+            << "Block " << cfg.name(b)
+            << " takes arguments but nothing jumps to it";
 
         // How many predecessors does this block still have of its own? If the
         // branch into it survived linearization, the argument is still a real
@@ -1124,9 +1134,9 @@ BlockMasks linearize(Function &func, const string &entry,
         // the one path the fold left it, and its argument for the bypass is
         // made below, where the blends are.
         size_t remaining = 0;
-        for (const auto &[from, edges] : linear) {
-            for (const CfgEdge &e : edges) {
-                if (e.to == b && !(guards.count(from) && e.index == 0)) {
+        for (BlockId from = 0; from < linear.size(); from++) {
+            for (const CfgEdge &e : linear[from]) {
+                if (e.to == b && !(guards.contains(from) && e.index == 0)) {
                     remaining++;
                 }
             }
@@ -1140,16 +1150,16 @@ BlockMasks linearize(Function &func, const string &entry,
         // landing gained an argument (see `thread`): those are appended after
         // them, are handed along the edges rather than blended, and may have
         // been added to this block already, by the joins before it.
-        const size_t n_args = original_args.at(b);
+        const size_t n_args = original_args[b];
         // A call continuation is handed the returned value as its first
         // argument, which no predecessor passes. Those leading arguments have
         // nothing to blend and stay as they are.
         size_t leading = n_args;
         for (const Incoming &source : sources) {
             internal_assert(source.values.size() <= n_args)
-                << "Jump from " << source.from << " to " << b << " passes "
-                << source.values.size() << " arguments to a block taking "
-                << n_args;
+                << "Jump from " << cfg.name(source.from) << " to "
+                << cfg.name(b) << " passes " << source.values.size()
+                << " arguments to a block taking " << n_args;
             leading = std::min(leading, n_args - source.values.size());
         }
 
@@ -1189,17 +1199,12 @@ BlockMasks linearize(Function &func, const string &entry,
                     break;
                 }
                 bool declared_above = false;
-                for (string at = b;;) {
-                    const auto up = dom.idom.find(at);
-                    if (up == dom.idom.end() || up->second == at) {
+                for (BlockId at = b;;) {
+                    if (!dom.contains(at) || dom.idom[at] == at) {
                         break;
                     }
-                    at = up->second;
-                    const Block &above = *blocks.at(at);
-                    if (std::any_of(above.args.begin(), above.args.end(),
-                                    [&](const Argument &arg) {
-                                        return arg.name == name;
-                                    })) {
+                    at = dom.idom[at];
+                    if (declares(cfg[at], name)) {
                         declared_above = true;
                         break;
                     }
@@ -1228,30 +1233,25 @@ BlockMasks linearize(Function &func, const string &entry,
         auto value_from = [&](const Incoming &source, size_t j) {
             const size_t offset = n_args - source.values.size();
             internal_assert(j >= offset)
-                << "Jump from " << source.from << " to " << b
-                << " passes too few arguments";
+                << "Jump from " << cfg.name(source.from) << " to "
+                << cfg.name(b) << " passes too few arguments";
             shared_ptr<Value> incoming_value = source.values[j - offset];
             if (std::holds_alternative<Argument>(incoming_value->data)) {
                 const string &name =
                     std::get<Argument>(incoming_value->data).name;
-                for (string at = source.from;;) {
-                    const auto substituted = replaced.find({at, name});
-                    if (substituted != replaced.end()) {
+                for (BlockId at = source.from;;) {
+                    const auto substituted = replaced[at].find(name);
+                    if (substituted != replaced[at].end()) {
                         incoming_value = substituted->second;
                         break;
                     }
-                    const Block &here = *blocks.at(at);
-                    if (std::any_of(here.args.begin(), here.args.end(),
-                                    [&](const Argument &arg) {
-                                        return arg.name == name;
-                                    })) {
+                    if (declares(cfg[at], name)) {
                         break;
                     }
-                    const auto up = dom.idom.find(at);
-                    if (up == dom.idom.end() || up->second == at) {
+                    if (!dom.contains(at) || dom.idom[at] == at) {
                         break;
                     }
-                    at = up->second;
+                    at = dom.idom[at];
                 }
             }
             return incoming_value;
@@ -1292,7 +1292,7 @@ BlockMasks linearize(Function &func, const string &entry,
             append_store(entry_block, slot,
                          zero_value(type, func, entry_block));
             for (const Incoming &source : sources) {
-                const auto from = blocks.at(source.from);
+                const shared_ptr<Block> &from = cfg.block(source.from);
                 shared_ptr<Value> value = value_from(source, j);
                 const auto edge = masks.edge.find({source.from, b});
                 if (edge != masks.edge.end()) {
@@ -1319,12 +1319,8 @@ BlockMasks linearize(Function &func, const string &entry,
             // a lane that has left the loop is off in every mask here and
             // must keep the header's value, so that is what the blend of
             // such an argument falls through to.
-            const Block *loop_header = nullptr;
-            for (const UniformLoop &loop : loops_in) {
-                if (loop.latch == b) {
-                    loop_header = blocks.at(loop.header).get();
-                }
-            }
+            const Block *loop_header =
+                latch_header[b] == NO_BLOCK ? nullptr : &cfg[latch_header[b]];
             // The sources in the order the linearized code runs them, which
             // is the block index's (see compute_block_index).
             vector<const Incoming *> in_order;
@@ -1333,7 +1329,7 @@ BlockMasks linearize(Function &func, const string &entry,
             }
             std::sort(in_order.begin(), in_order.end(),
                       [&](const Incoming *p, const Incoming *q) {
-                          return index.at(p->from) < index.at(q->from);
+                          return index.of[p->from] < index.of[q->from];
                       });
             for (size_t j = leading; j < n_args; j++) {
                 // The blend of each source goes at the end of that source,
@@ -1370,16 +1366,16 @@ BlockMasks linearize(Function &func, const string &entry,
                 // the next one is not on -- has nowhere to keep the running
                 // value, and the argument is merged through a slot instead.
                 shared_ptr<Value> value;
-                string value_at; // where `value` was blended
+                BlockId value_at = NO_BLOCK; // where `value` was blended
                 // The running value as each region was entered, by guard.
-                map<string, shared_ptr<Value>> before_region;
+                map<BlockId, shared_ptr<Value>> before_region;
                 const auto skipped = [&](const Gadget &g) {
                     const auto it = before_region.find(g.guard);
                     if (it != before_region.end() && it->second) {
                         return it->second;
                     }
                     return zero_value(block->args[j].type, func,
-                                      blocks.at(g.guard));
+                                      cfg.block(g.guard));
                 };
                 if (loop_header != nullptr) {
                     // The header's value of what this argument carries: the
@@ -1417,7 +1413,7 @@ BlockMasks linearize(Function &func, const string &entry,
                     // threaded through the landings on the way, which is
                     // also what puts it in scope at the guard of any region
                     // this source starts, where the bypass reads it.
-                    if (value && !value_at.empty()) {
+                    if (value && value_at != NO_BLOCK) {
                         value = thread(value, value_at, source->from,
                                        block->args[j].name, skipped, nullptr,
                                        nullptr);
@@ -1428,7 +1424,7 @@ BlockMasks linearize(Function &func, const string &entry,
                         }
                     }
                     for (const Gadget &g : gadgets) {
-                        if (g.region.count(source->from)) {
+                        if (g.region.contains(source->from)) {
                             before_region.emplace(g.guard, value);
                         }
                     }
@@ -1449,15 +1445,15 @@ BlockMasks linearize(Function &func, const string &entry,
                     }
                     const auto edge = masks.edge.find({source->from, b});
                     internal_assert(edge != masks.edge.end())
-                        << "Folded edge " << source->from << "->" << b
-                        << " has no mask to blend on";
-                    const shared_ptr<Block> at = blocks.at(source->from);
+                        << "Folded edge " << cfg.name(source->from) << "->"
+                        << cfg.name(b) << " has no mask to blend on";
+                    const shared_ptr<Block> &at = cfg.block(source->from);
                     value = append(func, at, block->args[j].type,
                                    Instruction::Op::Select,
                                    {edge->second, incoming_value, value});
                     value_at = source->from;
                 }
-                if (!through_slot && !value_at.empty()) {
+                if (!through_slot && value_at != NO_BLOCK) {
                     value = thread(value, value_at, b, block->args[j].name,
                                    skipped, nullptr, nullptr);
                     through_slot = value == nullptr;
@@ -1561,91 +1557,31 @@ BlockMasks linearize(Function &func, const string &entry,
                     in.terminator.data);
             };
 
-            for (const string &other : dom.subtree(b)) {
+            for (BlockId other : dom.subtree(b)) {
                 if (other == b) {
                     continue;
                 }
                 // Does a block between here and `b` -- this one included --
                 // declare the name for itself?
                 bool shadowed = false;
-                for (string at = other; at != b;) {
-                    const Block &between = *blocks.at(at);
-                    if (std::any_of(between.args.begin(), between.args.end(),
-                                    [&](const Argument &arg) {
-                                        return arg.name == name;
-                                    })) {
+                for (BlockId at = other; at != b;) {
+                    if (declares(cfg[at], name)) {
                         shadowed = true;
                         break;
                     }
-                    const auto up = dom.idom.find(at);
-                    if (up == dom.idom.end() || up->second == at) {
+                    if (!dom.contains(at) || dom.idom[at] == at) {
                         break;
                     }
-                    at = up->second;
+                    at = dom.idom[at];
                 }
                 if (!shadowed) {
-                    replace_in(*blocks.at(other), /*skip_blends=*/false);
+                    replace_in(cfg[other], /*skip_blends=*/false);
                 }
             }
 
-            for (const auto &instr : block->instrs) {
-                // Not inside a blend: its operands are the incoming values,
-                // one of which may well be an argument of this block with
-                // the same name, and rewriting them would make the blend
-                // select between itself.
-                if (blends.count(instr.get())) {
-                    continue;
-                }
-                for (auto &operand : instr->operands) {
-                    replace(operand);
-                }
-            }
-            std::visit(overloads{
-                           [&](std::monostate &) {},
-                           [&](Terminator::Jump &t) {
-                               for (auto &a : t.args) {
-                                   replace(a);
-                               }
-                           },
-                           [&](Terminator::Dispatch &t) {
-                               replace(t.cond);
-                               for (auto &target : t.targets) {
-                                   for (auto &a : target.args) {
-                                       replace(a);
-                                   }
-                               }
-                           },
-                           [&](Terminator::Return &t) { replace(t.value); },
-                           [&](Terminator::ParFor &) {},
-                           [&](Terminator::Yield &) {},
-                           [&](Terminator::Call &t) {
-                               for (auto &a : t.call.args) {
-                                   replace(a);
-                               }
-                               for (auto &a : t.cont.args) {
-                                   replace(a);
-                               }
-                           },
-                           [&](Terminator::MultiCall &t) {
-                               for (auto &a : t.call.args) {
-                                   replace(a);
-                               }
-                               for (auto &vs : t.varying) {
-                                   for (auto &a : vs) {
-                                       replace(a);
-                                   }
-                               }
-                               for (auto &k : t.keys) {
-                                   replace(k);
-                               }
-                               for (auto &a : t.cont.args) {
-                                   replace(a);
-                               }
-                           },
-                       },
-                       block->terminator.data);
+            replace_in(*block, /*skip_blends=*/true);
             block->lookups[name] = blended[j];
-            replaced[{b, name}] = blended[j];
+            replaced[b][name] = blended[j];
         }
         // Only the blended arguments go: a call's returned value is still
         // delivered as an argument, and so is what a landing was handed.
@@ -1659,39 +1595,39 @@ BlockMasks linearize(Function &func, const string &entry,
 
     // Retargets one jump, keeping the values it carries only when the block it
     // now goes to still has arguments to bind them to.
-    auto rewire = [&](const string &b, Terminator::Jump &jump,
-                      const CfgEdge &edge) {
-        if (!keeps_args.count(edge.to)) {
-            jump.name = edge.to;
+    auto rewire = [&](BlockId b, Terminator::Jump &jump, const CfgEdge &edge) {
+        const string &to = cfg.name(edge.to);
+        if (!keeps_args.contains(edge.to)) {
+            jump.name = to;
             jump.args.clear();
             return;
         }
-        internal_assert(jump.name == edge.to)
-            << "Linearization sent " << b << " to " << edge.to
+        internal_assert(jump.name == to)
+            << "Linearization sent " << cfg.name(b) << " to " << to
             << ", which kept its arguments, but the edge used to go to "
-            << jump.name << ": there are no values for the arguments of "
-            << edge.to << " on this path";
-        jump.name = edge.to;
+            << jump.name << ": there are no values for the arguments of " << to
+            << " on this path";
+        jump.name = to;
     };
 
-    for (const string &b : by_index) {
-        auto block = blocks.at(b);
-        const auto it = linear.find(b);
-        if (it == linear.end()) {
+    for (const BlockId b : by_index) {
+        const shared_ptr<Block> &block = cfg.block(b);
+        const vector<CfgEdge> &edges = linear[b];
+        if (edges.empty()) {
             continue; // an exit, or a latch whose only edge goes back
         }
-        const vector<CfgEdge> &edges = it->second;
 
-        if (divergence.branches.count(b)) {
+        if (divergent_branches.contains(b)) {
             internal_assert(edges.size() == 1)
-                << "A folded branch in " << b << " kept " << edges.size()
-                << " edges";
+                << "A folded branch in " << cfg.name(b) << " kept "
+                << edges.size() << " edges";
             // A block that still merges values cannot be the target of a fold:
             // the folded branch has no values to hand it.
-            internal_assert(!keeps_args.count(edges[0].to))
-                << "A folded branch in " << b << " goes to " << edges[0].to
+            internal_assert(!keeps_args.contains(edges[0].to))
+                << "A folded branch in " << cfg.name(b) << " goes to "
+                << cfg.name(edges[0].to)
                 << ", which still merges values through its arguments";
-            block->terminator.data = Terminator::Jump{edges[0].to};
+            block->terminator.data = Terminator::Jump{cfg.name(edges[0].to)};
             continue;
         }
 
@@ -1727,38 +1663,35 @@ BlockMasks linearize(Function &func, const string &entry,
     // The arguments the landings gained (see `thread`): every way into a
     // landing hands over what it was recorded as handing, in the order the
     // arguments were added.
-    for (const auto &[landing, args] : landing_args) {
-        for (const LandingArg &arg : args) {
+    for (BlockId landing = 0; landing < landing_args.size(); landing++) {
+        const string &landing_name = cfg.name(landing);
+        for (const LandingArg &arg : landing_args[landing]) {
             for (const auto &[from, value] : arg.from) {
                 bool passed = false;
-                for (Terminator::Jump *jump : jumps_of(*blocks.at(from))) {
-                    if (jump->name == landing) {
+                for (Terminator::Jump *jump : jumps_of(cfg[from])) {
+                    if (jump->name == landing_name) {
                         jump->args.push_back(value);
                         passed = true;
                     }
                 }
                 internal_assert(passed)
-                    << from << " does not go to " << landing
+                    << cfg.name(from) << " does not go to " << landing_name
                     << ", whose argument it was to hand a value";
             }
         }
     }
 
     // Predecessor lists are rebuilt from the new terminators, since the
-    // rewiring above invalidated them.
-    const AdjacencyMap new_preds =
-        compute_predecessors(compute_successors(func));
-    for (const auto &[name, block] : blocks) {
-        if (!region.count(name) && !guards.count(name)) {
-            continue;
-        }
-        block->preds.clear();
-        const auto it = new_preds.find(name);
-        if (it == new_preds.end()) {
-            continue;
-        }
-        for (const string &p : it->second) {
-            block->preds.push_back(blocks.at(p));
+    // rewiring above invalidated them. For the region's blocks and the
+    // guards, which is what `cfg` holds by now.
+    {
+        const Cfg now(func);
+        for (BlockId b = 0; b < cfg.size(); b++) {
+            const shared_ptr<Block> &block = cfg.block(b);
+            block->preds.clear();
+            for (BlockId p : now.preds[now.id(*block)]) {
+                block->preds.push_back(now.block(p));
+            }
         }
     }
 
@@ -1767,19 +1700,20 @@ BlockMasks linearize(Function &func, const string &entry,
     // Before predication, which would otherwise mask their stores a second
     // time -- the select each one wraps already did.
     if (slots_made) {
-        promote_allocas(func, entry);
+        promote_allocas(func, entry_name);
     }
 
     //===------------------------------------------------------------===//
     // Predication of side effects
     //===------------------------------------------------------------===//
 
-    for (const string &b : by_index) {
+    for (const BlockId b : by_index) {
         auto mask = mask_of(b);
         if (!mask) {
             continue; // always executed with every lane on
         }
-        auto &instrs = blocks.at(b)->instrs;
+        const string &name = cfg.name(b);
+        auto &instrs = cfg[b].instrs;
         for (size_t i = 0; i < instrs.size(); i++) {
             const auto &instr = instrs[i];
             // A read of one element per lane out of memory -- a gather, its
@@ -1792,7 +1726,7 @@ BlockMasks linearize(Function &func, const string &entry,
             if (instr->op == Instruction::Op::ExtractIdx &&
                 instr->operands.size() == 2 &&
                 instr->operands[0]->get_type().is_reference() &&
-                divergence.is_varying(b, *instr->operands[1])) {
+                divergence.is_varying(name, *instr->operands[1])) {
                 instr->operands.push_back(*mask);
                 continue;
             }
@@ -1806,7 +1740,7 @@ BlockMasks linearize(Function &func, const string &entry,
             if ((instr->op == Instruction::Op::Div ||
                  instr->op == Instruction::Op::Mod) &&
                 instr->type.is_int_or_uint() &&
-                divergence.is_varying(b, *instr->operands[1]) &&
+                divergence.is_varying(name, *instr->operands[1]) &&
                 !std::holds_alternative<Constant>(instr->operands[1]->data)) {
                 const Type &type = instr->type;
                 auto one = std::make_shared<Value>(
@@ -1815,7 +1749,7 @@ BlockMasks linearize(Function &func, const string &entry,
                 auto safe = std::make_shared<Instruction>(
                     func.get_unique_name(), type, Instruction::Op::Select,
                     vector<shared_ptr<Value>>{*mask, instr->operands[1], one},
-                    blocks.at(b));
+                    cfg.block(b));
                 instr->operands[1] = std::make_shared<Value>(safe);
                 instrs.insert(instrs.begin() + long(i), safe);
                 i++;
@@ -1834,12 +1768,18 @@ BlockMasks linearize(Function &func, const string &entry,
                 continue;
             }
             internal_assert(instr->operands.size() == 2)
-                << "Write in " << b << " is already predicated";
+                << "Write in " << name << " is already predicated";
             instr->operands.push_back(*mask);
         }
     }
 
-    return masks.block;
+    BlockMasks result;
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        if (masks.block[b]) {
+            result[cfg.name(b)] = masks.block[b];
+        }
+    }
+    return result;
 }
 
 } // namespace ssa

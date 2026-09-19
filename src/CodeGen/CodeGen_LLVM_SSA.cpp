@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace bonsai {
@@ -730,24 +731,32 @@ struct CodeGen_LLVM::SSALowering {
         // walking in reverse postorder made it whichever block came later.
         // Every definition still precedes its uses: a definition dominates
         // them, so its block is an ancestor of theirs.
-        ir::ssa::AdjacencyMap succs;
-        for (const std::string &name : region) {
-            succs[name];
-            for (const std::string &s : level_successors(name)) {
-                if (region.count(s)) {
-                    succs[name].push_back(s);
+        // The region's graph over dense ids, in name order (see
+        // SSA/Analysis.h), with the level's edges rather than the blocks'
+        // own.
+        const std::vector<std::string> names(region.begin(), region.end());
+        std::unordered_map<std::string, ir::ssa::BlockId> ids;
+        for (size_t i = 0; i < names.size(); i++) {
+            ids[names[i]] = ir::ssa::BlockId(i);
+        }
+        std::vector<std::vector<ir::ssa::BlockId>> succs(names.size());
+        for (size_t i = 0; i < names.size(); i++) {
+            for (const std::string &s : level_successors(names[i])) {
+                const auto to = ids.find(s);
+                if (to != ids.end()) {
+                    succs[i].push_back(to->second);
                 }
             }
         }
-        const ir::ssa::AdjacencyMap children =
-            ir::ssa::compute_dominator_tree(
-                entry_name, succs, ir::ssa::compute_predecessors(succs), order)
-                .children();
+        const ir::ssa::DomTree dom = ir::ssa::compute_dominator_tree(
+            ir::ssa::Graph::from_successors(std::move(succs),
+                                            ids.at(entry_name)));
 
         yield_targets.push_back(yield_to);
-        std::function<void(const std::string &)> emit =
-            [&](const std::string &name) {
+        std::function<void(ir::ssa::BlockId)> emit =
+            [&](ir::ssa::BlockId b) {
                 cg.frames.push_frame();
+                const std::string &name = names[b];
                 const Block &block = *by_name.at(name);
                 cg.builder->SetInsertPoint(blocks.at(name));
                 bind_arguments(block);
@@ -755,15 +764,12 @@ struct CodeGen_LLVM::SSALowering {
                     emit_instruction(instr);
                 }
                 emit_terminator(block);
-                const auto below = children.find(name);
-                if (below != children.end()) {
-                    for (const std::string &child : below->second) {
-                        emit(child);
-                    }
+                for (ir::ssa::BlockId child : dom.children(b)) {
+                    emit(child);
                 }
                 cg.frames.pop_frame();
             };
-        emit(entry_name);
+        emit(ids.at(entry_name));
         yield_targets.pop_back();
 
         cg.frames.pop_frame();

@@ -179,7 +179,8 @@ struct Resolver {
     }
 
     const BlockMap blocks;
-    AdjacencyMap preds;
+    // Predecessors by name, in the order the function lists the blocks.
+    std::map<string, vector<string>> preds;
 
     shared_ptr<Value> operator()(shared_ptr<Value> v, const Block *at) const {
         set<const Block *> seen;
@@ -452,12 +453,11 @@ void queue_recursion(Function &func, size_t size) {
     // Where the function calls itself.
     set<string> recursive;
     {
-        const BlockMap blocks = make_block_map(func);
-        for (const string &name :
-             reachable_from(entry_name, compute_successors(func))) {
-            const auto call = called_by(*blocks.at(name));
+        const Cfg region(func, entry_name);
+        for (const auto &block : region.blocks()) {
+            const auto call = called_by(*block);
             if (call && call->callee == entry_name) {
-                recursive.insert(name);
+                recursive.insert(block->name);
             }
         }
     }
@@ -534,16 +534,16 @@ void queue_recursion(Function &func, size_t size) {
     // after a recursive call must be either another recursive call or the
     // return itself.
     {
-        const BlockMap blocks = make_block_map(func);
-        const AdjacencyMap succs = compute_successors(func);
+        const Cfg cfg(func);
         for (const string &name : recursive) {
-            const auto call = called_by(*blocks.at(name));
+            const auto call = called_by(cfg[cfg.id(name)]);
             internal_assert(call);
             internal_assert(call->drop)
                 << "The recursive call in " << name << " keeps its result, "
                 << "which a deferred call has not got";
-            for (const string &after : reachable_from(call->cont.name, succs)) {
-                const Block &block = *blocks.at(after);
+            for (BlockId reached : reachable_from(cfg, cfg.id(call->cont.name))) {
+                const Block &block = cfg[reached];
+                const string &after = block.name;
                 for (const auto &instr : block.instrs) {
                     internal_assert(instr->op != Instruction::Op::Store &&
                                     instr->op != Instruction::Op::Print &&
@@ -748,8 +748,7 @@ void queue_recursion(Function &func, size_t size) {
     // Whether anything on a path from the body to `block`, `block` included,
     // stores to the accumulator. Walked before the returns become back edges,
     // so the walk stops where the body begins.
-    const AdjacencyMap preds_of =
-        compute_predecessors(compute_successors(func));
+    const Cfg cfg(func);
     const auto stores_accumulator = [&](const Block &block) {
         internal_assert(acc.has_value());
         const std::optional<string> target = name_of(acc->ptr);
@@ -777,12 +776,12 @@ void queue_recursion(Function &func, size_t size) {
             if (at == body_name) {
                 continue;
             }
-            const auto preds = preds_of.find(at);
-            if (preds == preds_of.end()) {
+            const BlockId at_id = cfg.find(at);
+            if (at_id == NO_BLOCK) {
                 continue;
             }
-            for (const string &pred : preds->second) {
-                work.push_back(pred);
+            for (BlockId pred : cfg.preds[at_id]) {
+                work.push_back(cfg.name(pred));
             }
         }
         return false;
@@ -906,9 +905,12 @@ void queue_recursion(Function &func, size_t size) {
     // Returning from a visit is the end of that node, not of the traversal:
     // the next one comes off the stack. The exit's own return is the
     // traversal's, and stays.
-    for (const string &name :
-         reachable_from(body_name, compute_successors(func))) {
-        auto block = blocks.count(name) ? blocks.at(name) : nullptr;
+    const Cfg visit_region(func, body_name);
+    for (const auto &reached : visit_region.blocks()) {
+        // Only the blocks the visit was made of; the ones added above are
+        // the stack's, and end where they mean to.
+        const auto found = blocks.find(reached->name);
+        const auto block = found == blocks.end() ? nullptr : found->second;
         if (block == nullptr || block == exit) {
             continue;
         }

@@ -2,13 +2,15 @@
 
 #include "SSA/SSA.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <deque>
 #include <functional>
-#include <list>
+#include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
-#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -22,20 +24,15 @@ using ArgMutabilityMap = std::map<std::string, std::vector<bool>>;
 
 ArgMutabilityMap get_mutability_map(const ssa::Function &func);
 
-using BlockMap = std::map<std::string, std::shared_ptr<Block>>;
+// The blocks of a function by name, for a pass that works by name.
+using BlockMap = std::unordered_map<std::string, std::shared_ptr<Block>>;
 
 BlockMap make_block_map(const std::shared_ptr<Function> &func);
 BlockMap make_block_map(const Function &func);
 
 //===--------------------------------------------------------------------===//
-// Control flow graph
+// Blocks and edges, by name
 //===--------------------------------------------------------------------===//
-
-// A control flow edge, (from, to).
-using Edge = std::pair<std::string, std::string>;
-
-// block name -> adjacent block names, in a deterministic order.
-using AdjacencyMap = std::map<std::string, std::vector<std::string>>;
 
 // Intraprocedural successors of `block`, in terminator order.
 //
@@ -50,13 +47,6 @@ std::vector<std::string> successors(const Block &block);
 // jump to its callee is not one of them: where a call goes is a matter of
 // which function is called, not of this function's control flow.
 std::vector<Terminator::Jump *> jumps_of(Block &block);
-
-// Successors of every block, keyed by block name.
-AdjacencyMap compute_successors(const Function &func);
-
-// Inverts `succs`. Predecessors are always recomputed this way rather than
-// read from Block::preds, which rewrites are free to leave stale.
-AdjacencyMap compute_predecessors(const AdjacencyMap &succs);
 
 // Rebuilds every Block::preds from the terminators. Rewrites that retarget
 // edges have to call this before anything reads those lists again --
@@ -83,51 +73,225 @@ bool is_recursive(const Function &func);
 void replace_uses(Function &func, const Instruction *of,
                   const std::shared_ptr<Value> &with);
 
-// Blocks reachable from `entry`, in reverse postorder. Every analysis below
-// iterates in this order, which is what makes the iterative dataflow solvers
-// converge in few passes.
-std::vector<std::string> reverse_postorder(const std::string &entry,
-                                           const AdjacencyMap &succs);
+//===--------------------------------------------------------------------===//
+// Control flow graph
+//===--------------------------------------------------------------------===//
 
-// Blocks reachable from `from` following `succs`, including `from` itself.
-std::set<std::string> reachable_from(const std::string &from,
-                                     const AdjacencyMap &succs);
+// The analyses below work on a graph whose nodes are numbered densely from
+// zero, and answer their questions in vectors indexed by that number. A block
+// is named by a string in this form, and every analysis used to be a map from
+// name to answer; the lookups in those maps -- a string comparison per level
+// of a tree, at every step of a walk -- were most of a vectorized compile.
+//
+// A number is only meaningful with the graph it was assigned in. A pass that
+// rewrites the function and then asks again builds a new graph, and anything
+// it kept from the old one by name is looked up again (see Cfg::id). Results
+// that outlive a graph -- the sets a divergence analysis hands the
+// linearizer, say -- are kept by name for that reason.
+using BlockId = uint32_t;
+inline constexpr BlockId NO_BLOCK = std::numeric_limits<BlockId>::max();
+
+// A control flow edge, (from, to).
+using Edge = std::pair<BlockId, BlockId>;
+
+// A set of blocks of one graph: a bit per block, iterated in id order.
+class BlockSet {
+  public:
+    BlockSet() = default;
+    explicit BlockSet(size_t capacity) : bits(capacity, false) {}
+
+    bool contains(BlockId b) const { return b < bits.size() && bits[b]; }
+    // Whether `b` was not already a member. Grows to fit a block numbered
+    // past the capacity, for the graphs a pass adds blocks to.
+    bool insert(BlockId b) {
+        if (b >= bits.size()) {
+            bits.resize(size_t(b) + 1, false);
+        }
+        if (bits[b]) {
+            return false;
+        }
+        bits[b] = true;
+        members++;
+        return true;
+    }
+    bool erase(BlockId b) {
+        if (!contains(b)) {
+            return false;
+        }
+        bits[b] = false;
+        members--;
+        return true;
+    }
+    void clear() {
+        bits.assign(bits.size(), false);
+        members = 0;
+    }
+    size_t size() const { return members; }
+    bool empty() const { return members == 0; }
+
+    class Iterator {
+      public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = BlockId;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const BlockId *;
+        using reference = BlockId;
+
+        Iterator(const std::vector<bool> *bits, size_t at)
+            : bits(bits), at(at) {
+            settle();
+        }
+        BlockId operator*() const { return BlockId(at); }
+        Iterator &operator++() {
+            at++;
+            settle();
+            return *this;
+        }
+        Iterator operator++(int) {
+            Iterator before = *this;
+            ++*this;
+            return before;
+        }
+        bool operator==(const Iterator &o) const { return at == o.at; }
+        bool operator!=(const Iterator &o) const { return at != o.at; }
+
+      private:
+        void settle() {
+            while (at < bits->size() && !(*bits)[at]) {
+                at++;
+            }
+        }
+        const std::vector<bool> *bits;
+        size_t at;
+    };
+    Iterator begin() const { return Iterator(&bits, 0); }
+    Iterator end() const { return Iterator(&bits, bits.size()); }
+
+  private:
+    std::vector<bool> bits;
+    size_t members = 0;
+};
+
+// The shape of a control flow graph over dense ids: what the analyses below
+// read. A successor appears once per edge, so a dispatch with two targets
+// that are one block gives that block two entries here and two entries in
+// its predecessors, as the terminator has two edges.
+struct Graph {
+    std::vector<std::vector<BlockId>> succs;
+    std::vector<std::vector<BlockId>> preds;
+    BlockId entry = NO_BLOCK;
+    // The nodes reachable from `entry`, in reverse postorder. Every analysis
+    // iterates in this order, which is what makes the iterative solvers
+    // converge in few passes.
+    std::vector<BlockId> rpo;
+
+    size_t size() const { return succs.size(); }
+
+    // A graph from its successor lists, with `entry` as the root: the
+    // predecessors and the reverse postorder follow.
+    static Graph from_successors(std::vector<std::vector<BlockId>> succs,
+                                 BlockId entry);
+};
+
+// Nodes reachable from `from`, in reverse postorder.
+std::vector<BlockId> reverse_postorder(const Graph &g, BlockId from);
+
+// Nodes reachable from `from`, including `from` itself.
+BlockSet reachable_from(const Graph &g, BlockId from);
+
+// The control flow graph of the blocks of a function, or of the region of
+// one -- the blocks reachable from an entry along intraprocedural edges: a
+// ParFor body ends at its Yield, and a Call's callee is outside it, so the
+// region rooted at a body block is exactly the blocks a gang executes
+// together. Ids follow block-name order, so that walking the blocks by id is
+// deterministic and independent of where the blocks happen to sit in the
+// function. A snapshot: a pass that rewrites the function builds a new one.
+class Cfg : public Graph {
+  public:
+    // Every block of `func`, with the function's entry as the root. Blocks
+    // the entry cannot reach are in the graph but not in `rpo`.
+    explicit Cfg(const Function &func);
+    // The region of `func` reachable from the block named `entry`.
+    Cfg(const Function &func, const std::string &entry);
+
+    // The blocks, by id.
+    const std::vector<std::shared_ptr<Block>> &blocks() const {
+        return held;
+    }
+    const std::shared_ptr<Block> &block(BlockId b) const { return held[b]; }
+    Block &operator[](BlockId b) const { return *held[b]; }
+    const std::string &name(BlockId b) const { return held[b]->name; }
+
+    // The id of a block in this graph, by name or by the block itself; the
+    // `find`s answer NO_BLOCK for a block that is not in it, where `id`
+    // insists that it is.
+    BlockId id(const std::string &name) const;
+    BlockId id(const Block &block) const;
+    BlockId find(const std::string &name) const;
+    BlockId find(const Block &block) const;
+    bool contains(const std::string &name) const {
+        return find(name) != NO_BLOCK;
+    }
+    bool contains(const Block &block) const {
+        return find(block) != NO_BLOCK;
+    }
+
+    // Gives a block the pass has just made the next id, so that it can be
+    // referred to alongside the snapshot's blocks. It gets no edges: the
+    // graph says what the function was when the snapshot was taken, and a
+    // pass that has changed the function keeps track of what it changed.
+    BlockId add_block(const std::shared_ptr<Block> &block);
+
+  private:
+    void build(std::vector<std::shared_ptr<Block>> blocks,
+               const std::string &entry);
+
+    std::vector<std::shared_ptr<Block>> held;
+    std::unordered_map<std::string, BlockId> by_name;
+    std::unordered_map<const Block *, BlockId> by_pointer;
+};
 
 //===--------------------------------------------------------------------===//
 // Dominance
 //===--------------------------------------------------------------------===//
 
-// A dominator tree, as a map from block name to immediate dominator. The root
-// maps to itself. Blocks unreachable from the root are absent.
+// A dominator tree: each node's immediate dominator. The root maps to
+// itself, and a node the root cannot reach to NO_BLOCK.
 //
 // The tree is numbered in preorder when it is built (see `number`), so that
 // a dominance query is two lookups and a comparison: `a` dominates `b` iff
 // `b`'s number lies in the range `a`'s subtree occupies. This is the interval
 // labelling every production dominator tree answers queries with (LLVM's
 // DominatorTree, Tarjan's "Finding Dominators in Directed Graphs" for the
-// idea); walking the chain of immediate dominators instead costs a map lookup
-// per level, and linearization asks the question for every block of a region
-// against every join, which made those walks most of a vectorized compile.
-// `idom` stays public because passes walk the chain by name; a tree is not to
+// idea). `idom` stays public because passes walk the chain; a tree is not to
 // be edited after it is numbered.
 struct DomTree {
-    std::string root;
-    std::map<std::string, std::string> idom;
+    BlockId root = NO_BLOCK;
+    std::vector<BlockId> idom;
 
-    // Does `a` dominate `b`? Every block dominates itself.
-    bool dominates(const std::string &a, const std::string &b) const;
+    size_t size() const { return idom.size(); }
+    // Is `b` in the tree -- reachable from the root?
+    bool contains(BlockId b) const {
+        return b < idom.size() && idom[b] != NO_BLOCK;
+    }
 
-    // Nearest common ancestor of `a` and `b` in the tree.
-    std::string nearest_common_ancestor(const std::string &a,
-                                        const std::string &b) const;
+    // Does `a` dominate `b`? Every block dominates itself. False when either
+    // is not in the tree.
+    bool dominates(BlockId a, BlockId b) const {
+        if (a >= range.size() || b >= range.size() || !contains(a) ||
+            !contains(b)) {
+            return false;
+        }
+        return range[a].first <= range[b].first &&
+               range[b].first < range[a].second;
+    }
 
-    // Children of each node, in the order `idom` lists them. By value, so
-    // that it can be taken off a tree that is a temporary.
-    AdjacencyMap children() const { return kids; }
+    // The children of `b`, in id order.
+    const std::vector<BlockId> &children(BlockId b) const { return kids[b]; }
 
     // The blocks `a` dominates, `a` itself first, in preorder of the tree.
     // Empty when `a` is not in the tree.
-    std::vector<std::string> subtree(const std::string &a) const;
+    std::vector<BlockId> subtree(BlockId a) const;
 
     // Numbers the tree from `idom`. compute_dominator_tree calls this once
     // the immediate dominators are settled; a tree built any other way has
@@ -135,42 +299,38 @@ struct DomTree {
     void number();
 
   private:
-    AdjacencyMap kids;
-    // Per block: its preorder number, and one past the last number in its
+    std::vector<std::vector<BlockId>> kids;
+    // Per node: its preorder number, and one past the last number in its
     // subtree.
-    std::unordered_map<std::string, std::pair<size_t, size_t>> range;
+    std::vector<std::pair<uint32_t, uint32_t>> range;
 };
 
-// Cooper/Harvey/Kennedy iterative dominator construction over `rpo`.
-DomTree compute_dominator_tree(const std::string &entry,
-                               const AdjacencyMap &succs,
-                               const AdjacencyMap &preds,
-                               const std::vector<std::string> &rpo);
+// Cooper/Harvey/Kennedy iterative dominator construction over `g.rpo`.
+DomTree compute_dominator_tree(const Graph &g);
 
 // Post-dominators: dominators of the reverse CFG.
 //
 // A function generally has several exits (Return / Yield blocks), so the
-// reverse CFG is rooted at a synthetic exit node named by `virtual_exit()`
-// that all real exits flow into. Callers should expect that name to appear in
-// the resulting tree.
+// reverse CFG is rooted at a synthetic exit node that all real exits flow
+// into. It is numbered `g.size()`, one past the graph's nodes, and is the
+// root of the tree returned; `virtual_exit()` names it for printing.
 std::string virtual_exit();
 
-DomTree compute_post_dominator_tree(const std::string &entry,
-                                    const AdjacencyMap &succs,
-                                    const AdjacencyMap &preds);
+DomTree compute_post_dominator_tree(const Graph &g);
 
 // Dominance frontier: DF(b) is the set of blocks that b dominates a
 // predecessor of, but does not strictly dominate. Placing a block argument
 // for a value defined in b at every block of DF(b) -- iterated to a fixed
 // point -- is exactly Cytron et al.'s minimal phi placement.
-AdjacencyMap compute_dominance_frontier(const AdjacencyMap &preds,
-                                        const DomTree &dom);
+using DominanceFrontier = std::vector<std::vector<BlockId>>;
+
+DominanceFrontier compute_dominance_frontier(const Graph &g,
+                                             const DomTree &dom);
 
 // The iterated dominance frontier of `defs`: where block arguments have to be
 // introduced for a value assigned in every block of `defs`.
-std::set<std::string>
-iterated_dominance_frontier(const std::set<std::string> &defs,
-                            const AdjacencyMap &frontier);
+BlockSet iterated_dominance_frontier(const BlockSet &defs,
+                                     const DominanceFrontier &frontier);
 
 //===--------------------------------------------------------------------===//
 // Loops
@@ -180,40 +340,54 @@ iterated_dominance_frontier(const std::set<std::string> &defs,
 // reducible control flow, which is exactly the condition that every back edge
 // target dominates its source; `compute_loop_forest` asserts this.
 struct Loop {
-    std::string header;
-    // Sources of the back edges into `header`.
-    std::set<std::string> latches;
+    BlockId header = NO_BLOCK;
+    // Sources of the back edges into `header`, in id order.
+    std::vector<BlockId> latches;
     // Every block in the loop body, including the header and latches.
-    std::set<std::string> blocks;
-    // Edges leaving the loop: (inside, outside).
-    std::set<Edge> exits;
-    // Header of the immediately enclosing loop, if any.
-    std::optional<std::string> parent;
+    BlockSet blocks;
+    // Edges leaving the loop: (inside, outside), in id order.
+    std::vector<Edge> exits;
+    // Header of the immediately enclosing loop, or NO_BLOCK.
+    BlockId parent = NO_BLOCK;
 };
 
-// header name -> Loop.
-using LoopForest = std::map<std::string, Loop>;
+// The loops of a graph, by header, with the innermost loop of every block.
+class LoopForest {
+  public:
+    // The loops, in header order.
+    const std::vector<Loop> &loops() const { return all; }
+    bool empty() const { return all.empty(); }
 
-LoopForest compute_loop_forest(const AdjacencyMap &succs,
-                               const AdjacencyMap &preds, const DomTree &dom,
-                               const std::vector<std::string> &rpo);
+    // The loop headed by `header`, or null when `header` heads none.
+    const Loop *find(BlockId header) const;
+    // The innermost loop containing `b`, or null when `b` is in none.
+    const Loop *innermost(BlockId b) const;
+    // How many loops contain `b`.
+    size_t depth(BlockId b) const;
 
-// Header of the innermost loop containing `block`, if any.
-std::optional<std::string> innermost_loop(const LoopForest &loops,
-                                          const std::string &block);
+  private:
+    friend LoopForest compute_loop_forest(const Graph &g, const DomTree &dom);
+    std::vector<Loop> all;
+    // Per block: the header of its innermost loop, or NO_BLOCK.
+    std::vector<BlockId> innermost_of;
+    // Per block: its position in `all` when it heads a loop, or NO_BLOCK.
+    std::vector<BlockId> position_of;
+};
+
+LoopForest compute_loop_forest(const Graph &g, const DomTree &dom);
 
 //===--------------------------------------------------------------------===//
 // Control dependence
 //===--------------------------------------------------------------------===//
 
-// block -> the set of edges it is control dependent on.
+// Per block, the edges it is control dependent on, in id order.
 //
 // `k` is control dependent on edge (a, b) iff k post-dominates b but does not
-// strictly post-dominate a. A block whose set is empty executes whenever the
+// strictly post-dominate a. A block whose list is empty executes whenever the
 // function does, so it never needs a mask.
-using ControlDependence = std::map<std::string, std::set<Edge>>;
+using ControlDependence = std::vector<std::vector<Edge>>;
 
-ControlDependence compute_control_dependence(const AdjacencyMap &succs,
+ControlDependence compute_control_dependence(const Graph &g,
                                              const DomTree &pdom);
 
 //===--------------------------------------------------------------------===//
@@ -227,7 +401,14 @@ ControlDependence compute_control_dependence(const AdjacencyMap &succs,
 // Partial linearization (Moll & Hack, PLDI 2018, section 3.1) requires both
 // properties -- their figure 8 shows the algorithm producing incorrect code
 // when the index is not compact.
-//
+struct BlockIndex {
+    // Per block: its position in the order. Unset for a block the entry
+    // cannot reach.
+    std::vector<size_t> of;
+    // The blocks in order.
+    std::vector<BlockId> order;
+};
+
 // `last` names blocks to place after every other block that could go in
 // their place -- the blocks that call the function itself. Linearization
 // runs the blocks of a folded branch one after another, in this order, so
@@ -237,10 +418,9 @@ ControlDependence compute_control_dependence(const AdjacencyMap &succs,
 // keeps the tail position it had in the program. The choice is free where
 // the order is, and only there: compactness and topological order come
 // first.
-std::map<std::string, size_t>
-compute_block_index(const std::string &entry, const AdjacencyMap &succs,
-                    const DomTree &dom, const LoopForest &loops,
-                    const std::set<std::string> &last = {});
+BlockIndex compute_block_index(const Graph &g, const DomTree &dom,
+                               const LoopForest &loops,
+                               const BlockSet &last = {});
 
 //===--------------------------------------------------------------------===//
 // Generic dataflow
@@ -255,73 +435,67 @@ enum class Direction { Forward, Backward };
 // `boundary` is the in-state of the entry (Forward) or of each exit
 // (Backward), and `init` the initial state everywhere else.
 //
-// Returns the in-state of every block. `Lattice` must be copyable and
-// equality-comparable, and `transfer`/`meet` must be monotone for this to
-// terminate.
+// Returns the in-state of every block; a block the entry cannot reach is left
+// at `init`. `Lattice` must be copyable and equality-comparable, and
+// `transfer`/`meet` must be monotone for this to terminate.
 template <typename Lattice>
-std::map<std::string, Lattice> solve_dataflow(
-    const std::string &entry, const AdjacencyMap &succs,
-    const AdjacencyMap &preds, Direction direction, const Lattice &init,
+std::vector<Lattice> solve_dataflow(
+    const Graph &g, Direction direction, const Lattice &init,
     const Lattice &boundary,
-    const std::function<Lattice(const std::string &, const Lattice &)>
-        &transfer,
+    const std::function<Lattice(BlockId, const Lattice &)> &transfer,
     const std::function<Lattice(const Lattice &, const Lattice &)> &meet) {
     const bool forward = direction == Direction::Forward;
-    const AdjacencyMap &along = forward ? succs : preds;
-    const AdjacencyMap &against = forward ? preds : succs;
+    const auto &along = forward ? g.succs : g.preds;
+    const auto &against = forward ? g.preds : g.succs;
 
-    const std::vector<std::string> order = reverse_postorder(entry, succs);
-
-    std::map<std::string, Lattice> in;
-    std::map<std::string, Lattice> out;
-    for (const auto &name : order) {
+    std::vector<Lattice> in(g.size(), init);
+    std::vector<Lattice> out(g.size(), init);
+    std::vector<bool> reached(g.size(), false);
+    for (BlockId b : g.rpo) {
         // A node with no incoming edges in the direction of travel takes the
         // boundary value; everything else starts at `init` and is refined.
-        const auto it = against.find(name);
-        const bool is_boundary = it == against.end() || it->second.empty();
-        in[name] = is_boundary ? boundary : init;
-        out[name] = transfer(name, in.at(name));
+        in[b] = against[b].empty() ? boundary : init;
+        out[b] = transfer(b, in[b]);
+        reached[b] = true;
     }
 
-    std::deque<std::string> worklist(order.begin(), order.end());
-    std::set<std::string> queued(order.begin(), order.end());
+    std::deque<BlockId> worklist(g.rpo.begin(), g.rpo.end());
+    std::vector<bool> queued(g.size(), false);
+    for (BlockId b : g.rpo) {
+        queued[b] = true;
+    }
     if (!forward) {
         std::reverse(worklist.begin(), worklist.end());
     }
 
     while (!worklist.empty()) {
-        const std::string name = worklist.front();
+        const BlockId b = worklist.front();
         worklist.pop_front();
-        queued.erase(name);
+        queued[b] = false;
 
-        const auto in_it = against.find(name);
-        if (in_it != against.end() && !in_it->second.empty()) {
+        if (!against[b].empty()) {
             std::optional<Lattice> merged;
-            for (const auto &other : in_it->second) {
-                const auto o = out.find(other);
-                if (o == out.end()) {
+            for (BlockId other : against[b]) {
+                if (!reached[other]) {
                     continue; // unreachable neighbour
                 }
-                merged =
-                    merged.has_value() ? meet(*merged, o->second) : o->second;
+                merged = merged.has_value() ? meet(*merged, out[other])
+                                            : out[other];
             }
             if (merged.has_value()) {
-                in[name] = std::move(*merged);
+                in[b] = std::move(*merged);
             }
         }
 
-        Lattice next = transfer(name, in.at(name));
-        if (next == out.at(name)) {
+        Lattice next = transfer(b, in[b]);
+        if (next == out[b]) {
             continue;
         }
-        out[name] = std::move(next);
+        out[b] = std::move(next);
 
-        const auto out_it = along.find(name);
-        if (out_it == along.end()) {
-            continue;
-        }
-        for (const auto &other : out_it->second) {
-            if (in.count(other) && queued.insert(other).second) {
+        for (BlockId other : along[b]) {
+            if (reached[other] && !queued[other]) {
+                queued[other] = true;
                 worklist.push_back(other);
             }
         }

@@ -148,13 +148,13 @@ struct Candidate {
 // allocated. An allocation is rejected as soon as it is used as anything but
 // the address of a Load or a Store, and also if its name is not unique, since
 // names are what ties a definition to the block arguments threading it.
-vector<Candidate> find_candidates(Function &func, const set<string> &region) {
+vector<Candidate> find_candidates(Function &func, const Cfg &region) {
     vector<Candidate> candidates;
     set<string> seen;
     set<string> rejected;
 
     for (const auto &block : func.blocks) {
-        if (!region.count(block->name)) {
+        if (!region.contains(*block)) {
             continue;
         }
         for (const auto &instr : block->instrs) {
@@ -195,7 +195,7 @@ vector<Candidate> find_candidates(Function &func, const set<string> &region) {
     };
 
     for (const auto &block : func.blocks) {
-        const bool inside = region.count(block->name) > 0;
+        const bool inside = region.contains(*block);
 
         for (const auto &instr : block->instrs) {
             for (size_t k = 0; k < instr->operands.size(); k++) {
@@ -249,10 +249,9 @@ vector<Candidate> find_candidates(Function &func, const set<string> &region) {
 // Deletes the block arguments that thread `name`, and the matching operands
 // in every jump that supplies them. Called before renaming, so that what is
 // left of `name` is only its allocation, loads and stores.
-void erase_threading(Function &func, const set<string> &region,
-                     const string &name) {
+void erase_threading(Function &func, const Cfg &region, const string &name) {
     for (const auto &block : func.blocks) {
-        if (!region.count(block->name)) {
+        if (!region.contains(*block)) {
             continue;
         }
         for (size_t j = block->args.size(); j-- > 0;) {
@@ -281,24 +280,9 @@ void erase_threading(Function &func, const set<string> &region,
 } // namespace
 
 size_t promote_allocas(Function &func, const string &entry) {
-    const BlockMap blocks = make_block_map(func);
-    const AdjacencyMap all_succs = compute_successors(func);
-    const set<string> region = reachable_from(entry, all_succs);
-
-    AdjacencyMap succs;
-    for (const string &name : region) {
-        succs[name];
-        for (const string &s : all_succs.at(name)) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
-        }
-    }
-    const AdjacencyMap preds = compute_predecessors(succs);
-    const vector<string> rpo = reverse_postorder(entry, succs);
-    const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
-    const AdjacencyMap dom_children = dom.children();
-    const AdjacencyMap frontier = compute_dominance_frontier(preds, dom);
+    const Cfg region(func, entry);
+    const DomTree dom = compute_dominator_tree(region);
+    const DominanceFrontier frontier = compute_dominance_frontier(region, dom);
 
     const vector<Candidate> candidates = find_candidates(func, region);
     if (candidates.empty()) {
@@ -307,17 +291,19 @@ size_t promote_allocas(Function &func, const string &entry) {
 
     size_t promoted = 0;
     for (const Candidate &c : candidates) {
+        const BlockId allocated_in = region.id(c.block);
         // Where the value is (re)defined, and hence where the joins that need
         // a block argument for it are.
-        set<string> defs = {c.block};
-        set<string> stores_in;
-        for (const string &name : region) {
-            for (const auto &instr : blocks.at(name)->instrs) {
+        BlockSet defs(region.size());
+        defs.insert(allocated_in);
+        BlockSet stores_in(region.size());
+        for (BlockId b = 0; b < region.size(); b++) {
+            for (const auto &instr : region[b].instrs) {
                 if ((instr->op == Instruction::Op::Store ||
                      accumulate_binop(instr->op).has_value()) &&
                     refers_to(*instr->operands[0], c.name)) {
-                    defs.insert(name);
-                    stores_in.insert(name);
+                    defs.insert(b);
+                    stores_in.insert(b);
                 }
             }
         }
@@ -333,23 +319,19 @@ size_t promote_allocas(Function &func, const string &entry) {
         // first written inside a loop: the loop's header merges the slot from
         // the entry, where nothing has written it, with the latch, where
         // something has.
-        const map<string, bool> assigned_in = solve_dataflow<bool>(
-            entry, succs, preds, Direction::Forward, /*init=*/true,
-            /*boundary=*/false,
-            [&](const string &name, const bool &in) {
-                return in || stores_in.count(name) > 0;
+        const vector<bool> assigned_in = solve_dataflow<bool>(
+            region, Direction::Forward, /*init=*/true, /*boundary=*/false,
+            [&](BlockId b, const bool &in) {
+                return in || stores_in.contains(b);
             },
             [](const bool &a, const bool &b) { return a && b; });
-        const auto assigned_out = [&](const string &name) {
-            const auto it = assigned_in.find(name);
-            return (it != assigned_in.end() && it->second) ||
-                   stores_in.count(name) > 0;
+        const auto assigned_out = [&](BlockId b) {
+            return assigned_in[b] || stores_in.contains(b);
         };
         bool always_assigned = true;
-        for (const string &name : region) {
-            const Block &block = *blocks.at(name);
-            const auto in = assigned_in.find(name);
-            bool assigned = in != assigned_in.end() && in->second;
+        for (BlockId b = 0; b < region.size(); b++) {
+            const Block &block = region[b];
+            bool assigned = assigned_in[b];
             for (const auto &instr : block.instrs) {
                 const bool addresses = !instr->operands.empty() &&
                                        refers_to(*instr->operands[0], c.name);
@@ -363,17 +345,12 @@ size_t promote_allocas(Function &func, const string &entry) {
                 }
             }
         }
-        const set<string> joins =
-            iterated_dominance_frontier(defs, frontier);
-        for (const string &join : joins) {
-            if (!dom.dominates(c.block, join)) {
+        const BlockSet joins = iterated_dominance_frontier(defs, frontier);
+        for (BlockId join : joins) {
+            if (!dom.dominates(allocated_in, join)) {
                 continue;
             }
-            const auto join_preds = preds.find(join);
-            if (join_preds == preds.end()) {
-                continue;
-            }
-            for (const string &pred : join_preds->second) {
+            for (BlockId pred : region.preds[join]) {
                 if (!assigned_out(pred)) {
                     always_assigned = false;
                 }
@@ -390,9 +367,9 @@ size_t promote_allocas(Function &func, const string &entry) {
         // reaching it through the other arm never made the allocation, so
         // there is no value to hand the join and nothing past it that could
         // read one.
-        set<string> phis;
-        for (const string &join : joins) {
-            if (dom.dominates(c.block, join)) {
+        BlockSet phis(region.size());
+        for (BlockId join : joins) {
+            if (dom.dominates(allocated_in, join)) {
                 phis.insert(join);
             }
         }
@@ -403,11 +380,12 @@ size_t promote_allocas(Function &func, const string &entry) {
         map<const Instruction *, shared_ptr<Value>> replacements;
 
         vector<shared_ptr<Value>> reaching;
-        std::function<void(const string &)> rename = [&](const string &name) {
-            Block &block = *blocks.at(name);
+        std::function<void(BlockId)> rename = [&](BlockId b) {
+            Block &block = region[b];
+            const string &name = block.name;
             const size_t depth = reaching.size();
 
-            if (phis.count(name)) {
+            if (phis.contains(b)) {
                 const Argument arg = {c.type, c.name};
                 block.args.push_back(arg);
                 auto value = std::make_shared<Value>(arg);
@@ -437,7 +415,7 @@ size_t promote_allocas(Function &func, const string &entry) {
                         *accumulate_binop(instr->op),
                         std::vector<shared_ptr<Value>>{reaching.back(),
                                                        instr->operands[1]},
-                        blocks.at(name));
+                        region.block(b));
                     auto value = std::make_shared<Value>(combined);
                     kept.push_back(std::move(combined));
                     block.lookups[c.name] = value;
@@ -458,7 +436,9 @@ size_t promote_allocas(Function &func, const string &entry) {
 
             // Supply the value to the joins this block flows into.
             for (auto &[jump, _] : jumps(block)) {
-                if (!phis.count(jump->name)) {
+                // A jump to a block outside the region -- a call's jump to
+                // its callee -- supplies nothing.
+                if (!phis.contains(region.find(jump->name))) {
                     continue;
                 }
                 internal_assert(!reaching.empty())
@@ -467,18 +447,18 @@ size_t promote_allocas(Function &func, const string &entry) {
                 jump->args.push_back(reaching.back());
             }
 
-            for (const string &child : dom_children.at(name)) {
+            for (BlockId child : dom.children(b)) {
                 rename(child);
             }
             reaching.resize(depth);
         };
-        rename(entry);
+        rename(region.entry);
 
         // Substitute the loads away. Only the block that held the load can
         // name it directly: references from other blocks go through a block
         // argument, which is fed by the jump argument replaced here.
-        for (const string &name : region) {
-            Block &block = *blocks.at(name);
+        for (BlockId b = 0; b < region.size(); b++) {
+            Block &block = region[b];
             auto substitute = [&](shared_ptr<Value> &v) {
                 const auto *instr =
                     std::get_if<shared_ptr<Instruction>>(&v->data);

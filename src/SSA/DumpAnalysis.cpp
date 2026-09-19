@@ -33,11 +33,17 @@ void print_list(std::ostream &os, const std::vector<std::string> &names) {
     os << "]";
 }
 
-void print_list(std::ostream &os, const std::set<std::string> &names) {
-    print_list(os, std::vector<std::string>(names.begin(), names.end()));
+template <typename Blocks>
+void print_blocks(std::ostream &os, const Cfg &cfg, const Blocks &blocks) {
+    std::vector<std::string> names;
+    for (BlockId b : blocks) {
+        names.push_back(cfg.name(b));
+    }
+    print_list(os, names);
 }
 
-void print_edges(std::ostream &os, const std::set<Edge> &edges) {
+void print_edges(std::ostream &os, const Cfg &cfg,
+                 const std::vector<Edge> &edges) {
     os << "[";
     bool first = true;
     for (const auto &[from, to] : edges) {
@@ -45,7 +51,7 @@ void print_edges(std::ostream &os, const std::set<Edge> &edges) {
             os << ", ";
         }
         first = false;
-        os << from << "->" << to;
+        os << cfg.name(from) << "->" << cfg.name(to);
     }
     os << "]";
 }
@@ -58,68 +64,49 @@ void print_edges(std::ostream &os, const std::set<Edge> &edges) {
 // always executed, which is not true when the ParFor is viewed from the
 // enclosing function as a two-way branch.
 void dump_region(std::ostream &os, const std::string &indent,
-                 const std::string &entry, const AdjacencyMap &all_succs) {
-    // Restrict the graph to the blocks of this region.
-    const std::set<std::string> region = reachable_from(entry, all_succs);
-    AdjacencyMap succs;
-    for (const auto &name : region) {
-        succs[name];
-        const auto it = all_succs.find(name);
-        if (it == all_succs.end()) {
-            continue;
-        }
-        for (const auto &s : it->second) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
-        }
-    }
-
-    const AdjacencyMap preds = compute_predecessors(succs);
-    const std::vector<std::string> rpo = reverse_postorder(entry, succs);
-    const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
-    const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
-    const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
-    const ControlDependence cdep = compute_control_dependence(succs, pdom);
-    const std::map<std::string, size_t> index =
-        compute_block_index(entry, succs, dom, loops);
+                 const Function &func, const std::string &entry) {
+    const Cfg cfg(func, entry);
+    const DomTree dom = compute_dominator_tree(cfg);
+    const DomTree pdom = compute_post_dominator_tree(cfg);
+    const LoopForest loops = compute_loop_forest(cfg, dom);
+    const ControlDependence cdep = compute_control_dependence(cfg, pdom);
+    const BlockIndex index = compute_block_index(cfg, dom, loops);
 
     os << indent << "rpo: ";
-    print_list(os, rpo);
+    print_blocks(os, cfg, cfg.rpo);
     os << "\n";
 
     // Print in block-index order: this is the order partial linearization
     // visits blocks in, and the order whose compactness it depends on.
-    std::vector<std::string> by_index(index.size());
-    for (const auto &[name, i] : index) {
-        by_index[i] = name;
-    }
-
-    for (size_t i = 0; i < by_index.size(); i++) {
-        const std::string &name = by_index[i];
-        os << indent << "[" << i << "] " << name << "\n";
+    for (size_t i = 0; i < index.order.size(); i++) {
+        const BlockId b = index.order[i];
+        os << indent << "[" << i << "] " << cfg.name(b) << "\n";
 
         os << indent << "  succs: ";
-        print_list(os, succs.count(name) ? succs.at(name)
-                                         : std::vector<std::string>{});
+        print_blocks(os, cfg, cfg.succs[b]);
         os << "\n";
         os << indent << "  preds: ";
-        print_list(os, preds.count(name) ? preds.at(name)
-                                         : std::vector<std::string>{});
+        print_blocks(os, cfg, cfg.preds[b]);
         os << "\n";
         os << indent << "  idom: "
-           << (dom.idom.count(name) ? dom.idom.at(name) : "<none>") << "\n";
-        os << indent << "  ipdom: "
-           << (pdom.idom.count(name) ? pdom.idom.at(name) : "<none>") << "\n";
+           << (dom.contains(b) ? cfg.name(dom.idom[b]) : "<none>") << "\n";
+        os << indent << "  ipdom: ";
+        if (!pdom.contains(b)) {
+            os << "<none>";
+        } else if (pdom.idom[b] == pdom.root) {
+            os << virtual_exit();
+        } else {
+            os << cfg.name(pdom.idom[b]);
+        }
+        os << "\n";
         os << indent << "  cdep: ";
-        print_edges(os, cdep.count(name) ? cdep.at(name) : std::set<Edge>{});
+        print_edges(os, cfg, cdep[b]);
         os << "\n";
 
         // A block with no control dependences executes whenever the region
         // does, so it can never need an execution mask no matter which
         // branches turn out to be divergent.
-        os << indent << "  always-executed: "
-           << ((cdep.count(name) && cdep.at(name).empty()) ? "yes" : "no")
+        os << indent << "  always-executed: " << (cdep[b].empty() ? "yes" : "no")
            << "\n";
     }
 
@@ -128,20 +115,20 @@ void dump_region(std::ostream &os, const std::string &indent,
         return;
     }
     os << indent << "loops:\n";
-    for (const auto &[header, loop] : loops) {
-        os << indent << "  header " << header;
-        if (loop.parent.has_value()) {
-            os << " (nested in " << *loop.parent << ")";
+    for (const Loop &loop : loops.loops()) {
+        os << indent << "  header " << cfg.name(loop.header);
+        if (loop.parent != NO_BLOCK) {
+            os << " (nested in " << cfg.name(loop.parent) << ")";
         }
         os << "\n";
         os << indent << "    latches: ";
-        print_list(os, loop.latches);
+        print_blocks(os, cfg, loop.latches);
         os << "\n";
         os << indent << "    blocks: ";
-        print_list(os, loop.blocks);
+        print_blocks(os, cfg, loop.blocks);
         os << "\n";
         os << indent << "    exits: ";
-        print_edges(os, loop.exits);
+        print_edges(os, cfg, loop.exits);
         os << "\n";
     }
 }
@@ -152,11 +139,11 @@ void dump_divergence(std::ostream &os, const std::string &indent,
                      const ssa::Function &func, const std::string &entry,
                      const std::string &index) {
     const Divergence div = analyze_divergence(func, entry, {index});
-    const BlockMap blocks = make_block_map(func);
+    const Cfg cfg(func, entry);
 
-    for (const auto &name :
-         reverse_postorder(entry, compute_successors(func))) {
-        const Block &block = *blocks.at(name);
+    for (BlockId b : cfg.rpo) {
+        const Block &block = cfg[b];
+        const std::string &name = block.name;
         os << indent << name << ": "
            << (div.masked.count(name) ? "masked" : "unmasked");
         if (div.branches.count(name)) {
@@ -198,11 +185,9 @@ void dump(std::ostream &os, const std::string &fname, ssa::Function &func) {
     os << "promoted " << promote_allocas(func, func.blocks[0]->name)
        << " allocation(s) in " << fname << "\n";
 
-    const AdjacencyMap succs = compute_successors(func);
-
     os << "function " << fname << ":\n";
     func.dump(os);
-    dump_region(os, "  ", func.blocks[0]->name, succs);
+    dump_region(os, "  ", func, func.blocks[0]->name);
 
     // Then each ParFor body region, which is the unit `vectorize()` works on.
     for (const auto &block : func.blocks) {
@@ -213,7 +198,7 @@ void dump(std::ostream &os, const std::string &fname, ssa::Function &func) {
         }
         os << "  parfor " << parfor->index << " body region ("
            << parfor->body.name << "):\n";
-        dump_region(os, "    ", parfor->body.name, succs);
+        dump_region(os, "    ", func, parfor->body.name);
         os << "    divergence (varying: " << parfor->index << "):\n";
         dump_divergence(os, "      ", func, parfor->body.name, parfor->index);
     }

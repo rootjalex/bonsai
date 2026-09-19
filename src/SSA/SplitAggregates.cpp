@@ -271,19 +271,7 @@ Instruction::Op reduction_step(ir::VectorReduce::OpType op, const Type &element,
 SplitResult split_aggregates(Function &func, const string &entry,
                              const Divergence &divergence,
                              const set<const Instruction *> &already_wide) {
-    const BlockMap blocks = make_block_map(func);
-    const AdjacencyMap all_succs = compute_successors(func);
-    const set<string> region = reachable_from(entry, all_succs);
-
-    AdjacencyMap succs;
-    for (const string &name : region) {
-        succs[name];
-        for (const string &s : all_succs.at(name)) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
-        }
-    }
+    const Cfg region(func, entry);
 
     Splitter splitter(func, divergence, already_wide);
     SplitResult result;
@@ -291,7 +279,7 @@ SplitResult split_aggregates(Function &func, const string &entry,
     // A varying vector parameter becomes one parameter per component, which
     // is what lets a caller hand over the components it already has.
     {
-        auto entry_block = blocks.at(entry);
+        const shared_ptr<Block> &entry_block = region.block(region.entry);
         vector<Argument> rebuilt;
         for (const Argument &arg : entry_block->args) {
             if (!arg.type.is_vector() ||
@@ -314,8 +302,8 @@ SplitResult split_aggregates(Function &func, const string &entry,
         entry_block->args = std::move(rebuilt);
     }
 
-    for (const string &name : reverse_postorder(entry, succs)) {
-        auto block = blocks.at(name);
+    for (BlockId b : region.rpo) {
+        const shared_ptr<Block> &block = region.block(b);
         splitter.block = block;
         splitter.emitted.clear();
 
@@ -558,8 +546,9 @@ SplitResult split_aggregates(Function &func, const string &entry,
     // terminators, and a terminator that takes a vector whole -- a return, a
     // jump -- gets a split one rebuilt; a call gets a per-lane one as its
     // components, since the callee's parameter is split to match.
-    for (const string &name : region) {
-        auto block = blocks.at(name);
+    for (BlockId b = 0; b < region.size(); b++) {
+        const shared_ptr<Block> &block = region.block(b);
+        const string &name = block->name;
         splitter.block = block;
         splitter.emitted = block->instrs;
         auto fix = [&](shared_ptr<Value> &value) {

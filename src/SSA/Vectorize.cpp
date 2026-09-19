@@ -383,9 +383,8 @@ void substitute(Block &block, const string &name,
 //
 // `pointee` says the argument is a shared pointer to per-lane memory rather
 // than a per-lane value, and so is retyped with widen_pointee.
-void widen_argument(const BlockMap &blocks, const set<string> &region,
-                    const string &owner, const string &name, uint32_t lanes,
-                    bool pointee = false) {
+void widen_argument(const Cfg &region, BlockId owner, const string &name,
+                    uint32_t lanes, bool pointee = false) {
     // A copy already widened -- because two blocks call an argument by the
     // same name and both are per lane -- is left alone rather than widened a
     // second time; likewise a pointer whose memory is already laid out per
@@ -400,7 +399,7 @@ void widen_argument(const BlockMap &blocks, const set<string> &region,
         }
     };
 
-    for (auto &arg : blocks.at(owner)->args) {
+    for (auto &arg : region[owner].args) {
         if (arg.name == name) {
             widen_type(arg.type);
         }
@@ -415,8 +414,8 @@ void widen_argument(const BlockMap &blocks, const set<string> &region,
         }
     };
 
-    for (const string &block_name : region) {
-        Block &block = *blocks.at(block_name);
+    for (BlockId b = 0; b < region.size(); b++) {
+        Block &block = region[b];
         for (const auto &instr : block.instrs) {
             for (const auto &operand : instr->operands) {
                 retype(operand);
@@ -617,19 +616,7 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
         func.dump(std::cerr);
     }
 
-    const BlockMap blocks = make_block_map(func);
-    const AdjacencyMap all_succs = compute_successors(func);
-    const set<string> region = reachable_from(entry, all_succs);
-
-    AdjacencyMap succs;
-    for (const string &name : region) {
-        succs[name];
-        for (const string &s : all_succs.at(name)) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
-        }
-    }
+    const Cfg region(func, entry);
 
     const auto is_write = [](const Instruction &instr) {
         return instr.op == Instruction::Op::Store ||
@@ -640,8 +627,9 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                instr.op == Instruction::Op::AccMax;
     };
 
-    for (const string &name : reverse_postorder(entry, succs)) {
-        Block &block = *blocks.at(name);
+    for (BlockId b : region.rpo) {
+        Block &block = region[b];
+        const string &name = block.name;
 
         for (const Argument &arg : block.args) {
             const bool pointee = div.pointee_args.count({name, arg.name}) > 0;
@@ -650,10 +638,9 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                     << "Argument " << arg.name << " of " << name
                     << " is a per-lane pointer into per-lane memory, which "
                     << "vectorization does not lay out yet";
-                widen_argument(blocks, region, name, arg.name, lanes);
+                widen_argument(region, b, arg.name, lanes);
             } else if (pointee) {
-                widen_argument(blocks, region, name, arg.name, lanes,
-                               /*pointee=*/true);
+                widen_argument(region, b, arg.name, lanes, /*pointee=*/true);
             }
         }
 
@@ -996,19 +983,19 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
     // entered with whatever single value the loop started from. Those are
     // broadcast where they are passed, the same way a uniform operand of a
     // widened instruction is.
-    for (const string &name : region) {
-        Block &block = *blocks.at(name);
+    for (BlockId b = 0; b < region.size(); b++) {
+        Block &block = region[b];
         for (Terminator::Jump *jump : jumps_of(block)) {
-            const auto target = blocks.find(jump->name);
-            if (target == blocks.end() || !region.count(jump->name)) {
+            const BlockId to = region.find(jump->name);
+            if (to == NO_BLOCK) {
                 continue;
             }
+            const Block &target = region[to];
             // A call continuation is handed the result as a leading argument
             // that no jump passes, so the values line up with the last ones.
-            const size_t offset =
-                target->second->args.size() - jump->args.size();
+            const size_t offset = target.args.size() - jump->args.size();
             for (size_t j = 0; j < jump->args.size(); j++) {
-                const Type &wanted = target->second->args[j + offset].type;
+                const Type &wanted = target.args[j + offset].type;
                 if (!is_gang_wide(wanted, lanes) ||
                     is_gang_wide(jump->args[j]->get_type(), lanes)) {
                     continue;
@@ -1038,10 +1025,10 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
 // uniform value handed to a per-lane block argument is splatted where it is
 // passed (see the end of widen_region).
 void broadcast_call_arguments(const FuncMap &funcs, Function &func,
-                              const set<string> &region, uint32_t lanes) {
-    const BlockMap blocks = make_block_map(func);
-    for (const string &name : region) {
-        Block &block = *blocks.at(name);
+                              const Cfg &region, uint32_t lanes) {
+    for (BlockId b = 0; b < region.size(); b++) {
+        Block &block = region[b];
+        const string &name = block.name;
         Terminator::Jump *call = block.terminator.callee();
         if (call == nullptr) {
             continue;
@@ -1102,10 +1089,11 @@ void broadcast_call_arguments(const FuncMap &funcs, Function &func,
 void lower_votes(Function &func, const string &entry, const Divergence &div,
                  const BlockMasks &masks, const shared_ptr<Value> &entry_mask,
                  uint32_t lanes) {
-    const BlockMap blocks = make_block_map(func);
+    const Cfg region(func, entry);
     const Type count_type = UInt_t::make(32);
-    for (const string &name : reachable_from(entry, compute_successors(func))) {
-        auto block = blocks.at(name);
+    for (BlockId b = 0; b < region.size(); b++) {
+        const shared_ptr<Block> &block = region.block(b);
+        const string &name = block->name;
         vector<shared_ptr<Instruction>> votes;
         for (const auto &instr : block->instrs) {
             if (instr->op == Instruction::Op::Vote) {
@@ -1224,15 +1212,14 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 // flow does need one, and gets the mask of the block it sits in as an extra
 // argument. Both variants can exist at once, for a function called both ways,
 // and a callee whose arguments are all uniform needs neither.
-void specialize_calls(FuncMap &funcs, Function &func, const set<string> &region,
+void specialize_calls(FuncMap &funcs, Function &func, const Cfg &region,
                       const Divergence &div, const BlockMasks &masks,
                       const set<string> &conditional_calls, uint32_t lanes,
                       const map<string, vector<uint32_t>> &call_shapes,
                       Variants &variants) {
-    const BlockMap blocks = make_block_map(func);
-
-    for (const string &name : region) {
-        auto block = blocks.at(name);
+    for (BlockId b = 0; b < region.size(); b++) {
+        const shared_ptr<Block> &block = region.block(b);
+        const string &name = block->name;
         Terminator::Jump *call = block->terminator.callee();
         if (call == nullptr) {
             continue;
@@ -1475,13 +1462,11 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // mask, so every call it makes is conditional too.
     set<string> conditional_calls;
     {
-        const set<string> region =
-            reachable_from(entry, compute_successors(*variant));
-        const BlockMap blocks = make_block_map(*variant);
-        for (const string &block_name : region) {
-            if (blocks.at(block_name)->terminator.callee() != nullptr &&
-                (key.masked || linearizable.masked.count(block_name))) {
-                conditional_calls.insert(block_name);
+        const Cfg before_folding(*variant, entry);
+        for (const auto &block : before_folding.blocks()) {
+            if (block->terminator.callee() != nullptr &&
+                (key.masked || linearizable.masked.count(block->name))) {
+                conditional_calls.insert(block->name);
             }
         }
     }
@@ -1509,8 +1494,7 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                 mask, key.lanes);
 
     // Uniformizing a loop adds blocks, so the region is only settled now.
-    const set<string> region =
-        reachable_from(entry, compute_successors(*variant));
+    const Cfg region(*variant, entry);
 
     // Per-lane vectors become one value per component here too, which is what
     // turns a `vec3f` parameter into three `f32` ones -- matching the
@@ -1633,12 +1617,11 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // loop some lanes have left is conditional on their still being in it.
     set<string> conditional_calls;
     {
-        const BlockMap blocks = make_block_map(f);
-        for (const string &name :
-             reachable_from(entry, compute_successors(*f))) {
-            if (blocks.at(name)->terminator.callee() != nullptr &&
-                before.masked.count(name)) {
-                conditional_calls.insert(name);
+        const Cfg before_folding(*f, entry);
+        for (const auto &block : before_folding.blocks()) {
+            if (block->terminator.callee() != nullptr &&
+                before.masked.count(block->name)) {
+                conditional_calls.insert(block->name);
             }
         }
     }
@@ -1652,28 +1635,16 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
                                    nullptr, masked_blocks),
                 masks, nullptr, lanes);
 
-    const BlockMap blocks = make_block_map(f);
-    const AdjacencyMap all_succs = compute_successors(*f);
-    const set<string> region = reachable_from(entry, all_succs);
+    const Cfg region(*f, entry);
 
     internal_assert(parfor.cont.args.empty())
         << "TODO: thread the continuation arguments of " << idx
         << " through its body";
 
-    AdjacencyMap succs;
-    for (const string &name : region) {
-        succs[name];
-        for (const string &s : all_succs.at(name)) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
-        }
-    }
-
     // The lane indices, which is what the loop index becomes. An index of
     // this shape is what later makes an access to a[i] a dense vector load
     // rather than a gather.
-    Block &body = *blocks.at(entry);
+    Block &body = region[region.entry];
     auto ramp = std::make_shared<Instruction>(
         f->get_unique_name(), widen(parfor.start->get_type(), lanes),
         Instruction::Op::Ramp,
@@ -1690,8 +1661,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // Everywhere, not just in the body block: linearization drops the block
     // arguments that used to thread the index onwards, so blocks further
     // along the region refer to the index directly.
-    for (const string &name : region) {
-        substitute(*blocks.at(name), idx, ramp_value);
+    for (BlockId b = 0; b < region.size(); b++) {
+        substitute(region[b], idx, ramp_value);
     }
 
     // A lane's own vector -- a vec3f per lane, say -- cannot be widened as it
@@ -1725,8 +1696,10 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     loop->terminator.data =
         Terminator::Jump{parfor.body.name, parfor.body.args};
 
-    for (const string &name : region) {
-        auto block = blocks.at(name);
+    // The continuation is past the region: what the loop falls through to.
+    const BlockMap blocks = make_block_map(f);
+    for (BlockId b = 0; b < region.size(); b++) {
+        const shared_ptr<Block> &block = region.block(b);
         if (!std::holds_alternative<Terminator::Yield>(
                 block->terminator.data)) {
             continue;

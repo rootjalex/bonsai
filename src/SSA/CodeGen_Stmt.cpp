@@ -1256,10 +1256,12 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
 // `preds_of` is every block's predecessors, recomputed from the terminators:
 // the `preds` a block carries are what the builder recorded, and a rewrite
 // that retargets a jump does not always bring them up to date.
+using Predecessors = std::map<std::string, std::vector<std::string>>;
+
 Stmt structurize(const std::string &start, const std::string &exit,
                  const BlockMap &block_map, const DominatorMap &dom,
                  const BlockInfoMap &info, const ArgMutabilityMap &mut_map,
-                 const TypeMap &func_type_map, const AdjacencyMap &preds_of,
+                 const TypeMap &func_type_map, const Predecessors &preds_of,
                  const std::string &loop_header = "",
                  bool is_loop_body = false,
                  std::set<std::string> in_scope = {}) {
@@ -2054,8 +2056,16 @@ Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
     for (const auto &[name, _] : materialized) {
         in_scope.insert(name);
     }
-    const AdjacencyMap preds_of =
-        compute_predecessors(compute_successors(func));
+    Predecessors preds_of;
+    {
+        const Cfg cfg(func);
+        for (BlockId b = 0; b < cfg.size(); b++) {
+            std::vector<std::string> &preds = preds_of[cfg.name(b)];
+            for (BlockId p : cfg.preds[b]) {
+                preds.push_back(cfg.name(p));
+            }
+        }
+    }
     Stmt body = structurize(func.blocks[0]->name, "", block_map, dom, info,
                             mut_map, func_type_map, preds_of,
                             /*loop_header=*/"", /*is_loop_body=*/false,

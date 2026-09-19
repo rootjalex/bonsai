@@ -87,19 +87,20 @@ string value_key(const Value &v) {
 // to `target`, and the index of the target argument the first of them binds
 // to.
 struct ArgumentFlow {
-    string from;
+    BlockId from = NO_BLOCK;
     size_t first_arg = 0;
     const vector<shared_ptr<Value>> *values = nullptr;
 };
 
-// The argument flows out of `block` that stay inside the region, keyed by
+// The argument flows out of the block `from` that stay inside the region, by
 // target block. The callee of a Call is not one of them: it belongs to
 // another function's CFG, and its arguments are bound by that function's own
 // analysis.
-void collect_argument_flows(const Block &block,
-                            map<string, vector<ArgumentFlow>> &into) {
+void collect_argument_flows(const Cfg &cfg, BlockId from,
+                            vector<vector<ArgumentFlow>> &into) {
+    const Block &block = cfg[from];
     auto add = [&](const Terminator::Jump &j, size_t first_arg) {
-        into[j.name].push_back({block.name, first_arg, &j.args});
+        into[cfg.id(j.name)].push_back({from, first_arg, &j.args});
     };
 
     std::visit(overloads{
@@ -131,13 +132,6 @@ void collect_argument_flows(const Block &block,
                block.terminator.data);
 }
 
-template <typename T>
-const T &lookup_or(const map<string, T> &m, const string &key,
-                   const T &fallback) {
-    const auto it = m.find(key);
-    return it == m.end() ? fallback : it->second;
-}
-
 // What each block can name of the arguments in `args`: its own, and those of
 // every block that dominates it. Reverse postorder visits a block after every
 // block that dominates it, so one pass suffices.
@@ -148,20 +142,16 @@ const T &lookup_or(const map<string, T> &m, const string &key,
 // arguments, which survive, are referred to that way from everywhere in the
 // loop.
 map<string, set<string>>
-compute_scope(const vector<string> &rpo, const DomTree &dom,
-              const BlockMap &all_blocks,
+compute_scope(const Cfg &cfg, const DomTree &dom,
               const set<std::pair<string, string>> &args) {
-    map<string, set<string>> scope_of;
-    for (const string &name : rpo) {
-        set<string> &scope = scope_of[name];
-        const auto idom = dom.idom.find(name);
-        if (idom != dom.idom.end() && idom->second != name) {
-            const auto outer = scope_of.find(idom->second);
-            if (outer != scope_of.end()) {
-                scope = outer->second;
-            }
+    vector<set<string>> scope_of(cfg.size());
+    for (BlockId b : cfg.rpo) {
+        const string &name = cfg.name(b);
+        set<string> &scope = scope_of[b];
+        if (dom.contains(b) && dom.idom[b] != b) {
+            scope = scope_of[dom.idom[b]];
         }
-        for (const Argument &arg : all_blocks.at(name)->args) {
+        for (const Argument &arg : cfg[b].args) {
             if (args.count({name, arg.name})) {
                 scope.insert(arg.name);
             } else {
@@ -170,7 +160,11 @@ compute_scope(const vector<string> &rpo, const DomTree &dom,
             }
         }
     }
-    return scope_of;
+    map<string, set<string>> by_name;
+    for (BlockId b : cfg.rpo) {
+        by_name.emplace(cfg.name(b), std::move(scope_of[b]));
+    }
+    return by_name;
 }
 
 // Does this value address memory -- a pointer, or an array handle, which is
@@ -194,34 +188,29 @@ struct PointerClasses {
     // The block declaring the argument `name` as seen from `block`: the block
     // itself, or the nearest dominator that declares it (see compute_scope for
     // why a reference can be that far from its declaration).
+    const Cfg &cfg;
     const DomTree &dom;
-    const BlockMap &blocks;
 
-    PointerClasses(const DomTree &dom, const BlockMap &blocks)
-        : dom(dom), blocks(blocks) {}
+    PointerClasses(const Cfg &cfg, const DomTree &dom) : cfg(cfg), dom(dom) {}
 
-    string owner_of(const string &block, const string &name) const {
-        string at = block;
+    BlockId owner_of(BlockId block, const string &name) const {
+        BlockId at = block;
         while (true) {
-            const auto it = blocks.find(at);
-            if (it != blocks.end()) {
-                for (const Argument &arg : it->second->args) {
-                    if (arg.name == name) {
-                        return at;
-                    }
+            for (const Argument &arg : cfg[at].args) {
+                if (arg.name == name) {
+                    return at;
                 }
             }
-            const auto idom = dom.idom.find(at);
-            if (idom == dom.idom.end() || idom->second == at) {
+            if (!dom.contains(at) || dom.idom[at] == at) {
                 return block;
             }
-            at = idom->second;
+            at = dom.idom[at];
         }
     }
 
     // The key of `v` as referenced from `block`, or empty if it is not a
     // pointer (a constant, or a value of some other type).
-    string key(const string &block, const Value &v) const {
+    string key(BlockId block, const Value &v) const {
         if (!addresses_memory(v.get_type())) {
             return "";
         }
@@ -230,7 +219,7 @@ struct PointerClasses {
                 [](const shared_ptr<Instruction> &i) { return "%" + i->name; },
                 [](const Constant &) { return string(); },
                 [&](const Argument &a) {
-                    return owner_of(block, a.name) + "/" + a.name;
+                    return cfg.name(owner_of(block, a.name)) + "/" + a.name;
                 },
             },
             v.data);
@@ -285,37 +274,19 @@ analyze_divergence(const Function &func, const string &entry,
         return instr.operands.size() > 2 && !is_entry_mask(*instr.operands[2]);
     };
 
-    const BlockMap all_blocks = make_block_map(func);
-    const AdjacencyMap all_succs = compute_successors(func);
+    // The region: a ParFor body ends at its Yield, and a Call's callee is
+    // outside it, so this is exactly the set of blocks whose lanes execute
+    // together.
+    const Cfg cfg(func, entry);
+    const DomTree dom = compute_dominator_tree(cfg);
+    const LoopForest loops = compute_loop_forest(cfg, dom);
+    const DomTree pdom = compute_post_dominator_tree(cfg);
+    const ControlDependence cdep = compute_control_dependence(cfg, pdom);
 
-    // Restrict the CFG to the region: a ParFor body ends at its Yield, and a
-    // Call's callee is outside it, so this is exactly the set of blocks whose
-    // lanes execute together.
-    const set<string> region = reachable_from(entry, all_succs);
-    AdjacencyMap succs;
-    for (const string &name : region) {
-        succs[name];
-        for (const string &s : all_succs.at(name)) {
-            if (region.count(s)) {
-                succs[name].push_back(s);
-            }
-        }
+    vector<vector<ArgumentFlow>> flows(cfg.size());
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        collect_argument_flows(cfg, b, flows);
     }
-    const AdjacencyMap preds = compute_predecessors(succs);
-    const vector<string> rpo = reverse_postorder(entry, succs);
-    const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
-    const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
-    const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
-    const ControlDependence cdep = compute_control_dependence(succs, pdom);
-
-    map<string, vector<ArgumentFlow>> flows;
-    for (const string &name : region) {
-        collect_argument_flows(*all_blocks.at(name), flows);
-    }
-
-    const set<Edge> no_edges;
-    const vector<string> no_names;
-    const vector<ArgumentFlow> no_flows;
 
     //===------------------------------------------------------------------===//
     // Pointer classes
@@ -326,9 +297,10 @@ analyze_divergence(const Function &func, const string &entry,
     // instruction is derived from its pointer operands; a pointer-typed block
     // argument from every value passed to it. Allocations, addresses taken,
     // loads and call results derive from nothing.
-    PointerClasses classes(dom, all_blocks);
-    for (const string &name : region) {
-        const Block &block = *all_blocks.at(name);
+    PointerClasses classes(cfg, dom);
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        const Block &block = cfg[b];
+        const string &name = block.name;
         for (const shared_ptr<Instruction> &instr : block.instrs) {
             if (!addresses_memory(instr->type) ||
                 instr->op == Instruction::Op::Alloca ||
@@ -337,12 +309,12 @@ analyze_divergence(const Function &func, const string &entry,
                 instr->op == Instruction::Op::Load) {
                 continue;
             }
-            const string self = classes.key(name, Value(instr));
+            const string self = classes.key(b, Value(instr));
             for (const shared_ptr<Value> &operand : instr->operands) {
-                classes.unite(self, classes.key(name, *operand));
+                classes.unite(self, classes.key(b, *operand));
             }
         }
-        const vector<ArgumentFlow> &incoming = lookup_or(flows, name, no_flows);
+        const vector<ArgumentFlow> &incoming = flows[b];
         for (size_t j = 0; j < block.args.size(); j++) {
             if (!addresses_memory(block.args[j].type)) {
                 continue;
@@ -366,13 +338,12 @@ analyze_divergence(const Function &func, const string &entry,
     // lanes share with the world, and its layout is not this region's to
     // change.
     set<string> owned;
-    for (const string &name : region) {
-        for (const shared_ptr<Instruction> &instr :
-             all_blocks.at(name)->instrs) {
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        for (const shared_ptr<Instruction> &instr : cfg[b].instrs) {
             if (instr->op == Instruction::Op::Alloca ||
                 instr->op == Instruction::Op::Alloc ||
                 instr->op == Instruction::Op::AddressOf) {
-                owned.insert(classes.find(classes.key(name, Value(instr))));
+                owned.insert(classes.find(classes.key(b, Value(instr))));
             }
         }
     }
@@ -393,13 +364,13 @@ analyze_divergence(const Function &func, const string &entry,
     result.instrs.insert(varying_instrs.begin(), varying_instrs.end());
     result.args.insert(varying_args.begin(), varying_args.end());
     for (const string &seed : masked_seeds) {
-        if (region.count(seed)) {
+        if (cfg.contains(seed)) {
             result.masked.insert(seed);
         }
     }
 
     // Is `v`, referenced from `block`, a shared pointer to per-lane memory?
-    auto points_per_lane = [&](const string &block, const Value &v) {
+    auto points_per_lane = [&](BlockId block, const Value &v) {
         const string k = classes.key(block, v);
         return !k.empty() && per_lane.count(classes.find(k)) > 0;
     };
@@ -412,7 +383,7 @@ analyze_divergence(const Function &func, const string &entry,
     // noted during a pass of the solve and judged only once the solve has
     // converged (see below).
     struct PendingWrite {
-        string block;
+        BlockId block;
         shared_ptr<Value> place;
         const Instruction *by;
     };
@@ -441,38 +412,38 @@ analyze_divergence(const Function &func, const string &entry,
     //
     // Grows monotonically with `result.branches`; `joins_of` remembers each
     // branch's joins.
-    map<string, size_t> rpo_index;
-    for (size_t i = 0; i < rpo.size(); i++) {
-        rpo_index[rpo[i]] = i;
+    vector<size_t> rpo_index(cfg.size(), 0);
+    for (size_t i = 0; i < cfg.rpo.size(); i++) {
+        rpo_index[cfg.rpo[i]] = i;
     }
-    const auto joins_of_branch = [&](const string &branch) {
-        set<string> joins;
-        map<string, string> label;
-        for (const string &s : lookup_or(succs, branch, no_names)) {
-            label.emplace(s, s); // two edges to one block are one path
+    const auto joins_of_branch = [&](BlockId branch) {
+        BlockSet joins(cfg.size());
+        vector<BlockId> label(cfg.size(), NO_BLOCK);
+        for (BlockId s : cfg.succs[branch]) {
+            if (label[s] == NO_BLOCK) {
+                label[s] = s; // two edges to one block are one path
+            }
         }
-        for (const string &x : rpo) {
-            const auto lx = label.find(x);
-            if (lx == label.end()) {
+        for (BlockId x : cfg.rpo) {
+            if (label[x] == NO_BLOCK) {
                 continue;
             }
-            for (const string &y : lookup_or(succs, x, no_names)) {
-                if (rpo_index.at(y) <= rpo_index.at(x)) {
+            for (BlockId y : cfg.succs[x]) {
+                if (rpo_index[y] <= rpo_index[x]) {
                     continue; // a back edge
                 }
-                const auto ly = label.find(y);
-                if (ly == label.end()) {
-                    label.emplace(y, lx->second);
-                } else if (ly->second != lx->second) {
+                if (label[y] == NO_BLOCK) {
+                    label[y] = label[x];
+                } else if (label[y] != label[x]) {
                     joins.insert(y);
-                    ly->second = y;
+                    label[y] = y;
                 }
             }
         }
         return joins;
     };
-    map<string, set<string>> joins_of;
-    set<string> sync_joins;
+    BlockSet joins_found(cfg.size());
+    BlockSet sync_joins(cfg.size());
 
     // Monotone: every rule only ever adds to the sets, so this terminates.
     //
@@ -503,32 +474,35 @@ analyze_divergence(const Function &func, const string &entry,
         // value through a pointer into shared memory is a race between the
         // lanes in the original program and has no meaning here. Noted here,
         // judged after the solve.
-        auto mark_written = [&](const string &block,
-                                const shared_ptr<Value> &place,
+        auto mark_written = [&](BlockId block, const shared_ptr<Value> &place,
                                 const Instruction &by) {
             pending.push_back({block, place, &by});
         };
 
-        result.in_scope = compute_scope(rpo, dom, all_blocks, result.args);
+        result.in_scope = compute_scope(cfg, dom, result.args);
 
-        for (const string &branch : result.branches) {
-            if (joins_of.count(branch)) {
+        for (const string &branch_name : result.branches) {
+            const BlockId branch = cfg.id(branch_name);
+            if (!joins_found.insert(branch)) {
                 continue;
             }
-            const set<string> joins = joins_of_branch(branch);
-            sync_joins.insert(joins.begin(), joins.end());
-            joins_of[branch] = joins;
+            for (BlockId join : joins_of_branch(branch)) {
+                sync_joins.insert(join);
+            }
         }
 
-        for (const string &name : rpo) {
-            const Block &block = *all_blocks.at(name);
+        for (BlockId b : cfg.rpo) {
+            const Block &block = cfg[b];
+            const string &name = block.name;
 
             // A block executes with a partial mask if it is control dependent
             // on a divergent branch, or on a branch in a block that is itself
             // only partially executed: a block's mask is always a subset of
             // the masks of the blocks it is control dependent on.
-            for (const auto &[from, to] : lookup_or(cdep, name, no_edges)) {
-                if (result.branches.count(from) || result.masked.count(from)) {
+            for (const auto &[from, to] : cdep[b]) {
+                const string &from_name = cfg.name(from);
+                if (result.branches.count(from_name) ||
+                    result.masked.count(from_name)) {
                     mark(result.masked, name);
                 }
             }
@@ -560,37 +534,37 @@ analyze_divergence(const Function &func, const string &entry,
             // agrees on, and everything indexed by it would vary -- a leaf's
             // primitives, and the instance one of them is, when the leaf is
             // only visited by the rays that hit its node.
-            const vector<string> &block_preds =
-                lookup_or(preds, name, no_names);
-            const auto loop_it = loops.find(name);
-            const auto leaves_divergently = [&](const string &latch) {
-                if (loop_it == loops.end()) {
+            const vector<BlockId> &block_preds = cfg.preds[b];
+            const Loop *loop = loops.find(b);
+            const auto leaves_divergently = [&](BlockId latch) {
+                if (loop == nullptr) {
                     return false;
                 }
-                if (masked_seeds.count(latch)) {
+                const string &latch_name = cfg.name(latch);
+                if (masked_seeds.count(latch_name)) {
                     result.divergent_headers.emplace(
-                        name, "latch " + latch + " is in a loop already folded");
+                        name,
+                        "latch " + latch_name + " is in a loop already folded");
                     return true;
                 }
-                const Loop &loop = loop_it->second;
-                set<string> seen;
-                vector<string> work{latch};
+                BlockSet seen(cfg.size());
+                vector<BlockId> work{latch};
                 while (!work.empty()) {
-                    const string b = work.back();
+                    const BlockId at = work.back();
                     work.pop_back();
-                    if (!seen.insert(b).second) {
+                    if (!seen.insert(at)) {
                         continue;
                     }
-                    for (const auto &[from, to] : lookup_or(cdep, b, no_edges)) {
-                        if (!loop.blocks.count(from)) {
+                    for (const auto &[from, to] : cdep[at]) {
+                        if (!loop->blocks.contains(from)) {
                             continue;
                         }
-                        if (result.branches.count(from)) {
+                        if (result.branches.count(cfg.name(from))) {
                             result.divergent_headers.emplace(
-                                name, "latch " + latch +
+                                name, "latch " + latch_name +
                                           " is control dependent on the "
                                           "branch in " +
-                                          from);
+                                          cfg.name(from));
                             return true;
                         }
                         work.push_back(from);
@@ -600,16 +574,17 @@ analyze_divergence(const Function &func, const string &entry,
             };
             const bool divergent_join =
                 block_preds.size() > 1 &&
-                (sync_joins.count(name) > 0 ||
+                (sync_joins.contains(b) ||
                  std::any_of(block_preds.begin(), block_preds.end(),
-                             [&](const string &p) {
-                                 return loop_it != loops.end() &&
-                                        loop_it->second.latches.count(p) &&
+                             [&](BlockId p) {
+                                 return loop != nullptr &&
+                                        std::binary_search(
+                                            loop->latches.begin(),
+                                            loop->latches.end(), p) &&
                                         leaves_divergently(p);
                              }));
 
-            const vector<ArgumentFlow> &incoming =
-                lookup_or(flows, name, no_flows);
+            const vector<ArgumentFlow> &incoming = flows[b];
             for (size_t j = 0; j < block.args.size(); j++) {
                 std::optional<string> common_key;
                 bool varying = false;
@@ -628,14 +603,15 @@ analyze_divergence(const Function &func, const string &entry,
                         continue;
                     }
                     const Value &v = *(*flow.values)[j - flow.first_arg];
-                    const bool passed_varying = result.is_varying(flow.from, v);
+                    const string &from_name = cfg.name(flow.from);
+                    const bool passed_varying = result.is_varying(from_name, v);
                     const string key = value_key(v);
                     const bool differs = divergent_join &&
                                          common_key.has_value() &&
                                          *common_key != key;
                     if (explain && (passed_varying || differs)) {
                         std::cerr << "--- " << block.args[j].name << " of "
-                                  << name << " is varying: from " << flow.from
+                                  << name << " is varying: from " << from_name
                                   << " it is passed ";
                         v.dump(std::cerr);
                         std::cerr << (passed_varying ? ", which varies"
@@ -646,7 +622,7 @@ analyze_divergence(const Function &func, const string &entry,
                                               : "")
                                   << "\n";
                         if (passed_varying) {
-                            explain_varying(func, result, flow.from, v, 1);
+                            explain_varying(func, result, from_name, v, 1);
                         }
                     }
                     varying |= passed_varying || differs;
@@ -677,8 +653,8 @@ analyze_divergence(const Function &func, const string &entry,
                 // address, of a temporary with a slot per lane.
                 case Instruction::Op::AddressOf:
                     if (result.is_varying(name, *instr->operands[0])) {
-                        mark(per_lane, classes.find(classes.key(
-                                           name, Value(instr))));
+                        mark(per_lane,
+                             classes.find(classes.key(b, Value(instr))));
                     }
                     continue;
 
@@ -688,7 +664,7 @@ analyze_divergence(const Function &func, const string &entry,
                 case Instruction::Op::Load:
                 case Instruction::Op::ExtractIdx:
                     if (result.is_varying(name, *instr->operands[0]) ||
-                        points_per_lane(name, *instr->operands[0]) ||
+                        points_per_lane(b, *instr->operands[0]) ||
                         (instr->operands.size() > 1 &&
                          result.is_varying(name, *instr->operands[1]))) {
                         mark(result.instrs, instr.get());
@@ -715,16 +691,16 @@ analyze_divergence(const Function &func, const string &entry,
                 case Instruction::Op::Store:
                     if (!result.is_varying(name, *instr->operands[0])) {
                         if (result.is_varying(name, *instr->operands[1])) {
-                            mark_written(name, instr->operands[0], *instr);
+                            mark_written(b, instr->operands[0], *instr);
                         } else if (narrowed(*instr) || under_mask) {
                             const string k =
-                                classes.key(name, *instr->operands[0]);
+                                classes.key(b, *instr->operands[0]);
                             if (!k.empty() && owned.count(classes.find(k))) {
                                 mark(per_lane, classes.find(k));
                             }
                         }
                     } else {
-                        const string k = classes.key(name, *instr->operands[0]);
+                        const string k = classes.key(b, *instr->operands[0]);
                         if (!k.empty() && owned.count(classes.find(k))) {
                             mark(per_lane, classes.find(k));
                         }
@@ -743,7 +719,7 @@ analyze_divergence(const Function &func, const string &entry,
                 case Instruction::Op::AccMax:
                 case Instruction::Op::AccArgmin:
                 case Instruction::Op::AccArgmax: {
-                    const string k = classes.key(name, *instr->operands[0]);
+                    const string k = classes.key(b, *instr->operands[0]);
                     const bool writes_per_lane =
                         under_mask || narrowed(*instr) ||
                         result.is_varying(name, *instr->operands[0]) ||
@@ -796,10 +772,10 @@ analyze_divergence(const Function &func, const string &entry,
                                 [&](const shared_ptr<Value> &v) {
                                     return !is_entry_mask(*v) &&
                                            (result.is_varying(name, *v) ||
-                                            points_per_lane(name, *v));
+                                            points_per_lane(b, *v));
                                 });
                 if (!drop && varying_call) {
-                    const Block &cont_block = *all_blocks.at(cont.name);
+                    const Block &cont_block = cfg[cfg.id(cont.name)];
                     internal_assert(!cont_block.args.empty())
                         << "Call continuation " << cont_block.name
                         << " takes no result argument.";
@@ -808,7 +784,7 @@ analyze_divergence(const Function &func, const string &entry,
                 }
                 if (varying_call || under_mask) {
                     for (const shared_ptr<Value> &v : args) {
-                        const string k = classes.key(name, *v);
+                        const string k = classes.key(b, *v);
                         if (!k.empty() && owned.count(classes.find(k))) {
                             mark(per_lane, classes.find(k));
                         }
@@ -832,7 +808,8 @@ analyze_divergence(const Function &func, const string &entry,
         // has since turned out to vary is a scatter, each lane writing its
         // own place, and says nothing about the memory's layout.
         for (const PendingWrite &w : pending) {
-            if (result.is_varying(w.block, *w.place)) {
+            const string &written_in = cfg.name(w.block);
+            if (result.is_varying(written_in, *w.place)) {
                 continue;
             }
             const string k = classes.key(w.block, *w.place);
@@ -854,13 +831,13 @@ analyze_divergence(const Function &func, const string &entry,
                     for (const auto &operand : (*i)->operands) {
                         std::cerr << "\n  ";
                         operand->dump(std::cerr);
-                        std::cerr << (result.is_varying(w.block, *operand)
+                        std::cerr << (result.is_varying(written_in, *operand)
                                           ? " (varying)"
                                           : " (uniform)");
                     }
                 }
                 internal_error
-                    << "\nThe write above, in " << w.block << ", stores a "
+                    << "\nThe write above, in " << written_in << ", stores a "
                     << "value that differs between the lanes of a gang "
                     << "through a pointer the lanes share, into memory the "
                     << "gang does not own. Every lane of a parfor writing its "
@@ -875,11 +852,12 @@ analyze_divergence(const Function &func, const string &entry,
     // Report the pointer classes as values
     //===------------------------------------------------------------------===//
 
-    for (const string &name : region) {
-        const Block &block = *all_blocks.at(name);
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        const Block &block = cfg[b];
+        const string &name = block.name;
         for (const shared_ptr<Instruction> &instr : block.instrs) {
             if (addresses_memory(instr->type) &&
-                points_per_lane(name, Value(instr))) {
+                points_per_lane(b, Value(instr))) {
                 result.pointee_instrs.insert(instr.get());
             }
         }
@@ -890,8 +868,7 @@ analyze_divergence(const Function &func, const string &entry,
             }
         }
     }
-    result.pointee_in_scope =
-        compute_scope(rpo, dom, all_blocks, result.pointee_args);
+    result.pointee_in_scope = compute_scope(cfg, dom, result.pointee_args);
 
     return result;
 }

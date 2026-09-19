@@ -45,7 +45,12 @@ bool may_nest(Resource outer, Resource inner) {
 // The blocks a parfor's body can reach, which is where anything nested inside
 // it lives. A parfor body ends at a yield, so this stops at the loop.
 set<string> body_of(const Function &func, const Terminator::ParFor &loop) {
-    return reachable_from(loop.body.name, compute_successors(func));
+    set<string> body;
+    const Cfg region(func, loop.body.name);
+    for (const auto &block : region.blocks()) {
+        body.insert(block->name);
+    }
+    return body;
 }
 
 } // namespace

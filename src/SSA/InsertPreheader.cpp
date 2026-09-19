@@ -97,9 +97,9 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
 void rename_argument(Function &func, const string &region, const string &from,
                      const string &to) {
     vector<shared_ptr<Block>> blocks;
-    const set<string> reach = reachable_from(region, compute_successors(func));
+    const Cfg reach(func, region);
     for (const auto &block : func.blocks) {
-        if (reach.count(block->name)) {
+        if (reach.contains(*block)) {
             blocks.push_back(block);
         }
     }
@@ -248,15 +248,13 @@ string insert_preheader(Function &func, const string &header,
     // value, and renaming that one alike left the outer back edge passing the
     // inner value under the outer argument's name, which reads as the loop
     // handing the value straight back and so not carrying it at all.
-    const AdjacencyMap all_succs = compute_successors(func);
-    const AdjacencyMap all_preds = compute_predecessors(all_succs);
-    const string entry = func.blocks.front()->name;
-    const DomTree dom = compute_dominator_tree(
-        entry, all_succs, all_preds, reverse_postorder(entry, all_succs));
+    const Cfg cfg(func);
+    const DomTree dom = compute_dominator_tree(cfg);
+    const BlockId body_id = cfg.id(*body);
     vector<shared_ptr<Block>> dominated;
     for (const auto &block : func.blocks) {
-        if (dom.idom.count(block->name) &&
-            dom.dominates(body->name, block->name)) {
+        const BlockId b = cfg.id(*block);
+        if (dom.contains(b) && dom.dominates(body_id, b)) {
             dominated.push_back(block);
         }
     }

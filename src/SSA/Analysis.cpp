@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <iostream>
 #include <optional>
+#include <queue>
+#include <tuple>
 
 namespace bonsai {
 namespace ir {
@@ -22,7 +24,6 @@ namespace ssa {
 using std::map;
 using std::optional;
 using std::pair;
-using std::set;
 using std::shared_ptr;
 using std::string;
 using std::tuple;
@@ -201,15 +202,12 @@ OriginMap make_origin_map(const ssa::Function &func) {
 } // namespace
 
 BlockMap make_block_map(const shared_ptr<Function> &func) {
-    BlockMap bmap;
-    for (const auto &block : func->blocks) {
-        bmap[block->name] = block;
-    }
-    return bmap;
+    return make_block_map(*func);
 }
 
 BlockMap make_block_map(const Function &func) {
     BlockMap bmap;
+    bmap.reserve(func.blocks.size());
     for (const auto &block : func.blocks) {
         bmap[block->name] = block;
     }
@@ -218,21 +216,6 @@ BlockMap make_block_map(const Function &func) {
 
 ArgMutabilityMap get_mutability_map(const ssa::Function &func) {
     OriginMap omap = make_origin_map(func);
-    /*
-    for (const auto &[bname, vec] : omap) {
-
-        std::cout << bname << " = {";
-        bool first = true;
-        for (const auto &v : vec) {
-            if (!first) {
-                std::cout << ", ";
-            }
-            first = false;
-            std::cout << static_cast<int>(v.kind);
-        }
-        std::cout << "}\n";
-    }
-    */
 
     ArgMutabilityMap result;
 
@@ -260,7 +243,7 @@ ArgMutabilityMap get_mutability_map(const ssa::Function &func) {
 }
 
 //===--------------------------------------------------------------------===//
-// Control flow graph
+// Blocks and edges, by name
 //===--------------------------------------------------------------------===//
 
 vector<string> successors(const Block &block) {
@@ -299,16 +282,12 @@ vector<string> successors(const Block &block) {
 }
 
 void refresh_preds(Function &func) {
-    const BlockMap blocks = make_block_map(func);
-    const AdjacencyMap preds = compute_predecessors(compute_successors(func));
-    for (const auto &block : func.blocks) {
-        block->preds.clear();
-        const auto it = preds.find(block->name);
-        if (it == preds.end()) {
-            continue;
-        }
-        for (const string &p : it->second) {
-            block->preds.push_back(blocks.at(p));
+    const Cfg cfg(func);
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        Block &block = cfg[b];
+        block.preds.clear();
+        for (BlockId p : cfg.preds[b]) {
+            block.preds.push_back(cfg.block(p));
         }
     }
 }
@@ -317,11 +296,10 @@ size_t remove_unreachable_blocks(Function &func) {
     internal_assert(!func.blocks.empty()) << "A function with no blocks";
     // Reachable along every kind of edge, a parfor's body included: the
     // regions of one function are all its own.
-    const set<string> live =
-        reachable_from(func.blocks.front()->name, compute_successors(func));
+    const Cfg live(func, func.blocks.front()->name);
     const size_t before = func.blocks.size();
     std::erase_if(func.blocks, [&](const std::shared_ptr<Block> &block) {
-        return live.count(block->name) == 0;
+        return !live.contains(*block);
     });
     refresh_preds(func);
     return before - func.blocks.size();
@@ -430,56 +408,34 @@ vector<Terminator::Jump *> jumps_of(Block &block) {
     return jumps;
 }
 
-AdjacencyMap compute_successors(const Function &func) {
-    AdjacencyMap succs;
-    for (const auto &block : func.blocks) {
-        succs[block->name] = successors(*block);
-    }
-    return succs;
-}
+//===--------------------------------------------------------------------===//
+// Control flow graph
+//===--------------------------------------------------------------------===//
 
-AdjacencyMap compute_predecessors(const AdjacencyMap &succs) {
-    AdjacencyMap preds;
-    for (const auto &[name, _] : succs) {
-        preds[name]; // ensure every block has an entry, even if unreachable
+vector<BlockId> reverse_postorder(const Graph &g, BlockId from) {
+    vector<BlockId> postorder;
+    if (from >= g.size()) {
+        return postorder;
     }
-    for (const auto &[name, ss] : succs) {
-        for (const auto &s : ss) {
-            // Guard against terminators naming blocks that do not exist; that
-            // is a malformed function, but this analysis should not crash
-            // before the verifier can say so.
-            if (preds.count(s)) {
-                preds[s].push_back(name);
-            }
-        }
-    }
-    return preds;
-}
-
-vector<string> reverse_postorder(const string &entry,
-                                 const AdjacencyMap &succs) {
-    vector<string> postorder;
-    set<string> visited;
+    vector<bool> visited(g.size(), false);
 
     // Iterative DFS so deep CFGs cannot overflow the stack. The second element
     // is the index of the next successor to visit.
-    vector<pair<string, size_t>> stack;
-    if (!succs.count(entry)) {
-        return {};
-    }
-    stack.emplace_back(entry, 0);
-    visited.insert(entry);
+    vector<pair<BlockId, size_t>> stack;
+    stack.emplace_back(from, 0);
+    visited[from] = true;
 
     while (!stack.empty()) {
-        auto &[name, next] = stack.back();
-        const auto it = succs.find(name);
-        if (it == succs.end() || next >= it->second.size()) {
-            postorder.push_back(name);
+        auto &[b, next] = stack.back();
+        const vector<BlockId> &succs = g.succs[b];
+        if (next >= succs.size()) {
+            postorder.push_back(b);
             stack.pop_back();
             continue;
         }
-        const string &s = it->second[next++];
-        if (succs.count(s) && visited.insert(s).second) {
+        const BlockId s = succs[next++];
+        if (!visited[s]) {
+            visited[s] = true;
             stack.emplace_back(s, 0);
         }
     }
@@ -488,9 +444,133 @@ vector<string> reverse_postorder(const string &entry,
     return postorder;
 }
 
-set<string> reachable_from(const string &from, const AdjacencyMap &succs) {
-    const vector<string> rpo = reverse_postorder(from, succs);
-    return set<string>(rpo.begin(), rpo.end());
+BlockSet reachable_from(const Graph &g, BlockId from) {
+    BlockSet reached(g.size());
+    for (BlockId b : reverse_postorder(g, from)) {
+        reached.insert(b);
+    }
+    return reached;
+}
+
+Graph Graph::from_successors(vector<vector<BlockId>> succs, BlockId entry) {
+    Graph g;
+    g.succs = std::move(succs);
+    g.entry = entry;
+    g.preds.resize(g.succs.size());
+    for (BlockId a = 0; a < g.size(); a++) {
+        for (BlockId s : g.succs[a]) {
+            internal_assert(s < g.size())
+                << "Graph::from_successors: node " << a << " has a successor "
+                << s << " outside the graph of " << g.size() << " nodes";
+            g.preds[s].push_back(a);
+        }
+    }
+    g.rpo = reverse_postorder(g, entry);
+    return g;
+}
+
+Cfg::Cfg(const Function &func) {
+    build(func.blocks, func.blocks.empty() ? "" : func.blocks.front()->name);
+}
+
+Cfg::Cfg(const Function &func, const string &entry_name) {
+    // The blocks reachable from the entry, by a walk over the terminators.
+    std::unordered_map<string, const shared_ptr<Block> *> all;
+    all.reserve(func.blocks.size());
+    for (const auto &block : func.blocks) {
+        all.emplace(block->name, &block);
+    }
+    vector<shared_ptr<Block>> reached;
+    std::unordered_map<const Block *, bool> seen;
+    vector<const shared_ptr<Block> *> stack;
+    if (const auto at = all.find(entry_name); at != all.end()) {
+        stack.push_back(at->second);
+        seen.emplace(at->second->get(), true);
+    }
+    while (!stack.empty()) {
+        const shared_ptr<Block> &block = *stack.back();
+        stack.pop_back();
+        reached.push_back(block);
+        for (const string &s : successors(*block)) {
+            const auto at = all.find(s);
+            if (at == all.end()) {
+                continue; // a jump to a block that does not exist; see build
+            }
+            if (seen.emplace(at->second->get(), true).second) {
+                stack.push_back(at->second);
+            }
+        }
+    }
+    build(std::move(reached), entry_name);
+}
+
+void Cfg::build(vector<shared_ptr<Block>> blocks, const string &entry_name) {
+    std::sort(blocks.begin(), blocks.end(),
+              [](const shared_ptr<Block> &a, const shared_ptr<Block> &b) {
+                  return a->name < b->name;
+              });
+    held = std::move(blocks);
+    by_name.reserve(held.size());
+    by_pointer.reserve(held.size());
+    for (BlockId b = 0; b < held.size(); b++) {
+        internal_assert(by_name.emplace(held[b]->name, b).second)
+            << "Two blocks named " << held[b]->name;
+        by_pointer.emplace(held[b].get(), b);
+    }
+
+    succs.resize(held.size());
+    preds.resize(held.size());
+    for (BlockId a = 0; a < held.size(); a++) {
+        for (const string &s : successors(*held[a])) {
+            const BlockId to = find(s);
+            if (to == NO_BLOCK) {
+                // A terminator naming a block that does not exist: a
+                // malformed function, which the verifier reports; the
+                // analyses leave the edge out rather than crash before it
+                // can say so.
+                continue;
+            }
+            succs[a].push_back(to);
+            preds[to].push_back(a);
+        }
+    }
+    entry = find(entry_name);
+    rpo = reverse_postorder(*this, entry);
+}
+
+BlockId Cfg::find(const string &name) const {
+    const auto it = by_name.find(name);
+    return it == by_name.end() ? NO_BLOCK : it->second;
+}
+
+BlockId Cfg::find(const Block &block) const {
+    const auto it = by_pointer.find(&block);
+    return it == by_pointer.end() ? NO_BLOCK : it->second;
+}
+
+BlockId Cfg::id(const string &name) const {
+    const BlockId b = find(name);
+    internal_assert(b != NO_BLOCK) << "No block " << name << " in the graph";
+    return b;
+}
+
+BlockId Cfg::id(const Block &block) const {
+    const BlockId b = find(block);
+    internal_assert(b != NO_BLOCK)
+        << "Block " << block.name << " is not in the graph";
+    return b;
+}
+
+BlockId Cfg::add_block(const shared_ptr<Block> &block) {
+    internal_assert(!contains(block->name))
+        << "Block " << block->name << " is already in the graph";
+    const BlockId b = BlockId(held.size());
+    held.push_back(block);
+    by_name.emplace(block->name, b);
+    by_pointer.emplace(block.get(), b);
+    succs.emplace_back();
+    preds.emplace_back();
+    return b;
 }
 
 //===--------------------------------------------------------------------===//
@@ -498,64 +578,49 @@ set<string> reachable_from(const string &from, const AdjacencyMap &succs) {
 //===--------------------------------------------------------------------===//
 
 void DomTree::number() {
-    kids.clear();
-    range.clear();
-    for (const auto &[name, _] : idom) {
-        kids[name];
-    }
-    for (const auto &[name, parent] : idom) {
-        if (parent != name) {
-            kids[parent].push_back(name);
+    kids.assign(idom.size(), {});
+    range.assign(idom.size(), {0, 0});
+    for (BlockId b = 0; b < idom.size(); b++) {
+        if (idom[b] != NO_BLOCK && idom[b] != b) {
+            kids[idom[b]].push_back(b);
         }
     }
-    if (!idom.count(root)) {
+    if (!contains(root)) {
         return;
     }
     // Iterative preorder walk, so a deep tree cannot overflow the stack. The
     // second element is the index of the next child to visit.
-    size_t next_number = 0;
-    vector<pair<string, size_t>> stack;
+    uint32_t next_number = 0;
+    vector<pair<BlockId, size_t>> stack;
     range[root].first = next_number++;
     stack.emplace_back(root, 0);
     while (!stack.empty()) {
-        const string name = stack.back().first;
+        const BlockId b = stack.back().first;
         const size_t next = stack.back().second++;
-        const vector<string> &children_of = kids.at(name);
+        const vector<BlockId> &children_of = kids[b];
         if (next < children_of.size()) {
-            const string &child = children_of[next];
+            const BlockId child = children_of[next];
             range[child].first = next_number++;
             stack.emplace_back(child, 0);
         } else {
-            range[name].second = next_number;
+            range[b].second = next_number;
             stack.pop_back();
         }
     }
 }
 
-bool DomTree::dominates(const string &a, const string &b) const {
-    internal_assert(range.size() == idom.size())
-        << "The dominator tree was queried before it was numbered";
-    const auto ra = range.find(a);
-    const auto rb = range.find(b);
-    if (ra == range.end() || rb == range.end()) {
-        return false;
-    }
-    return ra->second.first <= rb->second.first &&
-           rb->second.first < ra->second.second;
-}
-
-vector<string> DomTree::subtree(const string &a) const {
-    vector<string> blocks;
-    if (!kids.count(a)) {
+vector<BlockId> DomTree::subtree(BlockId a) const {
+    vector<BlockId> blocks;
+    if (!contains(a)) {
         return blocks;
     }
-    vector<string> stack{a};
+    vector<BlockId> stack{a};
     while (!stack.empty()) {
-        const string name = std::move(stack.back());
+        const BlockId b = stack.back();
         stack.pop_back();
-        blocks.push_back(name);
-        const vector<string> &children_of = kids.at(name);
-        // Pushed in reverse so that they are visited in `idom`'s order.
+        blocks.push_back(b);
+        const vector<BlockId> &children_of = kids[b];
+        // Pushed in reverse so that they are visited in id order.
         for (auto it = children_of.rbegin(); it != children_of.rend(); ++it) {
             stack.push_back(*it);
         }
@@ -563,59 +628,33 @@ vector<string> DomTree::subtree(const string &a) const {
     return blocks;
 }
 
-string DomTree::nearest_common_ancestor(const string &a,
-                                        const string &b) const {
-    // Walk `a`'s ancestors into a set, then walk `b`'s until one hits it.
-    set<string> ancestors;
-    string cur = a;
-    while (true) {
-        ancestors.insert(cur);
-        const auto it = idom.find(cur);
-        if (it == idom.end() || it->second == cur) {
-            break;
-        }
-        cur = it->second;
-    }
-    cur = b;
-    while (!ancestors.count(cur)) {
-        const auto it = idom.find(cur);
-        internal_assert(it != idom.end())
-            << "nearest_common_ancestor: " << b << " is not in the tree";
-        if (it->second == cur) {
-            return cur; // root
-        }
-        cur = it->second;
-    }
-    return cur;
-}
-
-DomTree compute_dominator_tree(const string &entry, const AdjacencyMap &succs,
-                               const AdjacencyMap &preds,
-                               const vector<string> &rpo) {
+DomTree compute_dominator_tree(const Graph &g) {
     // Cooper, Harvey & Kennedy, "A Simple, Fast Dominance Algorithm" (2001).
     DomTree tree;
-    tree.root = entry;
-    if (rpo.empty()) {
+    tree.root = g.entry;
+    tree.idom.assign(g.size(), NO_BLOCK);
+    if (g.rpo.empty()) {
+        tree.number();
         return tree;
     }
 
-    map<string, size_t> rpo_number;
-    for (size_t i = 0; i < rpo.size(); i++) {
-        rpo_number[rpo[i]] = i;
+    vector<size_t> rpo_number(g.size(), 0);
+    for (size_t i = 0; i < g.rpo.size(); i++) {
+        rpo_number[g.rpo[i]] = i;
     }
 
     // `intersect` walks two nodes up the partially-built tree until they meet,
     // always advancing whichever is deeper (larger RPO number).
-    map<string, string> idom;
-    idom[entry] = entry;
+    vector<BlockId> &idom = tree.idom;
+    idom[g.entry] = g.entry;
 
-    auto intersect = [&](string a, string b) {
+    auto intersect = [&](BlockId a, BlockId b) {
         while (a != b) {
-            while (rpo_number.at(a) > rpo_number.at(b)) {
-                a = idom.at(a);
+            while (rpo_number[a] > rpo_number[b]) {
+                a = idom[a];
             }
-            while (rpo_number.at(b) > rpo_number.at(a)) {
-                b = idom.at(b);
+            while (rpo_number[b] > rpo_number[a]) {
+                b = idom[b];
             }
         }
         return a;
@@ -624,58 +663,48 @@ DomTree compute_dominator_tree(const string &entry, const AdjacencyMap &succs,
     bool changed = true;
     while (changed) {
         changed = false;
-        for (const auto &name : rpo) {
-            if (name == entry) {
+        for (BlockId b : g.rpo) {
+            if (b == g.entry) {
                 continue;
             }
-            const auto pit = preds.find(name);
-            if (pit == preds.end()) {
-                continue;
-            }
-
-            std::optional<string> new_idom;
-            for (const auto &p : pit->second) {
-                if (!idom.count(p)) {
+            BlockId new_idom = NO_BLOCK;
+            for (BlockId p : g.preds[b]) {
+                if (idom[p] == NO_BLOCK) {
                     continue; // not yet processed on this pass
                 }
-                new_idom = new_idom.has_value() ? intersect(*new_idom, p) : p;
+                new_idom = new_idom == NO_BLOCK ? p : intersect(new_idom, p);
             }
-            if (new_idom.has_value() &&
-                (!idom.count(name) || idom.at(name) != *new_idom)) {
-                idom[name] = *new_idom;
+            if (new_idom != NO_BLOCK && idom[b] != new_idom) {
+                idom[b] = new_idom;
                 changed = true;
             }
         }
     }
 
-    tree.idom = std::move(idom);
     tree.number();
     return tree;
 }
 
-AdjacencyMap compute_dominance_frontier(const AdjacencyMap &preds,
-                                        const DomTree &dom) {
+DominanceFrontier compute_dominance_frontier(const Graph &g,
+                                             const DomTree &dom) {
     // Cytron, Ferrante, Rosen, Wegman & Zadeck (1991): every join block ends
     // the dominance of each of its predecessors' ancestors, up to (but not
     // including) its own immediate dominator.
-    AdjacencyMap frontier;
-    for (const auto &[name, _] : dom.idom) {
-        frontier[name];
-    }
-
-    for (const auto &[name, ps] : preds) {
-        if (ps.size() < 2 || !dom.idom.count(name)) {
+    DominanceFrontier frontier(g.size());
+    for (BlockId join = 0; join < g.size(); join++) {
+        const vector<BlockId> &ps = g.preds[join];
+        if (ps.size() < 2 || !dom.contains(join)) {
             continue;
         }
-        const string &stop = dom.idom.at(name);
-        for (const auto &p : ps) {
-            string cur = p;
-            while (cur != stop && dom.idom.count(cur)) {
-                auto &fs = frontier[cur];
-                if (std::find(fs.begin(), fs.end(), name) == fs.end()) {
-                    fs.push_back(name);
+        const BlockId stop = dom.idom[join];
+        for (BlockId p : ps) {
+            BlockId cur = p;
+            while (cur != stop && dom.contains(cur)) {
+                vector<BlockId> &fs = frontier[cur];
+                if (std::find(fs.begin(), fs.end(), join) == fs.end()) {
+                    fs.push_back(join);
                 }
-                const string &parent = dom.idom.at(cur);
+                const BlockId parent = dom.idom[cur];
                 if (parent == cur) {
                     break; // root
                 }
@@ -686,22 +715,20 @@ AdjacencyMap compute_dominance_frontier(const AdjacencyMap &preds,
     return frontier;
 }
 
-set<string> iterated_dominance_frontier(const set<string> &defs,
-                                        const AdjacencyMap &frontier) {
-    set<string> result;
-    vector<string> worklist(defs.begin(), defs.end());
+BlockSet iterated_dominance_frontier(const BlockSet &defs,
+                                     const DominanceFrontier &frontier) {
+    BlockSet result(frontier.size());
+    vector<BlockId> worklist(defs.begin(), defs.end());
     while (!worklist.empty()) {
-        const string name = worklist.back();
+        const BlockId b = worklist.back();
         worklist.pop_back();
-
-        const auto it = frontier.find(name);
-        if (it == frontier.end()) {
+        if (b >= frontier.size()) {
             continue;
         }
-        for (const string &f : it->second) {
+        for (BlockId f : frontier[b]) {
             // A block that gains a definition this way is itself a
             // definition, so its frontier joins the worklist.
-            if (result.insert(f).second) {
+            if (result.insert(f)) {
                 worklist.push_back(f);
             }
         }
@@ -711,93 +738,82 @@ set<string> iterated_dominance_frontier(const set<string> &defs,
 
 string virtual_exit() { return "!!exit"; }
 
-DomTree compute_post_dominator_tree(const string &entry,
-                                    const AdjacencyMap &succs,
-                                    const AdjacencyMap &preds) {
+DomTree compute_post_dominator_tree(const Graph &g) {
     // Post-dominance is dominance on the reverse CFG. A function usually has
     // several exits, so root the reverse graph at a synthetic node that every
     // real exit flows into.
-    const string exit = virtual_exit();
-    const set<string> live = reachable_from(entry, succs);
+    const BlockId exit = BlockId(g.size());
+    const BlockSet live = reachable_from(g, g.entry);
 
-    AdjacencyMap rsuccs; // reverse-CFG successors == forward predecessors
-    AdjacencyMap rpreds; // reverse-CFG predecessors == forward successors
-    rsuccs[exit];
-    rpreds[exit];
-    for (const auto &name : live) {
-        rsuccs[name];
-        rpreds[name];
-    }
-
-    for (const auto &name : live) {
-        const auto sit = succs.find(name);
-        const bool is_exit = sit == succs.end() || sit->second.empty();
-        if (is_exit) {
-            // Reversing (name -> exit) makes the synthetic exit the *source*,
+    // Reverse-CFG successors are forward predecessors, and the other way
+    // about.
+    vector<vector<BlockId>> rsuccs(g.size() + 1);
+    for (BlockId b : live) {
+        if (g.succs[b].empty()) {
+            // Reversing (b -> exit) makes the synthetic exit the *source*,
             // so that a traversal rooted at it reaches the whole function.
-            rsuccs[exit].push_back(name);
-            rpreds[name].push_back(exit);
+            rsuccs[exit].push_back(b);
             continue;
         }
-        for (const auto &s : sit->second) {
-            if (!live.count(s)) {
-                continue;
+        for (BlockId s : g.succs[b]) {
+            if (live.contains(s)) {
+                rsuccs[s].push_back(b);
             }
-            rsuccs[s].push_back(name);
-            rpreds[name].push_back(s);
         }
     }
 
     // An infinite loop has no path to the exit, which would leave its blocks
     // outside the tree. Attach any block that cannot reach the exit so that
     // post-dominance stays total.
-    const set<string> reaches_exit = reachable_from(exit, rsuccs);
-    for (const auto &name : live) {
-        if (!reaches_exit.count(name)) {
-            rsuccs[exit].push_back(name);
-            rpreds[name].push_back(exit);
+    {
+        Graph so_far;
+        so_far.succs = rsuccs;
+        const BlockSet reaches_exit = reachable_from(so_far, exit);
+        for (BlockId b : live) {
+            if (!reaches_exit.contains(b)) {
+                rsuccs[exit].push_back(b);
+            }
         }
     }
 
-    const vector<string> rpo = reverse_postorder(exit, rsuccs);
-    return compute_dominator_tree(exit, rsuccs, rpreds, rpo);
+    return compute_dominator_tree(Graph::from_successors(std::move(rsuccs), exit));
 }
 
 //===--------------------------------------------------------------------===//
 // Control dependence
 //===--------------------------------------------------------------------===//
 
-ControlDependence compute_control_dependence(const AdjacencyMap &succs,
+ControlDependence compute_control_dependence(const Graph &g,
                                              const DomTree &pdom) {
     // Ferrante, Ottenstein & Warren: for each edge (a, b) where b does not
     // post-dominate a, walk up the post-dominator tree from b to ipdom(a),
     // marking every node on the way as control dependent on (a, b).
-    ControlDependence cdep;
-    for (const auto &[name, _] : succs) {
-        cdep[name];
-    }
-
-    for (const auto &[a, ss] : succs) {
-        if (!pdom.idom.count(a)) {
+    ControlDependence cdep(g.size());
+    for (BlockId a = 0; a < g.size(); a++) {
+        if (!pdom.contains(a)) {
             continue;
         }
-        for (const auto &b : ss) {
-            if (!pdom.idom.count(b) || pdom.dominates(b, a)) {
+        for (BlockId b : g.succs[a]) {
+            if (!pdom.contains(b) || pdom.dominates(b, a)) {
                 continue; // b post-dominates a: not a control dependence
             }
-            const string stop = pdom.idom.at(a);
-            string cur = b;
-            while (cur != stop && pdom.idom.count(cur)) {
-                if (cdep.count(cur)) {
-                    cdep[cur].insert({a, b});
+            const BlockId stop = pdom.idom[a];
+            BlockId cur = b;
+            while (cur != stop && pdom.contains(cur)) {
+                if (cur < g.size()) {
+                    cdep[cur].push_back({a, b});
                 }
-                const string &parent = pdom.idom.at(cur);
+                const BlockId parent = pdom.idom[cur];
                 if (parent == cur) {
                     break; // root
                 }
                 cur = parent;
             }
         }
+    }
+    for (vector<Edge> &edges : cdep) {
+        std::sort(edges.begin(), edges.end());
+        edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
     }
     return cdep;
 }
@@ -806,45 +822,75 @@ ControlDependence compute_control_dependence(const AdjacencyMap &succs,
 // Loops
 //===--------------------------------------------------------------------===//
 
-LoopForest compute_loop_forest(const AdjacencyMap &succs,
-                               const AdjacencyMap &preds, const DomTree &dom,
-                               const vector<string> &rpo) {
-    LoopForest loops;
+const Loop *LoopForest::find(BlockId header) const {
+    if (header >= position_of.size() || position_of[header] == NO_BLOCK) {
+        return nullptr;
+    }
+    return &all[position_of[header]];
+}
+
+const Loop *LoopForest::innermost(BlockId b) const {
+    if (b >= innermost_of.size() || innermost_of[b] == NO_BLOCK) {
+        return nullptr;
+    }
+    return find(innermost_of[b]);
+}
+
+size_t LoopForest::depth(BlockId b) const {
+    size_t depth = 0;
+    for (const Loop *loop = innermost(b); loop != nullptr;
+         loop = find(loop->parent)) {
+        depth++;
+    }
+    return depth;
+}
+
+LoopForest compute_loop_forest(const Graph &g, const DomTree &dom) {
+    LoopForest forest;
+    forest.innermost_of.assign(g.size(), NO_BLOCK);
+    forest.position_of.assign(g.size(), NO_BLOCK);
 
     // A back edge is (latch -> header) where header dominates latch. In a
     // reducible CFG these are exactly the edges that close a natural loop.
-    for (const auto &name : rpo) {
-        const auto sit = succs.find(name);
-        if (sit == succs.end()) {
-            continue;
-        }
-        for (const auto &s : sit->second) {
-            if (!dom.dominates(s, name)) {
+    map<BlockId, Loop> by_header;
+    for (BlockId b : g.rpo) {
+        for (BlockId s : g.succs[b]) {
+            if (!dom.dominates(s, b)) {
                 continue;
             }
-            Loop &loop = loops[s];
+            Loop &loop = by_header[s];
             loop.header = s;
-            loop.latches.insert(name);
+            loop.latches.push_back(b);
         }
+    }
+
+    vector<Loop> &loops = forest.all;
+    loops.reserve(by_header.size());
+    for (auto &[header, loop] : by_header) {
+        std::sort(loop.latches.begin(), loop.latches.end());
+        loop.latches.erase(
+            std::unique(loop.latches.begin(), loop.latches.end()),
+            loop.latches.end());
+        loops.push_back(std::move(loop));
+    }
+    for (size_t i = 0; i < loops.size(); i++) {
+        forest.position_of[loops[i].header] = BlockId(i);
     }
 
     // The body is everything that reaches a latch without passing through the
     // header, found by walking predecessors backwards from each latch.
-    for (auto &[header, loop] : loops) {
-        loop.blocks.insert(header);
-        vector<string> stack(loop.latches.begin(), loop.latches.end());
+    for (Loop &loop : loops) {
+        loop.blocks = BlockSet(g.size());
+        loop.blocks.insert(loop.header);
+        vector<BlockId> stack(loop.latches.begin(), loop.latches.end());
         while (!stack.empty()) {
-            const string name = stack.back();
+            const BlockId b = stack.back();
             stack.pop_back();
-            if (!loop.blocks.insert(name).second) {
+            if (!loop.blocks.insert(b)) {
                 continue;
             }
-            const auto pit = preds.find(name);
-            if (pit == preds.end()) {
-                continue;
-            }
-            for (const auto &p : pit->second) {
-                if (p != header) {
+            for (BlockId p : g.preds[b]) {
+                if (p != loop.header) {
                     stack.push_back(p);
                 }
             }
@@ -853,57 +899,63 @@ LoopForest compute_loop_forest(const AdjacencyMap &succs,
 
     // Exits, and nesting. A loop's parent is the innermost other loop that
     // contains its header.
-    for (auto &[header, loop] : loops) {
-        for (const auto &name : loop.blocks) {
-            const auto sit = succs.find(name);
-            if (sit == succs.end()) {
-                continue;
-            }
-            for (const auto &s : sit->second) {
-                if (!loop.blocks.count(s)) {
-                    loop.exits.insert({name, s});
+    for (Loop &loop : loops) {
+        for (BlockId b : loop.blocks) {
+            for (BlockId s : g.succs[b]) {
+                if (!loop.blocks.contains(s)) {
+                    loop.exits.push_back({b, s});
                 }
             }
         }
+        std::sort(loop.exits.begin(), loop.exits.end());
+        loop.exits.erase(std::unique(loop.exits.begin(), loop.exits.end()),
+                         loop.exits.end());
 
-        for (const auto &[other_header, other] : loops) {
-            if (other_header == header || !other.blocks.count(header)) {
+        for (const Loop &other : loops) {
+            if (other.header == loop.header ||
+                !other.blocks.contains(loop.header)) {
                 continue;
             }
-            if (!loop.parent.has_value() ||
-                loops.at(*loop.parent).blocks.count(other_header)) {
-                loop.parent = other_header;
+            if (loop.parent == NO_BLOCK ||
+                forest.find(loop.parent)->blocks.contains(other.header)) {
+                loop.parent = other.header;
             }
         }
     }
 
-    return loops;
-}
-
-std::optional<string> innermost_loop(const LoopForest &loops,
-                                     const string &block) {
-    std::optional<string> best;
-    for (const auto &[header, loop] : loops) {
-        if (!loop.blocks.count(block)) {
-            continue;
+    // The innermost loop of each block: the loops are painted over their
+    // blocks outermost first, so that the deepest to contain a block is the
+    // one left standing.
+    const auto nesting = [&](const Loop &loop) {
+        size_t depth = 0;
+        for (const Loop *l = &loop; l != nullptr; l = forest.find(l->parent)) {
+            depth++;
         }
-        // Prefer the loop nested inside all other candidates.
-        if (!best.has_value() || loops.at(*best).blocks.count(header)) {
-            best = header;
+        return depth;
+    };
+    vector<size_t> by_depth(loops.size());
+    for (size_t i = 0; i < loops.size(); i++) {
+        by_depth[i] = i;
+    }
+    std::stable_sort(by_depth.begin(), by_depth.end(),
+                     [&](size_t a, size_t b) {
+                         return nesting(loops[a]) < nesting(loops[b]);
+                     });
+    for (size_t i : by_depth) {
+        for (BlockId b : loops[i].blocks) {
+            forest.innermost_of[b] = loops[i].header;
         }
     }
-    return best;
+
+    return forest;
 }
 
 //===--------------------------------------------------------------------===//
 // Block index
 //===--------------------------------------------------------------------===//
 
-map<string, size_t> compute_block_index(const string &entry,
-                                        const AdjacencyMap &succs,
-                                        const DomTree &dom,
-                                        const LoopForest &loops,
-                                        const set<string> &last) {
+BlockIndex compute_block_index(const Graph &g, const DomTree &dom,
+                               const LoopForest &loops, const BlockSet &last) {
     // Partial linearization requires a topological order (over the CFG with
     // back edges removed) in which every dominance region and every loop is a
     // contiguous range.
@@ -913,97 +965,61 @@ map<string, size_t> compute_block_index(const string &entry,
     // children that are ready, we pick by RPO so the result is also a valid
     // topological order, and we hold back any child outside the current loop
     // until the loop is exhausted, which gives loop compactness.
-    const vector<string> rpo = reverse_postorder(entry, succs);
-    map<string, size_t> rpo_number;
-    for (size_t i = 0; i < rpo.size(); i++) {
-        rpo_number[rpo[i]] = i;
+    vector<size_t> rpo_number(g.size(), 0);
+    vector<bool> reachable(g.size(), false);
+    for (size_t i = 0; i < g.rpo.size(); i++) {
+        rpo_number[g.rpo[i]] = i;
+        reachable[g.rpo[i]] = true;
     }
 
     // Forward (non-back) edge predecessor counts, so we only emit a block once
     // everything that can reach it without a back edge has been emitted.
-    map<string, size_t> pending;
-    for (const auto &name : rpo) {
-        pending[name] = 0;
-    }
-    for (const auto &name : rpo) {
-        const auto sit = succs.find(name);
-        if (sit == succs.end()) {
-            continue;
-        }
-        for (const auto &s : sit->second) {
-            if (!pending.count(s) || dom.dominates(s, name)) {
+    vector<size_t> pending(g.size(), 0);
+    for (BlockId b : g.rpo) {
+        for (BlockId s : g.succs[b]) {
+            if (!reachable[s] || dom.dominates(s, b)) {
                 continue; // back edge, or unreachable
             }
             pending[s]++;
         }
     }
 
-    const AdjacencyMap kids = dom.children();
-
-    map<string, size_t> index;
-    set<string> emitted;
-    // Ready blocks, ordered by (enclosing-loop depth, RPO) so that we finish a
-    // loop before leaving it.
-    auto loop_depth = [&](const string &name) {
-        size_t depth = 0;
-        auto cur = innermost_loop(loops, name);
-        while (cur.has_value()) {
-            depth++;
-            cur = loops.at(*cur).parent;
-        }
-        return depth;
+    // The ready blocks, the one to emit next on top: deepest in the loop nest
+    // first, then the blocks not asked to go last, then by RPO. Staying at
+    // maximum depth is what keeps loops contiguous.
+    using Key = tuple<size_t, bool, size_t, BlockId>;
+    const auto key = [&](BlockId b) {
+        return Key{loops.depth(b), !last.contains(b), g.size() - rpo_number[b],
+                   b};
     };
-
-    set<string> ready;
-    for (const auto &name : rpo) {
-        if (pending.at(name) == 0) {
-            ready.insert(name);
+    std::priority_queue<Key> ready;
+    for (BlockId b : g.rpo) {
+        if (pending[b] == 0) {
+            ready.push(key(b));
         }
     }
 
+    BlockIndex index;
+    index.of.assign(g.size(), 0);
     while (!ready.empty()) {
-        // Pick the ready block that is deepest in the loop nest, breaking ties
-        // by RPO -- after holding back the blocks asked to go last, which at
-        // equal depth wait for every other ready block. Staying at maximum
-        // depth is what keeps loops contiguous.
-        string best;
-        size_t best_depth = 0;
-        bool best_last = false;
-        for (const auto &name : ready) {
-            const size_t depth = loop_depth(name);
-            const bool is_last = last.count(name) > 0;
-            if (best.empty() || depth > best_depth ||
-                (depth == best_depth &&
-                 (best_last && !is_last ||
-                  (best_last == is_last &&
-                   rpo_number.at(name) < rpo_number.at(best))))) {
-                best = name;
-                best_depth = depth;
-                best_last = is_last;
-            }
-        }
+        const BlockId best = std::get<3>(ready.top());
+        ready.pop();
+        index.of[best] = index.order.size();
+        index.order.push_back(best);
 
-        ready.erase(best);
-        index[best] = index.size();
-        emitted.insert(best);
-
-        const auto sit = succs.find(best);
-        if (sit == succs.end()) {
-            continue;
-        }
-        for (const auto &s : sit->second) {
-            if (!pending.count(s) || dom.dominates(s, best)) {
+        for (BlockId s : g.succs[best]) {
+            if (!reachable[s] || dom.dominates(s, best)) {
                 continue; // back edge
             }
             if (--pending[s] == 0) {
-                ready.insert(s);
+                ready.push(key(s));
             }
         }
     }
 
-    internal_assert(index.size() == rpo.size())
-        << "compute_block_index: irreducible control flow (" << index.size()
-        << " of " << rpo.size() << " blocks ordered)";
+    internal_assert(index.order.size() == g.rpo.size())
+        << "compute_block_index: irreducible control flow ("
+        << index.order.size() << " of " << g.rpo.size() << " blocks ordered)";
 
     return index;
 }

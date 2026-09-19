@@ -118,6 +118,34 @@ shared_ptr<Block> new_block(Function &func, const string &stem) {
     return block;
 }
 
+// A control flow edge by the names of its blocks, (from, to).
+using NamedEdge = std::pair<string, string>;
+
+// The loop being uniformized, by the names of its blocks: the transform
+// below rewrites the function, and a name is what survives that.
+struct NamedLoop {
+    string header;
+    set<string> latches;
+    set<string> blocks;
+    // Edges leaving the loop, in the analysis's order.
+    vector<NamedEdge> exits;
+};
+
+NamedLoop name_loop(const Cfg &cfg, const Loop &loop) {
+    NamedLoop named;
+    named.header = cfg.name(loop.header);
+    for (BlockId latch : loop.latches) {
+        named.latches.insert(cfg.name(latch));
+    }
+    for (BlockId block : loop.blocks) {
+        named.blocks.insert(cfg.name(block));
+    }
+    for (const Edge &exit : loop.exits) {
+        named.exits.push_back({cfg.name(exit.first), cfg.name(exit.second)});
+    }
+    return named;
+}
+
 // One destination a loop is left for, and how the values its block expects
 // are recovered once the exits have been folded into data flow.
 struct ExitTarget {
@@ -151,23 +179,11 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         const Divergence divergence =
             analyze(result.varying_args, result.masked_blocks());
         refresh_preds(func);
-        const AdjacencyMap all_succs = compute_successors(func);
-        const set<string> region = reachable_from(entry, all_succs);
-        AdjacencyMap succs;
-        for (const string &name : region) {
-            succs[name];
-            for (const string &s : all_succs.at(name)) {
-                if (region.count(s)) {
-                    succs[name].push_back(s);
-                }
-            }
-        }
-        const AdjacencyMap preds = compute_predecessors(succs);
-        const vector<string> rpo = reverse_postorder(entry, succs);
-        const DomTree dom = compute_dominator_tree(entry, succs, preds, rpo);
-        const LoopForest loops = compute_loop_forest(succs, preds, dom, rpo);
-        const DomTree pdom = compute_post_dominator_tree(entry, succs, preds);
-        const ControlDependence cdep = compute_control_dependence(succs, pdom);
+        const Cfg cfg(func, entry);
+        const DomTree dom = compute_dominator_tree(cfg);
+        const LoopForest loops = compute_loop_forest(cfg, dom);
+        const DomTree pdom = compute_post_dominator_tree(cfg);
+        const ControlDependence cdep = compute_control_dependence(cfg, pdom);
 
         // A loop is divergent when the lanes disagree about when to leave it:
         // when some exit is taken by some lanes and not others on the same
@@ -186,43 +202,40 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // together is folded anyway, which costs its body a mask and makes
         // its index vary.
         const char *explain = std::getenv("BONSAI_EXPLAIN_LOOP");
-        const BlockMap blocks_now = make_block_map(func);
-        auto report = [&](const Loop &loop, const string &exiting,
-                          const string &culprit) {
-            if (explain == nullptr || loop.header != explain) {
+        auto report = [&](const Loop &loop, BlockId exiting, BlockId culprit) {
+            if (explain == nullptr || cfg.name(loop.header) != explain) {
                 return;
             }
-            std::cerr << "--- loop " << loop.header << " leaves divergently at "
-                      << exiting << ", control dependent on the branch in "
-                      << culprit << ", whose condition varies because:\n";
+            std::cerr << "--- loop " << cfg.name(loop.header)
+                      << " leaves divergently at " << cfg.name(exiting)
+                      << ", control dependent on the branch in "
+                      << cfg.name(culprit)
+                      << ", whose condition varies because:\n";
             const auto *d = std::get_if<Terminator::Dispatch>(
-                &blocks_now.at(culprit)->terminator.data);
+                &cfg[culprit].terminator.data);
             if (d != nullptr && d->cond != nullptr) {
-                explain_varying(func, divergence, culprit, *d->cond, 1);
+                explain_varying(func, divergence, cfg.name(culprit), *d->cond,
+                                1);
             }
         };
-        auto divergent_exit = [&](const Loop &loop, const string &exiting) {
-            if (divergence.branches.count(exiting)) {
+        auto divergent_exit = [&](const Loop &loop, BlockId exiting) {
+            if (divergence.branches.count(cfg.name(exiting))) {
                 report(loop, exiting, exiting);
                 return true; // the exiting block is the divergent branch
             }
-            set<string> seen;
-            vector<string> work{exiting};
+            BlockSet seen(cfg.size());
+            vector<BlockId> work{exiting};
             while (!work.empty()) {
-                const string b = work.back();
+                const BlockId b = work.back();
                 work.pop_back();
-                if (!seen.insert(b).second) {
+                if (!seen.insert(b)) {
                     continue;
                 }
-                const auto it = cdep.find(b);
-                if (it == cdep.end()) {
-                    continue;
-                }
-                for (const auto &[from, to] : it->second) {
-                    if (!loop.blocks.count(from)) {
+                for (const auto &[from, to] : cdep[b]) {
+                    if (!loop.blocks.contains(from)) {
                         continue;
                     }
-                    if (divergence.branches.count(from)) {
+                    if (divergence.branches.count(cfg.name(from))) {
                         report(loop, exiting, from);
                         return true;
                     }
@@ -237,33 +250,30 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // among the divergent loops, one with no divergent loop inside it. (A
         // loop already made uniform still is a loop, nested where it was, so
         // "innermost of all loops" would never reach its parent.)
-        set<string> divergent;
-        for (const auto &[header, loop] : loops) {
+        vector<const Loop *> divergent;
+        for (const Loop &loop : loops.loops()) {
             if (std::any_of(loop.exits.begin(), loop.exits.end(),
                             [&](const Edge &e) {
                                 return divergent_exit(loop, e.first);
                             })) {
-                divergent.insert(header);
+                divergent.push_back(&loop);
             }
         }
         const Loop *target = nullptr;
-        for (const string &header : divergent) {
-            const bool innermost =
-                std::none_of(divergent.begin(), divergent.end(),
-                             [&](const string &other) {
-                                 // Is `header` an enclosing loop of `other`?
-                                 std::optional<string> up =
-                                     loops.at(other).parent;
-                                 while (up.has_value()) {
-                                     if (*up == header) {
-                                         return true;
-                                     }
-                                     up = loops.at(*up).parent;
-                                 }
-                                 return false;
-                             });
+        for (const Loop *candidate : divergent) {
+            const bool innermost = std::none_of(
+                divergent.begin(), divergent.end(), [&](const Loop *other) {
+                    // Is `candidate` an enclosing loop of `other`?
+                    for (BlockId up = other->parent; up != NO_BLOCK;
+                         up = loops.find(up)->parent) {
+                        if (up == candidate->header) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
             if (innermost) {
-                target = &loops.at(header);
+                target = candidate;
                 break;
             }
         }
@@ -271,7 +281,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             return result;
         }
 
-        const Loop loop = *target;
+        const NamedLoop loop = name_loop(cfg, *target);
         // Several ways of going round again become one, through a latch of
         // their own, which the pure latch below then replaces: partial
         // linearization wants a unique back edge (Moll & Hack section 2.1).
@@ -391,10 +401,11 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                 }
             }
             refresh_preds(func);
-            const AdjacencyMap succs_now = compute_successors(func);
+            const Cfg now(func);
             set<string> after;
-            for (const Edge &e : loop.exits) {
-                for (const string &r : reachable_from(e.second, succs_now)) {
+            for (const NamedEdge &e : loop.exits) {
+                for (BlockId reached : reachable_from(now, now.id(e.second))) {
+                    const string &r = now.name(reached);
                     if (!in_loop.count(r) && r != preheader && r != header) {
                         after.insert(r);
                     }
@@ -482,8 +493,8 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         }
 
         // The edges that leave, in a deterministic order.
-        vector<Edge> exits;
-        for (const Edge &e : loop.exits) {
+        vector<NamedEdge> exits;
+        for (const NamedEdge &e : loop.exits) {
             exits.push_back({renamed(e.first), e.second});
         }
 
@@ -504,7 +515,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             return targets.back();
         };
 
-        for (const Edge &exit : exits) {
+        for (const NamedEdge &exit : exits) {
             ExitTarget &t = target_for(exit.second);
             const Block &dest = *blocks.at(exit.second);
             if (t.slots.empty()) {
@@ -766,7 +777,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // is the edge's own: what the block records is which lanes left along
         // that edge, and it can only record it where it is the only thing
         // being said about them.
-        for (const Edge &exit : exits) {
+        for (const NamedEdge &exit : exits) {
             blocks = make_block_map(func);
             auto from = blocks.at(exit.first);
             auto brk = new_block(func, "!break");

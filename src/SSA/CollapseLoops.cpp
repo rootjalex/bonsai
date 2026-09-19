@@ -206,8 +206,11 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
         << "body of " << outer << " is not a parfor named " << inner;
     const Terminator::ParFor inner_loop = *inner_ptr;
 
-    const std::set<string> in_loop =
-        reachable_from(body->name, compute_successors(*f));
+    std::set<string> in_loop;
+    const Cfg body_region(*f, body->name);
+    for (const auto &block : body_region.blocks()) {
+        in_loop.insert(block->name);
+    }
     for (const auto &bound :
          {inner_loop.start, inner_loop.end, inner_loop.stride}) {
         internal_assert(!varies_with(bound, outer, in_loop))
@@ -333,11 +336,10 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
         f->blocks.push_back(std::move(block));
     }
 
-    const std::set<string> live =
-        reachable_from(f->blocks.front()->name, compute_successors(*f));
+    const Cfg live(*f, f->blocks.front()->name);
     std::vector<shared_ptr<Block>> kept;
     for (auto &block : f->blocks) {
-        if (block->name == dead && !live.count(dead)) {
+        if (block->name == dead && !live.contains(dead)) {
             continue;
         }
         kept.push_back(std::move(block));
