@@ -1,0 +1,24 @@
+// The scalar schedule: one sample at a time, as pbrt itself runs. No gang is
+// made; the traversals are loops over a stack, ordered near child first, and
+// the pixels are spread across the cores. This is the baseline the two
+// vectorized schedules beside it are measured against, and the closest in
+// shape to pbrt's own loop. See packet.bonsai for what each directive is
+// doing.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    render.bind(p, CPUThread);
+}

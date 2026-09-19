@@ -34,8 +34,12 @@ struct CompilerOptions {
     // The optimization level for the backend target.
     BackendOptimizationLevel level = BackendOptimizationLevel::O3;
 
-    // The input filename. This cannot be empty.
-    std::string input_file;
+    // The input files, in the order they were given; there has to be one.
+    // They are parsed in that order into one program, as if each after the
+    // first were imported at the end of the one before, so a schedule can be
+    // kept in a file of its own and compiled alongside the program it
+    // schedules: `-i render.bonsai -i schedules/packet.bonsai`.
+    std::vector<std::string> input_files;
 
     // The output file name; if this is empty, then defaults to standard I/O.
     std::string output_file;

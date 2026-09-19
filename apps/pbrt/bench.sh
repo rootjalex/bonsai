@@ -130,7 +130,8 @@ for schedule in $SCHEDULES; do
   ./build/compiler -p ssa --no-heap --ffp-contract \
       -i $PREFIX/render.bonsai -i "$file" -b cpp -o "$WORK/render_$schedule"
   finished=$(date +%s.%N)
-  printf '%s\t%.2f\n' "$schedule" "$(echo "$finished - $started" | bc -l)" \
+  printf '%s\t%s\n' "$schedule" \
+      "$(awk -v a="$started" -v b="$finished" 'BEGIN { printf "%.2f", b - a }')" \
       >> "$COMPILES"
   # render_hook.cpp includes "render.h": each schedule's header in a
   # directory of its own.
@@ -242,7 +243,7 @@ for scene in "${SCENES[@]}"; do
                --repeats "$REPEATS" 2>&1 || true)
       ratio=$(echo "$report" | sed -n 's/.*(\([0-9.infa]*\)x)$/\1/p' | head -1)
       agree=$(echo "$report" | sed -n 's/.*(\([0-9.]*\)%)$/\1/p' | head -1)
-      verdict=$(echo "$report" | rg -q '^FAILED' && echo differs || echo ok)
+      verdict=$(echo "$report" | grep -q '^FAILED' && echo differs || echo ok)
       speedup=$(awk -v p="$pbrt_seconds" -v b="$seconds" \
                 'BEGIN { if (b > 0) printf "%.2f", p / b; else print "?" }')
       # Bit for bit against the first schedule's image: the schedules only

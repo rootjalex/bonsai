@@ -1,0 +1,34 @@
+// The per-lane schedule: the same gang as packet.bonsai, but every lane walks
+// the scene's tree at its own pace over a stack of its own. The one
+// difference from packet.bonsai is the order of two directives -- the
+// traversals are put on their stacks *before* the gang is made -- and that
+// order is the whole of what a "per-lane" traversal is: loopify() sees a
+// scalar recursion and makes a scalar loop of it, and vectorize() then finds
+// a loop the lanes take different trips round, and gathers sixteen nodes at
+// every step. See packet.bonsai for the schedule this is the ablation of, and
+// for what each directive is doing; this file repeats only what it changes.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+
+    // First: each traversal becomes a loop over a stack while it is still one
+    // ray's, and the near-child order is each ray's own.
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    // Then the gang, which finds the traversal loops already made and widens
+    // them: a divergent loop per traversal, its trip count per lane.
+    render.split(s, s_gang, s_lane, 16, false)
+          .vectorize(s_lane);
+
+    render.bind(p, CPUThread);
+}

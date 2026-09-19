@@ -1,6 +1,6 @@
-//! flags: -p ssa -b cpp -o apps/pbrt/render
+//! flags: -p ssa -b cpp -o apps/pbrt/render -i apps/pbrt/schedules/packet.bonsai
 // `bind` is an SSA rewrite, so this needs the SSA pipeline rather than the
-// default one.
+// default one; the second input is the schedule (see below).
 
 // PBRT v4: the scene query, the film, and the schedule that decides how both
 // are run. The pieces they are built from live beside this file:
@@ -19,15 +19,20 @@
 //   sampler.bonsai    the samplers built on them.
 //
 // The rule for this app is that the source stays a straight transcription of
-// PBRT and every performance decision lives in the `schedule` block at the
-// bottom. If something here looks like it was written for speed rather than
-// for clarity, that is a bug in the schedule language, not a licence to
-// rewrite this file.
+// PBRT and every performance decision lives in a schedule: the `schedule`
+// block at the bottom of this file for what the scene is stored as, which
+// every way of running the program shares, and one of the files in
+// apps/pbrt/schedules/ for how it is run -- the gang, the traversals'
+// stacks, the threads -- compiled alongside this file as a second input
+// (`-i apps/pbrt/render.bonsai -i apps/pbrt/schedules/packet.bonsai`). If
+// something here looks like it was written for speed rather than for
+// clarity, that is a bug in the schedule language, not a licence to rewrite
+// this file.
 //
 // The clearest instance of that rule is the scene query. PBRT builds a
 // `BVHAggregate` and hand-writes the traversal; here `trace` says only what it
-// wants -- the nearest primitive the ray hits -- and the schedule below decides
-// that the answer comes from a BVH, what its nodes look like, and that the
+// wants -- the nearest primitive the ray hits -- and the schedules decide that
+// the answer comes from a BVH, what its nodes look like, and that the
 // traversal is a loop over an explicit stack rather than recursion.
 import stdlib/numerics;
 import apps/pbrt/bxdf;
@@ -2109,78 +2114,6 @@ schedule {
         };
     };
 
-    // The random walk is a tail recursion, so this turns it into a loop. Said
-    // here rather than written as one: what the source says is that a path's
-    // next step depends on its last, and how that is run -- a loop per pixel
-    // now, a queue of suspended paths advanced together later -- is this
-    // block's to decide.
-    walk_step.loopify();
-    path_step.loopify();
-    full_path_step.loopify();
-
-    // The samples of a pixel are a gang on the SIMD unit: ISPC-style, one lane
-    // per sample, the whole path trace run a register's worth at a time --
-    // sixteen 32-bit lanes, the machine's AVX-512 register. `spp` is a
-    // runtime count, and vectorize wants a constant gang width, so split
-    // peels a width-sixteen inner loop off it first and that is what is
-    // vectorized; a scene whose spp is not a multiple of sixteen is the tail
-    // split's to carry.
-    render.split(s, s_gang, s_lane, 16, false)
-          .vectorize(s_lane);
-
-    // The gang is made before the traversals below are put on their stacks,
-    // and the order is the point. A traversal loopified first is a loop each
-    // lane walks at its own pace over a stack of its own: sixteen nodes
-    // gathered at every step, sixteen samples of one pixel fetching one
-    // address sixteen times. Vectorized first, the recursion is made by the
-    // gang as a whole -- one node the lanes share, a mask of the lanes whose
-    // ray reached it -- and that is what loopify() then puts on a stack: one
-    // of nodes and one of masks, each node's bounds and children loaded once
-    // and broadcast, only the ray tests per lane. That is a packet traversal
-    // (Wald, Slusallek, Benthin & Wagner 2001), written as the composition of
-    // two directives. The sort's order is then one decision for the gang, by a
-    // vote of the lanes' keys (see SSA/SortRecursion.h).
-    //
-    // pbrt: `if (dirIsNeg[node->axis])`, which is the whole of how
-    // BVHAggregate::Intersect decides which child to descend into first.
-    //
-    //     int axis = node->axis;
-    //     if (dirIsNeg[axis]) { visit the second child first }
-    //
-    // and `dirIsNeg[i]` is `invDir[i] < 0` for `invDir = 1 / ray.d`, which is
-    // what the key spells out. The reciprocal is kept even though `d[axis] < 0`
-    // decides the same way everywhere except a component of exactly -0: this
-    // renderer's job is to compute what pbrt computes, and where the two differ
-    // it should differ for a reason better than a divide.
-    //
-    // Visiting the near child first is what makes the running best distance
-    // tighten early, so every subtree whose nearest point is already further
-    // than that is skipped. It changes no answer -- an `argmin` over a set does
-    // not depend on the order the set is visited in -- so it belongs here and
-    // not in `trace`, which says only which primitive is nearest.
-    //
-    // The key is the child index, flipped when the ray runs backwards along the
-    // axis the node was split on. `axis` is a field of the Interior arm and was
-    // carried by the layout from the beginning without anything reading it.
-    //
-    // The same rule inside an instance's tree, where pbrt applies it to the
-    // ray *after* `ApplyInverse`: the split axis is an axis of the instance's
-    // frame. The key is written over the query's ray here too, and the
-    // compiler carries it into the pulled-back one along with every other
-    // test in that walk (Opt/PullQueries.h).
-    trace.sort(primitives.Interior,
-               |i : u8, r : Ray, axis : u8|
-               select((1.0 / r.d)[axis] < 0.0,
-                      1.0 - cast[[Float]](i), cast[[Float]](i)))
-         .sort(Inst.blas.Interior,
-               |i : u8, r : Ray, axis : u8|
-               select((1.0 / r.d)[axis] < 0.0,
-                      1.0 - cast[[Float]](i), cast[[Float]](i)))
-         .loopify(64);
-    // The occlusion test gets its own stack, and it is the same 64 pbrt's
-    // IntersectP uses.
-    trace_any.loopify(64);
-
     // pbrt's `Point3f *p` and `Normal3f *n` are three floats each, twelve
     // bytes, and so are these: a vertex is stored as exactly its three
     // components and widened to the vector the program computes with where it
@@ -2190,5 +2123,7 @@ schedule {
     layout mesh_positions { tight(root); };
     layout mesh_normals { tight(root); };
 
-    render.bind(p, CPUThread);
+    // How the program is run -- the gang, the traversals' stacks, the threads
+    // -- is a schedule of its own, one of apps/pbrt/schedules/*.bonsai,
+    // compiled alongside this file; see packet.bonsai there.
 }

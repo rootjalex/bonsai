@@ -18,7 +18,8 @@ std::string command_help() {
       << "-b   | --backend <backend>         | e.g., `-b llvm`\n"
       << "-p   | --pass <pass>               | e.g., `-p dce`\n"
       << "-e   | --execute,                  | e.g., `-e`\n"
-      << "-i   | --input <input file name>   | e.g., `-i in.bonsai`\n"
+      << "-i   | --input <input file name>   | e.g., `-i in.bonsai`; may be "
+         "repeated, the files making one program in order\n"
       << "-o   | --output <output file name> | e.g., `-o out.bonsai`\n"
       << "-v   | --verbose                   | e.g., `-v`\n"
       << "-O<n>| n/a                         | e.g., `-O3`\n"
@@ -170,10 +171,10 @@ Flags parse(const std::vector<std::string> &args) {
             continue;
         }
         if (arg == "-i" || arg == "--input") {
-            internal_assert(options.input_file.empty())
-                << "already received input file: " << options.input_file;
+            // Repeatable: the files make one program, in this order (see
+            // CompilerOptions::input_files).
             internal_assert(i + 1 < args.size());
-            options.input_file = args[i + 1];
+            options.input_files.push_back(args[i + 1]);
             ++i;
             continue;
         }
@@ -198,8 +199,8 @@ int run(const Flags &flags) {
         }
         verify_options(options);
 
-        // Parse the input file.
-        ir::Program program = parser::parse(options.input_file);
+        // Parse the input files into one program.
+        ir::Program program = parser::parse(options.input_files);
 
         // Perform type inference.
         program = lower::infer_types(program);

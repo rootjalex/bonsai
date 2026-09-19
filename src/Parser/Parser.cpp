@@ -90,8 +90,14 @@ func_decl := func IDENTIFIER '( (IDENTIFIER : type)+ ')'
 
 struct Parser {
   public:
-    Parser(TokenStream tokens) {
-        context.emplace_back(std::move(tokens));
+    // The files to parse, first to last, into one program; see parse_program.
+    Parser(std::vector<TokenStream> inputs) : inputs(std::move(inputs)) {
+        internal_assert(!this->inputs.empty()) << "Nothing to parse";
+        // An input a later input imports is not read twice, any more than an
+        // import an import repeats is.
+        for (const TokenStream &input : this->inputs) {
+            visited_files.insert(input.file_name());
+        }
         builtins = {
             // Intrinsics
             "abs",
@@ -169,20 +175,33 @@ struct Parser {
         };
     }
 
+    // Parses the inputs in order, each as if it had been imported at the end
+    // of the one before: one program, one scope, so a later file may name
+    // what an earlier one declared -- which is how a schedule kept in a file
+    // of its own reaches the functions it schedules.
     ir::Program parse_program() {
         internal_assert(frames.empty());
         push_frame();
-        parse_program_stream();
+        for (TokenStream &input : inputs) {
+            context.emplace_back(std::move(input));
+            parse_program_stream();
+            context.pop_back();
+        }
         pop_frame();
         internal_assert(frames.empty());
         return std::move(program);
     }
 
   private:
+    // The files given to parse, until parse_program has read them.
+    std::vector<TokenStream> inputs;
     // Stores a stack of all program streams.
     std::vector<TokenStream> context;
     // Filenames of everything visited so far, to avoid double-imports.
     std::set<std::string> visited_files;
+    // The trees the schedule blocks read so far declared, by name; see
+    // parse_schedule.
+    ir::TypeMap schedule_trees;
     // Set of all built-in, non-overridable functions.
     std::set<std::string> builtins;
 
@@ -493,15 +512,17 @@ struct Parser {
 
         name += ".bonsai";
 
-        auto [_, inserted] = visited_files.insert(name);
-        if (!inserted) {
-            return; // We've already imported this file.
-        }
-
+        // A cycle before the visited check: a file being read is a visited
+        // file too, and importing it again is a cycle, not a repeat.
         for (const auto &tks : context) {
             if (tks.file_name() == name) {
                 report_error() << "Import cycle found.";
             }
+        }
+
+        auto [_, inserted] = visited_files.insert(name);
+        if (!inserted) {
+            return; // We've already imported this file.
         }
 
         try {
@@ -2741,6 +2762,39 @@ struct Parser {
         return std::get<int64_t>(val.value);
     }
 
+    // Adds what one `schedule` block says to the program's schedule. A program
+    // may have several blocks -- the layouts with the program and the
+    // transforms in a file of their own, say -- and they make one schedule:
+    // each thing a block decides is decided once, and the transforms of every
+    // block apply in the order they were written, the later block's after the
+    // earlier's.
+    void merge_schedule(ir::Schedule from) {
+        ir::Schedule &into = program.schedules[ir::Target::Host];
+        const auto once = [&](auto &into_map, auto &from_map,
+                              const char *what) {
+            for (auto &[name, value] : from_map) {
+                if (!into_map.emplace(name, std::move(value)).second) {
+                    report_error() << "Schedule decides the " << what
+                                   << " of " << name << " twice.";
+                }
+            }
+        };
+        once(into.tree_types, from.tree_types, "tree");
+        once(into.tree_layouts, from.tree_layouts, "layout");
+        once(into.adt_layouts, from.adt_layouts, "layout");
+        once(into.array_layouts, from.array_layouts, "layout");
+        once(into.tree_groups, from.tree_groups, "node group");
+        for (const auto &[name, index] : from.transform_order) {
+            into.transform_order.emplace_back(
+                name, into.func_transforms[name].size() + index);
+        }
+        for (auto &[name, transforms] : from.func_transforms) {
+            auto &all = into.func_transforms[name];
+            all.insert(all.end(), std::move_iterator(transforms.begin()),
+                       std::move_iterator(transforms.end()));
+        }
+    }
+
     void parse_schedule() {
         expect(Token::Type::SCHEDULE);
         // TODO: parse target name / info?
@@ -2748,7 +2802,9 @@ struct Parser {
 
         ir::Schedule schedule;
 
-        ir::TypeMap trees;
+        // The trees every block so far has declared, so that a block may
+        // assign a set to a tree an earlier block declared.
+        ir::TypeMap &trees = schedule_trees;
         do {
             switch (peek().type) {
             case Token::Type::TREE: {
@@ -2921,10 +2977,7 @@ struct Parser {
             }
         } while (!consume(Token::Type::RSQUIGGLE));
 
-        // TODO: figure out schedule merging.
-        internal_assert(program.schedules.empty());
-
-        program.schedules[ir::Target::Host] = schedule;
+        merge_schedule(std::move(schedule));
     }
 
     // `layout <array> { <rule>(<cursor>); ... };` -- how an extern array is
@@ -3584,10 +3637,17 @@ struct Parser {
 } // namespace
 
 ir::Program parse(const std::string &filename) {
-    TokenStream tokens = lex(filename);
+    return parse(std::vector<std::string>{filename});
+}
+
+ir::Program parse(const std::vector<std::string> &filenames) {
+    std::vector<TokenStream> inputs;
+    for (const std::string &filename : filenames) {
+        inputs.push_back(lex(filename));
+    }
     // Don't enforce types when building ASTs, might need to do some inference.
     ir::global_disable_type_enforcement();
-    return Parser(tokens).parse_program();
+    return Parser(std::move(inputs)).parse_program();
 }
 
 } // namespace parser

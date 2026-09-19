@@ -104,10 +104,11 @@ namespace {
 bool g_print_differentials = false;
 
 // Set by `--maxdepth`: the path depth the renderer is given in place of the
-// scene's, for timing the primary hits alone. Zero for "the scene decides".
-// Only the dump sees it -- PBRT reads its depth from the scene file and has no
-// flag for it -- so an image rendered with this is not one to compare against
-// PBRT's.
+// scene's, for timing the primary hits alone or a depth of one's choosing.
+// Zero for "the scene decides". Only the dump sees it -- PBRT reads its depth
+// from the scene file and has no flag for it -- so a comparison at this depth
+// has to give PBRT the same one by rewriting the scene's `Integrator`
+// directive, which is what compare.sh's `--maxdepth` does.
 int g_max_depth_override = 0;
 
 // PBRT hands the camera and the film to BasicScene through methods that keep

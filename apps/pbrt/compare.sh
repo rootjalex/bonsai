@@ -38,7 +38,19 @@ PREFIX="apps/pbrt"
 # question about the geometry alone: with all of a pixel's samples on one ray, a
 # difference between the two images cannot be noise. That is how the normals got
 # to zero disagreeing pixels, and it is worth being able to ask for again.
+#
+# `--maxdepth <n>` is the path depth, for both sides. pbrt has no flag for it
+# -- it is the integrator's `maxdepth` parameter in the scene -- so it reaches
+# pbrt by rewriting that directive in the scene text pbrt is fed (see
+# pbrt_scene), and reaches this renderer through scene_dump, which puts it in
+# the converted scene in place of what the file says.
+#
+# `--schedule <name>` picks how this renderer runs the program: one of the
+# files in schedules/, compiled alongside render.bonsai (see
+# schedules/packet.bonsai, the default).
 DUMP_OPTS=()
+MAXDEPTH=""
+SCHEDULE="${SCHEDULE:-packet}"
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,6 +65,22 @@ while [[ $# -gt 0 ]]; do
     --disable-pixel-jitter)
       DUMP_OPTS+=(--disable-pixel-jitter)
       shift
+      ;;
+    --maxdepth)
+      if [[ $# -lt 2 ]]; then
+        echo "--maxdepth needs a depth" >&2
+        exit 1
+      fi
+      MAXDEPTH="$2"
+      shift 2
+      ;;
+    --schedule)
+      if [[ $# -lt 2 ]]; then
+        echo "--schedule needs a name from $PREFIX/schedules/" >&2
+        exit 1
+      fi
+      SCHEDULE="$2"
+      shift 2
       ;;
     *)
       ARGS+=("$1")
@@ -158,7 +186,8 @@ REPEATS="${REPEATS:-5}"
 # The scene, converted for this renderer. Only converted -- nothing is rendered
 # here.
 DUMP_OUT=$("$WORK/scene_dump" "${DUMP_FLAGS[@]}" \
-    ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} "$SCENE" "$WORK/scene.txt")
+    ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} ${MAXDEPTH:+--maxdepth "$MAXDEPTH"} \
+    "$SCENE" "$WORK/scene.txt")
 echo "$DUMP_OUT"
 
 # And pbrt's side: the `pbrt` binary, rendering the scene.
@@ -246,18 +275,47 @@ fi
 # from pbrt: it renders, then fails to save, and says so only on stderr. Left
 # unchecked, the stale file from a previous run was silently compared instead.
 # pbrt's own diagnostics are shown when it does not produce the file.
+# The scene as pbrt is to read it. As written, unless the integrator has to be
+# said -- the scene names none, so it is put in front -- or the depth has to
+# be: then the scene's own `Integrator` directive is rewritten with the
+# `maxdepth` asked for, its other parameters kept, and a directive the scene
+# has not got is put in front with it. What pbrt renders under either is the
+# scene the file describes, run to the depth this renderer was told.
+pbrt_scene() {
+  if [[ -z "$INTEGRATOR" ]]; then
+    echo "Integrator \"$PBRT_INTEGRATOR\"${MAXDEPTH:+ \"integer maxdepth\" [ $MAXDEPTH ]}"
+    cat "$SCENE"
+  elif [[ -n "$MAXDEPTH" ]]; then
+    awk -v depth="$MAXDEPTH" '
+      /^[[:space:]]*Integrator[[:space:]]/ {
+        gsub(/"integer maxdepth"[[:space:]]*\[[^]]*\]/, "")
+        sub(/^[[:space:]]*Integrator[[:space:]]+"[a-z]+"/,
+            "&" " \"integer maxdepth\" [ " depth " ]")
+        in_integrator = 1
+        print
+        next
+      }
+      in_integrator && /^[[:space:]]*"/ {
+        if ($0 ~ /"integer maxdepth"/) { next }
+        print
+        next
+      }
+      { in_integrator = 0; print }' "$SCENE"
+  else
+    cat "$SCENE"
+  fi
+}
+
 pbrt_render() {
   local out="$1"
   rm -f "$out"
   local log
+  # Read on standard input -- which pbrt does when given no scene file -- from
+  # the scene's own directory, so that its `Include`s still resolve.
   log="$(
-    if [[ -z "$INTEGRATOR" ]]; then
-      cd "$(dirname "$SCENE")" &&
-        { echo "Integrator \"$PBRT_INTEGRATOR\""; cat "$SCENE"; } |
-        "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} 2>&1
-    else
-      "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} "$SCENE" 2>&1
-    fi
+    cd "$(dirname "$SCENE")" &&
+      pbrt_scene |
+      "$PBRT" --outfile "$out" ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"} 2>&1
   )"
   if [[ ! -s "$out" ]]; then
     echo "pbrt did not write $out. Its output:" >&2
@@ -323,7 +381,8 @@ else
   pbrt_render "$WORK/pbrt-radiance.pfm"
 fi
 echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\"," \
-     "integrator \"$PBRT_INTEGRATOR\")"
+     "integrator \"$PBRT_INTEGRATOR\"${MAXDEPTH:+, maxdepth $MAXDEPTH})"
+echo "this renderer: schedule \"$SCHEDULE\""
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
 # inside one process, so there is no per-run startup to pay.
@@ -335,8 +394,13 @@ echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\"," \
 # --ffp-contract: pbrt is built with gcc and no -ffp-contract flag, so it gets
 # gcc's default of `fast` and its `a*b + c` rounds once. This app cannot agree
 # with pbrt bit for bit while rounding twice. See include/SSA/Contract.h.
+if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
+  echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
+  exit 1
+fi
 ./build/compiler -p ssa --no-heap --ffp-contract \
-    -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
+    -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
+    -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" -o "$WORK/render.out"
 BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \

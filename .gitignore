@@ -72,6 +72,7 @@ apps/rtiow/cpu/compare-out/
 # name another directory, which is how comparing several scenes at once keeps
 # their outputs apart.
 apps/pbrt/compare-out*/
+apps/pbrt/bench-out/
 
 # What apps/pbrt/render.sh leaves beside the source, and what Python leaves
 # beside its scripts. scene_dump is built on demand from PBRT's own build tree

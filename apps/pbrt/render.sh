@@ -23,7 +23,12 @@ PREFIX="apps/pbrt"
 # `--disable-pixel-jitter` is pbrt's other option and goes the same way: it pins
 # every sample of a pixel to the pixel's centre, which is what this renderer did
 # before it had a reconstruction filter.
+#
+# `--schedule <name>` picks how the program is run: one of the files in
+# schedules/, compiled alongside render.bonsai (see schedules/packet.bonsai,
+# the default).
 DUMP_OPTS=()
+SCHEDULE="${SCHEDULE:-packet}"
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,6 +43,14 @@ while [[ $# -gt 0 ]]; do
     --disable-pixel-jitter)
       DUMP_OPTS+=(--disable-pixel-jitter)
       shift
+      ;;
+    --schedule)
+      if [[ $# -lt 2 ]]; then
+        echo "--schedule needs a name from $PREFIX/schedules/" >&2
+        exit 1
+      fi
+      SCHEDULE="$2"
+      shift 2
       ;;
     *)
       ARGS+=("$1")
@@ -112,9 +125,15 @@ rm $PREFIX/rgb2spec_check
 # allocation, which a renderer's inner loop must not make; `--ffp-contract`
 # fuses `a * b + c`, which is what pbrt's gcc build does.
 FLAGS=(-p ssa --no-heap --ffp-contract)
-./build/compiler -p ssa -i $PREFIX/render.bonsai -o $PREFIX/render.bir
-./build/compiler "${FLAGS[@]}" -i $PREFIX/render.bonsai -b llvm -o $PREFIX/render.ll
-./build/compiler "${FLAGS[@]}" -i $PREFIX/render.bonsai -b cpp -o $PREFIX/render
+# The program and its schedule, two inputs making one program.
+INPUTS=(-i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai")
+if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
+  echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
+  exit 1
+fi
+./build/compiler -p ssa "${INPUTS[@]}" -o $PREFIX/render.bir
+./build/compiler "${FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/render.ll
+./build/compiler "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \

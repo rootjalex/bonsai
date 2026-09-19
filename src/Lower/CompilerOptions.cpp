@@ -7,8 +7,8 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
     if (opt.is_execute) {
         os << "-e " << backend_to_string(opt.target) << "\n";
     }
-    if (!opt.input_file.empty()) {
-        os << "-i " << opt.input_file << "\n";
+    for (const std::string &input : opt.input_files) {
+        os << "-i " << input << "\n";
     }
     if (!opt.output_file.empty()) {
         os << "-o " << opt.output_file << "\n";
@@ -25,8 +25,8 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
 }
 
 void verify_options(const CompilerOptions &options) {
-    internal_assert(!options.input_file.empty())
-        << "unexpected empty input file: " << options;
+    internal_assert(!options.input_files.empty())
+        << "no input file: " << options;
     switch (BackendTarget backend = options.target; backend) {
     case BackendTarget::NONE:
     case BackendTarget::ASM:
