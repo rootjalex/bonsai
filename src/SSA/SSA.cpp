@@ -781,6 +781,28 @@ std::shared_ptr<Value> zero_value(const Type &type, Function &func,
     return std::make_shared<Value>(std::move(build));
 }
 
+bool same_value(const Value &a, const Value &b) {
+    const auto name_of = [](const Value &v) -> const std::string * {
+        if (const auto *i = std::get_if<std::shared_ptr<Instruction>>(&v.data)) {
+            return &(*i)->name;
+        }
+        if (const auto *arg = std::get_if<Argument>(&v.data)) {
+            return &arg->name;
+        }
+        return nullptr;
+    };
+    if (const std::string *na = name_of(a)) {
+        const std::string *nb = name_of(b);
+        return nb != nullptr && *na == *nb;
+    }
+    if (const auto *ca = std::get_if<Constant>(&a.data)) {
+        const auto *cb = std::get_if<Constant>(&b.data);
+        return cb != nullptr && equals(ca->type, cb->type) &&
+               ca->data == cb->data;
+    }
+    return false;
+}
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

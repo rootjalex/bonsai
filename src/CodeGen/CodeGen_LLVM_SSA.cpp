@@ -1078,53 +1078,12 @@ struct CodeGen_LLVM::SSALowering {
                         args.push_back(cg.codegen_expr(operand(a)));
                     }
                     // A call made under a mask is made only if some lane is
-                    // on. Linearization runs the block it sits in whether or
-                    // not any lane reached it, and while everything per lane
-                    // in the callee is masked, its uniform work is not: a
-                    // table it indexes with a value no lane computed, a
-                    // pointer a fully-off join never filled in. In the
-                    // original program no thread was there to call it, so
-                    // nothing is lost by not calling it either -- the same
-                    // rule as a store into shared memory under a mask (see
-                    // CodeGen_LLVM::emit_if_any_lane). The mask is the last
-                    // argument of a masked variant, which its name says (see
-                    // variant_name in SSA/Vectorize.cpp).
-                    const bool masked =
-                        c.call.name.size() > 7 &&
-                        c.call.name.compare(c.call.name.size() - 7, 7,
-                                            "$masked") == 0 &&
-                        !args.empty() && args.back()->getType()->isVectorTy();
-                    llvm::Value *result = nullptr;
-                    if (masked) {
-                        llvm::Value *any = cg.builder->CreateOrReduce(args.back());
-                        llvm::BasicBlock *from = cg.builder->GetInsertBlock();
-                        llvm::BasicBlock *do_call = llvm::BasicBlock::Create(
-                            *cg.context, "call_any_lane", cg.current_function);
-                        llvm::BasicBlock *skip = llvm::BasicBlock::Create(
-                            *cg.context, "call_after", cg.current_function);
-                        cg.builder->CreateCondBr(any, do_call, skip);
-                        cg.builder->SetInsertPoint(do_call);
-                        llvm::Value *called =
-                            cg.emit_call(callee, std::move(args));
-                        llvm::BasicBlock *called_from = cg.builder->GetInsertBlock();
-                        cg.builder->CreateBr(skip);
-                        cg.builder->SetInsertPoint(skip);
-                        if (!c.drop) {
-                            // No lane was on, so no lane reads this; zero
-                            // rather than poison so that nothing uniform
-                            // downstream is fed a value LLVM may treat as
-                            // anything.
-                            llvm::PHINode *phi =
-                                cg.builder->CreatePHI(called->getType(), 2);
-                            phi->addIncoming(called, called_from);
-                            phi->addIncoming(
-                                llvm::Constant::getNullValue(called->getType()),
-                                from);
-                            result = phi;
-                        }
-                    } else {
-                        result = cg.emit_call(callee, std::move(args));
-                    }
+                    // on, and that is settled in the SSA: the call sits
+                    // behind a test of its mask, either the linearizer's
+                    // guard around the arm it is in or one of its own (see
+                    // specialize_calls in SSA/Vectorize.cpp), so here it is
+                    // simply made.
+                    llvm::Value *result = cg.emit_call(callee, std::move(args));
                     llvm::BasicBlock *after = cg.builder->GetInsertBlock();
                     supply(c.cont, after, c.drop ? 0 : 1,
                            c.drop ? nullptr : result);
@@ -1146,26 +1105,9 @@ struct CodeGen_LLVM::SSALowering {
                         << " calls, but a run has one continuation and so at "
                            "most one result to give it.";
                     // Under a mask the run is made only if some lane is on,
-                    // as a Call is (above); every call of the run shares the
-                    // mask, which is among the arguments they share, so one
-                    // test guards them all.
-                    const bool masked =
-                        c.call.name.size() > 7 &&
-                        c.call.name.compare(c.call.name.size() - 7, 7,
-                                            "$masked") == 0 &&
-                        !c.call.args.empty() &&
-                        c.call.args.back()->get_type().is_vector();
-                    llvm::BasicBlock *skip = nullptr;
-                    if (masked) {
-                        llvm::Value *any = cg.builder->CreateOrReduce(
-                            cg.codegen_expr(operand(c.call.args.back())));
-                        llvm::BasicBlock *do_calls = llvm::BasicBlock::Create(
-                            *cg.context, "run_any_lane", cg.current_function);
-                        skip = llvm::BasicBlock::Create(
-                            *cg.context, "run_after", cg.current_function);
-                        cg.builder->CreateCondBr(any, do_calls, skip);
-                        cg.builder->SetInsertPoint(do_calls);
-                    }
+                    // and as with a Call (above) the test is the SSA's:
+                    // every call of the run shares the mask, so one test in
+                    // front of the run guards them all.
                     llvm::Value *result = nullptr;
                     for (size_t i = 0; i < c.varying.size(); i++) {
                         std::vector<llvm::Value *> args;
@@ -1173,13 +1115,6 @@ struct CodeGen_LLVM::SSALowering {
                             args.push_back(cg.codegen_expr(operand(a)));
                         }
                         result = cg.emit_call(callee, std::move(args));
-                    }
-                    if (masked) {
-                        internal_assert(c.drop)
-                            << block.name << " keeps the result of a run made "
-                            << "under a mask, which no lane may have made";
-                        cg.builder->CreateBr(skip);
-                        cg.builder->SetInsertPoint(skip);
                     }
                     llvm::BasicBlock *after = cg.builder->GetInsertBlock();
                     supply(c.cont, after, c.drop ? 0 : 1,

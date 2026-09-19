@@ -268,42 +268,6 @@ struct Masks {
     map<Edge, shared_ptr<Value>> edge;
 };
 
-// Do two values refer to the same definition? The SSA form threads a
-// definition onwards under its own name, so a name is enough to tell -- and
-// the name is what is compared, whether a reference spells it as the
-// instruction that defined it or as the block argument that carries it: one
-// predecessor may pass the instruction and another the argument it arrived
-// as, and selecting between the two would be selecting between a value and
-// itself, under a mask that makes the result look varying.
-// Whether two values passed to a block are one definition: the same
-// instruction or argument by name, or equal constants. Equal constants count
-// because a select between them on a mask would make a varying value out of
-// two uniform ones -- and a branch on that value, which the divergence
-// analysis rightly called uniform (see value_key in AnalyzeDivergence.cpp:
-// every arm of a switch handing the merge the same `false`), would then be
-// left divergent by a linearization that had already happened.
-bool same_definition(const Value &a, const Value &b) {
-    const auto name_of = [](const Value &v) -> const string * {
-        if (const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data)) {
-            return &(*i)->name;
-        }
-        if (const auto *arg = std::get_if<Argument>(&v.data)) {
-            return &arg->name;
-        }
-        return nullptr;
-    };
-    if (const string *na = name_of(a)) {
-        const string *nb = name_of(b);
-        return nb != nullptr && *na == *nb;
-    }
-    if (const auto *ca = std::get_if<Constant>(&a.data)) {
-        const auto *cb = std::get_if<Constant>(&b.data);
-        return cb != nullptr && equals(ca->type, cb->type) &&
-               ca->data == cb->data;
-    }
-    return false;
-}
-
 // Appends an instruction to `block` without the operand rethreading
 // make_instruction does: after linearization the blocks form a chain, so a
 // value defined in an earlier block is already available here and must not be
@@ -559,14 +523,31 @@ BlockMasks linearize(Function &func, const string &entry_name,
 
         if (!deciding.empty()) {
             // The block's own mask, from the edges it is control dependent on.
+            // Each distinct edge mask once: the edges out of a uniform branch
+            // inside an arm all carry the arm's mask, and a block that is
+            // control dependent on the arm's edge and on one of those is
+            // under the arm's mask, the very value -- so that everything
+            // under one mask names one value, and a test of the mask made
+            // once on the path is seen to cover all of it (see
+            // known_nonempty in SSA/Analysis.h).
             const size_t before = block->instrs.size();
             shared_ptr<Value> mask;
+            vector<shared_ptr<Value>> distinct;
             for (const auto &[from, to] : deciding) {
                 const auto it = masks.edge.find({from, to});
                 internal_assert(it != masks.edge.end())
                     << "Control dependence edge " << cfg.name(from) << "->"
                     << cfg.name(to) << " of " << cfg.name(b)
                     << " has no mask yet; the block index is not topological";
+                const bool seen = std::any_of(
+                    distinct.begin(), distinct.end(),
+                    [&](const shared_ptr<Value> &v) {
+                        return same_value(*v, *it->second);
+                    });
+                if (seen) {
+                    continue;
+                }
+                distinct.push_back(it->second);
                 mask = mask ? append(func, block, bool_type,
                                      Instruction::Op::LOr, {mask, it->second})
                             : it->second;
@@ -1279,7 +1260,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
             const Type &type = block->args[j].type;
             bool same = true;
             for (const Incoming &source : sources) {
-                same = same && same_definition(*value_from(sources[0], j),
+                same = same && same_value(*value_from(sources[0], j),
                                                *value_from(source, j));
             }
             if (same) {
@@ -1440,7 +1421,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     // between a value and itself is both pointless and,
                     // since the argument is about to be replaced by this
                     // select, self-referential.
-                    if (same_definition(*value, *incoming_value)) {
+                    if (same_value(*value, *incoming_value)) {
                         continue;
                     }
                     const auto edge = masks.edge.find({source->from, b});

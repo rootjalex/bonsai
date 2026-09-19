@@ -430,6 +430,13 @@ const char *op_name(Instruction::Op op);
 std::shared_ptr<Value> zero_value(const Type &type, Function &func,
                                   const std::shared_ptr<Block> &into);
 
+// Are `a` and `b` one definition? This form threads a definition onwards
+// through block arguments under its own name, so two references to one name
+// -- spelled as the instruction that defined it or as the argument it arrived
+// as, in whatever blocks -- are two references to one value. Two equal
+// constants of one type are one value too.
+bool same_value(const Value &a, const Value &b);
+
 // Useful helper for std::variant
 template <class... Ts>
 struct overloads : Ts... {

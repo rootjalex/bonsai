@@ -27,6 +27,7 @@ add_bonsai_tests(
     split-unsigned.bonsai
     switch-merge.bonsai
     traverse.bonsai
+    vectorize-call-guard.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
     vectorize-arm-local.bonsai

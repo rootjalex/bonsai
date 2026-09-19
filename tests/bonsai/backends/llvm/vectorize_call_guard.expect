@@ -1,0 +1,84 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
+define internal fastcc noundef float @scale(float noundef %x, float noundef %k) unnamed_addr #0 {
+scale_entry:
+  %0 = fmul float %x, %k
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
+define internal fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef %k) unnamed_addr #0 {
+"scale$gang8_v0$masked":
+  %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
+  %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
+  %0 = fmul <8 x float> %.splat, %x
+  ret <8 x float> %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define void @weigh_all(ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #1 {
+weigh_all:
+  %extract = load <8 x float>, ptr %a, align 4
+  %0 = fcmp ogt <8 x float> %extract, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
+  %not..i = xor <8 x i1> %0, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
+  %1 = bitcast <8 x i1> %0 to i8
+  %.not.i = icmp eq i8 %1, 0
+  br i1 %.not.i, label %"!else_1!any.i", label %"!then_0.i"
+
+"!then_0.i":                                      ; preds = %weigh_all
+  %2 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 3.000000e+00)
+  %3 = fcmp ule <8 x float> %2, <float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01>
+  %4 = and <8 x i1> %3, %0
+  br label %"!else_1!any.i"
+
+"!else_1!any.i":                                  ; preds = %"!then_0.i", %weigh_all
+  %"@10!skip.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %4, %"!then_0.i" ]
+  %"acc!skip.i" = phi <8 x float> [ zeroinitializer, %weigh_all ], [ %2, %"!then_0.i" ]
+  %5 = bitcast <8 x i1> %not..i to i8
+  %.not2.i = icmp eq i8 %5, 0
+  br i1 %.not2.i, label %"weigh$gang8_v0.exit", label %"!else_1.i"
+
+"!else_1.i":                                      ; preds = %"!else_1!any.i"
+  %6 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 5.000000e+00)
+  %7 = select <8 x i1> %0, <8 x float> %"acc!skip.i", <8 x float> %6
+  br label %"weigh$gang8_v0.exit"
+
+"weigh$gang8_v0.exit":                            ; preds = %"!else_1!any.i", %"!else_1.i"
+  %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %7, %"!else_1.i" ]
+  %8 = or <8 x i1> %"@10!skip.i", %not..i
+  %9 = fadd <8 x float> %"acc!skip0.i", <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>
+  %10 = select <8 x i1> %8, <8 x float> %9, <8 x float> %"acc!skip.i"
+  store <8 x float> %10, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @weigh_one(float noundef %x) local_unnamed_addr #2 {
+weigh_one_entry:
+  %0 = fcmp ogt float %x, 2.000000e+00
+  br i1 %0, label %then_bb.i, label %next_bb.i
+
+after_bb.i:                                       ; preds = %next_bb.i, %then_bb.i
+  %acc.0.i = phi float [ %2, %then_bb.i ], [ %4, %next_bb.i ]
+  %1 = fadd float %acc.0.i, 1.000000e+00
+  br label %weigh.exit
+
+then_bb.i:                                        ; preds = %weigh_one_entry
+  %2 = tail call fastcc float @scale(float %x, float 3.000000e+00)
+  %3 = fcmp ogt float %2, 2.000000e+01
+  br i1 %3, label %weigh.exit, label %after_bb.i
+
+next_bb.i:                                        ; preds = %weigh_one_entry
+  %4 = tail call fastcc float @scale(float %x, float 5.000000e+00)
+  br label %after_bb.i
+
+weigh.exit:                                       ; preds = %after_bb.i, %then_bb.i
+  %common.ret.op.i = phi float [ %1, %after_bb.i ], [ %2, %then_bb.i ]
+  ret float %common.ret.op.i
+}
+
+attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

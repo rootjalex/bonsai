@@ -1,0 +1,49 @@
+//! flags: -p ssa
+
+// Where a gang's call under a mask gets its test, and where it does not.
+//
+// A call made under a mask is made only if some lane is on -- the callee's
+// uniform work must not run on values no lane computed -- so it sits behind
+// a test of its mask. Which test is the point of this golden. In `weigh_all`
+// the else arm's call to `scale` is behind the linearizer's own guard around
+// the arm (the BOSCC gadget, SSA/Linearize.h: `reduce<any>` of the arm's
+// mask), and that is the only test it gets: the mask the call passes is the
+// mask the guard tested, so `known_nonempty` (SSA/Analysis.h) sees it
+// covered and specialize_calls adds nothing. The then arm's call is not
+// covered: the arm leaves two ways, to the join and, by the early `return`,
+// to the exit, so it gets no guard around it as a whole, and the call gets a
+// test of its own -- a `!call` block entered on `reduce<any>` of the mask and
+// bypassed to the continuation, which is handed a zero for the value the
+// call would have returned. One test per mask on any path, and none in the
+// backend: the same program's LLVM is golden-diffed in
+// backends/llvm/vectorize_call_guard.bonsai and run in
+// correctness/cpp/vectorize_call_guard.bonsai.
+func [[noinline]] scale(x : f32, k : f32) -> f32 = x * k;
+
+func weigh(x : f32) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 {
+        acc = scale(x, 3.0);
+        if acc > 20.0 {
+            return acc;
+        }
+    } else {
+        acc = scale(x, 5.0);
+    }
+    return acc + 1.0;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

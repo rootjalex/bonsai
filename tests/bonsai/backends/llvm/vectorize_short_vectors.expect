@@ -54,13 +54,21 @@ flip_negative:
   %2 = fcmp olt <8 x float> %extract, zeroinitializer
   %3 = bitcast <8 x i1> %2 to i8
   %.not = icmp eq i8 %3, 0
-  br i1 %.not, label %"!merge_3", label %call_any_lane
+  br i1 %.not, label %"!merge_3", label %"!then_2"
 
-"!merge_3":                                       ; preds = %call_any_lane, %flip_negative
-  %deref_temp.fca.2.load = phi <8 x float> [ %deref_temp.fca.2.load.pre, %call_any_lane ], [ <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %flip_negative ]
-  %deref_temp.fca.0.2.load = phi <8 x float> [ %deref_temp.fca.0.2.load.pre, %call_any_lane ], [ %1, %flip_negative ]
-  %deref_temp.fca.0.1.load = phi <8 x float> [ %deref_temp.fca.0.1.load.pre, %call_any_lane ], [ %0, %flip_negative ]
-  %deref_temp.fca.0.0.load = phi <8 x float> [ %deref_temp.fca.0.0.load.pre, %call_any_lane ], [ %extract, %flip_negative ]
+"!then_2":                                        ; preds = %flip_negative
+  call fastcc void @"advance$gang8_p0$masked"(ptr %r, <8 x i1> %2)
+  %deref_temp.fca.0.0.load.pre = load <8 x float>, ptr %r, align 32
+  %deref_temp.fca.0.1.load.pre = load <8 x float>, ptr %.fca.0.1.gep, align 32
+  %deref_temp.fca.0.2.load.pre = load <8 x float>, ptr %.fca.0.2.gep, align 32
+  %deref_temp.fca.2.load.pre = load <8 x float>, ptr %.fca.2.gep, align 32
+  br label %"!merge_3"
+
+"!merge_3":                                       ; preds = %"!then_2", %flip_negative
+  %deref_temp.fca.2.load = phi <8 x float> [ %deref_temp.fca.2.load.pre, %"!then_2" ], [ <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %flip_negative ]
+  %deref_temp.fca.0.2.load = phi <8 x float> [ %deref_temp.fca.0.2.load.pre, %"!then_2" ], [ %1, %flip_negative ]
+  %deref_temp.fca.0.1.load = phi <8 x float> [ %deref_temp.fca.0.1.load.pre, %"!then_2" ], [ %0, %flip_negative ]
+  %deref_temp.fca.0.0.load = phi <8 x float> [ %deref_temp.fca.0.0.load.pre, %"!then_2" ], [ %extract, %flip_negative ]
   %4 = fmul <8 x float> %deref_temp.fca.0.0.load, %deref_temp.fca.0.0.load
   %5 = fmul <8 x float> %deref_temp.fca.0.1.load, %deref_temp.fca.0.1.load
   %6 = fmul <8 x float> %deref_temp.fca.0.2.load, %deref_temp.fca.0.2.load
@@ -69,14 +77,6 @@ flip_negative:
   %9 = fadd <8 x float> %deref_temp.fca.2.load, %8
   store <8 x float> %9, ptr %out, align 4
   ret void
-
-call_any_lane:                                    ; preds = %flip_negative
-  call fastcc void @"advance$gang8_p0$masked"(ptr %r, <8 x i1> %2)
-  %deref_temp.fca.0.0.load.pre = load <8 x float>, ptr %r, align 32
-  %deref_temp.fca.0.1.load.pre = load <8 x float>, ptr %.fca.0.1.gep, align 32
-  %deref_temp.fca.0.2.load.pre = load <8 x float>, ptr %.fca.0.2.gep, align 32
-  %deref_temp.fca.2.load.pre = load <8 x float>, ptr %.fca.2.gep, align 32
-  br label %"!merge_3"
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)

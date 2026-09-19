@@ -45,6 +45,7 @@ add_bonsai_tests(
     tree-traversal-recursive.bonsai
     type_coercion_primitive.bonsai
     vectorize_add_one.bonsai
+    vectorize_call_guard.bonsai
     vectorize_calls.bonsai
     vectorize_divergent.bonsai
     vectorize_gather.bonsai

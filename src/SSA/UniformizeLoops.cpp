@@ -47,31 +47,6 @@ shared_ptr<Value> bool_constant(bool b) {
     return std::make_shared<Value>(Constant{Bool_t::make(), b});
 }
 
-// Do two values name the same definition? A name is enough: this SSA form
-// threads a definition onwards through block arguments under its own name,
-// so the instruction that defined a value and the argument it arrived as are
-// the same value under one name, however either reference spells it.
-bool same_value(const Value &a, const Value &b) {
-    const auto name_of = [](const Value &v) -> const string * {
-        if (const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data)) {
-            return &(*i)->name;
-        }
-        if (const auto *arg = std::get_if<Argument>(&v.data)) {
-            return &arg->name;
-        }
-        return nullptr;
-    };
-    if (const string *na = name_of(a)) {
-        const string *nb = name_of(b);
-        return nb != nullptr && *na == *nb;
-    }
-    if (const auto *ac = std::get_if<Constant>(&a.data)) {
-        const auto *bc = std::get_if<Constant>(&b.data);
-        return bc != nullptr && ac->data == bc->data;
-    }
-    return false;
-}
-
 bool is_named_argument(const Value &v, const string &name) {
     const auto *a = std::get_if<Argument>(&v.data);
     return a != nullptr && a->name == name;

@@ -27,21 +27,21 @@ tally_some:
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
   %1 = bitcast <8 x i1> %0 to i8
   %.not = icmp eq i8 %1, 0
-  br i1 %.not, label %"!merge_3", label %call_any_lane
+  br i1 %.not, label %"!merge_3", label %"!then_2"
 
-"!merge_3":                                       ; preds = %call_any_lane, %tally_some
-  %2 = phi <8 x float> [ %5, %call_any_lane ], [ <float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01>, %tally_some ]
-  store <8 x float> %2, ptr %out, align 4
-  ret void
-
-call_any_lane:                                    ; preds = %tally_some
+"!then_2":                                        ; preds = %tally_some
   call fastcc void @"bump$gang8_p0_v1$masked"(ptr %t, <8 x float> %extract, <8 x i1> %0)
   %deref_temp.fca.0.load.pre = load <8 x float>, ptr %t, align 32
   %deref_temp.fca.1.load.pre = load <8 x i32>, ptr %.fca.1.gep, align 32
-  %3 = fmul <8 x float> %deref_temp.fca.0.load.pre, <float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01>
-  %4 = sitofp <8 x i32> %deref_temp.fca.1.load.pre to <8 x float>
-  %5 = fadd <8 x float> %3, %4
+  %2 = fmul <8 x float> %deref_temp.fca.0.load.pre, <float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01>
+  %3 = sitofp <8 x i32> %deref_temp.fca.1.load.pre to <8 x float>
+  %4 = fadd <8 x float> %2, %3
   br label %"!merge_3"
+
+"!merge_3":                                       ; preds = %"!then_2", %tally_some
+  %5 = phi <8 x float> [ %4, %"!then_2" ], [ <float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01>, %tally_some ]
+  store <8 x float> %5, ptr %out, align 4
+  ret void
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)

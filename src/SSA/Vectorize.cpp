@@ -1204,6 +1204,65 @@ using Variants = map<VariantKey, string>;
 shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                                 const string &name, Variants &variants);
 
+// Puts the masked call that ends `b` behind a test of its mask: the call
+// moves to a block of its own, entered when any lane is on and bypassed
+// straight to the continuation otherwise, which is then handed a zero for the
+// value the call would have returned -- no lane reads it, and a zero rather
+// than nothing so that nothing uniform downstream is fed a value the backend
+// may treat as anything. The mask is the call's last argument (see
+// specialize_calls). The block joins the region.
+void guard_call(Function &func, Cfg &region, BlockId b) {
+    const shared_ptr<Block> block = region.block(b);
+    Terminator::Jump *call = block->terminator.callee();
+    internal_assert(call != nullptr && !call->args.empty())
+        << "guard_call on " << block->name << ", which makes no call";
+    const shared_ptr<Value> mask = call->args.back();
+
+    auto guarded = std::make_shared<Block>();
+    guarded->name = block->name + "!call";
+    for (size_t i = 0; std::any_of(func.blocks.begin(), func.blocks.end(),
+                                   [&](const shared_ptr<Block> &other) {
+                                       return other->name == guarded->name;
+                                   });
+         i++) {
+        guarded->name = block->name + "!call" + std::to_string(i);
+    }
+    guarded->owner = block->owner;
+    guarded->terminator = std::move(block->terminator);
+
+    // What the bypass hands the continuation: what the call's edge does, and
+    // first, where the call's value would have gone, a zero.
+    const Terminator::Jump *cont = guarded->terminator.continuation();
+    internal_assert(cont != nullptr);
+    Terminator::Jump bypass = *cont;
+    const bool drop = std::visit(
+        overloads{[](const Terminator::Call &c) { return c.drop; },
+                  [](const Terminator::MultiCall &c) { return c.drop; },
+                  [](const auto &) { return true; }},
+        guarded->terminator.data);
+    if (!drop) {
+        const Block &target = region[region.id(cont->name)];
+        internal_assert(!target.args.empty())
+            << "Call continuation " << target.name
+            << " takes no result argument";
+        bypass.args.insert(bypass.args.begin(),
+                           zero_value(target.args[0].type, func, block));
+    }
+
+    auto any = std::make_shared<Instruction>(
+        func.get_unique_name(), Bool_t::make(), Instruction::Op::Any,
+        vector<shared_ptr<Value>>{mask}, block);
+    block->instrs.push_back(any);
+    // targets[0] is where a false condition goes: past the call.
+    block->terminator.data = Terminator::Dispatch{
+        std::make_shared<Value>(any),
+        {std::move(bypass), Terminator::Jump{guarded->name}}};
+
+    func.blocks.insert(
+        std::find(func.blocks.begin(), func.blocks.end(), block) + 1, guarded);
+    region.add_block(guarded);
+}
+
 // Points each call in `region` at a variant of its callee taking the
 // arguments in the shape this gang has them in.
 //
@@ -1212,11 +1271,27 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 // flow does need one, and gets the mask of the block it sits in as an extra
 // argument. Both variants can exist at once, for a function called both ways,
 // and a callee whose arguments are all uniform needs neither.
-void specialize_calls(FuncMap &funcs, Function &func, const Cfg &region,
+void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
                       const Divergence &div, const BlockMasks &masks,
+                      const shared_ptr<Value> &entry_mask,
                       const set<string> &conditional_calls, uint32_t lanes,
                       const map<string, vector<uint32_t>> &call_shapes,
                       Variants &variants) {
+    // For the tests below: the region as linearization left it, its guards
+    // in place.
+    const DomTree dom = compute_dominator_tree(region);
+    // Whether some lane of `mask` is on in block `b`: a test on the way
+    // there says so, or the mask is the region's own -- a masked variant is
+    // called only behind a test of the mask it is handed (see below), so its
+    // parameter has a lane on throughout.
+    const auto nonempty = [&](BlockId b, const Value &mask) {
+        return (entry_mask != nullptr && same_value(mask, *entry_mask)) ||
+               known_nonempty(region, dom, b, mask);
+    };
+    // The conditional calls whose mask no test on the way has shown to have
+    // a lane on. Guarded once the walk is over, since a guard is a block.
+    vector<BlockId> unguarded;
+
     for (BlockId b = 0; b < region.size(); b++) {
         const shared_ptr<Block> &block = region.block(b);
         const string &name = block->name;
@@ -1328,6 +1403,21 @@ void specialize_calls(FuncMap &funcs, Function &func, const Cfg &region,
                 << "Call in " << name << " is conditional but its block has "
                 << "no mask";
             call->args.push_back(mask->second);
+            // A call made under a mask is made only if some lane is on.
+            // Linearization runs the block it sits in whether or not any
+            // lane reached it, and while everything per lane in the callee
+            // is masked, its uniform work is not: a table it indexes with a
+            // value no lane computed, a pointer a fully-off join never
+            // filled in. In the original program no thread was there to
+            // call it, so nothing is lost by not calling it either -- the
+            // same rule as a store into shared memory under a mask, and
+            // ispc's (a call is never SafeToRunWithMaskAllOff). The arm the
+            // call is in is normally behind the linearizer's own test of the
+            // mask, which settles it; a call nothing has tested for gets a
+            // test of its own (see guard_call).
+            if (!nonempty(b, *mask->second)) {
+                unguarded.push_back(b);
+            }
         } else if (key.masked) {
             // Every lane is on. One bool, as every mask is before widening,
             // which broadcasts it where the variant's parameter is per lane
@@ -1335,6 +1425,10 @@ void specialize_calls(FuncMap &funcs, Function &func, const Cfg &region,
             call->args.push_back(
                 std::make_shared<Value>(Constant{Bool_t::make(), true}));
         }
+    }
+
+    for (BlockId b : unguarded) {
+        guard_call(func, region, b);
     }
 }
 
@@ -1494,7 +1588,7 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                 mask, key.lanes);
 
     // Uniformizing a loop adds blocks, so the region is only settled now.
-    const Cfg region(*variant, entry);
+    Cfg region(*variant, entry);
 
     // Per-lane vectors become one value per component here too, which is what
     // turns a `vec3f` parameter into three `f32` ones -- matching the
@@ -1529,8 +1623,8 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 
     // A variant's own calls are specialized the same way, so that a chain of
     // calls from inside a gang is vectorized all the way down.
-    specialize_calls(funcs, *variant, region, div, masks, conditional_calls,
-                     key.lanes, split.call_shapes, variants);
+    specialize_calls(funcs, *variant, region, div, masks, mask,
+                     conditional_calls, key.lanes, split.call_shapes, variants);
 
     widen_region(*variant, entry, div, key.lanes);
     broadcast_call_arguments(funcs, *variant, region, key.lanes);
@@ -1635,7 +1729,7 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
                                    nullptr, masked_blocks),
                 masks, nullptr, lanes);
 
-    const Cfg region(*f, entry);
+    Cfg region(*f, entry);
 
     internal_assert(parfor.cont.args.empty())
         << "TODO: thread the continuation arguments of " << idx
@@ -1684,8 +1778,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
         << "Linearization left a divergent branch in " << *div.branches.begin();
 
     Variants variants;
-    specialize_calls(funcs, *f, region, div, masks, conditional_calls, lanes,
-                     split.call_shapes, variants);
+    specialize_calls(funcs, *f, region, div, masks, /*entry_mask=*/nullptr,
+                     conditional_calls, lanes, split.call_shapes, variants);
 
     widen_region(*f, entry, div, lanes);
     broadcast_call_arguments(funcs, *f, region, lanes);

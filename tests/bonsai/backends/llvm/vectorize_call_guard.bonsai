@@ -1,0 +1,41 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for a gang's calls under a mask: the same program
+// as ssa/vectorize-call-guard.bonsai. What to read for in `weigh_all`: each
+// masked call to `scale` is entered by exactly one test of its mask -- the
+// else arm's by the guard around the arm, the then arm's by the test in front
+// of the call itself, since its arm leaves two ways -- and the backend adds
+// none of its own: the tests are all the SSA's, so there is no second test
+// for the optimizer to have to fold. (Before the tests moved into the SSA the
+// backend guarded every masked call, and where the guard's mask was not
+// literally the one the arm's guard had tested, both survived to the machine
+// code.)
+func [[noinline]] scale(x : f32, k : f32) -> f32 = x * k;
+
+func weigh(x : f32) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 {
+        acc = scale(x, 3.0);
+        if acc > 20.0 {
+            return acc;
+        }
+    } else {
+        acc = scale(x, 5.0);
+    }
+    return acc + 1.0;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

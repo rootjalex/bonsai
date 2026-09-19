@@ -1,0 +1,97 @@
+func [[noinline]] scale(x : f32, k : f32) -> f32 {
+  let @0 = x * k in
+  return @0
+}
+
+func [[noinline]] scale$gang8_v0$masked(x : f32x8, k : f32, !mask : boolx8) -> f32x8 {
+  let @1 = f32x8(k) in
+  let @0 = x * @1 in
+  return @0
+}
+
+func weigh(x : f32) -> f32 {
+  acc : mut f32
+  acc = 0f
+  let @0 = 2f < x in
+  if (@0) {
+    let @1 = scale(x, 3f) in
+    acc = @1
+    let @2 = (*acc) in
+    let @3 = 20f < @2 in
+    if (@3) {
+      let @4 = (*acc) in
+      return @4
+    }
+  } else {
+    let @5 = scale(x, 5f) in
+    acc = @5
+  }
+  let @6 = (*acc) in
+  let @7 = @6 + 1f in
+  return @7
+}
+
+func weigh$gang8_v0(x : f32x8) -> f32x8 {
+  @10!skip : mut boolx8
+  acc!skip : mut f32x8
+  !ret!skip : mut f32x8
+  acc!skip0 : mut f32x8
+  let @17 = f32x8(2f) in
+  let @0 = @17 < x in
+  let @18 = boolx8(false) in
+  let @19 = boolx8(true) in
+  let @8 = select(@0, @18, @19) in
+  let @14 = reduce<any>(@0) in
+  let @24 = boolx8(false) in
+  let @25 = f32x8(0f) in
+  let @26 = f32x8(0f) in
+  if (@14) {
+    let @1 = scale$gang8_v0$masked(x, 3f, @0) in
+    let @20 = f32x8(20f) in
+    let @3 = @20 < @1 in
+    let @21 = boolx8(false) in
+    let @22 = boolx8(true) in
+    let @9 = select(@3, @21, @22) in
+    let @10 = @0 && @9 in
+    let @11 = @0 && @3 in
+    @10!skip = @10
+    acc!skip = @1
+    !ret!skip = @1
+  } else {
+    @10!skip = @24
+    acc!skip = @25
+    !ret!skip = @26
+  }
+  let @13 = reduce<any>(@8) in
+  if (@13) {
+    let @5 = scale$gang8_v0$masked(x, 5f, @8) in
+    let @15 = select(@8, @5, (*acc!skip)) in
+    acc!skip0 = @15
+  } else {
+    acc!skip0 = (*acc!skip)
+  }
+  let @12 = (*@10!skip) || @8 in
+  let @23 = f32x8(1f) in
+  let @7 = (*acc!skip0) + @23 in
+  let @16 = select(@12, @7, (*!ret!skip)) in
+  return @16
+}
+
+func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = weigh$gang8_v0(@0) in
+  let i = ramp(0, 1, 8) in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+  let @0 = weigh(x) in
+  return @0
+}
+
+
+schedule host {
+    weigh_all.vectorize(i)
+
+}

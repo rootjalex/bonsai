@@ -749,6 +749,7 @@ void queue_recursion(Function &func, size_t size) {
     // stores to the accumulator. Walked before the returns become back edges,
     // so the walk stops where the body begins.
     const Cfg cfg(func);
+    const DomTree dom = compute_dominator_tree(cfg);
     const auto stores_accumulator = [&](const Block &block) {
         internal_assert(acc.has_value());
         const std::optional<string> target = name_of(acc->ptr);
@@ -826,21 +827,25 @@ void queue_recursion(Function &func, size_t size) {
         const size_t waiting_from = last ? 1 : 0;
 
         // A gang's recursion is made only if some lane wants it. As a call
-        // that was the callee's business: a masked variant is entered under
-        // a test of its mask (see the `$masked` guard in
-        // CodeGen_LLVM_SSA.cpp), so a run no lane was on never ran. Once the
-        // calls are pushes there is no callee to test anything, so the test
-        // is made here: the pushes and the descent go in a block of their
-        // own, entered when any lane is on and bypassed straight to what
-        // followed the run otherwise. The arm the run sits in is normally
-        // behind the linearizer's own test of the same mask (the BOSCC
-        // gadget, SSA/Linearize.h), which makes this one redundant there and
-        // a test the backend folds; it stands for a run the linearizer could
-        // not skip. The mask is the argument every call of the run passes
-        // for the parameter specialize() added under the name `!mask`
-        // (SSA/Vectorize.cpp).
+        // that was a test in front of the call (see specialize_calls in
+        // SSA/Vectorize.cpp), so a run no lane was on was never made. Once
+        // the calls are pushes the test is made here: the pushes and the
+        // descent go in a block of their own, entered when any lane is on
+        // and bypassed straight to what followed the run otherwise. The arm
+        // the run sits in is normally behind the linearizer's own test of
+        // the same mask (the BOSCC gadget, SSA/Linearize.h), and then the
+        // mask is known to have a lane on and no test is made; so is the
+        // function's own mask, since a masked variant is only ever called
+        // behind a test of the mask it is handed. This one stands for a run
+        // the linearizer could not skip. The mask is the argument every call
+        // of the run passes for the parameter specialize() added under the
+        // name `!mask` (SSA/Vectorize.cpp).
         shared_ptr<Block> into = block;
-        if (mask_param.has_value()) {
+        const auto nonempty = [&](const Value &mask) {
+            return same_value(mask, Value(params[*mask_param])) ||
+                   known_nonempty(cfg, dom, cfg.id(name), mask);
+        };
+        if (mask_param.has_value() && !nonempty(*call->args[0][*mask_param])) {
             const shared_ptr<Value> wanted = call->args[0][*mask_param];
             auto on = append(func, block, Bool_t::make(), Instruction::Op::Any,
                              {wanted});

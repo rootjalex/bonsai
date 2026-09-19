@@ -685,6 +685,32 @@ DomTree compute_dominator_tree(const Graph &g) {
     return tree;
 }
 
+bool known_nonempty(const Cfg &cfg, const DomTree &dom, BlockId block,
+                    const Value &mask) {
+    for (BlockId at = block; dom.contains(at) && dom.idom[at] != at;
+         at = dom.idom[at]) {
+        const BlockId above = dom.idom[at];
+        const auto *d =
+            std::get_if<Terminator::Dispatch>(&cfg[above].terminator.data);
+        if (d == nullptr || d->targets.size() != 2) {
+            continue;
+        }
+        // The true side, and only that side: a block both sides go to, or
+        // one reached some other way as well, says nothing about the test.
+        if (d->targets[1].name != cfg.name(at) ||
+            d->targets[0].name == cfg.name(at) || cfg.preds[at].size() != 1) {
+            continue;
+        }
+        const auto *any = std::get_if<shared_ptr<Instruction>>(&d->cond->data);
+        if (any != nullptr && (*any)->op == Instruction::Op::Any &&
+            (*any)->operands.size() == 1 &&
+            same_value(*(*any)->operands[0], mask)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 DominanceFrontier compute_dominance_frontier(const Graph &g,
                                              const DomTree &dom) {
     // Cytron, Ferrante, Rosen, Wegman & Zadeck (1991): every join block ends

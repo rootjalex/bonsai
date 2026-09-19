@@ -695,18 +695,15 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             let @337 = @334 < @336 in
             let @266 = select(@337, @76, @80) in
             let @267 = select(@337, @80, @76) in
-            let @537 = reduce<any>(@288) in
-            if (@537) {
-              let @538 = (*!count) in
-              !stack[@538] = @267
-              !stack0[@538] = @288
-              let @541 = @538 + 1u in
-              !count = @541
-              shapes_index!top = @266
-              !mask!top = @288
-              !live = true
-              continue
-            }
+            let @537 = (*!count) in
+            !stack[@537] = @267
+            !stack0[@537] = @288
+            let @540 = @537 + 1u in
+            !count = @540
+            shapes_index!top = @266
+            !mask!top = @288
+            !live = true
+            continue
           } else {
             let @84 = cast<u16>(_t85) in
             _idx0 = 0u

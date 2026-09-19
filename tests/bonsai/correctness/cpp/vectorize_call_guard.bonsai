@@ -1,0 +1,40 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_call_guard
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_call_guard.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_call_guard.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_call_guard.o tests/bonsai/correctness/cpp/vectorize_call_guard.o -o tests/bonsai/correctness/cpp/vectorize_call_guard, ./tests/bonsai/correctness/cpp/vectorize_call_guard, rm tests/bonsai/correctness/cpp/vectorize_call_guard, rm tests/bonsai/correctness/cpp/main_vectorize_call_guard.o, rm tests/bonsai/correctness/cpp/vectorize_call_guard.h, rm tests/bonsai/correctness/cpp/vectorize_call_guard.o
+
+// A gang's calls under a mask, run: one behind the guard around its arm, one
+// behind a test of its own because its arm also returns early (see
+// ssa/vectorize-call-guard.bonsai). The driver runs a gang where every lane
+// takes the then arm and returns from it, one where no lane does, and a
+// mixed one, so each call is both made and skipped, and compares each lane
+// with the same input weighed alone. What has to come out right when a call
+// is skipped is what its continuation reads: nothing for the lanes that were
+// not there, and the other arm's value for the ones that were.
+func [[noinline]] scale(x : f32, k : f32) -> f32 = x * k;
+
+func weigh(x : f32) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 {
+        acc = scale(x, 3.0);
+        if acc > 20.0 {
+            return acc;
+        }
+    } else {
+        acc = scale(x, 5.0);
+    }
+    return acc + 1.0;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+}

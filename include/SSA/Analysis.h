@@ -318,6 +318,19 @@ std::string virtual_exit();
 
 DomTree compute_post_dominator_tree(const Graph &g);
 
+// Is some lane of `mask` known to be on in `block`? It is when a block above
+// `block` in the dominator tree branches on `any(mask)` and `block` lies
+// below the branch's true side alone -- the shape of every test a gang makes
+// before work no lane may want: the guard partial linearization puts in
+// front of an arm (SSA/Linearize.h), the one in front of a masked call
+// (SSA/Vectorize.cpp), the one in front of a recursion's pushes
+// (SSA/QueueRecursion.h). Each of those asks this before installing a test,
+// so that a mask a gang has already tested is not tested again on the same
+// path; the backend folds some such repeats and not others, and one test per
+// mask per path is what a hand-written packet tracer has.
+bool known_nonempty(const Cfg &cfg, const DomTree &dom, BlockId block,
+                    const Value &mask);
+
 // Dominance frontier: DF(b) is the set of blocks that b dominates a
 // predecessor of, but does not strictly dominate. Placing a block argument
 // for a value defined in b at every block of DF(b) -- iterated to a fixed
