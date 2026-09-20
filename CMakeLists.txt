@@ -122,6 +122,7 @@ target_sources(
     src/IR/Mutator.cpp
     src/IR/Operators.cpp
     src/IR/Printer.cpp
+    src/IR/Provenance.cpp
     src/IR/Stmt.cpp
     src/IR/Type.cpp
     src/IR/TypeEnforcement.cpp

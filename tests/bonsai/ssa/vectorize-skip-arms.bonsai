@@ -8,7 +8,12 @@
 // on the else arm's test and the else arm's bypass on the join after both --
 // ispc's layout of a varying `if`, which a gadget installed before the fold
 // could only give one arm. The three arms of the `match` line up the same
-// way. Every value an arm computes that is read after it arrives at the
+// way. None of these arms touches memory or calls, so every test here is the
+// schedule's doing -- `weigh.skip()`, every arm `weigh` has, the inner `if`'s
+// two-operation fall-through and the arms of `classify` inlined into it
+// included; without it there would be none (see "Which arms get a gadget" in
+// SSA/Linearize.h, and ssa/vectorize-skip-cursor.bonsai for naming arms one
+// at a time). Every value an arm computes that is read after it arrives at the
 // landing as a `!skip` argument: the running blend from inside the arm, and
 // along the bypass the value from before the arm -- `acc` from before the
 // `if`, or the previous arm's blend -- so the join reads exactly what a lane
@@ -71,4 +76,10 @@ func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
 
 schedule {
     weigh_all.vectorize(i);
+    // Every arm `weigh` has behind a test, the arithmetic-only ones included:
+    // none of these arms touches memory or calls, so without this the
+    // linearizer would put a gadget in front of none of them (see "Which
+    // arms get a gadget" in SSA/Linearize.h). Named by the function the
+    // arms are written in, which the gang reaches through a call.
+    weigh.skip();
 }

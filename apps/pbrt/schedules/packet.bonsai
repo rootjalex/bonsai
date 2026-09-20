@@ -88,6 +88,29 @@ schedule {
     // IntersectP uses.
     trace_any.loopify(64);
 
+    // Which arms the gang skips. A vectorized `match` or `if` computes every
+    // arm under a mask of the lanes in it; an arm no lane is in is paid for
+    // unless a uniform `any(mask)` test is put in front of it (the BOSCC
+    // gadget, "Which arms get a gadget" in SSA/Linearize.h). The linearizer
+    // puts one there wherever the arm touches memory or calls -- which in this
+    // render is every arm of the Shape, Primitive and Light dispatches, since
+    // their variants are stored `tagged_index` and an arm begins by loading
+    // its own -- and otherwise only where this block says so:
+    //
+    //     material_bxdf.skip(Material);   // every arm of that match
+    //     bxdf_f.skip(BxDF.Dielectric);   // one arm
+    //     path_step.skip();               // every arm the function has
+    //
+    // Nothing is said, because measured (PLAN.md, "What is next", item 7:
+    // five scenes, depth 1 and 5, 64 spp) the arithmetic-only arms are not
+    // worth a test: the shading dispatches' arms cost 3-4% on killeroo and
+    // book at depth 5 when tested, because a scene has one material and the
+    // test never bypasses anything, and putting a test in front of every arm
+    // of the path loop moves the scenes by no more than the run-to-run noise.
+    // The place to say otherwise is a scene whose lanes split across arms of
+    // a match whose arms are pure arithmetic, and the way to know is to count
+    // (item 7's list).
+
     // The pixels across the machine's cores.
     render.bind(p, CPUThread);
 }

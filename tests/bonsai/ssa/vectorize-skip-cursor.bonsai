@@ -1,0 +1,101 @@
+//! flags: -p ssa
+
+// Which arms a gang skips is the schedule's to say (see "Which arms get a
+// gadget" in SSA/Linearize.h): an arm that touches memory or makes a call is
+// always behind a test of `reduce<any>` of its mask, and an arm of pure
+// arithmetic only where a `skip` cursor points at it.
+//
+// What to read for in `weigh_all`'s gang. `area` is a match on a Shape
+// written in an `[[inline]]` helper, so by the time it is a block it sits in
+// `weigh`'s gang variant under a name that says nothing (`!case_N`); the
+// schedule's `area.skip(Shape.Ring)` finds the Ring arm anyway, by the
+// provenance lowering left on it (ir::Provenance), which the SSA prints
+// beside the block. The Ring arm alone is behind an `!any` test; the Disc
+// and Box arms are computed straight through under their masks. `perimeter`
+// is a second match, written in `weigh` itself, and `weigh.skip(Shape)`
+// names every arm of it, so all three of those are behind a test. A third
+// match is written in `intersects` over a Ray and a Shape -- a geometric
+// intrinsic, which the program knows as `intersects_Ray_Shape` -- and the
+// schedule names it the way the program does: `intersects.skip(Shape.Box)`
+// is every overload of `intersects` that takes a Shape, and puts the Box arm
+// alone behind a test. The `if` in `classify` gets no test either way: its
+// arms are arithmetic, and nothing names them. The same program runs in
+// correctness/cpp/vectorize_skip_cursor.bonsai and its LLVM is golden-diffed
+// in backends/llvm/vectorize_skip_cursor.bonsai.
+import stdlib/numerics;
+import stdlib/ray;
+
+element Shape =
+    | Disc(r : f32)
+    | Box(w : f32, h : f32)
+    | Ring(ro : f32, ri : f32);
+
+func classify(x : f32) -> Shape {
+    if x < 0.0 {
+        return Disc(-x);
+    }
+    if x < 4.0 {
+        return Box(x, x * 0.5);
+    }
+    return Ring(x, x * 0.25);
+}
+
+func [[inline]] area(s : Shape) -> f32 {
+    a : mut = 0.0;
+    match s {
+        Disc(r) => a = r * r * 3.0;
+        Box(wd, h) => a = wd * h;
+        Ring(ro, ri) => a = (ro * ro - ri * ri) * 3.0 + ri * 0.5 - ro;
+    }
+    return a;
+}
+
+// Does a ray down z through (x, y) land on the shape, centred at the origin?
+func intersects(r : Ray, s : Shape) -> bool {
+    d2 = r.o[0] * r.o[0] + r.o[1] * r.o[1];
+    hit : mut = false;
+    match s {
+        Disc(rad) => hit = d2 < rad * rad;
+        Box(wd, h) => hit = r.o[0] * r.o[0] < wd * wd && r.o[1] * r.o[1] < h * h;
+        Ring(ro, ri) => hit = d2 < ro * ro && d2 > ri * ri;
+    }
+    return hit;
+}
+
+func weigh(x : f32) -> f32 {
+    s = classify(x);
+    p : mut = 0.0;
+    match s {
+        Disc(r) => p = r * 6.0;
+        Box(wd, h) => p = wd * 2.0 + h * 2.0;
+        Ring(ro, ri) => p = ro * 6.0 + ri * 6.0;
+    }
+    probe = Ray{vec3f{x * 0.5, 1.0, 0.0}, vec3f{0.0, 0.0, 1.0}};
+    if intersects(probe, s) {
+        p = p + 1.0;
+    }
+    return area(s) + p;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+    // The one arm of `area`'s match worth a test, named where it was
+    // written, though inlining has moved it into `weigh`.
+    area.skip(Shape.Ring);
+    // Every arm of a match on a Shape in `weigh` itself.
+    weigh.skip(Shape);
+    // One arm of the intrinsic's match, the intrinsic named as the program
+    // names it (every overload taking a Shape: `intersects_Ray_Shape`).
+    intersects.skip(Shape.Box);
+}

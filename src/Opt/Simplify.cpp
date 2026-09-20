@@ -802,7 +802,8 @@ struct Simplifier : ir::Mutator {
         if (same) {
             return node;
         }
-        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+        return ir::SwitchStmt::make(std::move(value), std::move(arms),
+                                    node->provenance);
     }
 
     ir::Stmt visit(const ir::Store *node) override {

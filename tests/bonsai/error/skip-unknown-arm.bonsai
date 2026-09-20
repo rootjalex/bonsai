@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// A `skip` cursor has to name an arm the function has.
+//
+// `weigh.skip(Shape.Cone)` names a variant Shape does not have, so no arm of
+// any match in `weigh` -- or written in it and inlined elsewhere -- can be
+// the one meant. Accepting it would compile a program the schedule did not
+// describe, the way an ignored transform would, so it is refused, and the
+// message says which arms the function does have.
+import stdlib/numerics;
+
+element Shape =
+    | Disc(r : f32)
+    | Box(w : f32, h : f32);
+
+func classify(x : f32) -> Shape {
+    if x < 0.0 {
+        return Disc(-x);
+    }
+    return Box(x, x * 0.5);
+}
+
+func weigh(x : f32) -> f32 {
+    p : mut = 0.0;
+    match classify(x) {
+        Disc(r) => p = r * 6.0;
+        Box(wd, h) => p = wd * 2.0 + h * 2.0;
+    }
+    return p;
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+    weigh.skip(Shape.Cone);
+}

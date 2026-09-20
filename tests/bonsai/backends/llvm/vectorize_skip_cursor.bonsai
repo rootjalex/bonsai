@@ -1,0 +1,83 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for the arms a `skip` cursor puts behind a test:
+// the same program as ssa/vectorize-skip-cursor.bonsai, after LLVM has had it.
+//
+// What to read for: in `weigh_all`, one `br i1` on an or-reduction of the
+// arm's mask in front of the Ring arm of `area`'s match (named by the
+// schedule, and found though `area` was inlined into `weigh`), in front of
+// each of the three arms of `weigh`'s own match, and in front of the Box arm
+// of the `intersects` intrinsic's match; none in front of the Disc and Box
+// arms of `area`'s, the Disc and Ring arms of `intersects`', or the arms of
+// `classify`'s `if`, which are blended straight through.
+import stdlib/numerics;
+import stdlib/ray;
+
+element Shape =
+    | Disc(r : f32)
+    | Box(w : f32, h : f32)
+    | Ring(ro : f32, ri : f32);
+
+func classify(x : f32) -> Shape {
+    if x < 0.0 {
+        return Disc(-x);
+    }
+    if x < 4.0 {
+        return Box(x, x * 0.5);
+    }
+    return Ring(x, x * 0.25);
+}
+
+func [[inline]] area(s : Shape) -> f32 {
+    a : mut = 0.0;
+    match s {
+        Disc(r) => a = r * r * 3.0;
+        Box(wd, h) => a = wd * h;
+        Ring(ro, ri) => a = (ro * ro - ri * ri) * 3.0 + ri * 0.5 - ro;
+    }
+    return a;
+}
+
+func intersects(r : Ray, s : Shape) -> bool {
+    d2 = r.o[0] * r.o[0] + r.o[1] * r.o[1];
+    hit : mut = false;
+    match s {
+        Disc(rad) => hit = d2 < rad * rad;
+        Box(wd, h) => hit = r.o[0] * r.o[0] < wd * wd && r.o[1] * r.o[1] < h * h;
+        Ring(ro, ri) => hit = d2 < ro * ro && d2 > ri * ri;
+    }
+    return hit;
+}
+
+func weigh(x : f32) -> f32 {
+    s = classify(x);
+    p : mut = 0.0;
+    match s {
+        Disc(r) => p = r * 6.0;
+        Box(wd, h) => p = wd * 2.0 + h * 2.0;
+        Ring(ro, ri) => p = ro * 6.0 + ri * 6.0;
+    }
+    probe = Ray{vec3f{x * 0.5, 1.0, 0.0}, vec3f{0.0, 0.0, 1.0}};
+    if intersects(probe, s) {
+        p = p + 1.0;
+    }
+    return area(s) + p;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+    area.skip(Shape.Ring);
+    weigh.skip(Shape);
+    intersects.skip(Shape.Box);
+}

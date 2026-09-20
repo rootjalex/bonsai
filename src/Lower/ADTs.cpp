@@ -43,6 +43,9 @@ struct RewriteADTs : public Mutator {
     // the ones a Construct below actually reaches.
     const FuncMap &appenders;
     std::set<std::string> needed;
+    // Whose body is being rewritten, for the provenance a match's arms get
+    // (see ir::Provenance): the function the arm was written in.
+    std::string current_function;
 
     RewriteADTs(const LayoutMap &layouts, const FuncMap &appenders)
         : layouts(layouts), appenders(appenders) {}
@@ -374,6 +377,7 @@ struct RewriteADTs : public Mutator {
         const Expr value = mutate(node->value);
 
         std::vector<Stmt> arms(node->arms.size());
+        std::vector<Provenance> provenance(node->arms.size());
         for (const MatchVariant::Arm &arm : node->arms) {
             const auto index = adt->index_of(arm.variant);
             internal_assert(index.has_value())
@@ -417,12 +421,17 @@ struct RewriteADTs : public Mutator {
                 << tag << ", not its index among " << arms.size()
                 << " variants";
             arms[tag] = Sequence::make(std::move(body));
+            provenance[tag] = Provenance::match_arm(current_function,
+                                                    adt->name, arm.variant);
         }
         if (arms.size() == 1) {
             // The only variant there is: nothing to switch on.
             return arms[0];
         }
-        return SwitchStmt::make(tag_of(layout, value), std::move(arms));
+        // Each arm marked with the variant it takes, so that a schedule can
+        // name it once the match is a switch, and then a block.
+        return SwitchStmt::make(tag_of(layout, value), std::move(arms),
+                                std::move(provenance));
     }
 };
 
@@ -781,6 +790,7 @@ ir::Program LowerADTs::run(ir::Program program,
     }
 
     for (auto &[fname, func] : program.funcs) {
+        rewriter.current_function = fname;
         std::vector<ir::Function::Argument> args(func->args.size());
         for (size_t i = 0; i < args.size(); i++) {
             const auto &arg = func->args[i];

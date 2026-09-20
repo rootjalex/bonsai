@@ -57,14 +57,14 @@ func doubled(v : f32, n : i32) -> f32 {
 func [[noinline]] pick(b : Blob, k : f32) -> f32 {
   let @0 = b.tag in
   switch (@0) {
-  case 0: {
+  case 0: { // Blob.A of pick
     let @1 = b.payload in
     let @2 = @1[0u] in
     let @3 = reinterpret_cast<f32>(@2) in
     let @4 = @3 * k in
     return @4
   } break;
-  default: {
+  default: { // Blob.B of pick
     let _t3 = b.payload in
     let @6 = _t3[1u] in
     let z = reinterpret_cast<f32>(@6) in

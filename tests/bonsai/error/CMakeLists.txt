@@ -22,6 +22,7 @@ add_bonsai_tests(
     set-literal-empty.bonsai
     loopify-nested-needs-ssa.bonsai
     loopify-queue-not-tail.bonsai
+    skip-unknown-arm.bonsai
     sort-needs-ssa.bonsai
     split-not-divisible.bonsai
     ssa-unimplemented-transform.bonsai

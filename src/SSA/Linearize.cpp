@@ -293,12 +293,17 @@ bool is_mask_logic(Instruction::Op op) {
 // Work a skipped region must not do at all, rather than merely do for
 // nothing: a load in it may be through an address only an active lane made
 // valid, and ispc branches around any arm that does such work whatever it
-// costs (SafeToRunWithMaskAllOff).
-bool touches_memory(Instruction::Op op) {
-    switch (op) {
+// costs (SafeToRunWithMaskAllOff). Reading a component of an aggregate value
+// is such work only when the index is a lane's own -- an inactive lane's may
+// be out of range -- and not when it is a constant, which is how a match arm
+// reads the fields of a variant's payload.
+bool touches_memory(const Instruction &instr) {
+    switch (instr.op) {
+    case Instruction::Op::ExtractIdx:
+        return instr.operands.size() < 2 ||
+               !std::holds_alternative<Constant>(instr.operands[1]->data);
     case Instruction::Op::Load:
     case Instruction::Op::Store:
-    case Instruction::Op::ExtractIdx:
     case Instruction::Op::AccAdd:
     case Instruction::Op::AccMul:
     case Instruction::Op::AccSub:
@@ -316,25 +321,23 @@ bool touches_memory(Instruction::Op op) {
     }
 }
 
-// Whether a region is worth a test to skip: it goes to memory or makes a
-// call, or it does enough arithmetic to outweigh the test -- six operations,
-// which is where ispc draws the line between predicating both arms straight
-// through and branching around them (PREDICATE_SAFE_IF_STATEMENT_COST).
-bool worth_skipping(const Cfg &cfg, const BlockSet &region) {
-    size_t work = 0;
+// Whether a region has to be behind a test: it goes to memory or makes a
+// call, which must not happen on behalf of no lane. Whether a region of pure
+// arithmetic gets one is the schedule's call (see Linearize.h, "Which arms
+// get a gadget").
+bool must_skip(const Cfg &cfg, const BlockSet &region) {
     for (BlockId b : region) {
         const Block &block = cfg[b];
         if (block.terminator.callee() != nullptr) {
             return true;
         }
         for (const shared_ptr<Instruction> &instr : block.instrs) {
-            if (touches_memory(instr->op)) {
+            if (touches_memory(*instr)) {
                 return true;
             }
-            work += is_mask_logic(instr->op) ? 0 : 1;
         }
     }
-    return work >= 6;
+    return false;
 }
 
 // Which block defines `v`, for an instruction; NO_BLOCK for anything else.
@@ -358,7 +361,9 @@ bool declares(const Block &block, const string &name) {
 BlockMasks linearize(Function &func, const string &entry_name,
                      const Divergence &divergence,
                      const shared_ptr<Value> &entry_mask,
-                     const vector<UniformLoop> &loops_in) {
+                     const vector<UniformLoop> &loops_in,
+                     const ir::BranchPolicyMap &policies,
+                     const string &policy_name) {
     if (divergence.branches.empty() && !entry_mask && loops_in.empty()) {
         return {}; // nothing diverges; the control flow is already uniform
     }
@@ -772,7 +777,10 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 if (dominated.contains(defined_in(cfg, *m))) {
                     continue; // a mask the arm computes for itself
                 }
-                if (!worth_skipping(cfg, dominated)) {
+                // A gadget where there must be one, and where the schedule
+                // wagers on one (see Linearize.h, "Which arms get a gadget").
+                if (!must_skip(cfg, dominated) &&
+                    !ir::skips(policies, policy_name, cfg[a].provenance)) {
                     continue;
                 }
 
@@ -1491,6 +1499,22 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     }
                     for (auto &operand : instr->operands) {
                         replace(operand);
+                    }
+                }
+                // The masks are values too. A divergent branch on the
+                // argument itself -- `if hit`, where `hit` is what the arms
+                // of a match handed the join -- has the argument for the mask
+                // of its true edge, and of every block that edge alone
+                // reaches; those are read when the blocks are predicated,
+                // long after the argument is gone.
+                if (const BlockId id = cfg.find(in.name); id != NO_BLOCK) {
+                    if (id < masks.block.size()) {
+                        replace(masks.block[id]);
+                    }
+                    for (auto &[edge, mask] : masks.edge) {
+                        if (edge.first == id) {
+                            replace(mask);
+                        }
                     }
                 }
                 std::visit(

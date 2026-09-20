@@ -80,7 +80,7 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   let @0 = (*b) in
   let @1 = @0.tag in
   switch (@1) {
-  case 0: {
+  case 0: { // Blob.Whole of weigh
     let @2 = (*b) in
     let @3 = @2.payload in
     let @4 = @3[0u] in
@@ -90,7 +90,7 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
     let @8 = @6 + @7 in
     acc = @8
   } break;
-  case 1: {
+  case 1: { // Blob.Split of weigh
     let @9 = (*b) in
     let _t26 = @9.payload in
     let @11 = _t26[0u] in

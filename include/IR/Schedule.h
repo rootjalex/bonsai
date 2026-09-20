@@ -5,6 +5,7 @@
 #include <variant>
 
 #include "Layout.h"
+#include "Provenance.h"
 #include "Resource.h"
 #include "Type.h"
 
@@ -118,6 +119,75 @@ struct Vectorize {
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, MakeQueue, Split,
                                Sort, Vectorize>;
 
+// The arms of a function's branches that a directive points at:
+//
+//     intersect.skip(Shape.Sphere);    // the arm taking that variant
+//     intersect.skip(Shape);           // every arm of a match on a Shape
+//     intersect.skip();                // every arm the function has
+//
+// A named arm is one of a match *written in* the function: the name is
+// matched against the provenance lowering leaves on match arms (see
+// ir::Provenance), so the arm is found wherever inlining and specialization
+// have carried it, and a match in an `[[inline]]` helper is named by the
+// helper, not by whatever it was inlined into. The bare form is about the
+// function as compiled: every arm in it, an `if`'s arms -- which carry no
+// provenance -- and inlined arms included.
+struct ArmCursors {
+    bool all = false;
+    std::vector<Location> arms;
+
+    bool covers(const Provenance &arm_of) const {
+        if (all) {
+            return true;
+        }
+        for (const Location &arm : arms) {
+            if (arm_of.matches(arm.names)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool empty() const { return !all && arms.empty(); }
+};
+
+// What a schedule says about the dynamic tests a gang's control flow gets
+// beyond the ones it must have, per function (see SSA/Linearize.h).
+//
+// A vectorized branch is linearized: every arm is computed, under a mask of
+// the lanes in it. An arm no lane is in is still paid for unless a uniform
+// test of `any(mask)` is put in front of it -- the BOSCC gadget -- and the
+// linearizer puts one there only where it must, before an arm that touches
+// memory or makes a call. Whether an arm of pure arithmetic is worth a test
+// depends on how often a gang finds no lane in it, which is a fact about the
+// program's data, so it is the schedule's to say: `skip` names the arms that
+// get a test anyway.
+struct BranchPolicy {
+    ArmCursors skip;
+};
+
+// Keyed by the function the schedule named.
+using BranchPolicyMap = std::map<std::string, BranchPolicy>;
+
+// Does the schedule put a test in front of an arm found in `func` -- the name
+// the schedule knows the function by, before specialization renamed it --
+// that was `arm` in the source? The bare `func.skip()` covers it wherever it
+// was written; a named cursor covers it under the name of the function it
+// was written in (see ArmCursors).
+inline bool skips(const BranchPolicyMap &policies, const std::string &func,
+                  const Provenance &arm) {
+    if (const auto here = policies.find(func);
+        here != policies.end() && here->second.skip.all) {
+        return true;
+    }
+    if (arm.defined()) {
+        if (const auto origin = policies.find(arm.func());
+            origin != policies.end() && origin->second.skip.covers(arm)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // How a value of an ADT is stored.
 //
 //     layout Shape = tagged_index;
@@ -189,6 +259,9 @@ struct Schedule {
     TransformMap func_transforms;
     // The order `func_transforms` was written in; see TransformOrder.
     TransformOrder transform_order;
+    // Not transforms: nothing about the order they were written in matters,
+    // and they are read by vectorize() wherever it runs (see BranchPolicy).
+    BranchPolicyMap branch_policies;
     // Which group backs a tree held in a field, keyed the same way
     // `tree_types` is: `Instance.blas -> BlasNodes`.
     //

@@ -1475,10 +1475,14 @@ void Printer::visit(const SwitchStmt *node) {
         const bool last = k + 1 == node->arms.size();
         os << get_indent();
         if (last) {
-            os << "default: {\n";
+            os << "default: {";
         } else {
-            os << "case " << k << ": {\n";
+            os << "case " << k << ": {";
         }
+        if (!node->provenance.empty() && node->provenance[k].defined()) {
+            os << " // " << node->provenance[k];
+        }
+        os << "\n";
         indent++;
         if (node->arms[k].defined()) {
             print(node->arms[k]);

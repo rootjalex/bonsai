@@ -198,7 +198,8 @@ struct FunctionBuilder : Visitor {
 
         std::vector<std::shared_ptr<Block>> cases;
         Terminator::Dispatch dispatch{.cond = std::move(v), .targets = {}};
-        for (const Stmt &arm : node->arms) {
+        for (size_t k = 0; k < node->arms.size(); k++) {
+            const Stmt &arm = node->arms[k];
             if (!arm.defined()) {
                 cases.push_back(nullptr);
                 dispatch.targets.push_back(
@@ -206,6 +207,11 @@ struct FunctionBuilder : Visitor {
                 continue;
             }
             cases.push_back(make_block("case"));
+            // The arm's provenance rides on the block the arm begins with,
+            // which is what a schedule's cursor finds (see ir::Provenance).
+            if (!node->provenance.empty()) {
+                cases.back()->provenance = node->provenance[k];
+            }
             dispatch.targets.push_back(
                 Terminator::Jump{.name = cases.back()->name, .args = {}});
         }
@@ -1488,8 +1494,87 @@ void dump_ssa(std::ostream &os, const std::string &when, const FuncMap &fmap,
 // Applies the SSA-level schedule `transforms` and builds/codegens `funcs`
 // through the SSA representation. A transform this pipeline cannot apply is
 // reported, not skipped -- see the visit below.
+// A schedule's `f.skip(Shape.Disc)` has to name something: an arm of a match
+// written in `f`, wherever inlining has put it (see ir::ArmCursors), and a
+// bare `f.skip()` a function the program has. Said here, before any transform
+// runs, with what the program does have, since a cursor that finds nothing
+// would otherwise be a directive the program was compiled without (compare
+// the transforms below, none of which is allowed to be ignored either).
+void check_branch_policies(const FuncMap &fmap,
+                           const ir::BranchPolicyMap &policies) {
+    // Every match arm in the program, with the function it is in now.
+    std::vector<std::pair<std::string, ir::Provenance>> arms;
+    for (const auto &[fname, f] : fmap) {
+        for (const auto &block : f->blocks) {
+            if (block->provenance.defined()) {
+                arms.emplace_back(fname, block->provenance);
+            }
+        }
+    }
+    const auto written_in = [&](const std::string &fname) {
+        std::set<std::string> names;
+        for (const auto &[in, arm] : arms) {
+            if (arm.func() == fname) {
+                names.insert(arm.str());
+            }
+        }
+        return names;
+    };
+    const auto spell = [](const std::set<std::string> &names) {
+        std::string all;
+        for (const std::string &n : names) {
+            all += (all.empty() ? "" : ", ") + n;
+        }
+        return all;
+    };
+    for (const auto &[fname, policy] : policies) {
+        if (policy.skip.all && !fmap.contains(fname) &&
+            written_in(fname).empty()) {
+            internal_error << "skip() on " << fname
+                           << ": no such function, and no match arm was "
+                              "written in one of that name.";
+        }
+        for (const ir::Location &cursor : policy.skip.arms) {
+            std::string spelled;
+            for (const std::string &n : cursor.names) {
+                spelled += (spelled.empty() ? "" : ".") + n;
+            }
+            const bool found =
+                std::any_of(arms.begin(), arms.end(), [&](const auto &arm) {
+                    return arm.second.func() == fname &&
+                           arm.second.matches(cursor.names);
+                });
+            if (found) {
+                continue;
+            }
+            // What is there instead: the arms written in the function, and
+            // the ones inlined into it, which are named by where they were
+            // written.
+            const std::set<std::string> own = written_in(fname);
+            std::map<std::string, std::set<std::string>> inlined;
+            for (const auto &[in, arm] : arms) {
+                if (in == fname && arm.func() != fname) {
+                    inlined[arm.func()].insert(arm.str());
+                }
+            }
+            std::string instead =
+                own.empty() ? "No match is written in " + fname + "."
+                            : "The arms written in " + fname + " are: " +
+                                  spell(own) + ".";
+            for (const auto &[origin, names] : inlined) {
+                instead += " The arms of " + origin + " inlined into it (" +
+                           spell(names) + ") are named by " + origin + ".";
+            }
+            internal_error << "skip(" << spelled << ") on " << fname
+                           << ": no arm of a match written in " << fname
+                           << " takes " << spelled << ". " << instead;
+        }
+    }
+}
+
 ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     const ir::TransformOrder &order,
+                    const ir::BranchPolicyMap &policies,
                     const CompilerOptions &options,
                     ir::Program *keep_ssa = nullptr) {
     FuncMap fmap;
@@ -1501,6 +1586,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         auto f = build(func);
         fmap[name] = std::move(f);
     }
+
+    check_branch_policies(fmap, policies);
 
     // Before any rewrite has touched it, so that a transform's golden can say
     // what it changed and not only what it ended at.
@@ -1625,7 +1712,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         }
                         const LoopSite at = resolve_loop(
                             fmap, name, v.i.names.back(), "vectorize");
-                        vectorize(fmap, at.func, at.index);
+                        vectorize(fmap, at.func, at.index, policies);
                     },
                     [&](const ir::Loopify &l) {
                         int size = 0;
@@ -1784,10 +1871,12 @@ ir::Program ConvertToSSA::run(ir::Program program,
                               const CompilerOptions &options) const {
     ir::TransformMap transforms;
     ir::TransformOrder order;
+    ir::BranchPolicyMap policies;
     if (const auto it = program.schedules.find(ir::Target::Host);
         it != program.schedules.end()) {
         transforms = it->second.func_transforms;
         order = it->second.transform_order;
+        policies = it->second.branch_policies;
     }
 
     ir::Program new_program;
@@ -1795,13 +1884,13 @@ ir::Program ConvertToSSA::run(ir::Program program,
     new_program.externs = program.externs;
     new_program.schedules = program.schedules;
     new_program.funcs = convert(std::move(program.funcs), transforms, order,
-                                options, &new_program);
+                                policies, options, &new_program);
     return new_program;
 }
 
 ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
-    return convert(std::move(funcs), {}, {}, options);
+    return convert(std::move(funcs), {}, {}, {}, options);
 }
 
 } // namespace ssa

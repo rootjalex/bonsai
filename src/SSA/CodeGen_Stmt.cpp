@@ -1759,15 +1759,27 @@ Stmt structurize(const std::string &start, const std::string &exit,
                             // its edge enters. An arm may be empty; a switch
                             // with nothing in any arm is not emitted at all.
                             std::vector<Stmt> arms;
+                            std::vector<ir::Provenance> provenance;
                             bool any = false;
+                            bool known = false;
                             for (const Terminator::Jump &t : d.targets) {
                                 arms.push_back(
                                     branch_region(t, arm_exit, loop_header));
                                 any = any || arms.back().defined();
+                                // What the arm was is on the block its edge
+                                // enters, where Convert.cpp put it.
+                                const auto target = block_map.find(t.name);
+                                provenance.push_back(
+                                    target != block_map.end()
+                                        ? target->second->provenance
+                                        : ir::Provenance());
+                                known = known || provenance.back().defined();
                             }
                             if (any) {
-                                append(SwitchStmt::make(std::move(cond),
-                                                        std::move(arms)));
+                                append(SwitchStmt::make(
+                                    std::move(cond), std::move(arms),
+                                    known ? std::move(provenance)
+                                          : std::vector<ir::Provenance>{}));
                             }
                             name = merge.empty() ? exit : merge;
                             return;

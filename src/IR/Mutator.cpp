@@ -642,7 +642,8 @@ Stmt Mutator::visit(const SwitchStmt *node) {
     if (same) {
         return node;
     }
-    return SwitchStmt::make(std::move(value), std::move(arms));
+    return SwitchStmt::make(std::move(value), std::move(arms),
+                            node->provenance);
 }
 
 Stmt Mutator::visit(const DoWhile *node) {

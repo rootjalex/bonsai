@@ -19,7 +19,12 @@
 //   * the sort decides once for the gang, by a vote: the lanes' comparison of
 //     their keys is counted (`popcount`) over the lanes that are on, and the
 //     children are swapped when the majority says so -- rather than each lane
-//     picking its own order, which a shared node cannot express.
+//     picking its own order, which a shared node cannot express;
+//   * the leaf's `match` on the candidate's Shape is a uniform branch: the
+//     candidates are the leaf's, one list for the gang, so every lane is in
+//     the same arm and the arms need neither masks nor a test in front of
+//     them (a `skip` cursor on `intersects` would have nothing to do here;
+//     see ssa/vectorize-skip-cursor.bonsai for where one does).
 //
 // This is a packet traversal (Wald, Slusallek, Benthin & Wagner 2001) written
 // as the composition of two schedule directives.

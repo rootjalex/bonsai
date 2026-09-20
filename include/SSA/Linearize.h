@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IR/Schedule.h"
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/SSA.h"
 #include "SSA/UniformizeLoops.h"
@@ -65,11 +66,25 @@ namespace ssa {
 // which is exactly what a lane outside the arm would have read from the blend.
 // The masks of edges inside a region that decide a later block's mask are
 // threaded the same way, with `false` along the bypass, since no lane took
-// them. No value is ever invented for the bypass. A region is skipped only
-// when it touches memory or makes a call -- work that must not be done for no
-// lane at all -- or does at least six operations' worth of arithmetic, which
-// is where ispc draws the line between predicating an arm straight through
-// and branching around it (PREDICATE_SAFE_IF_STATEMENT_COST).
+// them. No value is ever invented for the bypass.
+//
+// Which arms get a gadget. One is installed wherever it must be: before a
+// region that touches memory or makes a call, work that must not be done on
+// behalf of no lane (reading a payload field at a constant index is not
+// that; see touches_memory). For an arm of pure arithmetic the test is a
+// wager -- a `vptest` and a branch, paid on every pass, against the arm's
+// arithmetic, saved only on the passes no lane takes it -- and whether it
+// pays depends on how the program's data falls across the arms, which
+// nothing here can know. ispc wagers by size (PREDICATE_SAFE_IF_STATEMENT_COST:
+// an arm of six of its cost units or more gets the test); here the wager is
+// the schedule's. `f.skip(Shape.Sphere)` puts a test in front of the arm of a
+// match on a Shape that takes a Sphere, `f.skip(Shape)` in front of every arm
+// of such a match, `f.skip()` in front of every arm f has (see
+// ir::BranchPolicy). An arm is found by the provenance lowering left on its
+// first block (ir::Provenance), so the directive holds through inlining and
+// specialization, and a match written in an `[[inline]]` helper is named by
+// the helper. apps/pbrt/schedules/packet.bonsai says where the render's go,
+// and PLAN.md item 7 has the measurement behind it.
 //
 // The masks are ordinary boolean values here; the widening in vectorize()
 // turns them into vectors along with everything else derived from the loop
@@ -96,6 +111,11 @@ namespace ssa {
 // `loops` supplies it, and gets back the mask its loop is entered under, which
 // is only known once mask generation reaches the preheader.
 //
+// `policies` is what the schedule said about which arms get a gadget beyond
+// the ones that must (see above and ir::BranchPolicy), and `policy_name` the
+// name it knows this function by: its own, or for a specialized variant the
+// function it was specialized from.
+//
 // Returns the execution mask of each block that has one. A block that is
 // absent runs with every lane of the gang enabled and needs no predication;
 // callers use this to predicate anything linearization does not handle
@@ -105,7 +125,9 @@ using BlockMasks = std::map<std::string, std::shared_ptr<Value>>;
 BlockMasks linearize(Function &func, const std::string &entry,
                      const Divergence &divergence,
                      const std::shared_ptr<Value> &entry_mask = nullptr,
-                     const std::vector<UniformLoop> &loops = {});
+                     const std::vector<UniformLoop> &loops = {},
+                     const ir::BranchPolicyMap &policies = {},
+                     const std::string &policy_name = "");
 
 } // namespace ssa
 } // namespace ir

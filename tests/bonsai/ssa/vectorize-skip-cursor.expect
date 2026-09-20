@@ -1,0 +1,779 @@
+type Box = struct Box{ w : f32; h : f32 }
+type Disc = struct Disc{ r : f32 }
+type Float = f32
+type Half = f16
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Ring = struct Ring{ ro : f32; ri : f32 }
+type Shape = struct Shape{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x2 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func area(s : Shape) -> f32 {
+  a : mut f32
+  a = 0f
+  let @0 = s.tag in
+  switch (@0) {
+  case 0: { // Shape.Disc of area
+    let @1 = s.payload in
+    let @2 = @1[0u] in
+    let r = reinterpret_cast<f32>(@2) in
+    let @4 = r * r in
+    let @5 = @4 * 3f in
+    a = @5
+  } break;
+  case 1: { // Shape.Box of area
+    let _t3 = s.payload in
+    let @7 = _t3[0u] in
+    let @8 = reinterpret_cast<f32>(@7) in
+    let @9 = _t3[1u] in
+    let @10 = reinterpret_cast<f32>(@9) in
+    let @11 = @8 * @10 in
+    a = @11
+  } break;
+  default: { // Shape.Ring of area
+    let _t9 = s.payload in
+    let @13 = _t9[0u] in
+    let ro = reinterpret_cast<f32>(@13) in
+    let @15 = _t9[1u] in
+    let ri = reinterpret_cast<f32>(@15) in
+    let @17 = ro * ro in
+    let @18 = ri * ri in
+    let @19 = @17 - @18 in
+    let @20 = @19 * 3f in
+    let @21 = ri * 0.5f in
+    let @22 = @20 + @21 in
+    let @23 = @22 - ro in
+    a = @23
+  }
+  }
+  let @24 = (*a) in
+  return @24
+}
+
+func classify(x : f32) -> Shape {
+  let @0 = x < 0f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = 0f - x in
+    let @3 = reinterpret_cast<u32>(@2) in
+    let @4 = build<[[packed]] u32x2>(@3, 0u) in
+    let @5 = build<Shape>(0u, @1, @4) in
+    return @5
+  } else {
+    let @6 = x < 4f in
+    if (@6) {
+      let @7 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @8 = reinterpret_cast<u32>(x) in
+      let @9 = x * 0.5f in
+      let @10 = reinterpret_cast<u32>(@9) in
+      let @11 = build<[[packed]] u32x2>(@8, @10) in
+      let @12 = build<Shape>(1u, @7, @11) in
+      return @12
+    } else {
+      let @13 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @14 = reinterpret_cast<u32>(x) in
+      let @15 = x * 0.25f in
+      let @16 = reinterpret_cast<u32>(@15) in
+      let @17 = build<[[packed]] u32x2>(@14, @16) in
+      let @18 = build<Shape>(2u, @13, @17) in
+      return @18
+    }
+  }
+}
+
+func intersects_Ray_Shape(r : Ray, s : Shape) -> bool {
+  let _t35 = r.o in
+  let _t36 = _t35[0] in
+  let _t41 = _t35[1] in
+  let @3 = _t36 * _t36 in
+  let @4 = _t41 * _t41 in
+  let d2 = @3 + @4 in
+  hit : mut bool
+  hit = false
+  let @6 = s.tag in
+  switch (@6) {
+  case 0: { // Shape.Disc of intersects_Ray_Shape
+    let _t294 = d2 in
+    let @7 = s.payload in
+    let @8 = @7[0u] in
+    let rad = reinterpret_cast<f32>(@8) in
+    let @10 = rad * rad in
+    let @11 = _t294 < @10 in
+    hit = @11
+  } break;
+  case 1: { // Shape.Box of intersects_Ray_Shape
+    let _t49 = s.payload in
+    let @13 = _t49[0u] in
+    let wd = reinterpret_cast<f32>(@13) in
+    let @15 = _t49[1u] in
+    let h = reinterpret_cast<f32>(@15) in
+    let @17 = r.o in
+    let @18 = @17[0] in
+    let @19 = r.o in
+    let @20 = @19[0] in
+    let @21 = @18 * @20 in
+    let @22 = wd * wd in
+    let @23 = @21 < @22 in
+    let @24 = r.o in
+    let @25 = @24[1] in
+    let @26 = r.o in
+    let @27 = @26[1] in
+    let @28 = @25 * @27 in
+    let @29 = h * h in
+    let @30 = @28 < @29 in
+    let @31 = @23 && @30 in
+    hit = @31
+  } break;
+  default: { // Shape.Ring of intersects_Ray_Shape
+    let _t55 = s.payload in
+    let @33 = _t55[0u] in
+    let ro = reinterpret_cast<f32>(@33) in
+    let @35 = _t55[1u] in
+    let ri = reinterpret_cast<f32>(@35) in
+    let @37 = ro * ro in
+    let @38 = d2 < @37 in
+    let @39 = ri * ri in
+    let @40 = @39 < d2 in
+    let @41 = @38 && @40 in
+    hit = @41
+  }
+  }
+  let @42 = (*hit) in
+  return @42
+}
+
+func weigh(x : f32) -> f32 {
+  classify$r6 : mut Shape
+  let @0 = x < 0f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = 0f - x in
+    let @3 = reinterpret_cast<u32>(@2) in
+    let @4 = build<[[packed]] u32x2>(@3, 0u) in
+    let @5 = build<Shape>(0u, @1, @4) in
+    classify$r6 = @5
+  } else {
+    let @6 = x < 4f in
+    if (@6) {
+      let @7 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @8 = reinterpret_cast<u32>(x) in
+      let @9 = x * 0.5f in
+      let @10 = reinterpret_cast<u32>(@9) in
+      let @11 = build<[[packed]] u32x2>(@8, @10) in
+      let @12 = build<Shape>(1u, @7, @11) in
+      classify$r6 = @12
+    } else {
+      let @13 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @14 = reinterpret_cast<u32>(x) in
+      let @15 = x * 0.25f in
+      let @16 = reinterpret_cast<u32>(@15) in
+      let @17 = build<[[packed]] u32x2>(@14, @16) in
+      let @18 = build<Shape>(2u, @13, @17) in
+      classify$r6 = @18
+    }
+  }
+  p : mut f32
+  p = 0f
+  let @19 = (*classify$r6) in
+  let _t126 = @19.tag in
+  switch (_t126) {
+  case 0: { // Shape.Disc of weigh
+    let @21 = (*classify$r6) in
+    let @22 = @21.payload in
+    let @23 = @22[0u] in
+    let @24 = reinterpret_cast<f32>(@23) in
+    let @25 = @24 * 6f in
+    p = @25
+  } break;
+  case 1: { // Shape.Box of weigh
+    let @26 = (*classify$r6) in
+    let _t70 = @26.payload in
+    let @28 = _t70[0u] in
+    let wd = reinterpret_cast<f32>(@28) in
+    let @30 = _t70[1u] in
+    let h = reinterpret_cast<f32>(@30) in
+    let @32 = wd * 2f in
+    let @33 = h * 2f in
+    let @34 = @32 + @33 in
+    p = @34
+  } break;
+  default: { // Shape.Ring of weigh
+    let @35 = (*classify$r6) in
+    let _t76 = @35.payload in
+    let @37 = _t76[0u] in
+    let ro = reinterpret_cast<f32>(@37) in
+    let @39 = _t76[1u] in
+    let ri = reinterpret_cast<f32>(@39) in
+    let @41 = ro * 6f in
+    let @42 = ri * 6f in
+    let @43 = @41 + @42 in
+    p = @43
+  }
+  }
+  let @44 = x * 0.5f in
+  let @45 = build<f32x3>(@44, 1f, 0f) in
+  let @46 = build<f32x3>(0f, 0f, 1f) in
+  let @47 = (f32)inf in
+  let probe = build<Ray>(@45, @46, @47) in
+  intersects_Ray_Shape$r7 : mut bool
+  let _t35$i7 = probe.o in
+  let _t36$i7 = _t35$i7[0] in
+  let _t41$i7 = _t35$i7[1] in
+  let @52 = _t36$i7 * _t36$i7 in
+  let @53 = _t41$i7 * _t41$i7 in
+  let d2$i7 = @52 + @53 in
+  hit$i7 : mut bool
+  hit$i7 = false
+  switch (_t126) {
+  case 0: { // Shape.Disc of intersects_Ray_Shape
+    let _t320 = d2$i7 in
+    let @55 = (*classify$r6) in
+    let @56 = @55.payload in
+    let @57 = @56[0u] in
+    let rad$i7 = reinterpret_cast<f32>(@57) in
+    let @59 = rad$i7 * rad$i7 in
+    let @60 = _t320 < @59 in
+    hit$i7 = @60
+  } break;
+  case 1: { // Shape.Box of intersects_Ray_Shape
+    let @61 = (*classify$r6) in
+    let _t49$i7 = @61.payload in
+    let @63 = _t49$i7[0u] in
+    let wd$i7 = reinterpret_cast<f32>(@63) in
+    let @65 = _t49$i7[1u] in
+    let h$i7 = reinterpret_cast<f32>(@65) in
+    let @67 = probe.o in
+    let @68 = @67[0] in
+    let @69 = probe.o in
+    let @70 = @69[0] in
+    let @71 = @68 * @70 in
+    let @72 = wd$i7 * wd$i7 in
+    let @73 = @71 < @72 in
+    let @74 = probe.o in
+    let @75 = @74[1] in
+    let @76 = probe.o in
+    let @77 = @76[1] in
+    let @78 = @75 * @77 in
+    let @79 = h$i7 * h$i7 in
+    let @80 = @78 < @79 in
+    let @81 = @73 && @80 in
+    hit$i7 = @81
+  } break;
+  default: { // Shape.Ring of intersects_Ray_Shape
+    let @82 = (*classify$r6) in
+    let _t55$i7 = @82.payload in
+    let @84 = _t55$i7[0u] in
+    let ro$i7 = reinterpret_cast<f32>(@84) in
+    let @86 = _t55$i7[1u] in
+    let ri$i7 = reinterpret_cast<f32>(@86) in
+    let @88 = ro$i7 * ro$i7 in
+    let @89 = d2$i7 < @88 in
+    let @90 = ri$i7 * ri$i7 in
+    let @91 = @90 < d2$i7 in
+    let @92 = @89 && @91 in
+    hit$i7 = @92
+  }
+  }
+  let @93 = (*hit$i7) in
+  intersects_Ray_Shape$r7 = @93
+  let @94 = (*intersects_Ray_Shape$r7) in
+  if (@94) {
+    let @95 = (*p) in
+    let @96 = @95 + 1f in
+    p = @96
+  }
+  area$r8 : mut f32
+  a$i8 : mut f32
+  a$i8 = 0f
+  switch (_t126) {
+  case 0: { // Shape.Disc of area
+    let @97 = (*classify$r6) in
+    let @98 = @97.payload in
+    let @99 = @98[0u] in
+    let r$i8 = reinterpret_cast<f32>(@99) in
+    let @101 = r$i8 * r$i8 in
+    let @102 = @101 * 3f in
+    a$i8 = @102
+  } break;
+  case 1: { // Shape.Box of area
+    let @103 = (*classify$r6) in
+    let _t3$i8 = @103.payload in
+    let @105 = _t3$i8[0u] in
+    let @106 = reinterpret_cast<f32>(@105) in
+    let @107 = _t3$i8[1u] in
+    let @108 = reinterpret_cast<f32>(@107) in
+    let @109 = @106 * @108 in
+    a$i8 = @109
+  } break;
+  default: { // Shape.Ring of area
+    let @110 = (*classify$r6) in
+    let _t9$i8 = @110.payload in
+    let @112 = _t9$i8[0u] in
+    let ro$i8 = reinterpret_cast<f32>(@112) in
+    let @114 = _t9$i8[1u] in
+    let ri$i8 = reinterpret_cast<f32>(@114) in
+    let @116 = ro$i8 * ro$i8 in
+    let @117 = ri$i8 * ri$i8 in
+    let @118 = @116 - @117 in
+    let @119 = @118 * 3f in
+    let @120 = ri$i8 * 0.5f in
+    let @121 = @119 + @120 in
+    let @122 = @121 - ro$i8 in
+    a$i8 = @122
+  }
+  }
+  let @123 = (*a$i8) in
+  area$r8 = @123
+  let @124 = (*area$r8) in
+  let @125 = (*p) in
+  let @126 = @124 + @125 in
+  return @126
+}
+
+func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
+  p$i9!skip1 : mut f32x8
+  p$i9!skip0 : mut f32x8
+  p$i9!skip : mut f32x8
+  hit$i12!skip : mut boolx8
+  a$i13!skip : mut f32x8
+  let x$i9 = a[ramp(0, 1, 8)] in
+  let @169 = f32x8(0f) in
+  let @1 = x$i9 < @169 in
+  let @170 = boolx8(false) in
+  let @171 = boolx8(true) in
+  let @130 = select(@1, @170, @171) in
+  let @2 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @172 = f32x8(0f) in
+  let @3 = @172 - x$i9 in
+  let @4 = reinterpret_cast<u32x8>(@3) in
+  let @173 = u32x8(0u) in
+  let @165 = build<[[packed]] u32x2$v8>(@4, @173) in
+  let @174 = u8x8(0u) in
+  let @175 = @2[0u] in
+  let @176 = u8x8(@175) in
+  let @177 = @2[1u] in
+  let @178 = u8x8(@177) in
+  let @179 = @2[2u] in
+  let @180 = u8x8(@179) in
+  let @181 = build<[[packed]] u8x3$v8>(@176, @178, @180) in
+  let @6 = build<Shape$v8>(@174, @181, @165) in
+  let @182 = f32x8(4f) in
+  let @7 = x$i9 < @182 in
+  let @183 = boolx8(false) in
+  let @184 = boolx8(true) in
+  let @131 = select(@7, @183, @184) in
+  let @132 = @130 && @131 in
+  let @133 = @130 && @7 in
+  let @8 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @9 = reinterpret_cast<u32x8>(x$i9) in
+  let @185 = f32x8(0.5f) in
+  let @10 = x$i9 * @185 in
+  let @11 = reinterpret_cast<u32x8>(@10) in
+  let @166 = build<[[packed]] u32x2$v8>(@9, @11) in
+  let @186 = u8x8(1u) in
+  let @187 = @8[0u] in
+  let @188 = u8x8(@187) in
+  let @189 = @8[1u] in
+  let @190 = u8x8(@189) in
+  let @191 = @8[2u] in
+  let @192 = u8x8(@191) in
+  let @193 = build<[[packed]] u8x3$v8>(@188, @190, @192) in
+  let @13 = build<Shape$v8>(@186, @193, @166) in
+  let @14 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @15 = reinterpret_cast<u32x8>(x$i9) in
+  let @194 = f32x8(0.25f) in
+  let @16 = x$i9 * @194 in
+  let @17 = reinterpret_cast<u32x8>(@16) in
+  let @167 = build<[[packed]] u32x2$v8>(@15, @17) in
+  let @195 = u8x8(2u) in
+  let @196 = @14[0u] in
+  let @197 = u8x8(@196) in
+  let @198 = @14[1u] in
+  let @199 = u8x8(@198) in
+  let @200 = @14[2u] in
+  let @201 = u8x8(@200) in
+  let @202 = build<[[packed]] u8x3$v8>(@197, @199, @201) in
+  let @19 = build<Shape$v8>(@195, @202, @167) in
+  let @155 = select(@132, @19, @13) in
+  let @156 = select(@130, @155, @6) in
+  let _t220 = @156.tag in
+  let @203 = u8x8(0u) in
+  let @134 = _t220 == @203 in
+  let @204 = u8x8(1u) in
+  let @135 = _t220 == @204 in
+  let @205 = u8x8(0u) in
+  let @136 = _t220 != @205 in
+  let @206 = u8x8(1u) in
+  let @137 = _t220 != @206 in
+  let @138 = @136 && @137 in
+  let @152 = reduce<any>(@138) in
+  if (@152) {
+    let _t76$i9 = @156.payload in
+    let @38 = _t76$i9.!0 in
+    let ro$i9 = reinterpret_cast<f32x8>(@38) in
+    let @40 = _t76$i9.!1 in
+    let ri$i9 = reinterpret_cast<f32x8>(@40) in
+    let @207 = f32x8(6f) in
+    let @42 = ro$i9 * @207 in
+    let @208 = f32x8(6f) in
+    let @43 = ri$i9 * @208 in
+    let @44 = @42 + @43 in
+    p$i9!skip = @44
+  } else {
+    p$i9!skip = undef
+  }
+  let @151 = reduce<any>(@135) in
+  if (@151) {
+    let _t70$i9 = @156.payload in
+    let @29 = _t70$i9.!0 in
+    let wd$i9 = reinterpret_cast<f32x8>(@29) in
+    let @31 = _t70$i9.!1 in
+    let h$i9 = reinterpret_cast<f32x8>(@31) in
+    let @209 = f32x8(2f) in
+    let @33 = wd$i9 * @209 in
+    let @210 = f32x8(2f) in
+    let @34 = h$i9 * @210 in
+    let @35 = @33 + @34 in
+    let @157 = select(@135, @35, (*p$i9!skip)) in
+    p$i9!skip0 = @157
+  } else {
+    p$i9!skip0 = (*p$i9!skip)
+  }
+  let @150 = reduce<any>(@134) in
+  if (@150) {
+    let @23 = @156.payload in
+    let @24 = @23.!0 in
+    let @25 = reinterpret_cast<f32x8>(@24) in
+    let @211 = f32x8(6f) in
+    let @26 = @25 * @211 in
+    let @158 = select(@134, @26, (*p$i9!skip0)) in
+    p$i9!skip1 = @158
+  } else {
+    p$i9!skip1 = (*p$i9!skip0)
+  }
+  let @212 = f32x8(0.5f) in
+  let @45 = x$i9 * @212 in
+  let @47 = build<f32x3>(0f, 0f, 1f) in
+  let @48 = (f32)inf in
+  let @213 = f32x8(1f) in
+  let @214 = f32x8(0f) in
+  let @168 = build<f32x3$v8>(@45, @213, @214) in
+  let @215 = @47[0u] in
+  let @216 = f32x8(@215) in
+  let @217 = @47[1u] in
+  let @218 = f32x8(@217) in
+  let @219 = @47[2u] in
+  let @220 = f32x8(@219) in
+  let @221 = build<f32x3$v8>(@216, @218, @220) in
+  let @222 = f32x8(@48) in
+  let probe$i9 = build<Ray$v8>(@168, @221, @222) in
+  let _t35$i12 = probe$i9.o in
+  let _t36$i12 = _t35$i12.!0 in
+  let _t41$i12 = _t35$i12.!1 in
+  let @53 = _t36$i12 * _t36$i12 in
+  let @54 = _t41$i12 * _t41$i12 in
+  let d2$i12 = @53 + @54 in
+  let @223 = u8x8(0u) in
+  let @139 = _t220 == @223 in
+  let @224 = u8x8(1u) in
+  let @140 = _t220 == @224 in
+  let @225 = u8x8(0u) in
+  let @141 = _t220 != @225 in
+  let @226 = u8x8(1u) in
+  let @142 = _t220 != @226 in
+  let @143 = @141 && @142 in
+  let _t55$i12 = @156.payload in
+  let @85 = _t55$i12.!0 in
+  let ro$i12 = reinterpret_cast<f32x8>(@85) in
+  let @87 = _t55$i12.!1 in
+  let ri$i12 = reinterpret_cast<f32x8>(@87) in
+  let @89 = ro$i12 * ro$i12 in
+  let @90 = d2$i12 < @89 in
+  let @91 = ri$i12 * ri$i12 in
+  let @92 = @91 < d2$i12 in
+  let @93 = @90 && @92 in
+  let @153 = reduce<any>(@140) in
+  if (@153) {
+    let _t49$i12 = @156.payload in
+    let @64 = _t49$i12.!0 in
+    let wd$i12 = reinterpret_cast<f32x8>(@64) in
+    let @66 = _t49$i12.!1 in
+    let h$i12 = reinterpret_cast<f32x8>(@66) in
+    let @68 = probe$i9.o in
+    let @69 = @68.!0 in
+    let @70 = probe$i9.o in
+    let @71 = @70.!0 in
+    let @72 = @69 * @71 in
+    let @73 = wd$i12 * wd$i12 in
+    let @74 = @72 < @73 in
+    let @75 = probe$i9.o in
+    let @76 = @75.!1 in
+    let @77 = probe$i9.o in
+    let @78 = @77.!1 in
+    let @79 = @76 * @78 in
+    let @80 = h$i12 * h$i12 in
+    let @81 = @79 < @80 in
+    let @82 = @74 && @81 in
+    let @159 = select(@140, @82, @93) in
+    hit$i12!skip = @159
+  } else {
+    hit$i12!skip = @93
+  }
+  let @57 = @156.payload in
+  let @58 = @57.!0 in
+  let rad$i12 = reinterpret_cast<f32x8>(@58) in
+  let @60 = rad$i12 * rad$i12 in
+  let @61 = d2$i12 < @60 in
+  let @160 = select(@139, @61, (*hit$i12!skip)) in
+  let @227 = boolx8(false) in
+  let @228 = boolx8(true) in
+  let @144 = select(@160, @227, @228) in
+  let @229 = f32x8(1f) in
+  let @97 = (*p$i9!skip1) + @229 in
+  let @161 = select(@160, @97, (*p$i9!skip1)) in
+  let @230 = u8x8(0u) in
+  let @145 = _t220 == @230 in
+  let @231 = u8x8(1u) in
+  let @146 = _t220 == @231 in
+  let @232 = u8x8(0u) in
+  let @147 = _t220 != @232 in
+  let @233 = u8x8(1u) in
+  let @148 = _t220 != @233 in
+  let @149 = @147 && @148 in
+  let @154 = reduce<any>(@149) in
+  if (@154) {
+    let _t9$i13 = @156.payload in
+    let @113 = _t9$i13.!0 in
+    let ro$i13 = reinterpret_cast<f32x8>(@113) in
+    let @115 = _t9$i13.!1 in
+    let ri$i13 = reinterpret_cast<f32x8>(@115) in
+    let @117 = ro$i13 * ro$i13 in
+    let @118 = ri$i13 * ri$i13 in
+    let @119 = @117 - @118 in
+    let @234 = f32x8(3f) in
+    let @120 = @119 * @234 in
+    let @235 = f32x8(0.5f) in
+    let @121 = ri$i13 * @235 in
+    let @122 = @120 + @121 in
+    let @123 = @122 - ro$i13 in
+    a$i13!skip = @123
+  } else {
+    a$i13!skip = undef
+  }
+  let _t3$i13 = @156.payload in
+  let @106 = _t3$i13.!0 in
+  let @107 = reinterpret_cast<f32x8>(@106) in
+  let @108 = _t3$i13.!1 in
+  let @109 = reinterpret_cast<f32x8>(@108) in
+  let @110 = @107 * @109 in
+  let @162 = select(@146, @110, (*a$i13!skip)) in
+  let @99 = @156.payload in
+  let @100 = @99.!0 in
+  let r$i13 = reinterpret_cast<f32x8>(@100) in
+  let @102 = r$i13 * r$i13 in
+  let @236 = f32x8(3f) in
+  let @103 = @102 * @236 in
+  let @163 = select(@145, @103, @162) in
+  let @127 = @163 + @161 in
+  out[ramp(0, 1, 8)] = @127
+  return
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+  weigh$r10 : mut f32
+  classify$r14 : mut Shape
+  let @0 = x < 0f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = 0f - x in
+    let @3 = reinterpret_cast<u32>(@2) in
+    let @4 = build<[[packed]] u32x2>(@3, 0u) in
+    let @5 = build<Shape>(0u, @1, @4) in
+    classify$r14 = @5
+  } else {
+    let @6 = x < 4f in
+    if (@6) {
+      let @7 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @8 = reinterpret_cast<u32>(x) in
+      let @9 = x * 0.5f in
+      let @10 = reinterpret_cast<u32>(@9) in
+      let @11 = build<[[packed]] u32x2>(@8, @10) in
+      let @12 = build<Shape>(1u, @7, @11) in
+      classify$r14 = @12
+    } else {
+      let @13 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @14 = reinterpret_cast<u32>(x) in
+      let @15 = x * 0.25f in
+      let @16 = reinterpret_cast<u32>(@15) in
+      let @17 = build<[[packed]] u32x2>(@14, @16) in
+      let @18 = build<Shape>(2u, @13, @17) in
+      classify$r14 = @18
+    }
+  }
+  p$i10 : mut f32
+  p$i10 = 0f
+  let @19 = (*classify$r14) in
+  let _t253 = @19.tag in
+  switch (_t253) {
+  case 0: { // Shape.Disc of weigh
+    let @21 = (*classify$r14) in
+    let @22 = @21.payload in
+    let @23 = @22[0u] in
+    let @24 = reinterpret_cast<f32>(@23) in
+    let @25 = @24 * 6f in
+    p$i10 = @25
+  } break;
+  case 1: { // Shape.Box of weigh
+    let @26 = (*classify$r14) in
+    let _t70$i10 = @26.payload in
+    let @28 = _t70$i10[0u] in
+    let wd$i10 = reinterpret_cast<f32>(@28) in
+    let @30 = _t70$i10[1u] in
+    let h$i10 = reinterpret_cast<f32>(@30) in
+    let @32 = wd$i10 * 2f in
+    let @33 = h$i10 * 2f in
+    let @34 = @32 + @33 in
+    p$i10 = @34
+  } break;
+  default: { // Shape.Ring of weigh
+    let @35 = (*classify$r14) in
+    let _t76$i10 = @35.payload in
+    let @37 = _t76$i10[0u] in
+    let ro$i10 = reinterpret_cast<f32>(@37) in
+    let @39 = _t76$i10[1u] in
+    let ri$i10 = reinterpret_cast<f32>(@39) in
+    let @41 = ro$i10 * 6f in
+    let @42 = ri$i10 * 6f in
+    let @43 = @41 + @42 in
+    p$i10 = @43
+  }
+  }
+  let @44 = x * 0.5f in
+  let @45 = build<f32x3>(@44, 1f, 0f) in
+  let @46 = build<f32x3>(0f, 0f, 1f) in
+  let @47 = (f32)inf in
+  let probe$i10 = build<Ray>(@45, @46, @47) in
+  intersects_Ray_Shape$r15 : mut bool
+  let _t35$i15 = probe$i10.o in
+  let _t36$i15 = _t35$i15[0] in
+  let _t41$i15 = _t35$i15[1] in
+  let @52 = _t36$i15 * _t36$i15 in
+  let @53 = _t41$i15 * _t41$i15 in
+  let d2$i15 = @52 + @53 in
+  hit$i15 : mut bool
+  hit$i15 = false
+  switch (_t253) {
+  case 0: { // Shape.Disc of intersects_Ray_Shape
+    let _t362 = d2$i15 in
+    let @55 = (*classify$r14) in
+    let @56 = @55.payload in
+    let @57 = @56[0u] in
+    let rad$i15 = reinterpret_cast<f32>(@57) in
+    let @59 = rad$i15 * rad$i15 in
+    let @60 = _t362 < @59 in
+    hit$i15 = @60
+  } break;
+  case 1: { // Shape.Box of intersects_Ray_Shape
+    let @61 = (*classify$r14) in
+    let _t49$i15 = @61.payload in
+    let @63 = _t49$i15[0u] in
+    let wd$i15 = reinterpret_cast<f32>(@63) in
+    let @65 = _t49$i15[1u] in
+    let h$i15 = reinterpret_cast<f32>(@65) in
+    let @67 = probe$i10.o in
+    let @68 = @67[0] in
+    let @69 = probe$i10.o in
+    let @70 = @69[0] in
+    let @71 = @68 * @70 in
+    let @72 = wd$i15 * wd$i15 in
+    let @73 = @71 < @72 in
+    let @74 = probe$i10.o in
+    let @75 = @74[1] in
+    let @76 = probe$i10.o in
+    let @77 = @76[1] in
+    let @78 = @75 * @77 in
+    let @79 = h$i15 * h$i15 in
+    let @80 = @78 < @79 in
+    let @81 = @73 && @80 in
+    hit$i15 = @81
+  } break;
+  default: { // Shape.Ring of intersects_Ray_Shape
+    let @82 = (*classify$r14) in
+    let _t55$i15 = @82.payload in
+    let @84 = _t55$i15[0u] in
+    let ro$i15 = reinterpret_cast<f32>(@84) in
+    let @86 = _t55$i15[1u] in
+    let ri$i15 = reinterpret_cast<f32>(@86) in
+    let @88 = ro$i15 * ro$i15 in
+    let @89 = d2$i15 < @88 in
+    let @90 = ri$i15 * ri$i15 in
+    let @91 = @90 < d2$i15 in
+    let @92 = @89 && @91 in
+    hit$i15 = @92
+  }
+  }
+  let @93 = (*hit$i15) in
+  intersects_Ray_Shape$r15 = @93
+  let @94 = (*intersects_Ray_Shape$r15) in
+  if (@94) {
+    let @95 = (*p$i10) in
+    let @96 = @95 + 1f in
+    p$i10 = @96
+  }
+  area$r16 : mut f32
+  a$i16 : mut f32
+  a$i16 = 0f
+  switch (_t253) {
+  case 0: { // Shape.Disc of area
+    let @97 = (*classify$r14) in
+    let @98 = @97.payload in
+    let @99 = @98[0u] in
+    let r$i16 = reinterpret_cast<f32>(@99) in
+    let @101 = r$i16 * r$i16 in
+    let @102 = @101 * 3f in
+    a$i16 = @102
+  } break;
+  case 1: { // Shape.Box of area
+    let @103 = (*classify$r14) in
+    let _t3$i16 = @103.payload in
+    let @105 = _t3$i16[0u] in
+    let @106 = reinterpret_cast<f32>(@105) in
+    let @107 = _t3$i16[1u] in
+    let @108 = reinterpret_cast<f32>(@107) in
+    let @109 = @106 * @108 in
+    a$i16 = @109
+  } break;
+  default: { // Shape.Ring of area
+    let @110 = (*classify$r14) in
+    let _t9$i16 = @110.payload in
+    let @112 = _t9$i16[0u] in
+    let ro$i16 = reinterpret_cast<f32>(@112) in
+    let @114 = _t9$i16[1u] in
+    let ri$i16 = reinterpret_cast<f32>(@114) in
+    let @116 = ro$i16 * ro$i16 in
+    let @117 = ri$i16 * ri$i16 in
+    let @118 = @116 - @117 in
+    let @119 = @118 * 3f in
+    let @120 = ri$i16 * 0.5f in
+    let @121 = @119 + @120 in
+    let @122 = @121 - ro$i16 in
+    a$i16 = @122
+  }
+  }
+  let @123 = (*a$i16) in
+  area$r16 = @123
+  let @124 = (*area$r16) in
+  let @125 = (*p$i10) in
+  let @126 = @124 + @125 in
+  weigh$r10 = @126
+  let @127 = (*weigh$r10) in
+  return @127
+}
+
+
+schedule host {
+    weigh_all.vectorize(i)
+
+}

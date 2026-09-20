@@ -56,6 +56,7 @@ add_bonsai_tests(
     vectorize_short_vectors.bonsai
     vectorize_soa.bonsai
     vectorize_skip_arms.bonsai
+    vectorize_skip_cursor.bonsai
     vectorize_union.bonsai
     vectorize_varying_memory.bonsai
 )

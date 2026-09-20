@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "IR/Function.h"
+#include "IR/Provenance.h"
 #include "IR/Type.h"
 
 namespace bonsai {
@@ -349,6 +350,10 @@ struct Block : public std::enable_shared_from_this<Block> {
     std::vector<std::shared_ptr<Instruction>> instrs;
     Terminator terminator;
     std::weak_ptr<Function> owner;
+    // What this block was in the program as written, for a schedule to point
+    // at (see ir::Provenance): the arm of a match, on the block the arm
+    // begins with. Undefined for most blocks. Copied wherever the block is.
+    ir::Provenance provenance;
 
     // Duplicated data; for lookups *only*.
     std::map<std::string, std::shared_ptr<Value>> lookups;

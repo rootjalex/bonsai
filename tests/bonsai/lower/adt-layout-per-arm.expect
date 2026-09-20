@@ -51,11 +51,11 @@ func [[export]] large(_ret2 : mut (Item*), big : (Big*), Item_Large_pool : mut L
 
 func [[export]] size(i : (Item*), Item_Large_pool : Large[]) -> f32 {
   switch ((*i).tag) {
-  case 0: {
+  case 0: { // Item.Small of size
     let x = reinterpret_cast<f32>((*i).payload[0u]) in
     return x
   } break;
-  default: {
+  default: { // Item.Large of size
     let big = Item_Large_pool[(*i).payload[0u]].big in
     return big.a[0u] + big.d[3u]
   }

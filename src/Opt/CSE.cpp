@@ -506,7 +506,8 @@ struct Rename : public ir::Mutator {
         }
         // Arms first, for the reason given at IfElse.
         ir::Expr value = mutate(node->value);
-        return make(ir::SwitchStmt::make(std::move(value), std::move(arms)));
+        return make(ir::SwitchStmt::make(std::move(value), std::move(arms),
+                                         node->provenance));
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
@@ -807,7 +808,8 @@ class LVN : public ir::Mutator {
             arms.push_back(mutate(arm));
             pop_frame();
         }
-        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+        return ir::SwitchStmt::make(std::move(value), std::move(arms),
+                                    node->provenance);
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {
@@ -1113,7 +1115,8 @@ class CopyPropagation : public ir::Mutator {
             arms.push_back(mutate(arm));
             pop_frame();
         }
-        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+        return ir::SwitchStmt::make(std::move(value), std::move(arms),
+                                    node->provenance);
     }
 
     ir::Stmt visit(const ir::ForEach *node) override {

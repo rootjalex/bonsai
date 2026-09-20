@@ -61,4 +61,5 @@ func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
 
 schedule {
     weigh_all.vectorize(i);
+    weigh.skip(); // every arm of `weigh` behind a test; see the SSA test
 }

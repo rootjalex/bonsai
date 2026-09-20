@@ -7,6 +7,7 @@
 #include "IRNode.h"
 #include "IntrusivePtr.h"
 #include "Mutator.h"
+#include "Provenance.h"
 #include "Resource.h"
 #include "Visitor.h"
 #include "WriteLoc.h"
@@ -190,8 +191,14 @@ struct IfElse : StmtNode<IfElse> {
 struct SwitchStmt : StmtNode<SwitchStmt> {
     Expr value;             // an integer
     std::vector<Stmt> arms; // at least two; an arm may be undefined
+    // What each arm was in the source, for a schedule to point at (see
+    // ir::Provenance): one per arm when the switch was lowered from a
+    // `match`, and empty otherwise. Whatever rebuilds a switch from another
+    // keeps them.
+    std::vector<Provenance> provenance;
 
-    static Stmt make(Expr value, std::vector<Stmt> arms);
+    static Stmt make(Expr value, std::vector<Stmt> arms,
+                     std::vector<Provenance> provenance = {});
 
     static const IRStmtEnum node_type = IRStmtEnum::SwitchStmt;
 };

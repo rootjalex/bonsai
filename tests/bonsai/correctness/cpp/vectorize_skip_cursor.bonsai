@@ -1,0 +1,86 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_skip_cursor
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_skip_cursor.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_skip_cursor.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_skip_cursor.o tests/bonsai/correctness/cpp/vectorize_skip_cursor.o -o tests/bonsai/correctness/cpp/vectorize_skip_cursor, ./tests/bonsai/correctness/cpp/vectorize_skip_cursor, rm tests/bonsai/correctness/cpp/vectorize_skip_cursor, rm tests/bonsai/correctness/cpp/main_vectorize_skip_cursor.o, rm tests/bonsai/correctness/cpp/vectorize_skip_cursor.h, rm tests/bonsai/correctness/cpp/vectorize_skip_cursor.o
+
+// The arms a `skip` cursor puts behind a test, run: the Ring arm of a match
+// written in an `[[inline]]` helper, every arm of a match written in the
+// function itself, and the Box arm of a match written in the `intersects`
+// intrinsic (named as the program names it), beside arms that get no test
+// and are blended straight through (see "Which arms get a gadget" in
+// SSA/Linearize.h). The driver runs
+// gangs where every lane is a Ring, where none is, and a mixed one, so each
+// test is taken and bypassed, and compares every lane with the same input
+// weighed alone; what has to come out right is that a skipped arm's bypass
+// and an unskipped arm's blend hand the join the same thing. The SSA is
+// golden-diffed in ssa/vectorize-skip-cursor.bonsai and the LLVM in
+// backends/llvm/vectorize_skip_cursor.bonsai.
+import stdlib/numerics;
+import stdlib/ray;
+
+element Shape =
+    | Disc(r : f32)
+    | Box(w : f32, h : f32)
+    | Ring(ro : f32, ri : f32);
+
+func classify(x : f32) -> Shape {
+    if x < 0.0 {
+        return Disc(-x);
+    }
+    if x < 4.0 {
+        return Box(x, x * 0.5);
+    }
+    return Ring(x, x * 0.25);
+}
+
+func [[inline]] area(s : Shape) -> f32 {
+    a : mut = 0.0;
+    match s {
+        Disc(r) => a = r * r * 3.0;
+        Box(wd, h) => a = wd * h;
+        Ring(ro, ri) => a = (ro * ro - ri * ri) * 3.0 + ri * 0.5 - ro;
+    }
+    return a;
+}
+
+func intersects(r : Ray, s : Shape) -> bool {
+    d2 = r.o[0] * r.o[0] + r.o[1] * r.o[1];
+    hit : mut = false;
+    match s {
+        Disc(rad) => hit = d2 < rad * rad;
+        Box(wd, h) => hit = r.o[0] * r.o[0] < wd * wd && r.o[1] * r.o[1] < h * h;
+        Ring(ro, ri) => hit = d2 < ro * ro && d2 > ri * ri;
+    }
+    return hit;
+}
+
+func weigh(x : f32) -> f32 {
+    s = classify(x);
+    p : mut = 0.0;
+    match s {
+        Disc(r) => p = r * 6.0;
+        Box(wd, h) => p = wd * 2.0 + h * 2.0;
+        Ring(ro, ri) => p = ro * 6.0 + ri * 6.0;
+    }
+    probe = Ray{vec3f{x * 0.5, 1.0, 0.0}, vec3f{0.0, 0.0, 1.0}};
+    if intersects(probe, s) {
+        p = p + 1.0;
+    }
+    return area(s) + p;
+}
+
+func [[export]] weigh_one(x : f32) -> f32 {
+    return weigh(x);
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+    area.skip(Shape.Ring);
+    weigh.skip(Shape);
+    intersects.skip(Shape.Box);
+}

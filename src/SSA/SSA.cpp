@@ -665,8 +665,11 @@ void Block::dump(std::ostream &os) const {
     }
     os << "): ";
 
+    if (provenance.defined()) {
+        os << "// " << provenance << (preds.empty() ? "" : "; ");
+    }
     if (!preds.empty()) {
-        os << "// preds: ";
+        os << (provenance.defined() ? "preds: " : "// preds: ");
         bool first = true;
         for (const auto &p : preds) {
             const auto ptr = p.lock();

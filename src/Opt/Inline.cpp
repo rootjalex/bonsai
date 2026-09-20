@@ -267,7 +267,8 @@ struct Nester {
                     }
                     arms.push_back(rewrite(arm_stmts));
                 }
-                out.push_back(ir::SwitchStmt::make(sw->value, std::move(arms)));
+                out.push_back(ir::SwitchStmt::make(sw->value, std::move(arms),
+                                                   sw->provenance));
                 return sequence(std::move(out));
             }
             const auto *ie = s.as<ir::IfElse>();
@@ -475,7 +476,8 @@ class Inliner : public ir::Mutator {
             arms.push_back(mutate(arm));
         }
         return with(std::move(pre),
-                    ir::SwitchStmt::make(std::move(value), std::move(arms)));
+                    ir::SwitchStmt::make(std::move(value), std::move(arms),
+                                         node->provenance));
     }
 
     // A nested sequence is opened into its parent, so that a `let` a

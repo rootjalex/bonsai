@@ -2793,6 +2793,13 @@ struct Parser {
             all.insert(all.end(), std::move_iterator(transforms.begin()),
                        std::move_iterator(transforms.end()));
         }
+        for (auto &[name, policy] : from.branch_policies) {
+            ir::ArmCursors &skip = into.branch_policies[name].skip;
+            skip.all = skip.all || policy.skip.all;
+            skip.arms.insert(skip.arms.end(),
+                             std::move_iterator(policy.skip.arms.begin()),
+                             std::move_iterator(policy.skip.arms.end()));
+        }
     }
 
     void parse_schedule() {
@@ -2818,8 +2825,11 @@ struct Parser {
             case Token::Type::IDENTIFIER: {
                 const std::string name = get_id();
 
-                // If it's a func, must be scheduling.
-                if (program.funcs.contains(name)) {
+                // If it's a func, must be scheduling. A geometric intrinsic
+                // is named the way the program names it, `intersects`, and
+                // stands for its overloads (see cursor_targets).
+                if (program.funcs.contains(name) ||
+                    (is_geometric_intrinsic(name) && has_overloads(name))) {
                     parse_rewrites(schedule, name);
                     break;
                 }
@@ -3114,6 +3124,62 @@ struct Parser {
         return ir::Resource::CPUThread;
     }
 
+    // The functions a cursor directive on `func` is about. A geometric
+    // intrinsic -- `intersects`, `distmin` -- is one name in the program and
+    // one function per pair of element types here (`intersects_Ray_Shape`; see
+    // parse_geometric_intrinsic), and the schedule names it the way the
+    // program does: `intersects.skip(Shape)` is every overload that takes a
+    // Shape, `intersects.skip()` every overload there is. Anything else is
+    // the one function named. Overloads are known only once the program has
+    // been parsed, which is why a schedule is compiled after its program.
+    // Is any function of the program an overload of the geometric intrinsic
+    // `name` -- `intersects_Ray_Shape` of `intersects`?
+    bool has_overloads(const std::string &name) const {
+        const std::string prefix = name + "_";
+        for (const auto &[fname, f] : program.funcs) {
+            if (fname.compare(0, prefix.size(), prefix) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::vector<std::string>
+    cursor_targets(const std::string &func, const ir::ArmCursors &cursors) {
+        if (!is_geometric_intrinsic(func)) {
+            return {func};
+        }
+        const auto takes = [&](const ir::Function &f, const std::string &adt) {
+            for (const ir::Function::Argument &arg : f.args) {
+                if (const auto *t = arg.type.as<ir::ADT_t>();
+                    t != nullptr && t->name == adt) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        std::vector<std::string> targets;
+        const std::string prefix = func + "_";
+        for (const auto &[name, f] : program.funcs) {
+            if (name.compare(0, prefix.size(), prefix) != 0) {
+                continue;
+            }
+            bool wanted = cursors.all;
+            for (const ir::Location &arm : cursors.arms) {
+                wanted = wanted || (!arm.names.empty() && takes(*f, arm.names[0]));
+            }
+            if (wanted) {
+                targets.push_back(name);
+            }
+        }
+        if (targets.empty()) {
+            // Reported against the name written, by the check that finds
+            // nothing to cover (see check_branch_policies in SSA/Convert.cpp).
+            targets.push_back(func);
+        }
+        return targets;
+    }
+
     void parse_rewrites(ir::Schedule &schedule, std::string func) {
         // Recorded under the function and in the schedule's one sequence,
         // since the order between functions' directives is part of what the
@@ -3206,6 +3272,25 @@ struct Parser {
                 ir::Location i = parse_location();
                 add(
                     ir::Vectorize{std::move(i)});
+            } else if (rewrite == "skip") {
+                // Not a transform: which arms of the function's branches get
+                // a test of whether any lane is in them, when the function
+                // is vectorized (see ir::BranchPolicy). `skip()` is every
+                // arm; otherwise the arms named, `Shape` or `Shape.Disc`.
+                ir::ArmCursors cursors;
+                if (peek().type == Token::Type::RPAREN) {
+                    cursors.all = true;
+                } else {
+                    do {
+                        cursors.arms.push_back(parse_location());
+                    } while (consume(Token::Type::COMMA));
+                }
+                for (const std::string &target : cursor_targets(func, cursors)) {
+                    ir::ArmCursors &skip = schedule.branch_policies[target].skip;
+                    skip.all = skip.all || cursors.all;
+                    skip.arms.insert(skip.arms.end(), cursors.arms.begin(),
+                                     cursors.arms.end());
+                }
             } else {
                 report_error()
                     << "Unknown rewrite: " << rewrite << " on func: " << func;

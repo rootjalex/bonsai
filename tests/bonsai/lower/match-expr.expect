@@ -20,10 +20,10 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), p0 : f32x3, p1 : f32x3, p2 : f32
 
 func _match0(_matched : Shape) -> f32 {
   switch (_matched.tag) {
-  case 0: {
+  case 0: { // Shape.Sph of _match0
     return ((4f * 3.14159f) * build<Sph>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), reinterpret_cast<f32>(_matched.payload[4u])).radius) * build<Sph>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), reinterpret_cast<f32>(_matched.payload[4u])).radius
   } break;
-  default: {
+  default: { // Shape.Tri of _match0
     return 0.5f * norm(cross(build<Tri>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[4u]), reinterpret_cast<f32>(_matched.payload[5u]), reinterpret_cast<f32>(_matched.payload[6u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[8u]), reinterpret_cast<f32>(_matched.payload[9u]), reinterpret_cast<f32>(_matched.payload[10u]))).p1 - build<Tri>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[4u]), reinterpret_cast<f32>(_matched.payload[5u]), reinterpret_cast<f32>(_matched.payload[6u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[8u]), reinterpret_cast<f32>(_matched.payload[9u]), reinterpret_cast<f32>(_matched.payload[10u]))).p0, build<Tri>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[4u]), reinterpret_cast<f32>(_matched.payload[5u]), reinterpret_cast<f32>(_matched.payload[6u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[8u]), reinterpret_cast<f32>(_matched.payload[9u]), reinterpret_cast<f32>(_matched.payload[10u]))).p2 - build<Tri>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[4u]), reinterpret_cast<f32>(_matched.payload[5u]), reinterpret_cast<f32>(_matched.payload[6u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[8u]), reinterpret_cast<f32>(_matched.payload[9u]), reinterpret_cast<f32>(_matched.payload[10u]))).p0))
   }
   }
@@ -31,10 +31,10 @@ func _match0(_matched : Shape) -> f32 {
 
 func _match1(_matched : Shape) -> f32 {
   switch (_matched.tag) {
-  case 0: {
+  case 0: { // Shape.Sph of _match1
     return 2f * build<Sph>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), reinterpret_cast<f32>(_matched.payload[4u])).radius
   } break;
-  default: {
+  default: { // Shape.Tri of _match1
     return norm(build<Tri>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[4u]), reinterpret_cast<f32>(_matched.payload[5u]), reinterpret_cast<f32>(_matched.payload[6u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[8u]), reinterpret_cast<f32>(_matched.payload[9u]), reinterpret_cast<f32>(_matched.payload[10u]))).p1 - build<Tri>(build<f32x3>(reinterpret_cast<f32>(_matched.payload[0u]), reinterpret_cast<f32>(_matched.payload[1u]), reinterpret_cast<f32>(_matched.payload[2u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[4u]), reinterpret_cast<f32>(_matched.payload[5u]), reinterpret_cast<f32>(_matched.payload[6u])), build<f32x3>(reinterpret_cast<f32>(_matched.payload[8u]), reinterpret_cast<f32>(_matched.payload[9u]), reinterpret_cast<f32>(_matched.payload[10u]))).p0)
   }
   }

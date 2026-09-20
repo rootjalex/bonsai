@@ -36,6 +36,7 @@ add_bonsai_tests(
     vectorize-packet-traversal.bonsai
     vectorize-short-vectors.bonsai
     vectorize-skip-arms.bonsai
+    vectorize-skip-cursor.bonsai
     vectorize-soa.bonsai
     vectorize-sorted-traversal.bonsai
     vectorize-switch-constant-merge.bonsai

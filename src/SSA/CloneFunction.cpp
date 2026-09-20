@@ -71,6 +71,7 @@ shared_ptr<Function> clone_function(const Function &func) {
         auto copy = std::make_shared<Block>();
         copy->name = block->name;
         copy->args = block->args;
+        copy->provenance = block->provenance;
         copy->owner = clone;
 
         for (const auto &instr : block->instrs) {

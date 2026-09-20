@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IR/Schedule.h"
 #include "SSA/SSA.h"
 
 #include <list>
@@ -59,7 +60,12 @@ void defer(FuncMap &funcs, const std::string &func, const Queue_t &queue_t,
 // The gang width is the loop's extent, which must be constant: to vectorize a
 // wider loop, split() it to the gang width first and vectorize the inner
 // loop. The loop then runs exactly once and disappears.
-void vectorize(FuncMap &funcs, std::string func, std::string idx);
+//
+// `policies` is what the schedule said about the tests the gang's control
+// flow gets (ir::BranchPolicy), for `func` and for every function the gang
+// is specialized into, each looked up by the name the schedule knows it by.
+void vectorize(FuncMap &funcs, std::string func, std::string idx,
+               const ir::BranchPolicyMap &policies = {});
 
 } // namespace ssa
 } // namespace ir

@@ -77,7 +77,7 @@ func weigh(b : (Blob*), k : f32):
   @18 = mul(@17, (f32)3)
   ret @18
 
-!case_1(b : (Blob*), acc : (f32*)): // preds: weigh
+!case_1(b : (Blob*), acc : (f32*)): // Blob.Whole of weigh; preds: weigh
   @2 = load(b)
   @3 = load_field(@2, (u32)2)
   @4 = extract_idx(@3, (u32)0)
@@ -88,7 +88,7 @@ func weigh(b : (Blob*), k : f32):
   store acc @8
   jmp !merge_0(acc)
 
-!case_2(b : (Blob*)): // preds: weigh
+!case_2(b : (Blob*)): // Blob.Split of weigh; preds: weigh
   @9 = load(b)
   _t26 = load_field(@9, (u32)2)
   @11 = extract_idx(_t26, (u32)0)
@@ -181,7 +181,7 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   let @0 = (*b) in
   let @1 = @0.tag in
   switch (@1) {
-  case 0: {
+  case 0: { // Blob.Whole of weigh
     let @2 = (*b) in
     let @3 = @2.payload in
     let @4 = @3[0u] in
@@ -191,7 +191,7 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
     let @8 = @6 + @7 in
     acc = @8
   } break;
-  case 1: {
+  case 1: { // Blob.Split of weigh
     let @9 = (*b) in
     let _t26 = @9.payload in
     let @11 = _t26[0u] in

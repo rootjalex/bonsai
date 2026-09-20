@@ -1911,6 +1911,114 @@ diverge below it -- exactly what a packet handles by masking, at the cost of
 visiting the union of the lanes' nodes. Whether a per-lane fallback there is
 worth having is a measurement not yet taken.
 
+### 7. Where the gang skips an arm is the schedule's to say
+
+**Done, with a list of what it leaves open.** A vectorized branch is
+linearized: every arm is computed under a mask of the lanes in it, and an arm
+no lane is in is paid for unless a uniform `any(mask)` test -- the BOSCC gadget
+(Shin 2005; Moll & Hack 2018 §6; ispc's `emitMaskMixed`) -- is put in front of
+it. The linearizer used to put one in front of every arm that touched memory or
+made a call, which it must, and every arm of six operations or more, which was
+ispc's line (`PREDICATE_SAFE_IF_STATEMENT_COST`). Two things were wrong with
+that. Reading a field of a variant's payload is an `extract_idx` at a constant
+index, and `extract_idx` counted as memory, so every arm of every `match` on an
+inline ADT got a gadget whatever its size -- which is why the six-operation line
+measured as making no difference: the arms that mattered were all "memory".
+And whether an arm of arithmetic is worth a test is a fact about the data, not
+the code: it pays when gangs often find no lane in it, and costs a `vptest` and
+a branch every time when they do.
+
+So the wager is the schedule's. A constant-index `extract_idx` is not memory;
+the linearizer installs a gadget only where it must, and where a `skip` cursor
+names the arm:
+
+    intersects.skip(Shape);         // every arm of a match on a Shape in intersects
+    surface_geometry.skip(Shape.Triangle);  // one arm
+    path_step.skip();               // every arm the function has
+
+A named arm is found by the *provenance* lowering leaves on it (`ir::Provenance`:
+the function it was written in, the ADT and the variant), which Lower/ADTs.cpp
+puts on the SwitchStmt, SSA/Convert.cpp on the arm's first block, and every copy
+-- inlining, specialization -- carries along; so a match written in an
+`[[inline]]` helper is named by the helper wherever it ends up, and a geometric
+intrinsic by its program name (`intersects`, meaning every overload that takes
+the ADT). The SSA dump prints it beside the block (`// Shape.Sph of
+intersects_Ray_Shape`), and a cursor that names nothing is an error that lists
+what the function does have. The bare form covers unlabelled arms too -- an
+`if`'s -- since those carry no provenance. Tests: ssa/vectorize-skip-cursor and
+its LLVM and execution twins; ssa/vectorize-skip-arms, now under `weigh.skip()`.
+
+The measurement: the packet schedule, 64 spp, depth 1 and 5, best of three,
+each render alone on the machine, seconds. `old` is the previous rule (memory,
+calls, and any arm of six operations or more, with payload reads counted as
+memory) from the earlier threshold sweep, so it is a different run; the four
+cursor sets are one run. `none` is no cursors -- gadgets only where they must
+be, 2052 `!any` mentions in the render's SSA; `shape` adds cursors on the Shape
+dispatches (`intersects`, `distmin`, `distmax`, `surface_geometry`), which adds
+nothing because those arms load a `tagged_index` variant and were mandatory
+already; `shading` adds the Material, BxDF, Light and LightSampler dispatches
+(2143); `all` adds `skip()` on every function of the path loop and the
+traversals (2472).
+
+    scene            d    old      none     shape    shading  all      none/old
+    book             1    4.880    4.626    4.678    4.743    4.663    1.055x
+    book             5    6.523    6.232    6.293    6.457    6.271    1.047x
+    bvh-lights       1    0.0524   0.0514   0.0527   0.0522   0.0510   1.021x
+    bvh-lights       5    0.0662   0.0656   0.0664   0.0678   0.0646   1.008x
+    ganesha          1    5.328    5.221    5.233    5.254    5.195    1.020x
+    ganesha          5    7.462    7.453    7.460    7.484    7.399    1.001x
+    instances        1    0.432    0.424    0.426    0.424    0.417    1.018x
+    instances        5    0.485    0.478    0.478    0.480    0.462    1.015x
+    killeroo-simple  1    0.630    0.622    0.629    0.637    0.624    1.012x
+    killeroo-simple  5    1.244    1.247    1.252    1.298    1.241    0.998x
+
+Taking the tests off the arithmetic-only arms is worth 1-5% (book 5%, at both
+depths); the shading cursors cost 3-4% on killeroo and book at depth 5 -- one
+material per scene, so the tests bypass nothing -- and `all` is within the
+run-to-run noise either way (instances d5 +3%, book d1 -1%). So the packet
+schedule says nothing, and the comment in it says why.
+
+What this leaves open, in the order they are likely to matter:
+
+1. **`coherent` -- the all-on side.** ispc's `cif` (§6.5, `emitMaskAllOn`)
+   tests, when the enclosing mask is all on, whether *every* lane takes an arm
+   and runs a copy compiled for that: no masking inside, unmasked callees, no
+   blends at the join. A masked variant of the same rule -- `all(tag == k ||
+   !mask)` sending the gang to a single-arm body still under `mask` -- is not
+   worth having: that body is the linearized arm with `m_k == mask`, and it
+   buys back only the other arms' `any` tests and the join's phis at the cost of
+   a copy per arm, which is why ispc does not do it either (its mixed path is
+   the skip gadgets alone). Where it would pay is a region whose mask is all on
+   -- primary rays, an unmasked variant, or a masked variant behind one
+   `all(mask)` test at its entry that jumps to the unmasked variant (a tail
+   call, no copy). Plan: `f.coherent(Adt)` cursors alongside `skip`; a
+   versioning rewrite before linearization that clones the arm regions behind
+   `all`/`none` tests with a first-active-lane broadcast of the tag; the
+   linearizer narrows the tests to the block mask the way it seeds loops.
+   Needs compaction (item 4) to matter past the first bounce.
+2. **Counters, not guesses.** An instrumented build that counts, per gadget,
+   how often it is taken and how many lanes were on, so that `skip` cursors are
+   placed from occupancy data rather than by argument. `BONSAI_NO_BOSCC` and the
+   A/B script are the manual version.
+3. **Region-level gadgets and landing chains.** A gadget per arm means a chain
+   of tests across a `match`; ispc tests once per arm too, but Moll & Hack put
+   one gadget around a whole region. With cursors the count is the schedule's,
+   but the landing blocks a bypass threads its values through are still one per
+   arm and could be elided when consecutive.
+4. **A gang that refills.** After the first bounce the mask is rarely full, so
+   `coherent` and every uniform-when-all-on optimization are moot without
+   wavefront compaction: paths that terminate leave the gang, new paths join.
+   The `walk_step.loopify()` tail recursion is the place; the queue directives
+   are the words.
+5. **The divergent gang** (item 6 above): a per-lane traversal fallback where
+   the lanes' nodes disagree, `foreach_unique`-style, is still unmeasured.
+6. **§6.4 coherent memory access.** Uniform loads and `Ramp` dense loads are
+   done; ispc's `ImproveMemoryOps` also proves gathers of `base + lane*stride`
+   from the addresses' algebra. Not yet.
+7. **SoA layouts** for per-lane aggregates, and inlining masked callees into
+   their one call site; both are code-size against speed and neither has a
+   measurement.
+
 ## What has been built, and what it cost
 
 ### Where the time went

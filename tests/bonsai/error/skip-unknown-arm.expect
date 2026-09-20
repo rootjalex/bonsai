@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Convert.cpp:1568
+skip(Shape.Cone) on weigh: no arm of a match written in weigh takes Shape.Cone. The arms written in weigh are: Shape.Box, Shape.Disc.

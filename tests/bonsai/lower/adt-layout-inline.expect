@@ -28,11 +28,11 @@ func _unexported_Shape_Tri(a : f32x3, b : f32x3) -> Shape {
 
 func [[export]] size(s : (Shape*)) -> f32 {
   switch ((*s).tag) {
-  case 0: {
+  case 0: { // Shape.Sph of size
     let radius = reinterpret_cast<f32>((*s).payload[4u]) in
     return radius
   } break;
-  default: {
+  default: { // Shape.Tri of size
     let _t13 = (*s).payload in
     let a = build<f32x3>(reinterpret_cast<f32>(_t13[0u]), reinterpret_cast<f32>(_t13[1u]), reinterpret_cast<f32>(_t13[2u])) in
     return a[0u]

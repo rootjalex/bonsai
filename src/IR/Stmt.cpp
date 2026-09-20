@@ -134,7 +134,8 @@ Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     return node;
 }
 
-Stmt SwitchStmt::make(Expr value, std::vector<Stmt> arms) {
+Stmt SwitchStmt::make(Expr value, std::vector<Stmt> arms,
+                      std::vector<Provenance> provenance) {
     internal_assert(value.defined()) << "Undefined value in SwitchStmt::make";
     internal_assert(value.type().defined() && value.type().is_int_or_uint())
         << "Non-integer value in SwitchStmt::make: " << value << " of type "
@@ -142,9 +143,13 @@ Stmt SwitchStmt::make(Expr value, std::vector<Stmt> arms) {
     internal_assert(arms.size() >= 2)
         << "A switch on " << value << " with " << arms.size()
         << " arm(s); one arm is just that arm";
+    internal_assert(provenance.empty() || provenance.size() == arms.size())
+        << "A switch on " << value << " with " << arms.size()
+        << " arms and the provenance of " << provenance.size();
     SwitchStmt *node = new SwitchStmt;
     node->value = std::move(value);
     node->arms = std::move(arms);
+    node->provenance = std::move(provenance);
     return node;
 }
 

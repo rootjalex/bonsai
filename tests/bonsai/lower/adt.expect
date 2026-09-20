@@ -32,12 +32,12 @@ func _unexported_unit_sphere() -> Shape {
 
 func [[export]] area(s : (Shape*)) -> f32 {
   switch ((*s).tag) {
-  case 0: {
+  case 0: { // Shape.Sph of area
     let center = build<f32x3>(reinterpret_cast<f32>((*s).payload[0u]), reinterpret_cast<f32>((*s).payload[1u]), reinterpret_cast<f32>((*s).payload[2u])) in
     let radius = reinterpret_cast<f32>((*s).payload[4u]) in
     return ((4f * 3.14159f) * radius) * radius
   } break;
-  default: {
+  default: { // Shape.Tri of area
     let p0 = build<f32x3>(reinterpret_cast<f32>((*s).payload[0u]), reinterpret_cast<f32>((*s).payload[1u]), reinterpret_cast<f32>((*s).payload[2u])) in
     let p1 = build<f32x3>(reinterpret_cast<f32>((*s).payload[4u]), reinterpret_cast<f32>((*s).payload[5u]), reinterpret_cast<f32>((*s).payload[6u])) in
     let p2 = build<f32x3>(reinterpret_cast<f32>((*s).payload[8u]), reinterpret_cast<f32>((*s).payload[9u]), reinterpret_cast<f32>((*s).payload[10u])) in

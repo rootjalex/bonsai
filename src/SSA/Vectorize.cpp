@@ -1212,7 +1212,9 @@ string variant_name(const VariantKey &key) {
 using Variants = map<VariantKey, string>;
 
 shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
-                                const string &name, Variants &variants);
+                                const string &name,
+                                const ir::BranchPolicyMap &policies,
+                                Variants &variants);
 
 // Puts the masked call that ends `b` behind a test of its mask: the call
 // moves to a block of its own, entered when any lane is on and bypassed
@@ -1287,6 +1289,7 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
                       const shared_ptr<Value> &entry_mask,
                       const set<string> &conditional_calls, uint32_t lanes,
                       const map<string, vector<uint32_t>> &call_shapes,
+                      const ir::BranchPolicyMap &policies,
                       Variants &variants) {
     // For the tests below: the region as linearization left it, its guards
     // in place.
@@ -1400,7 +1403,7 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
             // Recorded before specializing, so that a callee that reaches
             // itself is caught rather than specialized forever.
             variants[key] = name_of_variant;
-            specialize(funcs, key, name_of_variant, variants);
+            specialize(funcs, key, name_of_variant, policies, variants);
         }
         call->name = name_of_variant;
 
@@ -1453,7 +1456,9 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
 // not pay for predication (ispc section 5.7 passes the mask the same way, and
 // only for functions that need it).
 shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
-                                const string &name, Variants &variants) {
+                                const string &name,
+                                const ir::BranchPolicyMap &policies,
+                                Variants &variants) {
     const auto original = funcs.find(key.callee);
     internal_assert(original != funcs.end())
         << "Cannot vectorize a call to unknown function: " << key.callee;
@@ -1584,9 +1589,10 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         variant->dump(std::cerr);
     }
     // Which also puts a uniform branch around each arm no lane may be on, so
-    // that a gang skips the arms none of its lanes take.
-    BlockMasks masks =
-        linearize(*variant, entry, linearizable, mask, uniform.loops);
+    // that a gang skips the arms none of its lanes take -- where it must, and
+    // where the schedule says under the callee's own name.
+    BlockMasks masks = linearize(*variant, entry, linearizable, mask,
+                                 uniform.loops, policies, key.callee);
     if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
         std::cerr << "--- after linearizing " << name << ":\n";
         variant->dump(std::cerr);
@@ -1635,7 +1641,8 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // A variant's own calls are specialized the same way, so that a chain of
     // calls from inside a gang is vectorized all the way down.
     specialize_calls(funcs, *variant, region, div, masks, mask,
-                     conditional_calls, key.lanes, split.call_shapes, variants);
+                     conditional_calls, key.lanes, split.call_shapes, policies,
+                     variants);
 
     widen_region(*variant, entry, div, key.lanes);
     broadcast_call_arguments(funcs, *variant, region, key.lanes);
@@ -1665,7 +1672,8 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 
 } // namespace
 
-void vectorize(FuncMap &funcs, std::string func, std::string idx) {
+void vectorize(FuncMap &funcs, std::string func, std::string idx,
+               const ir::BranchPolicyMap &policies) {
     internal_assert(funcs.contains(func))
         << "vectorize applied to unknown func:" << func;
     auto f = funcs[func];
@@ -1734,7 +1742,16 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
     // Fold away the branches the lanes disagree about, so that what is left
     // is control flow every lane follows together, with masks standing in for
     // the branches that were folded (see SSA/Linearize.h).
-    BlockMasks masks = linearize(*f, entry, before, nullptr, uniform.loops);
+    if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
+        std::cerr << "--- before linearizing " << func << ":\n";
+        f->dump(std::cerr);
+    }
+    BlockMasks masks = linearize(*f, entry, before, nullptr, uniform.loops,
+                                 policies, func);
+    if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
+        std::cerr << "--- after linearizing " << func << ":\n";
+        f->dump(std::cerr);
+    }
     lower_votes(*f, entry,
                 analyze_divergence(*f, entry, {idx}, {}, varying_args, {},
                                    nullptr, masked_blocks),
@@ -1790,7 +1807,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx) {
 
     Variants variants;
     specialize_calls(funcs, *f, region, div, masks, /*entry_mask=*/nullptr,
-                     conditional_calls, lanes, split.call_shapes, variants);
+                     conditional_calls, lanes, split.call_shapes, policies,
+                     variants);
 
     widen_region(*f, entry, div, lanes);
     broadcast_call_arguments(funcs, *f, region, lanes);

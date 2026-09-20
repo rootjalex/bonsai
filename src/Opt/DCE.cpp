@@ -109,7 +109,8 @@ struct NameHygiene : ir::Mutator {
         for (const ir::Stmt &arm : node->arms) {
             arms.push_back(mutate(arm));
         }
-        return ir::SwitchStmt::make(std::move(value), std::move(arms));
+        return ir::SwitchStmt::make(std::move(value), std::move(arms),
+                                    node->provenance);
     }
 
     ir::Stmt visit(const ir::Match *node) override {
@@ -543,7 +544,7 @@ struct DeadCodeElimination : ir::Mutator {
             // Every arm has been DCEed: nothing left to switch between.
             return ir::Stmt();
         }
-        return ir::SwitchStmt::make(node->value, std::move(arms));
+        return ir::SwitchStmt::make(node->value, std::move(arms), node->provenance);
     }
 
     ir::Stmt visit(const ir::Sequence *node) override {

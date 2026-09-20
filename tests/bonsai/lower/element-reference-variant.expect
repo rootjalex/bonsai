@@ -63,10 +63,10 @@ func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : mut Solo[], Prim_Solo_fill :
 
 func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]) -> Triangle {
   switch (_matched.tag) {
-  case 0: {
+  case 0: { // _ref0._ref0_0 of _match0
     return Prim_Solo_pool[prims.elems[build<_ref0_0>(_matched.payload[0u]).idx0] & 72057594037927935u].tri
   } break;
-  default: {
+  default: { // _ref0._ref0_1 of _match0
     return prims.tris[build<_ref0_1>(_matched.payload[0u]).idx0]
   }
   }
@@ -86,7 +86,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
       if (distmin_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high))) < (*_best0)._field0) {
         forall _idx0 in [0u:cast<u32>(prims.group1_index[prims_index].nPrims):1u] {
           switch (prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] >> 56u) {
-          case 0: {
+          case 0: { // Prim.Solo of _recloop_func0
             let _pulled0 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0], r, Prim_Solo_pool, Prim_Inst_pool) in
             if (intersects_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
               if (0.001f < distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
@@ -96,7 +96,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
               }
             }
           } break;
-          default: {
+          default: { // Prim.Inst of _recloop_func0
             let _pulled1 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0], r, Prim_Solo_pool, Prim_Inst_pool) in
             let _subtree0 = Prim_Inst_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].blas in
             _recloop_func1(_subtree0, prims, _pulled1, _best0, prims_index, _idx0)
@@ -161,11 +161,11 @@ func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), prims : (_tree_layout
 
 func transform_Prim_AABB(p : u64, b : AABB, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> AABB {
   switch (p >> 56u) {
-  case 0: {
+  case 0: { // Prim.Solo of transform_Prim_AABB
     let tri = Prim_Solo_pool[p & 72057594037927935u].tri in
     return b
   } break;
-  default: {
+  default: { // Prim.Inst of transform_Prim_AABB
     let m = Prim_Inst_pool[p & 72057594037927935u].render_from_instance in
     let blas = Prim_Inst_pool[p & 72057594037927935u].blas in
     return transform_Transform_AABB(m, b)
@@ -190,11 +190,11 @@ func transform_Transform_AABB(t : Transform, b : AABB) -> AABB {
 
 func untransform_Prim_Ray(p : u64, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> Ray {
   switch (p >> 56u) {
-  case 0: {
+  case 0: { // Prim.Solo of untransform_Prim_Ray
     let tri = Prim_Solo_pool[p & 72057594037927935u].tri in
     return r
   } break;
-  default: {
+  default: { // Prim.Inst of untransform_Prim_Ray
     let m = Prim_Inst_pool[p & 72057594037927935u].render_from_instance in
     let blas = Prim_Inst_pool[p & 72057594037927935u].blas in
     return untransform_Transform_Ray(m, r)
