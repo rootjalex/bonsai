@@ -295,6 +295,8 @@ Expr Mutator::visit(const VecImm *node) { return node; }
 
 Expr Mutator::visit(const StringImm *node) { return node; }
 
+Expr Mutator::visit(const Undef *node) { return node; }
+
 Expr Mutator::visit(const Extrema *node) { return node; }
 
 Expr Mutator::visit(const SizeOf *node) { return node; }

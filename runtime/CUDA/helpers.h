@@ -1867,6 +1867,14 @@ __forceinline__ __host__ __device__ T div_multiplier(const T &d) {
     return T(U(numerator / W(ds)) + 1);
 }
 
+// A value of T that nothing reads (the compiler's `undef`; see ir::Undef).
+// C++ has no way to say so, and reading an uninitialized object is undefined
+// behavior rather than an unspecified value, so this is a value-initialized T.
+template <typename T>
+__forceinline__ __host__ __device__ T undef() {
+    return T{};
+}
+
 __forceinline__ __host__ void
 cudaMallocAndCopyToDevice(void **device, const void *host, size_t size) {
     cudaMalloc(device, size);

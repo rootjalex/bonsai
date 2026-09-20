@@ -43,8 +43,6 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   let @8 = select(@0, @18, @19) in
   let @14 = reduce<any>(@0) in
   let @24 = boolx8(false) in
-  let @25 = f32x8(0f) in
-  let @26 = f32x8(0f) in
   if (@14) {
     let @1 = scale$gang8_v0$masked(x, 3f, @0) in
     let @20 = f32x8(20f) in
@@ -59,8 +57,8 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
     !ret!skip = @1
   } else {
     @10!skip = @24
-    acc!skip = @25
-    !ret!skip = @26
+    acc!skip = undef
+    !ret!skip = undef
   }
   let @13 = reduce<any>(@8) in
   if (@13) {

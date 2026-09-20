@@ -28,10 +28,18 @@ struct Argument {
     void dump(std::ostream &os) const;
 };
 
+// A constant with no value: any value of its type will do, because nothing
+// reads it (see ir::Undef). Printed `undef`.
+struct Undefined {
+    bool operator==(const Undefined &) const { return true; }
+};
+
+std::ostream &operator<<(std::ostream &os, const Undefined &);
+
 struct Constant {
     Type type;
     // string -> function call!
-    std::variant<bool, int64_t, uint64_t, double, std::string> data;
+    std::variant<bool, int64_t, uint64_t, double, std::string, Undefined> data;
 
     void dump(std::ostream &os) const;
 };
@@ -429,6 +437,14 @@ const char *op_name(Instruction::Op op);
 // put in it.
 std::shared_ptr<Value> zero_value(const Type &type, Function &func,
                                   const std::shared_ptr<Block> &into);
+
+// A value of `type` that nothing reads: what a join is handed along an edge
+// whose lanes are all inactive, what a skipped call's continuation is handed
+// in place of the result, what a loop tracker holds before its lane has left.
+// A constant of any type, aggregates included, since it builds nothing; the
+// backend lowers it to `undef`, which costs no instruction and lets the
+// selects and stores that carry it fold (see ir::Undef).
+std::shared_ptr<Value> undef_value(const Type &type);
 
 // Are `a` and `b` one definition? This form threads a definition onwards
 // through block arguments under its own name, so two references to one name

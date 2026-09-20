@@ -46,6 +46,9 @@ std::optional<bool> const_bool(const ValuePtr &v) {
             [](const std::string &) -> std::optional<bool> {
                 return std::nullopt;
             },
+            [](const Undefined &) -> std::optional<bool> {
+                return std::nullopt;
+            },
         },
         c->data);
 }
@@ -103,8 +106,9 @@ std::optional<bool> compare_constants(Instruction::Op op, const ValuePtr &a,
                                       const ValuePtr &b) {
     const Constant *x = constant_of(a);
     const Constant *y = constant_of(b);
-    if (x == nullptr || y == nullptr || x->data.index() != y->data.index()) {
-        return std::nullopt;
+    if (x == nullptr || y == nullptr || x->data.index() != y->data.index() ||
+        std::holds_alternative<Undefined>(x->data)) {
+        return std::nullopt; // an undefined value compares as nothing
     }
     const auto compare = [&](const auto &p, const auto &q) -> bool {
         switch (op) {
@@ -132,6 +136,7 @@ std::optional<bool> compare_constants(Instruction::Op op, const ValuePtr &a,
             [&](const std::string &p) {
                 return compare(p, std::get<std::string>(y->data));
             },
+            [&](const Undefined &) { return false; }, // excluded above
         },
         x->data);
 }

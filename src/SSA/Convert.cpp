@@ -820,6 +820,10 @@ struct FunctionBuilder : Visitor {
         value = make_constant(node->type, node->value);
     }
 
+    void visit(const Undef *node) override {
+        value = std::make_shared<Value>(Constant{node->type, Undefined{}});
+    }
+
     void visit(const Extrema *node) override {
         const Instruction::Op op = node->op == Extrema::eps
                                        ? Instruction::Op::Eps

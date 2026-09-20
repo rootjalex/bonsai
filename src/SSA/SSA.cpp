@@ -11,6 +11,10 @@ namespace ssa {
 
 void Argument::dump(std::ostream &os) const { os << name << " : " << type; }
 
+std::ostream &operator<<(std::ostream &os, const Undefined &) {
+    return os << "undef";
+}
+
 void Constant::dump(std::ostream &os) const {
     if (!type.is_func()) {
         // Func signatures are too annoying to read.
@@ -728,6 +732,10 @@ void Function::dump(std::ostream &os) const {
         blocks[i]->dump(os);
         os << "\n";
     }
+}
+
+std::shared_ptr<Value> undef_value(const Type &type) {
+    return std::make_shared<Value>(Constant{type, Undefined{}});
 }
 
 std::shared_ptr<Value> zero_value(const Type &type, Function &func,

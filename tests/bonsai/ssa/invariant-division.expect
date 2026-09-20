@@ -67,12 +67,11 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   let @55 = u64x8(0u) in
   let @56 = boolx8(true) in
   let @57 = boolx8(false) in
-  let @58 = u64x8(0u) in
   v!loop = n
   r!loop = @55
   !live = @56
   !exit.while_end_2 = @57
-  !track.while_end_2.0 = @58
+  !track.while_end_2.0 = undef
   while (reduce<any>((*!live))) {
     let @50 = u64x8(0u) in
     let @3 = (*v!loop) != @50 in

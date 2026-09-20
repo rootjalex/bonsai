@@ -22,6 +22,7 @@ enum class IRExprEnum {
     FloatImm,
     BoolImm,
     VecImm,
+    Undef,
     StringImm,
     Var,
     Extrema,
@@ -161,6 +162,17 @@ struct StringImm : ExprNode<StringImm> {
 
     static Expr make(std::string value);
     static const IRExprEnum node_type = IRExprEnum::StringImm;
+};
+
+// A value of `type` that nothing reads: what a bypass hands a join whose
+// first source is the region it skips, and what a skipped call's continuation
+// is handed in place of the call's result (see SSA/Linearize.h and
+// specialize_calls in SSA/Vectorize.cpp). Any value of the type would do, and
+// saying so lets the backend build none -- LLVM's `undef`. Never a value a
+// lane's answer depends on.
+struct Undef : ExprNode<Undef> {
+    static Expr make(Type type);
+    static const IRExprEnum node_type = IRExprEnum::Undef;
 };
 
 struct Var : ExprNode<Var> {

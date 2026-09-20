@@ -30,17 +30,16 @@ namespace {
 // The value a tracker holds before any lane has left the loop. Nothing reads
 // it -- a lane's tracker is only ever read after that lane has left, and
 // leaving is what writes it -- but the header argument has to be given
-// something on the way in, and this way the generated code has no undefined
-// values in it. An aggregate's zero -- a ray carried out of a path loop -- is
-// built by instructions in `into`, the block whose jump seeds the tracker.
-shared_ptr<Value> zero_of(const Type &type, Function &func,
-                          const shared_ptr<Block> &into) {
+// something on the way in, and an undefined value says exactly that: the
+// backend builds nothing for it, and the select that keeps a tracker where
+// its lane has not left has nothing to keep on the first trip.
+shared_ptr<Value> seed_of(const Type &type) {
     internal_assert(type.is_bool() || type.is_numeric() ||
                     type.is<Vector_t>() || type.is<Struct_t>())
         << "[unimplemented] a divergent loop carries a value of type " << type
         << " out to a use after the loop; only values a lane can hold one of "
         << "can be captured at the iteration it leaves";
-    return zero_value(type, func, into);
+    return undef_value(type);
 }
 
 shared_ptr<Value> bool_constant(bool b) {
@@ -560,9 +559,8 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         for (const ExitTarget &t : targets) {
             for (const ExitTarget::Slot &slot : t.slots) {
                 if (!slot.tracker.empty()) {
-                    added.push_back({slot.tracker, slot.type,
-                                     zero_of(slot.type, func,
-                                             blocks.at(preheader))});
+                    added.push_back(
+                        {slot.tracker, slot.type, seed_of(slot.type)});
                 }
             }
         }

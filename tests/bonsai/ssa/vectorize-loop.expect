@@ -28,12 +28,11 @@ func sum_to$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> vo
   let @22 = i32x8(acc) in
   let @23 = boolx8(true) in
   let @24 = boolx8(false) in
-  let @25 = i32x8(0) in
   n!loop!loop = n
   acc!loop!loop = @22
   !live = @23
   !exit.then_0 = @24
-  !track.then_0.0 = @25
+  !track.then_0.0 = undef
   while (reduce<any>((*!live))) {
     let @16 = i32x8(0) in
     let @0 = (*n!loop!loop) <= @16 in
@@ -103,13 +102,12 @@ func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void
   let @44 = boolx8(true) in
   let @45 = boolx8(false) in
   let @46 = boolx8(false) in
-  let @47 = i32x8(0) in
   n!loop!loop = n
   acc!loop!loop = @43
   !live = @44
   !exit.then_2 = @45
   !exit.then_0 = @46
-  !track.then_0.0 = @47
+  !track.then_0.0 = undef
   while (reduce<any>((*!live))) {
     let @29 = i32x8(0) in
     let @0 = (*n!loop!loop) <= @29 in

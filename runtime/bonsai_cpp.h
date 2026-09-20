@@ -36,6 +36,14 @@ __attribute__((always_inline)) T reinterpret(const U &bits) {
 #endif
 }
 
+// A value of T that nothing reads (the compiler's `undef`; see ir::Undef).
+// C++ has no way to say so, and reading an uninitialized object is undefined
+// behavior rather than an unspecified value, so this is a value-initialized T.
+template <typename T>
+__attribute__((always_inline)) T undef() {
+    return T{};
+}
+
 using std::abs;
 using std::exp;
 using std::log;

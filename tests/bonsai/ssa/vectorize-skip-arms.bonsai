@@ -17,7 +17,7 @@
 // the exit as a `!skip` argument handed `boolx8(false)` along the bypass,
 // since no lane took the edge. And `acc`'s first source is the then arm
 // itself, so there is no value from before it to hand on: its bypass hands
-// a zero that no lane reads, the one such value here (see Linearize.cpp).
+// `undef`, a value no lane reads, the one such value here (see Linearize.cpp).
 // The same program runs in correctness/cpp/vectorize_skip_arms.bonsai.
 import stdlib/numerics;
 

@@ -1125,6 +1125,10 @@ void CodeGen_LLVM::visit(const BoolImm *node) {
                                    /* IsSigned */ false);
 }
 
+void CodeGen_LLVM::visit(const Undef *node) {
+    value = llvm::UndefValue::get(codegen_type(node->type));
+}
+
 void CodeGen_LLVM::visit(const VecImm *node) {
     ir::Expr build = ir::Build::make(node->type, node->values);
     build.accept(this);

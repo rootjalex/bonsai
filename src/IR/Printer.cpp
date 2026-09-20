@@ -832,6 +832,8 @@ void Printer::visit(const StringImm *node) {
     print_string_imm(os, node->value);
 }
 
+void Printer::visit(const Undef *) { os << "undef"; }
+
 void Printer::visit(const SizeOf *node) { os << "sizeof(" << node->of << ")"; }
 
 void Printer::visit(const Extrema *node) {

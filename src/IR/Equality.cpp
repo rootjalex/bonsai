@@ -550,6 +550,9 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return compare_primitives(e0.as<StringImm>()->value,
                                   e1.as<StringImm>()->value);
     }
+    case IRExprEnum::Undef: {
+        return Cmp::Equals; // same type (checked above), no value
+    }
     case IRExprEnum::Var: {
         return compare_primitives(e0.as<Var>()->name, e1.as<Var>()->name);
     }
@@ -1194,6 +1197,8 @@ uint64_t hash_of(const Expr &e) {
     case IRExprEnum::StringImm:
         h = hash_value(h, e.as<StringImm>()->value);
         break;
+    case IRExprEnum::Undef:
+        break; // the type is hashed above; there is no value
     case IRExprEnum::Var:
         h = hash_value(h, e.as<Var>()->name);
         break;

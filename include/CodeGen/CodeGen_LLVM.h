@@ -163,6 +163,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::BoolImm *) override;
     virtual void visit(const ir::VecImm *) override;
     virtual void visit(const ir::StringImm *) override;
+    virtual void visit(const ir::Undef *) override;
     virtual void visit(const ir::Extrema *) override;
     virtual void visit(const ir::SizeOf *) override;
     virtual void visit(const ir::Var *) override;

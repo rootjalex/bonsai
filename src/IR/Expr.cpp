@@ -176,6 +176,13 @@ Expr VecImm::make(Type type, std::vector<Expr> values) {
     return node;
 }
 
+Expr Undef::make(Type type) {
+    internal_assert(type.defined()) << "Undef::make() of no type";
+    Undef *node = new Undef;
+    node->type = std::move(type);
+    return node;
+}
+
 Expr StringImm::make(std::string value) {
     internal_assert(!value.empty())
         << "StringImm::make() received empty string\n";

@@ -35,7 +35,7 @@ weigh_all:
 
 "!else_1!any.i":                                  ; preds = %"!then_0.i", %weigh_all
   %"@10!skip.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %4, %"!then_0.i" ]
-  %"acc!skip.i" = phi <8 x float> [ zeroinitializer, %weigh_all ], [ %2, %"!then_0.i" ]
+  %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %2, %"!then_0.i" ]
   %5 = bitcast <8 x i1> %not..i to i8
   %.not2.i = icmp eq i8 %5, 0
   br i1 %.not2.i, label %"weigh$gang8_v0.exit", label %"!else_1.i"

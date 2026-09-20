@@ -254,6 +254,12 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
         void visit(const StringImm *node) override {
             print_string_imm(ss, node->value);
         }
+
+        void visit(const Undef *node) override {
+            ss << "undef<";
+            emit_type(ss, node->type);
+            ss << ">()";
+        }
     };
 
     EmitConstVar emitter(ss);
@@ -641,6 +647,12 @@ class BonsaiToCpp : ir::Printer {
     }
 
     // void visit(const StringImm *) override;
+    void visit(const Undef *node) override {
+        // runtime/bonsai_cpp.h: a value-initialized T, C++ having no undef.
+        ss << "undef<";
+        emit_type(ss, node->type);
+        ss << ">()";
+    }
     void visit(const SizeOf *node) override {
         // Left to the C++ compiler, which knows its own layout rules.
         ss << "sizeof(";

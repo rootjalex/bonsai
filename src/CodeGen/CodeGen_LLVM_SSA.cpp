@@ -144,6 +144,7 @@ struct CodeGen_LLVM::SSALowering {
                                    << " has no value form in SSA lowering";
                     return Expr();
                 },
+                [&](const ssa::Undefined &) { return Undef::make(c.type); },
             },
             c.data);
     }

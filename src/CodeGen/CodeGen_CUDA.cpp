@@ -363,6 +363,14 @@ void CodeGen_CUDA::visit(const StringImm *node) {
     print_string_imm(os, node->value);
 }
 
+void CodeGen_CUDA::visit(const Undef *node) {
+    // runtime/CUDA/helpers.h: a value-initialized T, CUDA C++ having no undef.
+    // The type is spelled the way this backend spells types.
+    os << "undef<";
+    node->type.accept(this);
+    os << ">()";
+}
+
 void CodeGen_CUDA::visit(const Extrema *node) {
     switch (node->op) {
     case Extrema::inf:

@@ -509,16 +509,16 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
   !live!loop!skip : mut boolx8
   !count!loop!skip : mut u32x8
   !stack : mut u16x8[64]
-  let @650 = u16x8(shapes_index) in
-  let @651 = boolx8(true) in
-  let @652 = u32x8(0u) in
-  let @653 = boolx8(true) in
-  let @654 = boolx8(false) in
-  shapes_index!top!loop = @650
-  !live!loop = @651
-  !count!loop = @652
-  !live_1 = @653
-  !exit.visited = @654
+  let @638 = u16x8(shapes_index) in
+  let @639 = boolx8(true) in
+  let @640 = u32x8(0u) in
+  let @641 = boolx8(true) in
+  let @642 = boolx8(false) in
+  shapes_index!top!loop = @638
+  !live!loop = @639
+  !count!loop = @640
+  !live_1 = @641
+  !exit.visited = @642
   while (reduce<any>((*!live_1))) {
     let @484 = boolx8(false) in
     let @485 = boolx8(true) in
@@ -587,15 +587,15 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
       let @283 = @280 && @31 in
       let @32 = build<_option1>() in
       let @353 = reduce<any>(@282) in
-      let @601 = @32.value in
-      let @602 = @601.low in
+      let @599 = @32.value in
+      let @600 = @599.low in
+      let @601 = f32x8(@600) in
+      let @602 = @599.high in
       let @603 = f32x8(@602) in
-      let @604 = @601.high in
-      let @605 = f32x8(@604) in
-      let @606 = build<FInterval$v8>(@603, @605) in
-      let @607 = @32.set in
-      let @608 = boolx8(@607) in
-      let @609 = build<_option1$v8>(@606, @608) in
+      let @604 = build<FInterval$v8>(@601, @603) in
+      let @605 = @32.set in
+      let @606 = boolx8(@605) in
+      let @607 = build<_option1$v8>(@604, @606) in
       if (@353) {
         let sqrtd$i34 = sqrt(_t917) in
         let @34 = _t298$i34 - sqrtd$i34 in
@@ -619,7 +619,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
         let @372 = select(@282, @41, @498) in
         intersectsp_ray_sphere$r34!skip = @372
       } else {
-        intersectsp_ray_sphere$r34!skip = @609
+        intersectsp_ray_sphere$r34!skip = @607
       }
       let _t583 = (*intersectsp_ray_sphere$r34!skip).set in
       let @499 = boolx8(false) in
@@ -628,7 +628,6 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
       let @285 = @280 && @284 in
       let @286 = @280 && _t583 in
       let @354 = reduce<any>(@286) in
-      let @641 = boolx8(false) in
       if (@354) {
         let extract$i0 = (*intersectsp_ray_sphere$r34!skip).value in
         let @46 = extract$i0.low in
@@ -640,7 +639,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
         let @51 = @48 & @50 in
         intersects_Ray_Sphere$r0!skip = @51
       } else {
-        intersects_Ray_Sphere$r0!skip = @641
+        intersects_Ray_Sphere$r0!skip = undef
       }
       let @502 = boolx8(false) in
       let @373 = select(@285, @502, (*intersects_Ray_Sphere$r0!skip)) in
@@ -650,13 +649,11 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
       let @288 = @280 && @287 in
       let @289 = @280 && @373 in
       let @355 = reduce<any>(@289) in
-      let @643 = boolx8(false) in
-      let @644 = boolx8(false) in
-      let @645 = boolx8(false) in
-      let @646 = boolx8(false) in
-      let @647 = boolx8(false) in
-      let @648 = u16x8(0u) in
-      let @649 = u32x8(0u) in
+      let @633 = boolx8(false) in
+      let @634 = boolx8(false) in
+      let @635 = boolx8(false) in
+      let @636 = boolx8(false) in
+      let @637 = boolx8(false) in
       if (@355) {
         let @505 = boolx8(false) in
         let @506 = boolx8(true) in
@@ -676,12 +673,10 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
         let @294 = @289 && @293 in
         let @295 = @289 && @58 in
         let @356 = reduce<any>(@295) in
+        let @628 = boolx8(false) in
+        let @629 = boolx8(false) in
         let @630 = boolx8(false) in
         let @631 = boolx8(false) in
-        let @632 = boolx8(false) in
-        let @633 = boolx8(false) in
-        let @634 = u16x8(0u) in
-        let @635 = u32x8(0u) in
         if (@356) {
           let @511 = boolx8(false) in
           let @512 = boolx8(true) in
@@ -703,9 +698,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
           let @300 = @295 && @299 in
           let @301 = @295 && @67 in
           let @357 = reduce<any>(@301) in
-          let @636 = boolx8(false) in
-          let @637 = u16x8(0u) in
-          let @638 = u32x8(0u) in
+          let @632 = boolx8(false) in
           if (@357) {
             let _t85 = _t905.nPrims in
             let @516 = u8x8(0u) in
@@ -716,8 +709,6 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
             let @303 = @301 && @302 in
             let @304 = @301 && @69 in
             let @359 = reduce<any>(@304) in
-            let @639 = u16x8(0u) in
-            let @640 = u32x8(0u) in
             if (@359) {
               let @70 = f32x3(1f) in
               let @429 = @70[0u] in
@@ -768,17 +759,17 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
               shapes_index!top!latch!skip = @266
               !count!latch!skip = @275
             } else {
-              shapes_index!top!latch!skip = @639
-              !count!latch!skip = @640
+              shapes_index!top!latch!skip = undef
+              !count!latch!skip = undef
             }
             let @358 = reduce<any>(@303) in
             if (@358) {
               let @84 = cast<u16x8>(_t85) in
-              let @628 = u16x8(0u) in
-              let @629 = boolx8(false) in
-              _idx0!loop = @628
+              let @626 = u16x8(0u) in
+              let @627 = boolx8(false) in
+              _idx0!loop = @626
               !live_0 = @303
-              !exit.for__idx0_end_24 = @629
+              !exit.for__idx0_end_24 = @627
               while (reduce<any>((*!live_0))) {
                 let @85 = (*_idx0!loop) < @84 in
                 let @534 = boolx8(false) in
@@ -802,7 +793,6 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                   let @310 = _t361 != @537 in
                   let @311 = @307 && @310 in
                   let @362 = reduce<any>(@311) in
-                  let @599 = boolx8(false) in
                   if (@362) {
                     let _t262$i3 = _t929.payload in
                     let @148 = _t262$i3.!0 in
@@ -831,7 +821,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                     let @171 = @170.set in
                     intersects_Ray_Shape$r3!skip = @171
                   } else {
-                    intersects_Ray_Shape$r3!skip = @599
+                    intersects_Ray_Shape$r3!skip = undef
                   }
                   let @361 = reduce<any>(@309) in
                   if (@361) {
@@ -884,15 +874,15 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                     let @314 = @309 && @125 in
                     let @126 = build<_option1>() in
                     let @363 = reduce<any>(@313) in
-                    let @610 = @126.value in
-                    let @611 = @610.low in
+                    let @608 = @126.value in
+                    let @609 = @608.low in
+                    let @610 = f32x8(@609) in
+                    let @611 = @608.high in
                     let @612 = f32x8(@611) in
-                    let @613 = @610.high in
-                    let @614 = f32x8(@613) in
-                    let @615 = build<FInterval$v8>(@612, @614) in
-                    let @616 = @126.set in
-                    let @617 = boolx8(@616) in
-                    let @618 = build<_option1$v8>(@615, @617) in
+                    let @613 = build<FInterval$v8>(@610, @612) in
+                    let @614 = @126.set in
+                    let @615 = boolx8(@614) in
+                    let @616 = build<_option1$v8>(@613, @615) in
                     if (@363) {
                       let sqrtd$i21$i35 = sqrt(_t947) in
                       let @128 = _t298$i21$i35 - sqrtd$i21$i35 in
@@ -916,7 +906,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                       let @376 = select(@313, @135, @550) in
                       intersectsp_ray_sphere$r21$i35!skip = @376
                     } else {
-                      intersectsp_ray_sphere$r21$i35!skip = @618
+                      intersectsp_ray_sphere$r21$i35!skip = @616
                     }
                     let @137 = (*intersectsp_ray_sphere$r21$i35!skip).set in
                     let @551 = boolx8(false) in
@@ -925,7 +915,6 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                     let @316 = @309 && @315 in
                     let @317 = @309 && @137 in
                     let @364 = reduce<any>(@317) in
-                    let @642 = boolx8(false) in
                     if (@364) {
                       let extract$i35 = (*intersectsp_ray_sphere$r21$i35!skip).value in
                       let @140 = extract$i35.low in
@@ -937,7 +926,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                       let @145 = @142 & @144 in
                       intersects_Ray_Sphere$r35!skip = @145
                     } else {
-                      intersects_Ray_Sphere$r35!skip = @642
+                      intersects_Ray_Sphere$r35!skip = undef
                     }
                     let @554 = boolx8(false) in
                     let @377 = select(@316, @554, (*intersects_Ray_Sphere$r35!skip)) in
@@ -960,7 +949,6 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                     let @323 = _t361 != @558 in
                     let @324 = @320 && @323 in
                     let @367 = reduce<any>(@324) in
-                    let @600 = f32x8(0f) in
                     if (@367) {
                       let _t194$i4 = _t929.payload in
                       let @225 = _t194$i4.!0 in
@@ -1000,7 +988,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                       let @379 = select(@326, @561, @250) in
                       distmin_Ray_Shape$r4!skip = @379
                     } else {
-                      distmin_Ray_Shape$r4!skip = @600
+                      distmin_Ray_Shape$r4!skip = undef
                     }
                     let @366 = reduce<any>(@322) in
                     if (@366) {
@@ -1053,15 +1041,15 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                       let @330 = @322 && @205 in
                       let @206 = build<_option1>() in
                       let @368 = reduce<any>(@329) in
-                      let @619 = @206.value in
-                      let @620 = @619.low in
+                      let @617 = @206.value in
+                      let @618 = @617.low in
+                      let @619 = f32x8(@618) in
+                      let @620 = @617.high in
                       let @621 = f32x8(@620) in
-                      let @622 = @619.high in
-                      let @623 = f32x8(@622) in
-                      let @624 = build<FInterval$v8>(@621, @623) in
-                      let @625 = @206.set in
-                      let @626 = boolx8(@625) in
-                      let @627 = build<_option1$v8>(@624, @626) in
+                      let @622 = build<FInterval$v8>(@619, @621) in
+                      let @623 = @206.set in
+                      let @624 = boolx8(@623) in
+                      let @625 = build<_option1$v8>(@622, @624) in
                       if (@368) {
                         let sqrtd$i17$i36 = sqrt(_t970) in
                         let @208 = _t298$i17$i36 - sqrtd$i17$i36 in
@@ -1085,7 +1073,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                         let @380 = select(@329, @215, @574) in
                         intersectsp_ray_sphere$r17$i36!skip = @380
                       } else {
-                        intersectsp_ray_sphere$r17$i36!skip = @627
+                        intersectsp_ray_sphere$r17$i36!skip = @625
                       }
                       let @217 = (*intersectsp_ray_sphere$r17$i36!skip).set in
                       let @575 = boolx8(false) in
@@ -1154,9 +1142,9 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
               !count!latch!skip0 = (*!count!latch!skip)
             }
           } else {
-            @303!skip = @636
-            shapes_index!top!latch!skip0 = @637
-            !count!latch!skip0 = @638
+            @303!skip = @632
+            shapes_index!top!latch!skip0 = undef
+            !count!latch!skip0 = undef
           }
           let @340 = @300 || (*@303!skip) in
           @300!skip = @300
@@ -1166,12 +1154,12 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
           shapes_index!top!latch!skip1 = (*shapes_index!top!latch!skip0)
           !count!latch!skip1 = (*!count!latch!skip0)
         } else {
-          @300!skip = @630
-          @303!skip0 = @631
-          @303!skip1 = @632
-          @303!skip3 = @633
-          shapes_index!top!latch!skip1 = @634
-          !count!latch!skip1 = @635
+          @300!skip = @628
+          @303!skip0 = @629
+          @303!skip1 = @630
+          @303!skip3 = @631
+          shapes_index!top!latch!skip1 = undef
+          !count!latch!skip1 = undef
         }
         let @341 = @294 || (*@300!skip) in
         let @342 = @341 || (*@303!skip0) in
@@ -1183,13 +1171,13 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
         shapes_index!top!latch!skip2 = (*shapes_index!top!latch!skip1)
         !count!latch!skip2 = (*!count!latch!skip1)
       } else {
-        @294!skip = @643
-        @300!skip0 = @644
-        @303!skip2 = @645
-        @300!skip1 = @646
-        @303!skip4 = @647
-        shapes_index!top!latch!skip2 = @648
-        !count!latch!skip2 = @649
+        @294!skip = @633
+        @300!skip0 = @634
+        @303!skip2 = @635
+        @300!skip1 = @636
+        @303!skip4 = @637
+        shapes_index!top!latch!skip2 = undef
+        !count!latch!skip2 = undef
       }
       let @343 = (*@294!skip) || (*@300!skip0) in
       let @344 = @343 || @288 in
@@ -1668,71 +1656,71 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
   let @92 = boolx8(true) in
   let @65 = select(@9, @91, @92) in
   let @71 = reduce<any>(@9) in
-  let @166 = @5.value in
-  let @167 = @166.tag in
-  let @168 = u8x8(@167) in
-  let @169 = @166._pad in
-  let @170 = @169[0u] in
-  let @171 = u8x8(@170) in
-  let @172 = @169[1u] in
-  let @173 = u8x8(@172) in
-  let @174 = @169[2u] in
-  let @175 = u8x8(@174) in
-  let @176 = @169[3u] in
-  let @177 = u8x8(@176) in
-  let @178 = @169[4u] in
-  let @179 = u8x8(@178) in
-  let @180 = @169[5u] in
-  let @181 = u8x8(@180) in
-  let @182 = @169[6u] in
-  let @183 = u8x8(@182) in
-  let @184 = @169[7u] in
-  let @185 = u8x8(@184) in
-  let @186 = @169[8u] in
-  let @187 = u8x8(@186) in
-  let @188 = @169[9u] in
-  let @189 = u8x8(@188) in
-  let @190 = @169[10u] in
-  let @191 = u8x8(@190) in
-  let @192 = @169[11u] in
-  let @193 = u8x8(@192) in
-  let @194 = @169[12u] in
-  let @195 = u8x8(@194) in
-  let @196 = @169[13u] in
-  let @197 = u8x8(@196) in
-  let @198 = @169[14u] in
-  let @199 = u8x8(@198) in
-  let @200 = build<[[packed]] u8x15$v8>(@171, @173, @175, @177, @179, @181, @183, @185, @187, @189, @191, @193, @195, @197, @199) in
-  let @201 = @166.payload in
-  let @202 = @201[0u] in
-  let @203 = u32x8(@202) in
-  let @204 = @201[1u] in
-  let @205 = u32x8(@204) in
-  let @206 = @201[2u] in
-  let @207 = u32x8(@206) in
-  let @208 = @201[3u] in
-  let @209 = u32x8(@208) in
-  let @210 = @201[4u] in
-  let @211 = u32x8(@210) in
-  let @212 = @201[5u] in
-  let @213 = u32x8(@212) in
-  let @214 = @201[6u] in
-  let @215 = u32x8(@214) in
-  let @216 = @201[7u] in
-  let @217 = u32x8(@216) in
-  let @218 = @201[8u] in
-  let @219 = u32x8(@218) in
-  let @220 = @201[9u] in
-  let @221 = u32x8(@220) in
-  let @222 = @201[10u] in
-  let @223 = u32x8(@222) in
-  let @224 = @201[11u] in
-  let @225 = u32x8(@224) in
-  let @226 = build<[[packed]] u32x12$v8>(@203, @205, @207, @209, @211, @213, @215, @217, @219, @221, @223, @225) in
-  let @227 = build<Shape$v8>(@168, @200, @226) in
-  let @228 = @5.set in
-  let @229 = boolx8(@228) in
-  let @230 = build<_option0$v8>(@227, @229) in
+  let @165 = @5.value in
+  let @166 = @165.tag in
+  let @167 = u8x8(@166) in
+  let @168 = @165._pad in
+  let @169 = @168[0u] in
+  let @170 = u8x8(@169) in
+  let @171 = @168[1u] in
+  let @172 = u8x8(@171) in
+  let @173 = @168[2u] in
+  let @174 = u8x8(@173) in
+  let @175 = @168[3u] in
+  let @176 = u8x8(@175) in
+  let @177 = @168[4u] in
+  let @178 = u8x8(@177) in
+  let @179 = @168[5u] in
+  let @180 = u8x8(@179) in
+  let @181 = @168[6u] in
+  let @182 = u8x8(@181) in
+  let @183 = @168[7u] in
+  let @184 = u8x8(@183) in
+  let @185 = @168[8u] in
+  let @186 = u8x8(@185) in
+  let @187 = @168[9u] in
+  let @188 = u8x8(@187) in
+  let @189 = @168[10u] in
+  let @190 = u8x8(@189) in
+  let @191 = @168[11u] in
+  let @192 = u8x8(@191) in
+  let @193 = @168[12u] in
+  let @194 = u8x8(@193) in
+  let @195 = @168[13u] in
+  let @196 = u8x8(@195) in
+  let @197 = @168[14u] in
+  let @198 = u8x8(@197) in
+  let @199 = build<[[packed]] u8x15$v8>(@170, @172, @174, @176, @178, @180, @182, @184, @186, @188, @190, @192, @194, @196, @198) in
+  let @200 = @165.payload in
+  let @201 = @200[0u] in
+  let @202 = u32x8(@201) in
+  let @203 = @200[1u] in
+  let @204 = u32x8(@203) in
+  let @205 = @200[2u] in
+  let @206 = u32x8(@205) in
+  let @207 = @200[3u] in
+  let @208 = u32x8(@207) in
+  let @209 = @200[4u] in
+  let @210 = u32x8(@209) in
+  let @211 = @200[5u] in
+  let @212 = u32x8(@211) in
+  let @213 = @200[6u] in
+  let @214 = u32x8(@213) in
+  let @215 = @200[7u] in
+  let @216 = u32x8(@215) in
+  let @217 = @200[8u] in
+  let @218 = u32x8(@217) in
+  let @219 = @200[9u] in
+  let @220 = u32x8(@219) in
+  let @221 = @200[10u] in
+  let @222 = u32x8(@221) in
+  let @223 = @200[11u] in
+  let @224 = u32x8(@223) in
+  let @225 = build<[[packed]] u32x12$v8>(@202, @204, @206, @208, @210, @212, @214, @216, @218, @220, @222, @224) in
+  let @226 = build<Shape$v8>(@167, @199, @225) in
+  let @227 = @5.set in
+  let @228 = boolx8(@227) in
+  let @229 = build<_option0$v8>(@226, @228) in
   if (@71) {
     let @10 = (*shapes) in
     let @11 = @10.prims in
@@ -1810,7 +1798,7 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
     let @75 = select(@9, @16, @158) in
     _best0_result$i33$i44!skip = @75
   } else {
-    _best0_result$i33$i44!skip = @230
+    _best0_result$i33$i44!skip = @229
   }
   let @20 = (*_best0_result$i33$i44!skip).set in
   let @21 = !@20 in
@@ -1818,7 +1806,7 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
   let @160 = boolx8(true) in
   let @66 = select(@21, @159, @160) in
   let @72 = reduce<any>(@66) in
-  let @165 = f32x8(-1f) in
+  let @164 = f32x8(-1f) in
   if (@72) {
     let s$i18 = (*_best0_result$i33$i44!skip).value in
     let @24 = s$i18.tag in
@@ -1829,7 +1817,6 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
     let @69 = @24 != @162 in
     let @70 = @66 && @69 in
     let @74 = reduce<any>(@70) in
-    let @164 = f32x8(0f) in
     if (@74) {
       let _t231$i18 = s$i18.payload in
       let @39 = _t231$i18.!0 in
@@ -1858,7 +1845,7 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
       let @62 = @61.!2 in
       hit_z$r18!skip = @62
     } else {
-      hit_z$r18!skip = @164
+      hit_z$r18!skip = undef
     }
     let @73 = reduce<any>(@68) in
     if (@73) {
@@ -1884,7 +1871,7 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
     let @77 = select(@66, (*hit_z$r18!skip0), @163) in
     hit_z$r18!skip1 = @77
   } else {
-    hit_z$r18!skip1 = @165
+    hit_z$r18!skip1 = @164
   }
   out[ramp(0, 1, 8)] = (*hit_z$r18!skip1)
   return

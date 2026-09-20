@@ -49,6 +49,7 @@ struct ValueOrigin {
             overloads{
                 [](const std::string &v) -> std::string { return v; },
                 [](bool v) -> std::string { return v ? "true" : "false"; },
+                [](const ssa::Undefined &) -> std::string { return "undef"; },
                 [](auto v) -> std::string { return std::to_string(v); }},
             c.data);
         return ValueOrigin(Kind::Known, std::move(s));

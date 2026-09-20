@@ -6,7 +6,7 @@
 // A linearized block no lane is on is skipped by a uniform branch on
 // `any(mask)` (see SSA/SkipInactiveBlocks.h). What the block computed is then
 // undefined along the bypass, and every later use of it goes through an
-// argument of the successor that the bypass hands a zero: the blends that
+// argument of the successor that the bypass hands `undef`: the blends that
 // merge the arm select the other side, and the masked stores store nothing.
 // The gang here runs the same code three ways -- with every lane in the arm,
 // with none, and with some -- so all three of the guard's outcomes are taken,

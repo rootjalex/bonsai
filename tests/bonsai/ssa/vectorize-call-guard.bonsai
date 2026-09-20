@@ -13,7 +13,7 @@
 // covered: the arm leaves two ways, to the join and, by the early `return`,
 // to the exit, so it gets no guard around it as a whole, and the call gets a
 // test of its own -- a `!call` block entered on `reduce<any>` of the mask and
-// bypassed to the continuation, which is handed a zero for the value the
+// bypassed to the continuation, which is handed `undef` for the value the
 // call would have returned. One test per mask on any path, and none in the
 // backend: the same program's LLVM is golden-diffed in
 // backends/llvm/vectorize_call_guard.bonsai and run in

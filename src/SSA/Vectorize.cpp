@@ -45,6 +45,10 @@ uint32_t gang_width(const Terminator::ParFor &parfor) {
                                   internal_error << "floating point loop bound";
                                   return 0;
                               },
+                              [](const Undefined &) -> int64_t {
+                                  internal_error << "undefined loop bound";
+                                  return 0;
+                              },
                               [](const string &s) -> int64_t {
                                   internal_error << "symbolic loop bound: "
                                                  << s;
@@ -488,6 +492,12 @@ shared_ptr<Value> broadcast(Function &func, const shared_ptr<Block> &block,
                             const shared_ptr<Value> &value, uint32_t lanes,
                             vector<shared_ptr<Instruction>> &sink) {
     const Type type = value->get_type();
+    // An undefined value is undefined at the gang's width too: nothing to
+    // splat, just the wider type.
+    if (const auto *c = std::get_if<Constant>(&value->data);
+        c != nullptr && std::holds_alternative<Undefined>(c->data)) {
+        return undef_value(widen(type, lanes));
+    }
     if (const Struct_t *s = type.as<Struct_t>()) {
         vector<shared_ptr<Value>> fields;
         fields.reserve(s->fields.size());
@@ -1206,11 +1216,11 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 
 // Puts the masked call that ends `b` behind a test of its mask: the call
 // moves to a block of its own, entered when any lane is on and bypassed
-// straight to the continuation otherwise, which is then handed a zero for the
-// value the call would have returned -- no lane reads it, and a zero rather
-// than nothing so that nothing uniform downstream is fed a value the backend
-// may treat as anything. The mask is the call's last argument (see
-// specialize_calls). The block joins the region.
+// straight to the continuation otherwise, which is then handed an undefined
+// value for the value the call would have returned: no lane is active to read
+// it, and the backend need build nothing for it (see ir::Undef). The mask is
+// the call's last argument (see specialize_calls). The block joins the
+// region.
 void guard_call(Function &func, Cfg &region, BlockId b) {
     const shared_ptr<Block> block = region.block(b);
     Terminator::Jump *call = block->terminator.callee();
@@ -1231,7 +1241,8 @@ void guard_call(Function &func, Cfg &region, BlockId b) {
     guarded->terminator = std::move(block->terminator);
 
     // What the bypass hands the continuation: what the call's edge does, and
-    // first, where the call's value would have gone, a zero.
+    // first, where the call's value would have gone, an undefined value -- no
+    // lane is active to read it, since none was active to make the call.
     const Terminator::Jump *cont = guarded->terminator.continuation();
     internal_assert(cont != nullptr);
     Terminator::Jump bypass = *cont;
@@ -1246,7 +1257,7 @@ void guard_call(Function &func, Cfg &region, BlockId b) {
             << "Call continuation " << target.name
             << " takes no result argument";
         bypass.args.insert(bypass.args.begin(),
-                           zero_value(target.args[0].type, func, block));
+                           undef_value(target.args[0].type));
     }
 
     auto any = std::make_shared<Instruction>(

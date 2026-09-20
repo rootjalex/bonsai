@@ -37,7 +37,7 @@ define void @"sum_to$gang8_v0_v3"(<8 x i32> noundef %n, i32 noundef %acc, ptr no
   br label %"sum_to!loop!loop"
 
 "sum_to!loop!loop":                               ; preds = %"sum_to$gang8_v0_v3", %"sum_to!loop!loop"
-  %"!track.then_0.07" = phi <8 x i32> [ zeroinitializer, %"sum_to$gang8_v0_v3" ], [ %9, %"sum_to!loop!loop" ]
+  %"!track.then_0.07" = phi <8 x i32> [ undef, %"sum_to$gang8_v0_v3" ], [ %9, %"sum_to!loop!loop" ]
   %"!live5" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %"sum_to$gang8_v0_v3" ], [ %8, %"sum_to!loop!loop" ]
   %"acc!loop!loop4" = phi <8 x i32> [ %.splat, %"sum_to$gang8_v0_v3" ], [ %7, %"sum_to!loop!loop" ]
   %"n!loop!loop3" = phi <8 x i32> [ %n, %"sum_to$gang8_v0_v3" ], [ %5, %"sum_to!loop!loop" ]
@@ -70,7 +70,7 @@ triangles:
   br label %"sum_to!loop!loop.i"
 
 "sum_to!loop!loop.i":                             ; preds = %"sum_to!loop!loop.i", %triangles
-  %"!track.then_0.07.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %9, %"sum_to!loop!loop.i" ]
+  %"!track.then_0.07.i" = phi <8 x i32> [ undef, %triangles ], [ %9, %"sum_to!loop!loop.i" ]
   %"!live5.i" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %triangles ], [ %8, %"sum_to!loop!loop.i" ]
   %"acc!loop!loop4.i" = phi <8 x i32> [ zeroinitializer, %triangles ], [ %7, %"sum_to!loop!loop.i" ]
   %"n!loop!loop3.i" = phi <8 x i32> [ %extract, %triangles ], [ %5, %"sum_to!loop!loop.i" ]

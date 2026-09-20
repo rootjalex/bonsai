@@ -42,6 +42,7 @@ struct FloatImm;
 struct BoolImm;
 struct VecImm;
 struct StringImm;
+struct Undef;
 struct Extrema;
 struct SizeOf;
 struct Var;

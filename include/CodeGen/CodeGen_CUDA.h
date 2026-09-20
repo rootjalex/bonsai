@@ -59,6 +59,7 @@ class CodeGen_CUDA : public ir::Printer {
     void visit(const ir::FloatImm *) override;
     void visit(const ir::VecImm *) override;
     void visit(const ir::StringImm *) override;
+    void visit(const ir::Undef *) override;
     void visit(const ir::Extrema *) override;
     void visit(const ir::SizeOf *) override;
     void visit(const ir::Deref *) override;

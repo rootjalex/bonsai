@@ -240,7 +240,7 @@ hit_z_all:
   br label %"!else_4.i"
 
 "!else_4.i":                                      ; preds = %"!then_3.i", %"!merge_2.i"
-  %"intersects_Ray_Sphere$r0!skip.i" = phi <8 x i1> [ zeroinitializer, %"!merge_2.i" ], [ %58, %"!then_3.i" ]
+  %"intersects_Ray_Sphere$r0!skip.i" = phi <8 x i1> [ undef, %"!merge_2.i" ], [ %58, %"!then_3.i" ]
   %not..i = or <8 x i1> %"intersectsp_ray_sphere$r34!skip.set.i", %"!mask!top.not.i"
   %59 = select <8 x i1> %not..i, <8 x i1> %"intersects_Ray_Sphere$r0!skip.i", <8 x i1> zeroinitializer
   %60 = and <8 x i1> %59, %"!mask!top.i.ph"
@@ -400,7 +400,7 @@ hit_z_all:
   br label %"!merge_25.i"
 
 "!merge_25.i":                                    ; preds = %"!merge_30.i", %"!then_31.i"
-  %"intersects_Ray_Sphere$r35!skip.i" = phi <8 x i1> [ zeroinitializer, %"!merge_30.i" ], [ %136, %"!then_31.i" ]
+  %"intersects_Ray_Sphere$r35!skip.i" = phi <8 x i1> [ undef, %"!merge_30.i" ], [ %136, %"!then_31.i" ]
   %not.197.i = or <8 x i1> %"intersectsp_ray_sphere$r21$i35!skip.set.i", %.not198.i
   %137 = select <8 x i1> %not.197.i, <8 x i1> %"intersects_Ray_Sphere$r35!skip.i", <8 x i1> zeroinitializer
   %138 = and <8 x i1> %137, %70
@@ -682,7 +682,7 @@ hit_z_all:
   %"s$i18.payload" = extractvalue %"struct.Shape$v8" %"_best0_result$i33$i44!skip.value", 2
   %"_t231$i18.!10" = extractvalue %"struct.[[packed]] u32x12$v8" %"s$i18.payload", 10
   %255 = bitcast <8 x i32> %"_t231$i18.!10" to <8 x float>
-  %"hit_z$r18!skip" = select i1 %.not23, <8 x float> zeroinitializer, <8 x float> %255
+  %"hit_z$r18!skip" = select i1 %.not23, <8 x float> undef, <8 x float> %255
   %256 = bitcast <8 x i1> %251 to i8
   %.not24 = icmp eq i8 %256, 0
   br i1 %.not24, label %"!merge_8", label %"!case_9"

@@ -119,6 +119,7 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                         [&](const std::string &s) {
                             return StringImm::make(s);
                         },
+                        [&](const Undefined &) { return Undef::make(c.type); },
                     },
                     c.data);
             },

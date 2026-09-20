@@ -6,8 +6,9 @@
 // What to read for: one `br i1` on an or-reduction of the arm's mask per arm
 // of the `if` and of the `match`, and at each landing a `phi` merging the
 // arm's blend with what the bypass hands on -- the value from before the arm,
-// or `false` for a mask, or a zero for a value with nothing before it. No arm
-// computes anything unless some lane is in it.
+// or `false` for a mask, or `undef` for a value with nothing before it. No
+// arm computes anything unless some lane is in it, and nothing is built for
+// the values the bypass hands on.
 import stdlib/numerics;
 
 element Shape =

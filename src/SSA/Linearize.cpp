@@ -1270,8 +1270,9 @@ BlockMasks linearize(Function &func, const string &entry_name,
             }
             auto slot = append(func, entry_block, Ptr_t::make(type),
                                Instruction::Op::Alloca, {});
-            append_store(entry_block, slot,
-                         zero_value(type, func, entry_block));
+            // A lane reads the slot only after a source it was active in
+            // stored to it; what it held before is nothing to any lane.
+            append_store(entry_block, slot, undef_value(type));
             for (const Incoming &source : sources) {
                 const shared_ptr<Block> &from = cfg.block(source.from);
                 shared_ptr<Value> value = value_from(source, j);
@@ -1334,8 +1335,8 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 // outside the arm would have read from the region's blends,
                 // so nothing downstream can tell the arm was skipped. When
                 // the region holds the join's first source there is no value
-                // from before it: the bypass then hands on a zero, which no
-                // lane reads. Every lane at the join comes in along one
+                // from before it: the bypass then hands on an undefined
+                // value, which no lane reads. Every lane at the join comes in along one
                 // source's edge; a lane of a later source takes that source's
                 // value from its select, and a lane of a source in the region
                 // is not there when the region is bypassed. This is the
@@ -1355,8 +1356,9 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     if (it != before_region.end() && it->second) {
                         return it->second;
                     }
-                    return zero_value(block->args[j].type, func,
-                                      cfg.block(g.guard));
+                    // No lane is active on the bypass -- that is what the
+                    // gadget tested -- so no lane reads what it hands over.
+                    return undef_value(block->args[j].type);
                 };
                 if (loop_header != nullptr) {
                     // The header's value of what this argument carries: the

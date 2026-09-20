@@ -27,8 +27,8 @@ weigh_all:
 
 "!else_1!any.i":                                  ; preds = %"!then_0.i", %weigh_all
   %"@71!skip.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %6, %"!then_0.i" ]
-  %"acc!skip.i" = phi <8 x float> [ zeroinitializer, %weigh_all ], [ %8, %"!then_0.i" ]
-  %"!ret!skip.i" = phi <8 x float> [ zeroinitializer, %weigh_all ], [ %4, %"!then_0.i" ]
+  %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %8, %"!then_0.i" ]
+  %"!ret!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %4, %"!then_0.i" ]
   %9 = bitcast <8 x i1> %not..i to i8
   %.not4.i = icmp eq i8 %9, 0
   br i1 %.not4.i, label %"!merge_2.i", label %"!else_1.i"
@@ -73,7 +73,7 @@ weigh_all:
   br label %"!else_9!any.i"
 
 "!else_9!any.i":                                  ; preds = %"!then_8.i", %"!else_6.i"
-  %"classify$r6!skip.i" = phi %"struct.Shape$v8" [ zeroinitializer, %"!else_6.i" ], [ %32, %"!then_8.i" ]
+  %"classify$r6!skip.i" = phi %"struct.Shape$v8" [ undef, %"!else_6.i" ], [ %32, %"!then_8.i" ]
   %33 = bitcast <8 x i1> %24 to i8
   %.not9.i = icmp eq i8 %33, 0
   br i1 %.not9.i, label %"!merge_10.i", label %"!else_9.i"
@@ -142,7 +142,7 @@ weigh_all:
   br label %"!case_13!any.i"
 
 "!case_13!any.i":                                 ; preds = %"!case_14.i", %"!merge_7.i"
-  %"w!skip.i" = phi <8 x float> [ zeroinitializer, %"!merge_7.i" ], [ %79, %"!case_14.i" ]
+  %"w!skip.i" = phi <8 x float> [ undef, %"!merge_7.i" ], [ %79, %"!case_14.i" ]
   %80 = bitcast <8 x i1> %71 to i8
   %.not16.i = icmp eq i8 %80, 0
   br i1 %.not16.i, label %"!case_12!any.i", label %"!case_13.i"
