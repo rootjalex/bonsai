@@ -2019,6 +2019,166 @@ What this leaves open, in the order they are likely to matter:
    their one call site; both are code-size against speed and neither has a
    measurement.
 
+## The scheduling language's mission: MoonRay as a schedule
+
+The mission of bonsai's scheduling language is to represent the transformations
+a production vectorized renderer is made of, concisely, as a schedule of an
+algorithm that says only what is computed. The target for the CPU is the
+architecture of DreamWorks' MoonRay -- Lee, Green, Xie and Tabellion,
+"Vectorized Production Path Tracing", HPG 2017,
+https://www.tabellion.org/et/paper17/MoonRay.pdf -- which is a scalar path
+tracer and a vectorized wavefront one that compute the same images from the same
+shaders, the second built out of exactly the pieces below. `render.bonsai` is
+to stay the scalar algorithm; `schedules/moonray.bonsai`, or whatever it is
+called, is to be a page.
+
+### What MoonRay does, read as a schedule
+
+MoonRay's vectorized rendering phase (their figure 3) is breadth-first: paths
+are not traced to completion one at a time but advanced a stage at a time
+through **queues**, each with a **handler** that runs when the queue is
+flushed. The queues, and what they are in the renderer here:
+
+- **Primary ray queue** (thread-local): camera rays, filled from screen-space
+  tiles, so its entries are coherent by construction. Its handler intersects
+  them (Embree) and puts the hits on the shade queue. Here: `render`'s call of
+  `trace` on the camera ray.
+- **Incoherent ray queue** (thread-local): continuation rays spawned by the
+  integrator; separate from the primary queue so as not to dilute its
+  coherence. Its handler intersects and feeds the shade queue; the shade
+  queue's handler feeds it back, and that cycle is the recursion. Here: the
+  `trace` inside `walk_step` / `path_step`.
+- **Occlusion ray queue** (thread-local): shadow rays, on their own because
+  Embree's occlusion path is a different code path. Here: `trace_any`.
+- **Shade queue** (one per shader instance, *shared* across threads): a hit
+  waiting to be shaded. One queue per material instance is what makes a flush
+  coherent: every entry in it runs the same material, so the shader graph runs
+  once over a full gang with no divergence on the material dispatch. Shared
+  rather than per thread because per-shader-per-thread queues would cost too
+  much memory; they accept the lock contention. Its handler is all of shading,
+  texturing and integration: sort, transpose to AOSOA, run the ISPC material
+  to build a BSDF (up to 8 lobes, a lane mask per lobe), sample lights and the
+  BSDF, MIS, path splitting, Russian roulette, then spawn continuation and
+  occlusion rays onto their queues and radiance onto the radiance queue. Here:
+  `material_bxdf`, the `bxdf_*` and `light_*` dispatches, and the body of the
+  integrator step.
+- **Radiance queue** (thread-local): film writes, queued so that the atomics
+  on the shared frame buffer are batched. Here: the film accumulation at the
+  end of a path.
+
+A queue is a fixed-size buffer, not a FIFO. Entries are appended in batches;
+**whoever fills a queue past its size flushes it, there and then**, which may
+fill and flush another -- "autonomous scheduling", no central dispatcher. A
+flush copies the entries out to a thread-local arena (a multiple of the lane
+width, the rest stay), **sorts** them by a 32-bit key with a radix sort (11-,
+22- or 32-bit variants; 1.5% of the frame), and hands the sorted batch to the
+handler. The frame ends with a drain: each thread flushes its own queues, then
+the shared shade queues, until all are empty. Each entry is 64 bits: the sort
+key and a 32-bit **reference** into a pool of `RayState` records (ray
+differential, throughput, framebuffer destination, whatever must persist while
+a ray waits), allocated from a lock-free pool so a shade queue flushed on one
+thread can free another's states. Rays of different generations mix freely in a
+queue; nothing requires a lane to keep its identity, so there is no
+regeneration or compaction pass -- the queues are the compaction.
+
+The shade queue's sort key (their table 1): light-set index (7 bits), UDIM
+texture tile (7), mip level (4), morton-coded uv (14). Sorting by light set
+first is what keeps the light loop uniform; the rest is for the texture cache.
+Ray sorting by direction for the intersector was tried and was not a win
+(their figure 8); the queues' coherence by shader was enough.
+
+Before the handler runs, the sorted references' AOS payloads are prefetched and
+**transposed in place to AOSOA** with a stride of the SIMD width, so the ISPC
+kernel reads a lane's field with an aligned vector load; outputs go back
+through the reverse transposition. Pointers are split into two 32-bit halves
+for the transpose. Aligned loads alone were 7-8%.
+
+Threading: TBB for the preparation phase; in rendering each thread runs its own
+loop pulling batches of primary rays from one shared work queue, with
+thread-local storage for everything and no heap allocation, so the only lock
+is on the shared shade queues. Scalar functions can be called per lane from
+the vectorized framework, which is how features are prototyped before being
+vectorized.
+
+Their results (AVX2, 8 lanes, dual Xeon E5-2697 v3): shading 4.2-6.2x,
+texturing 1.7-4.2x, integration 2.7-3.0x, ray intersection 1.0-1.2x (Embree
+was already vectorized), overall 1.3-2.3x; vectorization overhead -- queuing,
+sorting, AOSOA -- 7-19% of the frame; light-loop SIMD utilization 51-69%, BSDF
+70-90%.
+
+### What that is in bonsai's words
+
+Every one of those is a transformation of the same algorithm, and most of the
+words exist:
+
+| MoonRay | bonsai directive | status |
+|---|---|---|
+| a call becomes an entry on a queue, the loop becomes a drain | `f.defer(producer, loop, queue)`, `make_queue(queue, loop, size)` | Stmt-level only (Lower/Defers.cpp); a no-op in the SSA pipeline, and unaware of gangs |
+| one queue per kind of ray: primary, incoherent, occlusion | `defer` per call site: `render`'s `trace`, `walk_step`'s `trace`, `trace_any` | needs call-site cursors, not just callee names |
+| one shade queue per material instance | a queue sharded by the value's variant (and instance) | missing: `defer` keyed by an ADT tag |
+| a flush sorts by a key before the handler | `sort(queue, key)` | `sort` is for tree children only (Lower/Sorts.cpp); "TODO: queue sorting" in Schedule.h |
+| the handler runs a full gang over the sorted batch | `vectorize` over the drain loop | the gang exists; it does not yet draw from a queue |
+| thread-local queues, one shared | `bind(queue, CPUThread)`; a `shared` queue | missing |
+| flush when full, whoever filled it; drain at the end | queue size + flush policy on `make_queue` | missing |
+| `RayState` pool, 32-bit references, AOS to AOSOA | the layout language: the queue entry's layout, a reference as an index (never a pointer), a struct-of-vectors layout at gang stride | layouts exist for trees and arrays; not yet for queues |
+| radiance queue in front of the frame buffer | `defer` on the film write | same mechanism as the ray queues |
+| a shader runs once per gang because the queue is per material | `coherent` (item 7's list, 1) on the dispatch, made worthwhile by the sort | designed, not built |
+| scalar functions from vectorized code | a per-lane scalar call from a gang (`foreach_unique`-style; item 7's list, 5) | missing |
+
+Everything in the left column is "how", and none of it may touch
+`render.bonsai`: the algorithm already says the walk is a tail recursion and the
+render a `parfor`, which is all the schedule needs. The reference for this,
+too, is that the scalar and vectorized MoonRay compute identical images; here
+the check is `compare.sh` against pbrt and against the scalar schedule.
+
+### The next scheduling commands, in order
+
+1. **`defer` in the SSA pipeline, on a vectorized gang.** The loopified tail
+   recursion of `walk_step` becomes stages over a queue: a lane whose path
+   continues appends its state (ray, throughput, depth, sampler state, film
+   slot) to the queue; the gang refills from it. This is compaction (item 7's
+   list, 4) and MoonRay's incoherent ray queue at once. The queue entry's layout
+   is the layout language's; per-lane state is spilled by field, gathered back
+   as SoA. Test on `walk_step` alone, compare against the loopified schedule
+   to the bit, measure utilization at depth 5.
+2. **Queue kinds by call site.** `defer` addressed to a call inside a function
+   (a cursor like `skip`'s, by provenance of the call) so primary, secondary
+   and occlusion rays get their own queues.
+3. **`sort(queue, key)`**: sort a queue's batch by a lambda over the entry
+   before its handler runs -- radix on a 32-bit key as MoonRay does -- and
+   **sharding a queue by variant**: `defer(..., queue)` where `queue` is
+   indexed by the entry's material tag, one queue per material, so the shade
+   handler's material dispatch is uniform. Then `coherent` on that dispatch is
+   the all-on copy, which is where the shading speedup comes from.
+4. **Queue placement and policy**: `bind(queue, CPUThread)` for thread-local
+   queues, a shared queue for shading, `make_queue`'s size, flush-when-full by
+   the filler, and the end-of-frame drain. This is the threading model; the
+   `parfor` over pixels stays bound to `CPUThread` and each thread's queues are
+   its own.
+5. **The radiance queue**, and AOSOA layouts for queue entries and per-lane
+   aggregates -- the layout language saying "struct of vectors at gang stride"
+   for a queue's storage.
+
+The measurement that says whether each step earned its place is the same as
+always: `eval/render_matrix.py` over depth and sample count, packet against the
+new schedule against pbrt, images checked.
+
+### Resuming from here
+
+Committed on `ajr/ssa` as of 2026-09-19: `d105110e` the eval tool
+(`eval/render_matrix.py`, README in `eval/`); `51f09fd0` the undef value;
+`926ad9f2` the eval tool checking its options up front; `a5b4769b` provenance
+on match arms and the `skip` cursor, the mandatory-gadget rule corrected
+(constant-index payload reads are not memory), and a linearizer fix for a
+branch on a join's own argument. The test suite is green but for two CUDA
+goldens (`backends/cuda/parallel`, `rtiow-primer`) that have failed since the
+`map`-to-`parfor` change of 2026-08-28 and are not this work's. Build with
+`make -C build bonsai_compiler bonsai_test_runner` in the `bonsai` conda
+environment; `ctest -j 12` in `build/`. The schedule files are
+`apps/pbrt/schedules/{packet,perlane,scalar}.bonsai`; `packet.bonsai` documents
+`skip` and says why it uses none. Item 7 above has the gadget measurement and
+the deferred list; this section has the plan for what comes next.
+
 ## What has been built, and what it cost
 
 ### Where the time went
