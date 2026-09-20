@@ -216,8 +216,11 @@ one of scalar node indices and one of masks, each node's bounds and children
 loaded once and broadcast, the sort's order settled by a vote of the lanes, and
 a child pushed only if some lane is on. That is Wald's packet traversal
 (Wald, Slusallek, Benthin & Wagner, Eurographics 2001), for the top-level tree
-and for every instance's tree beneath it, derived rather than written. See
-PLAN.md, "What is next", item 6, for the measurements.
+and for every instance's tree beneath it, derived rather than written. The
+two orders and the scalar baseline are the three files in `schedules/`, each
+compiled beside `render.bonsai`; `eval/render_matrix.py` runs them against
+pbrt over depth and sample count and plots the speedups. See PLAN.md, "What is
+next", item 6, for the measurements.
 
 ## 7. The sample loop is deliberately sequential
 

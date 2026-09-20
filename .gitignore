@@ -73,6 +73,8 @@ apps/rtiow/cpu/compare-out/
 # their outputs apart.
 apps/pbrt/compare-out*/
 apps/pbrt/bench-out/
+eval/out/
+eval/plots/
 
 # What apps/pbrt/render.sh leaves beside the source, and what Python leaves
 # beside its scripts. scene_dump is built on demand from PBRT's own build tree

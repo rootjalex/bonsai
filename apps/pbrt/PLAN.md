@@ -1839,7 +1839,13 @@ order the schedule already had the words for.
 
 Loopified first and then vectorized, a traversal is a loop each lane walks at
 its own pace over a stack of its own -- the per-lane form, still available by
-writing it that way. Vectorized first, the recursion is made by the gang as a
+writing it that way. The three ways of running the program are three files,
+`apps/pbrt/schedules/{packet,perlane,scalar}.bonsai`, each compiled beside
+`render.bonsai` as a second input (`-i render.bonsai -i schedules/packet.bonsai`;
+`compare.sh --schedule perlane`), and `eval/render_matrix.py` renders a scene
+over a grid of depths and sample counts under all three and pbrt, checks
+every image against pbrt's, and plots the speedups. Vectorized
+first, the recursion is made by the gang as a
 whole: the callee is specialized for one node the lanes share and a mask of
 the lanes whose ray reached it, and `loopify()` then puts that recursion on a
 stack -- one of scalar node indices, `u32[64]`, beside one of masks,
@@ -1857,10 +1863,14 @@ the gang: every compare-and-swap of the sorting network is a `vote`
 lanes that are on -- `2 * popcount(cmp & mask) > popcount(mask)`, two `ctpop`
 and a compare -- when it decides between children the lanes share, and drops
 when the children are already per lane. A child is descended into or pushed
-only if some lane wants it: the pushes `loopify()` makes carry the `any(mask)`
-test the masked call they replace was entered under, without which a packet
-no ray reached the node with pushed children read off a bypassed, zeroed node
-and descended without end. And the divergence analysis had to stop calling a
+only if some lane wants it -- without that a packet no ray reached the node
+with pushed children read off a bypassed, zeroed node and descended without
+end -- and the test is made once: the arm a run sits in is behind the
+linearizer's own `any(mask)` guard (the BOSCC gadget), and `loopify()` puts a
+test in front of its pushes only where no test above already covers the mask
+(`known_nonempty`, SSA/Analysis.h), which in this render is nowhere; the same
+rule decides the test in front of every masked call, and the backend makes no
+tests of its own. And the divergence analysis had to stop calling a
 loop header divergent for running inside a divergent branch's arm -- the join
 rule now finds the joins of a divergent branch by propagating labels along
 forward edges, as LLVM's sync dependence analysis does, and a header's lanes
