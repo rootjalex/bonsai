@@ -1,0 +1,35 @@
+//! flags: -p ssa
+
+// A queue owned by a loop: `paths = render.queue(p)` is one queue per
+// iteration of `p`, allocated and drained inside it, filled by the `s` loop
+// nested in it. That is the shape of a per-pixel queue of a pixel's sample
+// paths, `p` the pixel and `s` the sample.
+//
+// What to read for: the queue is made in the body of `p`, sized by the trip
+// count of `s`; `p` is in scope where the drain runs and so is passed to the
+// drain's call from scope rather than stored in the entry, which holds `s`,
+// `depth` and `acc`; and the drain sits between the `s` loop and the end of
+// the `p` iteration.
+func walk(p : i32, s : i32, depth : i32, acc : i32,
+          out : mut array[i32, 16]) -> void {
+    if depth == 0 {
+        out[p * 4 + s] = acc;
+        return;
+    }
+    walk(p, s, depth - 1, acc + depth, out);
+    return;
+}
+
+func render(out : mut array[i32, 16]) -> void {
+    parfor p in 0:4 {
+        parfor s in 0:4 {
+            walk(p, s, s, 0, out);
+        }
+    }
+    return;
+}
+
+schedule {
+    paths = render.queue(p);
+    walk.defer(walk, paths);
+}

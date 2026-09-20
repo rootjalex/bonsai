@@ -853,13 +853,17 @@ Stmt Mutator::visit(const ParFor *node) {
         end.same_as(s.end) && stride.same_as(s.stride)) {
         return node;
     }
+    // With its binding: a rebuilt loop is the same loop, and a schedule's
+    // bind() is on it wherever it ends up. Dropping it here meant that any
+    // pass which changed a bound loop's body after the schedule had been
+    // applied quietly turned the loop sequential.
     return ParFor::make(std::move(node->index),
                         ParFor::Slice{
                             .begin = std::move(begin),
                             .end = std::move(end),
                             .stride = std::move(stride),
                         },
-                        std::move(body));
+                        std::move(body), node->binding);
 }
 
 Stmt Mutator::visit(const Continue *node) { return node; }

@@ -315,6 +315,7 @@ bool touches_memory(const Instruction &instr) {
     case Instruction::Op::Alloc:
     case Instruction::Op::Alloca:
     case Instruction::Op::Append:
+    case Instruction::Op::Push:
         return true;
     default:
         return false;

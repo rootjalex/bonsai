@@ -5,7 +5,6 @@
 #include "Lower/ADTs.h"
 #include "Lower/Bindings.h"
 #include "Lower/Canonicalize.h"
-#include "Lower/Defers.h"
 #include "Lower/DynamicArrays.h"
 #include "Lower/DynamicSets.h"
 #include "Lower/Externs.h"
@@ -153,7 +152,6 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerSorts>();
-    manager.register_pass<LowerDefers>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerElementReferences>();
@@ -202,7 +200,6 @@ PassManager register_passes(const CompilerOptions &options) {
     // recursion, and while a motion is still a GeomOp: after LowerTrees and
     // LowerSorts, before LowerGeometrics. See Opt/PullQueries.h.
     core.push_back(std::make_unique<opt::PullQueries>());
-    core.push_back(std::make_unique<LowerDefers>());
     // Geometrics before Externs. A geometric op is not yet a call, so the
     // free-variable walk that decides which functions an extern reaches cannot
     // see through one -- and LowerGeometrics builds its call from the
@@ -269,7 +266,6 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerSorts>());
     // After LowerSorts, before LowerGeometrics; see `core`.
     ssa.push_back(std::make_unique<opt::PullQueries>());
-    ssa.push_back(std::make_unique<LowerDefers>());
     // Geometrics before Externs; see the note in `core`.
     ssa.push_back(std::make_unique<LowerGeometrics>());
     ssa.push_back(std::make_unique<LowerExterns>());
@@ -358,7 +354,6 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerTrees>());
     ssa_analysis.push_back(std::make_unique<LowerSorts>());
     ssa_analysis.push_back(std::make_unique<opt::PullQueries>());
-    ssa_analysis.push_back(std::make_unique<LowerDefers>());
     // Geometrics before Externs; see the note in `core`.
     ssa_analysis.push_back(std::make_unique<LowerGeometrics>());
     ssa_analysis.push_back(std::make_unique<LowerExterns>());
@@ -402,7 +397,6 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerSorts>());
     // After LowerSorts, before LowerGeometrics; see `core`.
     d.push_back(std::make_unique<opt::PullQueries>());
-    d.push_back(std::make_unique<LowerDefers>());
     // Geometrics before Externs; see the note in `core`.
     d.push_back(std::make_unique<LowerGeometrics>());
     d.push_back(std::make_unique<LowerExterns>());

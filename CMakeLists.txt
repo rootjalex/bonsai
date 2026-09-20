@@ -131,7 +131,6 @@ target_sources(
     src/IR/WriteLoc.cpp
     src/Lower/Canonicalize.cpp
     src/Lower/CompilerOptions.cpp
-    src/Lower/Defers.cpp
     src/Lower/DynamicArrays.cpp
     src/Lower/DynamicSets.cpp
     src/Lower/ElementReferences.cpp
@@ -188,6 +187,7 @@ target_sources(
     src/SSA/CollapseLoops.cpp
     src/SSA/Contention.cpp
     src/SSA/Contract.cpp
+    src/SSA/Defer.cpp
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp
@@ -250,7 +250,6 @@ target_sources(
     include/IntrusivePtr.h
     include/LLVMIncl.h
     include/Lower/Canonicalize.h
-    include/Lower/Defers.h
     include/Lower/DynamicArrays.h
     include/Lower/DynamicSets.h
     include/Lower/ElementReferences.h
@@ -302,6 +301,7 @@ target_sources(
     include/SSA/CloneFunction.h
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
+    include/SSA/Defer.h
     include/SSA/DumpAnalysis.h
     include/SSA/InsertPreheader.h
     include/SSA/InvariantDivision.h

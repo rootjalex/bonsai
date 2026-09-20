@@ -157,8 +157,8 @@ struct Rename : public ir::Mutator {
             .end = mutate(node->slice.end),
             .stride = mutate(node->slice.stride),
         };
-        return make(
-            ir::ParFor::make(node->index, std::move(slice), std::move(body)));
+        return make(ir::ParFor::make(node->index, std::move(slice),
+                                     std::move(body), node->binding));
     }
 
     ir::Stmt visit(const ir::DoWhile *node) override {

@@ -323,6 +323,16 @@ void Printer::print(const Schedule &schedule) {
         os << get_indent() << "};\n";
     }
 
+    for (const auto &[name, queue] : schedule.queues) {
+        os << get_indent() << name << " = " << queue.owner << ".queue(";
+        print(queue.loop);
+        if (queue.capacity.has_value()) {
+            os << ", ";
+            print(*queue.capacity);
+        }
+        os << ");\n";
+    }
+
     for (const auto &[func, ts] : schedule.func_transforms) {
         os << get_indent() << func;
         std::string whitespace(func.size(), ' ');
@@ -333,28 +343,13 @@ void Printer::print(const Schedule &schedule) {
             os << ".";
             std::visit(Overloaded{[&](const Defer &def) {
                                       os << "defer(";
-                                      print(def.producer);
-                                      os << ", ";
-                                      print(def.loop);
-                                      os << ", ";
-                                      print(def.queue);
-                                      os << ")";
+                                      print(def.callee);
+                                      os << ", " << def.queue << ")";
                                   },
                                   [&](const Loopify &l) {
                                       os << "loopify(";
                                       if (l.queue_size.has_value()) {
                                           print(*l.queue_size);
-                                      }
-                                      os << ")";
-                                  },
-                                  [&](const MakeQueue &q) {
-                                      os << "make_queue(";
-                                      print(q.queue);
-                                      os << ", ";
-                                      print(q.loop);
-                                      if (q.queue_size.has_value()) {
-                                          os << ", ";
-                                          print(*q.queue_size);
                                       }
                                       os << ")";
                                   },

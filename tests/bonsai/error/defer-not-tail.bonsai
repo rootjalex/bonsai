@@ -1,0 +1,23 @@
+//! flags: -p ssa
+
+// defer() refuses a deferred call that is not in tail position: `tally` adds
+// to the result of its recursive call after the call returns, and that
+// addition is state on the call stack an entry does not carry.
+func tally(n : i32) -> i32 {
+  if (n <= 0) {
+    return 0;
+  }
+  return 1 + tally(n - 1);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+  parfor i in 0:8 {
+    out[i] = tally(i);
+  }
+  return;
+}
+
+schedule {
+  counts = run.queue(root);
+  tally.defer(tally, counts);
+}

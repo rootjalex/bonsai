@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Defer.cpp:852
+
+--> is_tail_call(call, fmap)
+tally.defer(tally, counts): the call to tally in !merge_1 is not in tail position -- tally does more with its result than return. The work after the call is state on the call stack that the entry would have to carry, and an entry carries only the call's arguments. Not supported yet.

@@ -1,0 +1,26 @@
+//! flags: -p ssa
+
+// A recursion is run depth first or breadth first, not both: once loopify()
+// has made `fill`'s tail call a back edge there is no call left for defer()
+// to queue, and it says so rather than quietly deferring nothing.
+func fill(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  fill(n - 1, acc + n, out, i);
+  return;
+}
+
+func run(out : mut array[i32, 8]) -> void {
+  parfor i in 0:8 {
+    fill(i, 0, out, i);
+  }
+  return;
+}
+
+schedule {
+  sums = run.queue(root);
+  fill.loopify();
+  fill.defer(fill, sums);
+}

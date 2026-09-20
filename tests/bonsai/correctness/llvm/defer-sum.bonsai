@@ -1,5 +1,13 @@
-//! flags: -b llvm -e
+//! flags: -p ssa -b llvm -e
 
+// A deferred tail recursion, run: `stupid_sum` adds up the array one element
+// per call, and each call after the first is an entry on a queue that
+// `compute` drains before it returns -- eight rounds of one entry each, in a
+// queue of one. The answer has to be the plain recursion's.
+//
+// The continuation after the deferred call is `res = <sum>`, where `res` is
+// `compute`'s own parameter: available where the drain runs, so the drain can
+// run that continuation for the entry that finishes.
 func stupid_sum(i : i32, n : i32, a : array[f32, n], acc : f32) -> f32 {
     if i == n {
         return acc;
@@ -22,9 +30,7 @@ func main() -> i32 {
     return 0;
 }
 
-
-
 schedule {
-    compute.make_queue(queue, root, 1);
-    stupid_sum.defer(stupid_sum, compute.root, queue);
+    queue = compute.queue(root);
+    stupid_sum.defer(stupid_sum, queue);
 }

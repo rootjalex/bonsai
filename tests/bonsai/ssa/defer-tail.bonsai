@@ -1,0 +1,39 @@
+//! flags: -p ssa
+
+// `defer()` as an SSA rewrite (ssa::defer in SSA/Defer.cpp): a tail-recursive
+// call becomes an entry on a queue, and the function that owns the queue
+// drains it after the loop that filled it.
+//
+// `fill` sums n down to one into `out[i]`. Its recursive call is in tail
+// position and the sum it carries is in its own arguments, so the call's
+// continuation is exactly those arguments: `n` and `acc` change every step and
+// `i` differs per producer iteration, so the three of them are the entry; `out`
+// is the same array at every call and stays a parameter of the drain's call.
+//
+// What to read for: `fill` takes the queue and returns a flag, its recursive
+// call is a push and `return true`, and `run` holds one queue -- a count and
+// an array of entries sized by the parfor's trip count -- pushes into it from
+// the parfor, and then loops before returning: while the queue is not empty,
+// take its count, reset it, and run that many entries, each successor pushed
+// at a slot at or before the one being read. The drain's parfor is named
+// after the queue.
+func fill(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+  if (n <= 0) {
+    out[i] = acc;
+    return;
+  }
+  fill(n - 1, acc + n, out, i);
+  return;
+}
+
+func run(out : mut array[i32, 8]) -> void {
+  parfor i in 0:8 {
+    fill(i, 0, out, i);
+  }
+  return;
+}
+
+schedule {
+  sums = run.queue(root);
+  fill.defer(fill, sums);
+}

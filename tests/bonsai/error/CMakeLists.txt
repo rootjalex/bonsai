@@ -15,6 +15,9 @@ add_bonsai_tests(
     call-statement-arg-type.bonsai
     collapse-dependent-range.bonsai
     collapse-not-nested.bonsai
+    defer-after-loopify.bonsai
+    defer-branching.bonsai
+    defer-not-tail.bonsai
     extent-undeclared-element.bonsai
     extent-variant-fields.bonsai
     match-expr-arm-types.bonsai

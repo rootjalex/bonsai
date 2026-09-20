@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Defer.cpp:841
+
+--> !sites.empty()
+fill.defer(fill, sums): fill makes no call to fill. If the schedule also loopifies it, the recursion is a loop by the time defer runs: a recursion is run either depth first or breadth first, not both.

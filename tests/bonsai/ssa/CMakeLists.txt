@@ -5,6 +5,10 @@ add_bonsai_tests(
     alias-edges.bonsai
     calls.bonsai
     collapse.bonsai
+    defer-frame.bonsai
+    defer-lone-call.bonsai
+    defer-loop-owned.bonsai
+    defer-tail.bonsai
     divergence.bonsai
     forall.bonsai
     invariant-division.bonsai

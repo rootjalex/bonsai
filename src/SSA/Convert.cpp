@@ -2,6 +2,7 @@
 
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
+#include "SSA/Defer.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/InvariantDivision.h"
 #include "SSA/Rewrite.h"
@@ -1575,6 +1576,7 @@ void check_branch_policies(const FuncMap &fmap,
 ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     const ir::TransformOrder &order,
                     const ir::BranchPolicyMap &policies,
+                    const std::map<std::string, ir::Queue> &queues,
                     const CompilerOptions &options,
                     ir::Program *keep_ssa = nullptr) {
     FuncMap fmap;
@@ -1675,7 +1677,6 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Collapse &) { return "collapse"; },
                           [](const ir::Defer &) { return "defer"; },
                           [](const ir::Loopify &) { return "loopify"; },
-                          [](const ir::MakeQueue &) { return "make_queue"; },
                           [](const ir::Split &) { return "split"; },
                           [](const ir::Sort &) { return "sort"; },
                           [](const ir::Vectorize &) { return "vectorize"; }},
@@ -1730,10 +1731,44 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             divide_all();
                         }
                     },
+                    [&](const ir::Defer &d) {
+                        internal_assert(!d.callee.names.empty())
+                            << "defer() requires a callee for: " << name;
+                        const auto q = queues.find(d.queue);
+                        internal_assert(q != queues.end())
+                            << name << ".defer(" << d.callee.names.back()
+                            << ", " << d.queue << ") names a queue no "
+                            << "schedule block declares. Declare it: `"
+                            << d.queue << " = <func>.queue(<loop>);`";
+                        QueueSpec spec;
+                        spec.name = d.queue;
+                        spec.owner = q->second.owner;
+                        internal_assert(!q->second.loop.names.empty())
+                            << d.queue << " names no loop";
+                        spec.loop = q->second.loop.names.back();
+                        if (q->second.capacity.has_value()) {
+                            const auto n = get_constant_value<int64_t>(
+                                *q->second.capacity);
+                            internal_assert(n.has_value() && *n > 0)
+                                << d.queue << " = " << spec.owner << ".queue("
+                                << spec.loop << ", " << *q->second.capacity
+                                << ") needs a constant, positive capacity";
+                            spec.capacity = uint64_t(*n);
+                        }
+                        // The entry, queue and flag types it made are the
+                        // program's now, for the printer and the backends'
+                        // declarations.
+                        for (const Type &made :
+                             defer(fmap, name, d.callee.names.back(), spec)) {
+                            const auto *s = made.as<Struct_t>();
+                            internal_assert(s) << made;
+                            if (keep_ssa != nullptr) {
+                                keep_ssa->types[s->name] = made;
+                            }
+                        }
+                    },
                     // Applied earlier in lowering, by the pass named.
-                    [&](const ir::Defer &) {},     // Lower/Defers.cpp
-                    [&](const ir::MakeQueue &) {}, // Lower/Defers.cpp
-                    [&](const ir::Sort &) {},      // Lower/Sorts.cpp
+                    [&](const ir::Sort &) {}, // Lower/Sorts.cpp
                     [&](const ir::Split &s) {
                         internal_assert(!s.i.names.empty() &&
                                         !s.io.names.empty() &&
@@ -1812,12 +1847,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     }
 
     // A transform may have added functions -- vectorize() specializes the
-    // callees of a gang -- whose types nothing has recorded yet. Their
-    // signature is whatever their entry block takes and their return says.
+    // callees of a gang -- whose types nothing has recorded yet, or changed
+    // a function's shape -- defer() hands a chain of functions the queue and
+    // has them return a flag. A signature is whatever the entry block takes
+    // and the return says, so every function's is read back from the graph.
     for (const auto &[name, f] : fmap) {
-        if (func_type_map.contains(name)) {
-            continue;
-        }
         internal_assert(!f->blocks.empty()) << name << " has no blocks";
         std::vector<Function_t::ArgSig> args;
         for (const auto &arg : f->blocks.front()->args) {
@@ -1835,6 +1869,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     }
     if (options.is_verbose && !options.dump_ssa_postschedule) {
         dump_ssa(std::cerr, "postschedule", fmap, /*include_imported=*/true);
+    }
+
+    // A queue's push stays one instruction while the schedule is applied,
+    // for the vectorizer to recognize; from here on it is the fetch-and-add
+    // and the store it stands for (see SSA/Defer.h).
+    for (const auto &[name, f] : fmap) {
+        lower_pushes(*f);
     }
 
     ir::FuncMap new_funcs;
@@ -1872,11 +1913,13 @@ ir::Program ConvertToSSA::run(ir::Program program,
     ir::TransformMap transforms;
     ir::TransformOrder order;
     ir::BranchPolicyMap policies;
+    std::map<std::string, ir::Queue> queues;
     if (const auto it = program.schedules.find(ir::Target::Host);
         it != program.schedules.end()) {
         transforms = it->second.func_transforms;
         order = it->second.transform_order;
         policies = it->second.branch_policies;
+        queues = it->second.queues;
     }
 
     ir::Program new_program;
@@ -1884,13 +1927,13 @@ ir::Program ConvertToSSA::run(ir::Program program,
     new_program.externs = program.externs;
     new_program.schedules = program.schedules;
     new_program.funcs = convert(std::move(program.funcs), transforms, order,
-                                policies, options, &new_program);
+                                policies, queues, options, &new_program);
     return new_program;
 }
 
 ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
-    return convert(std::move(funcs), {}, {}, {}, options);
+    return convert(std::move(funcs), {}, {}, {}, {}, options);
 }
 
 } // namespace ssa

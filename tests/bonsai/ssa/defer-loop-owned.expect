@@ -1,0 +1,76 @@
+type Entry_paths = struct Entry_paths{ s : i32; depth : i32; acc : i32 }
+type Queue_paths = struct Queue_paths{ count : u32; data : struct Entry_paths{ s : i32; depth : i32; acc : i32 }[] }
+
+func render(out : mut i32[16]) -> void {
+  parfor p in [0:4:1] {
+    paths!round : mut u32
+    paths_entries_0 : mut Entry_paths[4]
+    paths_entries_1 : mut Entry_paths[4]
+    paths_queue : mut Queue_paths[2]
+    let @0 = build<Queue_paths>(0u, paths_entries_0) in
+    paths_queue[0u] = @0
+    let @2 = build<Queue_paths>(0u, paths_entries_1) in
+    paths_queue[1u] = @2
+    parfor s in [0:4:1] {
+      let @5 = walk(p, s, s, 0, out, (&paths_queue[0u])) in
+      if (@5) {
+        continue
+      } else {
+        continue
+      }
+    }
+    paths!round = 0u
+    while (!(paths_queue[(*paths!round) & 1u].count == 0u)) {
+      let @7 = (*paths!round) & 1u in
+      let @9 = paths_queue[(*paths!round) & 1u].count in
+      let @11 = @7 ^ 1u in
+      paths_queue[@11].count = 0u
+      parfor paths in [0u:@9:1u] {
+        let @14 = paths_queue[@7] in
+        let @15 = @14.data in
+        let @16 = @15[paths] in
+        let @17 = @16.s in
+        let @18 = @16.depth in
+        let @19 = @16.acc in
+        let @21 = walk(p, @17, @18, @19, out, (&paths_queue[@11])) in
+        if (@21) {
+          continue
+        } else {
+          continue
+        }
+      }
+      let @6 = (*paths!round) + 1u in
+      paths!round = @6
+    }
+    continue
+  }
+  return
+}
+
+func [[noinline]] walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[16], _queue_paths : mut (Queue_paths*)) -> bool {
+  let @0 = depth == 0 in
+  if (@0) {
+    let @1 = p << 2 in
+    let @2 = @1 + s in
+    out[@2] = acc
+    return false
+  } else {
+    let @4 = depth - 1 in
+    let @5 = acc + depth in
+    let @6 = build<Entry_paths>(s, @4, @5) in
+    let @9 = (*_queue_paths) in
+    let @10 = atomic_add((&(*_queue_paths).count), 1u) in
+    let @11 = @9.data in
+    @11[@10].s = s
+    @11[@10].depth = @4
+    @11[@10].acc = @5
+    return true
+  }
+}
+
+
+schedule host {
+    paths = render.queue(p);
+    walk.defer(walk, paths)
+
+}

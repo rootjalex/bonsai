@@ -1,0 +1,29 @@
+//! flags: -p ssa
+
+// A queue whose producer is one call rather than a loop: `compute` calls the
+// recursion once, so an iteration of the owner pushes at most one entry and
+// the queue holds one. The deferred call returns a value, and what `compute`
+// does with it -- store it to `res`, a parameter of its own -- is the
+// continuation the drain runs for the entry that finishes.
+//
+// What to read for: the recursion returns a `Saved_` struct of flag and value;
+// `compute` tests the flag after its own call and runs the store only when the
+// value came back, and its drain does the same for every entry; the queue is
+// of one entry.
+func stupid_sum(i : i32, n : i32, a : array[f32, n], acc : f32) -> f32 {
+    if i == n {
+        return acc;
+    } else {
+        return stupid_sum(i + 1, n, a, acc + a[i]);
+    }
+}
+
+func compute(n : i32, a : array[f32, n], res : mut f32) {
+    res = stupid_sum(0, n, a, 0.0);
+    return;
+}
+
+schedule {
+    queue = compute.queue(root);
+    stupid_sum.defer(stupid_sum, queue);
+}

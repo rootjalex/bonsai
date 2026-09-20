@@ -1,0 +1,27 @@
+//! flags: -p ssa
+
+// defer() is linear: a step may make at most one deferred call, so that the
+// number of entries in flight never grows and the queue can be sized by the
+// producer count. A recursion that visits two children makes two, and the
+// first of them is not in tail position -- the second call is what follows
+// it. Refused, with the stack (loopify(N)) as the way to run a branching
+// recursion without recursing.
+func visit(node : i32, out : mut array[i32, 16], depth : i32) -> void {
+  if (depth <= 0) {
+    out[node] = depth;
+    return;
+  }
+  visit(node * 2, out, depth - 1);
+  visit(node * 2 + 1, out, depth - 1);
+  return;
+}
+
+func run(out : mut array[i32, 16]) -> void {
+  visit(1, out, 3);
+  return;
+}
+
+schedule {
+  nodes = run.queue(root);
+  visit.defer(visit, nodes);
+}

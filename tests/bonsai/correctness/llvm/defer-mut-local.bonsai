@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm -e
+
+// A mutable local of the producer's iteration, handed to the deferred callee
+// and read after the call: the shape of a sampler's state, or the visible
+// surface a path fills in for the film. `best` lives on the iteration's
+// stack, so a pointer to it cannot wait in the queue; the entry carries its
+// contents instead -- stored by the callee at the push, since the callee has
+// the pointer -- and the drain runs the entry with a local of its own, which
+// the copy of `out[i] = best` then reads. `i` is the producer's own state,
+// written by the producer once the call says it saved.
+func walk(n : i32, acc : i32, best : mut i32) -> void {
+    if (n <= 0) {
+        best = acc;
+        return;
+    }
+    walk(n - 1, acc + n, best);
+    return;
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        b : mut i32 = -1;
+        walk(i, 0, b);
+        out[i] = b;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

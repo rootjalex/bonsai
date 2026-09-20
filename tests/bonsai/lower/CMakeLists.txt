@@ -9,8 +9,6 @@ add_bonsai_tests(
     array.bonsai
     bvh.bonsai
     collision.bonsai
-    defer-dbl-buffer.bonsai
-    defer.bonsai
     element-reference-variant.bonsai
     exported-function.bonsai
     extent-after-functions.bonsai

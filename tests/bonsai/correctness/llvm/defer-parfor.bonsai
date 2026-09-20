@@ -1,0 +1,34 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred tail recursion whose entries come from a parfor: every iteration
+// of `run`'s loop starts a `fill`, whose recursive calls are entries on a
+// queue sized by the loop's trip count, and `run` drains the queue -- eight
+// paths advanced together, a round per step, the longest taking seven rounds
+// -- before it returns. `out[i]` has to be the sum 1 + ... + i either way.
+func fill(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+    if (n <= 0) {
+        out[i] = acc;
+        return;
+    }
+    fill(n - 1, acc + n, out, i);
+    return;
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        fill(i, 0, out, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    fill.defer(fill, sums);
+}

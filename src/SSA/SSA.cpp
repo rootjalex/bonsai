@@ -148,6 +148,8 @@ const char *op_name(Instruction::Op op) {
         return "popcount";
     case Instruction::Op::Print:
         return "print";
+    case Instruction::Op::Push:
+        return "push";
     case Instruction::Op::Ramp:
         return "ramp";
     case Instruction::Op::Reduce:
@@ -226,8 +228,11 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::Not:
     case Instruction::Op::Popcount:
     // Print has a side effect, but is not a store: it has no address
-    // operand, and takes as many operands as it prints.
+    // operand, and takes as many operands as it prints. Push has both, but
+    // what it writes is a slot the count picks rather than its address
+    // operand, so it is dumped in its own form below.
     case Instruction::Op::Print:
+    case Instruction::Op::Push:
     case Instruction::Op::Ramp:
     case Instruction::Op::Reduce:
     case Instruction::Op::Reinterpret:
@@ -265,6 +270,15 @@ void Instruction::dump(std::ostream &os) const {
             << "Name must be empty for append: " << name;
         os << "append ";
         internal_assert(operands.size() == 2);
+        operands[0]->dump(os);
+        os << " ";
+        operands[1]->dump(os);
+        return;
+    } else if (op == Instruction::Op::Push) {
+        // Named: its value is the slot the entry took.
+        internal_assert(!name.empty()) << "A push names the slot it claims";
+        internal_assert(operands.size() == 2) << operands.size();
+        os << name << " = " << (atomic ? "push " : "push nonatomic ");
         operands[0]->dump(os);
         os << " ";
         operands[1]->dump(os);
@@ -373,6 +387,11 @@ void Terminator::dump(std::ostream &os) const {
                        dump_target(os, p.body);
                        os << " ";
                        dump_target(os, p.cont);
+                       // What a bind() put it on, since a dump that hides it
+                       // cannot say whether a schedule's bind took.
+                       if (p.binding.has_value()) {
+                           os << " on " << to_string(*p.binding);
+                       }
                    },
                    [&](const Yield &y) { os << "yield"; },
                    [&](const Call &c) {

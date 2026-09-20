@@ -30,19 +30,39 @@ struct Collapse {
     Location i;
 };
 
-// consumer.defer(producer, i, queue)
-// says "when `producer()` is called in `consumer`", instead
-// write it to a queue that is allocated at loop level `i`.
-// This turns the body of `i` into a do-while loop that
-// iterates as long as any queues are non-empty.
-// Note that loops over queues (which are forall loops)
-// should also be scheduled.
-// TODO(ajr): support `continue` parameter!
-// TODO(ajr): support type-specialization e.g. trace(Treelet)
-struct Defer {
-    Location producer;
+// A work queue, owned by one loop of one function:
+//
+//     paths = render.queue(p);          // one queue per iteration of `p`
+//     paths = render.queue(root);       // one queue per call of `render`
+//     paths = render.queue(p, 4096);    // with a capacity the schedule states
+//
+// The queue is storage the owner allocates at the start of each of its
+// iterations, and a drain loop -- a `parfor` named after the queue, so that
+// later directives can split, vectorize or bind it -- that the owner runs
+// once every entry of the iteration has been pushed. What an entry is, and
+// which calls push one, is said by `defer` below. Without a capacity the size
+// is inferred: the number of pushes an owner iteration can make, which for a
+// linear deferral is the trip count of the producer loop (see
+// SSA/Defer.h). A capacity is a constant for now.
+struct Queue {
+    std::string owner;
     Location loop;
-    Location queue;
+    std::optional<Expr> capacity;
+};
+
+// f.defer(callee, queue)
+//
+// Every call of `callee` inside `f` becomes a push of the call's varying
+// arguments onto `queue` and a return that says the call was saved rather
+// than made; the queue's drain makes the call later. Turning a tail
+// recursion into a wavefront -- `full_path_step.defer(full_path_step,
+// paths)` -- is the case this is for, and `loopify` is the other thing one
+// can do with the same recursion: the two are the depth-first and
+// breadth-first ways of running the same pending calls. Applied at the SSA
+// level; see SSA/Defer.h for what is and is not supported yet.
+struct Defer {
+    Location callee;
+    std::string queue;
 };
 
 // Turn recursion into iteration.
@@ -53,17 +73,6 @@ struct Defer {
 struct Loopify {
     // This is only used in the branching recursion case, hence the optionality.
     std::optional<Expr> queue_size;
-};
-
-// Allocate a queue at a loop of the func, with a constant maximum size.
-// TODO(ajr): support dynamic queue sizes.
-// If the queue already exists, tag it with the output size.
-struct MakeQueue {
-    Location queue;
-    Location loop;
-    std::optional<Expr> queue_size;
-    // TODO(ajr): might also want AoS vs. SoA control
-    // TODO(ajr): memory type? e.g. Shared/Register/Global/Heap/Stack?
 };
 
 // Bind a cursor to a piece of hardware.
@@ -116,8 +125,8 @@ struct Vectorize {
     Location i;
 };
 
-using Transform = std::variant<Bind, Collapse, Defer, Loopify, MakeQueue, Split,
-                               Sort, Vectorize>;
+using Transform =
+    std::variant<Bind, Collapse, Defer, Loopify, Split, Sort, Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //
@@ -262,6 +271,10 @@ struct Schedule {
     // Not transforms: nothing about the order they were written in matters,
     // and they are read by vectorize() wherever it runs (see BranchPolicy).
     BranchPolicyMap branch_policies;
+    // The queues the schedule declares, by name (see Queue). A declaration
+    // rather than a transform: a `defer` names one, and where in the
+    // schedule the queue was declared changes nothing.
+    std::map<std::string, Queue> queues;
     // Which group backs a tree held in a field, keyed the same way
     // `tree_types` is: `Instance.blas -> BlasNodes`.
     //

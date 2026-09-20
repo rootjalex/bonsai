@@ -2113,8 +2113,8 @@ words exist:
 
 | MoonRay | bonsai directive | status |
 |---|---|---|
-| a call becomes an entry on a queue, the loop becomes a drain | `f.defer(producer, loop, queue)`, `make_queue(queue, loop, size)` | Stmt-level only (Lower/Defers.cpp); a no-op in the SSA pipeline, and unaware of gangs |
-| one queue per kind of ray: primary, incoherent, occlusion | `defer` per call site: `render`'s `trace`, `walk_step`'s `trace`, `trace_any` | needs call-site cursors, not just callee names |
+| a call becomes an entry on a queue, the loop becomes a drain | `q = f.queue(loop)`, `g.defer(callee, q)` | **built** as an SSA rewrite (SSA/Defer.h) for a linear, tail-position deferral whose continuation needs nothing of the producer's frame; see "defer, phase 1" below for what that excludes |
+| one queue per kind of ray: primary, incoherent, occlusion | `defer` per call site: `render`'s `trace`, `walk_step`'s `trace`, `trace_any` | needs call-site cursors, not just callee names; and a non-tail deferral |
 | one shade queue per material instance | a queue sharded by the value's variant (and instance) | missing: `defer` keyed by an ADT tag |
 | a flush sorts by a key before the handler | `sort(queue, key)` | `sort` is for tree children only (Lower/Sorts.cpp); "TODO: queue sorting" in Schedule.h |
 | the handler runs a full gang over the sorted batch | `vectorize` over the drain loop | the gang exists; it does not yet draw from a queue |
@@ -2131,19 +2131,109 @@ render a `parfor`, which is all the schedule needs. The reference for this,
 too, is that the scalar and vectorized MoonRay compute identical images; here
 the check is `compare.sh` against pbrt and against the scalar schedule.
 
+### defer, phase 1: what was built (2026-09-19/20)
+
+`SSA/Defer.h` has the design in full; the decisions, all the user's:
+
+- **The generated code is to read as pbrt's wavefront integrator, or do
+  less.** For a self-recursion the drain is two queues indexed by round parity,
+  pbrt's `rayQueues[depth & 1]`: round r reads queue `r & 1`, its successors
+  go to the other. Double buffering is needed exactly when the code a drain
+  runs can push onto the queue being drained; a queue whose handler pushes
+  only onto other queues -- the trace-to-shade-to-trace pipeline -- gets one
+  buffer and one pass, decided from the queue graph.
+- **A queue is one object: a count and its entry storage.** `Queue_paths {
+  count : u32; data : Entry_paths[] }` beside `paths_entries : Entry_paths[N]`,
+  both `mut` locals of the owner named after the queue, sized by the producer
+  count (spp for a per-pixel queue), no allocator and no bound checks.
+  Logically an array of continuations; its layout (AoS today, SoA or AOSOA
+  later) is the layout language's to say.
+- **The queue owns the continuation, by value.** An entry is the deferred
+  call's varying arguments plus the producer frame's own live values, a struct
+  named by the parameters and values it holds. Nothing that is a value on the
+  stack is ever saved as an index into a pool ("Anything that is a value on
+  the stack cannot be saved as an index somewhere"). A pointer argument that
+  points at a mutable local of the producer's iteration -- the sampler state,
+  the visible surface -- is stored as its contents, and the drain gives the
+  entry a local of its own to run with.
+- **The callee pushes; the frame adds its part.** The deferred call site
+  becomes a `Push` of the entry onto the queue the callee is handed, plus a
+  return of `Saved_f { saved, slot, value }`. Every chain function returns
+  that; the owner acts on it: "if the return says we saved state, save this
+  data in the queue location, otherwise act as normal" -- the producer writes
+  the weight and the wavelengths into `entries[slot]` and ends its iteration,
+  and the drain does the same for an entry that saves again.
+- **What is left out of the entry** is decided without a cost model: a
+  parameter is invariant when every call down the chain passes it one value
+  of the owner's (a fixed point over the chain's call sites), and an invariant
+  value that is not in scope before the producer loop is *moved* there when it
+  is recomputable from things that are -- a load through a read-only
+  parameter, arithmetic, a field unwrapped from the integrator inside
+  `integrator_li` -- which is loop-invariant code motion for the values the
+  deferral asks about, computed once per owner iteration rather than once per
+  entry, so nothing is traded off. `BONSAI_EXPLAIN_DEFER=1` prints the plan.
+- **Refused, with a message saying why**: a deferred call not in tail
+  position; a frame between it and the owner that does more than return the
+  value; a branching recursion (linear deferral only, the user's call); a
+  stored pointer that is not a mutable local of the iteration; a chain
+  function with live callers outside the chain; a deferral inside a
+  vectorized gang; a capacity that cannot be checked.
+
+Three compiler bugs this surfaced and fixed, none of them the pass's: the
+generic statement mutator rebuilt a parfor without its binding, so any pass
+that changed a bound loop's body after the schedule ran it sequentially; the
+relooper declared a nested loop's carried variables at function scope, one
+variable shared by every iteration of the enclosing parfor; and the LLVM
+backend hoisted a run-time-sized stack allocation to the function entry ahead
+of the value that sizes it.
+
+Tests: `ssa/defer-tail`, `defer-lone-call`, `defer-loop-owned`, `defer-frame`
+(goldens), `backends/llvm/defer` (the IR), `correctness/llvm/defer-sum`,
+`defer-parfor`, `defer-loop-owned`, `defer-frame`, `defer-mut-local`,
+`defer-off-chain` (run), and `error/defer-*` for each refusal.
+`Lower/Defers.cpp` is gone; `defer` is SSA-only, like `loopify`.
+
+**`schedules/wavefront.bonsai`** is the scalar schedule with
+`full_path_step.loopify()` replaced by `paths = render.queue(p);
+full_path_step.defer(full_path_step, paths);`. Its entry holds the ray, its
+differential, `beta`, `l`, the depth and the four scalars and flags of a path
+step, `prev_ctx`, `lambda`, the sampler state, the visible surface and the
+filter weight; the camera, sampler, scene, light sampler and depth limit are
+in scope at the drain. Measured 2026-09-20 with `compare.sh --spp 16
+--maxdepth 5`, every image matching pbrt (mean radiance within 2e-5):
+
+    scene              pbrt      scalar    wavefront (scalar drain)
+    area-light-path    100.0 ms   71.4 ms   68.0 ms   (REPEATS=1)
+    killeroo-simple    820.0 ms  580.6 ms  630.5 ms   (REPEATS=3)
+
+The scalar wavefront costs 9% on killeroo: a path step's state -- a few
+hundred bytes -- is written to the queue and read back once per bounce, where
+the loop kept it in registers, and nothing yet is bought with it. What buys it
+back is the gang drain: sixteen entries of one pixel's queue run as one gang,
+which is the packet schedule's gang made from a queue instead of a loop, and
+then a tile-owned queue that keeps the gang full as paths die.
+
 ### The next scheduling commands, in order
 
-1. **`defer` in the SSA pipeline, on a vectorized gang.** The loopified tail
-   recursion of `walk_step` becomes stages over a queue: a lane whose path
-   continues appends its state (ray, throughput, depth, sampler state, film
-   slot) to the queue; the gang refills from it. This is compaction (item 7's
-   list, 4) and MoonRay's incoherent ray queue at once. The queue entry's layout
-   is the layout language's; per-lane state is spilled by field, gathered back
-   as SoA. Test on `walk_step` alone, compare against the loopified schedule
-   to the bit, measure utilization at depth 5.
+1. **Measure the scalar wavefront** against `scalar.bonsai` and pbrt on the
+   lit scenes at depth 5, within a tolerance -- the film now sums a pixel's
+   samples in the order paths end. Then the **gang drain**: `split` with
+   Halide's `GuardWithIf` tail (the drain's batch is never a multiple of the
+   gang width; `split` asserts an exact split today), and the vectorizer's rule
+   for a masked `Push` -- a compaction of the lanes that push into consecutive
+   slots, `llvm.masked.compressstore`, ISPC's `packed_store_active`; the user:
+   "It's probably best to have vectorized queue writes do a compaction step."
+   A per-pixel queue holds at most spp paths, so its gangs are exactly as full
+   as the packet schedule's; the utilization win needs a tile-owned queue,
+   `render.split(p, p_tile, p_pix, 64)` then `queue(p_tile)`, and then the
+   pixel index varies across the drain's lanes in the film write.
 2. **Queue kinds by call site.** `defer` addressed to a call inside a function
    (a cursor like `skip`'s, by provenance of the call) so primary, secondary
-   and occlusion rays get their own queues.
+   and occlusion rays get their own queues. Deferring `trace` is a *non-tail*
+   deferral: the function is split at the call, as LLVM's coroutine splitting
+   does, with the values live across the call in the entry and the resume
+   point fixed per queue. Tree recursion itself (deferring the traversal's own
+   recursive calls) stays out of scope: linear deferral only, the user's call.
 3. **`sort(queue, key)`**: sort a queue's batch by a lambda over the entry
    before its handler runs -- radix on a 32-bit key as MoonRay does -- and
    **sharding a queue by variant**: `defer(..., queue)` where `queue` is
@@ -2178,6 +2268,184 @@ environment; `ctest -j 12` in `build/`. The schedule files are
 `apps/pbrt/schedules/{packet,perlane,scalar}.bonsai`; `packet.bonsai` documents
 `skip` and says why it uses none. Item 7 above has the gadget measurement and
 the deferred list; this section has the plan for what comes next.
+
+As of 2026-09-20, `defer` phases 1 and 1b (above) are in the working tree and
+not committed: `include/SSA/Defer.h`, `src/SSA/Defer.cpp`, the `Push` opcode,
+the `queue`/`defer` grammar in Parser.cpp and Schedule.h (a deferred call's
+function and callee are marked `noinline` at parse time, so the call the
+directive names survives the inliner), the removal of `Lower/Defers.cpp`, the
+three compiler fixes named above (Mutator.cpp, CodeGen_Stmt.cpp,
+CodeGen_LLVM.cpp), `schedules/wavefront.bonsai`, the tests listed, and the two
+inventories in "What the scenes need". The suite is green but for the two
+CUDA goldens. Next: the gang drain (a `split` tail and the compacting push),
+then queues by call site and by material.
+
+## What the scenes need, and what volpath needs
+
+Two inventories, taken 2026-09-20 from `~/projects/pbrt-v4-scenes` and
+`~/projects/pbrt-v4/src/pbrt`, of what this renderer lacks. The converter,
+`scene_dump.cpp`, refuses every gap loudly except one: media are silently
+dropped, because `CapturingBuilder` overrides neither `MakeNamedMedium` nor
+`MediumInterface`, so nine scenes would convert with their fog and glass
+interiors missing rather than error. That is the first thing to fix, since a
+render that quietly leaves out a medium looks like a renderer that works.
+
+### Missing features, by the scenes they unlock
+
+| # | feature | scenes | n |
+|---|---|---|---|
+| 1 | `Integrator "volpath"` | bmw-m6, bunny-cloud, bunny-fur, clouds, crown, dambreak, disney-cloud, explosion, hair, head, kroken, lte-orb, sanmiguel, smoke-plume, sportscar, transparent-machines, villa, watercolor | 18 |
+| 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4, `nanovdb` x3, `cloud` x2, `uniformgrid` x1) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
+| 3 | env map in a non-sRGB colour space (EXR chromaticities, ACES) | bistro, bunny-cloud, clouds, explosion, sanmiguel, sportscar, villa | 7 |
+| 4 | samplers `zsobol` (pbrt's default when a scene names none), `sobol`, `pmj02bn` | bistro, clouds, disney-cloud, explosion, kroken, lte-orb, sanmiguel | 7 |
+| 5 | `blackbody L` on an area light (and an infinite light, in villa) | barcelona-pavilion night, contemporary-bathroom, crown, kroken, villa, watercolor, zero-day | 7 |
+| 6 | `Shape "disk"` | bunny-cloud, disney-cloud, explosion, killeroos gold, villa | 5 |
+| 7 | `Material "interface"` / `Material ""` (a medium boundary with no BSDF) | bunny-cloud, clouds, disney-cloud, explosion, smoke-plume | 5 |
+| 8 | `Material "coatedconductor"` | bistro, bmw-m6, killeroos coated-gold, kroken, watercolor | 5 |
+| 9 | `conductor` given `reflectance` (rgb, or a texture) instead of `eta`/`k` | bmw-m6, crown, villa, watercolor, zero-day | 5 |
+| 10 | `Material "mix"` | bmw-m6, crown, kroken, watercolor | 4 |
+| 11 | `Shape "bilinearmesh"` (and PLY holding quads) | bunny-fur, sportscar, watercolor | 3 |
+| 12 | `mix` textures (and `directionmix`) | kroken, villa, watercolor | 3 |
+| 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` | kroken, villa, watercolor | 3 |
+| 14 | `normalmap` on a material | bistro (131), kroken, watercolor | 3 |
+| 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) | dambreak, transparent-machines, crown | 3 |
+| 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
+| 17 | `Material "hair"` | bunny-fur, hair | 2 |
+| 18 | `Material "subsurface"` | head, sssdragon | 2 |
+| 19 | infinite light with `portal` | kroken, watercolor | 2 |
+| 20 | `LightSource "distant"` | disney-cloud, killeroos gold | 2 |
+| 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` | crown, killeroos | 2 |
+| 22-28 | `spot`/`point` lights, `thindielectric`, `windy`/`wrinkled` textures, partial `cylinder`, `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
+
+Nearest to converting today, in order: `ganesha`, `landscape`, `pbrt-book`,
+`lte-orb-simple-ball` (path, halton, only supported shapes, materials and
+textures); `zero-day` needs only `blackbody L` and a conductor's
+`reflectance`; `sssdragon` only `subsurface`; the `sanmiguel-*` files on
+halton only `volpath` and the ACES colour space. `barcelona-pavilion` day and
+the `killeroo` variants already render and match.
+
+Per scene, what is missing (see the converter for what is supported):
+
+| scene | missing |
+|---|---|
+| barcelona-pavilion | day: nothing. night: `bdpt`, `blackbody L` |
+| bistro | `zsobol`, `coatedconductor`, `normalmap`, ACES env map |
+| bmw-m6 | `volpath`, `mix`, `coatedconductor`, conductor `reflectance` |
+| bunny-cloud | `volpath`, `disk`, `interface`, `nanovdb` medium, ACES env map |
+| bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
+| clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
+| contemporary-bathroom | `sppm`, `blackbody L` |
+| crown | `volpath`, `mix`, conductor `reflectance`, inline `spectrum eta`, `blackbody L`, homogeneous media |
+| dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media |
+| disney-cloud | `volpath`, `sobol`, `disk`, `interface`, `distant`, `nanovdb` |
+| explosion | `volpath`, default `zsobol`, `disk`, `interface`, emissive `nanovdb`, ACES |
+| ganesha, landscape, pbrt-book, lte-orb-simple-ball | nothing obvious |
+| hair | `volpath`, `curve`, `hair` |
+| head | `volpath`, `subsurface` |
+| killeroos | simple, moving: nothing. gold: `disk`, `distant`, `.spd` spectra. coated-gold: also `coatedconductor` |
+| kroken | `volpath`, default `zsobol`, `mix`/`coatedconductor`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, `blackbody L`, homogeneous media |
+| lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
+| sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
+| smoke-plume | `volpath`, `interface`, `uniformgrid` medium |
+| sportscar | `volpath`, `bilinearmesh`, ACES env map |
+| sssdragon | `subsurface` |
+| transparent-machines | `volpath`, spectral `eta` on `dielectric` |
+| villa | `volpath`, `disk`, `thindielectric`, conductor `reflectance`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `blackbody L`, `spot`/`point` |
+| watercolor | `volpath`, `bilinearmesh`, `mix`/`coatedconductor`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, `blackbody L`, homogeneous medium |
+| zero-day | `blackbody L`, conductor `reflectance` |
+
+### What `volpath` is, over `path`
+
+pbrt's wavefront renderer implements `volpath`, so this is the integrator the
+wavefront schedule should end up scheduling. `VolPathIntegrator::Li`
+(`cpu/integrators.cpp:953-1271`) differs from `PathIntegrator::Li` in:
+
+- **Path state.** Two more spectra beside `beta`: `r_u` and `r_l`, the
+  rescaled path probabilities of section 14.2.2, with which every MIS weight
+  is `1 / r_u.Average()` or `1 / (r_u + r_l).Average()` in place of the power
+  heuristic and the carried `p_b`; Russian roulette uses
+  `beta * etaScale / r_u.Average()`. Rays carry a `medium`.
+- **Medium sampling at every step**, when the ray is in a medium: a delta
+  tracking loop over the majorant segments (`SampleT_maj`, `media.h:724`),
+  with its own RNG seeded from the sampler, and per sampled point one of
+  absorb (terminate), real scatter (a `MediumInteraction` with a phase
+  function: sample lights from it, sample the phase function, continue), or
+  null scatter (update `beta`, `r_u`, `r_l`, keep marching); emissive media
+  add `sigma_a * Le` weighted by `r_e`. After the walk the residual `T_maj`
+  scales `beta`, `r_u`, `r_l`.
+- **Medium transitions at surfaces.** A hit with no BSDF (`Material
+  "interface"`) skips the intersection and changes the ray's medium from the
+  primitive's `MediumInterface`; `SpawnRay` picks the medium by the side of the
+  surface. Shapes, cameras and lights carry a `MediumInterface`.
+- **Transmittance in direct lighting.** `SampleLd` replaces the one
+  `Unoccluded` test with a loop: intersect toward the light, an opaque hit
+  returns zero, otherwise ratio-track the transmittance through the medium
+  (`T_ray *= T_maj * sigma_n / pdf`, `r_l`, `r_u` updated, Russian roulette
+  at `T_ray / (r_l + r_u).Average() < 0.05`) and spawn on through the
+  interface.
+- **BSSRDF**, subsurface scattering with a probe segment, in the same loop.
+- Dispersive dielectrics terminate the secondary wavelengths.
+
+To implement: `Medium` as an ADT of `HomogeneousMedium`, `GridMedium`,
+`RGBGridMedium`, `CloudMedium`, `NanoVDBMedium` with `SamplePoint`,
+`SampleRay` and `IsEmissive`; `MediumProperties`; `RayMajorantSegment` and the
+majorant iterators (homogeneous, and the 3D DDA over a `MajorantGrid` of 16^3
+maxima for the grids, `media.h:105-214`); `SampleT_maj`, `SampleExponential`,
+`SampleDiscrete`; `HGPhaseFunction`; `MediumInterface` on primitives, the
+camera and lights, `Interaction::GetMedium`, `SpawnRay`/`SpawnRayTo` setting
+the medium, `SkipIntersection`; the `interface` material; `SampledGrid`;
+blackbody emission from a temperature grid; and NanoVDB reading. Scenes by
+medium: `homogeneous` in dambreak, crown, watercolor, kroken (dielectric
+boundaries, absorbing-only gems); `uniformgrid` in smoke-plume; `nanovdb` in
+bunny-cloud, disney-cloud and explosion (the one emissive medium); `cloud`
+only in clouds. Homogeneous media plus the interface material and the
+ratio-tracked `SampleLd` unlock four scenes; the grid and its DDA add
+smoke-plume; NanoVDB adds three more.
+
+### pbrt's wavefront queues, which a schedule has to reproduce
+
+`wavefront/workitems.h`, `wavefront/integrator.cpp:240-432`. Per depth:
+reset queues, `GenerateRaySamples`, `IntersectClosest`,
+`SampleMediumInteraction`, `HandleEscapedRays`, `HandleEmissiveIntersection`,
+stop at `maxdepth`, `EvaluateMaterialsAndBSDFs`, `TraceShadowRays`,
+`SampleSubsurface`.
+
+| queue | item carries | kernel |
+|---|---|---|
+| `RayQueue` (two, by depth parity) | ray, depth, lambda, pixelIndex, beta, r_u, r_l, prevIntrCtx, etaScale, specularBounce, anyNonSpecularBounces | intersect closest |
+| `MediumSampleQueue` | the above plus tMax and the whole deferred hit record | sample the medium; then re-triage escaped / interface / emissive / material |
+| `MediumScatterQueue`, one per phase function type | p, depth, lambda, beta, r_u, phase, wo, time, etaScale, medium, pixelIndex | sample the phase function, push a shadow ray and a ray |
+| `ShadowRayQueue` | ray, tMax, lambda, Ld, r_u, r_l, pixelIndex | occlusion, or transmittance when there are media |
+| `EscapedRayQueue` | ray origin and direction, depth, lambda, pixelIndex, beta, specularBounce, r_u, r_l, prevIntrCtx | infinite lights |
+| `HitAreaLightQueue` | areaLight, p, n, uv, wo, lambda, depth, beta, r_u, r_l, prevIntrCtx, specularBounce, pixelIndex | emission with MIS |
+| `MaterialEvalQueue`, one per material type | geometry, lambda, pixelIndex, anyNonSpecularBounces, wo, beta, r_u, etaScale, mediumInterface | BSDF, light sample, BSDF sample; pushes the next ray and a shadow ray |
+| BSSRDF probe and subsurface scatter queues | beta, r_u, mediumInterface, etaScale, ... | subsurface |
+
+Two things about it worth having in mind for the schedule. A hit in a medium
+is not sent to material evaluation; it goes whole to the medium queue, whose
+kernel repeats the triage. And the per-material queues are exactly item 3 of
+the MoonRay list: a queue sharded by the variant's tag, so that the shading
+kernel runs one material over a full batch.
+
+### The order of work this suggests
+
+1. **Loud refusal of media** in `scene_dump.cpp`, today.
+2. **Wavefront on `path`** first, since every queue above but the medium ones
+   exists for `path` too: `defer` on `full_path_step` (built), then the gang
+   drain, then `defer` by call site for the trace, shadow and escaped-ray
+   stages and a queue per material tag. The pbrt comparison is
+   `--wavefront` against `path` on the scenes that render today.
+3. **`volpath`** as a fourth integrator in `render.bonsai`, scalar first:
+   `r_u`/`r_l` in the path state, media on rays and shapes, homogeneous media
+   and the interface material, ratio-tracked `SampleLd`, then grids, NanoVDB,
+   emission. Each step is checked against pbrt on the scene that needs it
+   (dambreak, then smoke-plume, then bunny-cloud, then explosion).
+4. **The scene features that are not integrator work**, by scenes unlocked:
+   ACES env maps, the `zsobol`/`sobol`/`pmj02bn` samplers, `blackbody L`,
+   `disk`, `coatedconductor`, conductor `reflectance`, `mix` materials and
+   textures, the other uv mappings, `normalmap`, spectral `eta` on
+   `dielectric`, `bilinearmesh`. Curves and hair, subsurface, portals,
+   `distant`/`spot`/`point` lights and the realistic camera after those.
 
 ## What has been built, and what it cost
 

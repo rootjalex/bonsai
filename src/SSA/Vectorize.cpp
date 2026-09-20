@@ -294,6 +294,19 @@ vector<size_t> value_operands(const Instruction &instr) {
     case Instruction::Op::Ramp:
         return {};
 
+    // A gang's push is a compaction -- the lanes that push take consecutive
+    // slots and the count advances by their number -- which is a rule of its
+    // own rather than a widening of the operands, and is not built yet. Say
+    // so, rather than widening the entry per lane and pushing it once.
+    case Instruction::Op::Push:
+        instr.dump(std::cerr);
+        internal_error
+            << "A queue push inside a vectorized gang is not supported yet: "
+               "the lanes that push have to be compacted into consecutive "
+               "slots of the queue. Apply vectorize() to a loop that does not "
+               "reach a deferred call, or defer after vectorizing.";
+        return {};
+
     default:
         instr.dump(std::cerr);
         internal_error << "TODO: vectorize the operation above.";

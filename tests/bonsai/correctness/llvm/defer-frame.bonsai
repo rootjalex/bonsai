@@ -1,0 +1,34 @@
+//! flags: -p ssa -b llvm -e
+
+// The producer's own state in the entry. The result of the deferred recursion
+// is written to `out[i]` *by the caller*, after the call, and `i` is the
+// parfor's index: gone by the time the drain runs the entry. So the entry
+// carries it -- the callee returns which slot it saved to, and the producer
+// writes `i` there -- and the drain hands it to the copy of the store when
+// the entry finishes. The user's rule: "if the return says we saved state,
+// save this data in the queue location, otherwise act as normal."
+func tally(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return tally(n - 1, acc + n);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = tally(i, 0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+}

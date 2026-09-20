@@ -193,7 +193,8 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
     for (const auto &instr : body->instrs) {
         internal_assert(instr->op != Instruction::Op::Store &&
                         instr->op != Instruction::Op::Print &&
-                        instr->op != Instruction::Op::Append)
+                        instr->op != Instruction::Op::Append &&
+                        instr->op != Instruction::Op::Push)
             << "collapse(" << outer << ", " << inner << ") on " << func << ": "
             << outer << " has an effect of its own before running " << inner
             << ", which a collapsed loop would repeat once per " << inner

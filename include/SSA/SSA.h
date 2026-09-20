@@ -165,6 +165,17 @@ struct Instruction {
         // count of it is that bool as a number.
         Popcount,
         Print, // side-effect-y
+        // Appends a value to a queue: operands are a pointer to the queue --
+        // a struct of a count and an array of entries, made by defer() (see
+        // SSA/Defer.h) -- and the entry. Side-effecting and nameless, like a
+        // store. It is one instruction rather than the fetch-and-add and the
+        // store it lowers to (lower_pushes, SSA/Defer.cpp) because how a gang
+        // does it is not lane by lane: the lanes that push compact into
+        // consecutive slots and the count advances by their number, and the
+        // vectorizer can only say so of an instruction that still says
+        // "push". Atomic on the count unless shown not to need to be, which
+        // is `atomic` below.
+        Push,
         // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
         // This is what a vectorized loop index becomes, and an index of
         // this shape is what makes a memory access dense rather than a
@@ -229,10 +240,11 @@ struct Instruction {
     // for Op::Shuffle.
     std::vector<int> shuffle;
 
-    // Whether an accumulate is indivisible. Only meaningful for the Acc ops.
-    // Carried rather than acted on, the way a ParFor's binding is: what it
-    // costs is decided when code is generated, and whether it is needed at all
-    // is decided by whether the schedule made the loop around it parallel.
+    // Whether an accumulate is indivisible. Only meaningful for the Acc ops
+    // and for Push, whose count it guards. Carried rather than acted on, the
+    // way a ParFor's binding is: what it costs is decided when code is
+    // generated, and whether it is needed at all is decided by whether the
+    // schedule made the loop around it parallel.
     bool atomic = false;
 
     std::vector<std::shared_ptr<Value>> operands;

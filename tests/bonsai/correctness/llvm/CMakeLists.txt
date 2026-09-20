@@ -14,6 +14,11 @@ add_bonsai_tests(
     compare-fold.bonsai
     dce-effectful-argument.bonsai
     dce.bonsai
+    defer-frame.bonsai
+    defer-loop-owned.bonsai
+    defer-mut-local.bonsai
+    defer-off-chain.bonsai
+    defer-parfor.bonsai
     defer-sum.bonsai
     dynamic-array.bonsai
     exported-function.bonsai

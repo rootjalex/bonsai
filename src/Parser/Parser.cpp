@@ -2784,6 +2784,7 @@ struct Parser {
         once(into.adt_layouts, from.adt_layouts, "layout");
         once(into.array_layouts, from.array_layouts, "layout");
         once(into.tree_groups, from.tree_groups, "node group");
+        once(into.queues, from.queues, "queue");
         for (const auto &[name, index] : from.transform_order) {
             into.transform_order.emplace_back(
                 name, into.func_transforms[name].size() + index);
@@ -2824,6 +2825,14 @@ struct Parser {
             }
             case Token::Type::IDENTIFIER: {
                 const std::string name = get_id();
+
+                // `paths = render.queue(p);` -- a queue, named so that a
+                // `defer` can push onto it and a later directive can
+                // schedule its drain by that name (see ir::Queue).
+                if (peek().type == Token::Type::ASSIGN) {
+                    parse_queue(schedule, name);
+                    break;
+                }
 
                 // If it's a func, must be scheduling. A geometric intrinsic
                 // is named the way the program names it, `intersects`, and
@@ -3180,6 +3189,44 @@ struct Parser {
         return targets;
     }
 
+    // `<name> = <func>.queue(<loop> [, <capacity>]);` -- see ir::Queue. The
+    // loop is an index of a parfor the function reaches, or `root` for the
+    // function itself.
+    void parse_queue(ir::Schedule &schedule, const std::string &name) {
+        expect(Token::Type::ASSIGN);
+        const std::string owner = get_id();
+        if (!program.funcs.contains(owner)) {
+            report_error() << "Queue " << name << " is owned by " << owner
+                           << ", which is not a function of the program.";
+        }
+        expect(Token::Type::PERIOD);
+        const std::string what = get_id();
+        if (what != "queue") {
+            report_error() << "Expected `" << owner << ".queue(...)` to declare "
+                           << name << ", found `" << owner << "." << what
+                           << "`.";
+        }
+        expect(Token::Type::LPAREN);
+        ir::Location loop = parse_location();
+        std::optional<ir::Expr> capacity;
+        if (consume(Token::Type::COMMA)) {
+            capacity = parse_expr();
+        }
+        expect(Token::Type::RPAREN);
+        expect(Token::Type::SEMICOL);
+        if (program.funcs.contains(name)) {
+            report_error() << "Queue " << name
+                           << " has the name of a function; a directive "
+                              "written on it would be ambiguous.";
+        }
+        const auto [_, inserted] = schedule.queues.emplace(
+            name, ir::Queue{owner, std::move(loop), std::move(capacity)});
+        if (!inserted) {
+            report_error() << "Schedule declares the queue " << name
+                           << " twice.";
+        }
+    }
+
     void parse_rewrites(ir::Schedule &schedule, std::string func) {
         // Recorded under the function and in the schedule's one sequence,
         // since the order between functions' directives is part of what the
@@ -3216,13 +3263,25 @@ struct Parser {
                 add(
                     ir::Bind{std::move(i), parse_resource(resource)});
             } else if (rewrite == "defer") {
-                ir::Location consumer = parse_location();
+                // `f.defer(callee, queue)`: the queue is one this or an
+                // earlier schedule block declared. Checked when the schedule
+                // is applied rather than here, since a block may declare its
+                // queues after the directives that use them.
+                ir::Location callee = parse_location();
                 expect(Token::Type::COMMA);
-                ir::Location loop = parse_location();
-                expect(Token::Type::COMMA);
-                ir::Location queue = parse_location();
-                add(ir::Defer{
-                    std::move(consumer), std::move(loop), std::move(queue)});
+                std::string queue = get_id();
+                // The directive is about a call, so the function making it
+                // and the function it calls both have to survive as
+                // functions: inlined away, there would be no call to queue
+                // and no callee to run from the drain.
+                for (const std::string &kept : {func, callee.names.back()}) {
+                    if (const auto f = program.funcs.find(kept);
+                        f != program.funcs.end() && !f->second->is_noinline()) {
+                        f->second->attributes.push_back(
+                            ir::Function::Attribute::noinline);
+                    }
+                }
+                add(ir::Defer{std::move(callee), std::move(queue)});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
                 if (peek().type != Token::Type::RPAREN) {
@@ -3230,18 +3289,6 @@ struct Parser {
                 }
                 add(
                     ir::Loopify{std::move(queue_size)});
-            } else if (rewrite == "make_queue") {
-                // TODO(ajr): support dynamic queue sizes.
-                ir::Location queue = parse_location();
-                expect(Token::Type::COMMA);
-                ir::Location loop = parse_location();
-                std::optional<ir::Expr> queue_size;
-                if (peek().type != Token::Type::RPAREN) {
-                    expect(Token::Type::COMMA);
-                    queue_size = parse_expr();
-                }
-                add(ir::MakeQueue{
-                    std::move(queue), std::move(loop), std::move(queue_size)});
             } else if (rewrite == "sort") {
                 ir::Location loc = parse_location();
                 expect(Token::Type::COMMA);

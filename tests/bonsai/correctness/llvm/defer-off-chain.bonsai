@@ -1,0 +1,38 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call to a function off the chain: `steps` walks its own tail
+// recursion and, at the end, calls `expensive`, and it is that last call
+// that is queued. Running an entry cannot push another -- `expensive` never
+// reaches `steps` -- so the queue is one queue and the drain one pass over
+// it, no double buffer and no rounds. `steps`'s own recursion stays a
+// recursion (a tail call, passing the queue and the flag through), and its
+// result is written to `out[i]` by the producer, so `i` rides in the entry.
+func expensive(x : i32) -> i32 {
+    return x * x;
+}
+
+func steps(n : i32, x : i32) -> i32 {
+    if (n <= 0) {
+        return expensive(x);
+    }
+    return steps(n - 1, x + 1);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = steps(i, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    squares = run.queue(root);
+    steps.defer(expensive, squares);
+}

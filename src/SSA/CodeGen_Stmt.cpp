@@ -195,6 +195,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::AccMax:
     case Instruction::Op::Append:
     case Instruction::Op::Print:
+    case Instruction::Op::Push:
     case Instruction::Op::Store:
     case Instruction::Op::Alloc:
     case Instruction::Op::Alloca:
@@ -446,6 +447,11 @@ Stmt codegen_instruction(const Instruction &instr) {
             return Print::make(codegen_values(instr.operands));
         case Instruction::Op::Append:
             internal_error << "TODO: Append codegen!\n";
+        case Instruction::Op::Push:
+            // Lowered to a fetch-and-add and a store before the graph reaches
+            // here (lower_pushes in SSA/Defer.cpp), once it is settled
+            // whether the count needs the atomic.
+            internal_error << "A push reached statement codegen unlowered";
         case Instruction::Op::Store: {
             // A third operand is the execution mask of a vectorized store:
             // only the lanes it enables are written.
@@ -1092,6 +1098,11 @@ struct BlockInfo {
     };
 
     Role role = Role::Normal;
+    // For the block whose terminator is a ParFor: the storage for the carried
+    // values of loops inside its body, declared at the start of the body --
+    // each iteration's own, which matters once the body runs on a thread of
+    // its own (see codegen_body).
+    std::vector<Stmt> body_allocs;
     // for DoWhileHeader: whether the loop it heads is `while (true)`, which is
     // what a loopified tail recursion leaves behind. Such a loop is closed at
     // its header rather than at its latch, because the latch can sit anywhere
@@ -1838,6 +1849,10 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     // assigned at its start where they are variables and
                     // bound at its entry otherwise, as on any other edge.
                     std::vector<Stmt> body_stmts;
+                    // The storage of the loops inside, one per iteration.
+                    for (const Stmt &alloc : bi.body_allocs) {
+                        body_stmts.push_back(alloc);
+                    }
                     jump_args(p.body.name, p.body.args, body_stmts, 1);
                     std::set<std::string> body_scope = in_scope;
                     body_scope.insert(p.index);
@@ -1997,7 +2012,7 @@ Stmt load_materialized(const Stmt &body,
 Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
     const auto block_map = make_block_map(func);
     const auto dom = compute_dominators(func, block_map);
-    const auto info = classify_blocks(func, block_map, dom);
+    auto info = classify_blocks(func, block_map, dom);
     auto mut_map = get_mutability_map(func);
 
     // A block argument that several predecessors pass different values to
@@ -2006,8 +2021,34 @@ Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
     // whose alloca is still in the entry block, and were only ever arguments
     // because the SSA builder threads a local through the blocks that use it.
     // A loop's carried values are not -- nothing declared them -- so they are
-    // declared here, at the top of the function, where their first assignment
-    // is sure to be dominated by the declaration.
+    // declared here: at the top of the function, where their first assignment
+    // is sure to be dominated by the declaration, or, for a loop inside a
+    // parfor's body, at the start of that body. A variable of a loop that
+    // every iteration runs is every iteration's own; declared outside the
+    // parfor it would be one variable shared by iterations that may run at
+    // once, and captured by the closure a bound parfor becomes.
+    std::vector<std::pair<std::string, Cfg>> parfor_bodies;
+    for (const auto &block : func.blocks) {
+        if (const auto *p =
+                std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+            parfor_bodies.emplace_back(block->name, Cfg(func, p->body.name));
+        }
+    }
+    // The block whose parfor's body `name` is innermost in, or empty.
+    const auto innermost_parfor = [&](const std::string &name) {
+        std::string found;
+        size_t smallest = 0;
+        for (const auto &[parfor_block, region] : parfor_bodies) {
+            if (!region.contains(name)) {
+                continue;
+            }
+            if (found.empty() || region.rpo.size() < smallest) {
+                found = parfor_block;
+                smallest = region.rpo.size();
+            }
+        }
+        return found;
+    };
     std::set<std::string> declared;
     for (const auto &block : func.blocks) {
         for (const auto &instr : block->instrs) {
@@ -2034,9 +2075,15 @@ Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
                 continue;
             }
             materialized[block->args[i].name] = block->args[i].type;
-            stmts.push_back(Allocate::make(
+            Stmt alloc = Allocate::make(
                 WriteLoc(block->args[i].name, block->args[i].type),
-                Allocate::Memory::Stack));
+                Allocate::Memory::Stack);
+            const std::string within = innermost_parfor(block->name);
+            if (within.empty()) {
+                stmts.push_back(std::move(alloc));
+            } else {
+                info.at(within).body_allocs.push_back(std::move(alloc));
+            }
         }
     }
 
@@ -2083,7 +2130,7 @@ Stmt codegen_body(const ssa::Function &func, const TypeMap &func_type_map) {
                             mut_map, func_type_map, preds_of,
                             /*loop_header=*/"", /*is_loop_body=*/false,
                             std::move(in_scope));
-    if (stmts.empty()) {
+    if (materialized.empty()) {
         return body;
     }
 

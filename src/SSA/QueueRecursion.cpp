@@ -547,7 +547,8 @@ void queue_recursion(Function &func, size_t size) {
                 for (const auto &instr : block.instrs) {
                     internal_assert(instr->op != Instruction::Op::Store &&
                                     instr->op != Instruction::Op::Print &&
-                                    instr->op != Instruction::Op::Append)
+                                    instr->op != Instruction::Op::Append &&
+                                    instr->op != Instruction::Op::Push)
                         << "Cannot put the recursion of " << entry_name
                         << " on a stack: " << after << " has an effect that "
                         << "happens after the recursive call in " << name

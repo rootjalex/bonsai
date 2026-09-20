@@ -5273,7 +5273,28 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     llvm::BasicBlock *entry =
         &builder->GetInsertBlock()->getParent()->getEntryBlock();
-    if (entry->empty()) {
+    // A run-time size has to be defined before the allocation that uses it.
+    // A size that is an argument or a constant is; one computed in the entry
+    // block -- the sample count read from the sampler, before the loop that
+    // uses it -- has the allocation placed just after it, which is still
+    // once per call of the function. One computed inside a loop is not
+    // something a stack allocation can be sized by: an allocation there would
+    // grow the stack every iteration.
+    llvm::Instruction *defined_at =
+        size ? llvm::dyn_cast<llvm::Instruction>(size) : nullptr;
+    if (defined_at != nullptr) {
+        internal_assert(defined_at->getParent() == entry)
+            << "The stack allocation `" << name << "` is sized by a value "
+            << "computed inside a loop of "
+            << entry->getParent()->getName().str()
+            << ". A stack allocation is made once, at the function's entry, "
+            << "so its size has to be known there.";
+        if (defined_at->getNextNode() != nullptr) {
+            builder->SetInsertPoint(defined_at->getNextNode());
+        } else {
+            builder->SetInsertPoint(entry);
+        }
+    } else if (entry->empty()) {
         builder->SetInsertPoint(entry);
     } else {
         builder->SetInsertPoint(entry, entry->getFirstInsertionPt());

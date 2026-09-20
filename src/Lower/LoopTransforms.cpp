@@ -682,17 +682,23 @@ ir::Program LoopTransforms::run(ir::Program program,
                                      std::holds_alternative<Bind>(t);
 
             std::visit(Overloaded{[&](const Defer &def) {
-                                      // no-op, should have been handled in
-                                      // Lower/Defers.cpp
+                                      internal_error
+                                          << "defer() is in the schedule for "
+                                          << name
+                                          << ", but it is an SSA rewrite (see "
+                                             "SSA/Defer.h) and this pipeline "
+                                             "does not run one. Silently "
+                                             "making the call instead of "
+                                             "queueing it would compile a "
+                                             "different program than the "
+                                             "schedule asks for, so it is an "
+                                             "error instead. Compile with `-p "
+                                             "ssa`.";
                                   },
                                   [&](const Loopify &l) {
                                       body = loopify(
                                           name, std::move(body), l.queue_size,
                                           program.funcs, program.types);
-                                  },
-                                  [&](const MakeQueue &q) {
-                                      // no-op, should have been handled in
-                                      // Lower/Defers.cpp
                                   },
                                   [&](const Sort &sort) {
                                       // no-op, should have been handled in

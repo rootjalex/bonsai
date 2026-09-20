@@ -34,22 +34,8 @@ void collapse(FuncMap &funcs, std::string func, std::string outer,
 
 void loopify(FuncMap &funcs, std::string func, int size = 0);
 
-struct Cursor {
-    std::list<std::string> ids;
-
-    std::string to_string() const;
-};
-
-struct Queue_t {
-    std::string qname;
-    Cursor owner;
-    std::string storage;
-    // TODO: make this accept non-constant sizes!
-    int size;
-};
-
-void defer(FuncMap &funcs, const std::string &func, const Queue_t &queue_t,
-           const std::vector<Cursor> &cursors);
+// defer(), the other way of running a recursion's pending calls, is declared
+// in SSA/Defer.h.
 
 // Vectorizes the parfor loop `idx` into a single SIMD gang, in the manner of
 // Pharr & Mark, "ispc: A SPMD Compiler for High-Performance CPU Programming"
