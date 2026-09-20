@@ -445,27 +445,39 @@ def crop(image, box):
     return image[y:y + h, x:x + w]
 
 
-def write_images(args, out, scene_name, results):
-    """The renders --images asked for, as PNGs in the plots directory."""
+def images_wanted(args):
+    """The (depth, spp, renderer) cells --images asks for, checked before any
+    rendering so that a mistyped list fails in a second rather than after the
+    run: `none`, `all`, or cells as depth:spp (every renderer) or
+    depth:spp:renderer."""
+    renderers = ["pbrt", *args.schedules]
+    every = [(d, p, r) for d in args.depths for p in args.spps for r in renderers]
     if not args.images or args.images == ["none"]:
-        return
-    wanted = []
-    for depth in args.depths:
-        for spp in args.spps:
-            for renderer in ["pbrt", *args.schedules]:
-                wanted.append((depth, spp, renderer))
-    if args.images != ["all"]:
-        chosen = set()
-        for spec in args.images:
-            parts = spec.split(":")
-            if len(parts) not in (2, 3):
-                raise SystemExit(f"--images takes depth:spp or "
-                                 f"depth:spp:renderer, not {spec}")
-            depth, spp = int(parts[0]), int(parts[1])
-            renderers = [parts[2]] if len(parts) == 3 else ["pbrt", *args.schedules]
-            for renderer in renderers:
-                chosen.add((depth, spp, renderer))
-        wanted = [w for w in wanted if w in chosen]
+        return []
+    if args.images == ["all"]:
+        return every
+    chosen = set()
+    for spec in args.images:
+        parts = spec.split(":")
+        if len(parts) not in (2, 3) or not all(p.isdigit() for p in parts[:2]):
+            raise SystemExit(
+                f"--images takes none, all, or cells as depth:spp or "
+                f"depth:spp:renderer (say 5:64 or 5:64:packet), not {spec!r}")
+        depth, spp = int(parts[0]), int(parts[1])
+        if depth not in args.depths or spp not in args.spps:
+            raise SystemExit(f"--images {spec}: depth {depth} at {spp} spp is "
+                             f"not a cell of this run (depths {args.depths}, "
+                             f"spps {args.spps})")
+        if len(parts) == 3 and parts[2] not in renderers:
+            raise SystemExit(f"--images {spec}: renderer {parts[2]!r} is not "
+                             f"one of {renderers}")
+        for renderer in [parts[2]] if len(parts) == 3 else renderers:
+            chosen.add((depth, spp, renderer))
+    return [w for w in every if w in chosen]
+
+
+def write_images(args, out, scene_name, wanted):
+    """The renders --images asked for, as PNGs in the plots directory."""
     for depth, spp, renderer in wanted:
         tag = f"d{depth}-s{spp}"
         path = f"{args.plots}/{scene_name}-{tag}-{renderer}-{args.channel}.png"
@@ -580,6 +592,18 @@ def main(argv):
         raise SystemExit(f"no scene at {scene}")
     if not os.access(args.pbrt, os.X_OK):
         raise SystemExit(f"no pbrt at {args.pbrt}: set PBRT or pass --pbrt")
+    # Everything the options can get wrong, before an hour of rendering.
+    images = images_wanted(args)
+    for renderer in args.grid_rows:
+        if renderer not in ["pbrt", *args.schedules]:
+            raise SystemExit(f"--grid-rows {renderer}: not pbrt or a schedule "
+                             f"of this run ({args.schedules})")
+    if args.grid_at is not None:
+        axis = args.spps if args.grid_along == "depth" else args.depths
+        if args.grid_at not in axis:
+            raise SystemExit(f"--grid-at {args.grid_at}: not one of the "
+                             f"{'spps' if args.grid_along == 'depth' else 'depths'} "
+                             f"of this run ({axis})")
     scene_name = os.path.splitext(os.path.basename(scene))[0]
     out = os.path.join(os.path.abspath(args.out), scene_name)
     os.makedirs(out, exist_ok=True)
@@ -601,7 +625,7 @@ def main(argv):
 
     table(args, results, f"{out}/results.tsv")
     heatmaps(args, results, scene_name)
-    write_images(args, out, scene_name, results)
+    write_images(args, out, scene_name, images)
     if args.grid:
         image_grid(args, out, scene_name, results)
 

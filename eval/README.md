@@ -81,11 +81,12 @@ renderer; a cached cell says nothing about the current build.
                                 imgtool is expected beside it, or $IMGTOOL)
     --out DIR, --plots DIR      where things go (default eval/out, eval/plots)
 
-    --images none | all | CELL ...
+    --images none | all | 5:64 3:16:packet ...
                                 which renders to write as PNGs: none (default),
-                                all, or cells as depth:spp (every renderer) or
-                                depth:spp:renderer, renderer one of pbrt or a
-                                schedule
+                                all, or cells spelled depth:spp (every renderer
+                                at that cell) or depth:spp:renderer, the
+                                renderer pbrt or a schedule. Checked before
+                                anything is rendered.
     --channel radiance|normals  what the images show; normals need a gbuffer
                                 film and the path integrator, since pbrt writes
                                 none otherwise
