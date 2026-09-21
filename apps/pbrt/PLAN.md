@@ -2382,6 +2382,48 @@ increasing complexity, the five schedules, depths 1-5, 16-1024 spp -- is
 `eval/plots/summary-speedup.{pdf,png,tsv}` across them; its outcome is in the
 section below when it has run.
 
+**The sweep's outcome (2026-09-21).** Four scenes in increasing complexity
+-- killeroo-simple (66k shapes, one light), pbrt-book (1920x1080), pavilion-day
+(1600x850, many lights and materials), zero-day frame120 (1920x840, 4.3M
+shapes, 283 blackbody emitters) -- depths 1-5, 16..1024 spp (zero-day 16, 64,
+128, 256, the user's cut for time), five schedules, best of 3 up to 64 spp
+and a single run above (a first look; the figures say so). Every one of the
+560 images matched pbrt. The figures: `eval/plots/<scene>-speedup.{pdf,png}`
+(the heatmaps), `eval/plots/summary-speedup.{pdf,png,tsv}` (the four scenes
+to 256 spp), `summary-d5-speedup` (depth 5 alone) and `summary-to-1024-speedup`
+(the three scenes over the full range). The labels say "compact (wf)" for the
+two queue schedules, at the user's direction: they have a wavefront's queue
+of paths and its compaction, not its stages; "wavefront" is kept for the
+true one.
+
+    speedup over pbrt, depth 5     16 spp                    256 spp (1024 where run)
+    scene            scalar  per-lane  packet  cwf-pl  cwf-pk | packet  cwf-pk
+    killeroo-simple  1.45    1.46      2.54    1.46    2.55   | 2.46    2.97  (1024: 2.34 / 2.82)
+    pbrt-book        1.38    1.20      3.03    1.19    3.12   | 2.94    3.10  (1024: 2.95 / 3.10)
+    pavilion-day     1.25    0.90      1.53    0.89    1.53   | 1.54    1.75  (1024: 1.55 / 1.78)
+    zero-day         1.30    1.01      1.83    1.02    1.86   | 1.76    2.16
+
+What the grid says. (1) The packet traversal is the win on every scene: the
+per-lane gang barely beats scalar on book and is *slower than pbrt* on
+pavilion and zero-day (0.9-1.0x), while packet is 1.5-4x. (2) Compact
+packet is never slower than packet and pulls ahead with sample count and
+depth: equal at 16 spp -- a per-pixel queue of 16 paths is one gang, so
+there is nothing to compact -- and from 64 spp up 5-25% ahead, the most on
+the scenes where paths die most (zero-day depth 5: 2.16x against 1.76x;
+killeroo 2.97 against 2.46; pavilion 1.75 against 1.54; book +5%, an
+enclosed scene where few paths leave). The gain saturates by 64-128 spp.
+(3) Compact per-lane beats per-lane by the same margins, so the queue's
+benefit is independent of the traversal under it. (4) Every vectorized
+schedule loses with depth as the lanes diverge (killeroo packet 3.9x at
+depth 1, 2.4x at depth 5; zero-day 2.3 to 1.8); scalar is a flat 1.25-1.45x
+whatever the depth or count. (5) Sample count alone moves nothing but the
+compact schedules. (6) Speedups fall with scene complexity, killeroo > book
+> zero-day > pavilion, pavilion being the scene where pbrt spends the least
+of its time in traversal. The small (3-5%) edge compact packet keeps over
+packet even at 16 spp, where compaction cannot help, is a code-shape effect
+to confirm by profile (a straight-line gang step against a loop inside the
+gang with forty loop-carried blends), which is queued behind the sweep.
+
 ### The next scheduling commands, in order
 
 1. **Measure the scalar wavefront** (done, above) and the **gang drain**

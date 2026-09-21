@@ -764,8 +764,11 @@ def main(argv):
     if args.grid:
         image_grid(args, out, scene_name, results)
 
-    failures = [(tag, s) for tag, cell in results["cells"].items()
-                for s in args.schedules if cell[s]["failed"]]
+    # Over this run's grid only: the cache may hold cells of an earlier,
+    # wider run that this run's schedules never rendered.
+    failures = [(f"d{d}-s{p}", s) for d in args.depths for p in args.spps
+                for s in args.schedules
+                if results["cells"][f"d{d}-s{p}"][s]["failed"]]
     if failures:
         say("FAILED against pbrt: " + ", ".join(f"{t} {s}" for t, s in failures))
         return 1
