@@ -40,8 +40,12 @@ func spectrum_at_dense(table : array[Float, 471],
     // Every wavelength SampleVisible produces is already inside the table's
     // range, so this indexes without clamping; a sampler that could stray
     // outside it would need pbrt's zero-outside-the-range answer here.
+    //
+    // Indexed by the four wavelengths at once: one gather, stated here rather
+    // than left for LLVM to assemble from four loads, which its SLP
+    // vectorizer did through LLVM 19 and stopped doing in LLVM 23.
     o = cast[[vector[i32, 4]]](round(w.lambda) - 360.0);
-    return vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
+    return table[o];
 }
 
 // pbrt: SampledSpectrum::ToXYZ followed by RGBColorSpace::ToRGB.

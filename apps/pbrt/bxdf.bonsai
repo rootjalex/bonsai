@@ -2084,9 +2084,10 @@ func spectrum_at_linear(table : array[Float], base : u32,
     i = cast[[vector[i32, 4]]](x);
     t = x - cast[[vec4f]](i);
     o = base + cast[[vector[u32, 4]]](i);
-    lo = vec4f{table[o.x], table[o.y], table[o.z], table[o.w]};
-    hi = vec4f{table[o.x + 1u], table[o.y + 1u], table[o.z + 1u],
-               table[o.w + 1u]};
+    // The two knots at the four wavelengths at once: a gather each (see
+    // spectrum_at_dense).
+    lo = table[o];
+    hi = table[o + 1u];
     return (1.0 - t) * lo + t * hi;
 }
 
