@@ -3492,18 +3492,44 @@ The design for bonsai, keeping to the three languages:
   because the first-touch migration lands inside the timed region unless the
   driver prefetches, which is the copy again under another name.
 
+This is the design (the user, 2026-09-21: "Go with that design"), and it is
+the first thing built, as phase A0 below, since every later phase hands
+buffers across.
+
 ### The phases
+
+**A0. Buffers: the descriptor and the residency check (two to three days).**
+`runtime/bonsai_buffer.h`: `bonsai_buffer { void *host; void *device;
+uint64_t bytes; uint32_t flags; }` with `host_valid`, `device_valid`,
+`host_dirty`, `device_dirty` bits, and the calls `bonsai_buffer_wrap(host,
+bytes)` (a CPU-only buffer: what every existing driver passes today, so
+`render_hook.cpp` changes one line per array), `bonsai_buffer_require(b,
+side)` (resident and clean there: return; dirty on the other side: copy,
+through `bonsai_cuda` when a device is involved; under `--no-implicit-copies`
+an error naming the buffer and the side), `bonsai_buffer_mark_dirty(b,
+side)` and `bonsai_buffer_free`. The exported function's array parameters
+become `bonsai_buffer *` in the generated header and `Function_t`; the CPU
+backend reads `host` through it and nothing else changes for CPU schedules
+(the C++ tests and `compare.sh` prove that first, on the CPU alone). The
+compiler records per exported function, from the binds, which side each
+parameter is read or written on -- `Host`, `Device`, or both for a
+heterogeneous schedule -- emits the `require` calls at entry and the
+`mark_dirty` after a device write, and prints the requirement in the
+header's comment so a driver can stage. `compare.sh` and
+`eval/render_matrix.py` stage every buffer before the timed call and run
+with `--no-implicit-copies`. Placement of the layout's own structures and of
+queues follows the binds as described above; managed memory is a driver's
+per-allocation choice (`host == device`).
 
 **A. Kernels: `bind(GPUBlock)`/`bind(GPUThread)` on the pixel loop, the scalar
 schedule as a megakernel (one to two weeks).** `CodeGen_PTX`; cutting the
 bound parfor's body out of the SSA as a device function with its closure;
-the host call replaced by a launch through `bonsai_cuda`; arrays as device
-memory -- the exported function's array arguments are host pointers, so the
-runtime uploads each once, memoized by pointer and size for the process
-(invalidated by an explicit call), and downloads the `mut` ones after the
-launch; pbrt-v4 does the equivalent by allocating in managed memory, which
-is the other option and a one-line change in the driver if the copies
-show. Things known to need care: recursion is a `loopify` on the GPU (the
+the host call replaced by a launch through `bonsai_cuda`; the kernel's
+arrays through A0's descriptors, the driver staging them once before the
+timer (a `bonsai_buffer_require(b, Device)` per scene array after the scene
+is built, the way pbrt's `--gpu` builds its scene device-side before its
+timer), the film buffers marked device-dirty by the launch and pulled back
+by the driver when it writes the image. Things known to need care: recursion is a `loopify` on the GPU (the
 64-deep traversal stack lives in local memory, as pbrt's does); the Halton
 sampler's 128-bit multiply-inverse arithmetic (`__udivti3` in the CPU
 profile) has to lower on NVPTX; `alloca` is local memory; struct arguments
