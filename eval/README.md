@@ -3,10 +3,12 @@
 `render_matrix.py` renders one scene at every (path depth, samples per pixel)
 of a grid under each of the pbrt app's schedules and with pbrt itself, checks
 every image against pbrt's, and draws the speedup heatmaps and, if asked, a
-grid of the images for a paper.
+grid of the images for a paper. `summary.py` then puts several scenes' results
+on one figure (see "Several scenes on one figure").
 
+    python3 eval/render_matrix.py ~/projects/pbrt-v4-scenes/killeroos/killeroo-simple.pbrt
     python3 eval/render_matrix.py ~/projects/pbrt-v4-scenes/killeroos/killeroo-simple.pbrt \
-        --depths 1 2 3 4 5 --spps 16 64 256
+        --depths 1 2 3 4 5 --spps 16 64 256 --schedules scalar packet
 
 Run from the repository root, inside the `bonsai` conda environment (its
 `bin` first on `PATH`; `BONSAI_CXX` pointing at its `clang++` if the shell has
@@ -26,19 +28,29 @@ For every cell the scene is converted once by `scene_dump` at that depth and
 sample count, on pbrt's own BVH (`--own-tree` to build this renderer's
 instead), so that what is timed is how each schedule traverses one tree
 rather than whose builder found the better one. pbrt renders it, then each
-schedule's renderer; both sides take the best of `--repeats` runs (default 3),
-pbrt timed by its own render timer read out of the EXR it writes and this
-renderer by its driver, around the render call alone, with the scene and the
-tree built beforehand on both sides. The speedup is pbrt's time over the
-schedule's. Every render uses all cores; pbrt's depth reaches it by rewriting
-the scene's `Integrator` directive, since pbrt has no flag for it (the same
-rewrite `apps/pbrt/compare.sh --maxdepth` does).
+schedule's renderer; both sides take the best of `--repeats` runs (default 3)
+up to `--long-spp` samples (default 128), and of `--long-repeats` runs
+(default 1) from there: a render of hundreds of samples per pixel varies
+little between runs, and three of each would cost hours. pbrt is timed by its
+own render timer read out of the EXR it writes and this renderer by its
+driver, around the render call alone, with the scene and the tree built
+beforehand on both sides. The speedup is pbrt's time over the schedule's.
+Every render uses all cores; pbrt's depth reaches it by rewriting the scene's
+`Integrator` directive, since pbrt has no flag for it (the same rewrite
+`apps/pbrt/compare.sh --maxdepth` does).
 
-The schedules are the files in `apps/pbrt/schedules/` -- `scalar`, `perlane`
-and `packet` by default, `--schedules` for a subset -- each compiled beside
-`apps/pbrt/render.bonsai` as a second input; the compile is timed too and
-printed, being part of what a schedule costs. The compiler is rebuilt first
-(`cmake --build build`).
+The schedules are the files in `apps/pbrt/schedules/`, five by default and
+`--schedules` for a subset: the sample loop run three ways -- `scalar`,
+`perlane` (a gang of samples, each lane walking the tree on its own) and
+`packet` (the gang walking the tree together) -- and the queue run two ways,
+`wavefront-perlane` and `wavefront` (packet), whose gangs are drawn from a
+per-pixel queue of paths and compacted between bounces. Each is compiled
+beside `apps/pbrt/render.bonsai` as a second input; the compile is timed too
+and printed, being part of what a schedule costs. The compiler is rebuilt
+first (`cmake --build build`). The default grid is depths 1 to 5 by 16, 32,
+64, ..., 1024 samples per pixel: 35 cells, each rendered by pbrt and the five
+schedules, which is an hour for a small scene and an afternoon for a large
+one, so start it and leave the machine alone.
 
 Run it with nothing else on the machine. Every source of noise adds time, and
 the minimum of three runs removes only some of it.
@@ -72,9 +84,12 @@ renderer; a cached cell says nothing about the current build.
 
     SCENE                       a .pbrt scene (positional)
     --depths D ...              path depths, default 1 2 3 4 5
-    --spps N ...                samples per pixel, default 16 64 256
-    --schedules S ...           default scalar perlane packet
+    --spps N ...                samples per pixel, default 16 32 64 128 256 512 1024
+    --schedules S ...           default scalar perlane packet wavefront-perlane wavefront
     --repeats N                 best of N runs, both sides; default 3
+    --long-spp N                from N samples per pixel up, best of --long-repeats
+                                runs instead; default 128 (0: --repeats throughout)
+    --long-repeats N            default 1
     --own-tree                  build this renderer's BVH rather than take pbrt's
     --rerun                     render every cell again
     --pbrt PATH                 the pbrt binary (default $PBRT or ~/projects/pbrt-v4/build/pbrt;
@@ -116,6 +131,23 @@ down the side and the sample counts across:
         --grid --grid-rows pbrt scalar perlane packet --grid-along spp --grid-at 5
 
 and for the gbuffer scenes' normals, `--channel normals`.
+
+## Several scenes on one figure
+
+    python3 eval/summary.py killeroo-simple book pavilion-day
+    python3 eval/summary.py killeroo-simple book pavilion-day --depths 5
+
+`summary.py` reads the `results.json` each named scene's `render_matrix.py`
+run left under `eval/out/` -- it renders nothing -- and draws one row per
+scene, in the order given (meant to be increasing complexity), and one panel
+per depth, each panel the speedup over pbrt against the sample count with a
+line per schedule and pbrt the dotted line at 1x; a cell that failed the check
+against pbrt carries the same dagger as the heatmaps. It writes
+`eval/plots/summary-speedup.pdf`, `.png` and `.tsv` (the numbers, one line per
+scene, depth and count), or `summary-d<depths>-speedup` for a subset of the
+depths, and `--name` for another stem. `--spps` and `--schedules` narrow it
+the same way as `render_matrix.py`; every asked-for cell has to have been
+rendered, since a plot with a hole would read as a measurement.
 
 ## What it needs
 

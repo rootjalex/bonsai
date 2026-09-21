@@ -53,7 +53,15 @@ sys.path.insert(0, PREFIX)
 import compare_gbuffer  # noqa: E402  the tolerances, so there is one set
 
 RENDERER_LABELS = {"pbrt": "pbrt", "scalar": "scalar",
-                   "perlane": "per-lane", "packet": "packet"}
+                   "perlane": "per-lane", "packet": "packet",
+                   "wavefront-perlane": "wavefront per-lane",
+                   "wavefront": "wavefront packet"}
+
+# The schedules in apps/pbrt/schedules/, in the order the figures show them:
+# the sample loop run three ways, then the queue run two ways.
+DEFAULT_SCHEDULES = ["scalar", "perlane", "packet", "wavefront-perlane",
+                     "wavefront"]
+DEFAULT_SPPS = [16, 32, 64, 128, 256, 512, 1024]
 
 
 def say(*parts):
@@ -251,12 +259,22 @@ def pbrt_render_seconds(tool, exr):
     return float(found.group(1))
 
 
+def repeats_at(args, spp):
+    """How many runs a cell at `spp` is the best of: --repeats, or
+    --long-repeats from --long-spp up, where a render is long enough for one
+    run's noise to be small next to it and the repeats would cost hours."""
+    if args.long_spp is not None and spp >= args.long_spp:
+        return args.long_repeats
+    return args.repeats
+
+
 def render_pbrt(args, out, scene, tag, depth, spp, gbuffer):
-    """pbrt on the scene at this depth and count: the best time of --repeats
-    renders, the radiance as a PFM, and the normals when the film has them."""
+    """pbrt on the scene at this depth and count: the best time of the cell's
+    repeats (see repeats_at), the radiance as a PFM, and the normals when the
+    film has them."""
     exr = f"{out}/{tag}-pbrt.exr"
     best = None
-    for _ in range(args.repeats):
+    for _ in range(repeats_at(args, spp)):
         if os.path.exists(exr):
             os.remove(exr)
         result = subprocess.run(
@@ -300,7 +318,7 @@ def measure(args, out, scene, results):
             tag = f"d{depth}-s{spp}"
             if tag in cells and not args.rerun:
                 continue
-            say(f"== depth {depth}, {spp} spp")
+            say(f"== depth {depth}, {spp} spp (best of {repeats_at(args, spp)})")
             flags = ["--spp", str(spp), "--maxdepth", str(depth)]
             if not args.own_tree:
                 flags.append("--pbrt-tree")
@@ -311,7 +329,7 @@ def measure(args, out, scene, results):
             pbrt_radiance = read_pfm(f"{out}/{tag}-pbrt-radiance.pfm")
             first = None
             for schedule in args.schedules:
-                seconds = render_ours(out, schedule, tag, args.repeats)
+                seconds = render_ours(out, schedule, tag, repeats_at(args, spp))
                 ours = read_pfm(f"{out}/{tag}-{schedule}-radiance.pfm")
                 check = check_radiance(pbrt_radiance, ours)
                 check["seconds"] = seconds
@@ -393,7 +411,10 @@ def heatmaps(args, results, scene_name):
     vmax = max(float(v.max()) for v in speed.values())
     vmin = min(1.0, min(float(v.min()) for v in speed.values()))
     n = len(args.schedules)
-    width = min(7.0, 2.1 * n + 0.6)
+    # Room for a "1.2×" in every cell: a third of an inch per column, and a
+    # page's width at most -- wider than two columns once the sample counts
+    # run to seven and the schedules to five.
+    width = min(10.0, max(2.1 * n + 0.6, 0.34 * len(args.spps) * n + 0.8))
     fig, axes = plt.subplots(1, n, figsize=(width, 0.42 * len(args.depths) + 0.9),
                              squeeze=False)
     cmap = plt.get_cmap("Blues")
@@ -552,11 +573,18 @@ def main(argv):
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("scene", help="a .pbrt scene")
     parser.add_argument("--depths", type=int, nargs="+", default=[1, 2, 3, 4, 5])
-    parser.add_argument("--spps", type=int, nargs="+", default=[16, 64, 256])
-    parser.add_argument("--schedules", nargs="+",
-                        default=["scalar", "perlane", "packet"])
+    parser.add_argument("--spps", type=int, nargs="+", default=DEFAULT_SPPS)
+    parser.add_argument("--schedules", nargs="+", default=DEFAULT_SCHEDULES)
     parser.add_argument("--repeats", type=int, default=3,
                         help="best of this many runs, both sides")
+    parser.add_argument("--long-spp", type=int, default=128,
+                        help="from this sample count up a cell is the best of "
+                             "--long-repeats runs instead; a render that long "
+                             "varies little between runs, and repeating it "
+                             "would cost hours (none: --long-spp 0 keeps "
+                             "--repeats everywhere)")
+    parser.add_argument("--long-repeats", type=int, default=1,
+                        help="best of this many runs from --long-spp up")
     parser.add_argument("--out", default=os.path.join(ROOT, "eval", "out"))
     parser.add_argument("--plots", default=os.path.join(ROOT, "eval", "plots"))
     parser.add_argument("--pbrt", default=os.environ.get(
@@ -586,6 +614,10 @@ def main(argv):
     parser.add_argument("--grid-width", type=float, default=7.0,
                         help="figure width in inches (7 is a two-column page)")
     args = parser.parse_args(argv[1:])
+    if args.long_spp is not None and args.long_spp <= 0:
+        args.long_spp = None
+    if args.repeats < 1 or args.long_repeats < 1:
+        raise SystemExit("--repeats and --long-repeats are at least 1")
 
     scene = os.path.abspath(args.scene)
     if not os.path.isfile(scene):
