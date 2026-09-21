@@ -2651,31 +2651,36 @@ Per scene, what is missing (see the converter for what is supported):
 
 | scene | missing |
 |---|---|
-| barcelona-pavilion | day: nothing. night: `bdpt`, `blackbody L` |
-| bistro | `zsobol`, `normalmap`, ACES env map (`coatedconductor` done 2026-09-20) |
-| bmw-m6 | `volpath`, `mix`, `coatedconductor`, conductor `reflectance` |
-| bunny-cloud | `volpath`, `disk`, `interface`, `nanovdb` medium, ACES env map |
+| barcelona-pavilion | day: nothing, renders and matches. night: `bdpt` |
+| bistro | `zsobol`, `normalmap`, ACES env map |
+| bmw-m6 | `volpath`, `mix` |
+| bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map |
 | bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
-| contemporary-bathroom | `sppm`, `blackbody L` |
-| crown | `volpath`, `mix`, conductor `reflectance`, inline `spectrum eta`, `blackbody L`, homogeneous media |
+| contemporary-bathroom | `sppm` |
+| crown | `volpath`, `mix`, homogeneous media |
 | dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media |
-| disney-cloud | `volpath`, `sobol`, `disk`, `interface`, `distant`, `nanovdb` |
-| explosion | `volpath`, default `zsobol`, `disk`, `interface`, emissive `nanovdb`, ACES |
-| ganesha, landscape, pbrt-book, lte-orb-simple-ball | nothing obvious |
+| disney-cloud | `volpath`, `sobol`, `interface`, `nanovdb` |
+| explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
+| ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
+| pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
 | hair | `volpath`, `curve`, `hair` |
 | head | `volpath`, `subsurface` |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
-| kroken | `volpath`, default `zsobol`, `mix`/`coatedconductor`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, `blackbody L`, homogeneous media |
+| kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media |
 | lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium |
 | sportscar | `volpath`, `bilinearmesh`, ACES env map |
 | sssdragon | `subsurface` |
 | transparent-machines | `volpath`, spectral `eta` on `dielectric` |
-| villa | `volpath`, `disk`, `thindielectric`, conductor `reflectance`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `blackbody L`, `spot`/`point` |
-| watercolor | `volpath`, `bilinearmesh`, `mix`/`coatedconductor`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, `blackbody L`, homogeneous medium |
-| zero-day | nothing since 2026-09-20: `blackbody L`, conductor `reflectance` and `rgb eta`/`k`, textured roughness. Renders and matches (above) |
+| villa | `volpath`, `thindielectric`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `spot`/`point` |
+| watercolor | `volpath`, `bilinearmesh`, `mix`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous medium |
+| zero-day | nothing since 2026-09-20: renders and matches (above, and the 2026-09-21 sweep) |
+
+(Rows brought up to date 2026-09-21: `blackbody L`, `disk`, `distant`,
+`coatedconductor`, conductor `reflectance` and spectrum `eta`/`k` are done
+and struck from every row.)
 
 ### What `volpath` is, over `path`
 
