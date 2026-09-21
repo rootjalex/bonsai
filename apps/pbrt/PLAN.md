@@ -3690,20 +3690,51 @@ Also fixed on the way: `!=` on floats lowered as an *ordered* compare, so
 scalarizes with `mulx`, is re-expanded after the optimizer
 (`CodeGen/ExpandVectorMulHigh.h`).
 
-**What remains scalar in the gang, and why it is left.** The Halton sampler:
-`limit = ~0 / base - base` is a 64-bit division by the lane's base
-(`udiv <16 x i64>`, seven sites in `get_1d`/`get_2d`/`get_pixel_2d`), and
-the digit loops' multiplier `div_multiplier(base)` is a 128-by-64 division
-per lane (`udiv <16 x i128>`, two sites: 32 `__udivti3` calls). The base is
-`primes[dimension]`, and every lane of a gang is at the same dimension, but
-the analysis cannot know that: the fix is `specialize(uniform(dimension))`
--- the directive already agreed as the next scheduling step -- or a table of
-per-prime limits and multipliers. Everything else in the gang is vector code;
-the only per-lane `sinf`/`cosf` calls are on the `*_rare` paths for
-arguments past 1e6, which a render never takes. Two CUDA-backend goldens
-(`backends/cuda/parallel`, `rtiow-primer`) fail on this branch and on
-`ajr/ssa` alike: the Stmt-level `bind` is a no-op there and the pass asserts
-the schedule changed nothing. That backend is what the PTX backend replaces.
+**The Halton limit, `~0 / base - base`, and what was wrong with it.** The
+user asked whether that division could be simplified away. It already is,
+by design: InvariantDivision gives the digit loop's `v / b` a multiplier and
+lets every other division by the same `b` -- the limit's -- use it, so the
+limit is one `mulhi(m, ~0)`. Two things had stopped that in the renderer.
+The multiply-high of a *constant* operand came out of LLVM as `mul <16 x
+i128>` by a splat, which ExpandVectorMulHigh did not match (it wanted two
+extensions) and x86 scalarized into sixteen `mulx`; it matches a constant
+now. And in `owen_scrambled_radical_inverse` neither division had been
+rewritten at all: the loop body calls `permutation_element`, so the loop's
+values go round through the call's continuation block, and the tracer that
+follows a block argument back to its definition took that block's argument
+for a definition of its own -- every path into it cycles back to the header
+-- and so saw the header fed by two different things. A block all of whose
+paths in cycle now contributes nothing, and the header sees the one `cast`
+before the loop. Test: `permuted_digits` in `ssa/invariant-division`.
+
+**What remains scalar in the gang, and why it is left.** The Halton
+sampler's `div_multiplier(base)`: a 128-by-64 division per lane (`udiv <16
+x i128>`, three sites now that Owen's has one too: 48 `__udivti3` calls per
+gang of radical inverses), and `get_pixel_2d`'s `index / stride` by a
+uniform 64-bit stride, sixteen `div`s that a gang-uniform multiplier (one
+scalar 128-bit division, then vector multiplies) would remove -- the natural
+next extension of InvariantDivision, to divisors the analysis calls uniform.
+The base is `primes[dimension]`; the user asked why the vectorizer does not
+know every lane is at the same dimension. It is not a broken analysis, for
+two reasons. The dimension is not in fact uniform in general: pbrt advances
+it inside `if (IsNonSpecular(...))` around light sampling, so a gang with a
+specular lane and a diffuse lane diverges in dimension from then on. And the
+analysis works at the granularity of values and of per-lane memory:
+`dimension` is a field of `SamplerState`, which is a lane's own because
+`sample` and `rng` are, so a load of it varies by construction. A callee all
+of whose arguments are uniform is already left scalar with a uniform result
+(see specialize_calls: "a callee whose arguments are all uniform needs
+neither" a variant nor a mask); the dimension does not arrive as an argument
+but out of memory. What makes the common case fast is a run-time check --
+`specialize(uniform(dimension))`, Halide's specialize: are all lanes' bases
+equal, then one multiplier for the gang, else the per-lane path -- which is
+the scheduling directive already agreed on for the packet traversal's node.
+Everything else in the gang is vector code; the only per-lane `sinf`/`cosf`
+calls are on the `*_rare` paths for arguments past 1e6, which a render
+never takes. Two CUDA-backend goldens (`backends/cuda/parallel`,
+`rtiow-primer`) fail on this branch and on `ajr/ssa` alike: the Stmt-level
+`bind` is a no-op there and the pass asserts the schedule changed nothing.
+That backend is what the PTX backend replaces.
 
 **Measured, LLVM 23 against LLVM 19, 16 spp depth 5, best of five, two
 rounds:** killeroo scalar 0.579 s vs 0.584-0.593, packet 0.325 vs 0.345,
