@@ -284,6 +284,12 @@ struct CodeGen_LLVM::SSALowering {
             internal_assert(n == 2) << "ramp takes a base and a stride";
             return Ramp::make(std::move(args[0]), std::move(args[1]),
                               instr.type.lanes());
+        case Instruction::Op::AtomicAdd:
+            // A fetch-and-add on the place the first operand addresses,
+            // whose value is what the place held before: a queue's count
+            // claiming slots (see lower_pushes in SSA/Defer.cpp).
+            internal_assert(n == 2) << "atomic add takes a place and a value";
+            return AtomicAdd::make(std::move(args[0]), std::move(args[1]));
         case Instruction::Op::ExtractIdx:
             // A third operand is the execution mask of a gather (see
             // Extract::mask): the lanes that read at all.

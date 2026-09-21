@@ -1,0 +1,42 @@
+//! flags: -p ssa -b llvm -e
+
+// The gang drain with the producer's own state in the entry (see
+// correctness/llvm/defer-frame for the scalar version). `tally` returns its
+// sum and the producer adds a value of its own iteration to it and writes
+// the result at its own index, both gone by the time the drain runs the
+// entry; so the callee's push returns the slot it took, the producer writes
+// its part there, and in the gang the slot is one per lane -- the frame's
+// write into a lane's own entry is a scatter, and so is the drain's when an
+// entry saves again. Forty entries, n = i % 7, so the batches thin out round
+// by round through the compacting push and the last round is a partial
+// gang.
+func tally(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return tally(n - 1, acc + n);
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        w = i * 100;
+        out[i] = tally(i % 7, 0) + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 40] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

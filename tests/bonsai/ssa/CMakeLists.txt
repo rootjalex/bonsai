@@ -6,6 +6,7 @@ add_bonsai_tests(
     calls.bonsai
     collapse.bonsai
     defer-frame.bonsai
+    defer-gang.bonsai
     defer-lone-call.bonsai
     defer-loop-owned.bonsai
     defer-tail.bonsai
@@ -28,6 +29,7 @@ add_bonsai_tests(
     sort-nested.bonsai
     sort-recursion.bonsai
     split.bonsai
+    split-tail.bonsai
     split-unsigned.bonsai
     switch-merge.bonsai
     traverse.bonsai

@@ -159,83 +159,101 @@ shared_ptr<Value> make_alloca(Function &func, const shared_ptr<Block> &block,
     return value;
 }
 
-// Changes the type of the argument `name` of `block`, wherever the block
-// holds a copy of it: its parameter list, its lookups, and every value in it
-// that names the argument. An Argument is copied by value into a Value, so
-// there is no one place to change it (see widen_argument in Vectorize.cpp).
-void retype_argument(Block &block, const string &name, const Type &type) {
+// Applies `edit` to every copy `block` holds of the argument `name`: its
+// entry in the parameter list, its lookup, and every value in the block that
+// names the argument. An Argument is copied by value into a Value, so there
+// is no one place to change it (see widen_argument in Vectorize.cpp).
+void edit_argument(Block &block, const string &name,
+                   const std::function<void(Argument &)> &edit) {
     for (Argument &arg : block.args) {
         if (arg.name == name) {
-            arg.type = type;
+            edit(arg);
         }
     }
-    const auto retype = [&](const shared_ptr<Value> &v) {
+    const auto visit = [&](const shared_ptr<Value> &v) {
         if (v && std::holds_alternative<Argument>(v->data)) {
             Argument &a = std::get<Argument>(v->data);
             if (a.name == name) {
-                a.type = type;
+                edit(a);
             }
         }
     };
     if (const auto it = block.lookups.find(name); it != block.lookups.end()) {
-        retype(it->second);
+        visit(it->second);
     }
     for (const auto &instr : block.instrs) {
         for (const auto &operand : instr->operands) {
-            retype(operand);
+            visit(operand);
         }
     }
     std::visit(overloads{
                    [&](std::monostate &) {},
                    [&](Terminator::Jump &j) {
                        for (auto &a : j.args) {
-                           retype(a);
+                           visit(a);
                        }
                    },
                    [&](Terminator::Dispatch &d) {
-                       retype(d.cond);
+                       visit(d.cond);
                        for (auto &t : d.targets) {
                            for (auto &a : t.args) {
-                               retype(a);
+                               visit(a);
                            }
                        }
                    },
-                   [&](Terminator::Return &r) { retype(r.value); },
+                   [&](Terminator::Return &r) { visit(r.value); },
                    [&](Terminator::ParFor &p) {
-                       retype(p.start);
-                       retype(p.end);
-                       retype(p.stride);
+                       visit(p.start);
+                       visit(p.end);
+                       visit(p.stride);
                        for (auto &a : p.body.args) {
-                           retype(a);
+                           visit(a);
                        }
                        for (auto &a : p.cont.args) {
-                           retype(a);
+                           visit(a);
                        }
                    },
                    [&](Terminator::Yield &) {},
                    [&](Terminator::Call &c) {
                        for (auto &a : c.call.args) {
-                           retype(a);
+                           visit(a);
                        }
                        for (auto &a : c.cont.args) {
-                           retype(a);
+                           visit(a);
                        }
                    },
                    [&](Terminator::MultiCall &c) {
                        for (auto &a : c.call.args) {
-                           retype(a);
+                           visit(a);
                        }
                        for (auto &a : c.cont.args) {
-                           retype(a);
+                           visit(a);
                        }
                        for (auto &vs : c.varying) {
                            for (auto &a : vs) {
-                               retype(a);
+                               visit(a);
                            }
                        }
                    },
                },
                block.terminator.data);
+}
+
+// Changes the type of the argument `name` of `block`, wherever the block
+// holds a copy of it.
+void retype_argument(Block &block, const string &name, const Type &type) {
+    edit_argument(block, name, [&](Argument &a) { a.type = type; });
+}
+
+// Renames the argument `from` of `block` to `to`, wherever the block holds a
+// copy of it, its lookup included.
+void rename_argument(Block &block, const string &from, const string &to) {
+    edit_argument(block, from, [&](Argument &a) { a.name = to; });
+    if (const auto it = block.lookups.find(from); it != block.lookups.end()) {
+        auto value = it->second;
+        block.lookups.erase(it);
+        block.lookups[to] = std::move(value);
+    }
 }
 
 //===--------------------------------------------------------------------===//
@@ -2091,6 +2109,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         body->make_side_effect(Instruction::Op::Store, {local, contents});
         locals[f] = local;
     }
+    // The copy of the continuation takes a relocated local as a parameter
+    // named after the producer's storage for it, and the drain hands it its
+    // own storage instead. A value threaded through blocks keeps its name in
+    // this form (Block::get_value), and a pass that unwinds the threading --
+    // promote_allocas, which turns a local written once and read after into
+    // a value -- finds the pointer's loads by that name; so the copy's
+    // parameter is renamed after the drain's storage, throughout the copy.
+    internal_assert(k_entry->args.size() == result_args + carried.size())
+        << what << ": the continuation " << k_entry->name << " takes "
+        << k_entry->args.size() << " arguments, not " << result_args << " + "
+        << carried.size();
+    for (size_t i = 0; i < carried.size(); i++) {
+        if (carried[i].from != From::Relocated) {
+            continue;
+        }
+        const string from = k_entry->args[result_args + i].name;
+        const string to = std::get<shared_ptr<Instruction>>(
+                              locals.at(carried[i].field)->data)
+                              ->name;
+        for (const auto &[name, copy] : copies) {
+            rename_argument(*copy, from, to);
+        }
+    }
     {
         vector<shared_ptr<Value>> args;
         for (size_t j = 0; j < nparams; j++) {
@@ -2223,6 +2264,55 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
 // lower_pushes()
 //===--------------------------------------------------------------------===//
 
+namespace {
+
+// Each lane's rank among the lanes of `mask` that are on -- how many lanes
+// before it are on -- as one index of `wide` (an unsigned vector as wide as
+// the mask) per lane, so that the lanes that push are numbered 0, 1, 2, .. in
+// lane order and take consecutive slots; a lane that is off holds a number
+// nothing reads. CUDA's coalesced_group::thread_rank(), ispc's
+// exclusive_scan_add over the mask. Built as an exclusive prefix sum of the
+// mask read as ones and zeros, by a Hillis-Steele scan (Hillis & Steele,
+// "Data Parallel Algorithms", CACM 1986): log2(lanes) rounds, each adding to
+// every lane the sum 2^k lanes before it, a shuffle with a zero fill and an
+// add apiece, inserted into `block` at `at`.
+shared_ptr<Value> lane_rank(Function &func, const shared_ptr<Block> &block,
+                            size_t &at, const shared_ptr<Value> &mask,
+                            const Type &wide) {
+    const uint32_t lanes = wide.lanes();
+    const Type count = wide.element_of();
+    auto ones = insert_instruction(func, block, at++, wide,
+                                   Instruction::Op::Cast, {mask});
+    auto zero = insert_instruction(
+        func, block, at++, wide, Instruction::Op::Bc,
+        {std::make_shared<Value>(Constant{count, uint64_t(0)}),
+         constant_u32(lanes)});
+    // `v` shifted `by` lanes along, the first `by` lanes filled with zeros:
+    // in each lane, the value `by` lanes before it, and nothing before the
+    // first.
+    const auto before = [&](const shared_ptr<Value> &v, uint32_t by) {
+        auto shifted = insert_instruction(func, block, at++, wide,
+                                          Instruction::Op::Shuffle, {zero, v});
+        auto &indices =
+            std::get<shared_ptr<Instruction>>(shifted->data)->shuffle;
+        indices.resize(lanes);
+        for (uint32_t i = 0; i < lanes; i++) {
+            indices[i] = i < by ? int(i) : int(lanes + i - by);
+        }
+        return shifted;
+    };
+    // Exclusive: each lane starts from whether the lane before it is on, and
+    // the rounds sum everything before that.
+    shared_ptr<Value> sum = before(ones, 1);
+    for (uint32_t by = 1; by < lanes; by *= 2) {
+        sum = insert_instruction(func, block, at++, wide, Instruction::Op::Add,
+                                 {sum, before(sum, by)});
+    }
+    return sum;
+}
+
+} // namespace
+
 void lower_pushes(Function &func) {
     for (const auto &block : func.blocks) {
         for (size_t i = 0; i < block->instrs.size(); i++) {
@@ -2230,24 +2320,48 @@ void lower_pushes(Function &func) {
             if (push->op != Instruction::Op::Push) {
                 continue;
             }
-            internal_assert(push->operands.size() == 2) << push->operands.size();
+            internal_assert(push->operands.size() == 2 ||
+                            push->operands.size() == 3)
+                << push->operands.size();
             const shared_ptr<Value> q = push->operands[0];
             const shared_ptr<Value> entry = push->operands[1];
+            const shared_ptr<Value> mask =
+                push->operands.size() == 3 ? push->operands[2] : nullptr;
             const auto *qptr = q->get_type().as<Ptr_t>();
-            internal_assert(qptr) << "push to a non-pointer: " << q->get_type();
+            internal_assert(qptr)
+                << "push to a non-pointer: " << q->get_type()
+                << (q->get_type().is_vector()
+                        ? " -- a gang pushes onto one queue, not a queue per lane"
+                        : "");
             const Type queue_t = qptr->etype;
             const auto *qs = queue_t.as<Struct_t>();
             internal_assert(qs && qs->fields.size() == 2)
                 << "push to something that is not a queue: " << queue_t;
             const Type count_t = qs->fields[0].type;
             const Type data_t = qs->fields[1].type;
+            const Type element_t = data_t.element_of();
+
+            // A gang's push, told by its value: one slot per lane. The lanes
+            // that push -- those the mask has on, or all of them -- compact
+            // into consecutive slots: the count advances once by how many
+            // there are, and each takes the slot at its rank among them, in
+            // lane order (ispc's packed_store_active; a `vpcompressd` where
+            // the entries are laid out a field at a time, a scatter to the
+            // ranked slots where, as here, an entry is a struct in memory).
+            // A scalar push is a gang of one with no mask.
+            const Vector_t *gang = push->type.as<Vector_t>();
+            const uint32_t lanes = gang != nullptr ? gang->lanes : 1;
+            internal_assert(gang != nullptr || mask == nullptr)
+                << "a scalar push under a mask in " << block->name;
+            internal_assert(gang == nullptr || equals(count_t, u32()))
+                << "a gang's push counts in " << count_t << ", not u32";
 
             size_t at = i;
             // The count's address is a FieldPtr, which is written out where it
             // is used rather than bound to a name (has_no_binding in
             // SSA/CodeGen_Stmt.cpp): it names the count in the queue, where a
             // load of the queue and the address of its count field would name
-            // a copy. The slot is claimed by fetch-and-add when the push is
+            // a copy. The slots are claimed by fetch-and-add when the push is
             // atomic, and by a read and a write when it is not.
             auto count_ptr = insert_instruction(func, block, at++,
                                                 Ptr_t::make(count_t),
@@ -2255,51 +2369,101 @@ void lower_pushes(Function &func) {
                                                 {q, constant_u32(0)});
             auto whole = insert_instruction(func, block, at++, queue_t,
                                             Instruction::Op::Load, {q});
-            const auto one =
-                std::make_shared<Value>(Constant{count_t, uint64_t(1)});
-            shared_ptr<Value> index;
-            if (push->atomic) {
-                index = insert_instruction(func, block, at++, count_t,
-                                           Instruction::Op::AtomicAdd,
-                                           {count_ptr, one});
+            // How many entries this push adds.
+            shared_ptr<Value> added;
+            if (gang == nullptr) {
+                added = std::make_shared<Value>(Constant{count_t, uint64_t(1)});
+            } else if (mask != nullptr) {
+                added = insert_instruction(func, block, at++, count_t,
+                                           Instruction::Op::Popcount, {mask});
             } else {
-                index = insert_instruction(func, block, at++, count_t,
+                added = std::make_shared<Value>(
+                    Constant{count_t, uint64_t(lanes)});
+            }
+            // The first slot they take: the count before.
+            shared_ptr<Value> first;
+            if (push->atomic) {
+                first = insert_instruction(func, block, at++, count_t,
+                                           Instruction::Op::AtomicAdd,
+                                           {count_ptr, added});
+            } else {
+                first = insert_instruction(func, block, at++, count_t,
                                            Instruction::Op::LoadField,
                                            {whole, constant_u32(0)});
                 auto next = insert_instruction(func, block, at++, count_t,
                                                Instruction::Op::Add,
-                                               {index, one});
+                                               {first, added});
                 insert_side_effect(block, at++, Instruction::Op::Store,
                                    {count_ptr, next});
+            }
+            // Each lane's slot: the first, plus its rank among the lanes that
+            // push -- its lane index when they all do.
+            shared_ptr<Value> index = first;
+            if (gang != nullptr) {
+                shared_ptr<Value> rank;
+                if (mask != nullptr) {
+                    rank = lane_rank(func, block, at, mask, push->type);
+                } else {
+                    rank = insert_instruction(
+                        func, block, at++, push->type, Instruction::Op::Ramp,
+                        {std::make_shared<Value>(Constant{count_t, uint64_t(0)}),
+                         std::make_shared<Value>(Constant{count_t, uint64_t(1)})});
+                }
+                auto base = insert_instruction(
+                    func, block, at++, push->type, Instruction::Op::Bc,
+                    {first, constant_u32(lanes)});
+                index = insert_instruction(func, block, at++, push->type,
+                                           Instruction::Op::Add, {base, rank});
             }
             // (*q).data[index] = entry, field by field where the entry is
             // built in place -- a field left undefined is one the frame
             // writes, and is not stored. The array is a handle, so reading it
-            // out of a copy of the queue reads the same storage.
+            // out of a copy of the queue reads the same storage. For a gang
+            // the address is one per lane and each store is a scatter, made
+            // for the lanes the mask has on; the pointers are to the entry
+            // as memory holds it, a struct per slot, whatever shape the gang
+            // holds the value in.
+            const auto per_lane = [&](const Type &pointee) {
+                return gang != nullptr
+                           ? Vector_t::make(Ptr_t::make(pointee), lanes)
+                           : Ptr_t::make(pointee);
+            };
             auto data = insert_instruction(func, block, at++, data_t,
                                            Instruction::Op::LoadField,
                                            {whole, constant_u32(1)});
             auto slot = insert_instruction(func, block, at++,
-                                           Ptr_t::make(entry->get_type()),
+                                           per_lane(element_t),
                                            Instruction::Op::GEP, {data, index});
+            const auto store = [&](const shared_ptr<Value> &place,
+                                   const shared_ptr<Value> &value) {
+                vector<shared_ptr<Value>> operands = {place, value};
+                if (mask != nullptr) {
+                    operands.push_back(mask);
+                }
+                insert_side_effect(block, at++, Instruction::Op::Store,
+                                   std::move(operands));
+            };
             const auto *built = std::get_if<shared_ptr<Instruction>>(&entry->data);
-            const auto *entry_struct = entry->get_type().as<Struct_t>();
+            const auto *element_struct = element_t.as<Struct_t>();
             if (built != nullptr && (*built)->op == Instruction::Op::MakeStruct &&
-                entry_struct != nullptr) {
+                element_struct != nullptr) {
+                internal_assert((*built)->operands.size() ==
+                                element_struct->fields.size())
+                    << "an entry of " << (*built)->operands.size()
+                    << " fields for " << element_t;
                 for (size_t k = 0; k < (*built)->operands.size(); k++) {
                     const shared_ptr<Value> &v = (*built)->operands[k];
                     if (is_undef(v)) {
                         continue;
                     }
                     auto field_ptr = insert_instruction(
-                        func, block, at++, Ptr_t::make(entry_struct->fields[k].type),
+                        func, block, at++,
+                        per_lane(element_struct->fields[k].type),
                         Instruction::Op::FieldPtr, {slot, constant_u32(k)});
-                    insert_side_effect(block, at++, Instruction::Op::Store,
-                                       {field_ptr, v});
+                    store(field_ptr, v);
                 }
             } else {
-                insert_side_effect(block, at++, Instruction::Op::Store,
-                                   {slot, entry});
+                store(slot, entry);
             }
             // The push's value was the slot; it is gone with the push.
             replace_uses(func, push.get(), index);

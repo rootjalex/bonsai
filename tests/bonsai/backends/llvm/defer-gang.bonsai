@@ -1,0 +1,30 @@
+//! flags: -p ssa -b llvm
+
+// The gang drain, all the way to LLVM (see ssa/defer-gang for the schedule).
+// What to read for: in `run`, the drain's batch walked sixteen at a time,
+// the tail's guard as the gang's initial mask, and the entries read with
+// masked gathers; in `walk`'s gang copy, the compacting push -- one atomic
+// fetch-and-add of the popcount of the lanes that push, the lanes' ranks by
+// a prefix sum of the mask, and a masked scatter of each field of the entry
+// to the ranked slots.
+func walk(n : i32, acc : i32, out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        out[i] = acc;
+        return;
+    }
+    walk(n - 1, acc + n, out, i);
+    return;
+}
+
+func [[export]] run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, 0, out, i);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

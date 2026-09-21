@@ -229,6 +229,32 @@ vector<Candidate> find_candidates(Function &func, const Cfg &region) {
                     reject_if_named(*arg);
                 }
             }
+            // Threading keeps the name (Block::get_value): the argument that
+            // carries the pointer on is called what the allocation is, and
+            // that name is how its loads and stores in other blocks are
+            // found. A jump that hands the pointer to an argument called
+            // something else is not threading this can unwind -- the loads
+            // through that argument would be missed, and the allocation
+            // deleted from under them -- so the allocation stays in memory.
+            for (auto &[jump, first_arg] : jumps(*block)) {
+                const BlockId to = region.find(jump->name);
+                if (to == NO_BLOCK) {
+                    continue; // a call's jump to its callee
+                }
+                const Block &target = region[to];
+                for (size_t k = 0; k < jump->args.size(); k++) {
+                    const size_t j = k + first_arg;
+                    internal_assert(j < target.args.size())
+                        << "Jump from " << block->name << " to " << target.name
+                        << " passes more arguments than the block takes";
+                    for (const Candidate &c : candidates) {
+                        if (refers_to(*jump->args[k], c.name) &&
+                            target.args[j].name != c.name) {
+                            rejected.insert(c.name);
+                        }
+                    }
+                }
+            }
             continue;
         }
         for (auto &[jump, _] : jumps(*block)) {

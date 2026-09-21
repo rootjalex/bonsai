@@ -649,6 +649,14 @@ analyze_divergence(const Function &func, const string &entry,
                 case Instruction::Op::Vote:
                     continue;
 
+                // A push's value is the slot its entry took, and the lanes
+                // take slots of their own whatever they push -- a gang that
+                // pushes one value sixteen times over makes sixteen entries
+                // -- so the slot is per lane however uniform the operands.
+                case Instruction::Op::Push:
+                    mark(result.instrs, instr.get());
+                    continue;
+
                 // The address of a value the lanes disagree about is one
                 // address, of a temporary with a slot per lane.
                 case Instruction::Op::AddressOf:

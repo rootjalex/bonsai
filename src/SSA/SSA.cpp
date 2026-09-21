@@ -275,13 +275,19 @@ void Instruction::dump(std::ostream &os) const {
         operands[1]->dump(os);
         return;
     } else if (op == Instruction::Op::Push) {
-        // Named: its value is the slot the entry took.
+        // Named: its value is the slot the entry took. A third operand is
+        // the mask the push is made under.
         internal_assert(!name.empty()) << "A push names the slot it claims";
-        internal_assert(operands.size() == 2) << operands.size();
+        internal_assert(operands.size() == 2 || operands.size() == 3)
+            << operands.size();
         os << name << " = " << (atomic ? "push " : "push nonatomic ");
         operands[0]->dump(os);
         os << " ";
         operands[1]->dump(os);
+        if (operands.size() == 3) {
+            os << " if ";
+            operands[2]->dump(os);
+        }
         return;
     } else if (op == Instruction::Op::Print) {
         internal_assert(name.empty())

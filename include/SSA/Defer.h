@@ -147,9 +147,16 @@ struct QueueSpec {
 //     that is itself recursive apart from the deferred call; and a queue
 //     whose producer is not one call, or one call inside one parfor, of the
 //     owner's iteration.
-//   * Deferring inside a vectorized gang: the push would have to compact the
-//     lanes that push into consecutive slots. Vectorize the drain after
-//     deferring instead.
+//
+// The drain is a parfor like any other, and a schedule that then writes
+// `owner.split(<queue>, gang, lane, 16, true).vectorize(lane)` runs sixteen
+// entries as one gang -- the packet schedule's gang made from a queue rather
+// than from a pixel's samples, and what a wavefront is for. The push inside
+// the gang is then made by some lanes and not others, and compacts: the
+// count advances once by the number of lanes that push, and each takes the
+// slot at its rank among them (Instruction::Op::Rank), so the next round's
+// queue is dense. The split's tail is what lets a batch of any size be
+// drained by whole gangs, the last one partly full.
 //
 // `func` is the function the calls are in, `callee` the function they call
 // (the same function, for a recursion), and `queue` the queue. Returns the
@@ -160,7 +167,9 @@ std::vector<Type> defer(FuncMap &funcs, const std::string &func,
 
 // Replaces every Push with what it stands for: a fetch-and-add of the queue's
 // count, atomic when the push is, and a store of the entry into the slot that
-// claimed. Run once the schedule is applied, right before code generation,
+// claimed. A gang's push -- one whose value is a slot per lane -- adds the
+// number of lanes that push and scatters their entries to the slots at their
+// ranks. Run once the schedule is applied, right before code generation,
 // since until then a push has to stay one instruction for the vectorizer to
 // recognize (see Instruction::Op::Push).
 void lower_pushes(Function &func);

@@ -1,0 +1,42 @@
+//! flags: -p ssa -b llvm -e
+
+// The gang drain with a `mut` local of the producer's iteration that the
+// callee is never handed: `w` is written before the deferred call and read
+// after it, so the entry carries its contents and the drain gives each entry
+// a local of its own to run the rest of the iteration with. In the gang that
+// local has one slot per lane, is written from the gathered entry and read
+// back by the film write and, for an entry that saves again, by the frame's
+// write into the next round's queue. This is apps/pbrt's shape: the sampled
+// wavelengths are a `mut` local the integrator is not handed but the film
+// write needs. Forty entries, n = i % 7.
+func tally(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return tally(n - 1, acc + n);
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        w : mut i32 = i * 100;
+        r = tally(i % 7, 0);
+        out[i] = r + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 40] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

@@ -4310,6 +4310,24 @@ void CodeGen_LLVM::visit(const Store *node) {
     }
 
     llvm::Value *dest = codegen_write_loc(loc);
+
+    // An address per lane -- a location indexed by a lane's own index
+    // somewhere before its last access, `entries[slot].weight` with `slot`
+    // differing between the lanes -- is a scatter: each lane writes its
+    // value at its own address, under its bit of the mask when there is one.
+    if (dest->getType()->isVectorTy()) {
+        // The location's type is the gang's value of the slot (see
+        // WriteLoc::add_index_access); what memory holds at each address is
+        // one lane's worth of it.
+        internal_assert(loc.type.defined())
+            << "A scatter to " << loc.base << " with no type for its element";
+        const uint32_t lanes = vector_lanes(dest->getType());
+        create_scatter_at(rhs, dest, narrow(loc.type, lanes),
+                          node->mask.defined() ? codegen_expr(node->mask)
+                                               : nullptr);
+        return;
+    }
+
     // A name bound to a value rather than to storage cannot be assigned to.
     // Without this the failure is an assertion inside LLVM, which says
     // nothing about which name in which statement is at fault.
@@ -5193,6 +5211,93 @@ void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,
     // lane writes it, so it is written once, provided some lane would have --
     // ispc's rule for an assignment to a uniform inside varying control flow.
     emit_if_any_lane(mask, [&] { builder->CreateStore(value, dest); });
+}
+
+void CodeGen_LLVM::create_scatter_at(llvm::Value *value, llvm::Value *ptrs,
+                                     const ir::Type &pointee,
+                                     llvm::Value *mask) {
+    auto *pt = llvm::dyn_cast<llvm::FixedVectorType>(ptrs->getType());
+    internal_assert(pt != nullptr && pt->getElementType()->isPointerTy())
+        << "A scatter wants one address per lane";
+    const uint32_t lanes = uint32_t(pt->getNumElements());
+    if (mask == nullptr) {
+        mask = llvm::Constant::getAllOnesValue(
+            llvm::VectorType::get(i1_t, lanes, /*Scalable=*/false));
+    }
+    const llvm::DataLayout &dl = module->getDataLayout();
+
+    // Memory holds a struct per lane where the value is a struct of gang-wide
+    // fields (see widen() in SSA/Vectorize.cpp): each field is scattered to
+    // its own offset within every lane's struct, the offset being the one the
+    // struct has in memory, not the one the widened struct has.
+    if (const Struct_t *s = pointee.as<Struct_t>()) {
+        auto *st = llvm::dyn_cast<llvm::StructType>(value->getType());
+        internal_assert(st != nullptr &&
+                        st->getNumElements() == s->fields.size())
+            << "A scatter of a value that is not a struct of " << pointee
+            << "'s fields";
+        llvm::Type *in_memory = codegen_type(pointee);
+        for (unsigned i = 0; i < unsigned(s->fields.size()); i++) {
+            create_scatter_at(builder->CreateExtractValue(value, i),
+                              builder->CreateStructGEP(in_memory, ptrs, i),
+                              s->fields[i].type, mask);
+        }
+        return;
+    }
+
+    // A short vector per lane -- a `vec3f` -- held as a struct of one
+    // gang-wide vector per component, or as the one uniform vector every
+    // lane writes a copy of: each component goes to its offset within every
+    // lane's vector, which is the component's index in elements whether the
+    // vector is packed in memory or not.
+    if (const Vector_t *v = pointee.as<Vector_t>()) {
+        llvm::Type *component = codegen_type(v->etype);
+        const auto component_ptrs = [&](unsigned c) {
+            return builder->CreateInBoundsGEP(
+                component, ptrs, llvm::ConstantInt::get(i32_t, c),
+                "scatter_component");
+        };
+        if (auto *st = llvm::dyn_cast<llvm::StructType>(value->getType())) {
+            internal_assert(st->getNumElements() == v->lanes)
+                << "A scatter of a value that is not a struct of " << pointee
+                << "'s components";
+            for (unsigned c = 0; c < v->lanes; c++) {
+                create_scatter_at(builder->CreateExtractValue(value, c),
+                                  component_ptrs(c), v->etype, mask);
+            }
+            return;
+        }
+        auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(value->getType());
+        internal_assert(vt != nullptr && vt->getNumElements() == v->lanes)
+            << "A scatter of a value that is not a " << pointee;
+        for (unsigned c = 0; c < v->lanes; c++) {
+            create_scatter_at(builder->CreateExtractElement(value, c),
+                              component_ptrs(c), v->etype, mask);
+        }
+        return;
+    }
+
+    internal_assert(!pointee.is<Array_t>())
+        << "[unimplemented] a scatter of an array per lane, " << pointee;
+
+    // A scalar per lane: the value is a gang-wide vector, or a uniform scalar
+    // every lane writes its own copy of. Booleans take a byte each in memory
+    // (see create_vector_store), so a vector of them is widened first.
+    llvm::Value *wide = value;
+    if (!wide->getType()->isVectorTy()) {
+        wide = builder->CreateVectorSplat(lanes, wide, "scatter_splat");
+    }
+    auto *vt = llvm::cast<llvm::FixedVectorType>(wide->getType());
+    internal_assert(vt->getNumElements() == lanes)
+        << "A scatter of " << vt->getNumElements() << " values to " << lanes
+        << " addresses";
+    if (vt->getElementType()->isIntegerTy(1)) {
+        wide = builder->CreateZExt(
+            wide, llvm::VectorType::get(i8_t, lanes, /*Scalable=*/false),
+            "scatter_bytes");
+    }
+    llvm::Type *etype = wide->getType()->getScalarType();
+    builder->CreateMaskedScatter(wide, ptrs, dl.getABITypeAlign(etype), mask);
 }
 
 void CodeGen_LLVM::emit_if_any_lane(llvm::Value *mask,

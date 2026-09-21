@@ -8,6 +8,7 @@ add_bonsai_tests(
     FILES
     adt-tagged-index.bonsai
     defer.bonsai
+    defer-gang.bonsai
     demote-atomics.bonsai
     dynamic-array.bonsai
     exported-function.bonsai

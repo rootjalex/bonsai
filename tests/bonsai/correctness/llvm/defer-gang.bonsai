@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm -e
+
+// The gang drain, run (see ssa/defer-gang for what the schedule builds).
+// Forty walks of i % 7 steps each: the producer's forty first steps push
+// thirty-four entries, which round zero drains as two full gangs and one of
+// two lanes; each round after that has six fewer, and every lane that
+// finishes leaves a gap the compacting push closes, so the next round's
+// batch is dense and the last round is a single gang of six. The answer has
+// to be the plain recursion's, n(n+1)/2 for each n = i % 7.
+func walk(n : i32, acc : i32, out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        out[i] = acc;
+        return;
+    }
+    walk(n - 1, acc + n, out, i);
+    return;
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, 0, out, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 40] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

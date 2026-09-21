@@ -53,9 +53,13 @@ void WriteLoc::add_index_access(const Expr &index) {
             etype = tuple_t->etypes[*cvalue];
         }
         // One index per lane writes one element per lane: a dense vector
-        // store when the index is a Ramp, a scatter otherwise.
+        // store when the index is a Ramp, a scatter otherwise. What is
+        // written is then the gang's value of the element -- a gang-wide
+        // vector of a scalar element, a struct of gang-wide fields for a
+        // struct element (ir::widen) -- so that a field named after a
+        // per-lane index is a field of that, one value per lane.
         if (index.type().defined() && index.type().is_vector()) {
-            etype = Vector_t::make(std::move(etype), index.type().lanes());
+            etype = widen(etype, index.type().lanes());
         }
         internal_assert(etype.defined())
             << "Write location type inference produced undefined type: "

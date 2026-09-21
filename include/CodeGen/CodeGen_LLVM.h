@@ -566,6 +566,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     // any lane is on.
     void create_masked_store_at(llvm::Value *value, llvm::Value *dest,
                                 llvm::Value *mask);
+    // A scatter: `ptrs` is one address per lane, at each of which memory
+    // holds a `pointee`, and `value` is what the lanes write there -- a
+    // gang-wide vector, or an aggregate of them where the pointee is one, or
+    // a uniform value every lane writes a copy of. Under `mask` when one is
+    // given, every lane otherwise. What a store through per-lane addresses
+    // is: a queue's compacted push, a frame's write into a lane's own entry.
+    void create_scatter_at(llvm::Value *value, llvm::Value *ptrs,
+                           const ir::Type &pointee, llvm::Value *mask);
     // A select that also takes a vector condition over two aggregates of
     // gang-wide fields, choosing field by field.
     llvm::Value *create_select(llvm::Value *cond, llvm::Value *tvalue,

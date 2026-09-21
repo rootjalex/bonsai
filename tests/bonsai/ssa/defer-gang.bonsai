@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// The gang drain: a deferred recursion whose drain is split to the gang width
+// with a tail and vectorized, so that sixteen entries of the queue run as one
+// gang -- the packet schedule's gang, made from a queue instead of a loop.
+//
+// `walk` sums n down to one into `out[i]`, and `run` starts forty of them,
+// each with its own n, so the entries finish in different rounds: the forty
+// first steps are the producer's, the thirty-four that continue are round
+// zero's, and each round after has fewer. What to read for, in `run`: the
+// drain's parfor `sums` has become an outer loop by sixteen over the batch
+// and a gang of sixteen, with the tail's guard as the gang's mask, since a
+// batch is rarely a whole number of gangs. In `walk`'s gang copy: the push is
+// made under the mask of the lanes whose n is not yet zero, and compacts --
+// the count advances once, by how many lanes push, and each lane's slot is
+// the first plus its rank among them, so the next round's queue is dense --
+// and the entry is scattered to the ranked slots a field at a time.
+func walk(n : i32, acc : i32, out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        out[i] = acc;
+        return;
+    }
+    walk(n - 1, acc + n, out, i);
+    return;
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, 0, out, i);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

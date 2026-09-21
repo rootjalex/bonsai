@@ -167,14 +167,16 @@ struct Instruction {
         Print, // side-effect-y
         // Appends a value to a queue: operands are a pointer to the queue --
         // a struct of a count and an array of entries, made by defer() (see
-        // SSA/Defer.h) -- and the entry. Side-effecting and nameless, like a
-        // store. It is one instruction rather than the fetch-and-add and the
-        // store it lowers to (lower_pushes, SSA/Defer.cpp) because how a gang
-        // does it is not lane by lane: the lanes that push compact into
-        // consecutive slots and the count advances by their number, and the
-        // vectorizer can only say so of an instruction that still says
-        // "push". Atomic on the count unless shown not to need to be, which
-        // is `atomic` below.
+        // SSA/Defer.h) -- and the entry; a third, when the push is made
+        // under a mask, is that mask, as a predicated store carries one.
+        // Named: its value is the slot the entry took. It is one instruction
+        // rather than the fetch-and-add and the store it lowers to
+        // (lower_pushes, SSA/Defer.cpp) because how a gang does it is not
+        // lane by lane: the lanes that push compact into consecutive slots --
+        // the count advances once by their number, and each takes the slot
+        // at its rank among them -- and the vectorizer can only say so of an
+        // instruction that still says "push". Atomic on the count unless
+        // shown not to need to be, which is `atomic` below.
         Push,
         // The gang's lane indices: base + stride * <0, 1, ..., lanes-1>.
         // This is what a vectorized loop index becomes, and an index of

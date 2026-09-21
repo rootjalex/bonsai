@@ -15,6 +15,9 @@ add_bonsai_tests(
     dce-effectful-argument.bonsai
     dce.bonsai
     defer-frame.bonsai
+    defer-gang.bonsai
+    defer-gang-frame.bonsai
+    defer-gang-mut-local.bonsai
     defer-loop-owned.bonsai
     defer-mut-local.bonsai
     defer-off-chain.bonsai
@@ -40,6 +43,7 @@ add_bonsai_tests(
     invariant-division.bonsai
     literal-widening.bonsai
     loop-transforms.bonsai
+    split-tail.bonsai
     loopify.bonsai
     loopify-queue.bonsai
     nested-exported-function.bonsai
