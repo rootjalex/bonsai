@@ -3438,6 +3438,60 @@ links. `CodeGen_CUDA` (1306 lines of CUDA C++ text through the Stmt printer,
 once the PTX path renders what it rendered; it is the Stmt-level road the
 SSA-to-LLVM decision already closed.
 
+### Where the data lives
+
+The user's question (2026-09-21): the BVH arrays, the pools and the read/write
+arrays have to be in GPU memory for a GPU-bound loop; does the *type* of an
+array say where it is, does the caller hand data over "on the right device
+for the schedule", and how is a copy kept out of the render time unless the
+schedule really moves data (a heterogeneous schedule, some stages on the CPU
+and some on the GPU)? What Halide does, for reference: a buffer is a
+`halide_buffer_t` with a `host` pointer, a `device` handle and two dirty
+bits; the pipeline the schedule produced calls `halide_copy_to_device` /
+`halide_copy_to_host` where a stage runs on the other side of a buffer that
+is dirty there, so copies are automatic and lazy, and a caller that wants
+them out of a measurement stages the buffers first (`Buffer::copy_to_device`
+before the timed call, and the pipeline then finds nothing to copy).
+Placement of Halide's *internal* allocations is a schedule directive
+(`store_in(MemoryType::GPUShared)` and so on). So Halide does it
+automatically, and the user does get to say where a buffer is -- by putting
+it there ahead of time.
+
+The design for bonsai, keeping to the three languages:
+
+- **The language type says nothing about placement.** A `Ray[]` is a
+  `Ray[]` in a query whatever runs it; where it lives is a layout or schedule
+  fact. After lowering, the IR's `Array_t`/`Ptr_t` may carry an address space
+  the way LLVM's pointers do, as an internal artifact like `PtrTo` -- never in
+  the surface language.
+- **Stored structures the layout language owns** -- the tree, the pools, a
+  queue's arrays -- are placed by the layout (or the schedule that makes
+  them: a `queue()` drained by a GPU-bound loop is device global memory
+  without being told), and the placement follows the binds: a
+  `bind(GPUBlock)` loop's `_tree_layout` is built into device memory by the
+  driver's runtime call for it.
+- **Buffers crossing the exported function's ABI** become a descriptor,
+  Halide's shape: `bonsai_buffer { host, device, bytes, residency bits }`, in
+  place of the raw pointer and size the driver passes today. The compiled
+  function derives from the binds which side must see each parameter and
+  begins with `bonsai_buffer_require(b, Device)`: a no-op when the buffer is
+  resident and clean there, a copy otherwise, and under `--no-implicit-copies`
+  an *error* -- the benchmark discipline, so that a timed render can never
+  quietly include a transfer. `mut` outputs are marked device-dirty and
+  copied back on `bonsai_buffer_require(b, Host)`, which the driver calls
+  when it writes the image, outside the timer. So the caller does hand data
+  over on the right device for the schedule, by staging it first (as
+  `compare.sh` will, as pbrt's `--gpu` builds its scene in device-visible
+  memory before its timer starts), the render time contains a copy only when
+  the schedule itself moves data between sides -- and then it should -- and
+  a driver that does not care gets Halide's automatic behaviour.
+- **Managed memory** (`cudaMallocManaged`, which pbrt-v4's GPU allocator
+  uses) is the zero-code alternative for a driver: one pointer valid on both
+  sides, pages migrating on first touch. It is a choice the driver can make
+  per allocation with the same descriptor (`host == device`), not the design,
+  because the first-touch migration lands inside the timed region unless the
+  driver prefetches, which is the copy again under another name.
+
 ### The phases
 
 **A. Kernels: `bind(GPUBlock)`/`bind(GPUThread)` on the pixel loop, the scalar
