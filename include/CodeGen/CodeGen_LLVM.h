@@ -566,6 +566,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     // any lane is on.
     void create_masked_store_at(llvm::Value *value, llvm::Value *dest,
                                 llvm::Value *mask);
+    // A compacting store: `dest` is one address, the first of a run of
+    // slots, and the lanes `mask` has on write their values -- a gang-wide
+    // vector, or a uniform value every lane writes a copy of -- into
+    // consecutive slots from it, in lane order (LLVM's masked.compressstore,
+    // `vpcompressd` to memory). What a gang's push writes each field of its
+    // entries with (see lower_pushes in SSA/Defer.cpp).
+    void create_compress_store_at(llvm::Value *value, llvm::Value *dest,
+                                  llvm::Value *mask);
+
     // A scatter: `ptrs` is one address per lane, at each of which memory
     // holds a `pointee`, and `value` is what the lanes write there -- a
     // gang-wide vector, or an aggregate of them where the pointee is one, or

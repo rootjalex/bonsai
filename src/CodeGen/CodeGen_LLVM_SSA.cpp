@@ -531,8 +531,8 @@ struct CodeGen_LLVM::SSALowering {
             Expr mask = instr->operands.size() == 3
                             ? operand(instr->operands[2])
                             : Expr();
-            cg.codegen_stmt(
-                Store::make(std::move(loc), std::move(val), std::move(mask)));
+            cg.codegen_stmt(Store::make(std::move(loc), std::move(val),
+                                        std::move(mask), instr->compact));
             return;
         }
         Expr value = value_of(*instr);

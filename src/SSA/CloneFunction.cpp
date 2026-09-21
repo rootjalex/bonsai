@@ -88,6 +88,7 @@ shared_ptr<Function> clone_function(const Function &func) {
             instr_copy->reduce = instr->reduce;
             instr_copy->shuffle = instr->shuffle;
             instr_copy->atomic = instr->atomic;
+            instr_copy->compact = instr->compact;
             instrs[instr.get()] = instr_copy;
             copy->instrs.push_back(instr_copy);
             // The copy's name counter starts from zero, so it has to be told

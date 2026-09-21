@@ -243,9 +243,57 @@ struct Simplifier {
         return made.count(def_of(b)) > 0 ? a : b;
     }
 
+    // Is `v` the integer constant zero, of any integer type?
+    static bool is_zero(const ValuePtr &v) {
+        const Constant *c = constant_of(v);
+        if (c == nullptr || !(c->type.is_int() || c->type.is_uint())) {
+            return false;
+        }
+        return std::visit(overloads{
+                              [](int64_t i) { return i == 0; },
+                              [](uint64_t u) { return u == 0; },
+                              [](const auto &) { return false; },
+                          },
+                          c->data);
+    }
+
     ValuePtr rule(Instruction::Op op, const Type &type,
                   const vector<ValuePtr> &ops) {
         switch (op) {
+        case Instruction::Op::Add: {
+            if (ops.size() != 2 || !(type.is_int() || type.is_uint())) {
+                break;
+            }
+            for (const auto &[x, y] : {std::pair{ops[0], ops[1]},
+                                       std::pair{ops[1], ops[0]}}) {
+                // x + 0 = x
+                if (is_zero(y)) {
+                    return x;
+                }
+                // bc(a) + ramp(b, s) = ramp(a + b, s): a gang's index into
+                // an array -- the loop's index, one per lane, plus the same
+                // offset in every lane -- is still `lanes` consecutive
+                // elements, and read or written as one vector access rather
+                // than a gather or a scatter (see as_dense_ramp in
+                // CodeGen/CodeGen_LLVM.cpp). The vectorizer makes this shape
+                // whenever a split loop's inner index is vectorized: the
+                // outer index broadcast, added to the ramp of lanes.
+                const Instruction *dx = def_of(x), *dy = def_of(y);
+                if (dx != nullptr && dy != nullptr &&
+                    dx->op == Instruction::Op::Bc &&
+                    dy->op == Instruction::Op::Ramp &&
+                    dx->operands.size() == 2 && dy->operands.size() == 2 &&
+                    equals(dx->operands[0]->get_type(),
+                           dy->operands[0]->get_type())) {
+                    ValuePtr base = make(Instruction::Op::Add,
+                                         dy->operands[0]->get_type(),
+                                         {dx->operands[0], dy->operands[0]});
+                    return make(Instruction::Op::Ramp, type,
+                                {base, dy->operands[1]});
+                }
+            }
+            break;
+        }
         case Instruction::Op::Not: {
             if (ops.size() != 1 || !type.is<Bool_t>()) {
                 break;

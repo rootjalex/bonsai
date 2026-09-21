@@ -1,15 +1,19 @@
 type Entry_paths = struct Entry_paths{ s : i32; depth : i32; acc : i32 }
-type Queue_paths = struct Queue_paths{ count : u32; data : struct Entry_paths{ s : i32; depth : i32; acc : i32 }[] }
+type Queue_paths = struct Queue_paths{ count : u32; s : i32[]; depth : i32[]; acc : i32[] }
 
 func render(out : mut i32[16]) -> void {
   parfor p in [0:4:1] {
     paths!round : mut u32
-    paths_entries_0 : mut Entry_paths[4]
-    paths_entries_1 : mut Entry_paths[4]
+    paths_s_0 : mut i32[4]
+    paths_depth_0 : mut i32[4]
+    paths_acc_0 : mut i32[4]
+    paths_s_1 : mut i32[4]
+    paths_depth_1 : mut i32[4]
+    paths_acc_1 : mut i32[4]
     paths_queue : mut Queue_paths[2]
-    let @0 = build<Queue_paths>(0u, paths_entries_0) in
+    let @0 = build<Queue_paths>(0u, paths_s_0, paths_depth_0, paths_acc_0) in
     paths_queue[0u] = @0
-    let @2 = build<Queue_paths>(0u, paths_entries_1) in
+    let @2 = build<Queue_paths>(0u, paths_s_1, paths_depth_1, paths_acc_1) in
     paths_queue[1u] = @2
     parfor s in [0:4:1] {
       let @5 = walk(p, s, s, 0, out, (&paths_queue[0u])) in
@@ -26,14 +30,14 @@ func render(out : mut i32[16]) -> void {
       let @11 = @7 ^ 1u in
       paths_queue[@11].count = 0u
       parfor paths in [0u:@9:1u] {
-        let @14 = paths_queue[@7] in
-        let @15 = @14.data in
-        let @16 = @15[paths] in
-        let @17 = @16.s in
-        let @18 = @16.depth in
-        let @19 = @16.acc in
-        let @21 = walk(p, @17, @18, @19, out, (&paths_queue[@11])) in
-        if (@21) {
+        let @16 = paths_queue[@7].s in
+        let @17 = @16[paths] in
+        let @19 = paths_queue[@7].depth in
+        let @20 = @19[paths] in
+        let @22 = paths_queue[@7].acc in
+        let @23 = @22[paths] in
+        let @25 = walk(p, @17, @20, @23, out, (&paths_queue[@11])) in
+        if (@25) {
           continue
         } else {
           continue
@@ -58,12 +62,13 @@ func [[noinline]] walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[1
     let @4 = depth - 1 in
     let @5 = acc + depth in
     let @6 = build<Entry_paths>(s, @4, @5) in
-    let @9 = (*_queue_paths) in
-    let @10 = atomic_add((&(*_queue_paths).count), 1u) in
-    let @11 = @9.data in
-    @11[@10].s = s
-    @11[@10].depth = @4
-    @11[@10].acc = @5
+    let @9 = atomic_add((&(*_queue_paths).count), 1u) in
+    let @11 = (*_queue_paths).s in
+    @11[@9] = s
+    let @14 = (*_queue_paths).depth in
+    @14[@9] = @4
+    let @17 = (*_queue_paths).acc in
+    @17[@9] = @5
     return true
   }
 }

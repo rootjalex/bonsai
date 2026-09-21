@@ -1,94 +1,106 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct.Queue_sums = type { i32, ptr }
-%struct.Entry_sums = type { i32, i32, i32 }
+%struct.Queue_sums = type { i32, ptr, ptr, ptr }
 
-; Function Attrs: nofree norecurse nounwind
+; Function Attrs: nofree norecurse nounwind memory(readwrite, inaccessiblemem: write)
 define void @run(ptr noundef %out) local_unnamed_addr #0 {
 run:
-  %sums_queue1124 = alloca [2 x %struct.Queue_sums], align 16
-  %sums_entries_125 = alloca [40 x %struct.Entry_sums], align 16
-  %sums_entries_026 = alloca [40 x %struct.Entry_sums], align 16
-  store i32 0, ptr %sums_queue1124, align 16
-  %.fca.1.gep = getelementptr inbounds i8, ptr %sums_queue1124, i64 8
-  store ptr %sums_entries_026, ptr %.fca.1.gep, align 8
-  %sums_queue13 = getelementptr inbounds i8, ptr %sums_queue1124, i64 16
+  %sums_queue1134 = alloca [2 x %struct.Queue_sums], align 16
+  %sums_i_135 = alloca [40 x i32], align 4
+  %sums_acc_136 = alloca [40 x i32], align 4
+  %sums_n_137 = alloca [40 x i32], align 4
+  %sums_i_038 = alloca [40 x i32], align 4
+  %sums_acc_039 = alloca [40 x i32], align 4
+  %sums_n_040 = alloca [40 x i32], align 4
+  store i32 0, ptr %sums_queue1134, align 16
+  %.fca.1.gep = getelementptr inbounds i8, ptr %sums_queue1134, i64 8
+  store ptr %sums_n_040, ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds i8, ptr %sums_queue1134, i64 16
+  store ptr %sums_acc_039, ptr %.fca.2.gep, align 16
+  %.fca.3.gep = getelementptr inbounds i8, ptr %sums_queue1134, i64 24
+  store ptr %sums_i_038, ptr %.fca.3.gep, align 8
+  %sums_queue13 = getelementptr inbounds i8, ptr %sums_queue1134, i64 32
   store i32 0, ptr %sums_queue13, align 16
-  %.fca.1.gep30 = getelementptr inbounds i8, ptr %sums_queue1124, i64 24
-  store ptr %sums_entries_125, ptr %.fca.1.gep30, align 8
+  %.fca.1.gep44 = getelementptr inbounds i8, ptr %sums_queue1134, i64 40
+  store ptr %sums_n_137, ptr %.fca.1.gep44, align 8
+  %.fca.2.gep46 = getelementptr inbounds i8, ptr %sums_queue1134, i64 48
+  store ptr %sums_acc_136, ptr %.fca.2.gep46, align 16
+  %.fca.3.gep48 = getelementptr inbounds i8, ptr %sums_queue1134, i64 56
+  store ptr %sums_i_135, ptr %.fca.3.gep48, align 8
   br label %"!par_body_0"
 
 "!par_cont_1":                                    ; preds = %sums_gang1_pf_exit, %"sums!round.preheader"
   ret void
 
 "sums!batch":                                     ; preds = %"sums!round.preheader", %sums_gang1_pf_exit
-  %"@9.count36" = phi i32 [ %"@9.count", %sums_gang1_pf_exit ], [ %"@9.count33", %"sums!round.preheader" ]
-  %extract_ptr35 = phi ptr [ %extract_ptr, %sums_gang1_pf_exit ], [ %sums_queue1124, %"sums!round.preheader" ]
-  %0 = phi i32 [ %8, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
-  %"sums!round234" = phi i32 [ %7, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
+  %"@9.count54" = phi i32 [ %"@9.count", %sums_gang1_pf_exit ], [ %"@9.count51", %"sums!round.preheader" ]
+  %extract_ptr53 = phi ptr [ %extract_ptr, %sums_gang1_pf_exit ], [ %sums_queue1134, %"sums!round.preheader" ]
+  %0 = phi i32 [ %7, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
+  %"sums!round252" = phi i32 [ %6, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
   %1 = xor i32 %0, 1
   %2 = zext nneg i32 %1 to i64
-  %sums_queue14 = getelementptr inbounds %struct.Queue_sums, ptr %sums_queue1124, i64 %2
+  %sums_queue14 = getelementptr inbounds %struct.Queue_sums, ptr %sums_queue1134, i64 %2
   store i32 0, ptr %sums_queue14, align 16, !tbaa !0
-  %.splatinsert19 = insertelement <16 x i32> poison, i32 %"@9.count36", i64 0
-  %.splat20 = shufflevector <16 x i32> %.splatinsert19, <16 x i32> poison, <16 x i32> zeroinitializer
-  %3 = getelementptr inbounds i8, ptr %extract_ptr35, i64 8
+  %.splatinsert = insertelement <16 x i32> poison, i32 %"@9.count54", i64 0
+  %.splat = shufflevector <16 x i32> %.splatinsert, <16 x i32> poison, <16 x i32> zeroinitializer
+  %extract22.fca.1.gep = getelementptr inbounds i8, ptr %extract_ptr53, i64 8
+  %extract22.fca.2.gep = getelementptr inbounds i8, ptr %extract_ptr53, i64 16
+  %extract22.fca.3.gep = getelementptr inbounds i8, ptr %extract_ptr53, i64 24
   br label %"sums!run_step_sums_lane"
 
 "sums!round.preheader":                           ; preds = %"!par_body_0"
-  %"@9.count33" = load i32, ptr %sums_queue1124, align 16
-  %4 = icmp eq i32 %"@9.count33", 0
-  br i1 %4, label %"!par_cont_1", label %"sums!batch"
+  %"@9.count51" = load i32, ptr %sums_queue1134, align 16
+  %3 = icmp eq i32 %"@9.count51", 0
+  br i1 %3, label %"!par_cont_1", label %"sums!batch"
 
 "!par_body_0":                                    ; preds = %run, %"!par_body_0"
-  %i31 = phi i32 [ 0, %run ], [ %6, %"!par_body_0" ]
-  %.lhs.trunc = trunc nuw i32 %i31 to i8
-  %5 = urem i8 %.lhs.trunc, 7
-  %.zext = zext nneg i8 %5 to i32
-  call fastcc void @walk(i32 %.zext, ptr %out, i32 %i31, ptr %sums_queue1124)
-  %6 = add nuw nsw i32 %i31, 1
-  %exitcond.not = icmp eq i32 %6, 40
+  %i49 = phi i32 [ 0, %run ], [ %5, %"!par_body_0" ]
+  %.lhs.trunc = trunc nuw i32 %i49 to i8
+  %4 = urem i8 %.lhs.trunc, 7
+  %.zext = zext nneg i8 %4 to i32
+  call fastcc void @walk(i32 %.zext, ptr %out, i32 %i49, ptr %sums_queue1134)
+  %5 = add nuw nsw i32 %i49, 1
+  %exitcond.not = icmp eq i32 %5, 40
   br i1 %exitcond.not, label %"sums!round.preheader", label %"!par_body_0"
 
 sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sums_gang"
-  %7 = add i32 %"sums!round234", 1
-  %8 = and i32 %7, 1
-  %9 = zext nneg i32 %8 to i64
-  %extract_ptr = getelementptr inbounds %struct.Queue_sums, ptr %sums_queue1124, i64 %9
+  %6 = add i32 %"sums!round252", 1
+  %7 = and i32 %6, 1
+  %8 = zext nneg i32 %7 to i64
+  %extract_ptr = getelementptr inbounds %struct.Queue_sums, ptr %sums_queue1134, i64 %8
   %"@9.count" = load i32, ptr %extract_ptr, align 16
-  %10 = icmp eq i32 %"@9.count", 0
-  br i1 %10, label %"!par_cont_1", label %"sums!batch"
+  %9 = icmp eq i32 %"@9.count", 0
+  br i1 %9, label %"!par_cont_1", label %"sums!batch"
 
 "sums!run_step_sums_lane":                        ; preds = %"sums!batch", %"sums!run_yield_sums_gang"
-  %sums_gang32 = phi i32 [ 0, %"sums!batch" ], [ %15, %"sums!run_yield_sums_gang" ]
-  %.splatinsert = insertelement <16 x i32> poison, i32 %sums_gang32, i64 0
-  %.splat = shufflevector <16 x i32> %.splatinsert, <16 x i32> poison, <16 x i32> zeroinitializer
-  %11 = or disjoint <16 x i32> %.splat, <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  %12 = icmp ult <16 x i32> %11, %.splat20
-  %13 = bitcast <16 x i1> %12 to i16
-  %.not = icmp eq i16 %13, 0
+  %sums_gang50 = phi i32 [ 0, %"sums!batch" ], [ %14, %"sums!run_yield_sums_gang" ]
+  %.splatinsert19 = insertelement <16 x i32> poison, i32 %sums_gang50, i64 0
+  %.splat20 = shufflevector <16 x i32> %.splatinsert19, <16 x i32> poison, <16 x i32> zeroinitializer
+  %10 = or disjoint <16 x i32> %.splat20, <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
+  %11 = icmp ult <16 x i32> %10, %.splat
+  %12 = bitcast <16 x i1> %11 to i16
+  %.not = icmp eq i16 %12, 0
   br i1 %.not, label %"sums!run_yield_sums_gang", label %"sums!run"
 
 "sums!run":                                       ; preds = %"sums!run_step_sums_lane"
-  %"@15.data" = load ptr, ptr %3, align 8
-  %extract_off = mul <16 x i32> %11, <i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12, i32 12>
-  %14 = sext <16 x i32> %extract_off to <16 x i64>
-  %extract_n_ptrs = getelementptr inbounds i8, ptr %"@15.data", <16 x i64> %14
-  %extract_n = call <16 x i32> @llvm.masked.gather.v16i32.v16p0(<16 x ptr> %extract_n_ptrs, i32 4, <16 x i1> %12, <16 x i32> zeroinitializer)
-  %extract_acc_base = getelementptr inbounds i8, ptr %"@15.data", i64 4
-  %extract_acc_ptrs = getelementptr inbounds i8, ptr %extract_acc_base, <16 x i64> %14
-  %extract_acc = call <16 x i32> @llvm.masked.gather.v16i32.v16p0(<16 x ptr> %extract_acc_ptrs, i32 4, <16 x i1> %12, <16 x i32> zeroinitializer)
-  %extract_i_base = getelementptr inbounds i8, ptr %"@15.data", i64 8
-  %extract_i_ptrs = getelementptr inbounds i8, ptr %extract_i_base, <16 x i64> %14
-  %extract_i = call <16 x i32> @llvm.masked.gather.v16i32.v16p0(<16 x ptr> %extract_i_ptrs, i32 4, <16 x i1> %12, <16 x i32> zeroinitializer)
-  call fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> %extract_n, <16 x i32> %extract_acc, ptr %out, <16 x i32> %extract_i, ptr %sums_queue14, <16 x i1> %12)
+  %extract22.fca.1.load = load ptr, ptr %extract22.fca.1.gep, align 8
+  %extract22.fca.2.load = load ptr, ptr %extract22.fca.2.gep, align 8
+  %extract22.fca.3.load = load ptr, ptr %extract22.fca.3.gep, align 8
+  %13 = sext i32 %sums_gang50 to i64
+  %extract_base = getelementptr inbounds i32, ptr %extract22.fca.1.load, i64 %13
+  %extract23 = call <16 x i32> @llvm.masked.load.v16i32.p0(ptr %extract_base, i32 4, <16 x i1> %11, <16 x i32> zeroinitializer)
+  %extract_base26 = getelementptr inbounds i32, ptr %extract22.fca.2.load, i64 %13
+  %extract27 = call <16 x i32> @llvm.masked.load.v16i32.p0(ptr %extract_base26, i32 4, <16 x i1> %11, <16 x i32> zeroinitializer)
+  %extract_base31 = getelementptr inbounds i32, ptr %extract22.fca.3.load, i64 %13
+  %extract32 = call <16 x i32> @llvm.masked.load.v16i32.p0(ptr %extract_base31, i32 4, <16 x i1> %11, <16 x i32> zeroinitializer)
+  call fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> %extract23, <16 x i32> %extract27, ptr %out, <16 x i32> %extract32, ptr %sums_queue14, <16 x i1> %11)
   br label %"sums!run_yield_sums_gang"
 
 "sums!run_yield_sums_gang":                       ; preds = %"sums!run", %"sums!run_step_sums_lane"
-  %15 = add i32 %sums_gang32, 16
-  %16 = icmp ult i32 %15, %"@9.count36"
-  br i1 %16, label %"sums!run_step_sums_lane", label %sums_gang1_pf_exit
+  %14 = add i32 %sums_gang50, 16
+  %15 = icmp ult i32 %14, %"@9.count54"
+  br i1 %15, label %"sums!run_step_sums_lane", label %sums_gang1_pf_exit
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none)
@@ -108,16 +120,20 @@ then_bb:                                          ; preds = %walk_entry
 
 next_bb:                                          ; preds = %walk_entry
   %2 = add nsw i32 %n, -1
-  %3 = getelementptr inbounds i8, ptr %_queue_sums, i64 8
-  %"@7.data" = load ptr, ptr %3, align 8
-  %4 = atomicrmw add ptr %_queue_sums, i32 1 monotonic, align 4
-  %5 = sext i32 %4 to i64
-  %"@9" = getelementptr inbounds %struct.Entry_sums, ptr %"@7.data", i64 %5
+  %3 = atomicrmw add ptr %_queue_sums, i32 1 monotonic, align 4
+  %4 = getelementptr inbounds i8, ptr %_queue_sums, i64 8
+  %n2 = load ptr, ptr %4, align 8
+  %5 = sext i32 %3 to i64
+  %"@9" = getelementptr inbounds i32, ptr %n2, i64 %5
   store i32 %2, ptr %"@9", align 4, !tbaa !3
-  %"@9_acc" = getelementptr inbounds i8, ptr %"@9", i64 4
-  store i32 %n, ptr %"@9_acc", align 4, !tbaa !3
-  %"@9_i" = getelementptr inbounds i8, ptr %"@9", i64 8
-  store i32 %i, ptr %"@9_i", align 4, !tbaa !3
+  %6 = getelementptr inbounds i8, ptr %_queue_sums, i64 16
+  %acc4 = load ptr, ptr %6, align 8
+  %"@12" = getelementptr inbounds i32, ptr %acc4, i64 %5
+  store i32 %n, ptr %"@12", align 4, !tbaa !3
+  %7 = getelementptr inbounds i8, ptr %_queue_sums, i64 24
+  %i6 = load ptr, ptr %7, align 8
+  %"@15" = getelementptr inbounds i32, ptr %i6, i64 %5
+  store i32 %i, ptr %"@15", align 4, !tbaa !3
   br label %common.ret
 }
 
@@ -140,58 +156,53 @@ define internal fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> noundef %n
 
 "!merge_1!any":                                   ; preds = %"!then_0", %"walk$gang16_v0_v1_v3$masked"
   %5 = bitcast <16 x i1> %1 to i16
-  %.not3 = icmp eq i16 %5, 0
-  br i1 %.not3, label %"!return", label %"!merge_1"
+  %.not6 = icmp eq i16 %5, 0
+  br i1 %.not6, label %"!return", label %"!merge_1"
 
 "!merge_1":                                       ; preds = %"!merge_1!any"
   %6 = add <16 x i32> %n, <i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1>
   %7 = add <16 x i32> %acc, %n
-  %8 = getelementptr inbounds i8, ptr %_queue_sums, i64 8
-  %"@20.data" = load ptr, ptr %8, align 8
-  %9 = zext <16 x i1> %1 to <16 x i32>
-  %10 = tail call range(i16 0, 17) i16 @llvm.ctpop.i16(i16 %5)
-  %11 = zext nneg i16 %10 to i32
-  %12 = atomicrmw add ptr %_queue_sums, i32 %11 monotonic, align 4
-  %13 = shufflevector <16 x i32> <i32 0, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison>, <16 x i32> %9, <16 x i32> <i32 0, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30>
-  %14 = shufflevector <16 x i32> <i32 0, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison>, <16 x i32> %13, <16 x i32> <i32 0, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30>
-  %15 = add nuw nsw <16 x i32> %14, %13
-  %16 = shufflevector <16 x i32> <i32 0, i32 0, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison>, <16 x i32> %15, <16 x i32> <i32 0, i32 1, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29>
-  %17 = add nuw nsw <16 x i32> %16, %15
-  %18 = shufflevector <16 x i32> <i32 0, i32 0, i32 0, i32 0, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison>, <16 x i32> %17, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27>
-  %19 = add <16 x i32> %18, %17
-  %20 = shufflevector <16 x i32> <i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison>, <16 x i32> %19, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23>
-  %21 = add <16 x i32> %20, %19
-  %.splatinsert = insertelement <16 x i32> poison, i32 %12, i64 0
-  %.splat = shufflevector <16 x i32> %.splatinsert, <16 x i32> poison, <16 x i32> zeroinitializer
-  %22 = add <16 x i32> %21, %.splat
-  %23 = sext <16 x i32> %22 to <16 x i64>
-  %"@36" = getelementptr inbounds %struct.Entry_sums, ptr %"@20.data", <16 x i64> %23
-  tail call void @llvm.masked.scatter.v16i32.v16p0(<16 x i32> %6, <16 x ptr> %"@36", i32 4, <16 x i1> %1)
-  %"@36_acc" = getelementptr inbounds i8, <16 x ptr> %"@36", i64 4
-  tail call void @llvm.masked.scatter.v16i32.v16p0(<16 x i32> %7, <16 x ptr> %"@36_acc", i32 4, <16 x i1> %1)
-  %"@36_i" = getelementptr inbounds i8, <16 x ptr> %"@36", i64 8
-  tail call void @llvm.masked.scatter.v16i32.v16p0(<16 x i32> %i, <16 x ptr> %"@36_i", i32 4, <16 x i1> %1)
+  %8 = tail call range(i16 0, 17) i16 @llvm.ctpop.i16(i16 %5)
+  %9 = zext nneg i16 %8 to i32
+  %10 = atomicrmw add ptr %_queue_sums, i32 %9 monotonic, align 4
+  %11 = getelementptr inbounds i8, ptr %_queue_sums, i64 8
+  %n1 = load ptr, ptr %11, align 8
+  %12 = sext i32 %10 to i64
+  %"@23" = getelementptr inbounds i32, ptr %n1, i64 %12
+  tail call void @llvm.masked.compressstore.v16i32(<16 x i32> %6, ptr align 4 %"@23", <16 x i1> %1)
+  %13 = getelementptr inbounds i8, ptr %_queue_sums, i64 16
+  %acc3 = load ptr, ptr %13, align 8
+  %"@26" = getelementptr inbounds i32, ptr %acc3, i64 %12
+  tail call void @llvm.masked.compressstore.v16i32(<16 x i32> %7, ptr align 4 %"@26", <16 x i1> %1)
+  %14 = getelementptr inbounds i8, ptr %_queue_sums, i64 24
+  %i5 = load ptr, ptr %14, align 8
+  %"@29" = getelementptr inbounds i32, ptr %i5, i64 %12
+  tail call void @llvm.masked.compressstore.v16i32(<16 x i32> %i, ptr align 4 %"@29", <16 x i1> %1)
   br label %"!return"
 
 "!return":                                        ; preds = %"!merge_1", %"!merge_1!any"
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <16 x i32> @llvm.masked.gather.v16i32.v16p0(<16 x ptr>, i32 immarg, <16 x i1>, <16 x i32>) #3
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read)
+declare <16 x i32> @llvm.masked.load.v16i32.p0(ptr nocapture, i32 immarg, <16 x i1>, <16 x i32>) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.masked.compressstore.v16i32(<16 x i32>, ptr nocapture, <16 x i1>) #4
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
-declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, i32 immarg, <16 x i1>) #4
+declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, i32 immarg, <16 x i1>) #5
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare i16 @llvm.ctpop.i16(i16) #5
+declare i16 @llvm.ctpop.i16(i16) #6
 
-attributes #0 = { nofree norecurse nounwind }
+attributes #0 = { nofree norecurse nounwind memory(readwrite, inaccessiblemem: write) }
 attributes #1 = { mustprogress nofree noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) }
 attributes #2 = { mustprogress nofree noinline norecurse nounwind willreturn memory(write, argmem: readwrite) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
-attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
-attributes #5 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read) }
+attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #5 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #6 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"u32", !2, i64 0}

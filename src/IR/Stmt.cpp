@@ -286,9 +286,11 @@ bool mentions_lanes(const Type &type, uint32_t lanes) {
 
 } // namespace
 
-Stmt Store::make(WriteLoc loc, Expr value, Expr mask) {
+Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
+    internal_assert(!compact || mask.defined())
+        << "A compacting store has to say which lanes it compacts: " << loc;
     if (mask.defined() && mask.type().defined() && value.type().defined()) {
         internal_assert(mask.type().is_bool() && mask.type().is_vector())
             << "Store mask must be a boolean vector, got: " << mask.type();
@@ -303,6 +305,7 @@ Stmt Store::make(WriteLoc loc, Expr value, Expr mask) {
     node->loc = std::move(loc);
     node->value = std::move(value);
     node->mask = std::move(mask);
+    node->compact = compact;
     return node;
 }
 

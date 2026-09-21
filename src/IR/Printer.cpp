@@ -1544,8 +1544,9 @@ void Printer::visit(const Free *node) {
 void Printer::visit(const Store *node) {
     os << get_indent();
     if (node->mask.defined()) {
-        // A predicated store writes only the lanes the mask enables.
-        os << "masked_store(";
+        // A predicated store writes only the lanes the mask enables; a
+        // compacting one writes them into consecutive slots from the location.
+        os << (node->compact ? "compress_store(" : "masked_store(");
         print(node->loc);
         os << ", ";
         print_no_parens(node->value);

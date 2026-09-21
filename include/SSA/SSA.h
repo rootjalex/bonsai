@@ -249,6 +249,15 @@ struct Instruction {
     // schedule made the loop around it parallel.
     bool atomic = false;
 
+    // Whether a Store under a mask compacts: the lanes the mask has on write
+    // their values into consecutive slots from the one address the store is
+    // given, in lane order, rather than each into its own lane's slot (LLVM's
+    // masked.compressstore; `vpcompressd` to memory). Only meaningful for a
+    // masked Store whose address is one pointer to the first slot; the
+    // compacting push of a gang writes each field of its entries this way
+    // (see lower_pushes in SSA/Defer.cpp).
+    bool compact = false;
+
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;
 

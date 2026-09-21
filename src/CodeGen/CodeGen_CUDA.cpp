@@ -946,7 +946,7 @@ void CodeGen_CUDA::visit(const Allocate *node) {
 void CodeGen_CUDA::visit(const Store *node) {
     os << get_indent();
 
-    internal_assert(!node->mask.defined())
+    internal_assert(!node->mask.defined() && !node->compact)
         << "[unimplemented] masked store in CUDA codegen: " << Stmt(node);
 
     Expr value = node->value;

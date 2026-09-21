@@ -1,15 +1,19 @@
 type Entry_sums = struct Entry_sums{ n : i32; acc : i32; i : i32 }
-type Queue_sums = struct Queue_sums{ count : u32; data : struct Entry_sums{ n : i32; acc : i32; i : i32 }[] }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; i : i32[] }
 type Saved_tally = struct Saved_tally{ saved : bool; slot : u32; value : i32 }
 
 func run(out : mut i32[8]) -> void {
   sums!round : mut u32
-  sums_entries_0 : mut Entry_sums[8]
-  sums_entries_1 : mut Entry_sums[8]
+  sums_n_0 : mut i32[8]
+  sums_acc_0 : mut i32[8]
+  sums_i_0 : mut i32[8]
+  sums_n_1 : mut i32[8]
+  sums_acc_1 : mut i32[8]
+  sums_i_1 : mut i32[8]
   sums_queue : mut Queue_sums[2]
-  let @2 = build<Queue_sums>(0u, sums_entries_0) in
+  let @2 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums_i_0) in
   sums_queue[0u] = @2
-  let @4 = build<Queue_sums>(0u, sums_entries_1) in
+  let @4 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums_i_1) in
   sums_queue[1u] = @4
   parfor i in [0:8:1] {
     let @7 = tally(i, 0, (&sums_queue[0u])) in
@@ -17,7 +21,8 @@ func run(out : mut i32[8]) -> void {
     let @9 = @7.value in
     if (@8) {
       let @10 = @7.slot in
-      sums_entries_0[@10].i = i
+      let @13 = sums_queue[0u].i in
+      @13[@10] = i
       continue
     } else {
       let @0 = @9 in
@@ -27,36 +32,34 @@ func run(out : mut i32[8]) -> void {
   }
   sums!round = 0u
   while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-    let @15 = (*sums!round) & 1u in
-    let @17 = sums_queue[(*sums!round) & 1u].count in
-    let @19 = @15 ^ 1u in
-    sums_queue[@19].count = 0u
-    parfor sums in [0u:@17:1u] {
-      let @22 = sums_queue[@15] in
-      let @23 = @22.data in
-      let @24 = @23[sums] in
-      let @25 = @24.n in
-      let @26 = @24.acc in
-      let @28 = tally(@25, @26, (&sums_queue[@19])) in
-      let @29 = @28.saved in
-      let @30 = @28.value in
-      let @31 = @24.i in
-      if (@29) {
-        let @32 = @28.slot in
-        let @33 = sums_queue[@19] in
-        let @34 = @33.data in
-        let @37 = @24.i in
-        @34[@32].i = @37
+    let @17 = (*sums!round) & 1u in
+    let @19 = sums_queue[(*sums!round) & 1u].count in
+    let @21 = @17 ^ 1u in
+    sums_queue[@21].count = 0u
+    parfor sums in [0u:@19:1u] {
+      let @26 = sums_queue[@17].n in
+      let @27 = @26[sums] in
+      let @29 = sums_queue[@17].acc in
+      let @30 = @29[sums] in
+      let @36 = sums_queue[@17].i in
+      let @37 = @36[sums] in
+      let @32 = tally(@27, @30, (&sums_queue[@21])) in
+      let @33 = @32.saved in
+      let @34 = @32.value in
+      if (@33) {
+        let @38 = @32.slot in
+        let @41 = sums_queue[@21].i in
+        @41[@38] = @37
         continue
       } else {
-        let @0 = @30 in
-        let i = @31 in
+        let @0 = @34 in
+        let i = @37 in
         out[i] = @0
         continue
       }
     }
-    let @14 = (*sums!round) + 1u in
-    sums!round = @14
+    let @16 = (*sums!round) + 1u in
+    sums!round = @16
   }
   return
 }
@@ -70,12 +73,12 @@ func [[noinline]] tally(n : i32, acc : i32, _queue_sums : mut (Queue_sums*)) -> 
     let @1 = n - 1 in
     let @2 = acc + n in
     let @5 = build<Entry_sums>(@1, @2, undef) in
-    let @9 = (*_queue_sums) in
-    let @10 = atomic_add((&(*_queue_sums).count), 1u) in
-    let @11 = @9.data in
-    @11[@10].n = @1
-    @11[@10].acc = @2
-    let @7 = build<Saved_tally>(true, @10, undef) in
+    let @9 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @11 = (*_queue_sums).n in
+    @11[@9] = @1
+    let @14 = (*_queue_sums).acc in
+    @14[@9] = @2
+    let @7 = build<Saved_tally>(true, @9, undef) in
     return @7
   }
 }

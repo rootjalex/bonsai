@@ -4335,6 +4335,15 @@ void CodeGen_LLVM::visit(const Store *node) {
         << "Cannot store to " << loc.base
         << ": it is bound to a value, not to storage, in " << Stmt(node);
 
+    // A compacting store: the lanes the mask has on write their values into
+    // consecutive slots from the one address, in lane order -- what a gang's
+    // push does with each field of its entries, so the lanes that push fill
+    // the queue densely (see lower_pushes in SSA/Defer.cpp).
+    if (node->compact) {
+        create_compress_store_at(rhs, dest, codegen_expr(node->mask));
+        return;
+    }
+
     // A store the gang makes under a mask through one address: into per-lane
     // memory lane by lane, or into shared memory once if any lane is on.
     if (node->mask.defined()) {
@@ -4971,8 +4980,9 @@ const Ramp *as_dense_ramp(const Expr &index) {
     if (ramp == nullptr) {
         return nullptr;
     }
-    const int64_t *stride = as_const_int(ramp->stride);
-    return (stride != nullptr && *stride == 1) ? ramp : nullptr;
+    // A stride of one whichever way the index counts: an unsigned loop's
+    // ramp strides by `1u`, and is as dense as a signed one's.
+    return is_const_one(ramp->stride) ? ramp : nullptr;
 }
 
 } // namespace
@@ -5211,6 +5221,34 @@ void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,
     // lane writes it, so it is written once, provided some lane would have --
     // ispc's rule for an assignment to a uniform inside varying control flow.
     emit_if_any_lane(mask, [&] { builder->CreateStore(value, dest); });
+}
+
+void CodeGen_LLVM::create_compress_store_at(llvm::Value *value,
+                                            llvm::Value *dest,
+                                            llvm::Value *mask) {
+    const uint32_t lanes = vector_lanes(mask->getType());
+    // A uniform value: every lane that is on writes its own copy of it.
+    if (!value->getType()->isVectorTy()) {
+        value = builder->CreateVectorSplat(lanes, value, "compress_splat");
+    }
+    auto *vt = llvm::cast<llvm::FixedVectorType>(value->getType());
+    internal_assert(vt->getNumElements() == lanes)
+        << "A compacting store of " << vt->getNumElements()
+        << " values under a mask of " << lanes << " lanes";
+    // Booleans take a byte each in memory (see create_vector_load), so a
+    // vector of them is widened before it is written.
+    if (vt->getElementType()->isIntegerTy(1)) {
+        value = builder->CreateZExt(
+            value, llvm::VectorType::get(i8_t, lanes, /*Scalable=*/false),
+            "compress_bytes");
+    }
+    llvm::CallInst *call = builder->CreateMaskedCompressStore(value, dest, mask);
+    // The slots are consecutive elements, aligned as one element is (see
+    // create_vector_store); without saying so the intrinsic assumes one byte.
+    llvm::Type *element = value->getType()->getScalarType();
+    call->addParamAttr(
+        1, llvm::Attribute::getWithAlignment(
+               *context, module->getDataLayout().getABITypeAlign(element)));
 }
 
 void CodeGen_LLVM::create_scatter_at(llvm::Value *value, llvm::Value *ptrs,

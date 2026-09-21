@@ -129,9 +129,10 @@ shared_ptr<Value> insert_instruction(Function &func,
 
 void insert_side_effect(const shared_ptr<Block> &block, size_t at,
                         Instruction::Op op, vector<shared_ptr<Value>> operands,
-                        bool atomic = false) {
+                        bool atomic = false, bool compact = false) {
     auto instr = std::make_shared<Instruction>(op, std::move(operands), block);
     instr->atomic = atomic;
+    instr->compact = compact;
     block->instrs.insert(block->instrs.begin() + at, instr);
 }
 
@@ -794,6 +795,125 @@ struct Field {
     // callee at the push.
     bool frame_writes = false;
 };
+
+// One scalar of an entry, which the queue keeps in an array of its own: a
+// queue's storage is a struct of arrays. An entry field that is an aggregate
+// is taken down to its scalars -- a struct to its fields, a short vector to
+// its components -- so that a gang of entries reads each scalar of its
+// continuations as one dense vector load, and the compacting push writes
+// each with one compress-store; and so that the queue reads as pbrt's
+// wavefront queues do, whose `SOA<Ray>` holds an `SOA<Point3f> o` that holds
+// `float *x, *y, *z` (pbrt's `soac`). Named after the entry's field and the
+// path down to the scalar. A layout for the queue that a schedule asks for
+// may replace this; nothing here is the layout language's promise.
+struct Leaf {
+    string name;
+    Type type;
+};
+
+// The name of component `k` of a short vector: the geometric letters for a
+// vector short enough to have them, the index otherwise.
+string component_name(uint32_t k, uint32_t lanes) {
+    return lanes <= 4 ? string(1, "xyzw"[k]) : std::to_string(k);
+}
+
+// The leaves of a value of `type` named `name`, appended to `out` in the
+// order take_apart() reads them and rebuild() puts them back.
+void leaves_of(const string &name, const Type &type, vector<Leaf> &out) {
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        for (const TypedVar &f : s->fields) {
+            leaves_of(name + "_" + f.name, f.type, out);
+        }
+        return;
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        for (uint32_t k = 0; k < v->lanes; k++) {
+            leaves_of(name + "_" + component_name(k, v->lanes), v->etype, out);
+        }
+        return;
+    }
+    internal_assert(!type.is<Array_t>() && !type.is<Tuple_t>())
+        << "[unimplemented] a queue entry's field " << name << " is " << type
+        << ", which a struct-of-arrays queue has no array for";
+    out.push_back(Leaf{name, type});
+}
+
+// Makes an instruction where the caller wants it, and hands back its value.
+using Emit = std::function<shared_ptr<Value>(const Type &, Instruction::Op,
+                                             vector<shared_ptr<Value>>)>;
+
+// The leaves of `value`, appended to `out` in leaf order: `leaves[l]` is the
+// first, and `l` is left after the last. The value is one entry, or a gang
+// of `lanes` of them -- each aggregate a struct of gang-wide parts (see
+// widen() in IR/Type.cpp) -- and is taken apart until a part is a leaf as
+// the queue stores it, or as the gang holds one. An undefined value -- a
+// field the frame writes after the push, not the callee -- gives an
+// undefined leaf, which nothing stores.
+void take_apart(const shared_ptr<Value> &value, const vector<Leaf> &leaves,
+                size_t &l, uint32_t lanes, const Emit &emit,
+                vector<shared_ptr<Value>> &out) {
+    const Type type = value->get_type();
+    if (l < leaves.size() &&
+        (equals(type, leaves[l].type) ||
+         (lanes > 1 && equals(type, widen(leaves[l].type, lanes))))) {
+        out.push_back(is_undef(value) ? nullptr : value);
+        l++;
+        return;
+    }
+    // Part `k` of the value: the operand a value built in place was built
+    // from, where there is one to read off, and a read of the part otherwise.
+    const auto part = [&](const Type &t, Instruction::Op op, uint32_t k) {
+        if (is_undef(value)) {
+            return undef_value(t);
+        }
+        const auto *built = std::get_if<shared_ptr<Instruction>>(&value->data);
+        if (built != nullptr && (*built)->op == Instruction::Op::MakeStruct &&
+            k < (*built)->operands.size() &&
+            equals((*built)->operands[k]->get_type(), t)) {
+            return (*built)->operands[k];
+        }
+        return emit(t, op, {value, constant_u32(k)});
+    };
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        for (uint32_t k = 0; k < uint32_t(s->fields.size()); k++) {
+            take_apart(part(s->fields[k].type, Instruction::Op::LoadField, k),
+                       leaves, l, lanes, emit, out);
+        }
+        return;
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        for (uint32_t k = 0; k < v->lanes; k++) {
+            take_apart(part(v->etype, Instruction::Op::ExtractIdx, k), leaves,
+                       l, lanes, emit, out);
+        }
+        return;
+    }
+    internal_error << "a queue entry holds a " << type << " where the queue "
+                   << "stores "
+                   << (l < leaves.size() ? leaves[l].name : string("nothing"));
+}
+
+// A value of `type` put back together from its leaves, `next_leaf` giving
+// each in leaf order: take_apart() inverted, for one entry.
+shared_ptr<Value> rebuild(
+    const Type &type, const Emit &emit,
+    const std::function<shared_ptr<Value>(const Type &)> &next_leaf) {
+    vector<shared_ptr<Value>> parts;
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        for (const TypedVar &f : s->fields) {
+            parts.push_back(rebuild(f.type, emit, next_leaf));
+        }
+    } else if (const Vector_t *v = type.as<Vector_t>()) {
+        // A vector built from its components is a MakeStruct of the vector's
+        // type, as a vector literal is (see Build in SSA/Convert.cpp).
+        for (uint32_t k = 0; k < v->lanes; k++) {
+            parts.push_back(rebuild(v->etype, emit, next_leaf));
+        }
+    } else {
+        return next_leaf(type);
+    }
+    return emit(type, Instruction::Op::MakeStruct, std::move(parts));
+}
 
 } // namespace
 
@@ -1621,14 +1741,32 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // The types
     //===----------------------------------------------------------------===//
 
+    // The entry is the continuation as a value, which is what the callee
+    // pushes; the queue stores it as a struct of arrays, one per scalar of it
+    // (see Leaf), behind the count.
     Struct_t::Map entry_fields;
     for (const Field &f : fields) {
         entry_fields.emplace_back(f.name, f.type);
     }
     const Type entry_t = Struct_t::make("Entry_" + queue.name, entry_fields);
-    const Type queue_t = Struct_t::make(
-        "Queue_" + queue.name,
-        {TypedVar("count", u32()), TypedVar("data", Array_t::make(entry_t, Expr()))});
+    vector<Leaf> leaves;
+    vector<std::pair<size_t, size_t>> field_leaves; // each field's [first, last)
+    for (const Field &f : fields) {
+        const size_t first = leaves.size();
+        leaves_of(f.name, f.type, leaves);
+        field_leaves.emplace_back(first, leaves.size());
+    }
+    Struct_t::Map queue_fields = {TypedVar("count", u32())};
+    for (const Leaf &leaf : leaves) {
+        for (const TypedVar &other : queue_fields) {
+            internal_assert(other.name != leaf.name)
+                << what << ": two scalars of " << queue.name << "'s entry are "
+                << "both named " << leaf.name << " once their fields' names "
+                << "and their paths are joined";
+        }
+        queue_fields.emplace_back(leaf.name, Array_t::make(leaf.type, Expr()));
+    }
+    const Type queue_t = Struct_t::make("Queue_" + queue.name, queue_fields);
     const Type queue_ptr_t = Ptr_t::make(queue_t);
     vector<Type> made = {entry_t, queue_t};
 
@@ -1796,11 +1934,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // The owner: the queue, the flag at the producer, and the drain
     //===----------------------------------------------------------------===//
 
-    // A queue is a count and a handle to its own storage, an array of entries
-    // sized by the producer count; both are `mut` locals of the owner, made
-    // where the count is known, before the producer runs, and a queue is
-    // handed to the callee the way any mutable local is handed to a callee:
-    // as its address.
+    // A queue is a count and the handles to its own storage, an array per
+    // scalar of the entry sized by the producer count (see Leaf); all are
+    // `mut` locals of the owner, made where the count is known, before the
+    // producer runs, and a queue is handed to the callee the way any mutable
+    // local is handed to a callee: as its address.
     //
     // Whether there is one queue or two follows from who pushes onto it. When
     // the deferred callee is on the chain -- a self-recursion -- running an
@@ -1812,11 +1950,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // chain -- one queue and one pass over it are all there is.
     const bool self_feeding = callee_in_chain;
     const int nqueues = self_feeding ? 2 : 1;
-    vector<shared_ptr<Value>> stores;
+    // stores[i][l]: queue i's array for leaf l, named after both.
+    vector<vector<shared_ptr<Value>>> stores(nqueues);
     for (int i = 0; i < nqueues; i++) {
-        stores.push_back(make_alloca(
-            *O, point, Array_t::make(entry_t, as_expr(size)),
-            queue.name + "_entries" + (self_feeding ? "_" + std::to_string(i) : "")));
+        for (const Leaf &leaf : leaves) {
+            stores[i].push_back(make_alloca(
+                *O, point, Array_t::make(leaf.type, as_expr(size)),
+                queue.name + "_" + leaf.name +
+                    (self_feeding ? "_" + std::to_string(i) : "")));
+        }
     }
     const shared_ptr<Value> queues =
         self_feeding
@@ -1825,8 +1967,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                           queue.name + "_queue")
             : make_alloca(*O, point, queue_t, queue.name + "_queue");
     for (int i = 0; i < nqueues; i++) {
+        vector<shared_ptr<Value>> parts = {constant_u32(0)};
+        parts.insert(parts.end(), stores[i].begin(), stores[i].end());
         auto initial = point->make_instruction(queue_t, Instruction::Op::MakeStruct,
-                                               {constant_u32(0), stores[i]});
+                                               std::move(parts));
         auto slot = self_feeding
                         ? point->make_instruction(queue_ptr_t, Instruction::Op::GEP,
                                                   {queues, constant_u32(i)})
@@ -1844,17 +1988,26 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         return block->make_instruction(queue_ptr_t, Instruction::Op::GEP,
                                        {reach(block, queues), which});
     };
-    // The entry storage of queue `which`, as the queue records it.
-    const auto entries_at = [&](const shared_ptr<Block> &block,
-                                const shared_ptr<Value> &which) {
+    // The storage of queue `which`, as the queue records it: a function from
+    // a leaf to its array, so that a reader of several leaves finds the queue
+    // once.
+    const auto storage_of = [&](const shared_ptr<Block> &block,
+                                const shared_ptr<Value> &which)
+        -> std::function<shared_ptr<Value>(size_t)> {
         if (!self_feeding) {
-            return reach(block, stores[0]);
+            return [&, block](size_t l) { return reach(block, stores[0][l]); };
         }
-        auto that = block->make_instruction(queue_t, Instruction::Op::ExtractIdx,
-                                            {reach(block, queues), which});
-        return block->make_instruction(Array_t::make(entry_t, Expr()),
-                                       Instruction::Op::LoadField,
-                                       {that, constant_u32(1)});
+        // Each handle read through the queue's address, so that an entry of
+        // many scalars reads the handles it needs and not the whole queue.
+        auto that = queue_at(block, which);
+        return [&, block, that](size_t l) {
+            const Type array_t = Array_t::make(leaves[l].type, Expr());
+            auto handle = block->make_instruction(
+                Ptr_t::make(array_t), Instruction::Op::FieldPtr,
+                {that, constant_u32(1 + l)});
+            return block->make_instruction(array_t, Instruction::Op::Load,
+                                           {handle});
+        };
     };
     const auto fresh_block = [&](const string &name) {
         auto block = std::make_shared<Block>();
@@ -1871,25 +2024,38 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const string prefix = queue.name + "!";
 
     // The frame's part of an entry, written into the slot the callee saved in
-    // the storage `entries`: the iteration's values the continuation needs,
-    // and the contents of the iteration's mutable locals the callee was not
-    // handed.
+    // queue `which`: the iteration's values the continuation needs, and the
+    // contents of the iteration's mutable locals the callee was not handed.
+    // A scalar at a time, into each one's array.
     const auto write_frame = [&](const shared_ptr<Block> &block,
-                                 const shared_ptr<Value> &entries,
+                                 const shared_ptr<Value> &which,
                                  const shared_ptr<Value> &slot,
                                  const std::function<shared_ptr<Value>(const Field &)> &value_of_field) {
-        auto entry_ptr = block->make_instruction(Ptr_t::make(entry_t),
-                                                 Instruction::Op::GEP,
-                                                 {reach(block, entries), slot});
+        const auto storage = storage_of(block, which);
+        const Emit emit = [&](const Type &t, Instruction::Op op,
+                              vector<shared_ptr<Value>> ops) {
+            return block->make_instruction(t, op, std::move(ops));
+        };
         for (size_t f = 0; f < fields.size(); f++) {
             if (!fields[f].frame_writes) {
                 continue;
             }
-            auto field_ptr = block->make_instruction(Ptr_t::make(fields[f].type),
-                                                     Instruction::Op::FieldPtr,
-                                                     {entry_ptr, constant_u32(f)});
-            block->make_side_effect(Instruction::Op::Store,
-                                    {field_ptr, value_of_field(fields[f])});
+            vector<shared_ptr<Value>> parts;
+            size_t l = field_leaves[f].first;
+            take_apart(value_of_field(fields[f]), leaves, l, 1, emit, parts);
+            internal_assert(l == field_leaves[f].second &&
+                            parts.size() == l - field_leaves[f].first)
+                << what << ": the frame's " << fields[f].name << " came apart "
+                << "into " << parts.size() << " scalars, not "
+                << field_leaves[f].second - field_leaves[f].first;
+            for (size_t k = 0; k < parts.size(); k++) {
+                const size_t leaf = field_leaves[f].first + k;
+                auto place = block->make_instruction(
+                    Ptr_t::make(leaves[leaf].type), Instruction::Op::GEP,
+                    {storage(leaf), slot});
+                block->make_side_effect(Instruction::Op::Store,
+                                        {place, parts[k]});
+            }
         }
     };
 
@@ -1936,7 +2102,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 {Terminator::Jump{k0_entry->name, std::move(onwards)},
                  Terminator::Jump{on_saved->name}}};
             auto slot = slot_of(on_saved, reach(on_saved, flag));
-            write_frame(on_saved, stores[0], slot, [&](const Field &f) -> shared_ptr<Value> {
+            write_frame(on_saved, constant_u32(0), slot, [&](const Field &f) -> shared_ptr<Value> {
                 if (f.local != nullptr) {
                     return on_saved->make_instruction(
                         f.type, Instruction::Op::Load,
@@ -2090,11 +2256,37 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         body->preds = {drain_entry};
     }
 
-    // run(i): the entry, and the call it stands for.
+    // run(i): the entry, and the call it stands for. The entry's fields are
+    // read as they are asked for, each put back together from its scalars
+    // read out of their arrays at the entry's index, in `run` whichever block
+    // of the iteration asks: every block of it follows `run`, and a value is
+    // threaded to where it is used.
     auto index = body->add_argument(Argument{u32(), queue.name});
-    auto entry = body->make_instruction(
-        entry_t, Instruction::Op::ExtractIdx,
-        {entries_at(body, cur ? reach(body, cur) : nullptr), index});
+    const auto run_storage = storage_of(body, cur ? reach(body, cur) : nullptr);
+    map<size_t, shared_ptr<Value>> field_values;
+    const auto entry_field = [&](const shared_ptr<Block> &block,
+                                 size_t f) -> shared_ptr<Value> {
+        auto it = field_values.find(f);
+        if (it == field_values.end()) {
+            size_t l = field_leaves[f].first;
+            const Emit emit = [&](const Type &t, Instruction::Op op,
+                                  vector<shared_ptr<Value>> ops) {
+                return body->make_instruction(t, op, std::move(ops));
+            };
+            auto value = rebuild(fields[f].type, emit, [&](const Type &t) {
+                internal_assert(l < field_leaves[f].second)
+                    << what << ": " << fields[f].name << " has more scalars "
+                    << "than the queue stores for it";
+                return body->make_instruction(t, Instruction::Op::ExtractIdx,
+                                              {run_storage(l++), index});
+            });
+            internal_assert(l == field_leaves[f].second)
+                << what << ": " << fields[f].name << " has fewer scalars "
+                << "than the queue stores for it";
+            it = field_values.emplace(f, std::move(value)).first;
+        }
+        return reach(block, it->second);
+    };
     // A relocated local: the entry's copy of its contents, given a local of
     // the drain's own to be run with.
     map<size_t, shared_ptr<Value>> locals;
@@ -2103,10 +2295,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             continue;
         }
         auto local = make_alloca(*O, body, fields[f].type);
-        auto contents = body->make_instruction(fields[f].type,
-                                               Instruction::Op::LoadField,
-                                               {entry, constant_u32(f)});
-        body->make_side_effect(Instruction::Op::Store, {local, contents});
+        body->make_side_effect(Instruction::Op::Store,
+                               {local, entry_field(body, f)});
         locals[f] = local;
     }
     // The copy of the continuation takes a relocated local as a parameter
@@ -2140,9 +2330,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 args.push_back(reach(body, origin.at(callee_name)[j].value));
                 break;
             case Where::Stored:
-                args.push_back(body->make_instruction(
-                    centry.args[j].type, Instruction::Op::LoadField,
-                    {entry, constant_u32(params[j].field)}));
+                args.push_back(entry_field(body, params[j].field));
                 break;
             case Where::Relocated:
                 args.push_back(locals.at(params[j].field));
@@ -2185,9 +2373,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 onwards.push_back(reach(after, c.def.value));
                 break;
             case From::Field:
-                onwards.push_back(after->make_instruction(
-                    fields[c.field].type, Instruction::Op::LoadField,
-                    {reach(after, entry), constant_u32(c.field)}));
+                onwards.push_back(entry_field(after, c.field));
                 break;
             case From::Relocated:
                 onwards.push_back(reach(after, locals.at(c.field)));
@@ -2203,7 +2389,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                  Terminator::Jump{done->name}}};
             if (frame_saves) {
                 auto slot = slot_of(done, reach(done, flag));
-                write_frame(done, entries_at(done, reach(done, nxt)), slot,
+                write_frame(done, reach(done, nxt), slot,
                             [&](const Field &f) -> shared_ptr<Value> {
                     for (size_t k = 0; k < fields.size(); k++) {
                         if (&fields[k] != &f) {
@@ -2215,9 +2401,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                 {reach(done, locals.at(k))});
                         }
                         // The frame's value is what the entry carried in.
-                        return done->make_instruction(
-                            f.type, Instruction::Op::LoadField,
-                            {reach(done, entry), constant_u32(k)});
+                        return entry_field(done, k);
                     }
                     internal_error << "no value for the frame's field " << f.name;
                     return nullptr;
@@ -2335,20 +2519,30 @@ void lower_pushes(Function &func) {
                         : "");
             const Type queue_t = qptr->etype;
             const auto *qs = queue_t.as<Struct_t>();
-            internal_assert(qs && qs->fields.size() == 2)
+            internal_assert(qs && qs->fields.size() >= 2 &&
+                            qs->fields[0].name == "count")
                 << "push to something that is not a queue: " << queue_t;
             const Type count_t = qs->fields[0].type;
-            const Type data_t = qs->fields[1].type;
-            const Type element_t = data_t.element_of();
+            // The queue's storage: an array per scalar of the entry (see
+            // Leaf), in the entry's order, behind the count.
+            vector<Leaf> leaves;
+            for (size_t k = 1; k < qs->fields.size(); k++) {
+                internal_assert(qs->fields[k].type.is<Array_t>())
+                    << "push to something that is not a queue: " << queue_t
+                    << " holds a " << qs->fields[k].type;
+                leaves.push_back(
+                    Leaf{qs->fields[k].name, qs->fields[k].type.element_of()});
+            }
 
             // A gang's push, told by its value: one slot per lane. The lanes
             // that push -- those the mask has on, or all of them -- compact
             // into consecutive slots: the count advances once by how many
             // there are, and each takes the slot at its rank among them, in
-            // lane order (ispc's packed_store_active; a `vpcompressd` where
-            // the entries are laid out a field at a time, a scatter to the
-            // ranked slots where, as here, an entry is a struct in memory).
-            // A scalar push is a gang of one with no mask.
+            // lane order (ispc's packed_store_active). With the entries laid
+            // out a scalar at a time, each scalar of the gang's entries is
+            // one compress-store (`vpcompressd`) from the first slot claimed,
+            // and a plain vector store when every lane pushes. A scalar push
+            // is a gang of one with no mask.
             const Vector_t *gang = push->type.as<Vector_t>();
             const uint32_t lanes = gang != nullptr ? gang->lanes : 1;
             internal_assert(gang != nullptr || mask == nullptr)
@@ -2367,8 +2561,6 @@ void lower_pushes(Function &func) {
                                                 Ptr_t::make(count_t),
                                                 Instruction::Op::FieldPtr,
                                                 {q, constant_u32(0)});
-            auto whole = insert_instruction(func, block, at++, queue_t,
-                                            Instruction::Op::Load, {q});
             // How many entries this push adds.
             shared_ptr<Value> added;
             if (gang == nullptr) {
@@ -2388,84 +2580,83 @@ void lower_pushes(Function &func) {
                                            {count_ptr, added});
             } else {
                 first = insert_instruction(func, block, at++, count_t,
-                                           Instruction::Op::LoadField,
-                                           {whole, constant_u32(0)});
+                                           Instruction::Op::Load, {count_ptr});
                 auto next = insert_instruction(func, block, at++, count_t,
                                                Instruction::Op::Add,
                                                {first, added});
                 insert_side_effect(block, at++, Instruction::Op::Store,
                                    {count_ptr, next});
             }
-            // Each lane's slot: the first, plus its rank among the lanes that
-            // push -- its lane index when they all do.
-            shared_ptr<Value> index = first;
-            if (gang != nullptr) {
-                shared_ptr<Value> rank;
-                if (mask != nullptr) {
-                    rank = lane_rank(func, block, at, mask, push->type);
-                } else {
-                    rank = insert_instruction(
-                        func, block, at++, push->type, Instruction::Op::Ramp,
-                        {std::make_shared<Value>(Constant{count_t, uint64_t(0)}),
-                         std::make_shared<Value>(Constant{count_t, uint64_t(1)})});
+            // Where the entries go: the slots from `first`. A gang that pushes
+            // from every lane writes `lanes` consecutive slots, one vector
+            // store per scalar at ramp(first, 1); one that pushes under a mask
+            // writes each scalar with a compress-store from the address of
+            // slot `first`, which puts the lanes that are on into consecutive
+            // slots itself.
+            shared_ptr<Value> dense; // the gang's slots, when every lane pushes
+            if (gang != nullptr && mask == nullptr) {
+                dense = insert_instruction(
+                    func, block, at++, push->type, Instruction::Op::Ramp,
+                    {first,
+                     std::make_shared<Value>(Constant{count_t, uint64_t(1)})});
+            }
+            // The entry's scalars, as the push holds them: for a gang, each a
+            // gang-wide vector. One the frame writes after the push is
+            // undefined here, and is not stored.
+            vector<shared_ptr<Value>> parts;
+            {
+                size_t l = 0;
+                const Emit emit = [&](const Type &t, Instruction::Op op,
+                                      vector<shared_ptr<Value>> ops) {
+                    return insert_instruction(func, block, at++, t, op,
+                                              std::move(ops));
+                };
+                take_apart(entry, leaves, l, lanes, emit, parts);
+                internal_assert(l == leaves.size() && parts.size() == l)
+                    << "an entry of " << parts.size() << " scalars pushed onto "
+                    << queue_t << ", which stores " << leaves.size();
+            }
+            // Each array's handle is read through the queue's address -- the
+            // handles the entry needs, not the whole queue -- and names the
+            // storage itself.
+            for (size_t l = 0; l < leaves.size(); l++) {
+                if (parts[l] == nullptr) {
+                    continue;
                 }
+                auto handle = insert_instruction(
+                    func, block, at++, Ptr_t::make(qs->fields[1 + l].type),
+                    Instruction::Op::FieldPtr, {q, constant_u32(1 + l)});
+                auto array = insert_instruction(func, block, at++,
+                                                qs->fields[1 + l].type,
+                                                Instruction::Op::Load, {handle});
+                auto place = insert_instruction(
+                    func, block, at++,
+                    dense ? Vector_t::make(Ptr_t::make(leaves[l].type), lanes)
+                          : Ptr_t::make(leaves[l].type),
+                    Instruction::Op::GEP, {array, dense ? dense : first});
+                vector<shared_ptr<Value>> operands = {place, parts[l]};
+                if (mask != nullptr) {
+                    operands.push_back(mask);
+                }
+                insert_side_effect(block, at++, Instruction::Op::Store,
+                                   std::move(operands), /*atomic=*/false,
+                                   /*compact=*/mask != nullptr);
+            }
+            // The push's value was each lane's slot: the first, plus its rank
+            // among the lanes that push -- its lane index when they all do.
+            // Wanted by a frame that writes its part into the slot after the
+            // push, and built only then: the rank is a scan over the mask.
+            shared_ptr<Value> index = first;
+            if (dense != nullptr) {
+                index = dense;
+            } else if (gang != nullptr && has_uses(func, push.get())) {
+                auto rank = lane_rank(func, block, at, mask, push->type);
                 auto base = insert_instruction(
                     func, block, at++, push->type, Instruction::Op::Bc,
                     {first, constant_u32(lanes)});
                 index = insert_instruction(func, block, at++, push->type,
                                            Instruction::Op::Add, {base, rank});
             }
-            // (*q).data[index] = entry, field by field where the entry is
-            // built in place -- a field left undefined is one the frame
-            // writes, and is not stored. The array is a handle, so reading it
-            // out of a copy of the queue reads the same storage. For a gang
-            // the address is one per lane and each store is a scatter, made
-            // for the lanes the mask has on; the pointers are to the entry
-            // as memory holds it, a struct per slot, whatever shape the gang
-            // holds the value in.
-            const auto per_lane = [&](const Type &pointee) {
-                return gang != nullptr
-                           ? Vector_t::make(Ptr_t::make(pointee), lanes)
-                           : Ptr_t::make(pointee);
-            };
-            auto data = insert_instruction(func, block, at++, data_t,
-                                           Instruction::Op::LoadField,
-                                           {whole, constant_u32(1)});
-            auto slot = insert_instruction(func, block, at++,
-                                           per_lane(element_t),
-                                           Instruction::Op::GEP, {data, index});
-            const auto store = [&](const shared_ptr<Value> &place,
-                                   const shared_ptr<Value> &value) {
-                vector<shared_ptr<Value>> operands = {place, value};
-                if (mask != nullptr) {
-                    operands.push_back(mask);
-                }
-                insert_side_effect(block, at++, Instruction::Op::Store,
-                                   std::move(operands));
-            };
-            const auto *built = std::get_if<shared_ptr<Instruction>>(&entry->data);
-            const auto *element_struct = element_t.as<Struct_t>();
-            if (built != nullptr && (*built)->op == Instruction::Op::MakeStruct &&
-                element_struct != nullptr) {
-                internal_assert((*built)->operands.size() ==
-                                element_struct->fields.size())
-                    << "an entry of " << (*built)->operands.size()
-                    << " fields for " << element_t;
-                for (size_t k = 0; k < (*built)->operands.size(); k++) {
-                    const shared_ptr<Value> &v = (*built)->operands[k];
-                    if (is_undef(v)) {
-                        continue;
-                    }
-                    auto field_ptr = insert_instruction(
-                        func, block, at++,
-                        per_lane(element_struct->fields[k].type),
-                        Instruction::Op::FieldPtr, {slot, constant_u32(k)});
-                    store(field_ptr, v);
-                }
-            } else {
-                store(slot, entry);
-            }
-            // The push's value was the slot; it is gone with the push.
             replace_uses(func, push.get(), index);
             i = at - 1;
         }

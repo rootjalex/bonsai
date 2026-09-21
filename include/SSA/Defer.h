@@ -44,13 +44,17 @@ struct QueueSpec {
 // drain's parfor -- named `paths`, so a later directive can split, vectorize
 // or bind it -- advances them together.
 //
-// A queue is logically an array of continuations with a fill count --
-// `Queue_<name> { count : u32; data : Entry_<name>[] }`, the count and a
-// handle to an array of entries sized by the producer count, both `mut`
-// locals of the owner made once per owner iteration and named after the
-// queue (`paths_queue`, `paths_entries`). The entry's layout is the array's,
-// and is the layout language's to change: an array of structs today, a
-// struct of arrays or of gang-wide vectors when a schedule asks for one.
+// A queue is logically an array of continuations with a fill count. It is
+// stored as a struct of arrays: `Queue_<name> { count : u32; <scalar> :
+// T[]; ... }`, the count and a handle to an array per scalar of the entry
+// -- an entry's aggregates taken down to their scalars, a `ray.o` to
+// `ray_o_x`, `ray_o_y`, `ray_o_z`, as pbrt's wavefront `SOA` structs are --
+// each sized by the producer count, all `mut` locals of the owner made once
+// per owner iteration and named after the queue and the scalar
+// (`paths_queue`, `paths_ray_o_x`). That is what lets a gang of entries read
+// each scalar of its continuations as one dense vector load and push each
+// with one compress-store. The layout language may later be given a say in
+// it; nothing here promises more than the default.
 //
 // Whether there is one such queue or two follows from the queue graph. When
 // running an entry can push onto the queue it came from -- the deferred call
@@ -105,9 +109,9 @@ struct QueueSpec {
 //         cur = round & 1; nxt = cur ^ 1
 //         queue[nxt].count = 0
 //         parfor <queue name> in 0 : queue[cur].count:
-//             e = queue[cur].data[<queue name>]
+//             e = <each field of the entry, from queue[cur].<scalar>[<queue name>]>
 //             r = callee(<e's fields, and the arguments in scope>, &queue[nxt])
-//             if r.saved: <the frame's fields of queue[nxt].data[r.slot]> = <e's>
+//             if r.saved: <the frame's scalars of queue[nxt].<scalar>[r.slot]> = <e's>
 //             else:       <the rest of the producer's iteration, with r.value>
 //         round = round + 1
 //

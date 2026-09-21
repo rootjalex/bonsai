@@ -1,14 +1,18 @@
 type Entry_sums = struct Entry_sums{ n : i32; acc : i32; i : i32 }
-type Queue_sums = struct Queue_sums{ count : u32; data : struct Entry_sums{ n : i32; acc : i32; i : i32 }[] }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; i : i32[] }
 
 func run(out : mut i32[40]) -> void {
   sums!round : mut u32
-  sums_entries_0 : mut Entry_sums[40]
-  sums_entries_1 : mut Entry_sums[40]
+  sums_n_0 : mut i32[40]
+  sums_acc_0 : mut i32[40]
+  sums_i_0 : mut i32[40]
+  sums_n_1 : mut i32[40]
+  sums_acc_1 : mut i32[40]
+  sums_i_1 : mut i32[40]
   sums_queue : mut Queue_sums[2]
-  let @1 = build<Queue_sums>(0u, sums_entries_0) in
+  let @1 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums_i_0) in
   sums_queue[0u] = @1
-  let @3 = build<Queue_sums>(0u, sums_entries_1) in
+  let @3 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums_i_1) in
   sums_queue[1u] = @3
   parfor i in [0:40:1] {
     let @0 = i % 7 in
@@ -26,28 +30,18 @@ func run(out : mut i32[40]) -> void {
     let @12 = @8 ^ 1u in
     sums_queue[@12].count = 0u
     parfor sums_gang in [0u:@10:16u] {
-      let @23 = sums_queue[(*sums!round) & 1u].count in
-      let @32 = u32x16(sums_gang) in
-      let @24 = @32 + ramp(0u, 1u, 16) in
-      let @33 = u32x16(@23) in
-      let @25 = @24 < @33 in
-      let @34 = boolx16(false) in
-      let @35 = boolx16(true) in
-      let @26 = select(@25, @34, @35) in
-      let @30 = reduce<any>(@25) in
-      if (@30) {
-        let @15 = sums_queue[@8] in
-        let @16 = @15.data in
-        let @17 = masked_extract(@16[@24], @25) in
-        let @18 = @17.n in
-        let @19 = @17.acc in
-        let @20 = @17.i in
-        let @22 = walk$gang16_v0_v1_v3$masked(@18, @19, out, @20, (&sums_queue[@12]), @25) in
-        let @36 = boolx16(false) in
-        let @37 = boolx16(true) in
-        let @27 = select(@22, @36, @37) in
-        let @28 = @25 && @27 in
-        let @29 = @25 && @22 in
+      let @27 = sums_queue[(*sums!round) & 1u].count in
+      let @37 = u32x16(@27) in
+      let @29 = ramp(sums_gang, 1u, 16) < @37 in
+      let @34 = reduce<any>(@29) in
+      if (@34) {
+        let @17 = sums_queue[@8].n in
+        let @18 = masked_extract(@17[ramp(sums_gang, 1u, 16)], @29) in
+        let @20 = sums_queue[@8].acc in
+        let @21 = masked_extract(@20[ramp(sums_gang, 1u, 16)], @29) in
+        let @23 = sums_queue[@8].i in
+        let @24 = masked_extract(@23[ramp(sums_gang, 1u, 16)], @29) in
+        let @26 = walk$gang16_v0_v1_v3$masked(@18, @21, out, @24, (&sums_queue[@12]), @29) in
       }
       continue
     }
@@ -66,12 +60,13 @@ func [[noinline]] walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_su
     let @2 = n - 1 in
     let @3 = acc + n in
     let @4 = build<Entry_sums>(@2, @3, i) in
-    let @7 = (*_queue_sums) in
-    let @8 = atomic_add((&(*_queue_sums).count), 1u) in
-    let @9 = @7.data in
-    @9[@8].n = @2
-    @9[@8].acc = @3
-    @9[@8].i = i
+    let @7 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @9 = (*_queue_sums).n in
+    @9[@7] = @2
+    let @12 = (*_queue_sums).acc in
+    @12[@7] = @3
+    let @15 = (*_queue_sums).i in
+    @15[@7] = i
     return true
   }
 }
@@ -96,26 +91,14 @@ func [[noinline]] walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mu
     let @2 = n - @15 in
     let @3 = acc + n in
     let @4 = build<Entry_sums$v16>(@2, @3, i) in
-    let @20 = (*_queue_sums) in
-    let @21 = reduce<+>(cast<u32x16>(@7)) in
-    let @22 = atomic_add((&(*_queue_sums).count), @21) in
-    let @23 = cast<u32x16>(@7) in
-    let @24 = u32x16(0u) in
-    let @25 = shuffle({@24, @23}, {0, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}) in
-    let @26 = shuffle({@24, @25}, {0, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}) in
-    let @27 = @25 + @26 in
-    let @28 = shuffle({@24, @27}, {0, 1, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}) in
-    let @29 = @27 + @28 in
-    let @30 = shuffle({@24, @29}, {0, 1, 2, 3, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}) in
-    let @31 = @29 + @30 in
-    let @32 = shuffle({@24, @31}, {0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23}) in
-    let @33 = @31 + @32 in
-    let @34 = u32x16(@22) in
-    let @35 = @34 + @33 in
-    let @36 = @20.data in
-    masked_store(@36[@35].n, @2, @7)
-    masked_store(@36[@35].acc, @3, @7)
-    masked_store(@36[@35].i, i, @7)
+    let @20 = reduce<+>(cast<u32x16>(@7)) in
+    let @21 = atomic_add((&(*_queue_sums).count), @20) in
+    let @23 = (*_queue_sums).n in
+    compress_store(@23[@21], @2, @7)
+    let @26 = (*_queue_sums).acc in
+    compress_store(@26[@21], @3, @7)
+    let @29 = (*_queue_sums).i in
+    compress_store(@29[@21], i, @7)
     let @16 = boolx16(true) in
     let @17 = boolx16(false) in
     let @11 = select(@7, @16, @17) in

@@ -386,6 +386,62 @@ void replace_uses(Function &func, const Instruction *of,
     }
 }
 
+bool has_uses(const Function &func, const Instruction *of) {
+    const auto is_of = [&](const shared_ptr<Value> &v) {
+        if (v == nullptr) {
+            return false;
+        }
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        return held != nullptr && held->get() == of;
+    };
+    const auto in_jump = [&](const Terminator::Jump &jump) {
+        return std::any_of(jump.args.begin(), jump.args.end(), is_of);
+    };
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            if (std::any_of(instr->operands.begin(), instr->operands.end(),
+                            is_of)) {
+                return true;
+            }
+        }
+        const bool used = std::visit(
+            overloads{
+                [](const std::monostate &) { return false; },
+                [&](const Terminator::Jump &j) { return in_jump(j); },
+                [&](const Terminator::Dispatch &d) {
+                    return is_of(d.cond) ||
+                           std::any_of(d.targets.begin(), d.targets.end(),
+                                       in_jump);
+                },
+                [&](const Terminator::Return &r) { return is_of(r.value); },
+                [&](const Terminator::ParFor &p) {
+                    return is_of(p.start) || is_of(p.end) ||
+                           is_of(p.stride) || in_jump(p.body) ||
+                           in_jump(p.cont);
+                },
+                [](const Terminator::Yield &) { return false; },
+                [&](const Terminator::Call &c) {
+                    return in_jump(c.call) || in_jump(c.cont);
+                },
+                [&](const Terminator::MultiCall &c) {
+                    if (in_jump(c.call) || in_jump(c.cont) ||
+                        std::any_of(c.keys.begin(), c.keys.end(), is_of)) {
+                        return true;
+                    }
+                    return std::any_of(
+                        c.varying.begin(), c.varying.end(), [&](const auto &vs) {
+                            return std::any_of(vs.begin(), vs.end(), is_of);
+                        });
+                },
+            },
+            block->terminator.data);
+        if (used) {
+            return true;
+        }
+    }
+    return false;
+}
+
 vector<Terminator::Jump *> jumps_of(Block &block) {
     vector<Terminator::Jump *> jumps;
     std::visit(overloads{

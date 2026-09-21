@@ -255,6 +255,9 @@ void Instruction::dump(std::ostream &os) const {
             << "Name must be empty for store/acc: " << name
             << " (op: " << op_name(op) << ")";
         os << op_name(op) << " ";
+        if (compact) {
+            os << "compact ";
+        }
         // A vectorized store carries a third operand, its execution mask.
         internal_assert(operands.size() == 2 || operands.size() == 3);
         operands[0]->dump(os);

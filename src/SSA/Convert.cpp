@@ -1836,6 +1836,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         DemoteAtomics::run(*f);
     }
 
+    // What the transforms built by rule is looked at once more (see
+    // SSA/Simplify.h): a vectorized split loop's index is the outer index
+    // broadcast plus the ramp of lanes, which is a ramp, and only as a ramp
+    // is an access at it a dense vector load or store rather than a gather.
+    for (const auto &[name, f] : fmap) {
+        simplify(*f);
+    }
+
     // Contraction after the schedule as well, and for a related reason: what a
     // transform produces is arithmetic too. A vectorized gang's widened
     // multiply and add are as fusible as the scalar pair they came from, and a

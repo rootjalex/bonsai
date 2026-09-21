@@ -278,8 +278,16 @@ struct Store : StmtNode<Store> {
     // Undefined means every lane writes; otherwise a boolean vector with one
     // entry per lane of `value`, and only the enabled lanes are written.
     Expr mask;
+    // A masked store that compacts: `loc` is one address, the first of a run
+    // of slots, and the enabled lanes' values go into consecutive slots from
+    // it in lane order -- LLVM's masked.compressstore, `vpcompressd` to
+    // memory. What a gang's push writes each field of its entries with, so
+    // that the lanes that push fill a queue densely (see lower_pushes in
+    // SSA/Defer.cpp). Requires a mask.
+    bool compact = false;
 
-    static Stmt make(WriteLoc loc, Expr value, Expr mask = Expr());
+    static Stmt make(WriteLoc loc, Expr value, Expr mask = Expr(),
+                     bool compact = false);
 
     static const IRStmtEnum node_type = IRStmtEnum::Store;
 };

@@ -463,7 +463,8 @@ Stmt codegen_instruction(const Instruction &instr) {
             Expr mask = instr.operands.size() == 3
                             ? codegen_value(instr.operands[2])
                             : Expr();
-            return Store::make(std::move(loc), std::move(val), std::move(mask));
+            return Store::make(std::move(loc), std::move(val), std::move(mask),
+                               instr.compact);
         }
         case Instruction::Op::Alloc:
         case Instruction::Op::Alloca: {

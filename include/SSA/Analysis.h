@@ -73,6 +73,10 @@ bool is_recursive(const Function &func);
 void replace_uses(Function &func, const Instruction *of,
                   const std::shared_ptr<Value> &with);
 
+// Does anything in `func` read the instruction `of`'s value: an operand, a
+// value a terminator reads or passes?
+bool has_uses(const Function &func, const Instruction *of);
+
 //===--------------------------------------------------------------------===//
 // Control flow graph
 //===--------------------------------------------------------------------===//
