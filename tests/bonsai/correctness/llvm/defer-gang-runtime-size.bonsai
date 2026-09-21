@@ -1,0 +1,57 @@
+//! flags: -p ssa -b llvm -e
+
+// The gang drain of a queue sized at run time, whose callee takes more
+// per-lane arguments than fit in registers. The queue's storage is an array
+// per scalar of the entry (see Leaf in SSA/Defer.cpp), each `n` long with
+// `n` a parameter, so each is carved out of the stack at run time -- and
+// LLVM rounds such an allocation's size up to sixteen bytes and no further.
+// Twenty-one i32 arrays of forty entries leave the stack pointer 3360 bytes
+// lower, which is not a multiple of the 64 bytes a gang's register wants;
+// the call below them then passes its twenty vector arguments on the stack,
+// stored register-aligned from the stack pointer, and faulted until a
+// run-time-sized allocation was aligned to the register (see
+// create_alloca_at_entry in CodeGen/CodeGen_LLVM.cpp). The entry's count is
+// forty, so the last gang is partly full as well. `run` is not inlined into
+// `main` and is called with two counts, so that neither is a literal the
+// arrays could be sized by at compile time; the second run rewrites the
+// first thirty-three entries with the values they had.
+func tally(n : i32, acc : i32, i : i32, a0 : i32, a1 : i32, a2 : i32,
+           a3 : i32, a4 : i32, a5 : i32, a6 : i32, a7 : i32, a8 : i32,
+           a9 : i32, a10 : i32, a11 : i32, a12 : i32, a13 : i32, a14 : i32,
+           a15 : i32, a16 : i32, a17 : i32, out : mut array[i32, 40]) -> void {
+    if (n <= 0) {
+        out[i] = acc + a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 +
+                 a11 + a12 + a13 + a14 + a15 + a16 + a17;
+        return;
+    }
+    tally(n - 1, acc + n, i, a0 + 1, a1 + 1, a2 + 1, a3 + 1, a4 + 1, a5 + 1,
+          a6 + 1, a7 + 1, a8 + 1, a9 + 1, a10 + 1, a11 + 1, a12 + 1, a13 + 1,
+          a14 + 1, a15 + 1, a16 + 1, a17 + 1, out);
+    return;
+}
+
+func [[noinline]] run(total : i32, out : mut array[i32, 40]) -> void {
+    parfor i in 0:total {
+        tally(i % 7, 0, i, i, 2 * i, 3 * i, 4 * i, 5 * i, 6 * i, 7 * i, 8 * i,
+              9 * i, 10 * i, 11 * i, 12 * i, 13 * i, 14 * i, 15 * i, 16 * i,
+              17 * i, 18 * i, out);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 40] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    run(40, out);
+    run(33, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

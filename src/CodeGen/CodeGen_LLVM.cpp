@@ -5460,6 +5460,23 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
     if (lowering_from_ssa && t->isAggregateType() && align < register_align) {
         align = register_align;
     }
+    // A run-time-sized allocation is aligned to the register as well, for a
+    // different reason: LLVM carves it out of the stack at run time, rounding
+    // its size up to the ABI's sixteen bytes and no further, and realigns the
+    // stack pointer after it only to the alignment the allocation asks for.
+    // The frame around it may have been realigned to the register -- a gang's
+    // spills want that -- and a call below it passes its stack arguments at
+    // the register's alignment too, addressed from the stack pointer; a
+    // `bool[spp]` carved out in between leaves the pointer sixteen-aligned and
+    // the first register-wide argument store faults. Asking for the
+    // register's alignment makes LLVM re-align the stack pointer after each
+    // such allocation, which keeps every call frame below it aligned. A
+    // queue's per-scalar arrays, sized by the sample count, are what found
+    // this (see tests/bonsai/correctness/llvm/defer-gang-runtime-size.bonsai).
+    if (size != nullptr && !llvm::isa<llvm::ConstantInt>(size) &&
+        align < register_align) {
+        align = register_align;
+    }
     ptr->setAlignment(llvm::Align(align));
 
     builder->restoreIP(here);
