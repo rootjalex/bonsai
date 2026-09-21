@@ -2213,20 +2213,92 @@ back is the gang drain: sixteen entries of one pixel's queue run as one gang,
 which is the packet schedule's gang made from a queue instead of a loop, and
 then a tile-owned queue that keeps the gang full as paths die.
 
+**The gang drain** (built 2026-09-20, uncommitted at the time of writing):
+`render.split(paths, paths_gang, paths_lane, 16, true).vectorize(paths_lane)`
+after the deferral, which is what `schedules/wavefront.bonsai` now says.
+Three compiler pieces made it possible. `split(.., true)` generates a tail:
+Halide's GuardWithIf, the body behind `outer + inner < end` with the end
+threaded into the new blocks as an argument, so a batch of any size is
+drained by whole gangs and the last runs partly full (`SSA/Rewrite.cpp`; the
+flag was parsed and ignored before, `false` meaning "assert the range
+divides"). A gang's `Push` compacts: the vectorizer keeps the push one
+instruction with the block's mask as a third operand, marks its value -- the
+slot -- varying whatever its operands, and `lower_pushes` then emits one
+`atomic_add` of the popcount of the lanes that push, each lane's rank among
+them by a Hillis-Steele prefix scan of the mask (nine instructions of
+shuffles and adds; ispc's `exclusive_scan_add`, CUDA's `thread_rank()`), and a
+masked scatter of each field of the entry to the ranked slots, so the next
+round's queue is dense (`SSA/Defer.cpp`). And a location indexed per lane
+then accessed by field -- `entries[slot].weight` -- is a scatter the LLVM
+backend now lowers (`create_scatter_at`; a `WriteLoc`'s type after a per-lane
+index is `widen(element)`, the value a gang writes there). Two things came
+out of making it run on the renderer: a vectorized body needs one yield for
+linearization to end at, as a specialized callee needs one return
+(`unify_yields`, beside `unify_returns`); and `promote_allocas` tied a local
+to its threading by name only, so the drain handing its copy of a relocated
+local to the continuation's parameter under the producer's name deleted the
+alloca from under the copy's loads -- the pass now refuses a pointer handed
+to an argument of another name, and `defer` renames the copy's parameter
+after the drain's storage so the local is promoted after all.
+
+Measured 2026-09-20, `compare.sh --spp 16 --maxdepth 5`, every image matching
+pbrt (killeroo mean radiance 0.99999x, area-light-path 1.00015x):
+
+    scene              pbrt      scalar    packet    wavefront   wavefront
+                                                     (scalar)    (gang drain)
+    area-light-path    100.0 ms   65.0 ms   22.0 ms   68.0 ms     67.1 ms
+    killeroo-simple    830.0 ms  576.3 ms  318.5 ms  579.6 ms    670.9 ms
+
+The gang drain is correct and *slower* than the scalar drain, and `perf` on
+killeroo says why, in two parts. First, half the render is still scalar:
+`full_path_step` 19.9%, `scrambled_radical_inverse` 8.8%, `sphere_roots`
+8.0%, `triangle_hit` 4.9%, `dielectric_sample_f` 2.7%, `get_pixel_2d` 2.2%,
+against 13.1% for the gang copy of `full_path_step` and 5.1% for the
+sampler's. The producer loop -- the sample loop, where every path takes its
+*first* step: the camera ray, the first and most expensive traversal, the
+first shade -- is not vectorized by this schedule; only the steps after it
+reach the gang, because `defer` turns the calls *inside* `full_path_step`
+into pushes and leaves the chain's first call to it a call. pbrt's wavefront
+generates camera rays into the ray queue and runs depth zero in the same
+kernels as every other depth. Second, the queue round trip: an entry is 450
+bytes in some ninety scalar fields (`Ray`, `RayDifferential`, `beta`, `l`,
+`lambda`, the sampler state, `prev_ctx`, the visible surface, the frame's
+weight and wavelengths), read with a masked gather per field and pushed with
+a masked scatter per field, at a stride of the entry -- 341 gathers and
+scatters in the generated IR -- and a gather moves an element a cycle where
+the loop kept the state in registers. The pixel kernel's own share is 10.3%,
+and the scatters are inside the gang copy's 13.1%.
+
+So the two next steps for this schedule, in order of what they are worth:
+
+1. **Defer the chain's first call too**, so that the producer only makes the
+   camera ray and pushes, and the first step runs in the gang with the rest:
+   `integrator_li.defer(full_path_step, paths)` beside the self-deferral, a
+   deferral of a call in a function other than the recursion's own -- the
+   call-site deferral of item 2 below, which is also what the trace, shadow
+   and escaped-ray stages need. Worth about a third of the render by the
+   profile above.
+2. **A struct-of-arrays layout for the queue's storage**, the layout
+   language's job (item 5 below): the entry read becomes a dense vector load
+   per field and the compacting push a `compressstore` per field
+   (`llvm.masked.compressstore`, `vpcompressd`), which is the form ispc's
+   `packed_store_active` and pbrt's SoA queues have. With it the entry
+   should also shed what a bounce does not need: the visible surface is set
+   at the first hit and carried through every round because it is a `mut`
+   local of the iteration; pbrt keeps it in the pixel sample state.
+
 ### The next scheduling commands, in order
 
-1. **Measure the scalar wavefront** against `scalar.bonsai` and pbrt on the
-   lit scenes at depth 5, within a tolerance -- the film now sums a pixel's
-   samples in the order paths end. Then the **gang drain**: `split` with
-   Halide's `GuardWithIf` tail (the drain's batch is never a multiple of the
-   gang width; `split` asserts an exact split today), and the vectorizer's rule
-   for a masked `Push` -- a compaction of the lanes that push into consecutive
-   slots, `llvm.masked.compressstore`, ISPC's `packed_store_active`; the user:
-   "It's probably best to have vectorized queue writes do a compaction step."
-   A per-pixel queue holds at most spp paths, so its gangs are exactly as full
-   as the packet schedule's; the utilization win needs a tile-owned queue,
-   `render.split(p, p_tile, p_pix, 64)` then `queue(p_tile)`, and then the
-   pixel index varies across the drain's lanes in the film write.
+1. **Measure the scalar wavefront** (done, above) and the **gang drain**
+   (done, above: `split` with the GuardWithIf tail and the compacting `Push`;
+   the user: "It's probably best to have vectorized queue writes do a
+   compaction step"). What remains of this item is what the measurement
+   asked for: the first step into the gang and the queue's storage laid out
+   a field at a time. A per-pixel queue holds at most spp paths, so its gangs
+   are exactly as full as the packet schedule's; the utilization win needs a
+   tile-owned queue, `render.split(p, p_tile, p_pix, 64)` then
+   `queue(p_tile)`, and then the pixel index varies across the drain's lanes
+   in the film write.
 2. **Queue kinds by call site.** `defer` addressed to a call inside a function
    (a cursor like `skip`'s, by provenance of the call) so primary, secondary
    and occlusion rays get their own queues. Deferring `trace` is a *non-tail*
@@ -2269,16 +2341,27 @@ environment; `ctest -j 12` in `build/`. The schedule files are
 `skip` and says why it uses none. Item 7 above has the gadget measurement and
 the deferred list; this section has the plan for what comes next.
 
-As of 2026-09-20, `defer` phases 1 and 1b (above) are in the working tree and
-not committed: `include/SSA/Defer.h`, `src/SSA/Defer.cpp`, the `Push` opcode,
-the `queue`/`defer` grammar in Parser.cpp and Schedule.h (a deferred call's
-function and callee are marked `noinline` at parse time, so the call the
-directive names survives the inliner), the removal of `Lower/Defers.cpp`, the
-three compiler fixes named above (Mutator.cpp, CodeGen_Stmt.cpp,
-CodeGen_LLVM.cpp), `schedules/wavefront.bonsai`, the tests listed, and the two
-inventories in "What the scenes need". The suite is green but for the two
-CUDA goldens. Next: the gang drain (a `split` tail and the compacting push),
-then queues by call site and by material.
+`defer` phases 1 and 1b (above) are committed as `ea016bc1`. As of the end of
+2026-09-20 the gang drain is in the working tree and not committed: the
+`split` tail (`src/SSA/Rewrite.cpp`, `include/SSA/Rewrite.h`, the flag's
+comment in `include/IR/Schedule.h`), the masked and compacting `Push`
+(`src/SSA/Linearize.cpp` predicates it, `src/SSA/AnalyzeDivergence.cpp` marks
+its slot varying, `src/SSA/Vectorize.cpp` widens its entry, `lower_pushes` in
+`src/SSA/Defer.cpp` emits the compaction; `include/SSA/SSA.h` and
+`src/SSA/SSA.cpp` for the operand and its printing), the scatter in
+`src/CodeGen/CodeGen_LLVM.cpp` and `include/CodeGen/CodeGen_LLVM.h` with the
+`WriteLoc` typing in `src/IR/WriteLoc.cpp`, `AtomicAdd` in the SSA-to-LLVM
+path (`src/CodeGen/CodeGen_LLVM_SSA.cpp`), `unify_yields` in
+`src/SSA/CloneFunction.cpp` and its header, called from `vectorize()`, the
+`promote_allocas` rule in `src/SSA/PromoteAllocas.cpp`, the parameter
+renaming in `defer`, and `schedules/wavefront.bonsai`. Tests: `ssa/split-tail`
+and `ssa/defer-gang` (goldens), `backends/llvm/defer-gang` (the IR),
+`correctness/llvm/split-tail`, `defer-gang`, `defer-gang-frame`,
+`defer-gang-mut-local` (run); the `error/split-not-divisible` golden moved
+with the assertion. The suite is green but for the two CUDA goldens. Next on
+this schedule: the first step into the gang (a call-site deferral) and the
+queue's storage laid out a field at a time; then queues by call site and by
+material.
 
 ## What the scenes need, and what volpath needs
 
@@ -2298,11 +2381,11 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4, `nanovdb` x3, `cloud` x2, `uniformgrid` x1) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
 | 3 | env map in a non-sRGB colour space (EXR chromaticities, ACES) | bistro, bunny-cloud, clouds, explosion, sanmiguel, sportscar, villa | 7 |
 | 4 | samplers `zsobol` (pbrt's default when a scene names none), `sobol`, `pmj02bn` | bistro, clouds, disney-cloud, explosion, kroken, lte-orb, sanmiguel | 7 |
-| 5 | `blackbody L` on an area light (and an infinite light, in villa) | barcelona-pavilion night, contemporary-bathroom, crown, kroken, villa, watercolor, zero-day | 7 |
-| 6 | `Shape "disk"` | bunny-cloud, disney-cloud, explosion, killeroos gold, villa | 5 |
+| 5 | `blackbody L` on an area light (and an infinite light, in villa) -- **done 2026-09-20**, see below | barcelona-pavilion night, contemporary-bathroom, crown, kroken, villa, watercolor, zero-day | 7 |
+| 6 | `Shape "disk"` -- **done 2026-09-20**, see below | bunny-cloud, disney-cloud, explosion, killeroos gold, villa | 5 |
 | 7 | `Material "interface"` / `Material ""` (a medium boundary with no BSDF) | bunny-cloud, clouds, disney-cloud, explosion, smoke-plume | 5 |
-| 8 | `Material "coatedconductor"` | bistro, bmw-m6, killeroos coated-gold, kroken, watercolor | 5 |
-| 9 | `conductor` given `reflectance` (rgb, or a texture) instead of `eta`/`k` | bmw-m6, crown, villa, watercolor, zero-day | 5 |
+| 8 | `Material "coatedconductor"` -- **done 2026-09-20**, see below | bistro, bmw-m6, killeroos coated-gold, kroken, watercolor | 5 |
+| 9 | `conductor` given `reflectance` (rgb, or a texture) instead of `eta`/`k` -- **done 2026-09-20**, and with it `eta`/`k` given as `rgb`, inline pairs or a `.spd` file (item 21) | bmw-m6, crown, villa, watercolor, zero-day | 5 |
 | 10 | `Material "mix"` | bmw-m6, crown, kroken, watercolor | 4 |
 | 11 | `Shape "bilinearmesh"` (and PLY holding quads) | bunny-fur, sportscar, watercolor | 3 |
 | 12 | `mix` textures (and `directionmix`) | kroken, villa, watercolor | 3 |
@@ -2313,23 +2396,151 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 17 | `Material "hair"` | bunny-fur, hair | 2 |
 | 18 | `Material "subsurface"` | head, sssdragon | 2 |
 | 19 | infinite light with `portal` | kroken, watercolor | 2 |
-| 20 | `LightSource "distant"` | disney-cloud, killeroos gold | 2 |
-| 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` | crown, killeroos | 2 |
+| 20 | `LightSource "distant"` -- **done 2026-09-20**, see below | disney-cloud, killeroos gold | 2 |
+| 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` -- **done 2026-09-20** with item 9 | crown, killeroos | 2 |
 | 22-28 | `spot`/`point` lights, `thindielectric`, `windy`/`wrinkled` textures, partial `cylinder`, `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
 
 Nearest to converting today, in order: `ganesha`, `landscape`, `pbrt-book`,
 `lte-orb-simple-ball` (path, halton, only supported shapes, materials and
-textures); `zero-day` needs only `blackbody L` and a conductor's
-`reflectance`; `sssdragon` only `subsurface`; the `sanmiguel-*` files on
-halton only `volpath` and the ACES colour space. `barcelona-pavilion` day and
-the `killeroo` variants already render and match.
+textures); `sssdragon` only `subsurface`; the `sanmiguel-*` files on
+halton only `volpath` and the ACES colour space. `barcelona-pavilion` day,
+`killeroo-simple` and `-moving` and, since 2026-09-20, `zero-day` and
+`killeroo-gold` render and match.
+
+**Done 2026-09-20, by the scenes they unlocked.** Media are refused loudly:
+`CapturingBuilder` overrides `MakeNamedMedium` and `MediumInterface` and
+fails naming the medium's kind and the file position (an interface naming no
+medium on either side is what a scene writes to leave one, and passes). A
+light's emission is an `Emission` variant in render.bonsai -- pbrt's
+`Spectrum` as a light emits one: `RGBIlluminant(fit)`, `Blackbody(temperature,
+normalization)`, or `Illuminant` (the colour space's own, for an infinite
+light with no `L`) -- with `blackbody()` translated from pbrt's `Blackbody`,
+`FastExp` included, and the normalization computed by the converter with
+pbrt's own function so the two agree to the bit; the converter divides the
+light's scale by the photometric integral of whichever spectrum the light
+emits, as pbrt does, and builds pbrt's light tree from `BlackbodySpectrum`s
+where the scene wrote them. A conductor's index is a `ConductorIndex`
+variant: `Tabulated(spectra)` for `eta`/`k`, or `FromReflectance(albedo)`,
+pbrt's other branch of `ConductorMaterial::GetBxDF`, eta one and `k = 2 sqrt(r)
+/ sqrt(1 - r)` per wavelength at the hit; and `eta`/`k` themselves may now be
+anything pbrt reads as an unbounded spectrum -- `rgb` (an
+RGBUnboundedSpectrum), a `blackbody`, inline wavelength/value pairs, a named
+spectrum or a `.spd` file beside the scene -- each built by pbrt's own
+constructor in the converter and tabulated on the same tenth-of-a-nanometre
+grid the named metals use (the rgb fit's residual on that grid is 5e-7).
+Roughness is a `FloatParam` -- a constant or a float texture, pbrt's
+`FloatTexture` -- on the coated diffuse, conductor and dielectric materials,
+with pbrt's fallback of `uroughness`/`vroughness` to `roughness`. Scene:
+`scenes/blackbody.pbrt` (a blackbody area light and sky, a reflectance
+conductor beside a measured copper one), matching pbrt in radiance, albedo
+and normals.
+
+Two bugs the zero-day comparison found, neither in the new features. The
+packet and per-lane schedules split the sample loop by sixteen *without* a
+tail (`split(s, s_gang, s_lane, 16, false)`), so a scene rendered at a sample
+count that is not a multiple of sixteen silently ran whole gangs: at four
+samples a pixel this renderer took sixteen, with the right mean, a quarter of
+pbrt's noise, sixteen percent more lit pixels, and a render that took twice
+pbrt's time where it is usually two to three times faster. Both schedules now
+say `true`; the guard costs nothing measurable at sixteen (killeroo 324 ms
+before and after). And `rgb_to_sigmoid`, pbrt's fit used for textures at the
+hit, guarded the grey case's division by zero and answered a coefficient of
+zero for black and for white -- a sigmoid of one half -- where pbrt's is minus
+and plus infinity, which `sigmoid` already read as nothing and everything. A
+black texel reflected half the light: a textured floor pbrt left black in a
+third of its pixels was lit in all of them, twelve percent brighter on
+average. No guard now, as pbrt has none. Constants never reached it because
+the driver fits those with the Gauss-Newton solver.
+
+**zero-day**, `frame25.pbrt` at 1920x840, 4.26 million shapes, 151 instances,
+283 blackbody emitters, at 16 spp and depth 5 with the packet schedule: pbrt
+8.81 s, this renderer 4.39 s (2.0x), mean radiance 0.99866x, 1585903 lit
+pixels against pbrt's 1585401. Per-pixel agreement is 0.8%, which is the
+long-path effect described at the top of this file, not a defect: with every
+material a plain diffuse the same render agrees on 95.4% of pixels, and each
+of the scene's materials agrees in isolation on the small lit scene (a dark
+coated diffuse at roughness 1e-4, 90.7%; a smooth coated diffuse, 84.8%; a
+smooth silver mirror, 99.8%; an rgb-index conductor, 99.9%; a textured
+roughness, 84.4%; a spectrum imagemap reflectance, 87.2%; halton at 400x300,
+83.7%). The bisection that found the two bugs above went through a copy of
+the scene with every material replaced, then with the textures dropped, then
+with only the reflectance textures kept; `PBRT_TREE=1` produced a bit-identical
+image to our own tree.
+
+**Later the same day: the distant light and the disk, for killeroo-gold.**
+`DistantLight` is a fourth arm of `Light` -- pbrt's delta light: `SampleLi`
+answers the one direction with a density of one whatever
+`allow_incomplete_pdf` says, `PDF_Li` is zero, `Le` is nothing, and
+`light_is_delta` is true, which is what makes `path_sample_ld` take the
+estimate alone; the driver keeps it in the infinite run after the area lights
+as pbrt's sampler does, and the converter forms its direction from `from`,
+`to` and the light's transform as `DistantLight::Create` does, with the scale
+divided by the photometric integral and multiplied by an `illuminance`.
+`Disk` is a third arm of `Shape`, and the first shape here that lives in an
+object space its transform places: `disk_hit` is `Disk::BasicIntersect` on
+the ray pulled into object space, `disk_geometry` is
+`InteractionFromIntersection` pushed out by `push_surface` -- the same two
+functions an instance's tree is entered and left by, now in shapes.bonsai --
+and `disk_sample`/`disk_pdf` are `Sample`/`PDF` with the area density
+converted to solid angle. It carries pbrt's two orientation flags separately,
+since pbrt turns a hit's normal by reverseOrientation ^ swapsHandedness and a
+sampled point's by reverseOrientation alone. The `Transform` element and its
+point, vector and normal applications moved to `transform.bonsai`, which the
+camera, the differentials and the shapes all import. Scenes: `distant.pbrt`
+(91.7% agreement, mean 1.00002x) and `disk.pbrt` (94.4%, normals exact to
+1.2e-7, a mirrored light transform telling the two flags apart).
+
+Three more fixes fell out of killeroo-gold. The converter now follows pbrt's
+named coordinate systems -- `CoordinateSystem` records the CTM, `"camera"` is
+the inverse of the CTM at the Camera directive, `"world"` the identity at
+WorldBegin, and `CoordSysTransform` installs one -- where it used to declare
+a light placed by one untrackable; and its mirror of `LookAt` applied the
+*inverse* of what pbrt applies (pbrt::LookAt's forward matrix is
+camera-from-world), which nothing had exercised. The third is the one that
+mattered: the converter put every scene with fewer than two bounded lights on
+the *uniform* light sampler even when it named `bvh`, arguing the two are the
+same function there. Their probabilities are; their draws are not, once an
+infinite or distant light is present. pbrt's BVH sampler gives the infinite
+lights the low end of `u` and the tree the rest, where the uniform sampler's
+`min(u n, n - 1)` gives the low end to light zero, the bounded one -- so every
+sample picked the other light, and killeroo-gold rendered the right mean with
+six of 1.4 million pixels agreeing; the same swap had held `blackbody.pbrt`
+and every area-plus-infinite scene at 37% agreement. The BVH arm is now taken
+whenever the scene names it and has a light, and `bvh_descend` gained pbrt's
+root-leaf importance test. After it: killeroo-gold 99.1% of pixels agreeing,
+mean 1.00000x, pbrt 2250 ms against 992 ms (2.27x); blackbody.pbrt 97.3%; the
+two-light rgb scene 96.4%; killeroo-simple and infinite-uniform-simple
+unchanged at 67.3% and 87.5%.
+
+**The coated conductor, for killeroo-coated-gold.** pbrt's
+CoatedConductorBxDF is its LayeredBxDF over a ConductorBxDF where the coated
+diffuse's is over a DiffuseBxDF, so the layered element in bxdf.bonsai is now
+`LayeredBxDF` with a `LayerBase` variant for the bottom -- `DiffuseBase` or
+`ConductorBase` -- that the four `interface_*` wrappers the walk asks the
+bottom through match on; the walk itself did not change, and the
+coated-diffuse golden test still passes. `CoatedConductorMaterial` is
+`CoatedConductorMaterial::GetBxDF` translated: the interface's roughness
+and scalar index, the metal's roughness and its index as `Tabulated` or
+`FromReflectance` -- divided by the interface's index, since the metal sits
+under a medium of that index -- the medium's albedo and `g`, and both
+distributions regularized where the path integrator asks, which is what
+pbrt's `LayeredBxDF::Regularize` does with a conductor below. The converter
+reads pbrt's `interface.`/`conductor.` prefixed parameters with the same
+fallbacks as the bare materials. killeroo-coated-gold: mean 1.00057x, 57.5%
+of pixels agreeing (the layered walk's amplification of last-bit differences,
+as killeroo-simple's coated diffuse sits at 67%), pbrt 2630 ms against
+1181 ms (2.23x).
+
+With that, every `killeroo` scene, `zero-day` and `barcelona-pavilion` day
+render and match. What bistro still needs is `zsobol`, `normalmap` and an
+ACES environment map; everything else in the inventory needs `volpath`.
 
 Per scene, what is missing (see the converter for what is supported):
 
 | scene | missing |
 |---|---|
 | barcelona-pavilion | day: nothing. night: `bdpt`, `blackbody L` |
-| bistro | `zsobol`, `coatedconductor`, `normalmap`, ACES env map |
+| bistro | `zsobol`, `normalmap`, ACES env map (`coatedconductor` done 2026-09-20) |
 | bmw-m6 | `volpath`, `mix`, `coatedconductor`, conductor `reflectance` |
 | bunny-cloud | `volpath`, `disk`, `interface`, `nanovdb` medium, ACES env map |
 | bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
@@ -2342,7 +2553,7 @@ Per scene, what is missing (see the converter for what is supported):
 | ganesha, landscape, pbrt-book, lte-orb-simple-ball | nothing obvious |
 | hair | `volpath`, `curve`, `hair` |
 | head | `volpath`, `subsurface` |
-| killeroos | simple, moving: nothing. gold: `disk`, `distant`, `.spd` spectra. coated-gold: also `coatedconductor` |
+| killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
 | kroken | `volpath`, default `zsobol`, `mix`/`coatedconductor`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, `blackbody L`, homogeneous media |
 | lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
@@ -2352,7 +2563,7 @@ Per scene, what is missing (see the converter for what is supported):
 | transparent-machines | `volpath`, spectral `eta` on `dielectric` |
 | villa | `volpath`, `disk`, `thindielectric`, conductor `reflectance`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `blackbody L`, `spot`/`point` |
 | watercolor | `volpath`, `bilinearmesh`, `mix`/`coatedconductor`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, `blackbody L`, homogeneous medium |
-| zero-day | `blackbody L`, conductor `reflectance` |
+| zero-day | nothing since 2026-09-20: `blackbody L`, conductor `reflectance` and `rgb eta`/`k`, textured roughness. Renders and matches (above) |
 
 ### What `volpath` is, over `path`
 
@@ -2429,7 +2640,7 @@ kernel runs one material over a full batch.
 
 ### The order of work this suggests
 
-1. **Loud refusal of media** in `scene_dump.cpp`, today.
+1. **Loud refusal of media** in `scene_dump.cpp` -- done 2026-09-20.
 2. **Wavefront on `path`** first, since every queue above but the medium ones
    exists for `path` too: `defer` on `full_path_step` (built), then the gang
    drain, then `defer` by call site for the trace, shadow and escaped-ray
