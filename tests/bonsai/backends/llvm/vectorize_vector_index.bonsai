@@ -1,0 +1,47 @@
+//! flags: -p ssa -b llvm
+
+// A read of an array at a vector of indices, `table[o]` with `o` a
+// `vector[i32, 4]`: one gather, stated by the program rather than left for
+// LLVM's SLP vectorizer to assemble out of four loads (which it did through
+// LLVM 19 and stopped doing in LLVM 23). apps/pbrt reads its spectrum tables
+// this way, at a path's four wavelengths at once.
+//
+// What to read for in the golden:
+//
+//   * `at` is one `llvm.masked.gather.v4f32` of the table at the four
+//     indices, every lane on.
+//   * `lookup$gang8_p0` (see SSA/SplitAggregates.cpp) is four
+//     `llvm.masked.gather.v8f32`, one per component of the per-lane index,
+//     and `guarded$gang8_p0` makes its four under the mask of the `if`.
+
+element vec4f = vector[f32, 4];
+element i32x4 = vector[i32, 4];
+
+func [[export]] at(table : array[f32, 16], o : i32x4) -> vec4f = table[o];
+
+func [[export]] lookup(table : array[f32, 16], first : array[i32, 8],
+                       out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        o = i32x4{first[i], first[i] + 1, first[i] + 2, first[i] + 3};
+        out[i] = sum(table[o]);
+    }
+    return;
+}
+
+func [[export]] guarded(table : array[f32, 16], first : array[i32, 8],
+                        out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        if (first[i] >= 0) {
+            o = i32x4{first[i], first[i] + 1, first[i] + 2, first[i] + 3};
+            out[i] = sum(table[o]);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    lookup.vectorize(i);
+    guarded.vectorize(i);
+}

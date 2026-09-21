@@ -1,5 +1,10 @@
 func bar(i : i32, a : mut i32[]) -> void {
-  let @0 = i / 2 in
+  let @2 = i >> 31 in
+  let @3 = reinterpret_cast<u32>(@2) in
+  let @4 = @3 >> 31u in
+  let @5 = reinterpret_cast<i32>(@4) in
+  let @6 = i + @5 in
+  let @0 = @6 >> 1 in
   a[i] = @0
   return
 }
@@ -19,7 +24,14 @@ func fiz(i : i32, a : mut i32[]) -> void {
 }
 
 func foo(i : i32, a : mut i32[]) -> void {
-  let @0 = i % 3 in
+  let @2 = mulhi(i, 1431655766) in
+  let @3 = @2 >> 31 in
+  let @4 = reinterpret_cast<u32>(@3) in
+  let @5 = @4 >> 31u in
+  let @6 = reinterpret_cast<i32>(@5) in
+  let @7 = @2 + @6 in
+  let @8 = @7 * 3 in
+  let @0 = i - @8 in
   let @1 = @0 == 0 in
   if (@1) {
     bar(i, a)

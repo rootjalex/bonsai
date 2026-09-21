@@ -379,8 +379,11 @@ struct Simplifier : ir::Mutator {
                 return make_zero(type);
             }
             std::optional<uint64_t> c_b = get_constant_value(b);
-            if (c_b.has_value() && is_power_of_two(*c_b)) {
-                // x % 2^n -> x & (2^n - 1)
+            if (type.is_uint() && c_b.has_value() && is_power_of_two(*c_b)) {
+                // x % 2^n -> x & (2^n - 1), for an unsigned x. A signed
+                // remainder keeps the dividend's sign -- (-7) % 8 is -7, and
+                // the mask would say 1 -- and is lowered with that in mind
+                // by SSA/InvariantDivision.h.
                 return a & make_const(type, *c_b - 1);
             }
             return make(node, std::move(a), std::move(b));

@@ -1,0 +1,263 @@
+//! flags: -p ssa -b llvm -e
+
+// libm's transcendental functions on a vector are computed inline (see
+// CodeGen/VectorMath.h) and not by libm, so a gang's answer and a lane's
+// scalar answer come from two implementations of the same function. This
+// measures how far apart they are, in units in the last place of the scalar
+// answer, over a spread of arguments across each function's domain, and
+// passes while the gap stays within what the approximations promise. The
+// scalar side is glibc's libm, within an ulp of correctly rounded, so the
+// gap is the vector side's error give or take one.
+//
+// The bounds are what was measured plus a little, so that a coefficient
+// typed wrong, a range reduction off by a quadrant, or a special value
+// mishandled fails here rather than as a scattering of wrong pixels. The
+// special values themselves are checked exactly at the end.
+//
+// Measured (max ulps over the 64 arguments, glibc 2.39): sin 2, cos 2,
+// tan 3, exp 1, log 1, asin 2, acos 2, atan2 2, atanh 2, cosh 2, pow 1.
+
+element Float = f32;
+element Floats = array[Float, 64];
+
+// The distance from a to b in ulps of b: |a - b| over the spacing of floats
+// at |b|. (Not a difference of bit patterns, which misreads a sign change.)
+func ulps(a : Float, b : Float) -> Float {
+    m = abs(b);
+    spacing = reinterpret[[Float]](reinterpret[[i32]](m) + 1) - m;
+    return abs(a - b) / max(spacing, 1.0e-38);
+}
+
+// 64 arguments across [lo, hi), off the grid so that none is a round
+// number, a multiple of pi, or a zero of anything.
+func spread(lo : Float, hi : Float, out : mut Floats) -> void {
+    for i in 0:64 {
+        out[i] = lo + (hi - lo) * (cast[[Float]](i) + 0.37) / 64.0;
+    }
+    return;
+}
+
+func worst(a : Floats, b : Floats) -> Float {
+    m : mut Float = 0.0;
+    for i in 0:64 {
+        m = max(m, ulps(a[i], b[i]));
+    }
+    return m;
+}
+
+// Each function twice: as a gang of eight lanes, and a lane at a time (no
+// schedule, so libm).
+func [[noinline]] v_sin(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = sin(x[i]); }
+    return;
+}
+func [[noinline]] s_sin(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = sin(x[i]); }
+    return;
+}
+func [[noinline]] v_cos(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = cos(x[i]); }
+    return;
+}
+func [[noinline]] s_cos(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = cos(x[i]); }
+    return;
+}
+func [[noinline]] v_tan(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = tan(x[i]); }
+    return;
+}
+func [[noinline]] s_tan(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = tan(x[i]); }
+    return;
+}
+func [[noinline]] v_exp(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = exp(x[i]); }
+    return;
+}
+func [[noinline]] s_exp(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = exp(x[i]); }
+    return;
+}
+func [[noinline]] v_log(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = log(x[i]); }
+    return;
+}
+func [[noinline]] s_log(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = log(x[i]); }
+    return;
+}
+func [[noinline]] v_asin(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = asin(x[i]); }
+    return;
+}
+func [[noinline]] s_asin(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = asin(x[i]); }
+    return;
+}
+func [[noinline]] v_acos(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = acos(x[i]); }
+    return;
+}
+func [[noinline]] s_acos(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = acos(x[i]); }
+    return;
+}
+func [[noinline]] v_atan2(y : Floats, x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = atan2(y[i], x[i]); }
+    return;
+}
+func [[noinline]] s_atan2(y : Floats, x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = atan2(y[i], x[i]); }
+    return;
+}
+func [[noinline]] v_atanh(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = atanh(x[i]); }
+    return;
+}
+func [[noinline]] s_atanh(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = atanh(x[i]); }
+    return;
+}
+func [[noinline]] v_cosh(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = cosh(x[i]); }
+    return;
+}
+func [[noinline]] s_cosh(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = cosh(x[i]); }
+    return;
+}
+func [[noinline]] v_pow(x : Floats, y : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = pow(x[i], y[i]); }
+    return;
+}
+func [[noinline]] s_pow(x : Floats, y : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = pow(x[i], y[i]); }
+    return;
+}
+
+func close(a : Float, b : Float) -> bool = abs(a - b) < 1.0e-6;
+
+func main() -> i32 {
+    x : mut Floats = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    y : mut Floats = x;
+    v : mut Floats = x;
+    s : mut Floats = x;
+
+    spread(-30.0, 30.0, x);
+    v_sin(x, v);
+    s_sin(x, s);
+    print(worst(v, s) <= 3.0);
+    v_cos(x, v);
+    s_cos(x, s);
+    print(worst(v, s) <= 3.0);
+
+    spread(-1.4, 1.4, x);
+    v_tan(x, v);
+    s_tan(x, s);
+    print(worst(v, s) <= 4.0);
+
+    spread(-80.0, 80.0, x);
+    v_exp(x, v);
+    s_exp(x, s);
+    print(worst(v, s) <= 2.0);
+    v_cosh(x, v);
+    s_cosh(x, s);
+    print(worst(v, s) <= 3.0);
+
+    spread(0.001, 100000.0, x);
+    v_log(x, v);
+    s_log(x, s);
+    print(worst(v, s) <= 2.0);
+
+    spread(-0.999, 0.999, x);
+    v_asin(x, v);
+    s_asin(x, s);
+    print(worst(v, s) <= 3.0);
+    v_acos(x, v);
+    s_acos(x, s);
+    print(worst(v, s) <= 3.0);
+
+    spread(-0.95, 0.95, x);
+    v_atanh(x, v);
+    s_atanh(x, s);
+    print(worst(v, s) <= 3.0);
+
+    spread(-4.0, 4.0, y);
+    spread(-3.0, 5.0, x);
+    v_atan2(y, x, v);
+    s_atan2(y, x, s);
+    print(worst(v, s) <= 3.0);
+
+    spread(0.1, 8.0, x);
+    spread(-4.0, 4.0, y);
+    v_pow(x, y, v);
+    s_pow(x, y, s);
+    print(worst(v, s) <= 2.0);
+
+    // The special values, on a vector so that they take the inline path:
+    // what libm answers, exactly.
+    e : vector[Float, 8] = {0.0, -1000.0, 1000.0, 1.0, 0.0, 0.0, 0.0, 0.0};
+    ev = exp(e);
+    print(close(ev[0], 1.0));       // exp 0 = 1
+    print(ev[1] == 0.0);            // underflow to zero
+    print(ev[2] > 3.0e38);          // overflow to infinity
+    print(close(ev[3], 2.718281828));
+    l : vector[Float, 8] = {1.0, 0.0, -1.0, 2.718281828, 1.0, 1.0, 1.0, 1.0};
+    lv = log(l);
+    print(close(lv[0], 0.0));       // log 1 = 0
+    print(lv[1] < -3.0e38);         // log 0 = -inf
+    print(lv[2] != lv[2]);          // log of a negative is NaN
+    print(close(lv[3], 1.0));
+    a : vector[Float, 8] = {1.0, -1.0, 0.0, 1.5, 0.0, 0.0, 0.0, 0.0};
+    av = acos(a);
+    print(close(av[0], 0.0));       // acos 1 = 0
+    print(close(av[1], 3.141592654));
+    print(close(av[2], 1.570796327));
+    print(av[3] != av[3]);          // out of the domain: NaN
+    t : vector[Float, 8] = {1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    tv = atanh(t);
+    print(tv[0] > 3.0e38);          // atanh 1 = inf
+    print(tv[1] < -3.0e38);
+    q : vector[Float, 8] = {0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, 0.0};
+    r : vector[Float, 8] = {1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    qv = atan2(q, r);
+    print(close(qv[0], 0.0));       // atan2(0, 1) = 0
+    print(close(qv[1], 3.141592654)); // atan2(0, -1) = pi
+    print(close(qv[2], 1.570796327)); // atan2(1, 0) = pi/2
+    print(close(qv[3], 0.0 - 1.570796327));
+    p : vector[Float, 8] = {2.0, -2.0, -2.0, 0.0, 7.0, 1.0, 0.0, 0.0};
+    w : vector[Float, 8] = {10.0, 3.0, 0.5, 0.0, 0.0, 100.0, 0.0, 0.0};
+    pv = pow(p, w);
+    print(close(pv[0], 1024.0));
+    print(close(pv[1], -8.0));      // a negative base to an odd power
+    print(pv[2] != pv[2]);          // to a fractional one: NaN
+    print(close(pv[3], 1.0));       // pow(0, 0) = 1
+    print(close(pv[4], 1.0));       // pow(x, 0) = 1
+    print(close(pv[5], 1.0));       // pow(1, y) = 1
+    // Past the range reduction, a lane at a time by libm: the same answer.
+    h : vector[Float, 8] = {2.0e6, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    hv = sin(h);
+    print(close(hv[0], sin(2.0e6)));
+    print(close(hv[1], sin(0.5)));
+    return 0;
+}
+
+schedule {
+    v_sin.vectorize(i);
+    v_cos.vectorize(i);
+    v_tan.vectorize(i);
+    v_exp.vectorize(i);
+    v_log.vectorize(i);
+    v_asin.vectorize(i);
+    v_acos.vectorize(i);
+    v_atan2.vectorize(i);
+    v_atanh.vectorize(i);
+    v_cosh.vectorize(i);
+    v_pow.vectorize(i);
+}

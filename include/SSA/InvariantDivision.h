@@ -30,8 +30,18 @@ namespace ssa {
 // and shift amounts are placed right after the divisor's definition, threaded
 // to the division's block as any other value is, and the division is rewritten
 // in place. Every other division by the same divisor, in a loop or not, uses
-// the multiplier too, since it is there. A division by a constant is left to
-// the backend, which does this itself.
+// the multiplier too, since it is there.
+//
+// A division by a constant is rewritten too, everywhere, with its multiplier
+// computed here at compile time (Hacker's Delight, chapter 10; the sequences
+// Halide's lower_int_uint_div emits, see the source): a shift for a power of
+// two, a multiply-high and a shift otherwise, and nothing at all for one. LLVM
+// does the same for a scalar, and for a vector of lanes only where the target
+// has a wide enough multiply-high: a vector of 64-bit lanes it takes apart
+// into one division per lane, where the multiply-high this leaves is built
+// from the 32-bit products every machine has (see CodeGen/
+// ExpandVectorMulHigh.h). Doing it here also keeps the arithmetic in view of
+// the simplifier, and reaches every backend alike.
 //
 // Run before a schedule vectorizes anything: a division the vectorizer meets
 // under a mask is guarded against dividing by a lane's stale zero, and the

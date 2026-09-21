@@ -20,11 +20,16 @@ add_bonsai_tests(
     defer-gang-mut-local.bonsai
     defer-gang-runtime-size.bonsai
     defer-loop-owned.bonsai
+    vector-math.bonsai
+    vectorize-division.bonsai
+    vectorize-masked-math-call.bonsai
     vectorize-uniform-around-return.bonsai
+    vectorize-vector-index.bonsai
     defer-mut-local.bonsai
     defer-off-chain.bonsai
     defer-parfor.bonsai
     defer-sum.bonsai
+    divide-by-constant.bonsai
     dynamic-array.bonsai
     exported-function.bonsai
     exp-log.bonsai

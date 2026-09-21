@@ -297,17 +297,540 @@ void rewrite_division(Function &func, const shared_ptr<Block> &block,
     }
 }
 
+// --- Constant divisors ----------------------------------------------------------
+//
+// A constant divisor's multiplier is computed here, at compile time, by the
+// algorithms of Hacker's Delight chapter 10 -- `magicu` (figure 10-2) for an
+// unsigned divisor and `magic` (figure 10-1) for a signed one, written for a
+// word of N bits -- and the division becomes the shortest sequence that
+// works for that constant, which is how Halide lowers one (lower_int_uint_div
+// in CodeGen_Internal.cpp, over the tables of IntegerDivisionTable.h): a
+// shift alone for a power of two; a multiply-high and a shift when the
+// multiplier fits the word; and the round-up form, a multiply-high, a
+// halved difference and a shift, when it needs one bit more. Halide's tables
+// hold the same numbers, generated once; computing them costs nothing at
+// compile time and reaches 64-bit divisors, which the tables stop short of.
+//
+// Signed division truncates toward zero here, as C's does and as ir::BinOp
+// defines it, so the signed sequence is Hacker's Delight's (section 10-4)
+// and not Halide's, whose division rounds toward minus infinity.
+
+// The multiplier and shift for one constant: the multiplier as the N-bit
+// pattern it is, and for an unsigned divisor whether the round-up form is
+// needed (Hacker's Delight's "add indicator").
+struct Magic {
+    uint64_t multiplier;
+    unsigned shift;
+    bool add;
+};
+
+// Hacker's Delight figure 10-2, `magicu`, for N bits: `d` in [2, 2^N - 1] and
+// not a power of two. All arithmetic modulo 2^N, as the figure's is modulo
+// 2^32.
+Magic magic_unsigned(uint64_t d, unsigned bits) {
+    const uint64_t mask = bits == 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1;
+    const auto m = [mask](uint64_t x) { return x & mask; };
+    const uint64_t half = uint64_t(1) << (bits - 1); // 2^(N-1)
+    Magic out{0, 0, false};
+    // nc = 2^N - 1 - (2^N mod d): the largest multiple of d below 2^N,
+    // less one.
+    const uint64_t nc = m(mask - (m(0 - d) % d));
+    unsigned p = bits - 1;
+    uint64_t q1 = half / nc;          // 2^p / nc
+    uint64_t r1 = half - q1 * nc;     // 2^p mod nc
+    uint64_t q2 = (half - 1) / d;     // (2^p - 1) / d
+    uint64_t r2 = (half - 1) - q2 * d; // (2^p - 1) mod d
+    uint64_t delta = 0;
+    do {
+        p++;
+        if (r1 >= nc - r1) {
+            q1 = m(2 * q1 + 1);
+            r1 = m(2 * r1 - nc);
+        } else {
+            q1 = m(2 * q1);
+            r1 = m(2 * r1);
+        }
+        if (r2 + 1 >= d - r2) {
+            if (q2 >= half - 1) {
+                out.add = true;
+            }
+            q2 = m(2 * q2 + 1);
+            r2 = m(2 * r2 + 1 - d);
+        } else {
+            if (q2 >= half) {
+                out.add = true;
+            }
+            q2 = m(2 * q2);
+            r2 = m(2 * r2 + 1);
+        }
+        delta = d - 1 - r2;
+    } while (p < 2 * bits && (q1 < delta || (q1 == delta && r1 == 0)));
+    out.multiplier = m(q2 + 1);
+    out.shift = p - bits;
+    return out;
+}
+
+// Hacker's Delight figure 10-1, `magic`, for N bits: `d` with 2 <= |d|, the
+// most negative value included. The multiplier comes back as an N-bit
+// pattern to be read as signed.
+Magic magic_signed(uint64_t pattern, unsigned bits) {
+    const uint64_t mask = bits == 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1;
+    const auto m = [mask](uint64_t x) { return x & mask; };
+    const uint64_t half = uint64_t(1) << (bits - 1);
+    const uint64_t ud = m(pattern);
+    const bool negative = (ud & half) != 0;
+    const uint64_t ad = negative ? m(0 - ud) : ud; // |d|, 2^(N-1) for the minimum
+    const uint64_t t = half + (ud >> (bits - 1));
+    const uint64_t anc = t - 1 - t % ad;
+    unsigned p = bits - 1;
+    uint64_t q1 = half / anc;
+    uint64_t r1 = half - q1 * anc;
+    uint64_t q2 = half / ad;
+    uint64_t r2 = half - q2 * ad;
+    uint64_t delta = 0;
+    do {
+        p++;
+        q1 = m(2 * q1);
+        r1 = m(2 * r1);
+        if (r1 >= anc) {
+            q1 = m(q1 + 1);
+            r1 = m(r1 - anc);
+        }
+        q2 = m(2 * q2);
+        r2 = m(2 * r2);
+        if (r2 >= ad) {
+            q2 = m(q2 + 1);
+            r2 = m(r2 - ad);
+        }
+        delta = ad - r2;
+    } while (q1 < delta || (q1 == delta && r1 == 0));
+    uint64_t multiplier = m(q2 + 1);
+    if (negative) {
+        multiplier = m(0 - multiplier);
+    }
+    return Magic{multiplier, p - bits, false};
+}
+
+// The N-bit pattern a constant divisor holds, or nothing for a divisor that
+// is not a constant.
+optional<uint64_t> constant_divisor(const ValuePtr &v) {
+    const auto *c = std::get_if<Constant>(&v->data);
+    if (c == nullptr) {
+        return std::nullopt;
+    }
+    if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+        return *u;
+    }
+    if (const auto *i = std::get_if<int64_t>(&c->data)) {
+        return uint64_t(*i);
+    }
+    return std::nullopt;
+}
+
+// A constant of `type` with the N-bit `pattern`, sign-extended for a signed
+// type so that the constant reads as the two's complement value it is.
+ValuePtr pattern_constant(const Type &type, uint64_t pattern) {
+    const unsigned bits = unsigned(type.bits());
+    const uint64_t mask = bits == 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1;
+    pattern &= mask;
+    if (type.is_uint()) {
+        return std::make_shared<Value>(Constant{type, pattern});
+    }
+    const uint64_t sign = uint64_t(1) << (bits - 1);
+    const int64_t value =
+        (pattern & sign) != 0 ? int64_t(pattern | ~mask) : int64_t(pattern);
+    return std::make_shared<Value>(Constant{type, value});
+}
+
+// What `v` is known to be at most, when it is known to be non-negative and
+// bounded by what it is built from: constants, selects among them, sums and
+// products of them, masks, shifts, casts from narrower unsigned types, and
+// remainders by constants. Nothing for anything else -- an argument, a
+// load -- which is where the search stops. What Halide's simplifier knows
+// through bounds inference, in the little of it a division needs: a
+// dividend that stays below twice its divisor is divided by one comparison.
+optional<uint64_t> upper_bound(const ValuePtr &v, unsigned depth = 0) {
+    if (depth > 8) {
+        return std::nullopt;
+    }
+    if (const auto *c = std::get_if<Constant>(&v->data)) {
+        if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+            return *u;
+        }
+        if (const auto *i = std::get_if<int64_t>(&c->data)) {
+            return *i >= 0 ? optional<uint64_t>(uint64_t(*i)) : std::nullopt;
+        }
+        if (const auto *b = std::get_if<bool>(&c->data)) {
+            return *b ? 1 : 0;
+        }
+        return std::nullopt;
+    }
+    const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+    if (held == nullptr) {
+        return std::nullopt;
+    }
+    const Instruction &in = **held;
+    const auto bound = [&](size_t k) -> optional<uint64_t> {
+        return k < in.operands.size() ? upper_bound(in.operands[k], depth + 1)
+                                      : std::nullopt;
+    };
+    const auto both = [&]() -> optional<std::pair<uint64_t, uint64_t>> {
+        const auto a = bound(0);
+        const auto b = bound(1);
+        if (a && b) {
+            return std::make_pair(*a, *b);
+        }
+        return std::nullopt;
+    };
+    // Are these the same value: the same instruction, argument or constant?
+    const auto same = [](const ValuePtr &a, const ValuePtr &b) {
+        if (const auto *ia = std::get_if<shared_ptr<Instruction>>(&a->data)) {
+            const auto *ib = std::get_if<shared_ptr<Instruction>>(&b->data);
+            return ib != nullptr && ia->get() == ib->get();
+        }
+        if (const auto *aa = std::get_if<Argument>(&a->data)) {
+            const auto *ab = std::get_if<Argument>(&b->data);
+            return ab != nullptr && aa->name == ab->name;
+        }
+        return false;
+    };
+    switch (in.op) {
+    case Instruction::Op::Select: {
+        // `select(x < c, x, x - c)` is x reduced by c once -- what a
+        // remainder becomes below (see rewrite_constant_division), and so
+        // the shape the next remainder in a chain of them meets: at most
+        // c - 1 where x stayed below c, and x's bound less c where it did
+        // not.
+        if (const auto *cond =
+                std::get_if<shared_ptr<Instruction>>(&in.operands[0]->data);
+            cond != nullptr && (*cond)->op == Instruction::Op::Lt &&
+            same((*cond)->operands[0], in.operands[1])) {
+            const auto *sub =
+                std::get_if<shared_ptr<Instruction>>(&in.operands[2]->data);
+            const auto c = constant_divisor((*cond)->operands[1]);
+            if (sub != nullptr && (*sub)->op == Instruction::Op::Sub &&
+                same((*sub)->operands[0], in.operands[1]) && c && *c > 0 &&
+                (in.type.is_uint() || int64_t(*c) > 0)) {
+                const auto d = constant_divisor((*sub)->operands[1]);
+                const auto x = bound(1);
+                if (d && *d == *c && x) {
+                    return std::max(std::min(*c - 1, *x),
+                                    *x >= *c ? *x - *c : 0);
+                }
+            }
+        }
+        const auto a = bound(1);
+        const auto b = bound(2);
+        return a && b ? optional<uint64_t>(std::max(*a, *b)) : std::nullopt;
+    }
+    case Instruction::Op::Reduce: {
+        // Which lane holds the extremum is a lane index.
+        if (in.reduce == ir::VectorReduce::Idxmax ||
+            in.reduce == ir::VectorReduce::Idxmin) {
+            const Type &of = in.operands[0]->get_type();
+            return of.is_vector() ? optional<uint64_t>(of.lanes() - 1)
+                                  : std::nullopt;
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::Add: {
+        const auto ab = both();
+        if (ab && ab->first <= ~uint64_t(0) - ab->second) {
+            return ab->first + ab->second;
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::Mul: {
+        const auto ab = both();
+        uint64_t product = 0;
+        if (ab && !__builtin_mul_overflow(ab->first, ab->second, &product)) {
+            return product;
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::BwAnd: {
+        // Below either operand that is a non-negative constant, whatever the
+        // other holds: the constant's sign bit is clear, so the result's is.
+        for (size_t k = 0; k < 2; k++) {
+            if (std::holds_alternative<Constant>(in.operands[k]->data)) {
+                if (const auto c = bound(k)) {
+                    const auto other = bound(1 - k);
+                    return other ? std::min(*c, *other) : *c;
+                }
+            }
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::Shr: {
+        const auto a = bound(0);
+        const auto k = bound(1);
+        if (a && k && std::holds_alternative<Constant>(in.operands[1]->data)) {
+            return *k >= 64 ? 0 : *a >> *k;
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::Min: {
+        const auto a = bound(0);
+        const auto b = bound(1);
+        if (a && b) {
+            return std::min(*a, *b);
+        }
+        // Of an unsigned pair, below whichever is known.
+        if (in.type.is_uint()) {
+            return a ? a : b;
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::Max: {
+        const auto ab = both();
+        return ab ? optional<uint64_t>(std::max(ab->first, ab->second))
+                  : std::nullopt;
+    }
+    case Instruction::Op::Cast: {
+        const Type from = in.operands[0]->get_type();
+        if (from.is_bool()) {
+            return 1;
+        }
+        if (from.is_uint() && from.bits() < 64 && from.bits() < in.type.bits()) {
+            return (uint64_t(1) << from.bits()) - 1;
+        }
+        if (from.is<Int_t, UInt_t>() && from.bits() <= in.type.bits()) {
+            return bound(0); // widening keeps the value
+        }
+        return std::nullopt;
+    }
+    case Instruction::Op::Mod: {
+        const auto d = constant_divisor(in.operands[1]);
+        if (d && *d != 0 && (in.type.is_uint() || int64_t(*d) > 0) &&
+            (in.type.is_uint() || bound(0))) {
+            return *d - 1;
+        }
+        return std::nullopt;
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+// Rewrites the division or remainder `instr`, at `index` in `block`, by the
+// non-zero constant `pattern`. Returns how many instructions were added in
+// front of it.
+size_t rewrite_constant_division(Function &func, const shared_ptr<Block> &block,
+                                 size_t index, uint64_t pattern) {
+    const shared_ptr<Instruction> instr = block->instrs[index];
+    const Type type = instr->type;
+    const unsigned bits = unsigned(type.bits());
+    const uint64_t mask = bits == 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1;
+    const uint64_t d = pattern & mask;
+    internal_assert(d != 0) << "division of " << instr->name << " by zero";
+    const bool is_mod = instr->op == Instruction::Op::Mod;
+    const ValuePtr n = instr->operands[0];
+    Emitter e{func, block, index};
+    const Type utype = UInt_t::make(bits);
+
+    // The result of the division as an instruction of its own when the
+    // remainder is wanted, or as `instr` rewritten in place: `finish` puts
+    // the last operation into `instr` when it is the answer.
+    ValuePtr q;
+    const auto finish = [&](Instruction::Op op, vector<ValuePtr> operands) {
+        if (is_mod) {
+            q = e.emit(op, type, std::move(operands));
+        } else {
+            instr->op = op;
+            instr->operands = std::move(operands);
+            q = std::make_shared<Value>(instr);
+        }
+    };
+
+    // n itself, as `n + 0`, which the simplifier folds: a plain copy (Set) is
+    // reserved for the program's own names. The remainder is `n & 0`.
+    const auto copy_of_n = [&]() { finish(Instruction::Op::Add, {n, e.constant(type, 0)}); };
+    const auto zero_remainder = [&]() {
+        instr->op = Instruction::Op::BwAnd;
+        instr->operands = {n, e.constant(type, 0)};
+    };
+
+    // A dividend known to stay below twice a positive divisor -- pbrt's
+    // `(axis + 1) % 3` with the axis one of three -- divides by one
+    // comparison: the quotient is whether it reached the divisor, the
+    // remainder is the dividend less the divisor when it did.
+    const bool positive = type.is_uint() || (d & (uint64_t(1) << (bits - 1))) == 0;
+    if (positive) {
+        if (const optional<uint64_t> bound = upper_bound(n);
+            bound && *bound < 2 * d) {
+            if (*bound < d) {
+                if (is_mod) {
+                    instr->op = Instruction::Op::Add;
+                    instr->operands = {n, e.constant(type, 0)};
+                } else {
+                    zero_remainder(); // n & 0: the quotient is zero
+                }
+                return e.at - index;
+            }
+            ValuePtr divisor = pattern_constant(type, d);
+            ValuePtr below = e.emit(Instruction::Op::Lt, Bool_t::make(), {n, divisor});
+            if (is_mod) {
+                ValuePtr less = e.emit(Instruction::Op::Sub, type, {n, divisor});
+                instr->op = Instruction::Op::Select;
+                instr->operands = {below, n, less};
+            } else {
+                instr->op = Instruction::Op::Select;
+                instr->operands = {below, e.constant(type, 0), e.constant(type, 1)};
+            }
+            return e.at - index;
+        }
+    }
+
+    if (type.is_uint()) {
+        if (d == 1) {
+            if (is_mod) {
+                zero_remainder();
+            } else {
+                copy_of_n();
+            }
+            return e.at - index;
+        }
+        if ((d & (d - 1)) == 0) {
+            // A power of two: the shift, and the low bits for the remainder.
+            unsigned k = 0;
+            while ((uint64_t(1) << k) != d) {
+                k++;
+            }
+            if (is_mod) {
+                instr->op = Instruction::Op::BwAnd;
+                instr->operands = {n, e.constant(type, d - 1)};
+                return e.at - index;
+            }
+            finish(Instruction::Op::Shr, {n, e.constant(type, k)});
+            return e.at - index;
+        }
+        const Magic magic = magic_unsigned(d, bits);
+        ValuePtr m = pattern_constant(type, magic.multiplier);
+        ValuePtr t = e.intrinsic(ir::Intrinsic::mulhi, type, {n, m});
+        if (!magic.add) {
+            // q = mulhi(n, m) >> s: the multiplier fits the word.
+            finish(Instruction::Op::Shr, {t, e.constant(type, magic.shift)});
+        } else {
+            // q = (((n - t) >> 1) + t) >> (s - 1): the multiplier's top bit
+            // is the one past the word, put back by adding n's half.
+            ValuePtr diff = e.emit(Instruction::Op::Sub, type, {n, t});
+            ValuePtr half = e.emit(Instruction::Op::Shr, type, {diff, e.constant(type, 1)});
+            ValuePtr sum = e.emit(Instruction::Op::Add, type, {half, t});
+            finish(Instruction::Op::Shr, {sum, e.constant(type, magic.shift - 1)});
+        }
+    } else {
+        const uint64_t sign = uint64_t(1) << (bits - 1);
+        const bool negative = (d & sign) != 0;
+        const uint64_t ad = negative ? ((0 - d) & mask) : d;
+        ValuePtr zero = e.constant(type, 0);
+        if (ad == 1) {
+            // n, or its negation for -1; the remainder is zero.
+            if (is_mod) {
+                zero_remainder();
+            } else if (negative) {
+                finish(Instruction::Op::Sub, {zero, n});
+            } else {
+                copy_of_n();
+            }
+            return e.at - index;
+        }
+        if ((ad & (ad - 1)) == 0) {
+            // |d| = 2^k: an arithmetic shift rounds toward minus infinity,
+            // so a negative n first gets 2^k - 1 added -- its sign, spread
+            // by an arithmetic shift, then cut to k bits by a logical one --
+            // which makes the shift truncate toward zero (Hacker's Delight
+            // 10-1). Negated for a negative divisor.
+            unsigned k = 0;
+            while ((uint64_t(1) << k) != ad) {
+                k++;
+            }
+            ValuePtr spread = e.emit(Instruction::Op::Shr, type, {n, e.constant(type, bits - 1)});
+            ValuePtr as_unsigned = e.emit(Instruction::Op::Reinterpret, utype, {spread});
+            ValuePtr low = e.emit(Instruction::Op::Shr, utype,
+                                  {as_unsigned, e.constant(utype, bits - k)});
+            ValuePtr bias = e.emit(Instruction::Op::Reinterpret, type, {low});
+            ValuePtr biased = e.emit(Instruction::Op::Add, type, {n, bias});
+            if (negative) {
+                ValuePtr shifted = e.emit(Instruction::Op::Shr, type, {biased, e.constant(type, k)});
+                finish(Instruction::Op::Sub, {zero, shifted});
+            } else {
+                finish(Instruction::Op::Shr, {biased, e.constant(type, k)});
+            }
+        } else {
+            // Hacker's Delight 10-4: q0 = mulhi(n, m), plus n when d > 0 and
+            // m reads negative, minus n when d < 0 and m reads positive; q0
+            // shifted arithmetically, then one added when negative, since
+            // the shift rounded toward minus infinity.
+            const Magic magic = magic_signed(d, bits);
+            const bool m_negative = (magic.multiplier & sign) != 0;
+            ValuePtr m = pattern_constant(type, magic.multiplier);
+            ValuePtr t = e.intrinsic(ir::Intrinsic::mulhi, type, {n, m});
+            if (!negative && m_negative) {
+                t = e.emit(Instruction::Op::Add, type, {t, n});
+            } else if (negative && !m_negative) {
+                t = e.emit(Instruction::Op::Sub, type, {t, n});
+            }
+            ValuePtr shifted =
+                magic.shift == 0
+                    ? t
+                    : e.emit(Instruction::Op::Shr, type, {t, e.constant(type, magic.shift)});
+            ValuePtr sign_of = e.emit(Instruction::Op::Shr, type, {shifted, e.constant(type, bits - 1)});
+            ValuePtr as_unsigned = e.emit(Instruction::Op::Reinterpret, utype, {sign_of});
+            ValuePtr one_if_negative_u = e.emit(Instruction::Op::Shr, utype,
+                                                {as_unsigned, e.constant(utype, bits - 1)});
+            ValuePtr one_if_negative =
+                e.emit(Instruction::Op::Reinterpret, type, {one_if_negative_u});
+            finish(Instruction::Op::Add, {shifted, one_if_negative});
+        }
+    }
+    if (is_mod) {
+        // n - q * d.
+        ValuePtr qd = e.emit(Instruction::Op::Mul, type, {q, pattern_constant(type, d)});
+        instr->op = Instruction::Op::Sub;
+        instr->operands = {n, qd};
+    }
+    return e.at - index;
+}
+
+// Every division or remainder by a constant in `func`, rewritten. Returns
+// how many.
+size_t divide_by_constants(Function &func) {
+    size_t rewritten = 0;
+    for (const shared_ptr<Block> &block : func.blocks) {
+        for (size_t i = 0; i < block->instrs.size(); i++) {
+            const shared_ptr<Instruction> &instr = block->instrs[i];
+            if ((instr->op != Instruction::Op::Div &&
+                 instr->op != Instruction::Op::Mod) ||
+                !instr->type.is<Int_t, UInt_t>() || instr->operands.size() != 2 ||
+                !equals(instr->operands[1]->get_type(), instr->type)) {
+                continue;
+            }
+            const optional<uint64_t> d = constant_divisor(instr->operands[1]);
+            const unsigned bits = unsigned(instr->type.bits());
+            const uint64_t mask =
+                bits == 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1;
+            if (!d.has_value() || (*d & mask) == 0) {
+                continue; // not a constant, or a zero left to trap
+            }
+            i += rewrite_constant_division(func, block, i, *d);
+            rewritten++;
+        }
+    }
+    return rewritten;
+}
+
 } // namespace
 
 size_t divide_by_invariants(Function &func) {
     if (func.blocks.empty()) {
         return 0;
     }
+    const size_t constants = divide_by_constants(func);
     const Cfg cfg(func);
     const DomTree dom = compute_dominator_tree(cfg);
     const LoopForest loops = compute_loop_forest(cfg, dom);
     if (loops.empty()) {
-        return 0;
+        return constants;
     }
     Tracer tracer(func, cfg);
 
@@ -333,7 +856,7 @@ size_t divide_by_invariants(Function &func) {
             const optional<Definition> def =
                 tracer.trace(instr->operands[1], name);
             if (!def.has_value()) {
-                continue; // a constant divisor, which the backend handles
+                continue; // a constant divisor: zero, the one kind left
             }
             const bool invariant =
                 loop != nullptr && !loop->blocks.contains(cfg.id(def->block));
@@ -341,14 +864,14 @@ size_t divide_by_invariants(Function &func) {
         }
     }
     if (worth.empty()) {
-        return 0;
+        return constants;
     }
     // Threading the multiplier to a division's block (Block::get_value) walks
     // the predecessor lists, which have to be current. Only now, so that a
     // function with nothing to rewrite is left exactly as it was.
     refresh_preds(func);
 
-    size_t rewritten = 0;
+    size_t rewritten = constants;
     for (auto &[def, sites] : worth) {
         // The multiplier goes right after the divisor's definition: after
         // the instruction, or at the top of the block whose argument it is.

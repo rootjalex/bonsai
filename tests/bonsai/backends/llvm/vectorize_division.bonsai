@@ -1,0 +1,37 @@
+//! flags: -p ssa -b llvm
+
+// A gang dividing by divisors the lanes disagree about (see
+// CodeGen_LLVM::vector_int_division).
+//
+// What to read for in the golden:
+//
+//   * `divide` has no `udiv <8 x i32>` or `urem <8 x i32>`: the lanes are
+//     converted with `uitofp` to `<8 x double>`, divided with one `fdiv`,
+//     and truncated back with `fptoui`; the remainder is a `mul` and a
+//     `sub` from that quotient.
+//   * `divide_signed` is the same through `sitofp` and `fptosi`.
+//   * `scalar` keeps its `udiv`: one lane, one divide.
+
+func [[export]] divide(a : array[u32, 8], b : array[u32, 8],
+                       q : mut array[u32, 8], r : mut array[u32, 8]) -> void {
+    parfor i in 0:8 {
+        q[i] = a[i] / b[i];
+        r[i] = a[i] % b[i];
+    }
+    return;
+}
+
+func [[export]] divide_signed(a : array[i32, 8], b : array[i32, 8],
+                              q : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        q[i] = a[i] / b[i];
+    }
+    return;
+}
+
+func [[export]] scalar(a : u32, b : u32) -> u32 = a / b;
+
+schedule {
+    divide.vectorize(i);
+    divide_signed.vectorize(i);
+}

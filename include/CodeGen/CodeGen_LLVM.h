@@ -333,6 +333,12 @@ struct CodeGen_LLVM : public ir::Visitor {
     // or a vector of divisors. Defined for every `d`, zero included.
     llvm::Value *division_multiplier(llvm::Value *d, bool is_signed,
                                      const std::string &name);
+    // A vector of integer lanes divided by another, as a vector division of
+    // doubles (or floats, for narrow lanes) truncated back, which is exact;
+    // or nothing, for scalars, constant divisors and lanes wider than 32
+    // bits, which stay an integer division.
+    llvm::Value *vector_int_division(llvm::Value *a, llvm::Value *b,
+                                     bool is_signed, bool remainder);
 
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).
@@ -447,6 +453,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // at a time otherwise, because libm is scalar.
     llvm::Value *codegen_libm_call(const std::string &name,
                                    const ir::Intrinsic *node);
+    // A call to libm's `name` on scalar arguments -- `sinf` for floats,
+    // `sin` for doubles -- for a lane the vector maths hands back (see
+    // CodeGen/VectorMath.h).
+    llvm::Value *scalar_math_call(const std::string &name,
+                                  llvm::ArrayRef<llvm::Value *> args);
 
     // What the host's libmvec provides, found by asking it. Every symbol
     // here exists in this machine's libmvec and is of an ISA level this

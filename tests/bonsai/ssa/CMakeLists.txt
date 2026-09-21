@@ -10,6 +10,7 @@ add_bonsai_tests(
     defer-lone-call.bonsai
     defer-loop-owned.bonsai
     defer-tail.bonsai
+    divide-by-constant.bonsai
     divergence.bonsai
     forall.bonsai
     invariant-division.bonsai
@@ -39,6 +40,7 @@ add_bonsai_tests(
     vectorize-arm-local.bonsai
     vectorize-loop.bonsai
     vectorize-masked-accumulate.bonsai
+    vectorize-masked-math-call.bonsai
     vectorize-packet-traversal.bonsai
     vectorize-short-vectors.bonsai
     vectorize-skip-arms.bonsai
@@ -48,6 +50,7 @@ add_bonsai_tests(
     vectorize-switch-constant-merge.bonsai
     vectorize-union.bonsai
     vectorize-varying-memory.bonsai
+    vectorize-vector-index.bonsai
     while-loops.bonsai
 )
 

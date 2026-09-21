@@ -1,0 +1,732 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @acos8(<8 x float> noundef %x) local_unnamed_addr #0 {
+acos8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = fcmp ogt <8 x float> %0, splat (float 5.000000e-01)
+  %2 = fmul <8 x float> %x, %x
+  %3 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %0, <8 x float> splat (float -5.000000e-01), <8 x float> splat (float 5.000000e-01))
+  %4 = select <8 x i1> %1, <8 x float> %3, <8 x float> %2
+  %5 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %4)
+  %6 = select <8 x i1> %1, <8 x float> %5, <8 x float> %0
+  %7 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> splat (float 4.216320e-02), <8 x float> splat (float f0x3CC617E3))
+  %8 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> %7, <8 x float> splat (float f0x3D3A3EC7))
+  %9 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> %8, <8 x float> splat (float f0x3D9980F6))
+  %10 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> %9, <8 x float> splat (float f0x3E2AAAE4))
+  %11 = fmul <8 x float> %4, %10
+  %12 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %11, <8 x float> %6, <8 x float> %6)
+  %13 = fadd <8 x float> %12, %12
+  %14 = fsub <8 x float> splat (float f0x40490FDB), %13
+  %15 = fcmp ogt <8 x float> %x, zeroinitializer
+  %16 = select <8 x i1> %15, <8 x float> %13, <8 x float> %14
+  %17 = tail call <8 x float> @llvm.copysign.v8f32(<8 x float> %12, <8 x float> %x)
+  %18 = fsub <8 x float> splat (float f0x3FC90FDB), %17
+  %acos = select <8 x i1> %1, <8 x float> %16, <8 x float> %18
+  ret <8 x float> %acos
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @asin8(<8 x float> noundef %x) local_unnamed_addr #0 {
+asin8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = fcmp ogt <8 x float> %0, splat (float 5.000000e-01)
+  %2 = fmul <8 x float> %x, %x
+  %3 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %0, <8 x float> splat (float -5.000000e-01), <8 x float> splat (float 5.000000e-01))
+  %4 = select <8 x i1> %1, <8 x float> %3, <8 x float> %2
+  %5 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %4)
+  %6 = select <8 x i1> %1, <8 x float> %5, <8 x float> %0
+  %7 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> splat (float 4.216320e-02), <8 x float> splat (float f0x3CC617E3))
+  %8 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> %7, <8 x float> splat (float f0x3D3A3EC7))
+  %9 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> %8, <8 x float> splat (float f0x3D9980F6))
+  %10 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> %9, <8 x float> splat (float f0x3E2AAAE4))
+  %11 = fmul <8 x float> %4, %10
+  %12 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %11, <8 x float> %6, <8 x float> %6)
+  %13 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> splat (float -2.000000e+00), <8 x float> splat (float f0x3FC90FDB))
+  %14 = select <8 x i1> %1, <8 x float> %13, <8 x float> %12
+  %asin = tail call <8 x float> @llvm.copysign.v8f32(<8 x float> %14, <8 x float> %x)
+  ret <8 x float> %asin
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @atan2_8(<8 x float> noundef %y, <8 x float> noundef %x) local_unnamed_addr #0 {
+atan2_8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %y)
+  %1 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %2 = fdiv <8 x float> %0, %1
+  %3 = fcmp ogt <8 x float> %2, splat (float f0x401A827A)
+  %4 = fcmp ogt <8 x float> %2, splat (float f0x3ED413CD)
+  %5 = fadd <8 x float> %2, splat (float -1.000000e+00)
+  %6 = select <8 x i1> %4, <8 x float> %5, <8 x float> %2
+  %7 = select <8 x i1> %3, <8 x float> splat (float -1.000000e+00), <8 x float> %6
+  %8 = fadd <8 x float> %2, splat (float 1.000000e+00)
+  %9 = select <8 x i1> %4, <8 x float> %8, <8 x float> splat (float 1.000000e+00)
+  %10 = select <8 x i1> %3, <8 x float> %2, <8 x float> %9
+  %11 = fdiv <8 x float> %7, %10
+  %12 = fmul <8 x float> %11, %11
+  %13 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> splat (float f0x3DA4F0D1), <8 x float> splat (float f0xBE0E1B85))
+  %14 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %13, <8 x float> splat (float f0x3E4C925F))
+  %15 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %14, <8 x float> splat (float f0xBEAAAA2A))
+  %16 = fmul <8 x float> %12, %15
+  %17 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %16, <8 x float> %11, <8 x float> %11)
+  %18 = select <8 x i1> %4, <8 x float> splat (float f0x3F490FDB), <8 x float> zeroinitializer
+  %19 = select <8 x i1> %3, <8 x float> splat (float f0x3FC90FDB), <8 x float> %18
+  %20 = fadd <8 x float> %19, %17
+  %21 = fcmp oeq <8 x float> %x, zeroinitializer
+  %22 = fcmp oeq <8 x float> %y, zeroinitializer
+  %23 = and <8 x i1> %22, %21
+  %24 = fcmp oeq <8 x float> %1, splat (float +inf)
+  %25 = fcmp oeq <8 x float> %0, splat (float +inf)
+  %26 = and <8 x i1> %25, %24
+  %27 = select <8 x i1> %23, <8 x float> zeroinitializer, <8 x float> %20
+  %28 = select <8 x i1> %26, <8 x float> splat (float f0x3F490FDB), <8 x float> %27
+  %29 = fsub <8 x float> splat (float f0x40490FDB), %28
+  %30 = bitcast <8 x float> %x to <8 x i32>
+  %31 = icmp slt <8 x i32> %30, zeroinitializer
+  %32 = select <8 x i1> %31, <8 x float> %29, <8 x float> %28
+  %atan2 = tail call <8 x float> @llvm.copysign.v8f32(<8 x float> %32, <8 x float> %y)
+  ret <8 x float> %atan2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @atanh8(<8 x float> noundef %x) local_unnamed_addr #0 {
+atanh8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = fcmp olt <8 x float> %0, splat (float 5.000000e-01)
+  %2 = fmul <8 x float> %x, %x
+  %3 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %2, <8 x float> splat (float f0x3E3A1A12), <8 x float> splat (float f0x3DA8D4BF))
+  %4 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %2, <8 x float> %3, <8 x float> splat (float f0x3E163647))
+  %5 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %2, <8 x float> %4, <8 x float> splat (float f0x3E4C93B2))
+  %6 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %2, <8 x float> %5, <8 x float> splat (float f0x3EAAAB30))
+  %7 = fmul <8 x float> %2, %6
+  %8 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %7, <8 x float> %x, <8 x float> %x)
+  %9 = fsub <8 x float> splat (float 1.000000e+00), %0
+  %10 = fadd <8 x float> %0, %0
+  %11 = fdiv <8 x float> %10, %9
+  %12 = fadd <8 x float> %11, splat (float 1.000000e+00)
+  %13 = fcmp olt <8 x float> %12, splat (float f0x00800000)
+  %14 = fmul <8 x float> %12, splat (float f0x4B800000)
+  %15 = select <8 x i1> %13, <8 x float> %14, <8 x float> %12
+  %16 = select <8 x i1> %13, <8 x float> splat (float -2.400000e+01), <8 x float> zeroinitializer
+  %17 = bitcast <8 x float> %15 to <8 x i32>
+  %18 = ashr <8 x i32> %17, splat (i32 23)
+  %19 = add nsw <8 x i32> %18, splat (i32 -127)
+  %20 = sitofp <8 x i32> %19 to <8 x float>
+  %21 = and <8 x i32> %17, splat (i32 8388607)
+  %22 = or disjoint <8 x i32> %21, splat (i32 1065353216)
+  %23 = bitcast <8 x i32> %22 to <8 x float>
+  %24 = fcmp ogt <8 x float> %23, splat (float f0x3FB504F3)
+  %25 = fadd <8 x float> %20, splat (float 1.000000e+00)
+  %26 = select <8 x i1> %24, <8 x float> %25, <8 x float> %20
+  %27 = fmul nnan <8 x float> %23, splat (float 5.000000e-01)
+  %28 = select <8 x i1> %24, <8 x float> %27, <8 x float> %23
+  %29 = fadd <8 x float> %28, splat (float -1.000000e+00)
+  %30 = fcmp oeq <8 x float> %26, zeroinitializer
+  %31 = select <8 x i1> %30, <8 x float> %11, <8 x float> %29
+  %32 = fmul <8 x float> %31, %31
+  %33 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> splat (float f0x3ECB0C97), <8 x float> splat (float 1.000000e+00))
+  %34 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %31, <8 x float> splat (float f0x3FAA23C9), <8 x float> %33)
+  %35 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> splat (float f0xBBAB5AD8), <8 x float> splat (float f0xBEFFFFF4))
+  %36 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %31, <8 x float> splat (float f0xBEA99D63), <8 x float> %35)
+  %37 = fdiv <8 x float> %36, %34
+  %38 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> %37, <8 x float> %31)
+  %39 = fadd nnan <8 x float> %16, %26
+  %40 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %39, <8 x float> splat (float f0x3F317218), <8 x float> %38)
+  %41 = fcmp oeq <8 x float> %12, zeroinitializer
+  %42 = fcmp ult <8 x float> %12, zeroinitializer
+  %43 = fcmp oeq <8 x float> %12, splat (float +inf)
+  %44 = fmul <8 x float> %40, splat (float 5.000000e-01)
+  %45 = select <8 x i1> %41, <8 x float> splat (float -inf), <8 x float> %44
+  %46 = select <8 x i1> %42, <8 x float> splat (float +qnan), <8 x float> %45
+  %47 = select <8 x i1> %43, <8 x float> splat (float +inf), <8 x float> %46
+  %48 = tail call <8 x float> @llvm.copysign.v8f32(<8 x float> %47, <8 x float> %x)
+  %atanh = select <8 x i1> %1, <8 x float> %8, <8 x float> %48
+  ret <8 x float> %atanh
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
+define <8 x float> @cos8(<8 x float> noundef %x) local_unnamed_addr #1 {
+cos8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
+  %2 = fcmp une <8 x float> %0, splat (float +inf)
+  %3 = fcmp ogt <8 x float> %0, splat (float 1.000000e+06)
+  %sincos_rare = and <8 x i1> %3, %2
+  %4 = fmul <8 x float> %x, splat (float f0x3F22F983)
+  %5 = tail call <8 x float> @llvm.roundeven.v8f32(<8 x float> %4)
+  %6 = select <8 x i1> %1, <8 x float> %5, <8 x float> zeroinitializer
+  %7 = fptosi <8 x float> %6 to <8 x i32>
+  %8 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0xBFC90FDB), <8 x float> %x)
+  %9 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0x333BBD2E), <8 x float> %8)
+  %10 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0x26F72CED), <8 x float> %9)
+  %11 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %10)
+  %12 = fsub <8 x float> splat (float f0x3FC90FDB), %11
+  %13 = add <8 x i32> %7, splat (i32 1)
+  %14 = and <8 x i32> %7, splat (i32 1)
+  %.not = icmp eq <8 x i32> %14, zeroinitializer
+  %15 = select <8 x i1> %.not, <8 x float> %12, <8 x float> %10
+  %16 = fneg <8 x float> %15
+  %17 = and <8 x i32> %13, splat (i32 2)
+  %18 = icmp eq <8 x i32> %17, zeroinitializer
+  %19 = select <8 x i1> %18, <8 x float> %15, <8 x float> %16
+  %20 = fmul <8 x float> %19, %19
+  %21 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> splat (float f0x362ED56C), <8 x float> splat (float f0xB94FB695))
+  %22 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> %21, <8 x float> splat (float f0x3C088759))
+  %23 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> %22, <8 x float> splat (float f0xBE2AAAA5))
+  %24 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> %23, <8 x float> splat (float 1.000000e+00))
+  %25 = fmul <8 x float> %19, %24
+  %26 = select <8 x i1> %2, <8 x float> %25, <8 x float> splat (float +qnan)
+  %27 = bitcast <8 x i1> %sincos_rare to i8
+  %.not9 = icmp eq i8 %27, 0
+  br i1 %.not9, label %cos_join, label %cos_rare, !prof !0
+
+cos_rare:                                         ; preds = %cos8_entry
+  %28 = extractelement <8 x float> %x, i64 0
+  %cos = tail call float @cosf(float %28)
+  %29 = insertelement <8 x float> poison, float %cos, i64 0
+  %30 = extractelement <8 x float> %x, i64 1
+  %cos1 = tail call float @cosf(float %30)
+  %31 = insertelement <8 x float> %29, float %cos1, i64 1
+  %32 = extractelement <8 x float> %x, i64 2
+  %cos2 = tail call float @cosf(float %32)
+  %33 = insertelement <8 x float> %31, float %cos2, i64 2
+  %34 = extractelement <8 x float> %x, i64 3
+  %cos3 = tail call float @cosf(float %34)
+  %35 = insertelement <8 x float> %33, float %cos3, i64 3
+  %36 = extractelement <8 x float> %x, i64 4
+  %cos4 = tail call float @cosf(float %36)
+  %37 = insertelement <8 x float> %35, float %cos4, i64 4
+  %38 = extractelement <8 x float> %x, i64 5
+  %cos5 = tail call float @cosf(float %38)
+  %39 = insertelement <8 x float> %37, float %cos5, i64 5
+  %40 = extractelement <8 x float> %x, i64 6
+  %cos6 = tail call float @cosf(float %40)
+  %41 = insertelement <8 x float> %39, float %cos6, i64 6
+  %42 = extractelement <8 x float> %x, i64 7
+  %cos7 = tail call float @cosf(float %42)
+  %43 = insertelement <8 x float> %41, float %cos7, i64 7
+  %44 = select <8 x i1> %sincos_rare, <8 x float> %43, <8 x float> %26
+  br label %cos_join
+
+cos_join:                                         ; preds = %cos_rare, %cos8_entry
+  %cos8 = phi <8 x float> [ %26, %cos8_entry ], [ %44, %cos_rare ]
+  ret <8 x float> %cos8
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @cosh8(<8 x float> noundef %x) local_unnamed_addr #0 {
+cosh8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = tail call <8 x float> @llvm.maxnum.v8f32(<8 x float> %0, <8 x float> splat (float f0xC2B00F34))
+  %2 = tail call <8 x float> @llvm.minnum.v8f32(<8 x float> %1, <8 x float> splat (float f0x42B17218))
+  %3 = fmul nnan <8 x float> %2, splat (float f0x3FB8AA3B)
+  %4 = tail call <8 x float> @llvm.roundeven.v8f32(<8 x float> %3)
+  %5 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> splat (float f0xBF317200), <8 x float> %2)
+  %6 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %4, <8 x float> splat (float f0xB5BFBE8E), <8 x float> %5)
+  %7 = fptosi <8 x float> %4 to <8 x i32>
+  %8 = shl <8 x i32> %7, splat (i32 23)
+  %9 = add <8 x i32> %8, splat (i32 1065353216)
+  %10 = bitcast <8 x i32> %9 to <8 x float>
+  %11 = fcmp uno <8 x float> %x, zeroinitializer
+  %12 = select <8 x i1> %11, <8 x float> %0, <8 x float> %10
+  %13 = fmul <8 x float> %6, %6
+  %14 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %13, <8 x float> splat (float f0xB85127E0), <8 x float> splat (float f0x3AB93CAC))
+  %15 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %13, <8 x float> splat (float f0x396ECCE9), <8 x float> splat (float f0x3C08629E))
+  %16 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %13, <8 x float> %14, <8 x float> splat (float f0x3D2AA994))
+  %17 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %13, <8 x float> %15, <8 x float> splat (float f0x3E2AAAD2))
+  %18 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %13, <8 x float> %16, <8 x float> splat (float f0x3EFFFFFE))
+  %19 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> %17, <8 x float> %18)
+  %20 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %13, <8 x float> %19, <8 x float> %6)
+  %21 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %20, <8 x float> %12)
+  %22 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %12)
+  %23 = fcmp oeq <8 x float> %22, splat (float +inf)
+  %exp = select <8 x i1> %23, <8 x float> %12, <8 x float> %21
+  %24 = fdiv <8 x float> splat (float 5.000000e-01), %exp
+  %cosh = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %exp, <8 x float> splat (float 5.000000e-01), <8 x float> %24)
+  ret <8 x float> %cosh
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x double> @double_exp4(<4 x double> noundef %x) local_unnamed_addr #0 {
+double_exp4_entry:
+  %0 = tail call <4 x double> @llvm.maxnum.v4f64(<4 x double> %x, <4 x double> splat (double f0xC08628B76E3A7B61))
+  %1 = tail call <4 x double> @llvm.minnum.v4f64(<4 x double> %0, <4 x double> splat (double f0x40862E42FEFA39EF))
+  %2 = fmul nnan <4 x double> %1, splat (double f0x3FF71547652B82FE)
+  %3 = tail call <4 x double> @llvm.roundeven.v4f64(<4 x double> %2)
+  %4 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %3, <4 x double> splat (double f0xBFE62E42FEE00000), <4 x double> %1)
+  %5 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %3, <4 x double> splat (double f0xBDEA39EF35793C76), <4 x double> %4)
+  %6 = fptosi <4 x double> %3 to <4 x i64>
+  %7 = shl <4 x i64> %6, splat (i64 52)
+  %8 = add <4 x i64> %7, splat (i64 4607182418800017408)
+  %9 = bitcast <4 x i64> %8 to <4 x double>
+  %10 = fcmp uno <4 x double> %x, zeroinitializer
+  %11 = select <4 x i1> %10, <4 x double> %x, <4 x double> %9
+  %12 = fmul <4 x double> %5, %5
+  %13 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> splat (double f0x3E2235B01D3C214D), <4 x double> splat (double f0x3E927E0F467E8431))
+  %14 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> splat (double f0x3E5B11E3E4B25337), <4 x double> splat (double f0x3EC71DC4D049219E))
+  %15 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %13, <4 x double> splat (double f0x3EFA01A04566020A))
+  %16 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %14, <4 x double> splat (double f0x3F2A01A02D49A775))
+  %17 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %15, <4 x double> splat (double f0x3F56C16C16B2CAB6))
+  %18 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %16, <4 x double> splat (double f0x3F811111110BE1E1))
+  %19 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %17, <4 x double> splat (double f0x3FA5555555555D7A))
+  %20 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %18, <4 x double> splat (double f0x3FC555555555572A))
+  %21 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %19, <4 x double> splat (double f0x3FDFFFFFFFFFFFF8))
+  %22 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %5, <4 x double> %20, <4 x double> %21)
+  %23 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %12, <4 x double> %22, <4 x double> %5)
+  %24 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %11, <4 x double> %23, <4 x double> %11)
+  %25 = tail call <4 x double> @llvm.fabs.v4f64(<4 x double> %11)
+  %26 = fcmp oeq <4 x double> %25, splat (double +inf)
+  %exp = select <4 x i1> %26, <4 x double> %11, <4 x double> %24
+  ret <4 x double> %exp
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
+define <4 x double> @double_sin4(<4 x double> noundef %x) local_unnamed_addr #1 {
+double_sin4_entry:
+  %0 = tail call <4 x double> @llvm.fabs.v4f64(<4 x double> %x)
+  %1 = fcmp ole <4 x double> %0, splat (double 1.000000e+12)
+  %2 = fcmp une <4 x double> %0, splat (double +inf)
+  %3 = fcmp ogt <4 x double> %0, splat (double 1.000000e+12)
+  %sincos_rare = and <4 x i1> %3, %2
+  %4 = fmul <4 x double> %x, splat (double f0x3FE45F306DC9C883)
+  %5 = tail call <4 x double> @llvm.roundeven.v4f64(<4 x double> %4)
+  %6 = select <4 x i1> %1, <4 x double> %5, <4 x double> zeroinitializer
+  %7 = fptosi <4 x double> %6 to <4 x i64>
+  %8 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %6, <4 x double> splat (double f0xBFF921FB54442D18), <4 x double> %x)
+  %9 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %6, <4 x double> splat (double f0xBC91A62633145C07), <4 x double> %8)
+  %10 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %6, <4 x double> splat (double f0x391F1976B7ED8FBC), <4 x double> %9)
+  %11 = tail call <4 x double> @llvm.fabs.v4f64(<4 x double> %10)
+  %12 = fsub <4 x double> splat (double f0x3FF921FB54442D18), %11
+  %13 = and <4 x i64> %7, splat (i64 1)
+  %14 = icmp eq <4 x i64> %13, zeroinitializer
+  %15 = select <4 x i1> %14, <4 x double> %10, <4 x double> %12
+  %16 = fneg <4 x double> %15
+  %17 = and <4 x i64> %7, splat (i64 2)
+  %18 = icmp eq <4 x i64> %17, zeroinitializer
+  %19 = select <4 x i1> %18, <4 x double> %15, <4 x double> %16
+  %20 = fmul <4 x double> %19, %19
+  %21 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> splat (double f0x3CE8E994C10BE923), <4 x double> splat (double f0xBD6AEA871512E417))
+  %22 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %21, <4 x double> splat (double f0x3DE6126186982078))
+  %23 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %22, <4 x double> splat (double f0xBE5AE6462357C478))
+  %24 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %23, <4 x double> splat (double f0x3EC71DE3A7D47062))
+  %25 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %24, <4 x double> splat (double f0xBF2A01A01A0A6FF8))
+  %26 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %25, <4 x double> splat (double f0x3F81111111111F63))
+  %27 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %26, <4 x double> splat (double f0xBFC5555555555570))
+  %28 = tail call <4 x double> @llvm.fma.v4f64(<4 x double> %20, <4 x double> %27, <4 x double> splat (double 1.000000e+00))
+  %29 = fmul <4 x double> %19, %28
+  %30 = select <4 x i1> %2, <4 x double> %29, <4 x double> splat (double +qnan)
+  %31 = bitcast <4 x i1> %sincos_rare to i4
+  %.not = icmp eq i4 %31, 0
+  br i1 %.not, label %sin_join, label %sin_rare, !prof !0
+
+sin_rare:                                         ; preds = %double_sin4_entry
+  %32 = extractelement <4 x double> %x, i64 0
+  %sin = tail call double @sin(double %32)
+  %33 = insertelement <4 x double> poison, double %sin, i64 0
+  %34 = extractelement <4 x double> %x, i64 1
+  %sin1 = tail call double @sin(double %34)
+  %35 = insertelement <4 x double> %33, double %sin1, i64 1
+  %36 = extractelement <4 x double> %x, i64 2
+  %sin2 = tail call double @sin(double %36)
+  %37 = insertelement <4 x double> %35, double %sin2, i64 2
+  %38 = extractelement <4 x double> %x, i64 3
+  %sin3 = tail call double @sin(double %38)
+  %39 = insertelement <4 x double> %37, double %sin3, i64 3
+  %40 = select <4 x i1> %sincos_rare, <4 x double> %39, <4 x double> %30
+  br label %sin_join
+
+sin_join:                                         ; preds = %sin_rare, %double_sin4_entry
+  %sin4 = phi <4 x double> [ %30, %double_sin4_entry ], [ %40, %sin_rare ]
+  ret <4 x double> %sin4
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @exp8(<8 x float> noundef %x) local_unnamed_addr #0 {
+exp8_entry:
+  %0 = tail call <8 x float> @llvm.maxnum.v8f32(<8 x float> %x, <8 x float> splat (float f0xC2B00F34))
+  %1 = tail call <8 x float> @llvm.minnum.v8f32(<8 x float> %0, <8 x float> splat (float f0x42B17218))
+  %2 = fmul nnan <8 x float> %1, splat (float f0x3FB8AA3B)
+  %3 = tail call <8 x float> @llvm.roundeven.v8f32(<8 x float> %2)
+  %4 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %3, <8 x float> splat (float f0xBF317200), <8 x float> %1)
+  %5 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %3, <8 x float> splat (float f0xB5BFBE8E), <8 x float> %4)
+  %6 = fptosi <8 x float> %3 to <8 x i32>
+  %7 = shl <8 x i32> %6, splat (i32 23)
+  %8 = add <8 x i32> %7, splat (i32 1065353216)
+  %9 = bitcast <8 x i32> %8 to <8 x float>
+  %10 = fcmp uno <8 x float> %x, zeroinitializer
+  %11 = select <8 x i1> %10, <8 x float> %x, <8 x float> %9
+  %12 = fmul <8 x float> %5, %5
+  %13 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> splat (float f0xB85127E0), <8 x float> splat (float f0x3AB93CAC))
+  %14 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> splat (float f0x396ECCE9), <8 x float> splat (float f0x3C08629E))
+  %15 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %13, <8 x float> splat (float f0x3D2AA994))
+  %16 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %14, <8 x float> splat (float f0x3E2AAAD2))
+  %17 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %15, <8 x float> splat (float f0x3EFFFFFE))
+  %18 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %5, <8 x float> %16, <8 x float> %17)
+  %19 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %12, <8 x float> %18, <8 x float> %5)
+  %20 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %11, <8 x float> %19, <8 x float> %11)
+  %21 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %11)
+  %22 = fcmp oeq <8 x float> %21, splat (float +inf)
+  %exp = select <8 x i1> %22, <8 x float> %11, <8 x float> %20
+  ret <8 x float> %exp
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @log8(<8 x float> noundef %x) local_unnamed_addr #0 {
+log8_entry:
+  %0 = fcmp olt <8 x float> %x, splat (float f0x00800000)
+  %1 = fmul <8 x float> %x, splat (float f0x4B800000)
+  %2 = select <8 x i1> %0, <8 x float> %1, <8 x float> %x
+  %3 = select <8 x i1> %0, <8 x float> splat (float -2.400000e+01), <8 x float> zeroinitializer
+  %4 = bitcast <8 x float> %2 to <8 x i32>
+  %5 = ashr <8 x i32> %4, splat (i32 23)
+  %6 = add nsw <8 x i32> %5, splat (i32 -127)
+  %7 = sitofp <8 x i32> %6 to <8 x float>
+  %8 = and <8 x i32> %4, splat (i32 8388607)
+  %9 = or disjoint <8 x i32> %8, splat (i32 1065353216)
+  %10 = bitcast <8 x i32> %9 to <8 x float>
+  %11 = fcmp ogt <8 x float> %10, splat (float f0x3FB504F3)
+  %12 = fadd <8 x float> %7, splat (float 1.000000e+00)
+  %13 = select <8 x i1> %11, <8 x float> %12, <8 x float> %7
+  %14 = fmul nnan <8 x float> %10, splat (float 5.000000e-01)
+  %15 = select <8 x i1> %11, <8 x float> %14, <8 x float> %10
+  %16 = fadd <8 x float> %15, splat (float -1.000000e+00)
+  %17 = fmul <8 x float> %16, %16
+  %18 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %17, <8 x float> splat (float f0x3ECB0C97), <8 x float> splat (float 1.000000e+00))
+  %19 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %16, <8 x float> splat (float f0x3FAA23C9), <8 x float> %18)
+  %20 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %17, <8 x float> splat (float f0xBBAB5AD8), <8 x float> splat (float f0xBEFFFFF4))
+  %21 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %16, <8 x float> splat (float f0xBEA99D63), <8 x float> %20)
+  %22 = fdiv <8 x float> %21, %19
+  %23 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %17, <8 x float> %22, <8 x float> %16)
+  %24 = fadd <8 x float> %3, %13
+  %25 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %24, <8 x float> splat (float f0x3F317218), <8 x float> %23)
+  %26 = fcmp oeq <8 x float> %x, zeroinitializer
+  %27 = select <8 x i1> %26, <8 x float> splat (float -inf), <8 x float> %25
+  %28 = fcmp ult <8 x float> %x, zeroinitializer
+  %29 = select <8 x i1> %28, <8 x float> splat (float +qnan), <8 x float> %27
+  %30 = fcmp oeq <8 x float> %x, splat (float +inf)
+  %log = select <8 x i1> %30, <8 x float> splat (float +inf), <8 x float> %29
+  ret <8 x float> %log
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @pow8(<8 x float> noundef %x, <8 x float> noundef %y) local_unnamed_addr #0 {
+pow8_entry:
+  %0 = fpext <8 x float> %y to <8 x double>
+  %1 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %2 = fpext <8 x float> %1 to <8 x double>
+  %3 = fcmp olt <8 x double> %2, splat (double f0x0010000000000000)
+  %4 = fmul <8 x double> %2, splat (double f0x4340000000000000)
+  %5 = select <8 x i1> %3, <8 x double> %4, <8 x double> %2
+  %6 = select <8 x i1> %3, <8 x double> splat (double -5.300000e+01), <8 x double> zeroinitializer
+  %7 = bitcast <8 x double> %5 to <8 x i64>
+  %8 = ashr <8 x i64> %7, splat (i64 52)
+  %9 = add nsw <8 x i64> %8, splat (i64 -1023)
+  %10 = sitofp <8 x i64> %9 to <8 x double>
+  %11 = and <8 x i64> %7, splat (i64 4503599627370495)
+  %12 = or disjoint <8 x i64> %11, splat (i64 4607182418800017408)
+  %13 = bitcast <8 x i64> %12 to <8 x double>
+  %14 = fcmp ogt <8 x double> %13, splat (double f0x3FF6A09E667F3BCD)
+  %15 = fadd <8 x double> %10, splat (double 1.000000e+00)
+  %16 = select <8 x i1> %14, <8 x double> %15, <8 x double> %10
+  %17 = fmul nnan <8 x double> %13, splat (double 5.000000e-01)
+  %18 = select <8 x i1> %14, <8 x double> %17, <8 x double> %13
+  %19 = fadd <8 x double> %18, splat (double -1.000000e+00)
+  %20 = fmul <8 x double> %19, %19
+  %21 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> splat (double f0x3F68A6B6134937F9), <8 x double> splat (double f0x3FE46188D0CD4D4B))
+  %22 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> splat (double f0x3FB4552D561D9DA1), <8 x double> splat (double f0x4001D8AF20C03734))
+  %23 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> %21, <8 x double> splat (double f0x400E96EE66CCD02C))
+  %24 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> %22, <8 x double> splat (double f0x400938A02E1CB600))
+  %25 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> %23, <8 x double> splat (double 1.000000e+00))
+  %26 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %19, <8 x double> %24, <8 x double> %25)
+  %27 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> splat (double f0xBF6837475A1E9888), <8 x double> splat (double f0xBFDB74B455A137A7))
+  %28 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> splat (double f0xBFB1213839634A69), <8 x double> splat (double f0xBFF1C6839D645941))
+  %29 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> %27, <8 x double> splat (double f0xBFF3E34AD8C76067))
+  %30 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> %28, <8 x double> splat (double f0xBFDFFFFFFFFFFFEE))
+  %31 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %19, <8 x double> %29, <8 x double> %30)
+  %32 = fdiv <8 x double> %31, %26
+  %33 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %20, <8 x double> %32, <8 x double> %19)
+  %34 = fadd <8 x double> %6, %16
+  %35 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %34, <8 x double> splat (double f0x3FE62E42FEFA39EF), <8 x double> %33)
+  %36 = fcmp oeq <8 x float> %x, zeroinitializer
+  %37 = select <8 x i1> %36, <8 x double> splat (double -inf), <8 x double> %35
+  %38 = fcmp uno <8 x float> %x, zeroinitializer
+  %39 = select <8 x i1> %38, <8 x double> splat (double +qnan), <8 x double> %37
+  %40 = fcmp oeq <8 x float> %1, splat (float +inf)
+  %log = select <8 x i1> %40, <8 x double> splat (double +inf), <8 x double> %39
+  %41 = fmul <8 x double> %log, %0
+  %42 = tail call <8 x double> @llvm.maxnum.v8f64(<8 x double> %41, <8 x double> splat (double f0xC08628B76E3A7B61))
+  %43 = tail call <8 x double> @llvm.minnum.v8f64(<8 x double> %42, <8 x double> splat (double f0x40862E42FEFA39EF))
+  %44 = fmul nnan <8 x double> %43, splat (double f0x3FF71547652B82FE)
+  %45 = tail call <8 x double> @llvm.roundeven.v8f64(<8 x double> %44)
+  %46 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %45, <8 x double> splat (double f0xBFE62E42FEE00000), <8 x double> %43)
+  %47 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %45, <8 x double> splat (double f0xBDEA39EF35793C76), <8 x double> %46)
+  %48 = fptosi <8 x double> %45 to <8 x i64>
+  %49 = shl <8 x i64> %48, splat (i64 52)
+  %50 = add <8 x i64> %49, splat (i64 4607182418800017408)
+  %51 = bitcast <8 x i64> %50 to <8 x double>
+  %52 = fcmp uno <8 x double> %41, zeroinitializer
+  %53 = select <8 x i1> %52, <8 x double> %41, <8 x double> %51
+  %54 = fmul <8 x double> %47, %47
+  %55 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> splat (double f0x3E2235B01D3C214D), <8 x double> splat (double f0x3E927E0F467E8431))
+  %56 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> splat (double f0x3E5B11E3E4B25337), <8 x double> splat (double f0x3EC71DC4D049219E))
+  %57 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %55, <8 x double> splat (double f0x3EFA01A04566020A))
+  %58 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %56, <8 x double> splat (double f0x3F2A01A02D49A775))
+  %59 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %57, <8 x double> splat (double f0x3F56C16C16B2CAB6))
+  %60 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %58, <8 x double> splat (double f0x3F811111110BE1E1))
+  %61 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %59, <8 x double> splat (double f0x3FA5555555555D7A))
+  %62 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %60, <8 x double> splat (double f0x3FC555555555572A))
+  %63 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %61, <8 x double> splat (double f0x3FDFFFFFFFFFFFF8))
+  %64 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %47, <8 x double> %62, <8 x double> %63)
+  %65 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %54, <8 x double> %64, <8 x double> %47)
+  %66 = tail call <8 x double> @llvm.fma.v8f64(<8 x double> %53, <8 x double> %65, <8 x double> %53)
+  %67 = tail call <8 x double> @llvm.fabs.v8f64(<8 x double> %53)
+  %68 = fcmp oeq <8 x double> %67, splat (double +inf)
+  %exp = select <8 x i1> %68, <8 x double> %53, <8 x double> %66
+  %69 = tail call <8 x double> @llvm.trunc.v8f64(<8 x double> %0)
+  %70 = fcmp oeq <8 x double> %69, %0
+  %71 = fmul <8 x double> %0, splat (double 5.000000e-01)
+  %72 = tail call <8 x double> @llvm.trunc.v8f64(<8 x double> %71)
+  %73 = fcmp one <8 x double> %72, %71
+  %74 = and <8 x i1> %70, %73
+  %75 = bitcast <8 x float> %x to <8 x i32>
+  %76 = icmp slt <8 x i32> %75, zeroinitializer
+  %77 = fneg <8 x double> %exp
+  %78 = and <8 x i1> %76, %74
+  %79 = select <8 x i1> %78, <8 x double> %77, <8 x double> %exp
+  %80 = xor <8 x i1> %70, splat (i1 true)
+  %81 = fcmp one <8 x float> %x, zeroinitializer
+  %82 = and <8 x i1> %81, %80
+  %83 = and <8 x i1> %76, %82
+  %84 = fcmp oeq <8 x float> %y, zeroinitializer
+  %85 = fcmp oeq <8 x float> %x, splat (float 1.000000e+00)
+  %86 = or <8 x i1> %85, %84
+  %87 = fptrunc <8 x double> %79 to <8 x float>
+  %88 = select <8 x i1> %83, <8 x float> splat (float +qnan), <8 x float> %87
+  %pow = select <8 x i1> %86, <8 x float> splat (float 1.000000e+00), <8 x float> %88
+  ret <8 x float> %pow
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
+define <8 x float> @sin8(<8 x float> noundef %x) local_unnamed_addr #1 {
+sin8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
+  %2 = fcmp une <8 x float> %0, splat (float +inf)
+  %3 = fcmp ogt <8 x float> %0, splat (float 1.000000e+06)
+  %sincos_rare = and <8 x i1> %3, %2
+  %4 = fmul <8 x float> %x, splat (float f0x3F22F983)
+  %5 = tail call <8 x float> @llvm.roundeven.v8f32(<8 x float> %4)
+  %6 = select <8 x i1> %1, <8 x float> %5, <8 x float> zeroinitializer
+  %7 = fptosi <8 x float> %6 to <8 x i32>
+  %8 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0xBFC90FDB), <8 x float> %x)
+  %9 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0x333BBD2E), <8 x float> %8)
+  %10 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0x26F72CED), <8 x float> %9)
+  %11 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %10)
+  %12 = fsub <8 x float> splat (float f0x3FC90FDB), %11
+  %13 = and <8 x i32> %7, splat (i32 1)
+  %14 = icmp eq <8 x i32> %13, zeroinitializer
+  %15 = select <8 x i1> %14, <8 x float> %10, <8 x float> %12
+  %16 = fneg <8 x float> %15
+  %17 = and <8 x i32> %7, splat (i32 2)
+  %18 = icmp eq <8 x i32> %17, zeroinitializer
+  %19 = select <8 x i1> %18, <8 x float> %15, <8 x float> %16
+  %20 = fmul <8 x float> %19, %19
+  %21 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> splat (float f0x362ED56C), <8 x float> splat (float f0xB94FB695))
+  %22 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> %21, <8 x float> splat (float f0x3C088759))
+  %23 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> %22, <8 x float> splat (float f0xBE2AAAA5))
+  %24 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %20, <8 x float> %23, <8 x float> splat (float 1.000000e+00))
+  %25 = fmul <8 x float> %19, %24
+  %26 = select <8 x i1> %2, <8 x float> %25, <8 x float> splat (float +qnan)
+  %27 = bitcast <8 x i1> %sincos_rare to i8
+  %.not = icmp eq i8 %27, 0
+  br i1 %.not, label %sin_join, label %sin_rare, !prof !0
+
+sin_rare:                                         ; preds = %sin8_entry
+  %28 = extractelement <8 x float> %x, i64 0
+  %sin = tail call float @sinf(float %28)
+  %29 = insertelement <8 x float> poison, float %sin, i64 0
+  %30 = extractelement <8 x float> %x, i64 1
+  %sin1 = tail call float @sinf(float %30)
+  %31 = insertelement <8 x float> %29, float %sin1, i64 1
+  %32 = extractelement <8 x float> %x, i64 2
+  %sin2 = tail call float @sinf(float %32)
+  %33 = insertelement <8 x float> %31, float %sin2, i64 2
+  %34 = extractelement <8 x float> %x, i64 3
+  %sin3 = tail call float @sinf(float %34)
+  %35 = insertelement <8 x float> %33, float %sin3, i64 3
+  %36 = extractelement <8 x float> %x, i64 4
+  %sin4 = tail call float @sinf(float %36)
+  %37 = insertelement <8 x float> %35, float %sin4, i64 4
+  %38 = extractelement <8 x float> %x, i64 5
+  %sin5 = tail call float @sinf(float %38)
+  %39 = insertelement <8 x float> %37, float %sin5, i64 5
+  %40 = extractelement <8 x float> %x, i64 6
+  %sin6 = tail call float @sinf(float %40)
+  %41 = insertelement <8 x float> %39, float %sin6, i64 6
+  %42 = extractelement <8 x float> %x, i64 7
+  %sin7 = tail call float @sinf(float %42)
+  %43 = insertelement <8 x float> %41, float %sin7, i64 7
+  %44 = select <8 x i1> %sincos_rare, <8 x float> %43, <8 x float> %26
+  br label %sin_join
+
+sin_join:                                         ; preds = %sin_rare, %sin8_entry
+  %sin8 = phi <8 x float> [ %26, %sin8_entry ], [ %44, %sin_rare ]
+  ret <8 x float> %sin8
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
+define <8 x float> @tan8(<8 x float> noundef %x) local_unnamed_addr #1 {
+tan8_entry:
+  %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
+  %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
+  %2 = fcmp une <8 x float> %0, splat (float +inf)
+  %3 = fcmp ogt <8 x float> %0, splat (float 1.000000e+06)
+  %sincos_rare = and <8 x i1> %3, %2
+  %4 = fmul <8 x float> %x, splat (float f0x3F22F983)
+  %5 = tail call <8 x float> @llvm.roundeven.v8f32(<8 x float> %4)
+  %6 = select <8 x i1> %1, <8 x float> %5, <8 x float> zeroinitializer
+  %7 = fptosi <8 x float> %6 to <8 x i32>
+  %8 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0xBFC90FDB), <8 x float> %x)
+  %9 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0x333BBD2E), <8 x float> %8)
+  %10 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %6, <8 x float> splat (float f0x26F72CED), <8 x float> %9)
+  %11 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %10)
+  %12 = fsub <8 x float> splat (float f0x3FC90FDB), %11
+  %13 = and <8 x i32> %7, splat (i32 1)
+  %14 = icmp eq <8 x i32> %13, zeroinitializer
+  %15 = select <8 x i1> %14, <8 x float> %10, <8 x float> %12
+  %16 = fneg <8 x float> %15
+  %17 = and <8 x i32> %7, splat (i32 2)
+  %18 = icmp eq <8 x i32> %17, zeroinitializer
+  %19 = select <8 x i1> %18, <8 x float> %15, <8 x float> %16
+  %20 = add <8 x i32> %7, splat (i32 1)
+  %21 = select <8 x i1> %14, <8 x float> %12, <8 x float> %10
+  %22 = fneg <8 x float> %21
+  %23 = and <8 x i32> %20, splat (i32 2)
+  %24 = icmp eq <8 x i32> %23, zeroinitializer
+  %25 = select <8 x i1> %24, <8 x float> %21, <8 x float> %22
+  %26 = fmul <8 x float> %19, %19
+  %27 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %26, <8 x float> splat (float f0x362ED56C), <8 x float> splat (float f0xB94FB695))
+  %28 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %26, <8 x float> %27, <8 x float> splat (float f0x3C088759))
+  %29 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %26, <8 x float> %28, <8 x float> splat (float f0xBE2AAAA5))
+  %30 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %26, <8 x float> %29, <8 x float> splat (float 1.000000e+00))
+  %31 = fmul <8 x float> %19, %30
+  %32 = fmul <8 x float> %25, %25
+  %33 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> splat (float f0x362ED56C), <8 x float> splat (float f0xB94FB695))
+  %34 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> %33, <8 x float> splat (float f0x3C088759))
+  %35 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> %34, <8 x float> splat (float f0xBE2AAAA5))
+  %36 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %32, <8 x float> %35, <8 x float> splat (float 1.000000e+00))
+  %37 = fmul <8 x float> %25, %36
+  %38 = select <8 x i1> %2, <8 x float> %31, <8 x float> splat (float +qnan)
+  %39 = select <8 x i1> %2, <8 x float> %37, <8 x float> splat (float +qnan)
+  %40 = fdiv <8 x float> %38, %39
+  %41 = bitcast <8 x i1> %sincos_rare to i8
+  %.not9 = icmp eq i8 %41, 0
+  br i1 %.not9, label %tan_join, label %tan_rare, !prof !0
+
+tan_rare:                                         ; preds = %tan8_entry
+  %42 = extractelement <8 x float> %x, i64 0
+  %tan = tail call float @tanf(float %42)
+  %43 = insertelement <8 x float> poison, float %tan, i64 0
+  %44 = extractelement <8 x float> %x, i64 1
+  %tan1 = tail call float @tanf(float %44)
+  %45 = insertelement <8 x float> %43, float %tan1, i64 1
+  %46 = extractelement <8 x float> %x, i64 2
+  %tan2 = tail call float @tanf(float %46)
+  %47 = insertelement <8 x float> %45, float %tan2, i64 2
+  %48 = extractelement <8 x float> %x, i64 3
+  %tan3 = tail call float @tanf(float %48)
+  %49 = insertelement <8 x float> %47, float %tan3, i64 3
+  %50 = extractelement <8 x float> %x, i64 4
+  %tan4 = tail call float @tanf(float %50)
+  %51 = insertelement <8 x float> %49, float %tan4, i64 4
+  %52 = extractelement <8 x float> %x, i64 5
+  %tan5 = tail call float @tanf(float %52)
+  %53 = insertelement <8 x float> %51, float %tan5, i64 5
+  %54 = extractelement <8 x float> %x, i64 6
+  %tan6 = tail call float @tanf(float %54)
+  %55 = insertelement <8 x float> %53, float %tan6, i64 6
+  %56 = extractelement <8 x float> %x, i64 7
+  %tan7 = tail call float @tanf(float %56)
+  %57 = insertelement <8 x float> %55, float %tan7, i64 7
+  %58 = select <8 x i1> %sincos_rare, <8 x float> %57, <8 x float> %40
+  br label %tan_join
+
+tan_join:                                         ; preds = %tan_rare, %tan8_entry
+  %tan8 = phi <8 x float> [ %40, %tan8_entry ], [ %58, %tan_rare ]
+  ret <8 x float> %tan8
+}
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.copysign.v8f32(<8 x float>, <8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.roundeven.v8f32(<8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
+declare float @cosf(float) local_unnamed_addr #3
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.maxnum.v8f32(<8 x float>, <8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x float> @llvm.minnum.v8f32(<8 x float>, <8 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x double> @llvm.maxnum.v4f64(<4 x double>, <4 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x double> @llvm.minnum.v4f64(<4 x double>, <4 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x double> @llvm.roundeven.v4f64(<4 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x double> @llvm.fma.v4f64(<4 x double>, <4 x double>, <4 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x double> @llvm.fabs.v4f64(<4 x double>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
+declare double @sin(double) local_unnamed_addr #3
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x double> @llvm.fabs.v8f64(<8 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x double> @llvm.fma.v8f64(<8 x double>, <8 x double>, <8 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x double> @llvm.maxnum.v8f64(<8 x double>, <8 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x double> @llvm.minnum.v8f64(<8 x double>, <8 x double>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x double> @llvm.roundeven.v8f64(<8 x double>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
+declare float @sinf(float) local_unnamed_addr #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
+declare float @tanf(float) local_unnamed_addr #3
+
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <8 x double> @llvm.trunc.v8f64(<8 x double>) #4
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write) }
+attributes #4 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{!"branch_weights", i32 1048576, i32 1}

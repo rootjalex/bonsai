@@ -1,0 +1,148 @@
+//! flags: -p ssa -b llvm -e
+
+// Division by a constant using multiplication, run (see
+// SSA/InvariantDivision.h).
+//
+// Each function divides its argument by the constants the method has cases
+// for -- one and minus one, powers of two of both signs, divisors whose
+// multiplier fits the word and divisors whose multiplier needs the round-up
+// form, a divisor above 2^(N-1), all ones, and the most negative value -- and
+// every dividend in the tables goes through each. Every number in the golden
+// was computed independently, by Python's arbitrary-precision integers with
+// C's truncation toward zero, and not by running this: a multiplier one off
+// gives a quotient wrong for some dividends and right for others, which is
+// the kind of answer that looks right. The most negative dividend is left out
+// of the signed tables, since dividing it by minus one has no answer in two's
+// complement.
+
+func by_u32(n : u32) -> void {
+    print(n / 1u);
+    print(n % 1u);
+    print(n / 3u);
+    print(n % 3u);
+    print(n / 7u);
+    print(n % 7u);
+    print(n / 8u);
+    print(n % 8u);
+    print(n / 10u);
+    print(n % 10u);
+    print(n / 641u);
+    print(n % 641u);
+    print(n / 65537u);
+    print(n % 65537u);
+    print(n / 2147483648u);
+    print(n % 2147483648u);
+    print(n / 2147483649u);
+    print(n % 2147483649u);
+    print(n / 4294967295u);
+    print(n % 4294967295u);
+    return;
+}
+
+func by_i32(n : i32) -> void {
+    print(n / 1);
+    print(n % 1);
+    print(n / -1);
+    print(n % -1);
+    print(n / 3);
+    print(n % 3);
+    print(n / -3);
+    print(n % -3);
+    print(n / 7);
+    print(n % 7);
+    print(n / -7);
+    print(n % -7);
+    print(n / 8);
+    print(n % 8);
+    print(n / -8);
+    print(n % -8);
+    print(n / 10);
+    print(n % 10);
+    print(n / -641);
+    print(n % -641);
+    print(n / 65537);
+    print(n % 65537);
+    print(n / 2147483647);
+    print(n % 2147483647);
+    print(n / -2147483648);
+    print(n % -2147483648);
+    return;
+}
+
+func by_u64(n : u64) -> void {
+    print(n / 3u);
+    print(n % 3u);
+    print(n / 7u);
+    print(n % 7u);
+    print(n / 10u);
+    print(n % 10u);
+    print(n / 641u);
+    print(n % 641u);
+    print(n / 4294967296u);
+    print(n % 4294967296u);
+    print(n / 4294967297u);
+    print(n % 4294967297u);
+    print(n / 9223372036854775808u);
+    print(n % 9223372036854775808u);
+    print(n / 9223372036854775809u);
+    print(n % 9223372036854775809u);
+    print(n / 18446744073709551615u);
+    print(n % 18446744073709551615u);
+    return;
+}
+
+func by_i64(n : i64) -> void {
+    print(n / 3);
+    print(n % 3);
+    print(n / -3);
+    print(n % -3);
+    print(n / 7);
+    print(n % 7);
+    print(n / 10);
+    print(n % 10);
+    print(n / -641);
+    print(n % -641);
+    print(n / 2147483648);
+    print(n % 2147483648);
+    print(n / -4294967296);
+    print(n % -4294967296);
+    print(n / 9223372036854775807);
+    print(n % 9223372036854775807);
+    print(n / cast[[i64]](9223372036854775808u));
+    print(n % cast[[i64]](9223372036854775808u));
+    return;
+}
+
+// A dividend known to stay below twice the divisor, which is divided by a
+// comparison rather than a multiply (see upper_bound in
+// SSA/InvariantDivision.cpp): pbrt's next axis, for every axis.
+func rotate(k : u32) -> u32 = ((k & 3u) + 1u) % 3u;
+func rotate_quotient(k : i32) -> i32 = ((k & 3) + 1) / 3;
+
+func main() -> i32 {
+    for k in 0:8 {
+        print(rotate(cast[[u32]](k)));
+        print(rotate_quotient(k));
+    }
+    ns32 : array[u32, 8] = {0u, 1u, 7u, 65536u, 1000003u, 2147483647u,
+                            2147483648u, 4294967295u};
+    for i in 0:8 {
+        by_u32(ns32[i]);
+    }
+    is32 : array[i32, 10] = {0, 1, -1, 7, -7, 65536, -65536, 1000003,
+                             2147483647, -2147483647};
+    for i in 0:10 {
+        by_i32(is32[i]);
+    }
+    ns64 : array[u64, 8] = {0u, 1u, 7u, 1000003u, 4294967295u, 4294967296u,
+                            9223372036854775807u, 18446744073709551615u};
+    for i in 0:8 {
+        by_u64(ns64[i]);
+    }
+    is64 : array[i64, 10] = {0, 1, -1, 7, -7, 1000003, -1000003, 2147483647,
+                             9223372036854775807, -9223372036854775807};
+    for i in 0:10 {
+        by_i64(is64[i]);
+    }
+    return 0;
+}

@@ -153,7 +153,9 @@ ir::Type replace(const ir::TypeMap &repls, const ir::Type &type);
 // Automatic fusion if `func` is a lambda, otherwise just makes a Call node.
 ir::Expr call(ir::Expr func, ir::Expr arg);
 
-bool is_power_of_two(int32_t x);
+// Whether `x` is a power of two: one bit set. Zero is not one -- and a
+// 64-bit constant is judged whole, not by its low word.
+bool is_power_of_two(uint64_t x);
 int32_t next_power_of_two(int32_t x);
 
 size_t find_struct_index(const std::string &field,

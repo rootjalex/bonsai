@@ -13,7 +13,7 @@ func compares() -> bool {
 }
 
 func fizz(x : i32, y : i32, c1 : bool, c2 : bool) -> i32 {
-  let c = x & 31 in
+  let c = x % 32 in
   let d = y % 33 in
   let e = x in
   return (c + d) + e

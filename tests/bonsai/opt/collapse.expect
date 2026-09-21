@@ -43,8 +43,20 @@ func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
 func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
   alloc _alloc2 : mut f32[32 * 8]
   parfor i_b in [0:256:1] {
-    let @7 = i_b / 8 in
-    let @8 = i_b % 8 in
+    let @9 = i_b >> 31 in
+    let @10 = reinterpret_cast<u32>(@9) in
+    let @11 = @10 >> 29u in
+    let @12 = reinterpret_cast<i32>(@11) in
+    let @13 = i_b + @12 in
+    let @7 = @13 >> 3 in
+    let @14 = i_b >> 31 in
+    let @15 = reinterpret_cast<u32>(@14) in
+    let @16 = @15 >> 29u in
+    let @17 = reinterpret_cast<i32>(@16) in
+    let @18 = i_b + @17 in
+    let @19 = @18 >> 3 in
+    let @20 = @19 * 8 in
+    let @8 = i_b - @20 in
     let _i0 = @7 in
     let _i1 = @8 in
     let @0 = a[_i0] in
@@ -89,12 +101,29 @@ func _traverse_array4(w : i32) -> i32[w] {
   alloc _alloc4 : mut i32[w]
   let @4 = w + 4 in
   let @5 = @4 - 1 in
-  let @6 = @5 / 4 in
+  let @11 = @5 >> 31 in
+  let @12 = reinterpret_cast<u32>(@11) in
+  let @13 = @12 >> 30u in
+  let @14 = reinterpret_cast<i32>(@13) in
+  let @15 = @5 + @14 in
+  let @6 = @15 >> 2 in
   let @7 = @6 * 4 in
   parfor i in [0:@7:1] {
-    let @8 = i / 4 in
+    let @16 = i >> 31 in
+    let @17 = reinterpret_cast<u32>(@16) in
+    let @18 = @17 >> 30u in
+    let @19 = reinterpret_cast<i32>(@18) in
+    let @20 = i + @19 in
+    let @8 = @20 >> 2 in
     let @9 = @8 * 4 in
-    let @10 = i % 4 in
+    let @21 = i >> 31 in
+    let @22 = reinterpret_cast<u32>(@21) in
+    let @23 = @22 >> 30u in
+    let @24 = reinterpret_cast<i32>(@23) in
+    let @25 = i + @24 in
+    let @26 = @25 >> 2 in
+    let @27 = @26 * 4 in
+    let @10 = i - @27 in
     let io = @9 in
     let ii = @10 in
     let @3 = io + ii in

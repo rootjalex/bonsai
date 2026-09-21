@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm
+
+// libm's transcendental functions on a vector, built inline (see
+// CodeGen/VectorMath.h) rather than called: what a gang's `sin` and a
+// spectrum's four `atanh` become. Pinned to a generic machine, as every
+// golden here is; the code is the same on every target, which is the point.
+//
+// What to read for in the golden:
+//
+//   * No call to libm's or libmvec's vector entry points appears -- no
+//     `sinf`, no `_ZGV*` -- except the one in each of `sin8`, `cos8` and
+//     `tan8`, on the path named `*_rare`: a lane past the range reduction
+//     (|x| > 1e6) is taken by the scalar function, behind a branch the gang
+//     takes only if some lane needs it (an `or` reduction of the rare
+//     mask). Nothing else has such a path.
+//   * `exp8` is a `roundeven`, two `fma` for the residual, a shift into the
+//     exponent field, a polynomial of `fma`s and two selects for NaN and
+//     overflow; `log8` reads the exponent and mantissa with an `ashr` and an
+//     `and`, divides two polynomials and puts zero, negatives and infinity
+//     back with selects.
+//   * `asin8` and `acos8` share one polynomial and a `sqrt`; `atan2_8`
+//     is one `fdiv` and one polynomial with the quadrant chosen by selects
+//     and the sign by `copysign`.
+//   * `pow8` works in `<8 x double>`: `fpext`, the exponential of the
+//     logarithm, `fptrunc`.
+//   * `double_sin4` and `double_exp4` are the same code in double, with the
+//     double coefficients.
+
+element f32x8 = vector[f32, 8];
+element f64x4 = vector[f64, 4];
+
+func [[export]] sin8(x : f32x8) -> f32x8 = sin(x);
+func [[export]] cos8(x : f32x8) -> f32x8 = cos(x);
+func [[export]] tan8(x : f32x8) -> f32x8 = tan(x);
+func [[export]] exp8(x : f32x8) -> f32x8 = exp(x);
+func [[export]] log8(x : f32x8) -> f32x8 = log(x);
+func [[export]] asin8(x : f32x8) -> f32x8 = asin(x);
+func [[export]] acos8(x : f32x8) -> f32x8 = acos(x);
+func [[export]] atan2_8(y : f32x8, x : f32x8) -> f32x8 = atan2(y, x);
+func [[export]] atanh8(x : f32x8) -> f32x8 = atanh(x);
+func [[export]] cosh8(x : f32x8) -> f32x8 = cosh(x);
+func [[export]] pow8(x : f32x8, y : f32x8) -> f32x8 = pow(x, y);
+
+func [[export]] double_sin4(x : f64x4) -> f64x4 = sin(x);
+func [[export]] double_exp4(x : f64x4) -> f64x4 = exp(x);

@@ -1,7 +1,19 @@
 func grid(out : mut i32[12]) -> void {
   parfor c in [0:12:1] {
-    let @5 = c / 4 in
-    let @6 = c % 4 in
+    let @7 = c >> 31 in
+    let @8 = reinterpret_cast<u32>(@7) in
+    let @9 = @8 >> 30u in
+    let @10 = reinterpret_cast<i32>(@9) in
+    let @11 = c + @10 in
+    let @5 = @11 >> 2 in
+    let @12 = c >> 31 in
+    let @13 = reinterpret_cast<u32>(@12) in
+    let @14 = @13 >> 30u in
+    let @15 = reinterpret_cast<i32>(@14) in
+    let @16 = c + @15 in
+    let @17 = @16 >> 2 in
+    let @18 = @17 * 4 in
+    let @6 = c - @18 in
     let y = @5 in
     let x = @6 in
     let @0 = y * 100 in

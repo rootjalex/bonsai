@@ -40,18 +40,32 @@ mulhi_i64_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <4 x i64> @mulhi_i64x4(<4 x i64> noundef %a, <4 x i64> noundef %b) local_unnamed_addr #0 {
 mulhi_i64x4_entry:
-  %0 = zext <4 x i64> %a to <4 x i128>
-  %1 = zext <4 x i64> %b to <4 x i128>
-  %2 = mul nuw <4 x i128> %1, %0
-  %3 = lshr <4 x i128> %2, splat (i128 64)
-  %mulhi_unsigned = trunc nuw <4 x i128> %3 to <4 x i64>
-  %isneg = icmp slt <4 x i64> %a, zeroinitializer
-  %4 = select <4 x i1> %isneg, <4 x i64> %b, <4 x i64> zeroinitializer
-  %isneg1 = icmp slt <4 x i64> %b, zeroinitializer
-  %5 = select <4 x i1> %isneg1, <4 x i64> %a, <4 x i64> zeroinitializer
+  %mulhi_al = and <4 x i64> %b, splat (i64 4294967295)
+  %mulhi_ah = lshr <4 x i64> %b, splat (i64 32)
+  %mulhi_bl = and <4 x i64> %a, splat (i64 4294967295)
+  %mulhi_bh = lshr <4 x i64> %a, splat (i64 32)
+  %mulhi_ll = mul <4 x i64> %mulhi_al, %mulhi_bl
+  %mulhi_hl = mul <4 x i64> %mulhi_ah, %mulhi_bl
+  %mulhi_lh = mul <4 x i64> %mulhi_al, %mulhi_bh
+  %mulhi_hh = mul <4 x i64> %mulhi_ah, %mulhi_bh
+  %0 = and <4 x i64> %mulhi_lh, splat (i64 4294967295)
+  %1 = and <4 x i64> %mulhi_hl, splat (i64 4294967295)
+  %2 = lshr <4 x i64> %mulhi_ll, splat (i64 32)
+  %3 = add <4 x i64> %2, %1
+  %mulhi_mid = add <4 x i64> %3, %0
+  %4 = lshr <4 x i64> %mulhi_mid, splat (i64 32)
+  %5 = lshr <4 x i64> %mulhi_lh, splat (i64 32)
   %6 = add <4 x i64> %5, %4
-  %mulhi = sub <4 x i64> %mulhi_unsigned, %6
-  ret <4 x i64> %mulhi
+  %7 = lshr <4 x i64> %mulhi_hl, splat (i64 32)
+  %8 = add <4 x i64> %mulhi_hh, %7
+  %mulhi_unsigned = add <4 x i64> %8, %6
+  %mulhi_sa = ashr <4 x i64> %b, splat (i64 63)
+  %mulhi_sb = ashr <4 x i64> %a, splat (i64 63)
+  %9 = and <4 x i64> %mulhi_sa, %a
+  %10 = sub <4 x i64> %mulhi_unsigned, %9
+  %11 = and <4 x i64> %mulhi_sb, %b
+  %mulhi1 = sub <4 x i64> %10, %11
+  ret <4 x i64> %mulhi1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
@@ -90,12 +104,26 @@ mulhi_u64_entry:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i64 0, -1) <4 x i64> @mulhi_u64x4(<4 x i64> noundef %a, <4 x i64> noundef %b) local_unnamed_addr #0 {
 mulhi_u64x4_entry:
-  %0 = zext <4 x i64> %a to <4 x i128>
-  %1 = zext <4 x i64> %b to <4 x i128>
-  %2 = mul nuw <4 x i128> %1, %0
-  %3 = lshr <4 x i128> %2, splat (i128 64)
-  %mulhi = trunc nuw <4 x i128> %3 to <4 x i64>
-  ret <4 x i64> %mulhi
+  %mulhi_al = and <4 x i64> %b, splat (i64 4294967295)
+  %mulhi_ah = lshr <4 x i64> %b, splat (i64 32)
+  %mulhi_bl = and <4 x i64> %a, splat (i64 4294967295)
+  %mulhi_bh = lshr <4 x i64> %a, splat (i64 32)
+  %mulhi_ll = mul <4 x i64> %mulhi_al, %mulhi_bl
+  %mulhi_hl = mul <4 x i64> %mulhi_ah, %mulhi_bl
+  %mulhi_lh = mul <4 x i64> %mulhi_al, %mulhi_bh
+  %mulhi_hh = mul <4 x i64> %mulhi_ah, %mulhi_bh
+  %0 = and <4 x i64> %mulhi_lh, splat (i64 4294967295)
+  %1 = and <4 x i64> %mulhi_hl, splat (i64 4294967295)
+  %2 = lshr <4 x i64> %mulhi_ll, splat (i64 32)
+  %3 = add <4 x i64> %2, %1
+  %mulhi_mid = add <4 x i64> %3, %0
+  %4 = lshr <4 x i64> %mulhi_mid, splat (i64 32)
+  %5 = lshr <4 x i64> %mulhi_lh, splat (i64 32)
+  %6 = add <4 x i64> %5, %4
+  %7 = lshr <4 x i64> %mulhi_hl, splat (i64 32)
+  %8 = add <4 x i64> %mulhi_hh, %7
+  %mulhi1 = add <4 x i64> %8, %6
+  ret <4 x i64> %mulhi1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)

@@ -1,0 +1,137 @@
+func axes(d : f32x3) -> u32 {
+  let @0 = abs(d) in
+  let kz = reduce<idxmax>(@0) in
+  let @2 = kz + 1u in
+  let @8 = @2 < 3u in
+  let @9 = @2 - 3u in
+  let _t5 = select(@8, @2, @9) in
+  let @4 = _t5 + 1u in
+  let @10 = @4 < 3u in
+  let @11 = @4 - 3u in
+  let ky = select(@10, @4, @11) in
+  let @6 = _t5 * 3u in
+  let @7 = @6 + ky in
+  return @7
+}
+
+func by_eight(n : u32) -> u32 {
+  let @0 = n >> 3u in
+  return @0
+}
+
+func by_one(n : u32) -> u32 {
+  return n
+}
+
+func by_seven(n : u32) -> u32 {
+  let @1 = mulhi(n, 613566757u) in
+  let @2 = n - @1 in
+  let @3 = @2 >> 1u in
+  let @4 = @3 + @1 in
+  let @0 = @4 >> 2u in
+  return @0
+}
+
+func by_ten(n : u32) -> u32 {
+  let @1 = mulhi(n, 3435973837u) in
+  let @0 = @1 >> 3u in
+  return @0
+}
+
+func next_axis(z : f32, y : f32) -> i32 {
+  let @0 = y < z in
+  let @1 = 0f < y in
+  let @2 = cast<i32>(@1) in
+  let kz = select(@0, 2, @2) in
+  let @4 = kz + 1 in
+  let @6 = @4 < 3 in
+  let @7 = @4 - 3 in
+  let @5 = select(@6, @4, @7) in
+  return @5
+}
+
+func rem_eight(n : u32) -> u32 {
+  let @0 = n & 7u in
+  return @0
+}
+
+func rem_seven(n : u32) -> u32 {
+  let @1 = mulhi(n, 613566757u) in
+  let @2 = n - @1 in
+  let @3 = @2 >> 1u in
+  let @4 = @3 + @1 in
+  let @5 = @4 >> 2u in
+  let @6 = @5 * 7u in
+  let @0 = n - @6 in
+  return @0
+}
+
+func rotate(k : u32) -> u32 {
+  let @0 = k & 3u in
+  let @1 = @0 + 1u in
+  let @3 = @1 < 3u in
+  let @4 = @1 - 3u in
+  let @2 = select(@3, @1, @4) in
+  return @2
+}
+
+func signed_minus_eight(n : i32) -> i32 {
+  let @1 = n >> 31 in
+  let @2 = reinterpret_cast<u32>(@1) in
+  let @3 = @2 >> 29u in
+  let @4 = reinterpret_cast<i32>(@3) in
+  let @5 = n + @4 in
+  let @6 = @5 >> 3 in
+  let @0 = 0 - @6 in
+  return @0
+}
+
+func signed_minus_one(n : i32) -> i32 {
+  let @0 = 0 - n in
+  return @0
+}
+
+func signed_rem_seven(n : i32) -> i32 {
+  let @1 = mulhi(n, -1840700269) in
+  let @2 = @1 + n in
+  let @3 = @2 >> 2 in
+  let @4 = @3 >> 31 in
+  let @5 = reinterpret_cast<u32>(@4) in
+  let @6 = @5 >> 31u in
+  let @7 = reinterpret_cast<i32>(@6) in
+  let @8 = @3 + @7 in
+  let @9 = @8 * 7 in
+  let @0 = n - @9 in
+  return @0
+}
+
+func signed_seven(n : i32) -> i32 {
+  let @1 = mulhi(n, -1840700269) in
+  let @2 = @1 + n in
+  let @3 = @2 >> 2 in
+  let @4 = @3 >> 31 in
+  let @5 = reinterpret_cast<u32>(@4) in
+  let @6 = @5 >> 31u in
+  let @7 = reinterpret_cast<i32>(@6) in
+  let @0 = @3 + @7 in
+  return @0
+}
+
+func small(k : u32) -> u32 {
+  let @0 = k & 3u in
+  let @1 = @0 & 0u in
+  return @1
+}
+
+func small_rem(k : u32) -> u32 {
+  let @0 = k & 3u in
+  return @0
+}
+
+func wide(n : u64) -> u64 {
+  let @1 = mulhi(n, 14757395258967641293u) in
+  let @0 = @1 >> 3u in
+  return @0
+}
+
+

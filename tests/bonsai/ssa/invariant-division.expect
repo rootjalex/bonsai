@@ -119,7 +119,7 @@ func quarters(n : u64) -> u64 {
     let @5 = @2 + @4 in
     total = @5
     let @6 = (*v) in
-    let @7 = @6 / 4u in
+    let @7 = @6 >> 2u in
     v = @7
   }
   let @8 = (*total) in

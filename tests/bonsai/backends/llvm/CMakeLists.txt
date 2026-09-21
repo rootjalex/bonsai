@@ -10,6 +10,7 @@ add_bonsai_tests(
     defer.bonsai
     defer-gang.bonsai
     demote-atomics.bonsai
+    divide_by_constant.bonsai
     dynamic-array.bonsai
     exported-function.bonsai
     ffp-contract.bonsai
@@ -50,9 +51,12 @@ add_bonsai_tests(
     vectorize_call_guard.bonsai
     vectorize_calls.bonsai
     vectorize_divergent.bonsai
+    vectorize_division.bonsai
     vectorize_gather.bonsai
     vectorize_loop.bonsai
     vectorize_masked_accumulate.bonsai
+    vectorize_masked_math_call.bonsai
+    vector_math.bonsai
     vectorize_packet_traversal.bonsai
     vectorize_scale.bonsai
     vectorize_short_vectors.bonsai
@@ -61,4 +65,5 @@ add_bonsai_tests(
     vectorize_skip_cursor.bonsai
     vectorize_union.bonsai
     vectorize_varying_memory.bonsai
+    vectorize_vector_index.bonsai
 )

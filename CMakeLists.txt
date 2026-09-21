@@ -120,6 +120,8 @@ target_sources(
     src/CodeGen/CodeGen_LLVM.cpp
     src/CodeGen/CodeGen_LLVM_SSA.cpp
     src/CodeGen/CodeGen_X86.cpp
+    src/CodeGen/ExpandVectorMulHigh.cpp
+    src/CodeGen/VectorMath.cpp
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
@@ -229,6 +231,8 @@ target_sources(
     include/CodeGen/CodeGen_CUDA.h
     include/CodeGen/CodeGen_LLVM.h
     include/CodeGen/CodeGen_X86.h
+    include/CodeGen/ExpandVectorMulHigh.h
+    include/CodeGen/VectorMath.h
     include/CodeGen/CPP.h
     include/CodeGen/JIT.h
     include/CompilerOptions.h

@@ -425,7 +425,7 @@ Expr call(Expr func, Expr arg) {
     return Call::make(std::move(func), {std::move(arg)});
 }
 
-bool is_power_of_two(int32_t x) { return (x & (x - 1)) == 0; }
+bool is_power_of_two(uint64_t x) { return x != 0 && (x & (x - 1)) == 0; }
 
 int32_t next_power_of_two(int32_t x) {
     return static_cast<int32_t>(1)

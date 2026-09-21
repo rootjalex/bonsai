@@ -1,0 +1,29 @@
+//! flags: -p ssa -b llvm
+
+// Division by a constant as the LLVM backend receives it: multiplies and
+// shifts from SSA/InvariantDivision.h, never a division, for scalars and
+// for vectors of lanes alike.
+//
+// What to read for in the golden:
+//
+//   * No `udiv`, `sdiv`, `urem` or `srem` anywhere in the module.
+//   * `by_seven16` is a `<16 x i32>` multiply-high -- a widening `mul` on
+//     `<16 x i64>`, shifted and truncated, which x86 does as pmuludq --
+//     and shifts; `wide_by_ten8`, on `<8 x i64>`, is the 32-bit ladder
+//     CodeGen/ExpandVectorMulHigh.h leaves for a 64-bit lane. LLVM on its
+//     own turns a `udiv <8 x i64>` by a constant into eight scalar divides.
+//   * `signed_seven16` adds n back to the high product and adds the sign
+//     bit at the end, the truncating form.
+
+element u32x16 = vector[u32, 16];
+element i32x16 = vector[i32, 16];
+element u64x8 = vector[u64, 8];
+
+func [[export]] by_seven(n : u32) -> u32 = n / 7u;
+func [[export]] rem_seven(n : u32) -> u32 = n % 7u;
+func [[export]] signed_seven(n : i32) -> i32 = n / 7;
+func [[export]] by_seven16(n : u32x16) -> u32x16 = n / 7u;
+func [[export]] rem_ten16(n : u32x16) -> u32x16 = n % 10u;
+func [[export]] signed_seven16(n : i32x16) -> i32x16 = n / 7;
+func [[export]] signed_minus_eight16(n : i32x16) -> i32x16 = n / -8;
+func [[export]] wide_by_ten8(n : u64x8) -> u64x8 = n / 10u;

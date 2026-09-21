@@ -1,0 +1,37 @@
+//! flags: -p ssa -b llvm
+
+// A call into the math library made by some lanes of a gang only (see
+// SSA/Linearize.cpp, "A call into the math library"), as the LLVM backend
+// sees it.
+//
+// What to read for in the golden:
+//
+//   * In `angles` the `llvm.sin.v8f32` is called on
+//     `select <8 x i1> %mask, <8 x float> %x, splat 1.0`, and `atanhf`'s
+//     vector form on a select against `splat 0.0`; `llvm.sqrt.v8f32` is
+//     called on the lanes as they are.
+//   * `unmasked` calls `llvm.cos.v8f32` on its operand as it is.
+
+func [[export]] angles(x : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        if (x[i] > 0.0) {
+            y = x[i] * 0.5;
+            out[i] = sin(x[i]) + atanh(y) + sqrt(x[i]);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+func [[export]] unmasked(x : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = cos(x[i]);
+    }
+    return;
+}
+
+schedule {
+    angles.vectorize(i);
+    unmasked.vectorize(i);
+}

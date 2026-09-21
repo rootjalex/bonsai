@@ -28,6 +28,9 @@
 #include <llvm/Transforms/Instrumentation/SanitizerCoverage.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Transforms/Utils/RelLookupTableConverter.h>
+
+#include "CodeGen/ExpandVectorMulHigh.h"
+#include "CodeGen/VectorMath.h"
 // #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/Scalar/Reassociate.h>
@@ -803,6 +806,15 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
         }
     }
 
+    // After LLVM's own passes, which would otherwise fold the expansion back
+    // (see CodeGen/ExpandVectorMulHigh.h).
+    pb.registerOptimizerLastEPCallback(
+        [](llvm::ModulePassManager &mpm, OptimizationLevel,
+           llvm::ThinOrFullLTOPhase) {
+            mpm.addPass(
+                llvm::createModuleToFunctionPassAdaptor(ExpandVectorMulHigh()));
+        });
+
     tm.registerPassBuilderCallbacks(pb);
     (void)debug_pass_manager;
     mpm = pb.buildPerModuleDefaultPipeline(level);
@@ -1258,7 +1270,12 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             return;
         }
         case BinOp::Neq: {
-            value = builder->CreateFCmpONE(a, b);
+            // Unordered, as C's `!=` is: the negation of `==`, so true when
+            // either side is a NaN. The ordered form said a NaN was equal to
+            // itself as far as `!=` could tell, where `==` said it was not,
+            // and `x != x` -- the one NaN test a program without isnan can
+            // write -- was never true.
+            value = builder->CreateFCmpUNE(a, b);
             return;
         }
         default: {
@@ -1279,8 +1296,12 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             return;
         }
         case BinOp::Div: {
-            // TODO: is this the correct behavior we want?
-            value = builder->CreateSDiv(a, b);
+            // Truncating toward zero, as C's does.
+            value = vector_int_division(a, b, /*is_signed=*/true,
+                                        /*remainder=*/false);
+            if (value == nullptr) {
+                value = builder->CreateSDiv(a, b);
+            }
             return;
         }
         case BinOp::Sub: {
@@ -1288,8 +1309,12 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             return;
         }
         case BinOp::Mod: {
-            // signed remainder
-            value = builder->CreateSRem(a, b);
+            // The remainder of that division, with the dividend's sign.
+            value = vector_int_division(a, b, /*is_signed=*/true,
+                                        /*remainder=*/true);
+            if (value == nullptr) {
+                value = builder->CreateSRem(a, b);
+            }
             return;
         }
         case BinOp::Le: {
@@ -1347,8 +1372,11 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             return;
         }
         case BinOp::Div: {
-            // Use unsigned division for unsigned integers
-            value = builder->CreateUDiv(a, b);
+            value = vector_int_division(a, b, /*is_signed=*/false,
+                                        /*remainder=*/false);
+            if (value == nullptr) {
+                value = builder->CreateUDiv(a, b);
+            }
             return;
         }
         case BinOp::Sub: {
@@ -1356,8 +1384,11 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             return;
         }
         case BinOp::Mod: {
-            // unsigned remainder
-            value = builder->CreateURem(a, b);
+            value = vector_int_division(a, b, /*is_signed=*/false,
+                                        /*remainder=*/true);
+            if (value == nullptr) {
+                value = builder->CreateURem(a, b);
+            }
             return;
         }
         case BinOp::Le: {
@@ -2734,64 +2765,30 @@ llvm::Value *CodeGen_LLVM::multiply_high(llvm::Value *a, llvm::Value *b,
     auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t);
     const unsigned bits = t->getScalarType()->getIntegerBitWidth();
 
-    if (bits < 64 || vt == nullptr) {
-        // Widen, multiply, keep the top half. On x86 the scalar 64-bit form
-        // is the one-instruction widening multiply (mul or imul r64) and the
-        // 32-bit vector form is vpmuludq or vpmuldq, which LLVM recognises
-        // from exactly this shape.
-        llvm::Type *wide_scalar = llvm::Type::getIntNTy(*context, 2 * bits);
-        llvm::Type *wide =
-            vt ? static_cast<llvm::Type *>(
-                     llvm::FixedVectorType::get(wide_scalar, vt->getNumElements()))
-               : wide_scalar;
-        llvm::Value *wa = is_signed ? builder->CreateSExt(a, wide)
-                                    : builder->CreateZExt(a, wide);
-        llvm::Value *wb = is_signed ? builder->CreateSExt(b, wide)
-                                    : builder->CreateZExt(b, wide);
-        llvm::Value *product = builder->CreateMul(wa, wb, name + "_wide");
-        llvm::Value *high = builder->CreateLShr(
-            product, llvm::ConstantInt::get(wide, bits), name + "_high");
-        return builder->CreateTrunc(high, t, name);
-    }
-
-    // A vector of 64-bit lanes. No vector instruction multiplies 64 by 64
-    // to 128, and LLVM scalarizes a vector of i128 products into eight
-    // scalar ones with the extracts and inserts around them, so the high
-    // half is assembled here from the 32-by-32-to-64 products the machine
-    // does have (vpmuludq), the way a long multiplication is done by hand:
-    // with a = ah*2^32 + al and b = bh*2^32 + bl, the top 64 bits of a*b
-    // are ah*bh plus the carries out of the two cross terms and the low
-    // product. Each partial sum below fits in 64 bits.
-    llvm::Constant *mask32 = llvm::ConstantInt::get(t, 0xffffffffULL);
-    llvm::Constant *c32 = llvm::ConstantInt::get(t, 32);
-    llvm::Value *al = builder->CreateAnd(a, mask32, name + "_al");
-    llvm::Value *ah = builder->CreateLShr(a, c32, name + "_ah");
-    llvm::Value *bl = builder->CreateAnd(b, mask32, name + "_bl");
-    llvm::Value *bh = builder->CreateLShr(b, c32, name + "_bh");
-    llvm::Value *ll = builder->CreateMul(al, bl, name + "_ll");
-    llvm::Value *hl = builder->CreateMul(ah, bl, name + "_hl");
-    llvm::Value *lh = builder->CreateMul(al, bh, name + "_lh");
-    llvm::Value *hh = builder->CreateMul(ah, bh, name + "_hh");
-    llvm::Value *mid = builder->CreateAdd(
-        builder->CreateAdd(builder->CreateLShr(ll, c32),
-                           builder->CreateAnd(hl, mask32)),
-        builder->CreateAnd(lh, mask32), name + "_mid");
-    llvm::Value *high = builder->CreateAdd(
-        builder->CreateAdd(hh, builder->CreateLShr(hl, c32)),
-        builder->CreateAdd(builder->CreateLShr(lh, c32),
-                           builder->CreateLShr(mid, c32)),
-        is_signed ? name + "_unsigned" : name);
-    if (!is_signed) {
-        return high;
-    }
-    // The signed high half from the unsigned one: a negative a stands for
-    // a - 2^64, whose product with b is a*b - b*2^64, so the high word loses
-    // b; likewise a for a negative b.
-    llvm::Constant *c63 = llvm::ConstantInt::get(t, 63);
-    llvm::Value *sa = builder->CreateAShr(a, c63, name + "_sa");
-    llvm::Value *sb = builder->CreateAShr(b, c63, name + "_sb");
-    high = builder->CreateSub(high, builder->CreateAnd(sa, b));
-    return builder->CreateSub(high, builder->CreateAnd(sb, a), name);
+    // Widen, multiply, keep the top half. On x86 the scalar 64-bit form is
+    // the one-instruction widening multiply (mul or imul r64) and the 32-bit
+    // vector form is vpmuludq or vpmuldq, which LLVM recognises from exactly
+    // this shape. A *vector* of 64-bit lanes has no such instruction -- its
+    // product would be a vector of i128, legal nowhere -- and is expanded
+    // into 32-by-32-to-64 products at the end of the optimizer instead (see
+    // CodeGen/ExpandVectorMulHigh.h): expanded there and not here because
+    // LLVM's own passes would fold any ladder written here back into this
+    // very shape (AggressiveInstCombine's foldMulHigh, since 23), so the
+    // one place the expansion survives is after them.
+    (void)vt;
+    llvm::Type *wide_scalar = llvm::Type::getIntNTy(*context, 2 * bits);
+    llvm::Type *wide =
+        vt ? static_cast<llvm::Type *>(
+                 llvm::FixedVectorType::get(wide_scalar, vt->getNumElements()))
+           : wide_scalar;
+    llvm::Value *wa =
+        is_signed ? builder->CreateSExt(a, wide) : builder->CreateZExt(a, wide);
+    llvm::Value *wb =
+        is_signed ? builder->CreateSExt(b, wide) : builder->CreateZExt(b, wide);
+    llvm::Value *product = builder->CreateMul(wa, wb, name + "_wide");
+    llvm::Value *high = builder->CreateLShr(
+        product, llvm::ConstantInt::get(wide, bits), name + "_high");
+    return builder->CreateTrunc(high, t, name);
 }
 
 llvm::Value *CodeGen_LLVM::division_multiplier(llvm::Value *d, bool is_signed,
@@ -2874,7 +2871,123 @@ llvm::Value *CodeGen_LLVM::division_multiplier(llvm::Value *d, bool is_signed,
     return builder->CreateAdd(builder->CreateTrunc(quotient, t), one, name);
 }
 
+namespace {
+
+// libm's name for an intrinsic that is one of its functions, and nothing for
+// an intrinsic that is an instruction of the machine.
+const char *math_library_name(Intrinsic::OpType op) {
+    switch (op) {
+    case Intrinsic::acos:
+        return "acos";
+    case Intrinsic::asin:
+        return "asin";
+    case Intrinsic::atanh:
+        return "atanh";
+    case Intrinsic::atan2:
+        return "atan2";
+    case Intrinsic::cos:
+        return "cos";
+    case Intrinsic::cosh:
+        return "cosh";
+    case Intrinsic::exp:
+        return "exp";
+    case Intrinsic::log:
+        return "log";
+    case Intrinsic::pow:
+        return "pow";
+    case Intrinsic::sin:
+        return "sin";
+    case Intrinsic::tan:
+        return "tan";
+    default:
+        return nullptr;
+    }
+}
+
+} // namespace
+
+llvm::Value *CodeGen_LLVM::vector_int_division(llvm::Value *a, llvm::Value *b,
+                                               bool is_signed, bool remainder) {
+    // No machine this compiles for divides a vector of integers: x86 takes an
+    // integer vector division apart into one `div` per lane -- an extract, a
+    // twenty-cycle divide and an insert, sixteen times over for a gang -- and
+    // AArch64 does the same. Every machine divides a vector of doubles in one
+    // instruction, and for lanes of 32 bits or fewer the quotient is exact
+    // that way: for 0 <= a, b < 2^32 the correctly rounded double a/b is
+    // within (a/b) 2^-53 of the truth, which is less than the 1/b that
+    // separates a/b from the next integer on either side unless a/b is that
+    // integer, in which case it is exact; so truncating it toward zero is
+    // the integer quotient. A signed division is the same on magnitudes,
+    // which the conversions carry the signs through. Narrower lanes fit a
+    // float by the same argument. The remainder is a - qb. A zero divisor
+    // makes an infinity the conversion has no value for, as the division it
+    // replaces had none. A divisor known at compile time never gets here:
+    // SSA/InvariantDivision.h has made it multiplies already.
+    //
+    // A division of scalars stays a `div`: one lane, one divide.
+    //
+    // This is what a vector unit has, and it belongs with the x86 code
+    // generator once the backends are split; a GPU lane is a scalar and
+    // never asks.
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(a->getType());
+    if (vt == nullptr || llvm::isa<llvm::Constant>(b)) {
+        return nullptr;
+    }
+    const unsigned bits = vt->getScalarSizeInBits();
+    if (bits > 32) {
+        return nullptr;
+    }
+    llvm::Type *ft = llvm::FixedVectorType::get(bits > 16 ? f64_t : f32_t,
+                                                vt->getNumElements());
+    llvm::Value *fa = is_signed ? builder->CreateSIToFP(a, ft)
+                                : builder->CreateUIToFP(a, ft);
+    llvm::Value *fb = is_signed ? builder->CreateSIToFP(b, ft)
+                                : builder->CreateUIToFP(b, ft);
+    llvm::Value *fq = builder->CreateFDiv(fa, fb);
+    llvm::Value *q = is_signed ? builder->CreateFPToSI(fq, vt, "quotient")
+                               : builder->CreateFPToUI(fq, vt, "quotient");
+    if (!remainder) {
+        return q;
+    }
+    return builder->CreateSub(a, builder->CreateMul(q, b), "remainder");
+}
+
+llvm::Value *
+CodeGen_LLVM::scalar_math_call(const std::string &name,
+                               llvm::ArrayRef<llvm::Value *> args) {
+    internal_assert(!args.empty()) << "libm call " << name << " of nothing";
+    llvm::Type *t = args[0]->getType();
+    internal_assert(t->isFloatTy() || t->isDoubleTy())
+        << "libm has no " << name << " of this type";
+    const std::vector<llvm::Type *> params(args.size(), t);
+    llvm::FunctionCallee callee = module->getOrInsertFunction(
+        t->isFloatTy() ? name + "f" : name,
+        llvm::FunctionType::get(t, params, /*isVarArg=*/false));
+    return builder->CreateCall(callee, args, name);
+}
+
 void CodeGen_LLVM::visit(const Intrinsic *node) {
+    // A vector of lanes computes libm's functions inline (see
+    // CodeGen/VectorMath.h): a gang's `sin`, and a spectrum's four
+    // wavelengths' `atanh`. A scalar keeps calling libm, so that a lane and
+    // pbrt get the same bits from the same function.
+    if (const char *fn = math_library_name(node->op);
+        fn != nullptr && node->type.is<Vector_t>() &&
+        VectorMath::handles(fn, codegen_type(node->type.element_of()))) {
+        std::vector<llvm::Value *> args;
+        args.reserve(node->args.size());
+        for (const Expr &arg : node->args) {
+            args.push_back(codegen_expr(arg));
+        }
+        VectorMath math(*builder,
+                        [this](const std::string &name,
+                               llvm::ArrayRef<llvm::Value *> scalar_args) {
+                            return scalar_math_call(name, scalar_args);
+                        });
+        value = math.call(fn, args);
+        return;
+    }
+
     llvm::Intrinsic::IndependentIntrinsics intrin;
     // llvm.abs for integers requires passing a constant `false` to it.
     bool add_false_arg = false;
