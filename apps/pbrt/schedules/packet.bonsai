@@ -29,9 +29,13 @@ schedule {
     // sixteen 32-bit lanes, the machine's AVX-512 register. `spp` is a
     // runtime count, and vectorize wants a constant gang width, so split
     // peels a width-sixteen inner loop off it first and that is what is
-    // vectorized; a scene whose spp is not a multiple of sixteen is the tail
-    // split's to carry.
-    render.split(s, s_gang, s_lane, 16, false)
+    // vectorized. The `true` asks for the split's tail: a scene whose spp is
+    // not a multiple of sixteen runs its last gang partly full, the guard the
+    // tail puts in front of the body being that gang's mask. Without it the
+    // split runs whole gangs regardless, and a scene at four samples a pixel
+    // silently got sixteen -- the same mean, a quarter of the noise, and a
+    // render that took four times as long as it should have.
+    render.split(s, s_gang, s_lane, 16, true)
           .vectorize(s_lane);
 
     // The gang is made before the traversals below are put on their stacks,

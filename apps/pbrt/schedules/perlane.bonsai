@@ -26,8 +26,9 @@ schedule {
     trace_any.loopify(64);
 
     // Then the gang, which finds the traversal loops already made and widens
-    // them: a divergent loop per traversal, its trip count per lane.
-    render.split(s, s_gang, s_lane, 16, false)
+    // them: a divergent loop per traversal, its trip count per lane. With
+    // the split's tail, as packet.bonsai says why.
+    render.split(s, s_gang, s_lane, 16, true)
           .vectorize(s_lane);
 
     render.bind(p, CPUThread);

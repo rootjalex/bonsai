@@ -1,25 +1,36 @@
 // The wavefront schedule: the path integrator's steps advanced breadth first,
 // through a queue, as MoonRay and pbrt's own wavefront integrator run them.
-// Scalar still -- one path step at a time -- so this is the scalar schedule
-// with one decision changed: how the path recursion is run. scalar.bonsai
-// runs `full_path_step` depth first, its tail call a back edge, one sample's
-// whole path before the next sample starts. This runs it breadth first: a
-// step that continues its path is an entry on a queue, and once every sample
-// of the pixel has taken its first step the queue is drained, a round per
-// bounce, every live path of the pixel advancing together. The queue is the
-// pixel's -- one per iteration of `p`, sized by the sample count -- and its
-// drain is a parfor named `paths`, for a later directive to make a gang of.
+// scalar.bonsai runs `full_path_step` depth first, its tail call a back edge,
+// one sample's whole path before the next sample starts. This runs it breadth
+// first: a step that continues its path is an entry on a queue, and once
+// every sample of the pixel has taken its first step the queue is drained, a
+// round per bounce, every live path of the pixel advancing together. The
+// queue is the pixel's -- one per iteration of `p`, sized by the sample
+// count -- and its drain is a parfor named `paths`.
 //
-// What changes is the order a pixel's samples are summed in: by bounce rather
-// than by sample, so the film differs from scalar.bonsai's by float
-// reassociation and no more. compare.sh checks it within a tolerance for that
-// reason.
+// The drain is then run sixteen entries at a time: split to the gang width
+// with a tail, since a round's batch is however many paths are still alive
+// and is rarely a whole number of gangs, and vectorized, so that a gang is
+// sixteen paths of one pixel at the same bounce -- packet.bonsai's gang, made
+// from the queue rather than from the sample loop, with the same packet
+// traversal underneath (vectorized before the traversals below are put on
+// their stacks, for the reason packet.bonsai gives). A path that ends leaves
+// its lane off for the rest of the round, and the push of the paths that
+// continue compacts them into the next round's queue, so its gangs are as
+// full as the paths left allow.
+//
+// What changes against scalar.bonsai is the order a pixel's samples are
+// summed in: by bounce rather than by sample, so the film differs by float
+// reassociation and no more. compare.sh checks it within a tolerance for
+// that reason.
 schedule {
     walk_step.loopify();
     path_step.loopify();
 
     paths = render.queue(p);
     full_path_step.defer(full_path_step, paths);
+    render.split(paths, paths_gang, paths_lane, 16, true)
+          .vectorize(paths_lane);
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|
