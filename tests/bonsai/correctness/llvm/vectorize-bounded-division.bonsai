@@ -1,0 +1,65 @@
+//! flags: -p ssa -b llvm -e
+
+// A gang's integer division done in floating point where the operands are
+// known small enough for the quotient to be exact (see
+// divide_bounded_by_floats in SSA/InvariantDivision.h), run. The operands
+// reach the corners the exactness argument rests on: a dividend of all
+// sixteen bits against a divisor of one, a divisor of 256, quotients of one
+// and of zero, and in double precision a dividend of 2^32 - 1. Every value
+// in the golden was computed in Python, not by running this.
+
+element Words = array[u32, 16];
+element Wides = array[u64, 16];
+
+func [[noinline]] narrow(a : Words, b : Words, q : mut Words,
+                         r : mut Words) -> void {
+    parfor i in 0:16 {
+        x = a[i] & 65535u;
+        y = (b[i] & 255u) + 1u;
+        q[i] = x / y;
+        r[i] = x % y;
+    }
+    return;
+}
+
+func [[noinline]] wide(a : Wides, b : Wides, q : mut Wides,
+                       r : mut Wides) -> void {
+    parfor i in 0:16 {
+        x = a[i] & 4294967295u;
+        y = (b[i] & 65535u) + 1u;
+        q[i] = x / y;
+        r[i] = x % y;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : Words = {0u, 1u, 65535u, 65535u, 65535u, 65534u, 12345u, 40000u,
+                 255u, 256u, 65280u, 7u, 65535u, 1000u, 99u, 65535u};
+    b : Words = {0u, 0u, 0u, 255u, 254u, 254u, 6u, 199u, 254u, 255u, 255u,
+                 6u, 1u, 999u, 99u, 128u};
+    q : mut Words = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+                     0u, 0u};
+    r : mut Words = q;
+    narrow(a, b, q, r);
+    print(q);
+    print(r);
+
+    c : Wides = {0u, 1u, 4294967295u, 4294967295u, 4294967295u, 4294967294u,
+                 123456789u, 4000000000u, 65535u, 65536u, 4294901760u, 7u,
+                 4294967295u, 1000000u, 99u, 4294967295u};
+    d : Wides = {0u, 0u, 0u, 65535u, 65534u, 65534u, 6u, 199u, 65534u,
+                 65535u, 65535u, 6u, 1u, 999999u, 99u, 32768u};
+    s : mut Wides = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+                     0u, 0u};
+    t : mut Wides = s;
+    wide(c, d, s, t);
+    print(s);
+    print(t);
+    return 0;
+}
+
+schedule {
+    narrow.vectorize(i);
+    wide.vectorize(i);
+}

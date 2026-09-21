@@ -38,6 +38,7 @@ add_bonsai_tests(
     vectorize-calls.bonsai
     vectorize-ir.bonsai
     vectorize-arm-local.bonsai
+    vectorize-bounded-division.bonsai
     vectorize-loop.bonsai
     vectorize-masked-accumulate.bonsai
     vectorize-masked-math-call.bonsai

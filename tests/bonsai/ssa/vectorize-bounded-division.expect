@@ -1,0 +1,56 @@
+func narrow(a : u32[8], b : u32[8], q : mut u32[8], r : mut u32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @18 = u32x8(65535u) in
+  let _t6 = @0 & @18 in
+  let @2 = b[ramp(0, 1, 8)] in
+  let @19 = u32x8(255u) in
+  let @3 = @2 & @19 in
+  let @20 = u32x8(1u) in
+  let _t9 = @3 + @20 in
+  let @10 = cast<f32x8>(_t6) in
+  let @11 = cast<f32x8>(_t9) in
+  let @12 = @10 / @11 in
+  let @5 = cast<u32x8>(@12) in
+  q[ramp(0, 1, 8)] = @5
+  let @13 = cast<f32x8>(_t6) in
+  let @14 = cast<f32x8>(_t9) in
+  let @15 = @13 / @14 in
+  let @16 = cast<u32x8>(@15) in
+  let @17 = @16 * _t9 in
+  let @7 = _t6 - @17 in
+  r[ramp(0, 1, 8)] = @7
+  return
+}
+
+func unbounded(a : u32[8], b : u32[8], q : mut u32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = b[ramp(0, 1, 8)] in
+  let @2 = @0 / @1 in
+  q[ramp(0, 1, 8)] = @2
+  return
+}
+
+func wide(a : u64[8], b : u64[8], q : mut u64[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @11 = u64x8(4294967295u) in
+  let x = @0 & @11 in
+  let @2 = b[ramp(0, 1, 8)] in
+  let @12 = u64x8(65535u) in
+  let @3 = @2 & @12 in
+  let @13 = u64x8(1u) in
+  let y = @3 + @13 in
+  let @8 = cast<f64x8>(x) in
+  let @9 = cast<f64x8>(y) in
+  let @10 = @8 / @9 in
+  let @5 = cast<u64x8>(@10) in
+  q[ramp(0, 1, 8)] = @5
+  return
+}
+
+
+schedule host {
+    narrow.vectorize(i)
+    unbounded.vectorize(i)
+    wide.vectorize(i)
+
+}

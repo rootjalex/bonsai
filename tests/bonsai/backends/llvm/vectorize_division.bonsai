@@ -10,6 +10,9 @@
 //     and truncated back with `fptoui`; the remainder is a `mul` and a
 //     `sub` from that quotient.
 //   * `divide_signed` is the same through `sitofp` and `fptosi`.
+//   * `bounded` masks its operands to 16 and 8 bits, so the SSA rewrite
+//     (divide_bounded_by_floats, SSA/InvariantDivision.h) takes it through
+//     `<8 x float>` instead: one `fdiv <8 x float>`, no double anywhere.
 //   * `scalar` keeps its `udiv`: one lane, one divide.
 
 func [[export]] divide(a : array[u32, 8], b : array[u32, 8],
@@ -29,9 +32,18 @@ func [[export]] divide_signed(a : array[i32, 8], b : array[i32, 8],
     return;
 }
 
+func [[export]] bounded(a : array[u32, 8], b : array[u32, 8],
+                        q : mut array[u32, 8]) -> void {
+    parfor i in 0:8 {
+        q[i] = (a[i] & 65535u) / ((b[i] & 255u) + 1u);
+    }
+    return;
+}
+
 func [[export]] scalar(a : u32, b : u32) -> u32 = a / b;
 
 schedule {
     divide.vectorize(i);
     divide_signed.vectorize(i);
+    bounded.vectorize(i);
 }

@@ -533,6 +533,23 @@ optional<uint64_t> upper_bound(const ValuePtr &v, unsigned depth = 0) {
         }
         return std::nullopt;
     }
+    case Instruction::Op::Bc:
+        // Every lane holds the one value.
+        return bound(0);
+    case Instruction::Op::Ramp: {
+        // base + stride * (lanes - 1) in the last lane.
+        const auto base = bound(0);
+        const auto stride = bound(1);
+        if (base && stride && in.type.is_vector()) {
+            uint64_t span = 0, top = 0;
+            if (!__builtin_mul_overflow(*stride, uint64_t(in.type.lanes() - 1),
+                                        &span) &&
+                !__builtin_add_overflow(*base, span, &top)) {
+                return top;
+            }
+        }
+        return std::nullopt;
+    }
     case Instruction::Op::Add: {
         const auto ab = both();
         if (ab && ab->first <= ~uint64_t(0) - ab->second) {
@@ -820,6 +837,62 @@ size_t divide_by_constants(Function &func) {
 }
 
 } // namespace
+
+size_t divide_bounded_by_floats(Function &func, const Divergence &divergence) {
+    size_t rewritten = 0;
+    for (const shared_ptr<Block> &block : func.blocks) {
+        for (size_t i = 0; i < block->instrs.size(); i++) {
+            const shared_ptr<Instruction> instr = block->instrs[i];
+            if ((instr->op != Instruction::Op::Div &&
+                 instr->op != Instruction::Op::Mod) ||
+                !instr->type.is<Int_t, UInt_t>() || instr->operands.size() != 2 ||
+                !equals(instr->operands[1]->get_type(), instr->type) ||
+                !divergence.instrs.count(instr.get())) {
+                continue;
+            }
+            const optional<uint64_t> a = upper_bound(instr->operands[0]);
+            const optional<uint64_t> b = upper_bound(instr->operands[1]);
+            uint64_t reach = 0;
+            if (!a || !b || __builtin_add_overflow(*a, *b, &reach)) {
+                continue;
+            }
+            // The float whose mantissa the operands fit under, 24 bits for a
+            // float and 53 for a double; a pair too wide for a float is only
+            // worth a double when the lanes are 64 bits, since narrower lanes
+            // always fit a double and the code generator takes those.
+            Type ft;
+            if (reach < (uint64_t(1) << 24)) {
+                ft = Float_t::make_f32();
+            } else if (instr->type.bits() == 64 && reach < (uint64_t(1) << 53)) {
+                ft = Float_t::make_f64();
+            } else {
+                continue;
+            }
+            const Type type = instr->type;
+            const bool is_mod = instr->op == Instruction::Op::Mod;
+            const ValuePtr n = instr->operands[0];
+            const ValuePtr d = instr->operands[1];
+            Emitter e{func, block, i};
+            ValuePtr fn = e.emit(Instruction::Op::Cast, ft, {n});
+            ValuePtr fd = e.emit(Instruction::Op::Cast, ft, {d});
+            ValuePtr fq = e.emit(Instruction::Op::Div, ft, {fn, fd});
+            if (is_mod) {
+                // A cast from float to integer truncates toward zero, and the
+                // remainder is n - qd.
+                ValuePtr q = e.emit(Instruction::Op::Cast, type, {fq});
+                ValuePtr qd = e.emit(Instruction::Op::Mul, type, {q, d});
+                instr->op = Instruction::Op::Sub;
+                instr->operands = {n, qd};
+            } else {
+                instr->op = Instruction::Op::Cast;
+                instr->operands = {fq};
+            }
+            i += e.at - i;
+            rewritten++;
+        }
+    }
+    return rewritten;
+}
 
 size_t divide_by_invariants(Function &func) {
     if (func.blocks.empty()) {

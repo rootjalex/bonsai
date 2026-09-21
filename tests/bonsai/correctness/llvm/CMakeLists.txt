@@ -21,6 +21,7 @@ add_bonsai_tests(
     defer-gang-runtime-size.bonsai
     defer-loop-owned.bonsai
     vector-math.bonsai
+    vectorize-bounded-division.bonsai
     vectorize-division.bonsai
     vectorize-masked-math-call.bonsai
     vectorize-uniform-around-return.bonsai

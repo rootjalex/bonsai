@@ -1,0 +1,55 @@
+//! flags: -p ssa
+
+// Golden for a gang's integer division done in floating point when its
+// operands are known small enough for the quotient to be exact (see
+// divide_bounded_by_floats in SSA/InvariantDivision.h).
+//
+// What to read for in the golden:
+//
+//   * In `narrow$gang8_p0` the dividend is masked to 16 bits and the divisor
+//     to 8 (plus one, so never zero), so their sum is below 2^24: both are
+//     cast to f32x8, divided once, and the quotient cast back; the remainder
+//     is the dividend less the quotient times the divisor. No integer `/`
+//     or `%` remains in the gang.
+//   * In `wide$gang8_p0` the u64 operands are masked to 32 and 16 bits, so
+//     they fit a double's 53 bits and not a float's 24: the same shape in
+//     f64x8.
+//   * In `unbounded$gang8_p0` nothing is known of the operands and the
+//     division stays an integer `/`, for the code generator to take through
+//     doubles on x86 (CodeGen_LLVM::vector_int_division).
+//   * The scalar `narrow`, `wide` and `unbounded` keep their `/` and `%`:
+//     a lane on its own has a divider.
+
+func narrow(a : array[u32, 8], b : array[u32, 8], q : mut array[u32, 8],
+            r : mut array[u32, 8]) -> void {
+    parfor i in 0:8 {
+        x = a[i] & 65535u;
+        y = (b[i] & 255u) + 1u;
+        q[i] = x / y;
+        r[i] = x % y;
+    }
+    return;
+}
+
+func wide(a : array[u64, 8], b : array[u64, 8], q : mut array[u64, 8]) -> void {
+    parfor i in 0:8 {
+        x = a[i] & 4294967295u;
+        y = (b[i] & 65535u) + 1u;
+        q[i] = x / y;
+    }
+    return;
+}
+
+func unbounded(a : array[u32, 8], b : array[u32, 8],
+               q : mut array[u32, 8]) -> void {
+    parfor i in 0:8 {
+        q[i] = a[i] / b[i];
+    }
+    return;
+}
+
+schedule {
+    narrow.vectorize(i);
+    wide.vectorize(i);
+    unbounded.vectorize(i);
+}

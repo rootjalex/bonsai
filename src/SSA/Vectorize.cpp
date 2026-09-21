@@ -1,6 +1,7 @@
 #include "SSA/Analysis.h"
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/CloneFunction.h"
+#include "SSA/InvariantDivision.h"
 #include "SSA/Linearize.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
@@ -1625,6 +1626,12 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         *variant, entry, analyze(varying_args, masked_blocks));
     varying_names.insert(split.parameters.begin(), split.parameters.end());
 
+    // A division the gang makes, whose operands are known small enough, is
+    // done in floating point (see SSA/InvariantDivision.h); before the
+    // analysis below, which then sees the conversions and the float division
+    // as the varying values they are.
+    divide_bounded_by_floats(*variant, analyze(varying_args, masked_blocks));
+
     const Divergence div = analyze(varying_args, masked_blocks);
     if (!div.branches.empty()) {
         // The graph as it stands, since which branch is still divergent, and
@@ -1814,6 +1821,13 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
         analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
                            nullptr, masked_blocks),
         {ramp.get()});
+
+    // A division the gang makes with operands known small enough goes to
+    // floating point (see SSA/InvariantDivision.h), before the analysis
+    // below classifies what it leaves.
+    divide_bounded_by_floats(
+        *f, analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
+                               nullptr, masked_blocks));
 
     // Re-run the analysis now that the region is linearized and the index is
     // the ramp: the masks and blends linearization introduced have to be

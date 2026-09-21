@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SSA/AnalyzeDivergence.h"
 #include "SSA/SSA.h"
 
 #include <cstddef>
@@ -48,6 +49,24 @@ namespace ssa {
 // guard is defined inside the loop; the arithmetic this leaves behind needs no
 // guard, since nothing in it traps. Returns how many divisions were rewritten.
 size_t divide_by_invariants(Function &func);
+
+// Division by floating-point division, where it is exact.
+//
+// No vector unit divides integers, and every one divides floats in a single
+// instruction. For 0 <= a, b with a + b < 2^m, m the mantissa's bits, the
+// correctly rounded float quotient a/b truncates to the integer quotient:
+// the rounding error is below a/b 2^-m, and a/b is at least 1/b away from
+// the next integer on either side unless it is one, in which case it is
+// exact. So a division whose operands are known to be small enough -- both
+// below 2^23 for a float, both below 2^52 for a double -- is done as one:
+// the operands converted, divided, the quotient truncated back, and the
+// remainder a - qb. Only a division the lanes of a gang make (`divergence`
+// says which) is worth it; a scalar has its divider. Bounds come from
+// upper_bound in the source, the same analysis that lets a small dividend
+// divide a constant by a comparison. A division the bounds do not reach is
+// left, and the x86 code generator does what it can with doubles
+// (CodeGen_LLVM::vector_int_division). Returns how many were rewritten.
+size_t divide_bounded_by_floats(Function &func, const Divergence &divergence);
 
 } // namespace ssa
 } // namespace ir
