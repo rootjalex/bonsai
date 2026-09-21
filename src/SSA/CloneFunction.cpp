@@ -229,6 +229,56 @@ string unify_returns(Function &func) {
     return exit->name;
 }
 
+string unify_yields(Function &func, const string &entry) {
+    // The body's own blocks: from the entry along every edge but a nested
+    // parfor's body edge, whose yields end that loop's iterations rather
+    // than this one's.
+    const BlockMap blocks = make_block_map(func);
+    internal_assert(blocks.contains(entry))
+        << "unify_yields: no block " << entry;
+    vector<shared_ptr<Block>> yielding;
+    std::set<const Block *> seen;
+    vector<shared_ptr<Block>> stack = {blocks.at(entry)};
+    while (!stack.empty()) {
+        const shared_ptr<Block> block = stack.back();
+        stack.pop_back();
+        if (!seen.insert(block.get()).second) {
+            continue;
+        }
+        if (std::holds_alternative<Terminator::Yield>(block->terminator.data)) {
+            yielding.push_back(block);
+            continue;
+        }
+        vector<string> next;
+        if (const auto *nested =
+                std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+            next.push_back(nested->cont.name);
+        } else {
+            next = successors(*block);
+        }
+        for (const string &s : next) {
+            if (const auto at = blocks.find(s); at != blocks.end()) {
+                stack.push_back(at->second);
+            }
+        }
+    }
+
+    if (yielding.size() <= 1) {
+        return yielding.empty() ? string() : yielding.front()->name;
+    }
+
+    auto exit = std::make_shared<Block>();
+    exit->name = entry + "!yield";
+    exit->owner = func.blocks.front()->owner;
+    for (const auto &block : yielding) {
+        block->terminator.data = Terminator::Jump{exit->name};
+        exit->preds.push_back(block);
+    }
+    exit->terminator.data = Terminator::Yield{};
+    func.blocks.push_back(exit);
+    return exit->name;
+}
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

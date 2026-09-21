@@ -28,6 +28,16 @@ std::shared_ptr<Function> clone_function(const Function &func);
 // Returns the name of the exit block.
 std::string unify_returns(Function &func);
 
+// The same for a parfor's body: rewrites the region rooted at `entry` to
+// have a single Yield, every existing one becoming a jump to a new block
+// that yields (a yield carries nothing, so the block takes no argument).
+// The body of a loop written with several `continue`s, or built with several
+// ends -- a split's tail beside its body, a drain's finished entries beside
+// its saved ones -- has several exits, and linearization wants one. A nested
+// parfor's yields are its own and are left alone. Returns the name of the
+// one yielding block, or the empty string when the region has none.
+std::string unify_yields(Function &func, const std::string &entry);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

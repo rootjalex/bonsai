@@ -14,6 +14,14 @@ namespace ssa {
 
 using FuncMap = std::map<std::string, std::shared_ptr<ssa::Function>>;
 
+// Splits the parfor `idx` of `func` into an outer parfor `outer` that steps
+// through the range by `factor` and an inner parfor `inner` over a chunk, the
+// body seeing `outer + inner` as its index. With `exact` the range is taken
+// to be a whole number of chunks (checked where it is constant); without it
+// the body is guarded by `outer + inner < end` -- the GuardWithIf tail of
+// Halide's split -- so a range of any length runs exactly its own iterations,
+// and when the inner loop is then vectorized the guard is the gang's mask,
+// the last gang running partly full. Implemented in SSA/Rewrite.cpp.
 void split(FuncMap &funcs, std::string func, std::string idx, int factor,
            std::string outer, std::string inner, bool exact);
 

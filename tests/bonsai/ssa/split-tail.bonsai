@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// split() with a tail (`true` as the last argument). `scale`'s range is a
+// count only known at run time, so nothing says it is a whole number of
+// chunks, and the outer loop's last chunk may run past its end. The body goes
+// behind a test that the index it was handed is still short of the end --
+// Halide's GuardWithIf tail strategy -- and a step past the end yields
+// instead. The end is threaded into the new blocks as an argument, the way
+// the carried values are, since a block refers only to its own values.
+//
+// `exact` asks for a tail too, but its range is a constant that divides by
+// the factor, so no guard is made: a test that always passes is not worth
+// writing, and the two loops are what split(.., false) would have made.
+func scale(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+func exact(a : array[f32, 64], out : mut array[f32, 64]) -> void {
+    parfor i in 0:64 {
+        out[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+schedule {
+    scale.split(i, io, ii, 16, true);
+    exact.split(i, io, ii, 16, true);
+}

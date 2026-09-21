@@ -1,0 +1,64 @@
+//! flags: -p ssa -b llvm -e
+
+// split() with a tail, run. Thirty-seven values in chunks of sixteen are two
+// whole chunks and five of a third, and the guard the tail puts in front of
+// the body is what keeps the third chunk from running eleven steps past the
+// end of the array. `gang` is the same loop with the inner loop vectorized:
+// the guard becomes the gang's mask, and the last gang runs five lanes full.
+// Each transformed function is printed beside an untouched copy, so the
+// lines of a pair have to match whatever the transform did to the loop.
+func plain(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2 + 1;
+    }
+    return;
+}
+
+func tail(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2 + 1;
+    }
+    return;
+}
+
+func gang(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2 + 1;
+    }
+    return;
+}
+
+func fill(n : i32, a : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        a[i] = i * 3;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    fill(37, a);
+    p : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    t : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    g : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    plain(37, a, p);
+    tail(37, a, t);
+    gang(37, a, g);
+    print(p);
+    print(t);
+    print(g);
+    return 0;
+}
+
+schedule {
+    tail.split(i, io, ii, 16, true);
+    gang.split(i, io, ii, 16, true).vectorize(ii);
+}

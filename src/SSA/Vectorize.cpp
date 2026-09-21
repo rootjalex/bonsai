@@ -294,18 +294,16 @@ vector<size_t> value_operands(const Instruction &instr) {
     case Instruction::Op::Ramp:
         return {};
 
-    // A gang's push is a compaction -- the lanes that push take consecutive
-    // slots and the count advances by their number -- which is a rule of its
-    // own rather than a widening of the operands, and is not built yet. Say
-    // so, rather than widening the entry per lane and pushing it once.
+    // A gang's push: the entry is what each lane pushes its own of, and the
+    // queue is the one queue. The mask, when the push carries one, is a gang
+    // mask already. How the lanes go into the queue -- a compaction, the
+    // lanes that push taking consecutive slots and the count advancing once
+    // by their number -- is lower_pushes's (SSA/Defer.cpp), after the
+    // schedule; here the push stays one instruction, its entry per lane and
+    // its value, the slot each lane took, per lane too (see
+    // analyze_divergence).
     case Instruction::Op::Push:
-        instr.dump(std::cerr);
-        internal_error
-            << "A queue push inside a vectorized gang is not supported yet: "
-               "the lanes that push have to be compacted into consecutive "
-               "slots of the queue. Apply vectorize() to a loop that does not "
-               "reach a deferred call, or defer after vectorizing.";
-        return {};
+        return {1};
 
     default:
         instr.dump(std::cerr);
@@ -1716,6 +1714,14 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     promote_allocas(*f, f->blocks[0]->name);
 
     const string entry = parfor.body.name;
+
+    // Linearization folds the body down to a single path, so the body needs
+    // a single end for that path to reach -- as a specialized callee gets one
+    // return (see specialize). A body with several yields -- a `continue` in
+    // each arm of a branch, a split's tail beside its body, a drain's
+    // finished entries beside its saved ones -- gets one block they all
+    // jump to.
+    unify_yields(*f, entry);
 
     // Which calls are made under a mask has to be settled before the branches
     // are folded away, since folding them is what makes a conditional call

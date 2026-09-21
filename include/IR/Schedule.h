@@ -102,13 +102,13 @@ struct Sort {
     Expr lambda;
 };
 
-// For-loop `i` with extent `n` becomes for-loop `io`
-// with start=i.start end=(i.end / factor) * factor, stride=factor and
-// nested for-loop `ii` with start=io, end=io+factor,
-// stride=1
-// if generate_tail is set, no tail strategy is generated
-// if it is not set, a tail for-loop `i` with
-// start=(i.end / factor) * factor, end=i.end stride=1 is generated.
+// For-loop `i` becomes for-loop `io` over `i`'s range with stride=factor, and
+// a nested for-loop `ii` over [0, factor) whose body is `i`'s at io + ii.
+// If generate_tail is set, the body is guarded by `io + ii < i.end` (the
+// GuardWithIf tail of Halide's split), so a range that is not a whole number
+// of chunks runs exactly its own iterations and no more; if it is not set,
+// the range is asserted to divide by the factor and no guard is made. Written
+// `f.split(i, io, ii, factor, true)` for the guard and `false` for none.
 struct Split {
     Location i;
     Location io;

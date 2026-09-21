@@ -53,8 +53,6 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
             continue;
         }
 
-        internal_assert(exact) << "TODO: handle guards inside split()";
-
         // Whether an index this loop would have visited is one the split
         // still visits. Without a tail the two loops together cover
         // start, start+factor, start+2*factor, ... and each chunk walks
@@ -95,18 +93,31 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
             << " does not divide the loop's stride of " << *stride_n
             << ", so a chunk would start part way through a step";
 
-        // A range only known at run time is the caller's assertion to make:
-        // that is what asking for no tail means. One known here is checked.
+        // Whether the range is a whole number of chunks, known when both its
+        // ends are constants. Without a tail, a range known only at run time
+        // is the caller's assertion to make -- that is what asking for no
+        // tail means -- and one known here is checked.
         const auto start_n = as_int(parfor.start);
         const auto end_n = as_int(parfor.end);
-        if (start_n.has_value() && end_n.has_value()) {
-            internal_assert((*end_n - *start_n) % factor == 0)
+        const bool divisible = start_n.has_value() && end_n.has_value() &&
+                               (*end_n - *start_n) % factor == 0;
+        if (exact && start_n.has_value() && end_n.has_value()) {
+            internal_assert(divisible)
                 << "split(" << idx << ", " << factor << ") on " << func
                 << " does not divide the loop's range of [" << *start_n << ":"
                 << *end_n << "), so without a tail it would run "
                 << (factor - (*end_n - *start_n) % factor)
                 << " iterations past the end";
         }
+        // The tail, asked for and needed: the outer loop's last chunk runs
+        // past a range that is not a whole number of chunks, and the body
+        // goes behind a test that the index it was handed is still short of
+        // the end -- Halide's GuardWithIf tail strategy, which is the one a
+        // loop about to be vectorized wants, since the test becomes the
+        // gang's mask and the last gang runs partly full rather than the
+        // range being trimmed to whole gangs. A test on a constant range
+        // known to divide would always pass, and is not made.
+        const bool guard = !exact && !divisible;
 
         // The body's index becomes the inner loop's, and is renamed to say so.
         // parfor i in start:end:stride body(i) cont()
@@ -168,7 +179,14 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         internal_assert(std::holds_alternative<Constant>(parfor.stride->data))
             << "TODO: handle non-Constant strides in split mining";
 
-        // Where the two indices become the one the body expects.
+        // Where the two indices become the one the body expects. With a
+        // guard, the end of the range comes along too, threaded through both
+        // new blocks as an argument the way the carried values are -- a
+        // block refers only to its own values -- unless it is a constant.
+        std::optional<Argument> end_arg;
+        if (guard && !std::holds_alternative<Constant>(parfor.end->data)) {
+            end_arg = Argument{itype, f->get_unique_name()};
+        }
         shared_ptr<Block> step = std::make_shared<Block>();
         step->name = parfor.body.name + "_step_" + inner;
         step->owner = f; // This *MUST* exist before make_instruction
@@ -178,14 +196,35 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         for (const Argument &arg : carried) {
             step->add_argument(arg);
         }
+        shared_ptr<Value> v_end;
+        if (guard) {
+            v_end = end_arg ? step->add_argument(*end_arg) : parfor.end;
+        }
         auto absolute = step->make_instruction(itype, Instruction::Op::Add,
                                                {v_outer, v_inner});
         std::vector<shared_ptr<Value>> to_body = {absolute};
         for (const Argument &arg : carried) {
             to_body.push_back(std::make_shared<Value>(arg));
         }
-        step->terminator.data =
-            Terminator::Jump{parfor.body.name, std::move(to_body)};
+        shared_ptr<Block> tail;
+        if (guard) {
+            // The body runs for an index short of the end; the guard's other
+            // arm ends the iteration, and is what the last chunk's steps past
+            // the range take.
+            auto in_range = step->make_instruction(
+                Bool_t::make(), Instruction::Op::Lt, {absolute, v_end});
+            tail = std::make_shared<Block>();
+            tail->name = parfor.body.name + "_tail_" + inner;
+            tail->owner = f;
+            tail->terminator.data = Terminator::Yield{};
+            step->terminator.data = Terminator::Dispatch{
+                in_range,
+                {Terminator::Jump{tail->name},
+                 Terminator::Jump{parfor.body.name, std::move(to_body)}}};
+        } else {
+            step->terminator.data =
+                Terminator::Jump{parfor.body.name, std::move(to_body)};
+        }
 
         shared_ptr<Block> inner_loop = std::make_shared<Block>();
         inner_loop->name = parfor.body.name + "_split_" + outer;
@@ -194,10 +233,16 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         for (const Argument &arg : carried) {
             inner_loop->add_argument(arg);
         }
+        if (end_arg) {
+            inner_loop->add_argument(*end_arg);
+        }
 
         std::vector<shared_ptr<Value>> to_step = {v_outer_arg};
         for (const Argument &arg : carried) {
             to_step.push_back(std::make_shared<Value>(arg));
+        }
+        if (end_arg) {
+            to_step.push_back(std::make_shared<Value>(*end_arg));
         }
         inner_loop->terminator.data =
             Terminator::ParFor{inner,
@@ -207,22 +252,23 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
                                Terminator::Jump{step->name, std::move(to_step)},
                                Terminator::Jump{outer_yield->name}};
 
-        // TODO: lookups? or are those only necessary in construction?
-        inner_loop->preds = {block};
-        outer_yield->preds = {inner_loop};
-
         blocks.push_back(inner_loop);
         blocks.push_back(step);
+        if (tail) {
+            blocks.push_back(tail);
+        }
         blocks.push_back(outer_yield);
 
-        // TODO: fix loop body predecessors?
-
+        std::vector<shared_ptr<Value>> to_inner = parfor.body.args;
+        if (end_arg) {
+            to_inner.push_back(parfor.end);
+        }
         block->terminator.data = Terminator::ParFor{
             outer,
             parfor.start,
             parfor.end,
             split_factor,
-            Terminator::Jump{inner_loop->name, parfor.body.args},
+            Terminator::Jump{inner_loop->name, std::move(to_inner)},
             parfor.cont};
     }
     if (blocks.size() == f->blocks.size()) {
@@ -230,6 +276,9 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
                        << " in function: " << func;
     }
     f->blocks = std::move(blocks);
+    // The new blocks' predecessors, and the body's, which now has the step
+    // rather than the loop before it.
+    refresh_preds(*f);
 }
 
 namespace {
