@@ -3772,7 +3772,65 @@ computed, per lane per call, for a base that is one of a thousand primes.
 
 Three things to do, smallest first. Each is shown on the code it applies to,
 as the SSA reads before and after, with the reason it computes the same
-thing.
+thing. But first, the one the user pointed at, which makes the second
+unnecessary for the sampler:
+
+**0. The divisor is a prime below 2^13, and the type can say so** (a day).
+
+pbrt's table is `int Primes[1000]` and `RadicalInverse(int, uint64_t)`
+divides `a / base`, so C promotes the `int` to 64 bits and divides 64 by
+64; the app translates that faithfully (`primes : array[i32, 1000]`, `b :
+u64 = cast[[u64]](base)`). Every prime in the table is at most 7919, and
+nothing says so. Make the table `array[u16, 1000]` -- a layout change, the
+values pbrt's -- and the bound analysis already reads the cast of a `u16`
+as "below 65536". Then the 64-bit multiplier, which is inherent to dividing
+a 64-bit dividend with one multiply-high, is computed without a 128-bit
+division. Today, per lane, in `CodeGen_LLVM::division_multiplier`:
+
+```
+l  = 64 - clz(d - 1)                                   // ceil(log2 d)
+A  = (1 << l) - d                                      // 2^l - d, below d
+m' = trunc((zext<i128>(A) << 64) / zext<i128>(d)) + 1  // udiv i128: __udivti3, per lane
+```
+
+After, when `upper_bound(d) < 2^21`:
+
+```
+l  = 64 - clz(d - 1)
+A  = (1 << l) - d                                      // below 2^16
+n1 = A << 32                                           // below 2^48
+q1 = fptoui(f64(n1) / f64(d))                          // exact
+r1 = n1 - q1 * d                                       // below d
+n2 = r1 << 32                                          // below d * 2^32, so below 2^53
+q2 = fptoui(f64(n2) / f64(d))                          // exact
+m' = (q1 << 32) + q2 + 1
+```
+
+Why it is right. `floor(2^64 A / d)` is long division in base 2^32: the
+first digit is `q1 = floor(A 2^32 / d)` with remainder `r1`, the second is
+`q2 = floor(r1 2^32 / d)`, and `q1 2^32 + q2` is the quotient -- `q1 <
+2^32` because `A < d`, `q2 < 2^32` because `r1 < d`, so nothing overflows.
+Each step is a correctly rounded double quotient truncated toward zero,
+which equals the integer quotient whenever numerator plus divisor is below
+2^53 (the argument in `vector_int_division`: the rounding error is below
+the quotient times 2^-53, less than the 1/d separating the quotient from
+the next integer unless it is that integer, when it is exact). Step one
+needs `A 2^32 + d < 2^53`, step two `d 2^32 + d < 2^53`; both hold for `d <
+2^21`, and the primes give `d < 2^13`. In a gang the multiplier is four
+`vdivpd` and some conversions for sixteen lanes, about 30 cycles, instead
+of sixteen `__udivti3` calls, about 1600; all 48 of the remaining 128-bit
+divisions go, in every vectorized schedule. It applies to the scalar
+renderer too, where two `divsd` beat one `__udivti3`, so its 0.9% goes as
+well. The digit loop keeps its multiply-high, about eight cycles a digit,
+which is why this beats the other way of using the bound -- dividing `v`
+itself by two double divisions per digit -- and the `limit` is already a
+multiply-high by the same multiplier. It is the `divide_bounded_by_floats`
+rewrite once more, applied to `Intrinsic::div_multiplier(d)` when
+`upper_bound(d)` proves `d < 2^21`, unsigned as above and signed
+(`floor(2^(63+l) / |d|) + 1`, the same two steps on `2^(l-1) << 32`). Tests:
+an ssa golden, a correctness test against Python's multipliers, and the
+Halton images unchanged. With this, item 2 below is needed only for a
+divisor whose type does not bound it.
 
 **1. A gang-uniform divisor gets one scalar multiplier** (half a day).
 
