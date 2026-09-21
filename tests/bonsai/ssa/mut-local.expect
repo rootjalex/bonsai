@@ -19,7 +19,7 @@ running_total_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @swap_fields(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %p) local_unnamed_addr #1 {
+define void @swap_fields(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 8)) %_ret0, ptr noundef nonnull readonly captures(none) %p) local_unnamed_addr #1 {
 swap_fields_entry:
   %0 = load <2 x float>, ptr %p, align 4
   %1 = shufflevector <2 x float> %0, <2 x float> poison, <2 x i32> <i32 1, i32 0>

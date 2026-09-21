@@ -1,7 +1,7 @@
 [submodule "deps/llvm-project"]
 	path = deps/llvm-project
 	url = https://github.com/llvm/llvm-project.git
-	branch = release/19.x
+	branch = release/23.x
 [submodule "deps/abseil-cpp"]
 	path = deps/abseil-cpp
 	url = git@github.com:abseil/abseil-cpp.git

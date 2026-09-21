@@ -20,15 +20,15 @@ main_entry:
 _i00_for.i:                                       ; preds = %_i00_for.i, %main_entry
   %_rng_state.0 = phi <4 x i32> [ %7, %main_entry ], [ %12, %_i00_for.i ]
   %indvars.iv.i = phi i64 [ 0, %main_entry ], [ %indvars.iv.next.i, %_i00_for.i ]
-  %8 = mul <4 x i32> %_rng_state.0, <i32 609248, i32 609248, i32 609248, i32 609248>
-  %9 = add <4 x i32> %8, <i32 5367177, i32 5367177, i32 5367177, i32 5367177>
+  %8 = mul <4 x i32> %_rng_state.0, splat (i32 609248)
+  %9 = add <4 x i32> %8, splat (i32 5367177)
   %10 = mul <4 x i32> %9, %_rng_state.0
-  %11 = add <4 x i32> %10, <i32 6517565, i32 6517565, i32 6517565, i32 6517565>
+  %11 = add <4 x i32> %10, splat (i32 6517565)
   %12 = add <4 x i32> %_rng_state.0, <i32 4, i32 8, i32 12, i32 16>
-  %13 = and <4 x i32> %11, <i32 8388607, i32 8388607, i32 8388607, i32 8388607>
-  %14 = or disjoint <4 x i32> %13, <i32 1065353216, i32 1065353216, i32 1065353216, i32 1065353216>
+  %13 = and <4 x i32> %11, splat (i32 8388607)
+  %14 = or disjoint <4 x i32> %13, splat (i32 1065353216)
   %15 = bitcast <4 x i32> %14 to <4 x float>
-  %16 = fadd <4 x float> %15, <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
+  %16 = fadd <4 x float> %15, splat (float -1.000000e+00)
   %17 = extractelement <4 x float> %16, i64 0
   %18 = fpext float %17 to double
   %19 = extractelement <4 x float> %16, i64 1
@@ -40,7 +40,7 @@ _i00_for.i:                                       ; preds = %_i00_for.i, %main_e
   %25 = trunc nuw nsw i64 %indvars.iv.i to i32
   %26 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %25, double %18, double %20, double %22, double %24)
   %27 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %16)
-  %_alloc0.i = getelementptr inbounds float, ptr %_alloc0_untyped.i, i64 %indvars.iv.i
+  %_alloc0.i = getelementptr inbounds nuw [4 x i8], ptr %_alloc0_untyped.i, i64 %indvars.iv.i
   store float %27, ptr %_alloc0.i, align 4, !tbaa !0
   %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
   %exitcond.i = icmp eq i64 %indvars.iv.next.i, 16
@@ -49,69 +49,69 @@ _i00_for.i:                                       ; preds = %_i00_for.i, %main_e
 _traverse_array0.exit:                            ; preds = %_i00_for.i
   %extract = load float, ptr %_alloc0_untyped.i, align 4
   %28 = fpext float %extract to double
-  %extract_ptr1 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 4
+  %extract_ptr1 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 4
   %extract2 = load float, ptr %extract_ptr1, align 4
   %29 = fpext float %extract2 to double
-  %extract_ptr3 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 8
+  %extract_ptr3 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 8
   %extract4 = load float, ptr %extract_ptr3, align 4
   %30 = fpext float %extract4 to double
-  %extract_ptr5 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 12
+  %extract_ptr5 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 12
   %extract6 = load float, ptr %extract_ptr5, align 4
   %31 = fpext float %extract6 to double
-  %extract_ptr7 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 16
+  %extract_ptr7 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 16
   %extract8 = load float, ptr %extract_ptr7, align 4
   %32 = fpext float %extract8 to double
-  %extract_ptr9 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 20
+  %extract_ptr9 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 20
   %extract10 = load float, ptr %extract_ptr9, align 4
   %33 = fpext float %extract10 to double
-  %extract_ptr11 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 24
+  %extract_ptr11 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 24
   %extract12 = load float, ptr %extract_ptr11, align 4
   %34 = fpext float %extract12 to double
-  %extract_ptr13 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 28
+  %extract_ptr13 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 28
   %extract14 = load float, ptr %extract_ptr13, align 4
   %35 = fpext float %extract14 to double
-  %extract_ptr15 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 32
+  %extract_ptr15 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 32
   %extract16 = load float, ptr %extract_ptr15, align 4
   %36 = fpext float %extract16 to double
-  %extract_ptr17 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 36
+  %extract_ptr17 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 36
   %extract18 = load float, ptr %extract_ptr17, align 4
   %37 = fpext float %extract18 to double
-  %extract_ptr19 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 40
+  %extract_ptr19 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 40
   %extract20 = load float, ptr %extract_ptr19, align 4
   %38 = fpext float %extract20 to double
-  %extract_ptr21 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 44
+  %extract_ptr21 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 44
   %extract22 = load float, ptr %extract_ptr21, align 4
   %39 = fpext float %extract22 to double
-  %extract_ptr23 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 48
+  %extract_ptr23 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 48
   %extract24 = load float, ptr %extract_ptr23, align 4
   %40 = fpext float %extract24 to double
-  %extract_ptr25 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 52
+  %extract_ptr25 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 52
   %extract26 = load float, ptr %extract_ptr25, align 4
   %41 = fpext float %extract26 to double
-  %extract_ptr27 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 56
+  %extract_ptr27 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 56
   %extract28 = load float, ptr %extract_ptr27, align 4
   %42 = fpext float %extract28 to double
-  %extract_ptr29 = getelementptr inbounds i8, ptr %_alloc0_untyped.i, i64 60
+  %extract_ptr29 = getelementptr inbounds nuw i8, ptr %_alloc0_untyped.i, i64 60
   %extract30 = load float, ptr %extract_ptr29, align 4
   %43 = fpext float %extract30 to double
   %44 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %28, double %29, double %30, double %31, double %32, double %33, double %34, double %35, double %36, double %37, double %38, double %39, double %40, double %41, double %42, double %43)
   ret i32 0
 }
 
-; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
 declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #0
 
 declare i32 @rand() local_unnamed_addr
 
 ; Function Attrs: nofree nounwind
-declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #1
+declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #1
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) #2
 
-attributes #0 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #0 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
 attributes #1 = { nofree nounwind }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"f32", !2, i64 0}

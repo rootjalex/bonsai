@@ -5,52 +5,52 @@ source_filename = "bonsai_module"
 %"struct.f32x3$v8" = type { <8 x float>, <8 x float>, <8 x float> }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define internal fastcc void @"advance$gang8_p0$masked"(ptr nocapture noundef nonnull %r, <8 x i1> noundef %"!mask") unnamed_addr #0 {
+define internal fastcc void @"advance$gang8_p0$masked"(ptr nofree noundef nonnull captures(none) %r, <8 x i1> noundef %"!mask") unnamed_addr #0 {
 "advance$gang8_p0$masked":
   %deref_temp.unpack.unpack = load <8 x float>, ptr %r, align 32
-  %deref_temp.unpack.elt16 = getelementptr inbounds i8, ptr %r, i64 32
+  %deref_temp.unpack.elt16 = getelementptr inbounds nuw i8, ptr %r, i64 32
   %deref_temp.unpack.unpack17 = load <8 x float>, ptr %deref_temp.unpack.elt16, align 32
-  %deref_temp.unpack.elt18 = getelementptr inbounds i8, ptr %r, i64 64
+  %deref_temp.unpack.elt18 = getelementptr inbounds nuw i8, ptr %r, i64 64
   %deref_temp.unpack.unpack19 = load <8 x float>, ptr %deref_temp.unpack.elt18, align 32
-  %deref_temp.elt11 = getelementptr inbounds i8, ptr %r, i64 96
+  %deref_temp.elt11 = getelementptr inbounds nuw i8, ptr %r, i64 96
   %deref_temp.unpack12.unpack = load <8 x float>, ptr %deref_temp.elt11, align 32
-  %deref_temp.unpack12.elt21 = getelementptr inbounds i8, ptr %r, i64 128
+  %deref_temp.unpack12.elt21 = getelementptr inbounds nuw i8, ptr %r, i64 128
   %deref_temp.unpack12.unpack22 = load <8 x float>, ptr %deref_temp.unpack12.elt21, align 32
-  %deref_temp.unpack12.elt23 = getelementptr inbounds i8, ptr %r, i64 160
+  %deref_temp.unpack12.elt23 = getelementptr inbounds nuw i8, ptr %r, i64 160
   %deref_temp.unpack12.unpack24 = load <8 x float>, ptr %deref_temp.unpack12.elt23, align 32
   %0 = fsub <8 x float> %deref_temp.unpack.unpack, %deref_temp.unpack12.unpack
   %1 = fsub <8 x float> %deref_temp.unpack.unpack17, %deref_temp.unpack12.unpack22
   %2 = fsub <8 x float> %deref_temp.unpack.unpack19, %deref_temp.unpack12.unpack24
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %0, ptr nonnull %r, i32 32, <8 x i1> %"!mask")
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %1, ptr nonnull %deref_temp.unpack.elt16, i32 32, <8 x i1> %"!mask")
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr nonnull %deref_temp.unpack.elt18, i32 32, <8 x i1> %"!mask")
-  %deref_temp8.elt28 = getelementptr inbounds i8, ptr %r, i64 192
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %0, ptr nonnull align 32 %r, <8 x i1> %"!mask")
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %1, ptr nonnull align 32 %deref_temp.unpack.elt16, <8 x i1> %"!mask")
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr nonnull align 32 %deref_temp.unpack.elt18, <8 x i1> %"!mask")
+  %deref_temp8.elt28 = getelementptr inbounds nuw i8, ptr %r, i64 192
   %deref_temp8.unpack29 = load <8 x float>, ptr %deref_temp8.elt28, align 32
-  %3 = fadd <8 x float> %deref_temp8.unpack29, <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %3, ptr nonnull %deref_temp8.elt28, i32 32, <8 x i1> %"!mask")
+  %3 = fadd <8 x float> %deref_temp8.unpack29, splat (float 1.000000e+00)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %3, ptr nonnull align 32 %deref_temp8.elt28, <8 x i1> %"!mask")
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @flip_negative(ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #1 {
+define void @flip_negative(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #1 {
 flip_negative:
   %r = alloca %"struct.Ray$v8", align 32
   %extract = load <8 x float>, ptr %a, align 4
-  %0 = fmul <8 x float> %extract, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
-  %1 = fmul <8 x float> %extract, <float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00>
+  %0 = fmul <8 x float> %extract, splat (float 2.000000e+00)
+  %1 = fmul <8 x float> %extract, splat (float 3.000000e+00)
   store <8 x float> %extract, ptr %r, align 32
-  %.fca.0.1.gep = getelementptr inbounds i8, ptr %r, i64 32
+  %.fca.0.1.gep = getelementptr inbounds nuw i8, ptr %r, i64 32
   store <8 x float> %0, ptr %.fca.0.1.gep, align 32
-  %.fca.0.2.gep = getelementptr inbounds i8, ptr %r, i64 64
+  %.fca.0.2.gep = getelementptr inbounds nuw i8, ptr %r, i64 64
   store <8 x float> %1, ptr %.fca.0.2.gep, align 32
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %r, i64 96
+  %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %r, i64 96
   store <8 x float> %extract, ptr %.fca.1.0.gep, align 32
-  %.fca.1.1.gep = getelementptr inbounds i8, ptr %r, i64 128
+  %.fca.1.1.gep = getelementptr inbounds nuw i8, ptr %r, i64 128
   store <8 x float> %0, ptr %.fca.1.1.gep, align 32
-  %.fca.1.2.gep = getelementptr inbounds i8, ptr %r, i64 160
+  %.fca.1.2.gep = getelementptr inbounds nuw i8, ptr %r, i64 160
   store <8 x float> %1, ptr %.fca.1.2.gep, align 32
-  %.fca.2.gep = getelementptr inbounds i8, ptr %r, i64 192
-  store <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, ptr %.fca.2.gep, align 32
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %r, i64 192
+  store <8 x float> splat (float 1.000000e+00), ptr %.fca.2.gep, align 32
   %2 = fcmp olt <8 x float> %extract, zeroinitializer
   %3 = bitcast <8 x i1> %2 to i8
   %.not = icmp eq i8 %3, 0
@@ -65,7 +65,7 @@ flip_negative:
   br label %"!merge_3"
 
 "!merge_3":                                       ; preds = %"!then_2", %flip_negative
-  %deref_temp.fca.2.load = phi <8 x float> [ %deref_temp.fca.2.load.pre, %"!then_2" ], [ <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %flip_negative ]
+  %deref_temp.fca.2.load = phi <8 x float> [ %deref_temp.fca.2.load.pre, %"!then_2" ], [ splat (float 1.000000e+00), %flip_negative ]
   %deref_temp.fca.0.2.load = phi <8 x float> [ %deref_temp.fca.0.2.load.pre, %"!then_2" ], [ %1, %flip_negative ]
   %deref_temp.fca.0.1.load = phi <8 x float> [ %deref_temp.fca.0.1.load.pre, %"!then_2" ], [ %0, %flip_negative ]
   %deref_temp.fca.0.0.load = phi <8 x float> [ %deref_temp.fca.0.0.load.pre, %"!then_2" ], [ %extract, %flip_negative ]
@@ -80,7 +80,7 @@ flip_negative:
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr nocapture, i32 immarg, <8 x i1>) #2
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
 
 attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

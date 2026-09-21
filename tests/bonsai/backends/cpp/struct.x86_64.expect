@@ -21,7 +21,7 @@ void add(Position& _ret0, const Position& i, const Position& j);
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @add(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
+define void @add(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 8)) %_ret0, ptr noundef nonnull readonly captures(none) %i, ptr noundef nonnull readonly captures(none) %j) local_unnamed_addr #0 {
 add_entry:
   %0 = load <2 x i32>, ptr %i, align 4
   %1 = load <2 x i32>, ptr %j, align 4

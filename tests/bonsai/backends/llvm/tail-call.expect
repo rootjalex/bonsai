@@ -40,7 +40,7 @@ next_bb:                                          ; preds = %sample_entry, %next
   br i1 %20, label %common.ret, label %next_bb
 }
 
-define <3 x float> @sample1(ptr nocapture noundef nonnull readonly %e) local_unnamed_addr {
+define <3 x float> @sample1(ptr noundef nonnull readonly captures(none) %e) local_unnamed_addr {
 sample1_entry:
   %0 = tail call i32 @rand()
   %1 = tail call i32 @rand()
@@ -128,7 +128,7 @@ then_bb8:                                         ; preds = %then_bb3
 
 declare i32 @rand() local_unnamed_addr
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #0
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

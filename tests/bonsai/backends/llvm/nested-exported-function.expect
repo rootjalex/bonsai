@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @A(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
+define void @A(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 4)) %_ret0, ptr noundef nonnull readonly captures(none) %x) local_unnamed_addr #0 {
 A_entry:
   %deref_temp.unpack = load i32, ptr %x, align 4
   store i32 %deref_temp.unpack, ptr %_ret0, align 4
@@ -10,7 +10,7 @@ A_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @B(ptr nocapture noundef nonnull writeonly %_ret1, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
+define void @B(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 4)) %_ret1, ptr noundef nonnull readonly captures(none) %x) local_unnamed_addr #0 {
 B_entry:
   %deref_temp.unpack = load i32, ptr %x, align 4
   store i32 %deref_temp.unpack, ptr %_ret1, align 4
@@ -18,7 +18,7 @@ B_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @C(ptr nocapture noundef nonnull writeonly %_ret2, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
+define void @C(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 4)) %_ret2, ptr noundef nonnull readonly captures(none) %x) local_unnamed_addr #0 {
 C_entry:
   %deref_temp.unpack = load i32, ptr %x, align 4
   store i32 %deref_temp.unpack, ptr %_ret2, align 4
@@ -26,7 +26,7 @@ C_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @D(ptr nocapture noundef nonnull writeonly %_ret3, ptr nocapture noundef nonnull readonly %x) local_unnamed_addr #0 {
+define void @D(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 4)) %_ret3, ptr noundef nonnull readonly captures(none) %x) local_unnamed_addr #0 {
 D_entry:
   %deref_temp.unpack = load i32, ptr %x, align 4
   store i32 %deref_temp.unpack, ptr %_ret3, align 4

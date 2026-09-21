@@ -2,33 +2,32 @@
 source_filename = "bonsai_module"
 
 %struct.Sph = type { <3 x float>, float }
-%struct.Tri = type { <3 x float>, <3 x float> }
 
-; Function Attrs: mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite)
-define i64 @Shape_Sph(<3 x float> noundef %centre, float noundef %radius, ptr nocapture noundef writeonly %Shape_Sph_pool, ptr nocapture noundef %Shape_Sph_fill) local_unnamed_addr #0 {
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
+define i64 @Shape_Sph(<3 x float> noundef %centre, float noundef %radius, ptr nofree noundef writeonly captures(none) %Shape_Sph_pool, ptr nofree noundef captures(none) %Shape_Sph_fill) local_unnamed_addr #0 {
 Shape_Sph_entry:
   %0 = atomicrmw add ptr %Shape_Sph_fill, i64 1 monotonic, align 8
   %1 = insertvalue %struct.Sph undef, <3 x float> %centre, 0
   %2 = insertvalue %struct.Sph %1, float %radius, 1
-  %Shape_Sph_pool1.i = getelementptr inbounds %struct.Sph, ptr %Shape_Sph_pool, i64 %0
+  %Shape_Sph_pool1.i = getelementptr inbounds [32 x i8], ptr %Shape_Sph_pool, i64 %0
   store %struct.Sph %2, ptr %Shape_Sph_pool1.i, align 16
   ret i64 %0
 }
 
-; Function Attrs: mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite)
-define range(i64 72057594037927936, 0) i64 @Shape_Tri(<3 x float> noundef %a, <3 x float> noundef %b, ptr nocapture noundef writeonly %Shape_Tri_pool, ptr nocapture noundef %Shape_Tri_fill) local_unnamed_addr #0 {
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
+define range(i64 72057594037927936, 0) i64 @Shape_Tri(<3 x float> noundef %a, <3 x float> noundef %b, ptr nofree noundef writeonly captures(none) %Shape_Tri_pool, ptr nofree noundef captures(none) %Shape_Tri_fill) local_unnamed_addr #0 {
 Shape_Tri_entry:
   %0 = atomicrmw add ptr %Shape_Tri_fill, i64 1 monotonic, align 8
-  %Shape_Tri_pool1.i = getelementptr inbounds %struct.Tri, ptr %Shape_Tri_pool, i64 %0
+  %Shape_Tri_pool1.i = getelementptr inbounds [32 x i8], ptr %Shape_Tri_pool, i64 %0
   store <3 x float> %a, ptr %Shape_Tri_pool1.i, align 16
-  %Shape_Tri_pool1.repack2.i = getelementptr inbounds i8, ptr %Shape_Tri_pool1.i, i64 16
+  %Shape_Tri_pool1.repack2.i = getelementptr inbounds nuw i8, ptr %Shape_Tri_pool1.i, i64 16
   store <3 x float> %b, ptr %Shape_Tri_pool1.repack2.i, align 16
   %1 = or i64 %0, 72057594037927936
   ret i64 %1
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define float @size(i64 noundef %s, ptr nocapture noundef readonly %Shape_Sph_pool, ptr nocapture noundef readonly %Shape_Tri_pool) local_unnamed_addr #1 {
+define float @size(i64 noundef %s, ptr nofree noundef readonly captures(none) %Shape_Sph_pool, ptr nofree noundef readonly captures(none) %Shape_Tri_pool) local_unnamed_addr #1 {
 size_entry:
   %cond = icmp ult i64 %s, 72057594037927936
   br i1 %cond, label %case0_bb, label %default_bb
@@ -39,25 +38,26 @@ common.ret:                                       ; preds = %case0_bb, %default_
 
 default_bb:                                       ; preds = %size_entry
   %0 = and i64 %s, 72057594037927935
-  %extract_ptr1 = getelementptr inbounds %struct.Tri, ptr %Shape_Tri_pool, i64 %0
+  %extract_ptr1 = getelementptr inbounds nuw [32 x i8], ptr %Shape_Tri_pool, i64 %0
   %extract2.unpack = load <3 x float>, ptr %extract_ptr1, align 16
   %1 = extractelement <3 x float> %extract2.unpack, i64 0
   br label %common.ret
 
 case0_bb:                                         ; preds = %size_entry
-  %2 = getelementptr inbounds %struct.Sph, ptr %Shape_Sph_pool, i64 %s, i32 1
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %Shape_Sph_pool, i64 %s
+  %2 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
   %"@2.radius" = load float, ptr %2, align 4
   br label %common.ret
 }
 
-; Function Attrs: mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite)
-define i64 @unit_sphere(ptr nocapture noundef writeonly %Shape_Sph_pool, ptr nocapture noundef %Shape_Sph_fill) local_unnamed_addr #0 {
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
+define i64 @unit_sphere(ptr nofree noundef writeonly captures(none) %Shape_Sph_pool, ptr nofree noundef captures(none) %Shape_Sph_fill) local_unnamed_addr #0 {
 unit_sphere_entry:
   %0 = atomicrmw add ptr %Shape_Sph_fill, i64 1 monotonic, align 8
-  %Shape_Sph_pool1.i = getelementptr inbounds %struct.Sph, ptr %Shape_Sph_pool, i64 %0
+  %Shape_Sph_pool1.i = getelementptr inbounds [32 x i8], ptr %Shape_Sph_pool, i64 %0
   store %struct.Sph { <3 x float> zeroinitializer, float 1.000000e+00 }, ptr %Shape_Sph_pool1.i, align 16
   ret i64 %0
 }
 
-attributes #0 = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) }
+attributes #0 = { mustprogress norecurse nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }

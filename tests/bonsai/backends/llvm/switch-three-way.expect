@@ -2,65 +2,65 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @Blob_Split(ptr nocapture noundef nonnull writeonly %_ret0, i32 noundef %lo, i32 noundef %hi) local_unnamed_addr #0 {
+define void @Blob_Split(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 48)) %_ret0, i32 noundef %lo, i32 noundef %hi) local_unnamed_addr #0 {
 Blob_Split_entry:
   store i8 1, ptr %_ret0, align 4
-  %_ret0.repack1 = getelementptr inbounds i8, ptr %_ret0, i64 1
-  %_ret0.repack3 = getelementptr inbounds i8, ptr %_ret0, i64 16
+  %_ret0.repack1 = getelementptr inbounds nuw i8, ptr %_ret0, i64 1
+  %_ret0.repack3 = getelementptr inbounds nuw i8, ptr %_ret0, i64 16
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_ret0.repack1, i8 0, i64 15, i1 false)
   store i32 %lo, ptr %_ret0.repack3, align 4
-  %_ret0.repack3.repack19 = getelementptr inbounds i8, ptr %_ret0, i64 20
+  %_ret0.repack3.repack19 = getelementptr inbounds nuw i8, ptr %_ret0, i64 20
   store i32 %hi, ptr %_ret0.repack3.repack19, align 4
-  %_ret0.repack3.repack21 = getelementptr inbounds i8, ptr %_ret0, i64 24
+  %_ret0.repack3.repack21 = getelementptr inbounds nuw i8, ptr %_ret0, i64 24
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(24) %_ret0.repack3.repack21, i8 0, i64 24, i1 false)
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @Blob_Whole(ptr nocapture noundef nonnull writeonly %_ret1, float noundef %x) local_unnamed_addr #0 {
+define void @Blob_Whole(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 48)) %_ret1, float noundef %x) local_unnamed_addr #0 {
 Blob_Whole_entry:
-  %_ret1.repack3 = getelementptr inbounds i8, ptr %_ret1, i64 16
+  %_ret1.repack3 = getelementptr inbounds nuw i8, ptr %_ret1, i64 16
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(16) %_ret1, i8 0, i64 16, i1 false)
   store float %x, ptr %_ret1.repack3, align 4
-  %_ret1.repack3.repack19 = getelementptr inbounds i8, ptr %_ret1, i64 20
+  %_ret1.repack3.repack19 = getelementptr inbounds nuw i8, ptr %_ret1, i64 20
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(28) %_ret1.repack3.repack19, i8 0, i64 28, i1 false)
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @Blob_Wide(ptr nocapture noundef nonnull writeonly %_ret2, <3 x float> noundef %v, i1 noundef %neg) local_unnamed_addr #0 {
+define void @Blob_Wide(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 48)) %_ret2, <3 x float> noundef %v, i1 noundef %neg) local_unnamed_addr #0 {
 Blob_Wide_entry:
   %bc = bitcast <3 x float> %v to <3 x i32>
   %0 = extractelement <3 x i32> %bc, i64 2
   %1 = zext i1 %neg to i32
   store i8 2, ptr %_ret2, align 4
-  %_ret2.repack3 = getelementptr inbounds i8, ptr %_ret2, i64 1
-  %_ret2.repack5 = getelementptr inbounds i8, ptr %_ret2, i64 16
+  %_ret2.repack3 = getelementptr inbounds nuw i8, ptr %_ret2, i64 1
+  %_ret2.repack5 = getelementptr inbounds nuw i8, ptr %_ret2, i64 16
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_ret2.repack3, i8 0, i64 15, i1 false)
   %2 = shufflevector <3 x i32> %bc, <3 x i32> poison, <2 x i32> <i32 0, i32 1>
   store <2 x i32> %2, ptr %_ret2.repack5, align 4
-  %_ret2.repack5.repack23 = getelementptr inbounds i8, ptr %_ret2, i64 24
+  %_ret2.repack5.repack23 = getelementptr inbounds nuw i8, ptr %_ret2, i64 24
   store i32 %0, ptr %_ret2.repack5.repack23, align 4
-  %_ret2.repack5.repack25 = getelementptr inbounds i8, ptr %_ret2, i64 28
+  %_ret2.repack5.repack25 = getelementptr inbounds nuw i8, ptr %_ret2, i64 28
   store i32 0, ptr %_ret2.repack5.repack25, align 4
-  %_ret2.repack5.repack27 = getelementptr inbounds i8, ptr %_ret2, i64 32
+  %_ret2.repack5.repack27 = getelementptr inbounds nuw i8, ptr %_ret2, i64 32
   store i32 %1, ptr %_ret2.repack5.repack27, align 4
-  %_ret2.repack5.repack29 = getelementptr inbounds i8, ptr %_ret2, i64 36
+  %_ret2.repack5.repack29 = getelementptr inbounds nuw i8, ptr %_ret2, i64 36
   store i32 0, ptr %_ret2.repack5.repack29, align 4
-  %_ret2.repack5.repack31 = getelementptr inbounds i8, ptr %_ret2, i64 40
+  %_ret2.repack5.repack31 = getelementptr inbounds nuw i8, ptr %_ret2, i64 40
   store i32 0, ptr %_ret2.repack5.repack31, align 4
-  %_ret2.repack5.repack33 = getelementptr inbounds i8, ptr %_ret2, i64 44
+  %_ret2.repack5.repack33 = getelementptr inbounds nuw i8, ptr %_ret2, i64 44
   store i32 0, ptr %_ret2.repack5.repack33, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define float @weigh(ptr nocapture noundef nonnull readonly %b, float noundef %k) local_unnamed_addr #1 {
+define float @weigh(ptr noundef nonnull readonly captures(none) %b, float noundef %k) local_unnamed_addr #1 {
 weigh_entry:
   %deref_temp.unpack = load i8, ptr %b, align 4
-  %deref_temp.elt9 = getelementptr inbounds i8, ptr %b, i64 16
+  %deref_temp.elt9 = getelementptr inbounds nuw i8, ptr %b, i64 16
   %deref_temp.unpack10.unpack = load i32, ptr %deref_temp.elt9, align 4
-  %deref_temp.unpack10.elt41 = getelementptr inbounds i8, ptr %b, i64 20
+  %deref_temp.unpack10.elt41 = getelementptr inbounds nuw i8, ptr %b, i64 20
   %deref_temp.unpack10.unpack42 = load i32, ptr %deref_temp.unpack10.elt41, align 4
   switch i8 %deref_temp.unpack, label %default_bb [
     i8 0, label %case0_bb
@@ -77,7 +77,7 @@ after_bb:                                         ; preds = %default_bb, %case0_
   br label %common.ret
 
 default_bb:                                       ; preds = %weigh_entry
-  %deref_temp.unpack10.elt47 = getelementptr inbounds i8, ptr %b, i64 32
+  %deref_temp.unpack10.elt47 = getelementptr inbounds nuw i8, ptr %b, i64 32
   %deref_temp.unpack10.unpack48 = load i32, ptr %deref_temp.unpack10.elt47, align 4
   %1 = and i32 %deref_temp.unpack10.unpack48, 255
   %.not = icmp eq i32 %1, 0
@@ -89,7 +89,7 @@ default_bb:                                       ; preds = %weigh_entry
 case0_bb:                                         ; preds = %weigh_entry
   %4 = bitcast i32 %deref_temp.unpack10.unpack to float
   %5 = fmul float %4, 2.000000e+00
-  %6 = fadd float %5, %k
+  %6 = fadd float %k, %5
   br label %after_bb
 
 case1_bb:                                         ; preds = %weigh_entry
@@ -98,9 +98,9 @@ case1_bb:                                         ; preds = %weigh_entry
   br label %common.ret
 }
 
-; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
-declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg) #2
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #2
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
-attributes #2 = { nocallback nofree nounwind willreturn memory(argmem: write) }
+attributes #2 = { nocallback nofree nosync nounwind willreturn memory(argmem: write) }

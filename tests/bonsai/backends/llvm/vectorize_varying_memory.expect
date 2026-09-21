@@ -4,24 +4,24 @@ source_filename = "bonsai_module"
 %"struct.Tally$v8" = type { <8 x float>, <8 x i32> }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define internal fastcc void @"bump$gang8_p0_v1$masked"(ptr nocapture noundef nonnull %t, <8 x float> noundef %x, <8 x i1> noundef %"!mask") unnamed_addr #0 {
+define internal fastcc void @"bump$gang8_p0_v1$masked"(ptr nofree noundef nonnull captures(none) %t, <8 x float> noundef %x, <8 x i1> noundef %"!mask") unnamed_addr #0 {
 "bump$gang8_p0_v1$masked":
   %deref_temp.unpack = load <8 x float>, ptr %t, align 32
-  %0 = fadd <8 x float> %deref_temp.unpack, %x
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %0, ptr nonnull %t, i32 32, <8 x i1> %"!mask")
-  %deref_temp1.elt5 = getelementptr inbounds i8, ptr %t, i64 32
+  %0 = fadd <8 x float> %x, %deref_temp.unpack
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %0, ptr nonnull align 32 %t, <8 x i1> %"!mask")
+  %deref_temp1.elt5 = getelementptr inbounds nuw i8, ptr %t, i64 32
   %deref_temp1.unpack6 = load <8 x i32>, ptr %deref_temp1.elt5, align 32
-  %1 = add <8 x i32> %deref_temp1.unpack6, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  tail call void @llvm.masked.store.v8i32.p0(<8 x i32> %1, ptr nonnull %deref_temp1.elt5, i32 32, <8 x i1> %"!mask")
+  %1 = add <8 x i32> %deref_temp1.unpack6, splat (i32 1)
+  tail call void @llvm.masked.store.v8i32.p0(<8 x i32> %1, ptr nonnull align 32 %deref_temp1.elt5, <8 x i1> %"!mask")
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @tally_some(ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #1 {
+define void @tally_some(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #1 {
 tally_some:
   %t = alloca %"struct.Tally$v8", align 32
-  store <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, ptr %t, align 32
-  %.fca.1.gep = getelementptr inbounds i8, ptr %t, i64 32
+  store <8 x float> splat (float 1.000000e+00), ptr %t, align 32
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %t, i64 32
   store <8 x i32> zeroinitializer, ptr %.fca.1.gep, align 32
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
@@ -33,22 +33,22 @@ tally_some:
   call fastcc void @"bump$gang8_p0_v1$masked"(ptr %t, <8 x float> %extract, <8 x i1> %0)
   %deref_temp.fca.0.load.pre = load <8 x float>, ptr %t, align 32
   %deref_temp.fca.1.load.pre = load <8 x i32>, ptr %.fca.1.gep, align 32
-  %2 = fmul <8 x float> %deref_temp.fca.0.load.pre, <float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01>
+  %2 = fmul <8 x float> %deref_temp.fca.0.load.pre, splat (float 1.000000e+01)
   %3 = sitofp <8 x i32> %deref_temp.fca.1.load.pre to <8 x float>
   %4 = fadd <8 x float> %2, %3
   br label %"!merge_3"
 
 "!merge_3":                                       ; preds = %"!then_2", %tally_some
-  %5 = phi <8 x float> [ %4, %"!then_2" ], [ <float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01, float 1.000000e+01>, %tally_some ]
+  %5 = phi <8 x float> [ %4, %"!then_2" ], [ splat (float 1.000000e+01), %tally_some ]
   store <8 x float> %5, ptr %out, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr nocapture, i32 immarg, <8 x i1>) #2
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr nocapture, i32 immarg, <8 x i1>) #2
+declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr captures(none), <8 x i1>) #2
 
 attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }

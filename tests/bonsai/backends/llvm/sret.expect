@@ -5,7 +5,7 @@ source_filename = "bonsai_module"
 %struct.VN = type { <3 x float>, i32 }
 
 ; Function Attrs: nofree nosync nounwind memory(argmem: write)
-define internal fastcc void @_unexported_count_up(ptr noalias nocapture noundef nonnull writeonly align 4 %_sret, %struct.F4 noundef %acc, i32 noundef %n) unnamed_addr #0 {
+define internal fastcc void @_unexported_count_up(ptr noalias nofree noundef nonnull writeonly align 4 captures(none) initializes((0, 16)) %_sret, %struct.F4 noundef %acc, i32 noundef range(i32 0, -1) %n) unnamed_addr #0 {
 _unexported_count_up_entry:
   %_ret = alloca %struct.F4, align 16
   %0 = icmp eq i32 %n, 0
@@ -43,8 +43,8 @@ next_bb:                                          ; preds = %_unexported_count_u
   br label %common.ret
 }
 
-; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none)
-define void @count_up(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %acc, i32 noundef %n) local_unnamed_addr #1 {
+; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+define void @count_up(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 16)) %_ret0, ptr noundef nonnull readonly captures(none) %acc, i32 noundef %n) local_unnamed_addr #1 {
 count_up_entry:
   %_ret = alloca %struct.F4, align 8
   %0 = icmp eq i32 %n, 0
@@ -52,98 +52,85 @@ count_up_entry:
 
 common.ret:                                       ; preds = %next_bb, %then_bb
   %_ret.sink = phi ptr [ %_ret, %next_bb ], [ %acc, %then_bb ]
-  %1 = phi <2 x float> [ %14, %next_bb ], [ %4, %then_bb ]
-  %_ret.sink.sroa.phi = getelementptr inbounds i8, ptr %_ret.sink, i64 12
+  %1 = phi <2 x float> [ %11, %next_bb ], [ %4, %then_bb ]
+  %_ret.sink.sroa.phi = getelementptr inbounds nuw i8, ptr %_ret.sink, i64 12
   %.fca.3.load = load float, ptr %_ret.sink.sroa.phi, align 4
   %.fca.0.load.sink = load float, ptr %_ret.sink, align 4
   store float %.fca.0.load.sink, ptr %_ret0, align 4
-  %2 = getelementptr inbounds i8, ptr %_ret0, i64 4
+  %2 = getelementptr inbounds nuw i8, ptr %_ret0, i64 4
   store <2 x float> %1, ptr %2, align 4
-  %3 = getelementptr inbounds i8, ptr %_ret0, i64 12
+  %3 = getelementptr inbounds nuw i8, ptr %_ret0, i64 12
   store float %.fca.3.load, ptr %3, align 4
   ret void
 
 then_bb:                                          ; preds = %count_up_entry
-  %deref_temp.elt18 = getelementptr inbounds i8, ptr %acc, i64 4
+  %deref_temp.elt18 = getelementptr inbounds nuw i8, ptr %acc, i64 4
   %4 = load <2 x float>, ptr %deref_temp.elt18, align 4
   br label %common.ret
 
 next_bb:                                          ; preds = %count_up_entry
-  %deref_temp1.elt7 = getelementptr inbounds i8, ptr %acc, i64 8
-  %deref_temp1.unpack8 = load float, ptr %deref_temp1.elt7, align 4
-  %deref_temp1.elt9 = getelementptr inbounds i8, ptr %acc, i64 12
-  %deref_temp1.unpack10 = load float, ptr %deref_temp1.elt9, align 4
-  %5 = load <2 x float>, ptr %acc, align 4
-  %6 = fadd <2 x float> %5, <float 1.000000e+00, float 2.000000e+00>
-  %7 = extractelement <2 x float> %6, i64 0
-  %8 = insertvalue %struct.F4 undef, float %7, 0
-  %9 = extractelement <2 x float> %6, i64 1
-  %10 = insertvalue %struct.F4 %8, float %9, 1
-  %11 = insertvalue %struct.F4 %10, float %deref_temp1.unpack8, 2
-  %12 = insertvalue %struct.F4 %11, float %deref_temp1.unpack10, 3
-  %13 = add i32 %n, -1
-  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %12, i32 %13)
-  %.fca.1.gep = getelementptr inbounds i8, ptr %_ret, i64 4
-  %14 = load <2 x float>, ptr %.fca.1.gep, align 4
+  %5 = load <4 x float>, ptr %acc, align 4
+  %6 = fadd <4 x float> %5, <float 1.000000e+00, float 2.000000e+00, float -0.000000e+00, float -0.000000e+00>
+  %vec2struct.slot.sroa.0.0.vec.extract = extractelement <4 x float> %6, i64 0
+  %7 = insertvalue %struct.F4 poison, float %vec2struct.slot.sroa.0.0.vec.extract, 0
+  %vec2struct.slot.sroa.0.4.vec.extract = extractelement <4 x float> %6, i64 1
+  %8 = insertvalue %struct.F4 %7, float %vec2struct.slot.sroa.0.4.vec.extract, 1
+  %vec2struct.slot.sroa.0.8.vec.extract = extractelement <4 x float> %6, i64 2
+  %9 = insertvalue %struct.F4 %8, float %vec2struct.slot.sroa.0.8.vec.extract, 2
+  %vec2struct.slot.sroa.0.12.vec.extract = extractelement <4 x float> %6, i64 3
+  %vec2struct37 = insertvalue %struct.F4 %9, float %vec2struct.slot.sroa.0.12.vec.extract, 3
+  %10 = add i32 %n, -1
+  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %vec2struct37, i32 %10)
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %_ret, i64 4
+  %11 = load <2 x float>, ptr %.fca.1.gep, align 4
   br label %common.ret
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_f2(ptr nocapture noundef nonnull writeonly %_ret1, float noundef %x) local_unnamed_addr #2 {
+define void @make_f2(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 8)) %_ret1, float noundef %x) local_unnamed_addr #2 {
 make_f2_entry:
   %0 = fmul float %x, 2.000000e+00
   store float %x, ptr %_ret1, align 4
-  %_ret1.repack1 = getelementptr inbounds i8, ptr %_ret1, i64 4
+  %_ret1.repack1 = getelementptr inbounds nuw i8, ptr %_ret1, i64 4
   store float %0, ptr %_ret1.repack1, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_f4(ptr nocapture noundef nonnull writeonly %_ret2, float noundef %x) local_unnamed_addr #2 {
+define void @make_f4(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 16)) %_ret2, float noundef %x) local_unnamed_addr #2 {
 make_f4_entry:
-  %0 = insertelement <2 x float> poison, float %x, i64 0
-  %1 = shufflevector <2 x float> %0, <2 x float> poison, <2 x i32> zeroinitializer
-  %2 = fmul <2 x float> %1, <float 2.000000e+00, float 3.000000e+00>
-  %3 = fmul float %x, 4.000000e+00
-  store float %x, ptr %_ret2, align 4
-  %_ret2.repack1 = getelementptr inbounds i8, ptr %_ret2, i64 4
-  store <2 x float> %2, ptr %_ret2.repack1, align 4
-  %_ret2.repack5 = getelementptr inbounds i8, ptr %_ret2, i64 12
-  store float %3, ptr %_ret2.repack5, align 4
+  %0 = insertelement <4 x float> poison, float %x, i64 0
+  %1 = shufflevector <4 x float> %0, <4 x float> poison, <4 x i32> zeroinitializer
+  %2 = fmul <4 x float> %1, <float 1.000000e+00, float 2.000000e+00, float 3.000000e+00, float 4.000000e+00>
+  store <4 x float> %2, ptr %_ret2, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_i3(ptr nocapture noundef nonnull writeonly %_ret3, i32 noundef %x) local_unnamed_addr #2 {
+define void @make_i3(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 12)) %_ret3, i32 noundef %x) local_unnamed_addr #2 {
 make_i3_entry:
   %0 = add i32 %x, 1
   %1 = add i32 %x, 2
   store i32 %x, ptr %_ret3, align 4
-  %_ret3.repack1 = getelementptr inbounds i8, ptr %_ret3, i64 4
+  %_ret3.repack1 = getelementptr inbounds nuw i8, ptr %_ret3, i64 4
   store i32 %0, ptr %_ret3.repack1, align 4
-  %_ret3.repack3 = getelementptr inbounds i8, ptr %_ret3, i64 8
+  %_ret3.repack3 = getelementptr inbounds nuw i8, ptr %_ret3, i64 8
   store i32 %1, ptr %_ret3.repack3, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_i4(ptr nocapture noundef nonnull writeonly %_ret4, i32 noundef %x) local_unnamed_addr #2 {
+define void @make_i4(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 16)) %_ret4, i32 noundef %x) local_unnamed_addr #2 {
 make_i4_entry:
-  %0 = add i32 %x, 1
-  %1 = add i32 %x, 2
-  %2 = add i32 %x, 3
-  store i32 %x, ptr %_ret4, align 4
-  %_ret4.repack1 = getelementptr inbounds i8, ptr %_ret4, i64 4
-  store i32 %0, ptr %_ret4.repack1, align 4
-  %_ret4.repack3 = getelementptr inbounds i8, ptr %_ret4, i64 8
-  store i32 %1, ptr %_ret4.repack3, align 4
-  %_ret4.repack5 = getelementptr inbounds i8, ptr %_ret4, i64 12
-  store i32 %2, ptr %_ret4.repack5, align 4
+  %0 = insertelement <4 x i32> poison, i32 %x, i64 0
+  %1 = shufflevector <4 x i32> %0, <4 x i32> poison, <4 x i32> zeroinitializer
+  %2 = add <4 x i32> %1, <i32 0, i32 1, i32 2, i32 3>
+  store <4 x i32> %2, ptr %_ret4, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_vn(ptr nocapture noundef nonnull writeonly %_ret5, float noundef %x, i32 noundef %n) local_unnamed_addr #2 {
+define void @make_vn(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 32)) %_ret5, float noundef %x, i32 noundef %n) local_unnamed_addr #2 {
 make_vn_entry:
   %0 = insertelement <3 x float> poison, float %x, i64 0
   %1 = shufflevector <3 x float> %0, <3 x float> poison, <3 x i32> zeroinitializer
@@ -159,14 +146,14 @@ sum_f4_entry:
   %0 = fmul float %x, 2.000000e+00
   %1 = fmul float %x, 3.000000e+00
   %2 = fmul float %x, 4.000000e+00
-  %3 = fadd float %0, %x
+  %3 = fadd float %x, %0
   %4 = fadd float %1, %3
   %5 = fadd float %2, %4
   ret float %5
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @sum_i4(i32 noundef %x) local_unnamed_addr #3 {
+define range(i32 6, 3) i32 @sum_i4(i32 noundef %x) local_unnamed_addr #3 {
 sum_i4_entry:
   %0 = shl i32 %x, 2
   %1 = add i32 %0, 6
@@ -174,6 +161,6 @@ sum_i4_entry:
 }
 
 attributes #0 = { nofree nosync nounwind memory(argmem: write) }
-attributes #1 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none) }
+attributes #1 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

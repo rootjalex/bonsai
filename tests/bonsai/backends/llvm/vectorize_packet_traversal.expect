@@ -8,8 +8,6 @@ source_filename = "bonsai_module"
 %"struct.__tuple_0$v8" = type { <8 x i16> }
 %"struct.f32x3$v8" = type { <8 x float>, <8 x float>, <8 x float> }
 %"struct.Ray$v8" = type { %"struct.f32x3$v8", %"struct.f32x3$v8", <8 x float> }
-%struct._tree_layout1 = type <{ [3 x float], float, i8, i8, [2 x i8] }>
-%struct.Shape = type { i8, [15 x i8], [12 x i32] }
 %struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
 %"struct.Shape$v8" = type { <8 x i8>, %"struct.[[packed]] u8x15$v8", %"struct.[[packed]] u32x12$v8" }
 %"struct.[[packed]] u8x15$v8" = type { <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8>, <8 x i8> }
@@ -17,125 +15,125 @@ source_filename = "bonsai_module"
 %"struct._option0$v8" = type { %"struct.Shape$v8", <8 x i1> }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @Shape_Sph(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %s) local_unnamed_addr #0 {
+define void @Shape_Sph(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 64)) %_ret0, ptr noundef nonnull readonly captures(none) %s) local_unnamed_addr #0 {
 Shape_Sph_entry:
   %deref_temp = load %struct.Sphere, ptr %s, align 16
   %"@0.center" = extractvalue %struct.Sphere %deref_temp, 0
   %bc = bitcast <3 x float> %"@0.center" to <3 x i32>
   %0 = extractelement <3 x i32> %bc, i64 2
   %"@9.radius" = extractvalue %struct.Sphere %deref_temp, 1
-  %_ret0.repack6 = getelementptr inbounds i8, ptr %_ret0, i64 16
+  %_ret0.repack6 = getelementptr inbounds nuw i8, ptr %_ret0, i64 16
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(16) %_ret0, i8 0, i64 16, i1 false)
   %1 = shufflevector <3 x i32> %bc, <3 x i32> poison, <2 x i32> <i32 0, i32 1>
   store <2 x i32> %1, ptr %_ret0.repack6, align 4
-  %_ret0.repack6.repack24 = getelementptr inbounds i8, ptr %_ret0, i64 24
+  %_ret0.repack6.repack24 = getelementptr inbounds nuw i8, ptr %_ret0, i64 24
   store i32 %0, ptr %_ret0.repack6.repack24, align 4
-  %_ret0.repack6.repack26 = getelementptr inbounds i8, ptr %_ret0, i64 28
+  %_ret0.repack6.repack26 = getelementptr inbounds nuw i8, ptr %_ret0, i64 28
   store i32 0, ptr %_ret0.repack6.repack26, align 4
-  %_ret0.repack6.repack28 = getelementptr inbounds i8, ptr %_ret0, i64 32
+  %_ret0.repack6.repack28 = getelementptr inbounds nuw i8, ptr %_ret0, i64 32
   store float %"@9.radius", ptr %_ret0.repack6.repack28, align 4
-  %_ret0.repack6.repack30 = getelementptr inbounds i8, ptr %_ret0, i64 36
+  %_ret0.repack6.repack30 = getelementptr inbounds nuw i8, ptr %_ret0, i64 36
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(28) %_ret0.repack6.repack30, i8 0, i64 28, i1 false)
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @Shape_Tri(ptr nocapture noundef nonnull writeonly %_ret1, ptr nocapture noundef nonnull readonly %t) local_unnamed_addr #0 {
+define void @Shape_Tri(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 64)) %_ret1, ptr noundef nonnull readonly captures(none) %t) local_unnamed_addr #0 {
 Shape_Tri_entry:
-  %deref_temp.elt3 = getelementptr inbounds i8, ptr %t, i64 16
+  %deref_temp.elt3 = getelementptr inbounds nuw i8, ptr %t, i64 16
   %deref_temp.unpack457 = load <3 x i32>, ptr %deref_temp.elt3, align 16
-  %deref_temp.elt5 = getelementptr inbounds i8, ptr %t, i64 32
+  %deref_temp.elt5 = getelementptr inbounds nuw i8, ptr %t, i64 32
   %deref_temp.unpack658 = load <3 x i32>, ptr %deref_temp.elt5, align 16
-  %0 = getelementptr inbounds i8, ptr %t, i64 8
+  %0 = getelementptr inbounds nuw i8, ptr %t, i64 8
   %1 = load i32, ptr %0, align 8
   %2 = extractelement <3 x i32> %deref_temp.unpack457, i64 2
   %3 = extractelement <3 x i32> %deref_temp.unpack658, i64 2
-  %_ret1.repack16 = getelementptr inbounds i8, ptr %_ret1, i64 1
-  %_ret1.repack18 = getelementptr inbounds i8, ptr %_ret1, i64 16
+  %_ret1.repack16 = getelementptr inbounds nuw i8, ptr %_ret1, i64 1
+  %_ret1.repack18 = getelementptr inbounds nuw i8, ptr %_ret1, i64 16
   %4 = load <2 x i32>, ptr %t, align 16
   store i8 1, ptr %_ret1, align 4
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 1 dereferenceable(15) %_ret1.repack16, i8 0, i64 15, i1 false)
   store <2 x i32> %4, ptr %_ret1.repack18, align 4
-  %_ret1.repack18.repack36 = getelementptr inbounds i8, ptr %_ret1, i64 24
+  %_ret1.repack18.repack36 = getelementptr inbounds nuw i8, ptr %_ret1, i64 24
   store i32 %1, ptr %_ret1.repack18.repack36, align 4
-  %_ret1.repack18.repack38 = getelementptr inbounds i8, ptr %_ret1, i64 28
+  %_ret1.repack18.repack38 = getelementptr inbounds nuw i8, ptr %_ret1, i64 28
   store i32 0, ptr %_ret1.repack18.repack38, align 4
-  %_ret1.repack18.repack40 = getelementptr inbounds i8, ptr %_ret1, i64 32
+  %_ret1.repack18.repack40 = getelementptr inbounds nuw i8, ptr %_ret1, i64 32
   %5 = shufflevector <3 x i32> %deref_temp.unpack457, <3 x i32> poison, <2 x i32> <i32 0, i32 1>
   store <2 x i32> %5, ptr %_ret1.repack18.repack40, align 4
-  %_ret1.repack18.repack44 = getelementptr inbounds i8, ptr %_ret1, i64 40
+  %_ret1.repack18.repack44 = getelementptr inbounds nuw i8, ptr %_ret1, i64 40
   store i32 %2, ptr %_ret1.repack18.repack44, align 4
-  %_ret1.repack18.repack46 = getelementptr inbounds i8, ptr %_ret1, i64 44
+  %_ret1.repack18.repack46 = getelementptr inbounds nuw i8, ptr %_ret1, i64 44
   store i32 0, ptr %_ret1.repack18.repack46, align 4
-  %_ret1.repack18.repack48 = getelementptr inbounds i8, ptr %_ret1, i64 48
+  %_ret1.repack18.repack48 = getelementptr inbounds nuw i8, ptr %_ret1, i64 48
   %6 = shufflevector <3 x i32> %deref_temp.unpack658, <3 x i32> poison, <2 x i32> <i32 0, i32 1>
   store <2 x i32> %6, ptr %_ret1.repack18.repack48, align 4
-  %_ret1.repack18.repack52 = getelementptr inbounds i8, ptr %_ret1, i64 56
+  %_ret1.repack18.repack52 = getelementptr inbounds nuw i8, ptr %_ret1, i64 56
   store i32 %3, ptr %_ret1.repack18.repack52, align 4
-  %_ret1.repack18.repack54 = getelementptr inbounds i8, ptr %_ret1, i64 60
+  %_ret1.repack18.repack54 = getelementptr inbounds nuw i8, ptr %_ret1, i64 60
   store i32 0, ptr %_ret1.repack18.repack54, align 4
   ret void
 }
 
 ; Function Attrs: nofree norecurse nosync nounwind memory(read, argmem: readwrite)
-define void @hit_z_all(ptr noundef %rs, ptr nocapture noundef writeonly %out, ptr nocapture noundef nonnull readonly %shapes) local_unnamed_addr #1 {
+define void @hit_z_all(ptr noundef %rs, ptr nofree noundef writeonly captures(none) %out, ptr noundef nonnull readonly captures(none) %shapes) local_unnamed_addr #1 {
 hit_z_all:
   %_ret81.i = alloca %"struct._option2$v8", align 32
   %_ret.i = alloca %"struct._option2$v8", align 32
   %"!stack0113.i" = alloca [64 x <8 x i1>], align 1
   %"!stack114.i" = alloca [64 x i16], align 2
   %"_best0$i33$i44" = alloca %"struct.__tuple_1$v8", align 32
-  %extract_o_0_ptrs = getelementptr inbounds i8, ptr %rs, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_o_0 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_o_0_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_o_0_ptrs = getelementptr inbounds nuw i8, ptr %rs, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_o_0 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_o_0_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %0 = insertvalue %"struct.f32x3$v8" poison, <8 x float> %extract_o_0, 0
-  %extract_o_1_base = getelementptr inbounds i8, ptr %rs, i64 4
-  %extract_o_1_ptrs = getelementptr inbounds i8, ptr %extract_o_1_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_o_1 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_o_1_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_o_1_base = getelementptr inbounds nuw i8, ptr %rs, i64 4
+  %extract_o_1_ptrs = getelementptr inbounds nuw i8, ptr %extract_o_1_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_o_1 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_o_1_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %1 = insertvalue %"struct.f32x3$v8" %0, <8 x float> %extract_o_1, 1
-  %extract_o_2_base = getelementptr inbounds i8, ptr %rs, i64 8
-  %extract_o_2_ptrs = getelementptr inbounds i8, ptr %extract_o_2_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_o_2 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_o_2_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_o_2_base = getelementptr inbounds nuw i8, ptr %rs, i64 8
+  %extract_o_2_ptrs = getelementptr inbounds nuw i8, ptr %extract_o_2_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_o_2 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_o_2_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %2 = insertvalue %"struct.f32x3$v8" %1, <8 x float> %extract_o_2, 2
   %3 = insertvalue %"struct.Ray$v8" poison, %"struct.f32x3$v8" %2, 0
-  %extract_d_0_base = getelementptr inbounds i8, ptr %rs, i64 16
-  %extract_d_0_ptrs = getelementptr inbounds i8, ptr %extract_d_0_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_d_0 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_d_0_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_d_0_base = getelementptr inbounds nuw i8, ptr %rs, i64 16
+  %extract_d_0_ptrs = getelementptr inbounds nuw i8, ptr %extract_d_0_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_d_0 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_d_0_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %4 = insertvalue %"struct.f32x3$v8" poison, <8 x float> %extract_d_0, 0
-  %extract_d_1_base = getelementptr inbounds i8, ptr %rs, i64 20
-  %extract_d_1_ptrs = getelementptr inbounds i8, ptr %extract_d_1_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_d_1 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_d_1_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_d_1_base = getelementptr inbounds nuw i8, ptr %rs, i64 20
+  %extract_d_1_ptrs = getelementptr inbounds nuw i8, ptr %extract_d_1_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_d_1 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_d_1_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %5 = insertvalue %"struct.f32x3$v8" %4, <8 x float> %extract_d_1, 1
-  %extract_d_2_base = getelementptr inbounds i8, ptr %rs, i64 24
-  %extract_d_2_ptrs = getelementptr inbounds i8, ptr %extract_d_2_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_d_2 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_d_2_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_d_2_base = getelementptr inbounds nuw i8, ptr %rs, i64 24
+  %extract_d_2_ptrs = getelementptr inbounds nuw i8, ptr %extract_d_2_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_d_2 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_d_2_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %6 = insertvalue %"struct.f32x3$v8" %5, <8 x float> %extract_d_2, 2
   %7 = insertvalue %"struct.Ray$v8" %3, %"struct.f32x3$v8" %6, 1
-  %extract_tmax_base = getelementptr inbounds i8, ptr %rs, i64 32
-  %extract_tmax_ptrs = getelementptr inbounds i8, ptr %extract_tmax_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
-  %extract_tmax = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> %extract_tmax_ptrs, i32 4, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x float> poison)
+  %extract_tmax_base = getelementptr inbounds nuw i8, ptr %rs, i64 32
+  %extract_tmax_ptrs = getelementptr inbounds nuw i8, ptr %extract_tmax_base, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
+  %extract_tmax = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_tmax_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %8 = insertvalue %"struct.Ray$v8" %7, <8 x float> %extract_tmax, 2
-  store <8 x float> <float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000>, ptr %"_best0$i33$i44", align 32
-  %.fca.1.0.gep = getelementptr inbounds i8, ptr %"_best0$i33$i44", i64 32
+  store <8 x float> splat (float +inf), ptr %"_best0$i33$i44", align 32
+  %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best0$i33$i44", i64 32
   store <8 x i16> zeroinitializer, ptr %.fca.1.0.gep, align 32
-  %deref_temp.elt8 = getelementptr inbounds i8, ptr %shapes, i64 4
+  %deref_temp.elt8 = getelementptr inbounds nuw i8, ptr %shapes, i64 4
   %deref_temp.unpack9 = load ptr, ptr %deref_temp.elt8, align 1
-  %deref_temp.elt12 = getelementptr inbounds i8, ptr %shapes, i64 16
+  %deref_temp.elt12 = getelementptr inbounds nuw i8, ptr %shapes, i64 16
   %deref_temp.unpack13 = load ptr, ptr %deref_temp.elt12, align 1
-  call void @llvm.lifetime.start.p0(i64 160, ptr nonnull %_ret81.i)
-  call void @llvm.lifetime.start.p0(i64 160, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.start.p0(i64 64, ptr nonnull %"!stack0113.i")
-  call void @llvm.lifetime.start.p0(i64 128, ptr nonnull %"!stack114.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %_ret81.i)
+  call void @llvm.lifetime.start.p0(ptr nonnull %_ret.i)
+  call void @llvm.lifetime.start.p0(ptr nonnull %"!stack0113.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"!stack114.i")
   %9 = fmul <8 x float> %extract_d_0, %extract_d_0
   %10 = fmul <8 x float> %extract_d_1, %extract_d_1
   %11 = fmul <8 x float> %extract_d_2, %extract_d_2
   %12 = fadd <8 x float> %9, %10
   %13 = fadd <8 x float> %12, %11
-  %.fca.1.gep.i = getelementptr inbounds i8, ptr %_ret.i, i64 128
-  %.fca.0.3.gep107.i = getelementptr inbounds i8, ptr %_ret81.i, i64 96
-  %.fca.1.gep110.i = getelementptr inbounds i8, ptr %_ret81.i, i64 128
-  %14 = fdiv <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %extract_d_0
-  %15 = fdiv <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %extract_d_1
-  %16 = fdiv <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %extract_d_2
+  %.fca.1.gep.i = getelementptr inbounds nuw i8, ptr %_ret.i, i64 128
+  %.fca.0.3.gep107.i = getelementptr inbounds nuw i8, ptr %_ret81.i, i64 96
+  %.fca.1.gep110.i = getelementptr inbounds nuw i8, ptr %_ret81.i, i64 128
+  %14 = fdiv <8 x float> splat (float 1.000000e+00), %extract_d_0
+  %15 = fdiv <8 x float> splat (float 1.000000e+00), %extract_d_1
+  %16 = fdiv <8 x float> splat (float 1.000000e+00), %extract_d_2
   %17 = fcmp uge <8 x float> %14, zeroinitializer
   %18 = fcmp uge <8 x float> %15, zeroinitializer
   %19 = fcmp uge <8 x float> %16, zeroinitializer
@@ -144,23 +142,15 @@ hit_z_all:
 "!visit.i.outer":                                 ; preds = %"!visit.i.outer.backedge", %hit_z_all
   %"!count.0.i.ph" = phi i32 [ 0, %hit_z_all ], [ %"!count.0.i.ph.be", %"!visit.i.outer.backedge" ]
   %"shapes_index!top.i.ph" = phi i16 [ 0, %hit_z_all ], [ %"shapes_index!top.i.ph.be", %"!visit.i.outer.backedge" ]
-  %"!mask!top.i.ph" = phi <8 x i1> [ <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %hit_z_all ], [ %"!mask!top.i.ph.be", %"!visit.i.outer.backedge" ]
+  %"!mask!top.i.ph" = phi <8 x i1> [ splat (i1 true), %hit_z_all ], [ %"!mask!top.i.ph.be", %"!visit.i.outer.backedge" ]
   %20 = sext i16 %"shapes_index!top.i.ph" to i64
-  %extract_ptr.i = getelementptr inbounds %struct._tree_layout1, ptr %deref_temp.unpack13, i64 %20
-  %extract.unpack.elt124.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 4
-  %extract.unpack.elt126.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 8
-  %extract.elt115.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 12
-  %extract.elt117.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 16
-  %extract.elt119.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 17
-  %extract.elt121.i = getelementptr inbounds i8, ptr %extract_ptr.i, i64 18
-  br label %"!visit.i"
-
-"!visit.i":                                       ; preds = %"!visit.i.outer", %"!visit_pop.i"
-  %"!count.0.i" = phi i32 [ 0, %"!visit_pop.i" ], [ %"!count.0.i.ph", %"!visit.i.outer" ]
-  %"!live.i" = phi i1 [ false, %"!visit_pop.i" ], [ true, %"!visit.i.outer" ]
-  br i1 %"!live.i", label %"_recloop_func0$gang8_v2_p3$masked!loop.i", label %"_recloop_func0$gang8_v2_p3$masked.exit"
-
-"_recloop_func0$gang8_v2_p3$masked!loop.i":       ; preds = %"!visit.i"
+  %extract_ptr.i = getelementptr inbounds [20 x i8], ptr %deref_temp.unpack13, i64 %20
+  %extract.unpack.elt124.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
+  %extract.unpack.elt126.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 8
+  %extract.elt115.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
+  %extract.elt117.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
+  %extract.elt119.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 17
+  %extract.elt121.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 18
   %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
   %extract.unpack.unpack125.i = load float, ptr %extract.unpack.elt124.i, align 1
   %extract.unpack.unpack127.i = load float, ptr %extract.unpack.elt126.i, align 1
@@ -195,7 +185,7 @@ hit_z_all:
   %38 = fmul <8 x float> %13, %37
   %39 = fsub <8 x float> %30, %38
   %40 = fcmp uge <8 x float> %39, zeroinitializer
-  %41 = and <8 x i1> %40, %"!mask!top.i.ph"
+  %41 = and <8 x i1> %"!mask!top.i.ph", %40
   %42 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %39)
   %43 = fsub <8 x float> %29, %42
   %44 = fdiv <8 x float> %43, %13
@@ -206,22 +196,22 @@ hit_z_all:
   %max_lt.i = fcmp olt <8 x float> %44, %46
   %max.i = select <8 x i1> %max_lt.i, <8 x float> %46, <8 x float> %44
   %47 = select <8 x i1> %41, <8 x float> %min.i, <8 x float> zeroinitializer
-  %48 = fcmp ogt <8 x float> %max.i, zeroinitializer
-  %49 = fcmp olt <8 x float> %47, %extract_tmax
-  %50 = select <8 x i1> %41, <8 x i1> %48, <8 x i1> zeroinitializer
-  %51 = and <8 x i1> %49, %50
+  %48 = fcmp olt <8 x float> %47, %extract_tmax
+  %49 = fcmp ogt <8 x float> %max.i, zeroinitializer
+  %50 = select <8 x i1> %41, <8 x i1> %49, <8 x i1> zeroinitializer
+  %51 = and <8 x i1> %48, %50
   %52 = xor <8 x i1> %"!mask!top.i.ph", %41
-  %not.132.i = xor <8 x i1> %52, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
-  %53 = select <8 x i1> %not.132.i, <8 x i1> %51, <8 x i1> zeroinitializer
-  %54 = and <8 x i1> %53, %"!mask!top.i.ph"
+  %not.132.i.reass.reass = xor <8 x i1> %52, splat (i1 true)
+  %53 = select <8 x i1> %not.132.i.reass.reass, <8 x i1> %51, <8 x i1> zeroinitializer
+  %54 = and <8 x i1> %"!mask!top.i.ph", %53
   %55 = bitcast <8 x i1> %54 to i8
   %.not.i = icmp eq i8 %55, 0
   br i1 %.not.i, label %"!visit_pop.i", label %"!then_6.i"
 
-"!then_6.i":                                      ; preds = %"_recloop_func0$gang8_v2_p3$masked!loop.i"
-  %56 = fcmp ogt <8 x float> %max.i, <float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000>
+"!then_6.i":                                      ; preds = %"!visit.i.outer"
+  %56 = fcmp ogt <8 x float> %max.i, splat (float 1.000000e-03)
   %57 = select <8 x i1> %41, <8 x i1> %56, <8 x i1> zeroinitializer
-  %58 = and <8 x i1> %54, %57
+  %58 = and <8 x i1> %57, %54
   %59 = bitcast <8 x i1> %58 to i8
   %.not133.i = icmp eq i8 %59, 0
   br i1 %.not133.i, label %"!visit_pop.i", label %"!then_11.i"
@@ -229,7 +219,7 @@ hit_z_all:
 "!then_11.i":                                     ; preds = %"!then_6.i"
   %"@65._field0.i" = load <8 x float>, ptr %"_best0$i33$i44", align 32
   %60 = fcmp olt <8 x float> %47, %"@65._field0.i"
-  %61 = and <8 x i1> %60, %58
+  %61 = and <8 x i1> %58, %60
   %62 = bitcast <8 x i1> %61 to i8
   %.not134.i = icmp eq i8 %62, 0
   br i1 %.not134.i, label %"!visit_pop.i", label %"!then_16.i"
@@ -239,179 +229,177 @@ hit_z_all:
   br i1 %63, label %"!then_18.i", label %"!else_19.i"
 
 "!then_18.i":                                     ; preds = %"!then_16.i"
-  %64 = insertelement <2 x i8> poison, i8 %extract.unpack120.i, i64 0
-  %65 = shufflevector <2 x i8> %64, <2 x i8> poison, <2 x i32> zeroinitializer
-  %66 = icmp eq <2 x i8> %65, <i8 0, i8 1>
-  %.splat89.i = shufflevector <2 x i1> %66, <2 x i1> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %.splat91.i = shufflevector <2 x i1> %66, <2 x i1> poison, <8 x i32> zeroinitializer
-  %67 = add i16 %"shapes_index!top.i.ph", 1
-  %68 = bitcast <2 x i8> %21 to i16
-  %69 = add i16 %"shapes_index!top.i.ph", %68
-  %70 = select <8 x i1> %.splat89.i, <8 x i1> %18, <8 x i1> %19
-  %71 = select <8 x i1> %.splat91.i, <8 x i1> %17, <8 x i1> %70
-  %72 = and <8 x i1> %61, %71
-  %73 = tail call range(i8 0, 9) i8 @llvm.ctpop.i8(i8 %62)
-  %74 = bitcast <8 x i1> %72 to i8
-  %75 = tail call range(i8 0, 9) i8 @llvm.ctpop.i8(i8 %74)
-  %76 = shl nuw nsw i8 %75, 1
-  %77 = icmp ult i8 %73, %76
-  %78 = select i1 %77, i16 %67, i16 %69
-  %79 = select i1 %77, i16 %69, i16 %67
-  %80 = sext i32 %"!count.0.i" to i64
-  %"!stack94.i" = getelementptr inbounds i16, ptr %"!stack114.i", i64 %80
-  store i16 %79, ptr %"!stack94.i", align 2, !tbaa !0
-  %"!stack095.i" = getelementptr inbounds <8 x i1>, ptr %"!stack0113.i", i64 %80
+  %64 = icmp eq i8 %extract.unpack120.i, 1
+  %.splatinsert88.i = insertelement <8 x i1> poison, i1 %64, i64 0
+  %.splat89.i = shufflevector <8 x i1> %.splatinsert88.i, <8 x i1> poison, <8 x i32> zeroinitializer
+  %65 = icmp eq i8 %extract.unpack120.i, 0
+  %.splatinsert90.i = insertelement <8 x i1> poison, i1 %65, i64 0
+  %.splat91.i = shufflevector <8 x i1> %.splatinsert90.i, <8 x i1> poison, <8 x i32> zeroinitializer
+  %66 = add i16 %"shapes_index!top.i.ph", 1
+  %67 = bitcast <2 x i8> %21 to i16
+  %68 = add i16 %"shapes_index!top.i.ph", %67
+  %69 = select <8 x i1> %.splat89.i, <8 x i1> %18, <8 x i1> %19
+  %70 = select <8 x i1> %.splat91.i, <8 x i1> %17, <8 x i1> %69
+  %71 = and <8 x i1> %70, %61
+  %72 = tail call range(i8 1, 9) i8 @llvm.ctpop.i8(i8 %62)
+  %73 = bitcast <8 x i1> %71 to i8
+  %74 = tail call range(i8 0, 9) i8 @llvm.ctpop.i8(i8 %73)
+  %75 = shl nuw nsw i8 %74, 1
+  %76 = icmp samesign ult i8 %72, %75
+  %77 = select i1 %76, i16 %66, i16 %68
+  %78 = select i1 %76, i16 %68, i16 %66
+  %79 = sext i32 %"!count.0.i.ph" to i64
+  %"!stack94.i" = getelementptr inbounds [2 x i8], ptr %"!stack114.i", i64 %79
+  store i16 %78, ptr %"!stack94.i", align 2, !tbaa !0
+  %"!stack095.i" = getelementptr inbounds i8, ptr %"!stack0113.i", i64 %79
   store <8 x i1> %61, ptr %"!stack095.i", align 1, !tbaa !3
-  %81 = add i32 %"!count.0.i", 1
+  %80 = add i32 %"!count.0.i.ph", 1
   br label %"!visit.i.outer.backedge"
 
 "!visit.i.outer.backedge":                        ; preds = %"!then_18.i", %"!visit_next.i"
-  %"!count.0.i.ph.be" = phi i32 [ %157, %"!visit_next.i" ], [ %81, %"!then_18.i" ]
-  %"shapes_index!top.i.ph.be" = phi i16 [ %extract33.i, %"!visit_next.i" ], [ %78, %"!then_18.i" ]
+  %"!count.0.i.ph.be" = phi i32 [ %152, %"!visit_next.i" ], [ %80, %"!then_18.i" ]
+  %"shapes_index!top.i.ph.be" = phi i16 [ %extract33.i, %"!visit_next.i" ], [ %77, %"!then_18.i" ]
   %"!mask!top.i.ph.be" = phi <8 x i1> [ %extract35.i, %"!visit_next.i" ], [ %61, %"!then_18.i" ]
   br label %"!visit.i.outer"
 
 "!else_19.i":                                     ; preds = %"!then_16.i"
-  %82 = bitcast <2 x i8> %21 to i16
+  %81 = bitcast <2 x i8> %21 to i16
   %wide.trip.count = zext i8 %extract.unpack118.i to i64
+  %invariant.op = xor <8 x i1> %61, splat (i1 true)
   br label %"!for__idx0_body_23.i"
 
 "!for__idx0_body_23.i":                           ; preds = %"!else_19.i", %"!merge_36.i"
   %indvars.iv = phi i64 [ 0, %"!else_19.i" ], [ %indvars.iv.next, %"!merge_36.i" ]
-  %83 = trunc nuw nsw i64 %indvars.iv to i16
-  %84 = add i16 %83, %82
-  %85 = sext i16 %84 to i64
-  %extract_ptr39.i = getelementptr inbounds %struct.Shape, ptr %deref_temp.unpack9, i64 %85
+  %82 = trunc nuw nsw i64 %indvars.iv to i16
+  %83 = add i16 %82, %81
+  %84 = sext i16 %83 to i64
+  %extract_ptr39.i = getelementptr inbounds [64 x i8], ptr %deref_temp.unpack9, i64 %84
   %extract40.unpack.i = load i8, ptr %extract_ptr39.i, align 4
-  %extract40.elt138.i = getelementptr inbounds i8, ptr %extract_ptr39.i, i64 16
+  %extract40.elt138.i = getelementptr inbounds nuw i8, ptr %extract_ptr39.i, i64 16
   %extract40.unpack139.unpack.i = load i32, ptr %extract40.elt138.i, align 4
-  %extract40.unpack139.elt170.i = getelementptr inbounds i8, ptr %extract_ptr39.i, i64 20
-  %86 = load <2 x i32>, ptr %extract40.unpack139.elt170.i, align 4
-  %extract40.unpack139.elt176.i = getelementptr inbounds i8, ptr %extract_ptr39.i, i64 32
+  %extract40.unpack139.elt170.i = getelementptr inbounds nuw i8, ptr %extract_ptr39.i, i64 20
+  %85 = load <2 x i32>, ptr %extract40.unpack139.elt170.i, align 4
+  %extract40.unpack139.elt176.i = getelementptr inbounds nuw i8, ptr %extract_ptr39.i, i64 32
   %extract40.unpack139.unpack177.i = load i32, ptr %extract40.unpack139.elt176.i, align 4
   %cond.i = icmp eq i8 %extract40.unpack.i, 0
   br i1 %cond.i, label %"!merge_25.i", label %"!merge_25.i.thread"
 
 "!merge_25.i":                                    ; preds = %"!for__idx0_body_23.i"
-  %87 = bitcast i32 %extract40.unpack139.unpack177.i to float
-  %88 = insertelement <8 x i32> poison, i32 %extract40.unpack139.unpack.i, i64 0
-  %.splatinsert42.i = bitcast <8 x i32> %88 to <8 x float>
+  %86 = bitcast i32 %extract40.unpack139.unpack177.i to float
+  %87 = insertelement <8 x i32> poison, i32 %extract40.unpack139.unpack.i, i64 0
+  %.splatinsert42.i = bitcast <8 x i32> %87 to <8 x float>
   %.splat43.i = shufflevector <8 x float> %.splatinsert42.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %89 = fsub <8 x float> %.splat43.i, %extract_o_0
-  %90 = bitcast <2 x i32> %86 to <2 x float>
-  %.splat46.i = shufflevector <2 x float> %90, <2 x float> poison, <8 x i32> zeroinitializer
-  %91 = fsub <8 x float> %.splat46.i, %extract_o_1
-  %92 = bitcast <2 x i32> %86 to <2 x float>
-  %.splat49.i = shufflevector <2 x float> %92, <2 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %93 = fsub <8 x float> %.splat49.i, %extract_o_2
-  %94 = fmul <8 x float> %extract_d_0, %89
-  %95 = fmul <8 x float> %extract_d_1, %91
-  %96 = fadd <8 x float> %94, %95
-  %97 = fmul <8 x float> %extract_d_2, %93
-  %98 = fadd <8 x float> %96, %97
-  %99 = fmul <8 x float> %98, %98
-  %100 = fmul <8 x float> %89, %89
-  %101 = fmul <8 x float> %91, %91
-  %102 = fmul <8 x float> %93, %93
-  %103 = fadd <8 x float> %100, %101
-  %104 = fadd <8 x float> %103, %102
-  %105 = fmul float %87, %87
-  %.splatinsert53.i = insertelement <8 x float> poison, float %105, i64 0
+  %88 = fsub <8 x float> %.splat43.i, %extract_o_0
+  %89 = bitcast <2 x i32> %85 to <2 x float>
+  %.splat46.i = shufflevector <2 x float> %89, <2 x float> poison, <8 x i32> zeroinitializer
+  %90 = fsub <8 x float> %.splat46.i, %extract_o_1
+  %91 = bitcast <2 x i32> %85 to <2 x float>
+  %.splat49.i = shufflevector <2 x float> %91, <2 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %92 = fsub <8 x float> %.splat49.i, %extract_o_2
+  %93 = fmul <8 x float> %extract_d_0, %88
+  %94 = fmul <8 x float> %extract_d_1, %90
+  %95 = fadd <8 x float> %93, %94
+  %96 = fmul <8 x float> %extract_d_2, %92
+  %97 = fadd <8 x float> %95, %96
+  %98 = fmul <8 x float> %97, %97
+  %99 = fmul <8 x float> %88, %88
+  %100 = fmul <8 x float> %90, %90
+  %101 = fmul <8 x float> %92, %92
+  %102 = fadd <8 x float> %99, %100
+  %103 = fadd <8 x float> %102, %101
+  %104 = fmul float %86, %86
+  %.splatinsert53.i = insertelement <8 x float> poison, float %104, i64 0
   %.splat54.i = shufflevector <8 x float> %.splatinsert53.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %106 = fsub <8 x float> %104, %.splat54.i
-  %107 = fmul <8 x float> %13, %106
-  %108 = fsub <8 x float> %99, %107
-  %109 = fcmp uge <8 x float> %108, zeroinitializer
-  %110 = and <8 x i1> %109, %61
-  %111 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %108)
-  %112 = fsub <8 x float> %98, %111
-  %113 = fdiv <8 x float> %112, %13
-  %114 = fadd <8 x float> %98, %111
-  %115 = fdiv <8 x float> %114, %13
-  %min_lt55.i = fcmp olt <8 x float> %115, %113
-  %min56.i = select <8 x i1> %min_lt55.i, <8 x float> %115, <8 x float> %113
-  %max_lt57.i = fcmp olt <8 x float> %113, %115
-  %max58.i = select <8 x i1> %max_lt57.i, <8 x float> %115, <8 x float> %113
-  %116 = select <8 x i1> %110, <8 x float> %min56.i, <8 x float> zeroinitializer
+  %105 = fsub <8 x float> %103, %.splat54.i
+  %106 = fmul <8 x float> %13, %105
+  %107 = fsub <8 x float> %98, %106
+  %108 = fcmp uge <8 x float> %107, zeroinitializer
+  %109 = and <8 x i1> %61, %108
+  %110 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %107)
+  %111 = fsub <8 x float> %97, %110
+  %112 = fdiv <8 x float> %111, %13
+  %113 = fadd <8 x float> %97, %110
+  %114 = fdiv <8 x float> %113, %13
+  %min_lt55.i = fcmp olt <8 x float> %114, %112
+  %min56.i = select <8 x i1> %min_lt55.i, <8 x float> %114, <8 x float> %112
+  %max_lt57.i = fcmp olt <8 x float> %112, %114
+  %max58.i = select <8 x i1> %max_lt57.i, <8 x float> %114, <8 x float> %112
+  %115 = select <8 x i1> %109, <8 x float> %min56.i, <8 x float> zeroinitializer
+  %116 = fcmp olt <8 x float> %115, %extract_tmax
   %117 = fcmp ogt <8 x float> %max58.i, zeroinitializer
-  %118 = fcmp olt <8 x float> %116, %extract_tmax
-  %119 = select <8 x i1> %110, <8 x i1> %117, <8 x i1> zeroinitializer
-  %120 = and <8 x i1> %118, %119
-  %121 = xor <8 x i1> %61, %110
-  %not..i = xor <8 x i1> %121, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
-  %122 = select <8 x i1> %not..i, <8 x i1> %120, <8 x i1> zeroinitializer
-  %123 = and <8 x i1> %122, %61
-  %124 = bitcast <8 x i1> %123 to i8
-  %.not193.i = icmp eq i8 %124, 0
+  %118 = select <8 x i1> %109, <8 x i1> %117, <8 x i1> zeroinitializer
+  %119 = and <8 x i1> %116, %118
+  %not..i.reass.reass.reass = xor <8 x i1> %109, %invariant.op
+  %120 = select <8 x i1> %not..i.reass.reass.reass, <8 x i1> %119, <8 x i1> zeroinitializer
+  %121 = and <8 x i1> %58, %120
+  %122 = bitcast <8 x i1> %121 to i8
+  %.not193.i = icmp eq i8 %122, 0
   br i1 %.not193.i, label %"!merge_36.i", label %"!case_38.i"
 
 "!merge_25.i.thread":                             ; preds = %"!for__idx0_body_23.i"
-  %extract40.unpack139.elt186.i = getelementptr inbounds i8, ptr %extract_ptr39.i, i64 52
-  %125 = load <2 x i32>, ptr %extract40.unpack139.elt186.i, align 4
-  %extract40.unpack139.elt184.i = getelementptr inbounds i8, ptr %extract_ptr39.i, i64 48
+  %extract40.unpack139.elt186.i = getelementptr inbounds nuw i8, ptr %extract_ptr39.i, i64 52
+  %123 = load <2 x i32>, ptr %extract40.unpack139.elt186.i, align 4
+  %extract40.unpack139.elt184.i = getelementptr inbounds nuw i8, ptr %extract_ptr39.i, i64 48
   %extract40.unpack139.unpack185.i = load i32, ptr %extract40.unpack139.elt184.i, align 4
-  %extract40.unpack139.elt178.i = getelementptr inbounds i8, ptr %extract_ptr39.i, i64 36
-  %126 = load <2 x i32>, ptr %extract40.unpack139.elt178.i, align 4
-  %127 = insertelement <3 x i32> poison, i32 %extract40.unpack139.unpack.i, i64 0
-  %128 = shufflevector <2 x i32> %86, <2 x i32> poison, <3 x i32> <i32 0, i32 1, i32 poison>
-  %129 = shufflevector <3 x i32> %127, <3 x i32> %128, <3 x i32> <i32 0, i32 3, i32 4>
-  %130 = bitcast <3 x i32> %129 to <3 x float>
-  %131 = insertelement <3 x i32> poison, i32 %extract40.unpack139.unpack177.i, i64 0
-  %132 = shufflevector <2 x i32> %126, <2 x i32> poison, <3 x i32> <i32 0, i32 1, i32 poison>
-  %133 = shufflevector <3 x i32> %131, <3 x i32> %132, <3 x i32> <i32 0, i32 3, i32 4>
-  %134 = bitcast <3 x i32> %133 to <3 x float>
-  %135 = insertelement <3 x i32> poison, i32 %extract40.unpack139.unpack185.i, i64 0
-  %136 = shufflevector <2 x i32> %125, <2 x i32> poison, <3 x i32> <i32 0, i32 1, i32 poison>
-  %137 = shufflevector <3 x i32> %135, <3 x i32> %136, <3 x i32> <i32 0, i32 3, i32 4>
-  %138 = bitcast <3 x i32> %137 to <3 x float>
-  %139 = insertvalue %struct.Triangle undef, <3 x float> %130, 0
-  %140 = insertvalue %struct.Triangle %139, <3 x float> %134, 1
-  %141 = insertvalue %struct.Triangle %140, <3 x float> %138, 2
-  call fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias %_ret.i, %"struct.Ray$v8" %8, %struct.Triangle %141, <8 x i1> %61)
+  %extract40.unpack139.elt178.i = getelementptr inbounds nuw i8, ptr %extract_ptr39.i, i64 36
+  %124 = load <2 x i32>, ptr %extract40.unpack139.elt178.i, align 4
+  %125 = insertelement <3 x i32> poison, i32 %extract40.unpack139.unpack.i, i64 0
+  %126 = shufflevector <2 x i32> %85, <2 x i32> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %127 = shufflevector <3 x i32> %125, <3 x i32> %126, <3 x i32> <i32 0, i32 3, i32 4>
+  %128 = bitcast <3 x i32> %127 to <3 x float>
+  %129 = insertelement <3 x i32> poison, i32 %extract40.unpack139.unpack177.i, i64 0
+  %130 = shufflevector <2 x i32> %124, <2 x i32> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %131 = shufflevector <3 x i32> %129, <3 x i32> %130, <3 x i32> <i32 0, i32 3, i32 4>
+  %132 = bitcast <3 x i32> %131 to <3 x float>
+  %133 = insertelement <3 x i32> poison, i32 %extract40.unpack139.unpack185.i, i64 0
+  %134 = shufflevector <2 x i32> %123, <2 x i32> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %135 = shufflevector <3 x i32> %133, <3 x i32> %134, <3 x i32> <i32 0, i32 3, i32 4>
+  %136 = bitcast <3 x i32> %135 to <3 x float>
+  %137 = insertvalue %struct.Triangle undef, <3 x float> %128, 0
+  %138 = insertvalue %struct.Triangle %137, <3 x float> %132, 1
+  %139 = insertvalue %struct.Triangle %138, <3 x float> %136, 2
+  call fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias %_ret.i, %"struct.Ray$v8" %8, %struct.Triangle %139, <8 x i1> %61)
   %.fca.1.load.i = load <8 x i1>, ptr %.fca.1.gep.i, align 32
-  %142 = and <8 x i1> %.fca.1.load.i, %61
-  %143 = bitcast <8 x i1> %142 to i8
-  %.not193.i23 = icmp eq i8 %143, 0
+  %140 = and <8 x i1> %61, %.fca.1.load.i
+  %141 = bitcast <8 x i1> %140 to i8
+  %.not193.i23 = icmp eq i8 %141, 0
   br i1 %.not193.i23, label %"!merge_36.i", label %"!case_39.i"
 
 "!case_39.i":                                     ; preds = %"!merge_25.i.thread"
-  call fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias %_ret81.i, %"struct.Ray$v8" %8, %struct.Triangle %141, <8 x i1> %142)
+  call fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias %_ret81.i, %"struct.Ray$v8" %8, %struct.Triangle %139, <8 x i1> %140)
   %.fca.0.3.load108.i = load <8 x float>, ptr %.fca.0.3.gep107.i, align 32
   %.fca.1.load111.i = load <8 x i1>, ptr %.fca.1.gep110.i, align 32
-  %not..fca.1.load111.i = xor <8 x i1> %.fca.1.load111.i, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
-  %144 = and <8 x i1> %142, %not..fca.1.load111.i
-  %145 = select <8 x i1> %144, <8 x float> <float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000>, <8 x float> %.fca.0.3.load108.i
+  %not..fca.1.load111.i = xor <8 x i1> %.fca.1.load111.i, splat (i1 true)
+  %142 = and <8 x i1> %140, %not..fca.1.load111.i
+  %143 = select <8 x i1> %142, <8 x float> splat (float +inf), <8 x float> %.fca.0.3.load108.i
   br label %"!merge_37.i"
 
 "!case_38.i":                                     ; preds = %"!merge_25.i"
-  %146 = and <8 x i1> %123, %109
-  %147 = select <8 x i1> %146, <8 x float> %min56.i, <8 x float> zeroinitializer
-  %148 = xor <8 x i1> %146, %123
-  %149 = select <8 x i1> %148, <8 x float> <float 0xFFF0000000000000, float 0xFFF0000000000000, float 0xFFF0000000000000, float 0xFFF0000000000000, float 0xFFF0000000000000, float 0xFFF0000000000000, float 0xFFF0000000000000, float 0xFFF0000000000000>, <8 x float> %147
+  %144 = select <8 x i1> %121, <8 x float> %min56.i, <8 x float> zeroinitializer
   br label %"!merge_37.i"
 
 "!merge_37.i":                                    ; preds = %"!case_38.i", %"!case_39.i"
-  %150 = phi <8 x i1> [ %123, %"!case_38.i" ], [ %142, %"!case_39.i" ]
-  %"distmin_Ray_Shape$r4.i" = phi <8 x float> [ %149, %"!case_38.i" ], [ %145, %"!case_39.i" ]
-  %151 = fcmp ogt <8 x float> %"distmin_Ray_Shape$r4.i", <float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000, float 0x3F50624DE0000000>
-  %152 = and <8 x i1> %151, %150
-  %153 = bitcast <8 x i1> %152 to i8
-  %.not196.i = icmp eq i8 %153, 0
+  %145 = phi <8 x i1> [ %121, %"!case_38.i" ], [ %140, %"!case_39.i" ]
+  %"distmin_Ray_Shape$r4.i" = phi <8 x float> [ %144, %"!case_38.i" ], [ %143, %"!case_39.i" ]
+  %146 = fcmp ogt <8 x float> %"distmin_Ray_Shape$r4.i", splat (float 1.000000e-03)
+  %147 = and <8 x i1> %145, %146
+  %148 = bitcast <8 x i1> %147 to i8
+  %.not196.i = icmp eq i8 %148, 0
   br i1 %.not196.i, label %"!merge_36.i", label %"!then_50.i"
 
 "!then_50.i":                                     ; preds = %"!merge_37.i"
   %"@256._field0.i" = load <8 x float>, ptr %"_best0$i33$i44", align 32
-  %154 = fcmp olt <8 x float> %"distmin_Ray_Shape$r4.i", %"@256._field0.i"
-  %155 = and <8 x i1> %154, %152
-  %156 = bitcast <8 x i1> %155 to i8
-  %.not197.i = icmp eq i8 %156, 0
+  %149 = fcmp olt <8 x float> %"distmin_Ray_Shape$r4.i", %"@256._field0.i"
+  %150 = and <8 x i1> %147, %149
+  %151 = bitcast <8 x i1> %150 to i8
+  %.not197.i = icmp eq i8 %151, 0
   br i1 %.not197.i, label %"!merge_36.i", label %"!then_52.i"
 
 "!then_52.i":                                     ; preds = %"!then_50.i"
-  %.splatinsert83.i = insertelement <8 x i16> poison, i16 %84, i64 0
+  %.splatinsert83.i = insertelement <8 x i16> poison, i16 %83, i64 0
   %.splat84.i = shufflevector <8 x i16> %.splatinsert83.i, <8 x i16> poison, <8 x i32> zeroinitializer
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %"distmin_Ray_Shape$r4.i", ptr nonnull %"_best0$i33$i44", i32 32, <8 x i1> %155)
-  call void @llvm.masked.store.v8i16.p0(<8 x i16> %.splat84.i, ptr nonnull %.fca.1.0.gep, i32 16, <8 x i1> %155)
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %"distmin_Ray_Shape$r4.i", ptr nonnull align 32 %"_best0$i33$i44", <8 x i1> %150)
+  call void @llvm.masked.store.v8i16.p0(<8 x i16> %.splat84.i, ptr nonnull align 32 %.fca.1.0.gep, <8 x i1> %150)
   br label %"!merge_36.i"
 
 "!merge_36.i":                                    ; preds = %"!merge_25.i.thread", %"!then_52.i", %"!then_50.i", %"!merge_37.i", %"!merge_25.i"
@@ -419,179 +407,179 @@ hit_z_all:
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
   br i1 %exitcond.not, label %"!visit_pop.i", label %"!for__idx0_body_23.i"
 
-"!visit_pop.i":                                   ; preds = %"!merge_36.i", %"!then_11.i", %"!then_6.i", %"_recloop_func0$gang8_v2_p3$masked!loop.i"
-  %.not135.i = icmp eq i32 %"!count.0.i", 0
-  br i1 %.not135.i, label %"!visit.i", label %"!visit_next.i"
+"!visit_pop.i":                                   ; preds = %"!merge_36.i", %"!then_11.i", %"!then_6.i", %"!visit.i.outer"
+  %.not135.i = icmp eq i32 %"!count.0.i.ph", 0
+  br i1 %.not135.i, label %"_recloop_func0$gang8_v2_p3$masked.exit", label %"!visit_next.i"
 
 "!visit_next.i":                                  ; preds = %"!visit_pop.i"
-  %157 = add i32 %"!count.0.i", -1
-  %158 = sext i32 %157 to i64
-  %extract_ptr32.i = getelementptr inbounds i16, ptr %"!stack114.i", i64 %158
+  %152 = add i32 %"!count.0.i.ph", -1
+  %153 = sext i32 %152 to i64
+  %extract_ptr32.i = getelementptr inbounds [2 x i8], ptr %"!stack114.i", i64 %153
   %extract33.i = load i16, ptr %extract_ptr32.i, align 2
-  %extract_ptr34.i = getelementptr inbounds <8 x i1>, ptr %"!stack0113.i", i64 %158
+  %extract_ptr34.i = getelementptr inbounds i8, ptr %"!stack0113.i", i64 %153
   %extract35.i = load <8 x i1>, ptr %extract_ptr34.i, align 1
   br label %"!visit.i.outer.backedge"
 
-"_recloop_func0$gang8_v2_p3$masked.exit":         ; preds = %"!visit.i"
-  call void @llvm.lifetime.end.p0(i64 160, ptr nonnull %_ret81.i)
-  call void @llvm.lifetime.end.p0(i64 160, ptr nonnull %_ret.i)
-  call void @llvm.lifetime.end.p0(i64 64, ptr nonnull %"!stack0113.i")
-  call void @llvm.lifetime.end.p0(i64 128, ptr nonnull %"!stack114.i")
+"_recloop_func0$gang8_v2_p3$masked.exit":         ; preds = %"!visit_pop.i"
+  call void @llvm.lifetime.end.p0(ptr nonnull %_ret81.i)
+  call void @llvm.lifetime.end.p0(ptr nonnull %_ret.i)
+  call void @llvm.lifetime.end.p0(ptr nonnull %"!stack0113.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"!stack114.i")
   %deref_temp4.fca.0.load = load <8 x float>, ptr %"_best0$i33$i44", align 32
-  %159 = fcmp one <8 x float> %deref_temp4.fca.0.load, <float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000, float 0x7FF0000000000000>
-  %160 = bitcast <8 x i1> %159 to i8
-  %.not = icmp eq i8 %160, 0
+  %154 = fcmp one <8 x float> %deref_temp4.fca.0.load, splat (float +inf)
+  %155 = bitcast <8 x i1> %154 to i8
+  %.not = icmp eq i8 %155, 0
   br i1 %.not, label %"!merge_4", label %"!then_3"
 
 "!then_3":                                        ; preds = %"_recloop_func0$gang8_v2_p3$masked.exit"
   %deref_temp4.fca.1.0.load = load <8 x i16>, ptr %.fca.1.0.gep, align 32
-  %161 = sext <8 x i16> %deref_temp4.fca.1.0.load to <8 x i32>
-  %extract_off = shl nsw <8 x i32> %161, <i32 6, i32 6, i32 6, i32 6, i32 6, i32 6, i32 6, i32 6>
-  %162 = sext <8 x i32> %extract_off to <8 x i64>
-  %extract_tag_word_ptrs = getelementptr inbounds i8, ptr %deref_temp.unpack9, <8 x i64> %162
-  %extract_tag_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_tag_word_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
+  %156 = sext <8 x i16> %deref_temp4.fca.1.0.load to <8 x i32>
+  %extract_off = shl nsw <8 x i32> %156, splat (i32 6)
+  %157 = sext <8 x i32> %extract_off to <8 x i64>
+  %extract_tag_word_ptrs = getelementptr inbounds i8, ptr %deref_temp.unpack9, <8 x i64> %157
+  %extract_tag_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_tag_word_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
   %extract_tag = trunc <8 x i32> %extract_tag_word to <8 x i8>
-  %163 = lshr <8 x i32> %extract_tag_word, <i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8>
-  %extract__pad_0 = trunc <8 x i32> %163 to <8 x i8>
-  %164 = lshr <8 x i32> %extract_tag_word, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
-  %extract__pad_1 = trunc <8 x i32> %164 to <8 x i8>
-  %165 = lshr <8 x i32> %extract_tag_word, <i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24>
-  %extract__pad_2 = trunc nuw <8 x i32> %165 to <8 x i8>
-  %extract__pad_3_word_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 4
-  %extract__pad_3_word_ptrs = getelementptr inbounds i8, ptr %extract__pad_3_word_base, <8 x i64> %162
-  %extract__pad_3_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract__pad_3_word_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
+  %158 = lshr <8 x i32> %extract_tag_word, splat (i32 8)
+  %extract__pad_0 = trunc <8 x i32> %158 to <8 x i8>
+  %159 = lshr <8 x i32> %extract_tag_word, splat (i32 16)
+  %extract__pad_1 = trunc <8 x i32> %159 to <8 x i8>
+  %160 = lshr <8 x i32> %extract_tag_word, splat (i32 24)
+  %extract__pad_2 = trunc nuw <8 x i32> %160 to <8 x i8>
+  %extract__pad_3_word_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 4
+  %extract__pad_3_word_ptrs = getelementptr inbounds i8, ptr %extract__pad_3_word_base, <8 x i64> %157
+  %extract__pad_3_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract__pad_3_word_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
   %extract__pad_3 = trunc <8 x i32> %extract__pad_3_word to <8 x i8>
-  %166 = lshr <8 x i32> %extract__pad_3_word, <i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8>
-  %extract__pad_4 = trunc <8 x i32> %166 to <8 x i8>
-  %167 = lshr <8 x i32> %extract__pad_3_word, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
-  %extract__pad_5 = trunc <8 x i32> %167 to <8 x i8>
-  %168 = lshr <8 x i32> %extract__pad_3_word, <i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24>
-  %extract__pad_6 = trunc nuw <8 x i32> %168 to <8 x i8>
-  %extract__pad_7_word_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 8
-  %extract__pad_7_word_ptrs = getelementptr inbounds i8, ptr %extract__pad_7_word_base, <8 x i64> %162
-  %extract__pad_7_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract__pad_7_word_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
+  %161 = lshr <8 x i32> %extract__pad_3_word, splat (i32 8)
+  %extract__pad_4 = trunc <8 x i32> %161 to <8 x i8>
+  %162 = lshr <8 x i32> %extract__pad_3_word, splat (i32 16)
+  %extract__pad_5 = trunc <8 x i32> %162 to <8 x i8>
+  %163 = lshr <8 x i32> %extract__pad_3_word, splat (i32 24)
+  %extract__pad_6 = trunc nuw <8 x i32> %163 to <8 x i8>
+  %extract__pad_7_word_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 8
+  %extract__pad_7_word_ptrs = getelementptr inbounds i8, ptr %extract__pad_7_word_base, <8 x i64> %157
+  %extract__pad_7_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract__pad_7_word_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
   %extract__pad_7 = trunc <8 x i32> %extract__pad_7_word to <8 x i8>
-  %169 = lshr <8 x i32> %extract__pad_7_word, <i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8>
-  %extract__pad_8 = trunc <8 x i32> %169 to <8 x i8>
-  %170 = lshr <8 x i32> %extract__pad_7_word, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
-  %extract__pad_9 = trunc <8 x i32> %170 to <8 x i8>
-  %171 = lshr <8 x i32> %extract__pad_7_word, <i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24>
-  %extract__pad_10 = trunc nuw <8 x i32> %171 to <8 x i8>
-  %extract__pad_11_word_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 12
-  %extract__pad_11_word_ptrs = getelementptr inbounds i8, ptr %extract__pad_11_word_base, <8 x i64> %162
-  %extract__pad_11_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract__pad_11_word_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
+  %164 = lshr <8 x i32> %extract__pad_7_word, splat (i32 8)
+  %extract__pad_8 = trunc <8 x i32> %164 to <8 x i8>
+  %165 = lshr <8 x i32> %extract__pad_7_word, splat (i32 16)
+  %extract__pad_9 = trunc <8 x i32> %165 to <8 x i8>
+  %166 = lshr <8 x i32> %extract__pad_7_word, splat (i32 24)
+  %extract__pad_10 = trunc nuw <8 x i32> %166 to <8 x i8>
+  %extract__pad_11_word_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 12
+  %extract__pad_11_word_ptrs = getelementptr inbounds i8, ptr %extract__pad_11_word_base, <8 x i64> %157
+  %extract__pad_11_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract__pad_11_word_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
   %extract__pad_11 = trunc <8 x i32> %extract__pad_11_word to <8 x i8>
-  %172 = lshr <8 x i32> %extract__pad_11_word, <i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8>
-  %extract__pad_12 = trunc <8 x i32> %172 to <8 x i8>
-  %173 = lshr <8 x i32> %extract__pad_11_word, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
-  %extract__pad_13 = trunc <8 x i32> %173 to <8 x i8>
-  %174 = lshr <8 x i32> %extract__pad_11_word, <i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24, i32 24>
-  %extract__pad_14 = trunc nuw <8 x i32> %174 to <8 x i8>
-  %extract_payload_0_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 16
-  %extract_payload_0_ptrs = getelementptr inbounds i8, ptr %extract_payload_0_base, <8 x i64> %162
-  %extract_payload_0 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_0_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_1_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 20
-  %extract_payload_1_ptrs = getelementptr inbounds i8, ptr %extract_payload_1_base, <8 x i64> %162
-  %extract_payload_1 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_1_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_2_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 24
-  %extract_payload_2_ptrs = getelementptr inbounds i8, ptr %extract_payload_2_base, <8 x i64> %162
-  %extract_payload_2 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_2_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_3_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 28
-  %extract_payload_3_ptrs = getelementptr inbounds i8, ptr %extract_payload_3_base, <8 x i64> %162
-  %extract_payload_3 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_3_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_4_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 32
-  %extract_payload_4_ptrs = getelementptr inbounds i8, ptr %extract_payload_4_base, <8 x i64> %162
-  %extract_payload_4 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_4_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_5_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 36
-  %extract_payload_5_ptrs = getelementptr inbounds i8, ptr %extract_payload_5_base, <8 x i64> %162
-  %extract_payload_5 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_5_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_6_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 40
-  %extract_payload_6_ptrs = getelementptr inbounds i8, ptr %extract_payload_6_base, <8 x i64> %162
-  %extract_payload_6 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_6_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_7_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 44
-  %extract_payload_7_ptrs = getelementptr inbounds i8, ptr %extract_payload_7_base, <8 x i64> %162
-  %extract_payload_7 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_7_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_8_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 48
-  %extract_payload_8_ptrs = getelementptr inbounds i8, ptr %extract_payload_8_base, <8 x i64> %162
-  %extract_payload_8 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_8_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_9_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 52
-  %extract_payload_9_ptrs = getelementptr inbounds i8, ptr %extract_payload_9_base, <8 x i64> %162
-  %extract_payload_9 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_9_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_10_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 56
-  %extract_payload_10_ptrs = getelementptr inbounds i8, ptr %extract_payload_10_base, <8 x i64> %162
-  %extract_payload_10 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_10_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %extract_payload_11_base = getelementptr inbounds i8, ptr %deref_temp.unpack9, i64 60
-  %extract_payload_11_ptrs = getelementptr inbounds i8, ptr %extract_payload_11_base, <8 x i64> %162
-  %extract_payload_11 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> %extract_payload_11_ptrs, i32 4, <8 x i1> %159, <8 x i32> zeroinitializer)
-  %175 = select <8 x i1> %159, <8 x i8> %extract_tag, <8 x i8> zeroinitializer
-  %176 = insertvalue %"struct.Shape$v8" undef, <8 x i8> %175, 0
-  %177 = select <8 x i1> %159, <8 x i8> %extract__pad_0, <8 x i8> zeroinitializer
-  %178 = insertvalue %"struct.[[packed]] u8x15$v8" undef, <8 x i8> %177, 0
-  %179 = select <8 x i1> %159, <8 x i8> %extract__pad_1, <8 x i8> zeroinitializer
-  %180 = insertvalue %"struct.[[packed]] u8x15$v8" %178, <8 x i8> %179, 1
-  %181 = select <8 x i1> %159, <8 x i8> %extract__pad_2, <8 x i8> zeroinitializer
-  %182 = insertvalue %"struct.[[packed]] u8x15$v8" %180, <8 x i8> %181, 2
-  %183 = select <8 x i1> %159, <8 x i8> %extract__pad_3, <8 x i8> zeroinitializer
-  %184 = insertvalue %"struct.[[packed]] u8x15$v8" %182, <8 x i8> %183, 3
-  %185 = select <8 x i1> %159, <8 x i8> %extract__pad_4, <8 x i8> zeroinitializer
-  %186 = insertvalue %"struct.[[packed]] u8x15$v8" %184, <8 x i8> %185, 4
-  %187 = select <8 x i1> %159, <8 x i8> %extract__pad_5, <8 x i8> zeroinitializer
-  %188 = insertvalue %"struct.[[packed]] u8x15$v8" %186, <8 x i8> %187, 5
-  %189 = select <8 x i1> %159, <8 x i8> %extract__pad_6, <8 x i8> zeroinitializer
-  %190 = insertvalue %"struct.[[packed]] u8x15$v8" %188, <8 x i8> %189, 6
-  %191 = select <8 x i1> %159, <8 x i8> %extract__pad_7, <8 x i8> zeroinitializer
-  %192 = insertvalue %"struct.[[packed]] u8x15$v8" %190, <8 x i8> %191, 7
-  %193 = select <8 x i1> %159, <8 x i8> %extract__pad_8, <8 x i8> zeroinitializer
-  %194 = insertvalue %"struct.[[packed]] u8x15$v8" %192, <8 x i8> %193, 8
-  %195 = select <8 x i1> %159, <8 x i8> %extract__pad_9, <8 x i8> zeroinitializer
-  %196 = insertvalue %"struct.[[packed]] u8x15$v8" %194, <8 x i8> %195, 9
-  %197 = select <8 x i1> %159, <8 x i8> %extract__pad_10, <8 x i8> zeroinitializer
-  %198 = insertvalue %"struct.[[packed]] u8x15$v8" %196, <8 x i8> %197, 10
-  %199 = select <8 x i1> %159, <8 x i8> %extract__pad_11, <8 x i8> zeroinitializer
-  %200 = insertvalue %"struct.[[packed]] u8x15$v8" %198, <8 x i8> %199, 11
-  %201 = select <8 x i1> %159, <8 x i8> %extract__pad_12, <8 x i8> zeroinitializer
-  %202 = insertvalue %"struct.[[packed]] u8x15$v8" %200, <8 x i8> %201, 12
-  %203 = select <8 x i1> %159, <8 x i8> %extract__pad_13, <8 x i8> zeroinitializer
-  %204 = insertvalue %"struct.[[packed]] u8x15$v8" %202, <8 x i8> %203, 13
-  %205 = select <8 x i1> %159, <8 x i8> %extract__pad_14, <8 x i8> zeroinitializer
-  %206 = insertvalue %"struct.[[packed]] u8x15$v8" %204, <8 x i8> %205, 14
-  %207 = insertvalue %"struct.Shape$v8" %176, %"struct.[[packed]] u8x15$v8" %206, 1
-  %208 = insertvalue %"struct.[[packed]] u32x12$v8" undef, <8 x i32> %extract_payload_0, 0
-  %209 = insertvalue %"struct.[[packed]] u32x12$v8" %208, <8 x i32> %extract_payload_1, 1
-  %210 = insertvalue %"struct.[[packed]] u32x12$v8" %209, <8 x i32> %extract_payload_2, 2
-  %211 = insertvalue %"struct.[[packed]] u32x12$v8" %210, <8 x i32> %extract_payload_3, 3
-  %212 = insertvalue %"struct.[[packed]] u32x12$v8" %211, <8 x i32> %extract_payload_4, 4
-  %213 = insertvalue %"struct.[[packed]] u32x12$v8" %212, <8 x i32> %extract_payload_5, 5
-  %214 = insertvalue %"struct.[[packed]] u32x12$v8" %213, <8 x i32> %extract_payload_6, 6
-  %215 = insertvalue %"struct.[[packed]] u32x12$v8" %214, <8 x i32> %extract_payload_7, 7
-  %216 = insertvalue %"struct.[[packed]] u32x12$v8" %215, <8 x i32> %extract_payload_8, 8
-  %217 = insertvalue %"struct.[[packed]] u32x12$v8" %216, <8 x i32> %extract_payload_9, 9
-  %218 = insertvalue %"struct.[[packed]] u32x12$v8" %217, <8 x i32> %extract_payload_10, 10
-  %219 = insertvalue %"struct.[[packed]] u32x12$v8" %218, <8 x i32> %extract_payload_11, 11
-  %220 = insertvalue %"struct.Shape$v8" %207, %"struct.[[packed]] u32x12$v8" %219, 2
-  %221 = insertvalue %"struct._option0$v8" undef, %"struct.Shape$v8" %220, 0
-  %222 = insertvalue %"struct._option0$v8" %221, <8 x i1> %159, 1
+  %167 = lshr <8 x i32> %extract__pad_11_word, splat (i32 8)
+  %extract__pad_12 = trunc <8 x i32> %167 to <8 x i8>
+  %168 = lshr <8 x i32> %extract__pad_11_word, splat (i32 16)
+  %extract__pad_13 = trunc <8 x i32> %168 to <8 x i8>
+  %169 = lshr <8 x i32> %extract__pad_11_word, splat (i32 24)
+  %extract__pad_14 = trunc nuw <8 x i32> %169 to <8 x i8>
+  %extract_payload_0_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 16
+  %extract_payload_0_ptrs = getelementptr inbounds i8, ptr %extract_payload_0_base, <8 x i64> %157
+  %extract_payload_0 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_0_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_1_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 20
+  %extract_payload_1_ptrs = getelementptr inbounds i8, ptr %extract_payload_1_base, <8 x i64> %157
+  %extract_payload_1 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_1_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_2_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 24
+  %extract_payload_2_ptrs = getelementptr inbounds i8, ptr %extract_payload_2_base, <8 x i64> %157
+  %extract_payload_2 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_2_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_3_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 28
+  %extract_payload_3_ptrs = getelementptr inbounds i8, ptr %extract_payload_3_base, <8 x i64> %157
+  %extract_payload_3 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_3_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_4_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 32
+  %extract_payload_4_ptrs = getelementptr inbounds i8, ptr %extract_payload_4_base, <8 x i64> %157
+  %extract_payload_4 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_4_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_5_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 36
+  %extract_payload_5_ptrs = getelementptr inbounds i8, ptr %extract_payload_5_base, <8 x i64> %157
+  %extract_payload_5 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_5_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_6_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 40
+  %extract_payload_6_ptrs = getelementptr inbounds i8, ptr %extract_payload_6_base, <8 x i64> %157
+  %extract_payload_6 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_6_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_7_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 44
+  %extract_payload_7_ptrs = getelementptr inbounds i8, ptr %extract_payload_7_base, <8 x i64> %157
+  %extract_payload_7 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_7_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_8_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 48
+  %extract_payload_8_ptrs = getelementptr inbounds i8, ptr %extract_payload_8_base, <8 x i64> %157
+  %extract_payload_8 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_8_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_9_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 52
+  %extract_payload_9_ptrs = getelementptr inbounds i8, ptr %extract_payload_9_base, <8 x i64> %157
+  %extract_payload_9 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_9_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_10_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 56
+  %extract_payload_10_ptrs = getelementptr inbounds i8, ptr %extract_payload_10_base, <8 x i64> %157
+  %extract_payload_10 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_10_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %extract_payload_11_base = getelementptr inbounds nuw i8, ptr %deref_temp.unpack9, i64 60
+  %extract_payload_11_ptrs = getelementptr inbounds i8, ptr %extract_payload_11_base, <8 x i64> %157
+  %extract_payload_11 = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_payload_11_ptrs, <8 x i1> %154, <8 x i32> zeroinitializer)
+  %170 = select <8 x i1> %154, <8 x i8> %extract_tag, <8 x i8> zeroinitializer
+  %171 = insertvalue %"struct.Shape$v8" undef, <8 x i8> %170, 0
+  %172 = select <8 x i1> %154, <8 x i8> %extract__pad_0, <8 x i8> zeroinitializer
+  %173 = insertvalue %"struct.[[packed]] u8x15$v8" undef, <8 x i8> %172, 0
+  %174 = select <8 x i1> %154, <8 x i8> %extract__pad_1, <8 x i8> zeroinitializer
+  %175 = insertvalue %"struct.[[packed]] u8x15$v8" %173, <8 x i8> %174, 1
+  %176 = select <8 x i1> %154, <8 x i8> %extract__pad_2, <8 x i8> zeroinitializer
+  %177 = insertvalue %"struct.[[packed]] u8x15$v8" %175, <8 x i8> %176, 2
+  %178 = select <8 x i1> %154, <8 x i8> %extract__pad_3, <8 x i8> zeroinitializer
+  %179 = insertvalue %"struct.[[packed]] u8x15$v8" %177, <8 x i8> %178, 3
+  %180 = select <8 x i1> %154, <8 x i8> %extract__pad_4, <8 x i8> zeroinitializer
+  %181 = insertvalue %"struct.[[packed]] u8x15$v8" %179, <8 x i8> %180, 4
+  %182 = select <8 x i1> %154, <8 x i8> %extract__pad_5, <8 x i8> zeroinitializer
+  %183 = insertvalue %"struct.[[packed]] u8x15$v8" %181, <8 x i8> %182, 5
+  %184 = select <8 x i1> %154, <8 x i8> %extract__pad_6, <8 x i8> zeroinitializer
+  %185 = insertvalue %"struct.[[packed]] u8x15$v8" %183, <8 x i8> %184, 6
+  %186 = select <8 x i1> %154, <8 x i8> %extract__pad_7, <8 x i8> zeroinitializer
+  %187 = insertvalue %"struct.[[packed]] u8x15$v8" %185, <8 x i8> %186, 7
+  %188 = select <8 x i1> %154, <8 x i8> %extract__pad_8, <8 x i8> zeroinitializer
+  %189 = insertvalue %"struct.[[packed]] u8x15$v8" %187, <8 x i8> %188, 8
+  %190 = select <8 x i1> %154, <8 x i8> %extract__pad_9, <8 x i8> zeroinitializer
+  %191 = insertvalue %"struct.[[packed]] u8x15$v8" %189, <8 x i8> %190, 9
+  %192 = select <8 x i1> %154, <8 x i8> %extract__pad_10, <8 x i8> zeroinitializer
+  %193 = insertvalue %"struct.[[packed]] u8x15$v8" %191, <8 x i8> %192, 10
+  %194 = select <8 x i1> %154, <8 x i8> %extract__pad_11, <8 x i8> zeroinitializer
+  %195 = insertvalue %"struct.[[packed]] u8x15$v8" %193, <8 x i8> %194, 11
+  %196 = select <8 x i1> %154, <8 x i8> %extract__pad_12, <8 x i8> zeroinitializer
+  %197 = insertvalue %"struct.[[packed]] u8x15$v8" %195, <8 x i8> %196, 12
+  %198 = select <8 x i1> %154, <8 x i8> %extract__pad_13, <8 x i8> zeroinitializer
+  %199 = insertvalue %"struct.[[packed]] u8x15$v8" %197, <8 x i8> %198, 13
+  %200 = select <8 x i1> %154, <8 x i8> %extract__pad_14, <8 x i8> zeroinitializer
+  %201 = insertvalue %"struct.[[packed]] u8x15$v8" %199, <8 x i8> %200, 14
+  %202 = insertvalue %"struct.Shape$v8" %171, %"struct.[[packed]] u8x15$v8" %201, 1
+  %203 = insertvalue %"struct.[[packed]] u32x12$v8" undef, <8 x i32> %extract_payload_0, 0
+  %204 = insertvalue %"struct.[[packed]] u32x12$v8" %203, <8 x i32> %extract_payload_1, 1
+  %205 = insertvalue %"struct.[[packed]] u32x12$v8" %204, <8 x i32> %extract_payload_2, 2
+  %206 = insertvalue %"struct.[[packed]] u32x12$v8" %205, <8 x i32> %extract_payload_3, 3
+  %207 = insertvalue %"struct.[[packed]] u32x12$v8" %206, <8 x i32> %extract_payload_4, 4
+  %208 = insertvalue %"struct.[[packed]] u32x12$v8" %207, <8 x i32> %extract_payload_5, 5
+  %209 = insertvalue %"struct.[[packed]] u32x12$v8" %208, <8 x i32> %extract_payload_6, 6
+  %210 = insertvalue %"struct.[[packed]] u32x12$v8" %209, <8 x i32> %extract_payload_7, 7
+  %211 = insertvalue %"struct.[[packed]] u32x12$v8" %210, <8 x i32> %extract_payload_8, 8
+  %212 = insertvalue %"struct.[[packed]] u32x12$v8" %211, <8 x i32> %extract_payload_9, 9
+  %213 = insertvalue %"struct.[[packed]] u32x12$v8" %212, <8 x i32> %extract_payload_10, 10
+  %214 = insertvalue %"struct.[[packed]] u32x12$v8" %213, <8 x i32> %extract_payload_11, 11
+  %215 = insertvalue %"struct.Shape$v8" %202, %"struct.[[packed]] u32x12$v8" %214, 2
+  %216 = insertvalue %"struct._option0$v8" undef, %"struct.Shape$v8" %215, 0
+  %217 = insertvalue %"struct._option0$v8" %216, <8 x i1> %154, 1
   br label %"!merge_4"
 
 "!merge_4":                                       ; preds = %"!then_3", %"_recloop_func0$gang8_v2_p3$masked.exit"
-  %"_best0_result$i33$i44!skip" = phi %"struct._option0$v8" [ zeroinitializer, %"_recloop_func0$gang8_v2_p3$masked.exit" ], [ %222, %"!then_3" ]
+  %"_best0_result$i33$i44!skip" = phi %"struct._option0$v8" [ zeroinitializer, %"_recloop_func0$gang8_v2_p3$masked.exit" ], [ %217, %"!then_3" ]
   %"_best0_result$i33$i44!skip.set" = extractvalue %"struct._option0$v8" %"_best0_result$i33$i44!skip", 1
   %"_best0_result$i33$i44!skip.value" = extractvalue %"struct._option0$v8" %"_best0_result$i33$i44!skip", 0
   %"s$i18.tag" = extractvalue %"struct.Shape$v8" %"_best0_result$i33$i44!skip.value", 0
-  %223 = icmp eq <8 x i8> %"s$i18.tag", zeroinitializer
-  %224 = and <8 x i1> %223, %"_best0_result$i33$i44!skip.set"
+  %218 = icmp eq <8 x i8> %"s$i18.tag", zeroinitializer
+  %219 = and <8 x i1> %"_best0_result$i33$i44!skip.set", %218
   %"s$i18.payload" = extractvalue %"struct.Shape$v8" %"_best0_result$i33$i44!skip.value", 2
   %"_t231$i18.!2" = extractvalue %"struct.[[packed]] u32x12$v8" %"s$i18.payload", 2
   %"_t231$i18.!10" = extractvalue %"struct.[[packed]] u32x12$v8" %"s$i18.payload", 10
-  %.v = select <8 x i1> %224, <8 x i32> %"_t231$i18.!2", <8 x i32> %"_t231$i18.!10"
-  %225 = bitcast <8 x i32> %.v to <8 x float>
-  %226 = select <8 x i1> %"_best0_result$i33$i44!skip.set", <8 x float> %225, <8 x float> <float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00, float -1.000000e+00>
-  store <8 x float> %226, ptr %out, align 4
+  %.v = select <8 x i1> %219, <8 x i32> %"_t231$i18.!2", <8 x i32> %"_t231$i18.!10"
+  %220 = bitcast <8 x i32> %.v to <8 x float>
+  %221 = select <8 x i1> %"_best0_result$i33$i44!skip.set", <8 x float> %220, <8 x float> splat (float -1.000000e+00)
+  store <8 x float> %221, ptr %out, align 4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define internal fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias nocapture noundef nonnull writeonly align 32 %_sret, %"struct.Ray$v8" noundef %ray, %struct.Triangle noundef %tri, <8 x i1> noundef %"!mask") unnamed_addr #2 {
+define internal fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias nofree noundef nonnull writeonly align 32 captures(none) initializes((0, 160)) %_sret, %"struct.Ray$v8" noundef %ray, %struct.Triangle noundef %tri, <8 x i1> noundef %"!mask") unnamed_addr #2 {
 "intersectsp_ray_tri$gang8_v0$masked":
   %p2t = alloca %"struct.f32x3$v8", align 32
   %p1t = alloca %"struct.f32x3$v8", align 32
@@ -602,378 +590,385 @@ define internal fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias n
   %0 = fsub <3 x float> %tri.p2, %tri.p0
   %1 = fsub <3 x float> %tri.p1, %tri.p0
   %2 = extractelement <3 x float> %0, i64 1
-  %3 = extractelement <3 x float> %1, i64 1
-  %4 = extractelement <3 x float> %1, i64 0
-  %5 = extractelement <3 x float> %0, i64 0
-  %6 = shufflevector <3 x float> %0, <3 x float> poison, <2 x i32> <i32 2, i32 0>
-  %7 = shufflevector <3 x float> %1, <3 x float> poison, <2 x i32> <i32 1, i32 2>
-  %8 = fmul <2 x float> %6, %7
-  %9 = fsub <2 x float> zeroinitializer, %8
-  %10 = shufflevector <3 x float> %0, <3 x float> poison, <2 x i32> <i32 1, i32 2>
-  %11 = shufflevector <3 x float> %1, <3 x float> poison, <2 x i32> <i32 2, i32 0>
-  %12 = tail call <2 x float> @llvm.fma.v2f32(<2 x float> %10, <2 x float> %11, <2 x float> %9)
-  %13 = fsub <2 x float> zeroinitializer, %6
-  %14 = tail call <2 x float> @llvm.fma.v2f32(<2 x float> %13, <2 x float> %7, <2 x float> %8)
-  %15 = fadd <2 x float> %14, %12
-  %16 = fmul float %2, %4
-  %17 = fsub float 0.000000e+00, %16
-  %18 = tail call float @llvm.fma.f32(float %5, float %3, float %17)
-  %19 = fsub float 0.000000e+00, %2
-  %20 = tail call float @llvm.fma.f32(float %19, float %4, float %16)
-  %21 = fadd float %20, %18
-  %22 = shufflevector <2 x float> %15, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
-  %23 = insertelement <3 x float> %22, float %21, i64 2
-  %24 = fmul <3 x float> %23, %23
-  %25 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %24)
-  %26 = fcmp oeq float %25, 0.000000e+00
-  br i1 %26, label %"!return", label %"!merge_1"
+  %3 = extractelement <3 x float> %1, i64 2
+  %4 = extractelement <3 x float> %0, i64 2
+  %5 = extractelement <3 x float> %1, i64 1
+  %6 = extractelement <3 x float> %1, i64 0
+  %7 = extractelement <3 x float> %0, i64 0
+  %8 = fmul float %4, %5
+  %9 = fsub float 0.000000e+00, %8
+  %10 = tail call float @llvm.fma.f32(float %2, float %3, float %9)
+  %11 = fsub float 0.000000e+00, %4
+  %12 = tail call float @llvm.fma.f32(float %11, float %5, float %8)
+  %13 = fadd float %12, %10
+  %14 = shufflevector <3 x float> %0, <3 x float> poison, <2 x i32> <i32 0, i32 1>
+  %15 = shufflevector <3 x float> %1, <3 x float> poison, <2 x i32> <i32 2, i32 0>
+  %16 = fmul <2 x float> %14, %15
+  %17 = extractelement <2 x float> %16, i64 1
+  %18 = fsub float 0.000000e+00, %17
+  %19 = extractelement <2 x float> %16, i64 0
+  %20 = fsub float 0.000000e+00, %19
+  %21 = tail call float @llvm.fma.f32(float %7, float %5, float %18)
+  %22 = tail call float @llvm.fma.f32(float %4, float %6, float %20)
+  %23 = fsub <2 x float> zeroinitializer, %14
+  %24 = tail call <2 x float> @llvm.fma.v2f32(<2 x float> %23, <2 x float> %15, <2 x float> %16)
+  %25 = insertelement <2 x float> poison, float %22, i64 0
+  %26 = insertelement <2 x float> %25, float %21, i64 1
+  %27 = fadd <2 x float> %24, %26
+  %28 = insertelement <3 x float> poison, float %13, i64 0
+  %29 = shufflevector <2 x float> %27, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %30 = shufflevector <3 x float> %28, <3 x float> %29, <3 x i32> <i32 0, i32 3, i32 4>
+  %31 = fmul <3 x float> %30, %30
+  %32 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %31)
+  %33 = fcmp oeq float %32, 0.000000e+00
+  br i1 %33, label %"!return", label %"!merge_1"
 
 "!merge_1":                                       ; preds = %"intersectsp_ray_tri$gang8_v0$masked"
   %ray.o = extractvalue %"struct.Ray$v8" %ray, 0
   %"_t316.!0" = extractvalue %"struct.f32x3$v8" %ray.o, 0
   %.splat = shufflevector <3 x float> %tri.p0, <3 x float> poison, <8 x i32> zeroinitializer
-  %27 = fsub <8 x float> %.splat, %"_t316.!0"
+  %34 = fsub <8 x float> %.splat, %"_t316.!0"
   %"_t316.!1" = extractvalue %"struct.f32x3$v8" %ray.o, 1
   %.splat2 = shufflevector <3 x float> %tri.p0, <3 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %28 = fsub <8 x float> %.splat2, %"_t316.!1"
+  %35 = fsub <8 x float> %.splat2, %"_t316.!1"
   %"_t316.!2" = extractvalue %"struct.f32x3$v8" %ray.o, 2
   %.splat4 = shufflevector <3 x float> %tri.p0, <3 x float> poison, <8 x i32> <i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2>
-  %29 = fsub <8 x float> %.splat4, %"_t316.!2"
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %27, ptr nonnull %p0t, i32 32, <8 x i1> %"!mask")
-  %30 = getelementptr inbounds i8, ptr %p0t, i64 32
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %28, ptr nonnull %30, i32 32, <8 x i1> %"!mask")
-  %31 = getelementptr inbounds i8, ptr %p0t, i64 64
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %29, ptr nonnull %31, i32 32, <8 x i1> %"!mask")
+  %36 = fsub <8 x float> %.splat4, %"_t316.!2"
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %34, ptr nonnull align 32 %p0t, <8 x i1> %"!mask")
+  %37 = getelementptr inbounds nuw i8, ptr %p0t, i64 32
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %35, ptr nonnull align 32 %37, <8 x i1> %"!mask")
+  %38 = getelementptr inbounds nuw i8, ptr %p0t, i64 64
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %36, ptr nonnull align 32 %38, <8 x i1> %"!mask")
   %.splat6 = shufflevector <3 x float> %tri.p1, <3 x float> poison, <8 x i32> zeroinitializer
-  %32 = fsub <8 x float> %.splat6, %"_t316.!0"
+  %39 = fsub <8 x float> %.splat6, %"_t316.!0"
   %.splat8 = shufflevector <3 x float> %tri.p1, <3 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %33 = fsub <8 x float> %.splat8, %"_t316.!1"
+  %40 = fsub <8 x float> %.splat8, %"_t316.!1"
   %.splat10 = shufflevector <3 x float> %tri.p1, <3 x float> poison, <8 x i32> <i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2>
-  %34 = fsub <8 x float> %.splat10, %"_t316.!2"
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %32, ptr nonnull %p1t, i32 32, <8 x i1> %"!mask")
-  %35 = getelementptr inbounds i8, ptr %p1t, i64 32
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %33, ptr nonnull %35, i32 32, <8 x i1> %"!mask")
-  %36 = getelementptr inbounds i8, ptr %p1t, i64 64
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %34, ptr nonnull %36, i32 32, <8 x i1> %"!mask")
+  %41 = fsub <8 x float> %.splat10, %"_t316.!2"
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %39, ptr nonnull align 32 %p1t, <8 x i1> %"!mask")
+  %42 = getelementptr inbounds nuw i8, ptr %p1t, i64 32
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %40, ptr nonnull align 32 %42, <8 x i1> %"!mask")
+  %43 = getelementptr inbounds nuw i8, ptr %p1t, i64 64
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %41, ptr nonnull align 32 %43, <8 x i1> %"!mask")
   %.splat12 = shufflevector <3 x float> %tri.p2, <3 x float> poison, <8 x i32> zeroinitializer
-  %37 = fsub <8 x float> %.splat12, %"_t316.!0"
+  %44 = fsub <8 x float> %.splat12, %"_t316.!0"
   %.splat14 = shufflevector <3 x float> %tri.p2, <3 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %38 = fsub <8 x float> %.splat14, %"_t316.!1"
+  %45 = fsub <8 x float> %.splat14, %"_t316.!1"
   %.splat16 = shufflevector <3 x float> %tri.p2, <3 x float> poison, <8 x i32> <i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2>
-  %39 = fsub <8 x float> %.splat16, %"_t316.!2"
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %37, ptr nonnull %p2t, i32 32, <8 x i1> %"!mask")
-  %40 = getelementptr inbounds i8, ptr %p2t, i64 32
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %38, ptr nonnull %40, i32 32, <8 x i1> %"!mask")
-  %41 = getelementptr inbounds i8, ptr %p2t, i64 64
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %39, ptr nonnull %41, i32 32, <8 x i1> %"!mask")
+  %46 = fsub <8 x float> %.splat16, %"_t316.!2"
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %44, ptr nonnull align 32 %p2t, <8 x i1> %"!mask")
+  %47 = getelementptr inbounds nuw i8, ptr %p2t, i64 32
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %45, ptr nonnull align 32 %47, <8 x i1> %"!mask")
+  %48 = getelementptr inbounds nuw i8, ptr %p2t, i64 64
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %46, ptr nonnull align 32 %48, <8 x i1> %"!mask")
   %ray.d = extractvalue %"struct.Ray$v8" %ray, 1
   %"_t321.!0" = extractvalue %"struct.f32x3$v8" %ray.d, 0
-  %42 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %"_t321.!0")
+  %49 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %"_t321.!0")
   %"_t321.!1" = extractvalue %"struct.f32x3$v8" %ray.d, 1
-  %43 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %"_t321.!1")
+  %50 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %"_t321.!1")
   %"_t321.!2" = extractvalue %"struct.f32x3$v8" %ray.d, 2
-  %44 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %"_t321.!2")
-  %max_lt = fcmp olt <8 x float> %42, %43
-  %max = select <8 x i1> %max_lt, <8 x float> %43, <8 x float> %42
-  %max_lt17 = fcmp olt <8 x float> %max, %44
-  %max18 = select <8 x i1> %max_lt17, <8 x float> %44, <8 x float> %max
-  %45 = fcmp oeq <8 x float> %max18, %43
-  %46 = select <8 x i1> %45, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>, <8 x i32> <i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2, i32 2>
-  %47 = fcmp oeq <8 x float> %max18, %42
-  %48 = select <8 x i1> %47, <8 x i32> zeroinitializer, <8 x i32> %46
-  %.fr = freeze <8 x i32> %48
-  %49 = add <8 x i32> %.fr, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %50 = icmp eq <8 x i32> %49, <i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3>
-  %51 = select <8 x i1> %50, <8 x i32> zeroinitializer, <8 x i32> %49
-  %52 = add nuw nsw <8 x i32> %51, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %53 = urem <8 x i32> %52, <i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3, i32 3>
-  %54 = icmp eq <8 x i32> %51, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %55 = select <8 x i1> %54, <8 x float> %"_t321.!1", <8 x float> %"_t321.!2"
-  %56 = icmp eq <8 x i32> %51, zeroinitializer
-  %57 = select <8 x i1> %56, <8 x float> %"_t321.!0", <8 x float> %55
-  %58 = icmp eq <8 x i32> %53, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %59 = select <8 x i1> %58, <8 x float> %"_t321.!1", <8 x float> %"_t321.!2"
-  %60 = icmp eq <8 x i32> %53, zeroinitializer
-  %61 = select <8 x i1> %60, <8 x float> %"_t321.!0", <8 x float> %59
-  %62 = icmp eq <8 x i32> %.fr, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %63 = select <8 x i1> %62, <8 x float> %"_t321.!1", <8 x float> %"_t321.!2"
-  %64 = select <8 x i1> %47, <8 x float> %"_t321.!0", <8 x float> %63
+  %51 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %"_t321.!2")
+  %max_lt = fcmp olt <8 x float> %49, %50
+  %max = select <8 x i1> %max_lt, <8 x float> %50, <8 x float> %49
+  %max_lt17 = fcmp olt <8 x float> %max, %51
+  %max18 = select <8 x i1> %max_lt17, <8 x float> %51, <8 x float> %max
+  %52 = fcmp oeq <8 x float> %max18, %50
+  %53 = select <8 x i1> %52, <8 x i32> splat (i32 1), <8 x i32> splat (i32 2)
+  %54 = fcmp oeq <8 x float> %max18, %49
+  %55 = select <8 x i1> %54, <8 x i32> zeroinitializer, <8 x i32> %53
+  %.fr = freeze <8 x i32> %55
+  %56 = add <8 x i32> %.fr, splat (i32 1)
+  %57 = icmp eq <8 x i32> %56, splat (i32 3)
+  %58 = select <8 x i1> %57, <8 x i32> zeroinitializer, <8 x i32> %56
+  %59 = add nuw nsw <8 x i32> %58, splat (i32 1)
+  %60 = urem <8 x i32> %59, splat (i32 3)
+  %61 = icmp eq <8 x i32> %58, splat (i32 1)
+  %62 = select <8 x i1> %61, <8 x float> %"_t321.!1", <8 x float> %"_t321.!2"
+  %63 = icmp eq <8 x i32> %58, zeroinitializer
+  %64 = select <8 x i1> %63, <8 x float> %"_t321.!0", <8 x float> %62
+  %65 = icmp eq <8 x i32> %60, splat (i32 1)
+  %66 = select <8 x i1> %65, <8 x float> %"_t321.!1", <8 x float> %"_t321.!2"
+  %67 = icmp eq <8 x i32> %60, zeroinitializer
+  %68 = select <8 x i1> %67, <8 x float> %"_t321.!0", <8 x float> %66
+  %69 = icmp eq <8 x i32> %.fr, splat (i32 1)
+  %70 = select <8 x i1> %69, <8 x float> %"_t321.!1", <8 x float> %"_t321.!2"
+  %71 = select <8 x i1> %54, <8 x float> %"_t321.!0", <8 x float> %70
   %deref_temp.fca.0.load = load <8 x float>, ptr %p0t, align 32
-  %deref_temp.fca.1.load = load <8 x float>, ptr %30, align 32
-  %deref_temp.fca.2.load = load <8 x float>, ptr %31, align 32
-  %65 = select <8 x i1> %54, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
-  %66 = select <8 x i1> %56, <8 x float> %deref_temp.fca.0.load, <8 x float> %65
-  %67 = select <8 x i1> %58, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
-  %68 = select <8 x i1> %60, <8 x float> %deref_temp.fca.0.load, <8 x float> %67
-  %69 = select <8 x i1> %62, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
-  %70 = select <8 x i1> %47, <8 x float> %deref_temp.fca.0.load, <8 x float> %69
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %66, ptr nonnull %p0t, i32 32, <8 x i1> %"!mask")
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %68, ptr nonnull %30, i32 32, <8 x i1> %"!mask")
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %70, ptr nonnull %31, i32 32, <8 x i1> %"!mask")
+  %deref_temp.fca.1.load = load <8 x float>, ptr %37, align 32
+  %deref_temp.fca.2.load = load <8 x float>, ptr %38, align 32
+  %72 = select <8 x i1> %61, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
+  %73 = select <8 x i1> %63, <8 x float> %deref_temp.fca.0.load, <8 x float> %72
+  %74 = select <8 x i1> %65, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
+  %75 = select <8 x i1> %67, <8 x float> %deref_temp.fca.0.load, <8 x float> %74
+  %76 = select <8 x i1> %69, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
+  %77 = select <8 x i1> %54, <8 x float> %deref_temp.fca.0.load, <8 x float> %76
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %73, ptr nonnull align 32 %p0t, <8 x i1> %"!mask")
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %75, ptr nonnull align 32 %37, <8 x i1> %"!mask")
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %77, ptr nonnull align 32 %38, <8 x i1> %"!mask")
   %deref_temp19.fca.0.load = load <8 x float>, ptr %p1t, align 32
-  %deref_temp19.fca.1.load = load <8 x float>, ptr %35, align 32
-  %deref_temp19.fca.2.load = load <8 x float>, ptr %36, align 32
-  %71 = select <8 x i1> %54, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
-  %72 = select <8 x i1> %56, <8 x float> %deref_temp19.fca.0.load, <8 x float> %71
-  %73 = select <8 x i1> %58, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
-  %74 = select <8 x i1> %60, <8 x float> %deref_temp19.fca.0.load, <8 x float> %73
-  %75 = select <8 x i1> %62, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
-  %76 = select <8 x i1> %47, <8 x float> %deref_temp19.fca.0.load, <8 x float> %75
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %72, ptr nonnull %p1t, i32 32, <8 x i1> %"!mask")
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %74, ptr nonnull %35, i32 32, <8 x i1> %"!mask")
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %76, ptr nonnull %36, i32 32, <8 x i1> %"!mask")
+  %deref_temp19.fca.1.load = load <8 x float>, ptr %42, align 32
+  %deref_temp19.fca.2.load = load <8 x float>, ptr %43, align 32
+  %78 = select <8 x i1> %61, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
+  %79 = select <8 x i1> %63, <8 x float> %deref_temp19.fca.0.load, <8 x float> %78
+  %80 = select <8 x i1> %65, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
+  %81 = select <8 x i1> %67, <8 x float> %deref_temp19.fca.0.load, <8 x float> %80
+  %82 = select <8 x i1> %69, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
+  %83 = select <8 x i1> %54, <8 x float> %deref_temp19.fca.0.load, <8 x float> %82
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %79, ptr nonnull align 32 %p1t, <8 x i1> %"!mask")
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %81, ptr nonnull align 32 %42, <8 x i1> %"!mask")
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %83, ptr nonnull align 32 %43, <8 x i1> %"!mask")
   %deref_temp20.fca.0.load = load <8 x float>, ptr %p2t, align 32
-  %deref_temp20.fca.1.load = load <8 x float>, ptr %40, align 32
-  %deref_temp20.fca.2.load = load <8 x float>, ptr %41, align 32
-  %77 = select <8 x i1> %54, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
-  %78 = select <8 x i1> %56, <8 x float> %deref_temp20.fca.0.load, <8 x float> %77
-  %79 = select <8 x i1> %58, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
-  %80 = select <8 x i1> %60, <8 x float> %deref_temp20.fca.0.load, <8 x float> %79
-  %81 = select <8 x i1> %62, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
-  %82 = select <8 x i1> %47, <8 x float> %deref_temp20.fca.0.load, <8 x float> %81
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %78, ptr nonnull %p2t, i32 32, <8 x i1> %"!mask")
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %80, ptr nonnull %40, i32 32, <8 x i1> %"!mask")
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %82, ptr nonnull %41, i32 32, <8 x i1> %"!mask")
-  %83 = fsub <8 x float> zeroinitializer, %57
-  %84 = fdiv <8 x float> %83, %64
-  %85 = fsub <8 x float> zeroinitializer, %61
-  %86 = fdiv <8 x float> %85, %64
+  %deref_temp20.fca.1.load = load <8 x float>, ptr %47, align 32
+  %deref_temp20.fca.2.load = load <8 x float>, ptr %48, align 32
+  %84 = select <8 x i1> %61, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
+  %85 = select <8 x i1> %63, <8 x float> %deref_temp20.fca.0.load, <8 x float> %84
+  %86 = select <8 x i1> %65, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
+  %87 = select <8 x i1> %67, <8 x float> %deref_temp20.fca.0.load, <8 x float> %86
+  %88 = select <8 x i1> %69, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
+  %89 = select <8 x i1> %54, <8 x float> %deref_temp20.fca.0.load, <8 x float> %88
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %85, ptr nonnull align 32 %p2t, <8 x i1> %"!mask")
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %87, ptr nonnull align 32 %47, <8 x i1> %"!mask")
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %89, ptr nonnull align 32 %48, <8 x i1> %"!mask")
+  %90 = fsub <8 x float> zeroinitializer, %64
+  %91 = fdiv <8 x float> %90, %71
+  %92 = fsub <8 x float> zeroinitializer, %68
+  %93 = fdiv <8 x float> %92, %71
   %deref_temp21.fca.0.load = load <8 x float>, ptr %p0t, align 32
-  %deref_temp21.fca.2.load = load <8 x float>, ptr %31, align 32
-  %87 = fmul <8 x float> %84, %deref_temp21.fca.2.load
-  %88 = fadd <8 x float> %deref_temp21.fca.0.load, %87
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %88, ptr nonnull %p0t, i32 32, <8 x i1> %"!mask")
-  %deref_temp23.fca.1.load = load <8 x float>, ptr %30, align 32
-  %89 = fmul <8 x float> %86, %deref_temp21.fca.2.load
-  %90 = fadd <8 x float> %89, %deref_temp23.fca.1.load
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %90, ptr nonnull %30, i32 32, <8 x i1> %"!mask")
+  %deref_temp21.fca.2.load = load <8 x float>, ptr %38, align 32
+  %94 = fmul <8 x float> %91, %deref_temp21.fca.2.load
+  %95 = fadd <8 x float> %deref_temp21.fca.0.load, %94
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %95, ptr nonnull align 32 %p0t, <8 x i1> %"!mask")
+  %deref_temp23.fca.1.load = load <8 x float>, ptr %37, align 32
+  %96 = fmul <8 x float> %93, %deref_temp21.fca.2.load
+  %97 = fadd <8 x float> %96, %deref_temp23.fca.1.load
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %97, ptr nonnull align 32 %37, <8 x i1> %"!mask")
   %deref_temp25.fca.0.load = load <8 x float>, ptr %p1t, align 32
-  %deref_temp25.fca.2.load = load <8 x float>, ptr %36, align 32
-  %91 = fmul <8 x float> %84, %deref_temp25.fca.2.load
-  %92 = fadd <8 x float> %deref_temp25.fca.0.load, %91
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %92, ptr nonnull %p1t, i32 32, <8 x i1> %"!mask")
-  %deref_temp28.fca.1.load = load <8 x float>, ptr %35, align 32
-  %93 = fmul <8 x float> %86, %deref_temp25.fca.2.load
-  %94 = fadd <8 x float> %93, %deref_temp28.fca.1.load
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %94, ptr nonnull %35, i32 32, <8 x i1> %"!mask")
+  %deref_temp25.fca.2.load = load <8 x float>, ptr %43, align 32
+  %98 = fmul <8 x float> %91, %deref_temp25.fca.2.load
+  %99 = fadd <8 x float> %deref_temp25.fca.0.load, %98
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %99, ptr nonnull align 32 %p1t, <8 x i1> %"!mask")
+  %deref_temp28.fca.1.load = load <8 x float>, ptr %42, align 32
+  %100 = fmul <8 x float> %93, %deref_temp25.fca.2.load
+  %101 = fadd <8 x float> %100, %deref_temp28.fca.1.load
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %101, ptr nonnull align 32 %42, <8 x i1> %"!mask")
   %deref_temp31.fca.0.load = load <8 x float>, ptr %p2t, align 32
-  %deref_temp31.fca.2.load = load <8 x float>, ptr %41, align 32
-  %95 = fmul <8 x float> %84, %deref_temp31.fca.2.load
-  %96 = fadd <8 x float> %deref_temp31.fca.0.load, %95
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %96, ptr nonnull %p2t, i32 32, <8 x i1> %"!mask")
-  %deref_temp34.fca.1.load = load <8 x float>, ptr %40, align 32
-  %97 = fmul <8 x float> %86, %deref_temp31.fca.2.load
-  %98 = fadd <8 x float> %97, %deref_temp34.fca.1.load
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %98, ptr nonnull %40, i32 32, <8 x i1> %"!mask")
+  %deref_temp31.fca.2.load = load <8 x float>, ptr %48, align 32
+  %102 = fmul <8 x float> %91, %deref_temp31.fca.2.load
+  %103 = fadd <8 x float> %deref_temp31.fca.0.load, %102
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %103, ptr nonnull align 32 %p2t, <8 x i1> %"!mask")
+  %deref_temp34.fca.1.load = load <8 x float>, ptr %47, align 32
+  %104 = fmul <8 x float> %93, %deref_temp31.fca.2.load
+  %105 = fadd <8 x float> %104, %deref_temp34.fca.1.load
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %105, ptr nonnull align 32 %47, <8 x i1> %"!mask")
   %deref_temp37.fca.0.load = load <8 x float>, ptr %p1t, align 32
-  %deref_temp37.fca.1.load = load <8 x float>, ptr %35, align 32
+  %deref_temp37.fca.1.load = load <8 x float>, ptr %42, align 32
   %deref_temp38.fca.0.load = load <8 x float>, ptr %p2t, align 32
-  %deref_temp38.fca.1.load = load <8 x float>, ptr %40, align 32
-  %99 = fmul <8 x float> %deref_temp37.fca.1.load, %deref_temp38.fca.0.load
-  %100 = fsub <8 x float> zeroinitializer, %99
-  %101 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %deref_temp37.fca.0.load, <8 x float> %deref_temp38.fca.1.load, <8 x float> %100)
-  %102 = fsub <8 x float> zeroinitializer, %deref_temp37.fca.1.load
-  %103 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %102, <8 x float> %deref_temp38.fca.0.load, <8 x float> %99)
-  %104 = fadd <8 x float> %103, %101
+  %deref_temp38.fca.1.load = load <8 x float>, ptr %47, align 32
+  %106 = fmul <8 x float> %deref_temp37.fca.1.load, %deref_temp38.fca.0.load
+  %107 = fsub <8 x float> zeroinitializer, %106
+  %108 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %deref_temp37.fca.0.load, <8 x float> %deref_temp38.fca.1.load, <8 x float> %107)
+  %109 = fsub <8 x float> zeroinitializer, %deref_temp37.fca.1.load
+  %110 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %109, <8 x float> %deref_temp38.fca.0.load, <8 x float> %106)
+  %111 = fadd <8 x float> %110, %108
   %deref_temp42.fca.0.load = load <8 x float>, ptr %p0t, align 32
-  %deref_temp42.fca.1.load = load <8 x float>, ptr %30, align 32
-  %105 = fmul <8 x float> %deref_temp38.fca.1.load, %deref_temp42.fca.0.load
-  %106 = fsub <8 x float> zeroinitializer, %105
-  %107 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %deref_temp38.fca.0.load, <8 x float> %deref_temp42.fca.1.load, <8 x float> %106)
-  %108 = fsub <8 x float> zeroinitializer, %deref_temp38.fca.1.load
-  %109 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %108, <8 x float> %deref_temp42.fca.0.load, <8 x float> %105)
-  %110 = fadd <8 x float> %109, %107
-  %111 = fmul <8 x float> %deref_temp37.fca.0.load, %deref_temp42.fca.1.load
-  %112 = fsub <8 x float> zeroinitializer, %111
-  %113 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %deref_temp42.fca.0.load, <8 x float> %deref_temp37.fca.1.load, <8 x float> %112)
-  %114 = fsub <8 x float> zeroinitializer, %deref_temp42.fca.1.load
-  %115 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %114, <8 x float> %deref_temp37.fca.0.load, <8 x float> %111)
-  %116 = fadd <8 x float> %115, %113
-  %117 = fcmp uge <8 x float> %104, zeroinitializer
-  %118 = fcmp uge <8 x float> %110, zeroinitializer
-  %.not93 = and <8 x i1> %118, %117
-  %119 = fcmp uge <8 x float> %116, zeroinitializer
-  %.not90 = and <8 x i1> %.not93, %119
-  %120 = fcmp ule <8 x float> %104, zeroinitializer
-  %121 = fcmp ule <8 x float> %110, zeroinitializer
-  %.not88 = and <8 x i1> %121, %120
-  %122 = fcmp ule <8 x float> %116, zeroinitializer
-  %.not85 = and <8 x i1> %.not88, %122
-  %123 = select <8 x i1> %.not90, <8 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, <8 x i1> %.not85
-  %124 = fadd <8 x float> %104, %110
-  %125 = fadd <8 x float> %124, %116
-  %126 = fcmp une <8 x float> %125, zeroinitializer
-  %127 = and <8 x i1> %126, %123
-  %128 = and <8 x i1> %127, %"!mask"
-  %129 = bitcast <8 x i1> %128 to i8
-  %.not = icmp eq i8 %129, 0
+  %deref_temp42.fca.1.load = load <8 x float>, ptr %37, align 32
+  %112 = fmul <8 x float> %deref_temp38.fca.1.load, %deref_temp42.fca.0.load
+  %113 = fsub <8 x float> zeroinitializer, %112
+  %114 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %deref_temp38.fca.0.load, <8 x float> %deref_temp42.fca.1.load, <8 x float> %113)
+  %115 = fsub <8 x float> zeroinitializer, %deref_temp38.fca.1.load
+  %116 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %115, <8 x float> %deref_temp42.fca.0.load, <8 x float> %112)
+  %117 = fadd <8 x float> %116, %114
+  %118 = fmul <8 x float> %deref_temp37.fca.0.load, %deref_temp42.fca.1.load
+  %119 = fsub <8 x float> zeroinitializer, %118
+  %120 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %deref_temp42.fca.0.load, <8 x float> %deref_temp37.fca.1.load, <8 x float> %119)
+  %121 = fsub <8 x float> zeroinitializer, %deref_temp42.fca.1.load
+  %122 = tail call <8 x float> @llvm.fma.v8f32(<8 x float> %121, <8 x float> %deref_temp37.fca.0.load, <8 x float> %118)
+  %123 = fadd <8 x float> %122, %120
+  %124 = fcmp uge <8 x float> %111, zeroinitializer
+  %125 = fcmp uge <8 x float> %117, zeroinitializer
+  %.not93 = and <8 x i1> %124, %125
+  %126 = fcmp uge <8 x float> %123, zeroinitializer
+  %.not90 = and <8 x i1> %.not93, %126
+  %127 = fcmp ule <8 x float> %111, zeroinitializer
+  %128 = fcmp ule <8 x float> %117, zeroinitializer
+  %.not88 = and <8 x i1> %127, %128
+  %129 = fcmp ule <8 x float> %123, zeroinitializer
+  %.not85 = and <8 x i1> %.not88, %129
+  %130 = or <8 x i1> %.not85, %.not90
+  %131 = fadd <8 x float> %111, %117
+  %132 = fadd <8 x float> %131, %123
+  %133 = fcmp une <8 x float> %132, zeroinitializer
+  %134 = and <8 x i1> %133, %130
+  %135 = and <8 x i1> %"!mask", %134
+  %136 = bitcast <8 x i1> %135 to i8
+  %.not = icmp eq i8 %136, 0
   br i1 %.not, label %"!return", label %"!merge_7"
 
 "!merge_7":                                       ; preds = %"!merge_1"
-  %130 = fdiv <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %64
-  %131 = fmul <8 x float> %130, %deref_temp21.fca.2.load
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %131, ptr nonnull %31, i32 32, <8 x i1> %128)
-  %132 = fmul <8 x float> %130, %deref_temp25.fca.2.load
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %132, ptr nonnull %36, i32 32, <8 x i1> %128)
-  %133 = fmul <8 x float> %130, %deref_temp31.fca.2.load
-  call void @llvm.masked.store.v8f32.p0(<8 x float> %133, ptr nonnull %41, i32 32, <8 x i1> %128)
-  %deref_temp54.fca.2.load = load <8 x float>, ptr %31, align 32
-  %134 = fmul <8 x float> %104, %deref_temp54.fca.2.load
-  %deref_temp55.fca.2.load = load <8 x float>, ptr %36, align 32
-  %135 = fmul <8 x float> %110, %deref_temp55.fca.2.load
-  %136 = fadd <8 x float> %134, %135
-  %deref_temp56.fca.2.load = load <8 x float>, ptr %41, align 32
-  %137 = fmul <8 x float> %116, %deref_temp56.fca.2.load
-  %138 = fadd <8 x float> %136, %137
-  %139 = fcmp uge <8 x float> %125, zeroinitializer
-  %140 = fcmp ult <8 x float> %138, zeroinitializer
+  %137 = fdiv <8 x float> splat (float 1.000000e+00), %71
+  %138 = fmul <8 x float> %137, %deref_temp21.fca.2.load
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %138, ptr nonnull align 32 %38, <8 x i1> %135)
+  %139 = fmul <8 x float> %137, %deref_temp25.fca.2.load
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %139, ptr nonnull align 32 %43, <8 x i1> %135)
+  %140 = fmul <8 x float> %137, %deref_temp31.fca.2.load
+  call void @llvm.masked.store.v8f32.p0(<8 x float> %140, ptr nonnull align 32 %48, <8 x i1> %135)
+  %deref_temp54.fca.2.load = load <8 x float>, ptr %38, align 32
+  %141 = fmul <8 x float> %111, %deref_temp54.fca.2.load
+  %deref_temp55.fca.2.load = load <8 x float>, ptr %43, align 32
+  %142 = fmul <8 x float> %117, %deref_temp55.fca.2.load
+  %143 = fadd <8 x float> %141, %142
+  %deref_temp56.fca.2.load = load <8 x float>, ptr %48, align 32
+  %144 = fmul <8 x float> %123, %deref_temp56.fca.2.load
+  %145 = fadd <8 x float> %143, %144
+  %146 = fcmp uge <8 x float> %132, zeroinitializer
+  %147 = fcmp ult <8 x float> %145, zeroinitializer
   %ray.tmax = extractvalue %"struct.Ray$v8" %ray, 2
-  %141 = fmul <8 x float> %ray.tmax, %125
-  %142 = fcmp uge <8 x float> %138, %141
-  %.not99 = and <8 x i1> %140, %142
-  %.not96 = or <8 x i1> %.not99, %139
-  %143 = and <8 x i1> %.not96, %128
-  %144 = bitcast <8 x i1> %143 to i8
-  %.not100 = icmp eq i8 %144, 0
+  %148 = fmul <8 x float> %ray.tmax, %132
+  %149 = fcmp uge <8 x float> %145, %148
+  %.not99 = and <8 x i1> %147, %149
+  %.not96 = or <8 x i1> %146, %.not99
+  %150 = and <8 x i1> %135, %.not96
+  %151 = bitcast <8 x i1> %150 to i8
+  %.not100 = icmp eq i8 %151, 0
   br i1 %.not100, label %"!return", label %"!else_9"
 
 "!else_9":                                        ; preds = %"!merge_7"
-  %145 = fcmp ule <8 x float> %125, zeroinitializer
-  %146 = fcmp ugt <8 x float> %138, zeroinitializer
-  %147 = fcmp uge <8 x float> %141, %138
-  %.not106 = and <8 x i1> %146, %147
-  %.not103 = or <8 x i1> %.not106, %145
-  %148 = and <8 x i1> %143, %.not103
-  %149 = bitcast <8 x i1> %148 to i8
-  %.not107 = icmp eq i8 %149, 0
+  %152 = fcmp ule <8 x float> %132, zeroinitializer
+  %153 = fcmp ugt <8 x float> %145, zeroinitializer
+  %154 = fcmp uge <8 x float> %148, %145
+  %.not106 = and <8 x i1> %153, %154
+  %.not103 = or <8 x i1> %152, %.not106
+  %155 = and <8 x i1> %.not103, %150
+  %156 = bitcast <8 x i1> %155 to i8
+  %.not107 = icmp eq i8 %156, 0
   br i1 %.not107, label %"!return", label %"!merge_10"
 
 "!merge_10":                                      ; preds = %"!else_9"
-  %150 = fdiv <8 x float> <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>, %125
-  %151 = fmul <8 x float> %104, %150
-  %152 = fmul <8 x float> %110, %150
-  %153 = fmul <8 x float> %116, %150
-  %154 = fmul <8 x float> %150, %138
-  %155 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp54.fca.2.load)
-  %156 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp55.fca.2.load)
-  %157 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp56.fca.2.load)
-  %max_lt61 = fcmp olt <8 x float> %155, %156
-  %max62 = select <8 x i1> %max_lt61, <8 x float> %156, <8 x float> %155
-  %max_lt63 = fcmp olt <8 x float> %max62, %157
-  %max64 = select <8 x i1> %max_lt63, <8 x float> %157, <8 x float> %max62
-  %158 = fmul <8 x float> %max64, <float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000>
-  %159 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp42.fca.0.load)
-  %160 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp37.fca.0.load)
-  %161 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp38.fca.0.load)
-  %max_lt68 = fcmp olt <8 x float> %159, %160
-  %max69 = select <8 x i1> %max_lt68, <8 x float> %160, <8 x float> %159
-  %max_lt70 = fcmp olt <8 x float> %max69, %161
-  %max71 = select <8 x i1> %max_lt70, <8 x float> %161, <8 x float> %max69
-  %162 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp42.fca.1.load)
-  %163 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp37.fca.1.load)
-  %164 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp38.fca.1.load)
-  %max_lt75 = fcmp olt <8 x float> %162, %163
-  %max76 = select <8 x i1> %max_lt75, <8 x float> %163, <8 x float> %162
-  %max_lt77 = fcmp olt <8 x float> %max76, %164
-  %max78 = select <8 x i1> %max_lt77, <8 x float> %164, <8 x float> %max76
-  %165 = fadd <8 x float> %max71, %max64
-  %166 = fmul <8 x float> %165, <float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000>
-  %167 = fadd <8 x float> %max78, %max64
-  %168 = fmul <8 x float> %167, <float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000, float 0x3E94000060000000>
-  %169 = fmul <8 x float> %max71, <float 0x3E80000020000000, float 0x3E80000020000000, float 0x3E80000020000000, float 0x3E80000020000000, float 0x3E80000020000000, float 0x3E80000020000000, float 0x3E80000020000000, float 0x3E80000020000000>
-  %170 = fmul <8 x float> %169, %max78
-  %171 = fmul <8 x float> %max71, %168
-  %172 = fadd <8 x float> %170, %171
-  %173 = fmul <8 x float> %max78, %166
-  %174 = fadd <8 x float> %173, %172
-  %175 = fmul <8 x float> %174, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
-  %176 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %104)
-  %177 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %110)
-  %178 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %116)
-  %max_lt79 = fcmp olt <8 x float> %176, %177
-  %max80 = select <8 x i1> %max_lt79, <8 x float> %177, <8 x float> %176
-  %max_lt81 = fcmp olt <8 x float> %max80, %178
-  %max82 = select <8 x i1> %max_lt81, <8 x float> %178, <8 x float> %max80
-  %179 = fmul <8 x float> %max82, <float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000, float 0x3E88000040000000>
-  %180 = fmul <8 x float> %179, %max64
-  %181 = fmul <8 x float> %max64, %175
-  %182 = fadd <8 x float> %180, %181
-  %183 = fmul <8 x float> %max82, %158
-  %184 = fadd <8 x float> %183, %182
-  %185 = fmul <8 x float> %184, <float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00, float 3.000000e+00>
-  %186 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %150)
-  %187 = fmul <8 x float> %186, %185
-  %188 = fcmp ugt <8 x float> %154, %187
-  %189 = and <8 x i1> %188, %148
-  %190 = select <8 x i1> %189, <8 x float> %151, <8 x float> zeroinitializer
-  %191 = insertvalue %"struct.TriangleIntersection$v8" undef, <8 x float> %190, 0
-  %192 = select <8 x i1> %189, <8 x float> %152, <8 x float> zeroinitializer
-  %193 = insertvalue %"struct.TriangleIntersection$v8" %191, <8 x float> %192, 1
-  %194 = select <8 x i1> %189, <8 x float> %153, <8 x float> zeroinitializer
-  %195 = insertvalue %"struct.TriangleIntersection$v8" %193, <8 x float> %194, 2
-  %196 = select <8 x i1> %189, <8 x float> %154, <8 x float> zeroinitializer
-  %197 = insertvalue %"struct.TriangleIntersection$v8" %195, <8 x float> %196, 3
-  %198 = insertvalue %"struct._option2$v8" undef, %"struct.TriangleIntersection$v8" %197, 0
-  %199 = insertvalue %"struct._option2$v8" %198, <8 x i1> %189, 1
+  %157 = fdiv <8 x float> splat (float 1.000000e+00), %132
+  %158 = fmul <8 x float> %111, %157
+  %159 = fmul <8 x float> %117, %157
+  %160 = fmul <8 x float> %123, %157
+  %161 = fmul <8 x float> %157, %145
+  %162 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp54.fca.2.load)
+  %163 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp55.fca.2.load)
+  %164 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp56.fca.2.load)
+  %max_lt61 = fcmp olt <8 x float> %162, %163
+  %max62 = select <8 x i1> %max_lt61, <8 x float> %163, <8 x float> %162
+  %max_lt63 = fcmp olt <8 x float> %max62, %164
+  %max64 = select <8 x i1> %max_lt63, <8 x float> %164, <8 x float> %max62
+  %165 = fmul <8 x float> %max64, splat (float f0x34400002)
+  %166 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp42.fca.0.load)
+  %167 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp37.fca.0.load)
+  %168 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp38.fca.0.load)
+  %max_lt68 = fcmp olt <8 x float> %166, %167
+  %max69 = select <8 x i1> %max_lt68, <8 x float> %167, <8 x float> %166
+  %max_lt70 = fcmp olt <8 x float> %max69, %168
+  %max71 = select <8 x i1> %max_lt70, <8 x float> %168, <8 x float> %max69
+  %169 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp42.fca.1.load)
+  %170 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp37.fca.1.load)
+  %171 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %deref_temp38.fca.1.load)
+  %max_lt75 = fcmp olt <8 x float> %169, %170
+  %max76 = select <8 x i1> %max_lt75, <8 x float> %170, <8 x float> %169
+  %max_lt77 = fcmp olt <8 x float> %max76, %171
+  %max78 = select <8 x i1> %max_lt77, <8 x float> %171, <8 x float> %max76
+  %172 = fadd <8 x float> %max71, %max64
+  %173 = fmul <8 x float> %172, splat (float f0x34A00003)
+  %174 = fadd <8 x float> %max78, %max64
+  %175 = fmul <8 x float> %174, splat (float f0x34A00003)
+  %176 = fmul <8 x float> %max71, splat (float f0x34000001)
+  %177 = fmul <8 x float> %176, %max78
+  %178 = fmul <8 x float> %max71, %175
+  %179 = fadd <8 x float> %177, %178
+  %180 = fmul <8 x float> %max78, %173
+  %181 = fadd <8 x float> %180, %179
+  %182 = fmul <8 x float> %181, splat (float 2.000000e+00)
+  %183 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %111)
+  %184 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %117)
+  %185 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %123)
+  %max_lt79 = fcmp olt <8 x float> %183, %184
+  %max80 = select <8 x i1> %max_lt79, <8 x float> %184, <8 x float> %183
+  %max_lt81 = fcmp olt <8 x float> %max80, %185
+  %max82 = select <8 x i1> %max_lt81, <8 x float> %185, <8 x float> %max80
+  %186 = fmul <8 x float> %max82, splat (float f0x34400002)
+  %187 = fmul <8 x float> %186, %max64
+  %188 = fmul <8 x float> %max64, %182
+  %189 = fadd <8 x float> %187, %188
+  %190 = fmul <8 x float> %max82, %165
+  %191 = fadd <8 x float> %190, %189
+  %192 = fmul <8 x float> %191, splat (float 3.000000e+00)
+  %193 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %157)
+  %194 = fmul <8 x float> %193, %192
+  %195 = fcmp ugt <8 x float> %161, %194
+  %196 = and <8 x i1> %155, %195
+  %197 = select <8 x i1> %196, <8 x float> %158, <8 x float> zeroinitializer
+  %198 = insertvalue %"struct.TriangleIntersection$v8" undef, <8 x float> %197, 0
+  %199 = select <8 x i1> %196, <8 x float> %159, <8 x float> zeroinitializer
+  %200 = insertvalue %"struct.TriangleIntersection$v8" %198, <8 x float> %199, 1
+  %201 = select <8 x i1> %196, <8 x float> %160, <8 x float> zeroinitializer
+  %202 = insertvalue %"struct.TriangleIntersection$v8" %200, <8 x float> %201, 2
+  %203 = select <8 x i1> %196, <8 x float> %161, <8 x float> zeroinitializer
+  %204 = insertvalue %"struct.TriangleIntersection$v8" %202, <8 x float> %203, 3
+  %205 = insertvalue %"struct._option2$v8" undef, %"struct.TriangleIntersection$v8" %204, 0
+  %206 = insertvalue %"struct._option2$v8" %205, <8 x i1> %196, 1
   br label %"!return"
 
 "!return":                                        ; preds = %"intersectsp_ray_tri$gang8_v0$masked", %"!merge_10", %"!else_9", %"!merge_7", %"!merge_1"
-  %"@304" = phi %"struct._option2$v8" [ zeroinitializer, %"!merge_1" ], [ zeroinitializer, %"!merge_7" ], [ zeroinitializer, %"!else_9" ], [ %199, %"!merge_10" ], [ zeroinitializer, %"intersectsp_ray_tri$gang8_v0$masked" ]
+  %"@304" = phi %"struct._option2$v8" [ zeroinitializer, %"!merge_1" ], [ zeroinitializer, %"!merge_7" ], [ zeroinitializer, %"!else_9" ], [ %206, %"!merge_10" ], [ zeroinitializer, %"intersectsp_ray_tri$gang8_v0$masked" ]
   store %"struct._option2$v8" %"@304", ptr %_sret, align 32
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #3
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.fma.f32(float, float, float) #3
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr nocapture, i32 immarg, <8 x i1>) #4
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #4
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8i16.p0(<8 x i16>, ptr nocapture, i32 immarg, <8 x i1>) #4
+declare void @llvm.masked.store.v8i16.p0(<8 x i16>, ptr captures(none), <8 x i1>) #4
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, i32 immarg, <8 x i1>, <8 x float>) #5
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #5
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, i32 immarg, <8 x i1>, <8 x i32>) #5
+declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, <8 x i1>, <8 x i32>) #5
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #3
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #3
 
-; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare i8 @llvm.ctpop.i8(i8) #6
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.lifetime.start.p0(i64 immarg, ptr nocapture) #7
+declare void @llvm.lifetime.start.p0(ptr captures(none)) #7
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.lifetime.end.p0(i64 immarg, ptr nocapture) #7
+declare void @llvm.lifetime.end.p0(ptr captures(none)) #7
 
-; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
-declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg) #8
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #8
 
-; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #6
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { nofree norecurse nosync nounwind memory(read, argmem: readwrite) }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
 attributes #5 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
-attributes #6 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #6 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #7 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #8 = { nocallback nofree nounwind willreturn memory(argmem: write) }
+attributes #8 = { nocallback nofree nosync nounwind willreturn memory(argmem: write) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"u16", !2, i64 0}

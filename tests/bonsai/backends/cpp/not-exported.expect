@@ -24,7 +24,7 @@ void id(G& _ret0, const G& g);
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @id(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %g) local_unnamed_addr #0 {
+define void @id(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 8)) %_ret0, ptr noundef nonnull readonly captures(none) %g) local_unnamed_addr #0 {
 id_entry:
   %0 = load <2 x i32>, ptr %g, align 4
   store <2 x i32> %0, ptr %_ret0, align 4

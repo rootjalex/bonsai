@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @scale_all(ptr nocapture noundef readonly %a, float noundef %scale, ptr nocapture noundef writeonly %out) local_unnamed_addr #0 {
+define void @scale_all(ptr nofree noundef readonly captures(none) %a, float noundef %scale, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
 scale_all:
   %extract = load <8 x float>, ptr %a, align 4
   %.splatinsert = insertelement <8 x float> poison, float %scale, i64 0

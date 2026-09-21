@@ -2,10 +2,10 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @build_struct(ptr nocapture noundef nonnull writeonly %_ret0) local_unnamed_addr #0 {
+define void @build_struct(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 5)) %_ret0) local_unnamed_addr #0 {
 build_struct_entry:
   store i32 0, ptr %_ret0, align 1
-  %_ret0.repack1 = getelementptr inbounds i8, ptr %_ret0, i64 4
+  %_ret0.repack1 = getelementptr inbounds nuw i8, ptr %_ret0, i64 4
   store i8 0, ptr %_ret0.repack1, align 1
   ret void
 }

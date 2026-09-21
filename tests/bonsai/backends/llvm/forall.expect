@@ -1,18 +1,18 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite)
-define noalias noundef ptr @doubled(ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none)
+define noalias noundef ptr @doubled(ptr nofree noundef readonly captures(none) %a) local_unnamed_addr #0 {
 doubled_entry:
   %_alloc0_untyped.i = tail call dereferenceable_or_null(16) ptr @malloc(i64 16)
   %0 = load <4 x i32>, ptr %a, align 4
-  %1 = shl <4 x i32> %0, <i32 1, i32 1, i32 1, i32 1>
+  %1 = shl <4 x i32> %0, splat (i32 1)
   store <4 x i32> %1, ptr %_alloc0_untyped.i, align 4, !tbaa !0
   ret ptr %_alloc0_untyped.i
 }
 
-; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
-define noalias noundef ptr @scale(i32 noundef %n, ptr nocapture noundef readonly %a, float noundef %k) local_unnamed_addr #1 {
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none)
+define noalias noundef ptr @scale(i32 noundef %n, ptr nofree noundef readonly captures(none) %a, float noundef %k) local_unnamed_addr #1 {
 scale_entry:
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
@@ -34,14 +34,14 @@ vector.ph:                                        ; preds = %_i01_for.i.preheade
 vector.body:                                      ; preds = %vector.body, %vector.ph
   %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
   %1 = sext i32 %index to i64
-  %2 = getelementptr inbounds float, ptr %a, i64 %1
-  %3 = getelementptr inbounds i8, ptr %2, i64 16
+  %2 = getelementptr inbounds [4 x i8], ptr %a, i64 %1
+  %3 = getelementptr inbounds nuw i8, ptr %2, i64 16
   %wide.load = load <4 x float>, ptr %2, align 4
   %wide.load1 = load <4 x float>, ptr %3, align 4
-  %4 = fmul <4 x float> %wide.load, %broadcast.splat
-  %5 = fmul <4 x float> %wide.load1, %broadcast.splat
-  %6 = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %1
-  %7 = getelementptr inbounds i8, ptr %6, i64 16
+  %4 = fmul <4 x float> %broadcast.splat, %wide.load
+  %5 = fmul <4 x float> %broadcast.splat, %wide.load1
+  %6 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %1
+  %7 = getelementptr inbounds nuw i8, ptr %6, i64 16
   store <4 x float> %4, ptr %6, align 4, !tbaa !4
   store <4 x float> %5, ptr %7, align 4, !tbaa !4
   %index.next = add nuw i32 %index, 8
@@ -49,10 +49,10 @@ vector.body:                                      ; preds = %vector.body, %vecto
   br i1 %8, label %middle.block, label %vector.body, !llvm.loop !6
 
 middle.block:                                     ; preds = %vector.body
-  %cmp.n = icmp eq i32 %n.vec, %n
+  %cmp.n = icmp eq i32 %n, %n.vec
   br i1 %cmp.n, label %_traverse_array1.exit, label %_i01_for.i.preheader3
 
-_i01_for.i.preheader3:                            ; preds = %middle.block, %_i01_for.i.preheader
+_i01_for.i.preheader3:                            ; preds = %_i01_for.i.preheader, %middle.block
   %.ph = phi i32 [ 0, %_i01_for.i.preheader ], [ %n.vec, %middle.block ]
   %xtraiter = and i32 %n, 3
   %lcmp.mod.not = icmp eq i32 %xtraiter, 0
@@ -62,10 +62,10 @@ _i01_for.i.prol:                                  ; preds = %_i01_for.i.preheade
   %9 = phi i32 [ %12, %_i01_for.i.prol ], [ %.ph, %_i01_for.i.preheader3 ]
   %prol.iter = phi i32 [ %prol.iter.next, %_i01_for.i.prol ], [ 0, %_i01_for.i.preheader3 ]
   %10 = sext i32 %9 to i64
-  %extract_ptr.i.prol = getelementptr inbounds float, ptr %a, i64 %10
+  %extract_ptr.i.prol = getelementptr inbounds [4 x i8], ptr %a, i64 %10
   %extract.i.prol = load float, ptr %extract_ptr.i.prol, align 4
-  %11 = fmul float %extract.i.prol, %k
-  %_alloc1.i.prol = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %10
+  %11 = fmul float %k, %extract.i.prol
+  %_alloc1.i.prol = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %10
   store float %11, ptr %_alloc1.i.prol, align 4, !tbaa !4
   %12 = add nuw i32 %9, 1
   %prol.iter.next = add i32 %prol.iter, 1
@@ -81,31 +81,31 @@ _i01_for.i.prol.loopexit:                         ; preds = %_i01_for.i.prol, %_
 _i01_for.i:                                       ; preds = %_i01_for.i.prol.loopexit, %_i01_for.i
   %15 = phi i32 [ %27, %_i01_for.i ], [ %.unr, %_i01_for.i.prol.loopexit ]
   %16 = sext i32 %15 to i64
-  %extract_ptr.i = getelementptr inbounds float, ptr %a, i64 %16
+  %extract_ptr.i = getelementptr inbounds [4 x i8], ptr %a, i64 %16
   %extract.i = load float, ptr %extract_ptr.i, align 4
-  %17 = fmul float %extract.i, %k
-  %_alloc1.i = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %16
+  %17 = fmul float %k, %extract.i
+  %_alloc1.i = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %16
   store float %17, ptr %_alloc1.i, align 4, !tbaa !4
   %18 = add nuw i32 %15, 1
   %19 = sext i32 %18 to i64
-  %extract_ptr.i.1 = getelementptr inbounds float, ptr %a, i64 %19
+  %extract_ptr.i.1 = getelementptr inbounds [4 x i8], ptr %a, i64 %19
   %extract.i.1 = load float, ptr %extract_ptr.i.1, align 4
-  %20 = fmul float %extract.i.1, %k
-  %_alloc1.i.1 = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %19
+  %20 = fmul float %k, %extract.i.1
+  %_alloc1.i.1 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %19
   store float %20, ptr %_alloc1.i.1, align 4, !tbaa !4
   %21 = add nuw i32 %15, 2
   %22 = sext i32 %21 to i64
-  %extract_ptr.i.2 = getelementptr inbounds float, ptr %a, i64 %22
+  %extract_ptr.i.2 = getelementptr inbounds [4 x i8], ptr %a, i64 %22
   %extract.i.2 = load float, ptr %extract_ptr.i.2, align 4
-  %23 = fmul float %extract.i.2, %k
-  %_alloc1.i.2 = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %22
+  %23 = fmul float %k, %extract.i.2
+  %_alloc1.i.2 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %22
   store float %23, ptr %_alloc1.i.2, align 4, !tbaa !4
   %24 = add nuw i32 %15, 3
   %25 = sext i32 %24 to i64
-  %extract_ptr.i.3 = getelementptr inbounds float, ptr %a, i64 %25
+  %extract_ptr.i.3 = getelementptr inbounds [4 x i8], ptr %a, i64 %25
   %extract.i.3 = load float, ptr %extract_ptr.i.3, align 4
-  %26 = fmul float %extract.i.3, %k
-  %_alloc1.i.3 = getelementptr inbounds float, ptr %_alloc1_untyped.i, i64 %25
+  %26 = fmul float %k, %extract.i.3
+  %_alloc1.i.3 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %25
   store float %26, ptr %_alloc1.i.3, align 4, !tbaa !4
   %27 = add nuw i32 %15, 4
   %exitcond.not.i.3 = icmp eq i32 %27, %n
@@ -115,12 +115,12 @@ _traverse_array1.exit:                            ; preds = %_i01_for.i.prol.loo
   ret ptr %_alloc1_untyped.i
 }
 
-; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
 declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
 
-attributes #0 = { mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite) }
-attributes #1 = { nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite) }
-attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #0 = { mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none) }
+attributes #1 = { nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none) }
+attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}

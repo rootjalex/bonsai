@@ -1,15 +1,15 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree nounwind willreturn memory(readwrite, argmem: none)
+; Function Attrs: mustprogress nofree nounwind willreturn memory(readwrite, argmem: none, target_mem: none)
 define float @second(float noundef %x) local_unnamed_addr #0 {
 second_entry:
   %0 = fmul float %x, 5.000000e+00
   %_untyped = tail call dereferenceable_or_null(8) ptr @malloc(i64 8)
   store float %x, ptr %_untyped, align 4
-  %build_ptr1 = getelementptr inbounds i8, ptr %_untyped, i64 4
+  %build_ptr1 = getelementptr inbounds nuw i8, ptr %_untyped, i64 4
   store float %0, ptr %build_ptr1, align 4
-  %1 = load i64, ptr %_untyped, align 1
+  %1 = load i64, ptr %_untyped, align 4
   %2 = lshr i64 %1, 32
   %3 = trunc nuw i64 %2 to i32
   %4 = bitcast i32 %3 to float
@@ -17,8 +17,8 @@ second_entry:
   ret float %5
 }
 
-; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
 declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
 
-attributes #0 = { mustprogress nofree nounwind willreturn memory(readwrite, argmem: none) }
-attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #0 = { mustprogress nofree nounwind willreturn memory(readwrite, argmem: none, target_mem: none) }
+attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }

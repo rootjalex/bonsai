@@ -4,15 +4,15 @@ source_filename = "bonsai_module"
 @0 = private unnamed_addr constant [46 x i8] c"Position {\0A  x: %d\0A  y: %d\0A  z: %d\0A  c: %f\0A}\0A\00", align 1
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @foo(ptr nocapture noundef nonnull writeonly %_ret0, ptr nocapture noundef nonnull readonly %i, ptr nocapture noundef nonnull readonly %j) local_unnamed_addr #0 {
+define void @foo(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 16)) %_ret0, ptr noundef nonnull readonly captures(none) %i, ptr noundef nonnull readonly captures(none) %j) local_unnamed_addr #0 {
 foo_entry:
-  %deref_temp.elt14 = getelementptr inbounds i8, ptr %i, i64 8
+  %deref_temp.elt14 = getelementptr inbounds nuw i8, ptr %i, i64 8
   %deref_temp.unpack15 = load i32, ptr %deref_temp.elt14, align 4
-  %deref_temp.elt16 = getelementptr inbounds i8, ptr %i, i64 12
+  %deref_temp.elt16 = getelementptr inbounds nuw i8, ptr %i, i64 12
   %deref_temp.unpack17 = load float, ptr %deref_temp.elt16, align 4
-  %deref_temp1.elt21 = getelementptr inbounds i8, ptr %j, i64 8
+  %deref_temp1.elt21 = getelementptr inbounds nuw i8, ptr %j, i64 8
   %deref_temp1.unpack22 = load i32, ptr %deref_temp1.elt21, align 4
-  %deref_temp1.elt23 = getelementptr inbounds i8, ptr %j, i64 12
+  %deref_temp1.elt23 = getelementptr inbounds nuw i8, ptr %j, i64 12
   %deref_temp1.unpack24 = load float, ptr %deref_temp1.elt23, align 4
   %0 = add i32 %deref_temp1.unpack22, %deref_temp.unpack15
   %1 = fadd float %deref_temp.unpack17, %deref_temp1.unpack24
@@ -20,9 +20,9 @@ foo_entry:
   %3 = load <2 x i32>, ptr %j, align 4
   %4 = add <2 x i32> %3, %2
   store <2 x i32> %4, ptr %_ret0, align 4
-  %_ret0.repack28 = getelementptr inbounds i8, ptr %_ret0, i64 8
+  %_ret0.repack28 = getelementptr inbounds nuw i8, ptr %_ret0, i64 8
   store i32 %0, ptr %_ret0.repack28, align 4
-  %_ret0.repack30 = getelementptr inbounds i8, ptr %_ret0, i64 12
+  %_ret0.repack30 = getelementptr inbounds nuw i8, ptr %_ret0, i64 12
   store float %1, ptr %_ret0.repack30, align 4
   ret void
 }
@@ -35,7 +35,7 @@ main_entry:
 }
 
 ; Function Attrs: nofree nounwind
-declare noundef i32 @printf(ptr nocapture noundef readonly, ...) local_unnamed_addr #1
+declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #1
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { nofree nounwind }

@@ -7,19 +7,19 @@ define i32 @main() {
 main_entry:
   %x = alloca %struct.__dyn_array0, align 64
   %x.buffer_untyped = tail call ptr @malloc(i64 4)
-  %x.buffer_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 0
+  %x.buffer_ptr = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 0
   store ptr %x.buffer_untyped, ptr %x.buffer_ptr, align 8
-  %x.size_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 1
+  %x.size_ptr = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 1
   store atomic i32 0, ptr %x.size_ptr release, align 4
-  %x.capacity_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 2
+  %x.capacity_ptr = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 2
   store atomic i32 1, ptr %x.capacity_ptr release, align 4
-  %x.mutex_ptr = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 3
+  %x.mutex_ptr = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 3
   %0 = call i32 @pthread_mutex_init(ptr %x.mutex_ptr, ptr null)
-  %x.size_ptr1 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 1
+  %x.size_ptr1 = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 1
   %1 = atomicrmw add ptr %x.size_ptr1, i32 1 acq_rel, align 4
-  %x.capacity_ptr2 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 2
-  %x.mutex_ptr3 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 3
-  %x.buffer_ptr4 = getelementptr inbounds %struct.__dyn_array0, ptr %x, i32 0, i32 0
+  %x.capacity_ptr2 = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 2
+  %x.mutex_ptr3 = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 3
+  %x.buffer_ptr4 = getelementptr inbounds nuw %struct.__dyn_array0, ptr %x, i32 0, i32 0
   %x.capacity = load atomic i32, ptr %x.capacity_ptr2 acquire, align 4
   %index-ge-capacity = icmp uge i32 %1, %x.capacity
   br i1 %index-ge-capacity, label %lock-mutex, label %continue

@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define range(i32 1, 3) i32 @check0(i32 noundef %a, ptr nocapture noundef readonly %b) local_unnamed_addr #0 {
+define range(i32 1, 3) i32 @check0(i32 noundef %a, ptr nofree noundef readonly captures(none) %b) local_unnamed_addr #0 {
 check0_entry:
   %0 = icmp sgt i32 %a, -1
   br i1 %0, label %and_rhs, label %next_bb
@@ -16,14 +16,14 @@ next_bb:                                          ; preds = %and_rhs, %check0_en
 
 and_rhs:                                          ; preds = %check0_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %common.ret, label %next_bb
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define range(i32 1, 3) i32 @check1(i32 noundef %a, ptr nocapture noundef readonly %b) local_unnamed_addr #0 {
+define range(i32 1, 3) i32 @check1(i32 noundef %a, ptr nofree noundef readonly captures(none) %b) local_unnamed_addr #0 {
 check1_entry:
   %0 = icmp slt i32 %a, 0
   br i1 %0, label %common.ret, label %or_rhs
@@ -37,14 +37,14 @@ next_bb:                                          ; preds = %or_rhs
 
 or_rhs:                                           ; preds = %check1_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %common.ret, label %next_bb
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define float @check2_noshortcircuit(i32 noundef %a, ptr nocapture noundef readonly %b) local_unnamed_addr #0 {
+define float @check2_noshortcircuit(i32 noundef %a, ptr nofree noundef readonly captures(none) %b) local_unnamed_addr #0 {
 check2_noshortcircuit_entry:
   %or.cond = icmp ult i32 %a, 5
   br i1 %or.cond, label %then_bb, label %common.ret
@@ -55,13 +55,13 @@ common.ret:                                       ; preds = %check2_noshortcircu
 
 then_bb:                                          ; preds = %check2_noshortcircuit_entry
   %0 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %0
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %b, i64 %0
   %extract = load float, ptr %extract_ptr, align 4
   br label %common.ret
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define range(i32 1, 3) i32 @check3(i32 noundef %a, ptr nocapture noundef readonly %b) local_unnamed_addr #0 {
+define range(i32 1, 3) i32 @check3(i32 noundef %a, ptr nofree noundef readonly captures(none) %b) local_unnamed_addr #0 {
 check3_entry:
   %0 = icmp sgt i32 %a, -1
   br i1 %0, label %and_rhs, label %common.ret
@@ -75,14 +75,14 @@ next_bb:                                          ; preds = %and_rhs
 
 and_rhs:                                          ; preds = %check3_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %next_bb, label %common.ret
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define range(i32 1, 3) i32 @check4(i32 noundef %a, ptr nocapture noundef readonly %b) local_unnamed_addr #0 {
+define range(i32 1, 3) i32 @check4(i32 noundef %a, ptr nofree noundef readonly captures(none) %b) local_unnamed_addr #0 {
 check4_entry:
   %0 = icmp slt i32 %a, 0
   br i1 %0, label %next_bb, label %or_rhs
@@ -96,7 +96,7 @@ next_bb:                                          ; preds = %or_rhs, %check4_ent
 
 or_rhs:                                           ; preds = %check4_entry
   %1 = zext nneg i32 %a to i64
-  %extract_ptr = getelementptr inbounds float, ptr %b, i64 %1
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %b, i64 %1
   %extract = load float, ptr %extract_ptr, align 4
   %2 = fcmp olt float %extract, 0.000000e+00
   br i1 %2, label %next_bb, label %common.ret

@@ -11,24 +11,27 @@ DSL for Recursive Geometric Queries
    brew install cmake
    ```
 2. There is a dependency on LLVM; this currently
-   uses [version 19.1.6](https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.6).
-   On macOS, `brew install llvm@19` is sufficient.
+   uses [version 23.1.1](https://github.com/llvm/llvm-project/releases/tag/llvmorg-23.1.1).
+   On macOS, `brew install llvm@23` is sufficient.
 
 If you have a custom version installed somewhere, set the following environment
 variable:
 
 ```bash
-export LLVM_ROOT=/path/to/llvm-install # e.g., /Users/ajroot/projects/llvm-install-19
+export LLVM_ROOT=/path/to/llvm-install # e.g., /Users/ajroot/projects/llvm-install-23
 ```
 
-To build LLVM yourself, clone the submodule we have set up, and build it:
+To build LLVM yourself, clone the submodule we have set up, and build it.
+Only LLVM itself is needed (no clang, lld or runtimes: nothing here links
+them, and the apps use the conda environment's clang++); the three targets
+are the host, the AArch64 the tests cross-compile for, and NVPTX for the
+PTX backend:
 
 ```bash
 git submodule update --init --depth 1 deps/llvm-project
 cmake -G "Unix Makefiles" -S deps/llvm-project/llvm -B deps/llvm-build \
       -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DLLVM_ENABLE_PROJECTS="clang;lld;clang-tools-extra" \
-      -DLLVM_ENABLE_RUNTIMES=compiler-rt \
+      -DLLVM_ENABLE_PROJECTS="" \
       -DLLVM_TARGETS_TO_BUILD="X86;AArch64;NVPTX" \
       -DLLVM_ENABLE_ASSERTIONS=ON \
       -DLLVM_ENABLE_EH=ON \

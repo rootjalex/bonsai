@@ -2,39 +2,39 @@
 source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
-define internal fastcc noundef float @scale(float noundef %x, float noundef %k) unnamed_addr #0 {
+define internal fastcc noundef float @scale(float noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k) unnamed_addr #0 {
 scale_entry:
   %0 = fmul float %x, %k
   ret float %0
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
-define internal fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef %k) unnamed_addr #0 {
+define internal fastcc noundef <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k) unnamed_addr #0 {
 "scale$gang8_v0$masked":
   %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
   %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
-  %0 = fmul <8 x float> %.splat, %x
+  %0 = fmul <8 x float> %x, %.splat
   ret <8 x float> %0
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @weigh_all(ptr nocapture noundef readonly %a, ptr nocapture noundef writeonly %out) local_unnamed_addr #1 {
+define void @weigh_all(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #1 {
 weigh_all:
   %extract = load <8 x float>, ptr %a, align 4
-  %0 = fcmp ogt <8 x float> %extract, <float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00, float 2.000000e+00>
-  %not..i = xor <8 x i1> %0, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
+  %0 = fcmp ogt <8 x float> %extract, splat (float 2.000000e+00)
+  %not..i = xor <8 x i1> %0, splat (i1 true)
   %1 = bitcast <8 x i1> %0 to i8
   %.not.i = icmp eq i8 %1, 0
   br i1 %.not.i, label %"!else_1!any.i", label %"!then_0.i"
 
 "!then_0.i":                                      ; preds = %weigh_all
   %2 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 3.000000e+00)
-  %3 = fcmp ule <8 x float> %2, <float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01, float 2.000000e+01>
-  %4 = and <8 x i1> %3, %0
+  %3 = fcmp ule <8 x float> %2, splat (float 2.000000e+01)
+  %4 = or <8 x i1> %3, %not..i
   br label %"!else_1!any.i"
 
 "!else_1!any.i":                                  ; preds = %"!then_0.i", %weigh_all
-  %"@10!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %4, %"!then_0.i" ]
+  %"@10!join.i" = phi <8 x i1> [ %not..i, %weigh_all ], [ %4, %"!then_0.i" ]
   %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %2, %"!then_0.i" ]
   %5 = bitcast <8 x i1> %not..i to i8
   %.not2.i = icmp eq i8 %5, 0
@@ -47,10 +47,9 @@ weigh_all:
 
 "weigh$gang8_v0.exit":                            ; preds = %"!else_1!any.i", %"!else_1.i"
   %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %7, %"!else_1.i" ]
-  %8 = or <8 x i1> %"@10!join.i", %not..i
-  %9 = fadd <8 x float> %"acc!skip0.i", <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>
-  %10 = select <8 x i1> %8, <8 x float> %9, <8 x float> %"acc!skip.i"
-  store <8 x float> %10, ptr %out, align 4
+  %8 = fadd <8 x float> %"acc!skip0.i", splat (float 1.000000e+00)
+  %9 = select <8 x i1> %"@10!join.i", <8 x float> %8, <8 x float> %"acc!skip.i"
+  store <8 x float> %9, ptr %out, align 4
   ret void
 }
 

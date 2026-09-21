@@ -1,8 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
-define noalias noundef ptr @array_abs(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none)
+define noalias noundef ptr @array_abs(i32 noundef %n, ptr nofree noundef readonly captures(none) %a) local_unnamed_addr #0 {
 array_abs_entry:
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
@@ -20,14 +20,14 @@ vector.ph:                                        ; preds = %_i00_for.i.preheade
 
 vector.body:                                      ; preds = %vector.body, %vector.ph
   %index = phi i64 [ 0, %vector.ph ], [ %index.next, %vector.body ]
-  %1 = getelementptr inbounds i32, ptr %a, i64 %index
-  %2 = getelementptr inbounds i8, ptr %1, i64 16
+  %1 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %index
+  %2 = getelementptr inbounds nuw i8, ptr %1, i64 16
   %wide.load = load <4 x i32>, ptr %1, align 4
   %wide.load1 = load <4 x i32>, ptr %2, align 4
   %3 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
   %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
-  %5 = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %index
-  %6 = getelementptr inbounds i8, ptr %5, i64 16
+  %5 = getelementptr inbounds nuw [4 x i8], ptr %_alloc0_untyped.i, i64 %index
+  %6 = getelementptr inbounds nuw i8, ptr %5, i64 16
   store <4 x i32> %3, ptr %5, align 4, !tbaa !1
   store <4 x i32> %4, ptr %6, align 4, !tbaa !1
   %index.next = add nuw i64 %index, 8
@@ -38,16 +38,16 @@ middle.block:                                     ; preds = %vector.body
   %cmp.n = icmp eq i64 %n.vec, %size64.i
   br i1 %cmp.n, label %_traverse_array0.exit, label %_i00_for.i.preheader2
 
-_i00_for.i.preheader2:                            ; preds = %middle.block, %_i00_for.i.preheader
+_i00_for.i.preheader2:                            ; preds = %_i00_for.i.preheader, %middle.block
   %indvars.iv.i.ph = phi i64 [ 0, %_i00_for.i.preheader ], [ %n.vec, %middle.block ]
   br label %_i00_for.i
 
 _i00_for.i:                                       ; preds = %_i00_for.i.preheader2, %_i00_for.i
   %indvars.iv.i = phi i64 [ %indvars.iv.next.i, %_i00_for.i ], [ %indvars.iv.i.ph, %_i00_for.i.preheader2 ]
-  %extract_ptr.i = getelementptr inbounds i32, ptr %a, i64 %indvars.iv.i
+  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.i
   %extract.i = load i32, ptr %extract_ptr.i, align 4
   %"foo$r0.0.i" = tail call i32 @llvm.abs.i32(i32 %extract.i, i1 false)
-  %_alloc0.i = getelementptr inbounds i32, ptr %_alloc0_untyped.i, i64 %indvars.iv.i
+  %_alloc0.i = getelementptr inbounds nuw [4 x i8], ptr %_alloc0_untyped.i, i64 %indvars.iv.i
   store i32 %"foo$r0.0.i", ptr %_alloc0.i, align 4, !tbaa !1
   %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
   %exitcond.not.i = icmp eq i64 %indvars.iv.next.i, %size64.i
@@ -57,8 +57,8 @@ _traverse_array0.exit:                            ; preds = %_i00_for.i, %middle
   ret ptr %_alloc0_untyped.i
 }
 
-; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite)
-define noalias noundef ptr @array_abs2(i32 noundef %n, ptr nocapture noundef readonly %a) local_unnamed_addr #0 {
+; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none)
+define noalias noundef ptr @array_abs2(i32 noundef %n, ptr nofree noundef readonly captures(none) %a) local_unnamed_addr #0 {
 array_abs2_entry:
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
@@ -76,14 +76,14 @@ vector.ph:                                        ; preds = %_i01_for.i.preheade
 
 vector.body:                                      ; preds = %vector.body, %vector.ph
   %index = phi i64 [ 0, %vector.ph ], [ %index.next, %vector.body ]
-  %1 = getelementptr inbounds i32, ptr %a, i64 %index
-  %2 = getelementptr inbounds i8, ptr %1, i64 16
+  %1 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %index
+  %2 = getelementptr inbounds nuw i8, ptr %1, i64 16
   %wide.load = load <4 x i32>, ptr %1, align 4
   %wide.load1 = load <4 x i32>, ptr %2, align 4
   %3 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load, i1 false)
   %4 = tail call <4 x i32> @llvm.abs.v4i32(<4 x i32> %wide.load1, i1 false)
-  %5 = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %index
-  %6 = getelementptr inbounds i8, ptr %5, i64 16
+  %5 = getelementptr inbounds nuw [4 x i8], ptr %_alloc1_untyped.i, i64 %index
+  %6 = getelementptr inbounds nuw i8, ptr %5, i64 16
   store <4 x i32> %3, ptr %5, align 4, !tbaa !1
   store <4 x i32> %4, ptr %6, align 4, !tbaa !1
   %index.next = add nuw i64 %index, 8
@@ -94,16 +94,16 @@ middle.block:                                     ; preds = %vector.body
   %cmp.n = icmp eq i64 %n.vec, %size64.i
   br i1 %cmp.n, label %_traverse_array1.exit, label %_i01_for.i.preheader2
 
-_i01_for.i.preheader2:                            ; preds = %middle.block, %_i01_for.i.preheader
+_i01_for.i.preheader2:                            ; preds = %_i01_for.i.preheader, %middle.block
   %indvars.iv.i.ph = phi i64 [ 0, %_i01_for.i.preheader ], [ %n.vec, %middle.block ]
   br label %_i01_for.i
 
 _i01_for.i:                                       ; preds = %_i01_for.i.preheader2, %_i01_for.i
   %indvars.iv.i = phi i64 [ %indvars.iv.next.i, %_i01_for.i ], [ %indvars.iv.i.ph, %_i01_for.i.preheader2 ]
-  %extract_ptr.i = getelementptr inbounds i32, ptr %a, i64 %indvars.iv.i
+  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.i
   %extract.i = load i32, ptr %extract_ptr.i, align 4
   %"bar$r1.0.i" = tail call i32 @llvm.abs.i32(i32 %extract.i, i1 false)
-  %_alloc1.i = getelementptr inbounds i32, ptr %_alloc1_untyped.i, i64 %indvars.iv.i
+  %_alloc1.i = getelementptr inbounds nuw [4 x i8], ptr %_alloc1_untyped.i, i64 %indvars.iv.i
   store i32 %"bar$r1.0.i", ptr %_alloc1.i, align 4, !tbaa !1
   %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
   %exitcond.not.i = icmp eq i64 %indvars.iv.next.i, %size64.i
@@ -114,20 +114,20 @@ _traverse_array1.exit:                            ; preds = %_i01_for.i, %middle
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @bar(i32 noundef %x) local_unnamed_addr #1 {
+define noundef range(i32 0, -2147483647) i32 @bar(i32 noundef %x) local_unnamed_addr #1 {
 bar_entry:
   %common.ret.op = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
   ret i32 %common.ret.op
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @foo(i32 noundef %x) local_unnamed_addr #1 {
+define noundef range(i32 0, -2147483647) i32 @foo(i32 noundef %x) local_unnamed_addr #1 {
 foo_entry:
   %spec.select = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
   ret i32 %spec.select
 }
 
-; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite)
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
 declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
@@ -136,9 +136,9 @@ declare i32 @llvm.abs.i32(i32, i1 immarg) #3
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1 immarg) #3
 
-attributes #0 = { nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite) }
+attributes #0 = { nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
 attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{!"branch_weights", i32 1073741824, i32 0}

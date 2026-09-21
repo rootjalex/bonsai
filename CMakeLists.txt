@@ -51,7 +51,7 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 # Dependencies
 
 find_package(
-    ModernLLVM 19.1.6
+    ModernLLVM 23.1
     REQUIRED
     COMPONENTS
     core
@@ -61,6 +61,16 @@ find_package(
     target
     passes
     native
+    # Every target init_llvm registers, beside the host's: NVPTX is what the
+    # PTX backend emits, AArch64 what a cross-compiled test names. Named by
+    # library, since LLVM's component mapper knows no whole-target name.
+    NVPTXCodeGen
+    NVPTXDesc
+    NVPTXInfo
+    AArch64CodeGen
+    AArch64AsmParser
+    AArch64Desc
+    AArch64Info
     # The components below are used directly by src/CodeGen (TargetRegistry,
     # Triple, getDefaultTargetTriple, the AlwaysInliner, and the individual
     # passes named in optimize_module). They resolve transitively through the

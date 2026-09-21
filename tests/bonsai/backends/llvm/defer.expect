@@ -3,8 +3,8 @@ source_filename = "bonsai_module"
 
 %struct.Queue_sums = type { i32, ptr, ptr, ptr }
 
-; Function Attrs: mustprogress nofree noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none)
-define internal fastcc void @fill(i32 noundef %n, i32 noundef %acc, ptr nocapture noundef writeonly %out, i32 noundef %i, ptr nocapture noundef nonnull %_queue_sums) unnamed_addr #0 {
+; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+define internal fastcc void @fill(i32 noundef %n, i32 noundef %acc, ptr nofree noundef writeonly captures(none) %out, i32 noundef %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #0 {
 fill_entry:
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %next_bb, label %then_bb
@@ -14,7 +14,7 @@ common.ret:                                       ; preds = %next_bb, %then_bb
 
 then_bb:                                          ; preds = %fill_entry
   %1 = sext i32 %i to i64
-  %out1 = getelementptr inbounds i32, ptr %out, i64 %1
+  %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %1
   store i32 %acc, ptr %out1, align 4, !tbaa !0
   br label %common.ret
 
@@ -22,24 +22,24 @@ next_bb:                                          ; preds = %fill_entry
   %2 = add nsw i32 %n, -1
   %3 = add i32 %acc, %n
   %4 = atomicrmw add ptr %_queue_sums, i32 1 monotonic, align 4
-  %5 = getelementptr inbounds i8, ptr %_queue_sums, i64 8
+  %5 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 8
   %n2 = load ptr, ptr %5, align 8
   %6 = sext i32 %4 to i64
-  %"@9" = getelementptr inbounds i32, ptr %n2, i64 %6
+  %"@9" = getelementptr inbounds [4 x i8], ptr %n2, i64 %6
   store i32 %2, ptr %"@9", align 4, !tbaa !0
-  %7 = getelementptr inbounds i8, ptr %_queue_sums, i64 16
+  %7 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 16
   %acc4 = load ptr, ptr %7, align 8
-  %"@12" = getelementptr inbounds i32, ptr %acc4, i64 %6
+  %"@12" = getelementptr inbounds [4 x i8], ptr %acc4, i64 %6
   store i32 %3, ptr %"@12", align 4, !tbaa !0
-  %8 = getelementptr inbounds i8, ptr %_queue_sums, i64 24
+  %8 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 24
   %i6 = load ptr, ptr %8, align 8
-  %"@15" = getelementptr inbounds i32, ptr %i6, i64 %6
+  %"@15" = getelementptr inbounds [4 x i8], ptr %i6, i64 %6
   store i32 %i, ptr %"@15", align 4, !tbaa !0
   br label %common.ret
 }
 
-; Function Attrs: nofree norecurse nounwind memory(readwrite, inaccessiblemem: none)
-define void @run(ptr nocapture noundef writeonly %out) local_unnamed_addr #1 {
+; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define void @run(ptr nofree noundef writeonly captures(none) %out) local_unnamed_addr #1 {
 run_entry:
   %sums_queue29 = alloca [2 x %struct.Queue_sums], align 8
   %sums_i_130 = alloca [8 x i32], align 4
@@ -49,19 +49,19 @@ run_entry:
   %sums_acc_034 = alloca [8 x i32], align 4
   %sums_n_035 = alloca [8 x i32], align 4
   store i32 0, ptr %sums_queue29, align 8
-  %.fca.1.gep = getelementptr inbounds i8, ptr %sums_queue29, i64 8
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 8
   store ptr %sums_n_035, ptr %.fca.1.gep, align 8
-  %.fca.2.gep = getelementptr inbounds i8, ptr %sums_queue29, i64 16
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 16
   store ptr %sums_acc_034, ptr %.fca.2.gep, align 8
-  %.fca.3.gep = getelementptr inbounds i8, ptr %sums_queue29, i64 24
+  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 24
   store ptr %sums_i_033, ptr %.fca.3.gep, align 8
-  %sums_queue2 = getelementptr inbounds i8, ptr %sums_queue29, i64 32
+  %sums_queue2 = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 32
   store i32 0, ptr %sums_queue2, align 8
-  %.fca.1.gep39 = getelementptr inbounds i8, ptr %sums_queue29, i64 40
+  %.fca.1.gep39 = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 40
   store ptr %sums_n_132, ptr %.fca.1.gep39, align 8
-  %.fca.2.gep41 = getelementptr inbounds i8, ptr %sums_queue29, i64 48
+  %.fca.2.gep41 = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 48
   store ptr %sums_acc_131, ptr %.fca.2.gep41, align 8
-  %.fca.3.gep43 = getelementptr inbounds i8, ptr %sums_queue29, i64 56
+  %.fca.3.gep43 = getelementptr inbounds nuw i8, ptr %sums_queue29, i64 56
   store ptr %sums_i_130, ptr %.fca.3.gep43, align 8
   call fastcc void @fill(i32 0, i32 0, ptr %out, i32 0, ptr %sums_queue29)
   call fastcc void @fill(i32 1, i32 0, ptr %out, i32 1, ptr %sums_queue29)
@@ -82,11 +82,11 @@ while.body:                                       ; preds = %run_entry, %sums1_f
   %"sums!round.045" = phi i32 [ %7, %sums1_for_end ], [ 0, %run_entry ]
   %2 = xor i32 %1, 1
   %3 = zext nneg i32 %2 to i64
-  %sums_queue8 = getelementptr inbounds %struct.Queue_sums, ptr %sums_queue29, i64 %3
+  %sums_queue8 = getelementptr inbounds nuw [32 x i8], ptr %sums_queue29, i64 %3
   store i32 0, ptr %sums_queue8, align 8, !tbaa !3
-  %extract10.fca.1.gep = getelementptr inbounds i8, ptr %extract_ptr46, i64 8
-  %extract10.fca.2.gep = getelementptr inbounds i8, ptr %extract_ptr46, i64 16
-  %extract10.fca.3.gep = getelementptr inbounds i8, ptr %extract_ptr46, i64 24
+  %extract10.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr46, i64 8
+  %extract10.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr46, i64 16
+  %extract10.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr46, i64 24
   br label %sums1_for
 
 while.end:                                        ; preds = %sums1_for_end, %run_entry
@@ -98,11 +98,11 @@ sums1_for:                                        ; preds = %while.body, %sums1_
   %extract10.fca.2.load = load ptr, ptr %extract10.fca.2.gep, align 8
   %extract10.fca.3.load = load ptr, ptr %extract10.fca.3.gep, align 8
   %5 = sext i32 %4 to i64
-  %extract_ptr11 = getelementptr inbounds i32, ptr %extract10.fca.1.load, i64 %5
+  %extract_ptr11 = getelementptr inbounds [4 x i8], ptr %extract10.fca.1.load, i64 %5
   %extract12 = load i32, ptr %extract_ptr11, align 4
-  %extract_ptr15 = getelementptr inbounds i32, ptr %extract10.fca.2.load, i64 %5
+  %extract_ptr15 = getelementptr inbounds [4 x i8], ptr %extract10.fca.2.load, i64 %5
   %extract16 = load i32, ptr %extract_ptr15, align 4
-  %extract_ptr19 = getelementptr inbounds i32, ptr %extract10.fca.3.load, i64 %5
+  %extract_ptr19 = getelementptr inbounds [4 x i8], ptr %extract10.fca.3.load, i64 %5
   %extract20 = load i32, ptr %extract_ptr19, align 4
   call fastcc void @fill(i32 %extract12, i32 %extract16, ptr %out, i32 %extract20, ptr %sums_queue8)
   %6 = add nuw i32 %4, 1
@@ -113,14 +113,14 @@ sums1_for_end:                                    ; preds = %sums1_for
   %7 = add i32 %"sums!round.045", 1
   %8 = and i32 %7, 1
   %9 = zext nneg i32 %8 to i64
-  %extract_ptr = getelementptr inbounds %struct.Queue_sums, ptr %sums_queue29, i64 %9
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %sums_queue29, i64 %9
   %count = load i32, ptr %extract_ptr, align 8
   %10 = icmp eq i32 %count, 0
   br i1 %10, label %while.end, label %while.body
 }
 
-attributes #0 = { mustprogress nofree noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) }
-attributes #1 = { nofree norecurse nounwind memory(readwrite, inaccessiblemem: none) }
+attributes #0 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}

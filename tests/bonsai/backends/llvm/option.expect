@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 %struct._option0 = type { i32, i1 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_option0(ptr nocapture noundef nonnull writeonly %_ret0, i32 noundef %i) local_unnamed_addr #0 {
+define void @make_option0(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 8)) %_ret0, i32 noundef %i) local_unnamed_addr #0 {
 make_option0_entry:
   %0 = insertvalue %struct._option0 undef, i32 %i, 0
   %1 = insertvalue %struct._option0 %0, i1 true, 1
@@ -13,7 +13,7 @@ make_option0_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @make_option1(ptr nocapture noundef nonnull writeonly %_ret1, i32 noundef %i) local_unnamed_addr #0 {
+define void @make_option1(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 8)) %_ret1, i32 noundef %i) local_unnamed_addr #0 {
 make_option1_entry:
   %0 = icmp sgt i32 %i, 0
   %1 = insertvalue %struct._option0 undef, i32 %i, 0
@@ -24,7 +24,7 @@ make_option1_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i32 @use_option(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
+define i32 @use_option(ptr noundef nonnull readonly captures(none) %i) local_unnamed_addr #1 {
 use_option_entry:
   %deref_temp = load %struct._option0, ptr %i, align 4
   %set = extractvalue %struct._option0 %deref_temp, 1
@@ -34,7 +34,7 @@ use_option_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
-define i32 @use_option1(ptr nocapture noundef nonnull readonly %i) local_unnamed_addr #1 {
+define i32 @use_option1(ptr noundef nonnull readonly captures(none) %i) local_unnamed_addr #1 {
 use_option1_entry:
   %deref_temp = load %struct._option0, ptr %i, align 4
   %set = extractvalue %struct._option0 %deref_temp, 1

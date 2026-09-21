@@ -93,7 +93,7 @@ std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const CompilerOptions &options) 
 
 bool CodeGen_LLVM::has_feature(const std::string &feature) const {
     return target_machine != nullptr &&
-           target_machine->getMCSubtargetInfo()->checkFeatures("+" + feature);
+           target_machine->getMCSubtargetInfo().checkFeatures("+" + feature);
 }
 namespace {
 
@@ -207,14 +207,14 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     }
 
     std::string error_string;
+    llvm::Triple triple = llvm::Triple(target_triple);
     const llvm::Target *llvm_target =
-        llvm::TargetRegistry::lookupTarget(target_triple, error_string);
+        llvm::TargetRegistry::lookupTarget(triple, error_string);
     if (llvm_target == nullptr) {
         llvm::errs() << error_string << "\n";
         llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::errs());
         internal_error << "could not create LLVM target for: " << target_triple;
     }
-    llvm::Triple triple = llvm::Triple(target_triple);
     llvm::TargetOptions target_options;
 
     // TODO: set options?
@@ -238,7 +238,7 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         // 32-bit pointers in the data layout the CPP backend then installs,
         // and a TTI reporting zero vector registers, which silently disables
         // vectorization everywhere.
-        target_triple,
+        triple,
         // The CPU `--mcpu` named, or the host's when nothing was named.
         target_cpu, target_features, target_options,
         use_pic ? llvm::Reloc::PIC_ : llvm::Reloc::Static,
@@ -257,7 +257,7 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     // it without the layout (see print_module and to_llvm), not generating it
     // without one.
     module.setDataLayout(tm->createDataLayout());
-    module.setTargetTriple(target_triple);
+    module.setTargetTriple(triple);
     return std::unique_ptr<llvm::TargetMachine>(tm);
 }
 
@@ -267,11 +267,11 @@ void CodeGen_LLVM::print_module(llvm::Module &module, llvm::raw_ostream &os,
         module.print(os, nullptr);
         return;
     }
-    std::string triple = module.getTargetTriple();
+    llvm::Triple triple = module.getTargetTriple();
     llvm::DataLayout layout = module.getDataLayout();
     {
-        module.setTargetTriple("");
-        module.setDataLayout("");
+        module.setTargetTriple(llvm::Triple());
+        module.setDataLayout(llvm::DataLayout());
         module.print(os, nullptr);
     }
     // Reset these in case these are referenced later.
@@ -426,7 +426,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
         llvm::AttrBuilder attrs(*context);
         attrs.addStructRetAttr(sret);
         attrs.addAttribute(llvm::Attribute::NoAlias);
-        attrs.addAttribute(llvm::Attribute::NoCapture);
+        attrs.addCapturesAttr(llvm::CaptureInfo::none());
         attrs.addAttribute(llvm::Attribute::NoUndef);
         attrs.addAttribute(llvm::Attribute::NonNull);
         attrs.addAttribute(llvm::Attribute::WriteOnly);
@@ -547,7 +547,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
     // paths do not all return (and exempts void from that check for exactly
     // this reason); what is left open there is a block nothing reaches, such
     // as the join made for an `if` whose arms all returned.
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!builder->GetInsertBlock()->hasTerminator()) {
         if (func.ret_type.is<Void_t>()) {
             builder->CreateRetVoid();
         } else {
@@ -698,18 +698,17 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
         // make them PIC-friendly. See
         // https://bugs.llvm.org/show_bug.cgi?id=45244
         pb.registerOptimizerLastEPCallback(
-#if LLVM_VERSION >= 200
-            [&](ModulePassManager &mpm, OptimizationLevel, ThinOrFullLTOPhase)
-#else
-            [&](llvm::ModulePassManager &mpm, OptimizationLevel)
-#endif
-            { mpm.addPass(llvm::RelLookupTableConverterPass()); });
+            [&](llvm::ModulePassManager &mpm, OptimizationLevel,
+                llvm::ThinOrFullLTOPhase) {
+                mpm.addPass(llvm::RelLookupTableConverterPass());
+            });
     }
 
     // get_target().has_feature(Target::SanitizerCoverage)
     if (false) {
         pb.registerOptimizerLastEPCallback([&](llvm::ModulePassManager &mpm,
-                                               llvm::OptimizationLevel level) {
+                                               llvm::OptimizationLevel level,
+                                               llvm::ThinOrFullLTOPhase) {
             llvm::SanitizerCoverageOptions sanitizercoverage_options;
             // Mirror what -fsanitize=fuzzer-no-link would enable.
             // See https://github.com/halide/Halide/issues/6528
@@ -751,7 +750,8 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     // get_target().has_feature(Target::TSAN)
     if (false) {
         pb.registerOptimizerLastEPCallback(
-            [](llvm::ModulePassManager &mpm, OptimizationLevel level) {
+            [](llvm::ModulePassManager &mpm, OptimizationLevel level,
+               llvm::ThinOrFullLTOPhase) {
                 mpm.addPass(llvm::createModuleToFunctionPassAdaptor(
                     llvm::ThreadSanitizerPass()));
             });
@@ -804,7 +804,8 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     }
 
     tm.registerPassBuilderCallbacks(pb);
-    mpm = pb.buildPerModuleDefaultPipeline(level, debug_pass_manager);
+    (void)debug_pass_manager;
+    mpm = pb.buildPerModuleDefaultPipeline(level);
     // A vector math intrinsic becomes the libmvec call the library
     // information maps it to. The backend would run this pass itself, but
     // here the result is in the module for `-b llvm` to print.
@@ -1618,8 +1619,8 @@ void CodeGen_LLVM::print_helper(const ir::Expr &node,
         auto *type = cast<llvm::IntegerType>(expr->getType());
         const uint32_t width = type->getBitWidth();
         internal_assert(width == 1) << "expected i1, received: i" << width;
-        llvm::Value *t = builder->CreateGlobalStringPtr("true");
-        llvm::Value *f = builder->CreateGlobalStringPtr("false");
+        llvm::Value *t = builder->CreateGlobalString("true");
+        llvm::Value *f = builder->CreateGlobalString("false");
         expr = builder->CreateSelect(expr, t, f);
     } else if (t.is_float() && expr->getType()->isFloatingPointTy() &&
                !expr->getType()->isDoubleTy()) {
@@ -1696,7 +1697,7 @@ void CodeGen_LLVM::visit(const Print *node) {
         print_helper(node->args[i], args, to_print);
     }
 
-    args.front() = builder->CreateGlobalStringPtr(to_print + "\n");
+    args.front() = builder->CreateGlobalString(to_print + "\n");
 
     value = builder->CreateCall(retrieve_printf(*module), args);
 }
@@ -2702,8 +2703,11 @@ llvm::Value *CodeGen_LLVM::gather_sub_word_elements(
     // time, which is why the caller has to have checked there is a word to
     // read at all.
     llvm::Type *offsets_t = offsets->getType();
+    // The mask as a signed -4: all ones but the low two bits at the offsets'
+    // own width, which `~3` as a 64-bit value is not for 32-bit offsets (LLVM
+    // refuses a constant that does not fit its type since 23).
     llvm::Value *aligned = builder->CreateAnd(
-        offsets, llvm::ConstantInt::get(offsets_t, ~uint64_t(3)), name + "_aligned");
+        offsets, llvm::ConstantInt::getSigned(offsets_t, -4), name + "_aligned");
     llvm::Value *last = builder->CreateSub(
         builder->CreateVectorSplat(lanes, total_bytes),
         llvm::ConstantInt::get(offsets_t, 4), name + "_last");
@@ -4075,7 +4079,7 @@ void CodeGen_LLVM::codegen_short_circuit(Expr cond, llvm::BasicBlock *true_bb,
 }
 
 void CodeGen_LLVM::codegen_branch(llvm::BasicBlock *bb) {
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!builder->GetInsertBlock()->hasTerminator()) {
         builder->CreateBr(bb);
     }
 }
@@ -4591,7 +4595,8 @@ CodeGen_LLVM::target_library_info(const llvm::Triple &triple) {
                     keep(*symbol), llvm::ElementCount::getFixed(lanes),
                     /*Masked=*/false,
                     keep("_ZGV_LLVM_N" + std::to_string(lanes) +
-                         std::string(fn.arity, 'v')));
+                         std::string(fn.arity, 'v')),
+                    /*Conv=*/std::nullopt);
             }
         }
     }
@@ -5242,13 +5247,11 @@ void CodeGen_LLVM::create_compress_store_at(llvm::Value *value,
             value, llvm::VectorType::get(i8_t, lanes, /*Scalable=*/false),
             "compress_bytes");
     }
-    llvm::CallInst *call = builder->CreateMaskedCompressStore(value, dest, mask);
     // The slots are consecutive elements, aligned as one element is (see
     // create_vector_store); without saying so the intrinsic assumes one byte.
     llvm::Type *element = value->getType()->getScalarType();
-    call->addParamAttr(
-        1, llvm::Attribute::getWithAlignment(
-               *context, module->getDataLayout().getABITypeAlign(element)));
+    builder->CreateMaskedCompressStore(
+        value, dest, module->getDataLayout().getABITypeAlign(element), mask);
 }
 
 void CodeGen_LLVM::create_scatter_at(llvm::Value *value, llvm::Value *ptrs,
@@ -5504,7 +5507,7 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
     int align = native_vector_bits() / 8;
 
     // Size of the element in bytes
-    llvm::DataLayout dataLayout(module.get());
+    const llvm::DataLayout &dataLayout = module->getDataLayout();
     uint64_t typeSize = dataLayout.getTypeAllocSize(etype);
     llvm::Value *elemSize = llvm::ConstantInt::get(i64_t, typeSize);
 
@@ -5650,7 +5653,7 @@ void CodeGen_LLVM::codegen_counted_loop(const std::string &index,
 void CodeGen_LLVM::visit(const Continue *node) {
     internal_assert(!latch_blocks.empty())
         << "CodeGen of Continue outside of loop.";
-    internal_assert(!builder->GetInsertBlock()->getTerminator())
+    internal_assert(!builder->GetInsertBlock()->hasTerminator())
         << "CodeGen of Continue in already-terminating block";
     builder->CreateBr(latch_blocks.back());
 }
@@ -5837,7 +5840,7 @@ void CodeGen_LLVM::declare_struct_types(
 llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
                                                   llvm::Value *idx) {
-    llvm::DataLayout d(module.get());
+    const llvm::DataLayout &d = module->getDataLayout();
     auto frame_value = frames.from_frames(buffer);
     internal_assert(frame_value.has_value()) << buffer;
     llvm::Value *base_addr = *frame_value;
@@ -5857,7 +5860,7 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
     }
 
     llvm::Constant *constant_index = llvm::dyn_cast<llvm::Constant>(idx);
-    if (constant_index && constant_index->isZeroValue()) {
+    if (constant_index && constant_index->isNullValue()) {
         return base_addr;
     }
 
