@@ -20,6 +20,7 @@ add_bonsai_tests(
     defer-gang-mut-local.bonsai
     defer-gang-runtime-size.bonsai
     defer-loop-owned.bonsai
+    vectorize-uniform-around-return.bonsai
     defer-mut-local.bonsai
     defer-off-chain.bonsai
     defer-parfor.bonsai

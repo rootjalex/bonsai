@@ -149,7 +149,7 @@ func weigh(x : f32) -> f32 {
 }
 
 func weigh$gang8_v0(x : f32x8) -> f32x8 {
-  @71!skip : mut boolx8
+  @71!join : mut boolx8
   acc!skip : mut f32x8
   !ret!skip : mut f32x8
   acc!skip0 : mut f32x8
@@ -185,16 +185,16 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
     if (@92) {
       let @5 = t * t in
       let @6 = @5 - x in
-      @71!skip = @71
+      @71!join = @71
       acc!skip = @6
       !ret!skip = t
     } else {
-      @71!skip = @71
+      @71!join = @71
       acc!skip = undef
       !ret!skip = t
     }
   } else {
-    @71!skip = @164
+    @71!join = @164
     acc!skip = undef
     !ret!skip = undef
   }
@@ -216,7 +216,7 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   } else {
     acc!skip0 = (*acc!skip)
   }
-  let @73 = (*@71!skip) || @69 in
+  let @73 = (*@71!join) || @69 in
   let @122 = f32x8(0f) in
   let @14 = x < @122 in
   let @123 = boolx8(false) in
@@ -302,7 +302,7 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   } else {
     classify$r6!skip2 = (*classify$r6!skip1)
   }
-  let @80 = (*@71!skip) || @69 in
+  let @80 = (*@71!join) || @69 in
   let @34 = (*classify$r6!skip2).tag in
   let @156 = u8x8(0u) in
   let @81 = @34 == @156 in
@@ -368,7 +368,7 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   } else {
     w!skip1 = (*w!skip0)
   }
-  let @89 = (*@71!skip) || @69 in
+  let @89 = (*@71!join) || @69 in
   let @68 = (*acc!skip0) + (*w!skip1) in
   let @106 = select(@89, @68, (*!ret!skip)) in
   return @106

@@ -492,6 +492,111 @@ BlockMasks linearize(Function &func, const string &entry_name,
         return std::nullopt;
     };
 
+    // The condition under which the branch of `from` takes its target
+    // `index`, as a bool computed in `from`. A dispatch on a bool has target
+    // 0 as the false side and target 1 the true side (see the IfElse visitor
+    // in SSA/Convert.cpp); a dispatch on an integer is a switch, with target
+    // k taken on k and the last target on anything else (see the SwitchStmt
+    // visitor there).
+    const auto branch_condition = [&](BlockId from,
+                                      size_t index) -> shared_ptr<Value> {
+        const shared_ptr<Block> &block = cfg.block(from);
+        const Terminator::Dispatch &dispatch = *dispatches[from];
+        const shared_ptr<Value> &tag = dispatch.cond;
+        const size_t n = dispatch.targets.size();
+        if (tag->get_type().is_bool()) {
+            if (index != 0) {
+                return tag;
+            }
+            // The false side: the lanes where the condition does not hold.
+            // Select rather than a dedicated negation, which the SSA form
+            // does not have (see the UnOp visitor in SSA/Convert.cpp).
+            auto t = std::make_shared<Value>(Constant{bool_type, true});
+            auto f = std::make_shared<Value>(Constant{bool_type, false});
+            return append(func, block, bool_type, Instruction::Op::Select,
+                          {tag, f, t});
+        }
+        const Type &type = tag->get_type();
+        auto key = [&](size_t k) {
+            return std::make_shared<Value>(type.is_uint()
+                                               ? Constant{type, uint64_t(k)}
+                                               : Constant{type, int64_t(k)});
+        };
+        if (index + 1 < n) {
+            return append(func, block, bool_type, Instruction::Op::Eq,
+                          {tag, key(index)});
+        }
+        shared_ptr<Value> cond;
+        for (size_t k = 0; k + 1 < n; k++) {
+            auto other = append(func, block, bool_type, Instruction::Op::Ne,
+                                {tag, key(k)});
+            cond = cond ? append(func, block, bool_type, Instruction::Op::LAnd,
+                                 {cond, other})
+                        : other;
+        }
+        return cond;
+    };
+
+    // A uniform branch the fold keeps as a branch: a dispatch that is not
+    // divergent and goes two ways.
+    const auto kept_branch = [&](BlockId from) {
+        if (divergent_branches.contains(from) || !dispatches[from].has_value()) {
+            return false;
+        }
+        const auto &targets = dispatches[from]->targets;
+        return std::any_of(targets.begin(), targets.end(),
+                           [&](const Terminator::Jump &t) {
+                               return t.name != targets.front().name;
+                           });
+    };
+
+    // Can `b` be reached from `from`, forwards along the fold's edges,
+    // without taking the edge `from` -> `to`? Then the edge's predicate, read
+    // in `b`, has to be false on the other way there.
+    const auto reaches_without = [&](BlockId from, BlockId to, BlockId b) {
+        BlockSet seen(cfg.size());
+        vector<BlockId> pending = {from};
+        while (!pending.empty()) {
+            const BlockId u = pending.back();
+            pending.pop_back();
+            if (!seen.insert(u)) {
+                continue;
+            }
+            if (u == b) {
+                return true;
+            }
+            for (const CfgEdge &e : linear[u]) {
+                if (!(u == from && e.to == to)) {
+                    pending.push_back(e.to);
+                }
+            }
+        }
+        return false;
+    };
+
+    // The predicate of the edge `from` -> `to` as the paper has it: the mask
+    // of `from` conjoined with the condition that sends its branch to `to`,
+    // computed in `from` -- false, in every lane, when the branch goes the
+    // other way.
+    const auto edge_predicate = [&](BlockId from, BlockId to) {
+        const auto &targets = dispatches[from]->targets;
+        size_t index = targets.size();
+        for (size_t k = 0; k < targets.size(); k++) {
+            if (targets[k].name == cfg.name(to)) {
+                index = k;
+                break;
+            }
+        }
+        internal_assert(index < targets.size())
+            << cfg.name(from) << " does not branch to " << cfg.name(to);
+        shared_ptr<Value> cond = branch_condition(from, index);
+        if (auto m = mask_of(from)) {
+            cond = append(func, cfg.block(from), bool_type,
+                          Instruction::Op::LAnd, {*m, cond});
+        }
+        return cond;
+    };
+
     for (const BlockId b : by_index) {
         const shared_ptr<Block> &block = cfg.block(b);
 
@@ -540,23 +645,40 @@ BlockMasks linearize(Function &func, const string &entry_name,
             shared_ptr<Value> mask;
             vector<shared_ptr<Value>> distinct;
             for (const auto &[from, to] : deciding) {
-                const auto it = masks.edge.find({from, to});
-                internal_assert(it != masks.edge.end())
-                    << "Control dependence edge " << cfg.name(from) << "->"
-                    << cfg.name(to) << " of " << cfg.name(b)
-                    << " has no mask yet; the block index is not topological";
+                // An edge out of a uniform branch carries its source's mask
+                // -- when it is taken. Where this block can also be reached
+                // the other way round the branch, the predicate has to say
+                // so: it is then the source's mask conjoined with the branch
+                // condition, false when the branch went the other way, as the
+                // paper defines it. pbrt's Russian roulette: `depth > 1`,
+                // uniform in a gang at one depth, around a divergent early
+                // return whose survivors' edge decides what follows; taken
+                // the short way, every lane is at the join, and through the
+                // roulette only the survivors are.
+                shared_ptr<Value> pred;
+                if (kept_branch(from) && reaches_without(from, to, b)) {
+                    pred = edge_predicate(from, to);
+                } else {
+                    const auto it = masks.edge.find({from, to});
+                    internal_assert(it != masks.edge.end())
+                        << "Control dependence edge " << cfg.name(from) << "->"
+                        << cfg.name(to) << " of " << cfg.name(b)
+                        << " has no mask yet; the block index is not "
+                        << "topological";
+                    pred = it->second;
+                }
                 const bool seen = std::any_of(
                     distinct.begin(), distinct.end(),
                     [&](const shared_ptr<Value> &v) {
-                        return same_value(*v, *it->second);
+                        return same_value(*v, *pred);
                     });
                 if (seen) {
                     continue;
                 }
-                distinct.push_back(it->second);
+                distinct.push_back(pred);
                 mask = mask ? append(func, block, bool_type,
-                                     Instruction::Op::LOr, {mask, it->second})
-                            : it->second;
+                                     Instruction::Op::LOr, {mask, pred})
+                            : pred;
             }
             // Built only from the masks of edges out of other blocks, so it
             // goes first: everything in this block runs under it, and what
@@ -613,46 +735,9 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 continue;
             }
 
-            const shared_ptr<Value> &tag = dispatch->cond;
-            const size_t n = dispatch->targets.size();
-            shared_ptr<Value> cond;
-            if (tag->get_type().is_bool()) {
-                cond = tag;
-                if (e.index == 0) {
-                    // The false side: the lanes where the condition does not
-                    // hold. Select rather than a dedicated negation, which
-                    // the SSA form does not have (see the UnOp visitor in
-                    // SSA/Convert.cpp).
-                    auto t = std::make_shared<Value>(Constant{bool_type, true});
-                    auto f =
-                        std::make_shared<Value>(Constant{bool_type, false});
-                    cond = append(func, block, bool_type,
-                                  Instruction::Op::Select, {tag, f, t});
-                }
-            } else {
-                // A switch (see ir::SwitchStmt): target k takes the lanes
-                // whose tag is k, and the last target the lanes whose tag is
-                // none of the others.
-                const Type &type = tag->get_type();
-                auto key = [&](size_t k) {
-                    return std::make_shared<Value>(
-                        type.is_uint() ? Constant{type, uint64_t(k)}
-                                       : Constant{type, int64_t(k)});
-                };
-                if (e.index + 1 < n) {
-                    cond = append(func, block, bool_type, Instruction::Op::Eq,
-                                  {tag, key(e.index)});
-                } else {
-                    for (size_t k = 0; k + 1 < n; k++) {
-                        auto other = append(func, block, bool_type,
-                                            Instruction::Op::Ne, {tag, key(k)});
-                        cond = cond ? append(func, block, bool_type,
-                                             Instruction::Op::LAnd,
-                                             {cond, other})
-                                    : other;
-                    }
-                }
-            }
+            // A divergent branch splits its source's mask by the condition
+            // that sends it each way.
+            shared_ptr<Value> cond = branch_condition(b, e.index);
             if (auto m = mask_of(b)) {
                 cond = append(func, block, bool_type, Instruction::Op::LAnd,
                               {*m, cond});
@@ -853,8 +938,11 @@ BlockMasks linearize(Function &func, const string &entry_name,
     for (const Edge &back : back_edges) {
         linear_succs[back.first].push_back(back.second);
     }
-    const DomTree linear_dom = compute_dominator_tree(
-        Graph::from_successors(std::move(linear_succs), entry));
+    const Graph linear_graph =
+        Graph::from_successors(std::move(linear_succs), entry);
+    const DomTree linear_dom = compute_dominator_tree(linear_graph);
+    const DominanceFrontier linear_frontier =
+        compute_dominance_frontier(linear_graph, linear_dom);
 
     // A value defined inside a skipped region and read outside it has to
     // reach the read along the bypass too, and the bypass computes nothing:
@@ -1019,54 +1107,180 @@ BlockMasks linearize(Function &func, const string &entry_name,
     };
 
     // The masks. A block's mask is the OR of the masks of the edges it is
-    // control dependent on, and an early exit from inside an arm -- a return
-    // in it, an inner edge deciding what runs after the arm -- makes a block
-    // after the region depend on an edge inside it. Along the bypass no lane
-    // took that edge, so its mask there is false; and false is what every
-    // bypass hands on, so a chain of them lands the same.
-    if (!gadgets.empty()) {
+    // control dependent on, and an early exit from inside a region -- a
+    // return in it, an inner edge deciding what runs after it -- makes a
+    // block after the region depend on an edge inside it. That edge's mask is
+    // defined inside the region, and the region can be gone around: by a
+    // bypass, or by a uniform branch of the program's that the fold kept as a
+    // branch -- a `depth > 1` every lane agrees on, around a Russian roulette
+    // whose survivors' mask decides what runs after it. Along any way around,
+    // no lane took the edge, so its mask there is false. So a mask read where
+    // its definition does not dominate, in the graph as it now is, becomes a
+    // block argument at every join between the two -- Cytron et al.'s
+    // placement, over the definition's iterated dominance frontier -- handed
+    // the mask by a predecessor the definition dominates, the argument of the
+    // join above by one under such a join, and false by any other.
+    //
+    // Two things a mask is not, that a variable would be. It is not carried
+    // around a loop: an edge's mask is the mask of that edge in this pass, and
+    // on the way into an iteration no lane has taken any edge of the body
+    // yet, so a loop header whose loop holds the definition hands false, and
+    // is given no argument. And it is not kept where nothing reads it: a join
+    // from which no read is reachable in this pass gets no argument (Choi,
+    // Cytron and Ferrante's pruning), which spares the loop's joins an
+    // argument the latch would only carry back to the header.
+    {
         const auto no_lane = std::make_shared<Value>(Constant{bool_type, false});
-        ThreadMemo threaded_masks;
-        for (BlockId b = 0; b < cfg.size(); b++) {
-            const shared_ptr<Block> &block = cfg.block(b);
-            auto fix = [&](shared_ptr<Value> &v) {
-                if (!v) {
-                    return;
-                }
-                BlockId def = defined_in(cfg, *v);
-                if (def == NO_BLOCK || def == b) {
-                    return;
-                }
-                const bool crosses = std::any_of(
-                    gadgets.begin(), gadgets.end(), [&](const Gadget &g) {
-                        return g.region.contains(def) && !g.region.contains(b);
-                    });
-                if (!crosses) {
-                    return;
-                }
-                const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data);
-                internal_assert(is_mask_logic((*i)->op))
-                    << "The value " << (*i)->name << " of " << cfg.name(def)
-                    << " is read in " << cfg.name(b) << ", past a bypass of "
-                    << "the region that computes it, and is not a mask";
-                v = thread(
-                    v, def, b, (*i)->name,
-                    [&](const Gadget &) { return no_lane; }, no_lane,
-                    &threaded_masks);
-            };
-            for (const auto &instr : block->instrs) {
+        BlockSet headers(cfg.size());
+        for (const Loop &loop : loops.loops()) {
+            headers.insert(loop.header);
+        }
+        const auto loop_holds = [&](BlockId header, BlockId b) {
+            const Loop *loop = loops.find(header);
+            return loop != nullptr && loop->blocks.contains(b);
+        };
+
+        // One threaded mask: where it is defined, where it is read past its
+        // definition's reach, the joins that carry it and their arguments.
+        struct Threaded {
+            shared_ptr<Value> value;
+            BlockId def;
+            BlockSet reads;
+            BlockSet joins;
+            map<BlockId, shared_ptr<Value>> phis;
+        };
+        map<const Instruction *, Threaded> threaded;
+        const auto past_reach = [&](const shared_ptr<Value> &v,
+                                    BlockId b) -> Threaded * {
+            if (!v) {
+                return nullptr;
+            }
+            const BlockId def = defined_in(cfg, *v);
+            if (def == NO_BLOCK || def == b || linear_dom.dominates(def, b)) {
+                return nullptr;
+            }
+            const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data);
+            internal_assert(i != nullptr && is_mask_logic((*i)->op))
+                << "The value " << (*i)->name << " of " << cfg.name(def)
+                << " is read in " << cfg.name(b) << ", past a way around "
+                << "the region that computes it, and is not a mask";
+            auto [it, made] = threaded.try_emplace(
+                i->get(), Threaded{v, def, BlockSet(cfg.size()),
+                                   BlockSet(cfg.size()), {}});
+            return &it->second;
+        };
+        // Every read of a mask, and every mask, a block holds.
+        const auto each_mask_of = [&](BlockId b,
+                                      const std::function<void(shared_ptr<Value> &)> &f) {
+            for (const auto &instr : cfg.block(b)->instrs) {
                 for (auto &operand : instr->operands) {
-                    fix(operand);
+                    f(operand);
                 }
             }
             if (masks.block[b]) {
-                fix(masks.block[b]);
+                f(masks.block[b]);
             }
             for (auto &[edge, mask] : masks.edge) {
                 if (edge.first == b) {
-                    fix(mask);
+                    f(mask);
                 }
             }
+        };
+
+        // First the reads, by mask.
+        for (BlockId b = 0; b < cfg.size(); b++) {
+            each_mask_of(b, [&](shared_ptr<Value> &v) {
+                if (Threaded *t = past_reach(v, b)) {
+                    t->reads.insert(b);
+                }
+            });
+        }
+
+        // Then each mask's joins: its definition's iterated dominance
+        // frontier, less the headers of the loops around the definition, less
+        // the joins no read of it can be reached from -- forwards, in this
+        // pass, and not through the definition again.
+        for (auto &[instr, t] : threaded) {
+            BlockSet defs(cfg.size());
+            defs.insert(t.def);
+            for (const BlockId j :
+                 iterated_dominance_frontier(defs, linear_frontier)) {
+                if (j == entry || (headers.contains(j) && loop_holds(j, t.def))) {
+                    continue;
+                }
+                BlockSet seen(cfg.size());
+                vector<BlockId> pending = {j};
+                bool live = false;
+                while (!pending.empty() && !live) {
+                    const BlockId u = pending.back();
+                    pending.pop_back();
+                    if (!seen.insert(u)) {
+                        continue;
+                    }
+                    live = t.reads.contains(u);
+                    if (u != t.def) {
+                        for (const CfgEdge &e : linear[u]) {
+                            pending.push_back(e.to);
+                        }
+                    }
+                }
+                if (live) {
+                    t.joins.insert(j);
+                }
+            }
+        }
+
+        // The mask as block `p` leaves it: the definition's own value under
+        // the definition, the nearest join's argument under a join, and no
+        // lane where neither is above `p` -- or where a loop header holding
+        // the definition is, before either.
+        std::function<shared_ptr<Value>(Threaded &, BlockId)> phi_of;
+        const auto leaving = [&](Threaded &t, BlockId p) -> shared_ptr<Value> {
+            for (BlockId u = p;;) {
+                if (u == t.def) {
+                    return t.value;
+                }
+                if (t.joins.contains(u)) {
+                    return phi_of(t, u);
+                }
+                if ((headers.contains(u) && loop_holds(u, t.def)) ||
+                    !linear_dom.contains(u) || linear_dom.idom[u] == u) {
+                    return no_lane;
+                }
+                u = linear_dom.idom[u];
+            }
+        };
+        phi_of = [&](Threaded &t, BlockId j) -> shared_ptr<Value> {
+            if (const auto it = t.phis.find(j); it != t.phis.end()) {
+                return it->second;
+            }
+            const auto &instr = std::get<shared_ptr<Instruction>>(t.value->data);
+            const shared_ptr<Block> &join = cfg.block(j);
+            string name = instr->name + "!join";
+            for (size_t i = 0; landing_names.count(name); i++) {
+                name = instr->name + "!join" + std::to_string(i);
+            }
+            landing_names.insert(name);
+            LandingArg entry_arg{join->add_argument(Argument{bool_type, name}),
+                                 {}};
+            // Entered before the predecessors are asked, so that a join that
+            // is its own ancestor finds its argument.
+            t.phis[j] = entry_arg.arg;
+            landing_arg_block[entry_arg.arg.get()] = j;
+            for (const BlockId p : linear_graph.preds[j]) {
+                entry_arg.from[p] = leaving(t, p);
+            }
+            landing_args[j].push_back(std::move(entry_arg));
+            return t.phis.at(j);
+        };
+
+        // Then the reads, each given the mask as its block receives it.
+        for (BlockId b = 0; b < cfg.size(); b++) {
+            each_mask_of(b, [&](shared_ptr<Value> &v) {
+                if (Threaded *t = past_reach(v, b)) {
+                    v = leaving(*t, b);
+                }
+            });
         }
     }
 

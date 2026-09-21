@@ -31,7 +31,7 @@ weigh_all:
   br label %"!else_1!any.i"
 
 "!else_1!any.i":                                  ; preds = %"!merge_4.i", %"!then_0.i", %weigh_all
-  %"@71!skip.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %6, %"!then_0.i" ], [ %6, %"!merge_4.i" ]
+  %"@71!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %6, %"!then_0.i" ], [ %6, %"!merge_4.i" ]
   %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ undef, %"!then_0.i" ], [ %9, %"!merge_4.i" ]
   %"!ret!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %4, %"!then_0.i" ], [ %4, %"!merge_4.i" ]
   %10 = bitcast <8 x i1> %not..i to i8
@@ -51,7 +51,7 @@ weigh_all:
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!else_1!any.i"
   %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %18, %"!else_1.i" ]
-  %19 = or <8 x i1> %"@71!skip.i", %not..i
+  %19 = or <8 x i1> %"@71!join.i", %not..i
   %20 = fcmp olt <8 x float> %extract, zeroinitializer
   %not.6.i = xor <8 x i1> %20, <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>
   %21 = and <8 x i1> %19, %not.6.i

@@ -1,17 +1,7 @@
 [test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.o
----CODE---
-1
----STDERR---
-[internal] Error: src/SSA/Linearize.cpp:459
-
---> it != masks.edge.end()
-Control dependence edge shade$gang8_v1->!merge_1 of !merge_1 has no mask yet; the block index is not topological
-tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.cpp:1:10: fatal error: 'vectorize_uniform_branch.h' file not found
-    1 | #include "vectorize_uniform_branch.h"
-      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1 error generated.
-command failed (exit 256)
-rm: cannot remove 'tests/bonsai/correctness/cpp/vectorize_uniform_branch': No such file or directory
-rm: cannot remove 'tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.o': No such file or directory
-rm: cannot remove 'tests/bonsai/correctness/cpp/vectorize_uniform_branch.h': No such file or directory
-rm: cannot remove 'tests/bonsai/correctness/cpp/vectorize_uniform_branch.o': No such file or directory
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_uniform_branch.o tests/bonsai/correctness/cpp/vectorize_uniform_branch.o -o tests/bonsai/correctness/cpp/vectorize_uniform_branch
+[test] ./tests/bonsai/correctness/cpp/vectorize_uniform_branch
+0 5 0 7 1 0 4 0
+same as scalar
+-1 5 0 7 1 -7 4 -4
+same as scalar

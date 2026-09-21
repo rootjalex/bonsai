@@ -467,20 +467,16 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
 }
 
 func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : Ray$v8, _best0 : mut (__tuple_1$v8*)) -> void {
-  @294!skip : mut boolx8
-  @300!skip0 : mut boolx8
-  @303!skip2 : mut boolx8
-  @300!skip1 : mut boolx8
-  @303!skip4 : mut boolx8
+  @294!join : mut boolx8
+  @300!join0 : mut boolx8
+  @303!join1 : mut boolx8
   shapes_index!top!latch!skip2 : mut u16x8
   !count!latch!skip2 : mut u32x8
-  @300!skip : mut boolx8
-  @303!skip0 : mut boolx8
-  @303!skip1 : mut boolx8
-  @303!skip3 : mut boolx8
+  @300!join : mut boolx8
+  @303!join : mut boolx8
   shapes_index!top!latch!skip1 : mut u16x8
   !count!latch!skip1 : mut u32x8
-  @303!skip : mut boolx8
+  @303!join0 : mut boolx8
   shapes_index!top!latch!skip0 : mut u16x8
   !count!latch!skip0 : mut u32x8
   shapes_index!top!latch!skip : mut u16x8
@@ -502,16 +498,16 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
   !live!loop!skip : mut boolx8
   !count!loop!skip : mut u32x8
   !stack : mut u16x8[64]
-  let @604 = u16x8(shapes_index) in
-  let @605 = boolx8(true) in
-  let @606 = u32x8(0u) in
-  let @607 = boolx8(true) in
-  let @608 = boolx8(false) in
-  shapes_index!top!loop = @604
-  !live!loop = @605
-  !count!loop = @606
-  !live_1 = @607
-  !exit.visited = @608
+  let @600 = u16x8(shapes_index) in
+  let @601 = boolx8(true) in
+  let @602 = u32x8(0u) in
+  let @603 = boolx8(true) in
+  let @604 = boolx8(false) in
+  shapes_index!top!loop = @600
+  !live!loop = @601
+  !count!loop = @602
+  !live_1 = @603
+  !exit.visited = @604
   while (reduce<any>((*!live_1))) {
     let @477 = boolx8(false) in
     let @478 = boolx8(true) in
@@ -621,11 +617,9 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
       let @288 = @280 && @287 in
       let @289 = @280 && @366 in
       let @353 = reduce<any>(@289) in
+      let @597 = boolx8(false) in
+      let @598 = boolx8(false) in
       let @599 = boolx8(false) in
-      let @600 = boolx8(false) in
-      let @601 = boolx8(false) in
-      let @602 = boolx8(false) in
-      let @603 = boolx8(false) in
       if (@353) {
         let @498 = boolx8(false) in
         let @499 = boolx8(true) in
@@ -647,8 +641,6 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
         let @354 = reduce<any>(@295) in
         let @594 = boolx8(false) in
         let @595 = boolx8(false) in
-        let @596 = boolx8(false) in
-        let @597 = boolx8(false) in
         if (@354) {
           let @504 = boolx8(false) in
           let @505 = boolx8(true) in
@@ -670,7 +662,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
           let @300 = @295 && @299 in
           let @301 = @295 && @67 in
           let @355 = reduce<any>(@301) in
-          let @598 = boolx8(false) in
+          let @596 = boolx8(false) in
           if (@355) {
             let _t85 = _t905.nPrims in
             let @509 = u8x8(0u) in
@@ -1057,58 +1049,50 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                 !live_0 = @378
                 !exit.for__idx0_end_24 = @379
               }
-              @303!skip = @303
+              @303!join0 = @303
               shapes_index!top!latch!skip0 = (*shapes_index!top!latch!skip)
               !count!latch!skip0 = (*!count!latch!skip)
             } else {
-              @303!skip = @303
+              @303!join0 = @303
               shapes_index!top!latch!skip0 = (*shapes_index!top!latch!skip)
               !count!latch!skip0 = (*!count!latch!skip)
             }
           } else {
-            @303!skip = @598
+            @303!join0 = @596
             shapes_index!top!latch!skip0 = undef
             !count!latch!skip0 = undef
           }
-          let @340 = @300 || (*@303!skip) in
-          @300!skip = @300
-          @303!skip0 = (*@303!skip)
-          @303!skip1 = (*@303!skip)
-          @303!skip3 = (*@303!skip)
+          let @340 = @300 || (*@303!join0) in
+          @300!join = @300
+          @303!join = (*@303!join0)
           shapes_index!top!latch!skip1 = (*shapes_index!top!latch!skip0)
           !count!latch!skip1 = (*!count!latch!skip0)
         } else {
-          @300!skip = @594
-          @303!skip0 = @595
-          @303!skip1 = @596
-          @303!skip3 = @597
+          @300!join = @594
+          @303!join = @595
           shapes_index!top!latch!skip1 = undef
           !count!latch!skip1 = undef
         }
-        let @341 = @294 || (*@300!skip) in
-        let @342 = @341 || (*@303!skip0) in
-        @294!skip = @294
-        @300!skip0 = (*@300!skip)
-        @303!skip2 = (*@303!skip1)
-        @300!skip1 = (*@300!skip)
-        @303!skip4 = (*@303!skip3)
+        let @341 = @294 || (*@300!join) in
+        let @342 = @341 || (*@303!join) in
+        @294!join = @294
+        @300!join0 = (*@300!join)
+        @303!join1 = (*@303!join)
         shapes_index!top!latch!skip2 = (*shapes_index!top!latch!skip1)
         !count!latch!skip2 = (*!count!latch!skip1)
       } else {
-        @294!skip = @599
-        @300!skip0 = @600
-        @303!skip2 = @601
-        @300!skip1 = @602
-        @303!skip4 = @603
+        @294!join = @597
+        @300!join0 = @598
+        @303!join1 = @599
         shapes_index!top!latch!skip2 = undef
         !count!latch!skip2 = undef
       }
-      let @343 = (*@294!skip) || (*@300!skip0) in
+      let @343 = (*@294!join) || (*@300!join0) in
       let @344 = @343 || @288 in
-      let @345 = @344 || (*@303!skip2) in
-      let @346 = (*@294!skip) || (*@300!skip1) in
+      let @345 = @344 || (*@303!join1) in
+      let @346 = (*@294!join) || (*@300!join0) in
       let @347 = @346 || @288 in
-      let @348 = @347 || (*@303!skip4) in
+      let @348 = @347 || (*@303!join1) in
       let @579 = u32x8(0u) in
       let @270 = (*!count!loop) != @579 in
       let @580 = boolx8(false) in

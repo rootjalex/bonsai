@@ -34,7 +34,7 @@ weigh_all:
   br label %"!else_1!any.i"
 
 "!else_1!any.i":                                  ; preds = %"!then_0.i", %weigh_all
-  %"@10!skip.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %4, %"!then_0.i" ]
+  %"@10!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %4, %"!then_0.i" ]
   %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %2, %"!then_0.i" ]
   %5 = bitcast <8 x i1> %not..i to i8
   %.not2.i = icmp eq i8 %5, 0
@@ -47,7 +47,7 @@ weigh_all:
 
 "weigh$gang8_v0.exit":                            ; preds = %"!else_1!any.i", %"!else_1.i"
   %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %7, %"!else_1.i" ]
-  %8 = or <8 x i1> %"@10!skip.i", %not..i
+  %8 = or <8 x i1> %"@10!join.i", %not..i
   %9 = fadd <8 x float> %"acc!skip0.i", <float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00, float 1.000000e+00>
   %10 = select <8 x i1> %8, <8 x float> %9, <8 x float> %"acc!skip.i"
   store <8 x float> %10, ptr %out, align 4

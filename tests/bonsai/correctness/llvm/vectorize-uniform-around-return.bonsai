@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm -e
+
+// A uniform branch, kept as a branch by the fold, around a divergent early
+// return: pbrt's Russian roulette, `if (depth > 1) { if (u < q) return; beta
+// /= 1 - q; }`, in a gang whose lanes are all at the same depth. What runs
+// after the region is control dependent on the inner branch's "survived"
+// edge -- a return in the region ends the lanes that take the other -- so
+// its mask is the OR of that edge's mask and the mask of the way around, and
+// the edge's mask is computed inside the region. Reached the other way, that
+// value does not exist; it has to arrive as a block argument handed false
+// (see SSA/Linearize.cpp, "The masks"). The linearizer once read it in place,
+// which lowered to a name bound on one path only. `depth` is a parameter so
+// that the branch on it is uniform and not folded; both depths are run so
+// that neither is a constant.
+func step(x : f32, depth : i32) -> f32 {
+    y : mut f32 = x;
+    if (depth > 1) {
+        if (x < 0.5) {
+            return -1.0;
+        }
+        y = x * 2.0;
+    }
+    return y + 1.0;
+}
+
+func [[noinline]] run(out : mut array[f32, 16], depth : i32) -> void {
+    parfor i in 0:16 {
+        out[i] = step(cast[[f32]](i) / 16.0, depth);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[f32, 16] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(out, 1);
+    print(out);
+    run(out, 2);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.vectorize(i);
+}
