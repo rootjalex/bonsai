@@ -108,6 +108,11 @@ class Tracer {
             return here;
         }
         set<Definition> found;
+        // Whether some path in came back around to an argument already being
+        // resolved -- a loop handing a value to itself, through however many
+        // blocks: a loop body with a call in it passes the value on to the
+        // call's continuation, which passes it back to the header.
+        bool cycled = false;
         for (BlockId p : cfg.preds[here_id]) {
             const string &pred = cfg.name(p);
             for (Terminator::Jump *jump : jumps_of(cfg[p])) {
@@ -137,6 +142,8 @@ class Tracer {
                     if (const optional<Definition> sub =
                             resolve(pred, a->name, visiting)) {
                         found.insert(*sub);
+                    } else {
+                        cycled = true;
                     }
                 } else {
                     return here; // a constant on one path
@@ -146,7 +153,16 @@ class Tracer {
                 }
             }
         }
-        return found.size() == 1 ? *found.begin() : here;
+        if (found.size() == 1) {
+            return *found.begin();
+        }
+        // Every path in came back around: this block adds no definition of
+        // its own, and the answer is whatever the paths from outside the
+        // cycle pass -- which the caller, further up the cycle, collects.
+        if (found.empty() && cycled) {
+            return std::nullopt;
+        }
+        return here;
     }
 };
 

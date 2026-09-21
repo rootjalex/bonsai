@@ -107,6 +107,46 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   return (*!track.while_end_2.0)
 }
 
+func permuted_digits(n : u64, b : u64) -> u64 {
+  let @18 = div_multiplier(b) in
+  let @19 = b - 1u in
+  let @20 = clz(@19) in
+  let @21 = 64u - @20 in
+  let @22 = min(@21, 1u) in
+  let @23 = max(@21, 1u) in
+  let @24 = @23 - 1u in
+  v : mut u64
+  v = n
+  r : mut u64
+  r = 0u
+  let @29 = mulhi(@18, 18446744073709551615u) in
+  let @30 = 18446744073709551615u - @29 in
+  let @31 = @30 >> @22 in
+  let @32 = @29 + @31 in
+  let @0 = @32 >> @24 in
+  let limit = @0 - b in
+  while (((*v) != 0u) && ((*r) < limit)) {
+    let @7 = (*v) in
+    let @25 = mulhi(@18, @7) in
+    let @26 = @7 - @25 in
+    let @27 = @26 >> @22 in
+    let @28 = @25 + @27 in
+    let next = @28 >> @24 in
+    let @9 = (*r) in
+    let @10 = @9 * b in
+    let @11 = (*v) in
+    let @12 = next * b in
+    let @13 = @11 - @12 in
+    let @14 = (*r) in
+    let @15 = scramble(@13, @14) in
+    let @16 = @10 + @15 in
+    r = @16
+    v = next
+  }
+  let @17 = (*r) in
+  return @17
+}
+
 func quarters(n : u64) -> u64 {
   total : mut u64
   total = 0u
@@ -135,6 +175,19 @@ func [[export]] run(out : mut u64[8], bases : u64[8]) -> void {
   let i = ramp(0, 1, 8) in
   out[ramp(0, 1, 8)] = @3
   return
+}
+
+func [[noinline]] scramble(digit : u64, salt : u64) -> u64 {
+  let @0 = digit * 3u in
+  let @1 = @0 + salt in
+  let @3 = mulhi(@1, 2635249153387078803u) in
+  let @4 = @1 - @3 in
+  let @5 = @4 >> 1u in
+  let @6 = @5 + @3 in
+  let @7 = @6 >> 2u in
+  let @8 = @7 * 7u in
+  let @2 = @1 - @8 in
+  return @2
 }
 
 

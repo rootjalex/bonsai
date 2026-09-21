@@ -34,16 +34,45 @@ std::optional<MulHigh> match_mul_high(llvm::TruncInst &t) {
     }
     MulHigh m;
     const llvm::APInt shift(2 * bits, bits);
-    if (match(t.getOperand(0),
-              m_LShr(m_Mul(m_ZExt(m_Value(m.a)), m_ZExt(m_Value(m.b))),
-                     m_SpecificInt(shift)))) {
+    llvm::Value *wide_product = nullptr;
+    if (!match(t.getOperand(0),
+               m_LShr(m_Value(wide_product), m_SpecificInt(shift)))) {
+        return std::nullopt;
+    }
+    // Both operands extended from the narrow width; or one extended and the
+    // other a constant the optimizer folded the extension into -- a divisor's
+    // multiplier, or the all-ones a Halton limit divides -- which is read
+    // back at the narrow width when every lane fits it.
+    llvm::Constant *c = nullptr;
+    if (match(wide_product, m_Mul(m_ZExt(m_Value(m.a)), m_ZExt(m_Value(m.b))))) {
         m.is_signed = false;
-    } else if (match(t.getOperand(0),
-                     m_LShr(m_Mul(m_SExt(m_Value(m.a)), m_SExt(m_Value(m.b))),
-                            m_SpecificInt(shift)))) {
+    } else if (match(wide_product,
+                     m_Mul(m_SExt(m_Value(m.a)), m_SExt(m_Value(m.b))))) {
+        m.is_signed = true;
+    } else if (match(wide_product, m_c_Mul(m_ZExt(m_Value(m.a)), m_Constant(c)))) {
+        m.is_signed = false;
+    } else if (match(wide_product, m_c_Mul(m_SExt(m_Value(m.a)), m_Constant(c)))) {
         m.is_signed = true;
     } else {
         return std::nullopt;
+    }
+    if (c != nullptr) {
+        // Every lane of the constant has to be the extension of a narrow
+        // value: zeros above for unsigned, the sign spread above for signed.
+        for (unsigned lane = 0; lane < wide->getNumElements(); lane++) {
+            const auto *element =
+                llvm::dyn_cast_or_null<llvm::ConstantInt>(c->getAggregateElement(lane));
+            if (element == nullptr) {
+                return std::nullopt;
+            }
+            const llvm::APInt &v = element->getValue();
+            const bool fits = m.is_signed ? v.getSignificantBits() <= bits
+                                          : v.getActiveBits() <= bits;
+            if (!fits) {
+                return std::nullopt;
+            }
+        }
+        m.b = llvm::ConstantExpr::getTrunc(c, narrow);
     }
     if (m.a->getType() != narrow || m.b->getType() != narrow) {
         return std::nullopt;

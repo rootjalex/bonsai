@@ -19,8 +19,16 @@
 //     same arithmetic widens to the gang: the multiplier is a vector, taken
 //     once per lane before the loop, and the loop body is vector multiplies
 //     and shifts where it was eight scalar divisions.
-//   * The division by the constant `4u` in `quarters` is left alone; the
-//     backend does that one itself.
+//   * The divisions by the constant `4u` in `quarters` are a shift and a
+//     mask (see divide-by-constant.bonsai for the constant case in full).
+//   * `permuted_digits` is `digits` with a call in the loop body -- pbrt's
+//     Owen-scrambled radical inverse permutes each digit through a function
+//     -- so the loop's values pass through the call's continuation block on
+//     their way back to the header. The divisor is still the one defined
+//     before the loop, and the golden shows the same multiplier at the top
+//     and no division in the loop. (The tracer once stopped at the
+//     continuation, took its argument for a definition of its own, and left
+//     both divisions as they were.)
 func digits(n : u64, b : u64) -> u64 {
     v : mut u64 = n;
     r : mut u64 = 0u;
@@ -28,6 +36,20 @@ func digits(n : u64, b : u64) -> u64 {
     while (v != 0u) && (r < limit) {
         next = v / b;
         r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func [[noinline]] scramble(digit : u64, salt : u64) -> u64 = (digit * 3u + salt) % 7u;
+
+func permuted_digits(n : u64, b : u64) -> u64 {
+    v : mut u64 = n;
+    r : mut u64 = 0u;
+    limit = 0xffffffffffffffff / b - b;
+    while (v != 0u) && (r < limit) {
+        next = v / b;
+        r = r * b + scramble(v - next * b, r);
         v = next;
     }
     return r;
