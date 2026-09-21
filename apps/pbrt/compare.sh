@@ -159,7 +159,11 @@ mkdir -p "$WORK"
 # was last written here.
 WORK="$(cd "$WORK" && pwd)"
 
-cmake --build build -j
+# The compiler's build directory: `build` unless another is named, which is
+# how two builds of the compiler -- against two LLVMs, say -- are compared on
+# the same render.
+BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
+cmake --build "$BONSAI_BUILD_DIR" -j
 
 # The scene is read once, by PBRT's parser, and both sides render what it says.
 # There is no second description of it to keep in step -- which is the point,
@@ -398,7 +402,7 @@ if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
   echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
   exit 1
 fi
-./build/compiler -p ssa --no-heap --ffp-contract \
+"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
     -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
     -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \

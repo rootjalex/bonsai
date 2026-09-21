@@ -180,7 +180,10 @@ def tbb_flags(compiler):
 def build(out, schedules):
     """The compiler, scene_dump, and a renderer per schedule (its compile
     timed, being part of what a schedule costs). Returns the compile times."""
-    run(["cmake", "--build", "build", "-j"], cwd=ROOT)
+    # The compiler's build directory: `build` unless BONSAI_BUILD_DIR names
+    # another, as compare.sh reads it too.
+    build_dir = os.environ.get("BONSAI_BUILD_DIR", "build")
+    run(["cmake", "--build", build_dir, "-j"], cwd=ROOT)
     run(["bash", f"{PREFIX}/build_scene_dump.sh", f"{out}/scene_dump"], cwd=ROOT)
     run([f"{out}/scene_dump", "--check-tables"], cwd=ROOT)
     compiler = cxx()
@@ -192,7 +195,7 @@ def build(out, schedules):
             raise SystemExit(f"no schedule {file}")
         say(f"compiling {schedule}")
         started = time.perf_counter()
-        run(["./build/compiler", "-p", "ssa", "--no-heap", "--ffp-contract",
+        run([f"./{build_dir}/compiler", "-p", "ssa", "--no-heap", "--ffp-contract",
              "-i", f"{PREFIX}/render.bonsai", "-i", file, "-b", "cpp",
              "-o", f"{out}/render_{schedule}"], cwd=ROOT)
         compile_seconds[schedule] = time.perf_counter() - started
