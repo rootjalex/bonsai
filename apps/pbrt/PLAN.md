@@ -3295,6 +3295,158 @@ the stream, so the two renderers were integrating the same thing with different
 numbers. Before the fix, 5,136 pixels were lit here against pbrt's 5,038 and
 their values were unrelated; after it, the same 5,038.
 
+## NVIDIA GPU support: the plan (drafted 2026-09-21)
+
+The question asked: can the SSA-to-LLVM backend target NVIDIA GPUs, can
+OptiX (the RT cores) be reached through LLVM, does the LLVM have to move,
+and how should the code generator be split. Checked on this machine: an RTX
+5090 (sm_120, driver 595.84), CUDA 13.2 with `nvvm/libdevice/libdevice.10.bc`,
+the OptiX 7.7 SDK headers at `~/installs/NVIDIA-OptiX-SDK-7.7.0-linux64-x86_64`
+with the driver's `libnvoptix.so.1` present, our LLVM 19.1 built *with* the
+NVPTX target (`libLLVMNVPTXCodeGen`, `llc --version` lists `nvptx64`), and
+pbrt built with `--gpu`, so pbrt's own OptiX wavefront is the reference to
+measure against. Read for the shape of it: Halide's `CodeGen_PTX_Dev.cpp`
+(device code), `CodeGen_GPU_Host.cpp` (the host side of an offloaded loop)
+and `runtime/cuda.cpp`; pbrt-v4's `gpu/optix/optix.cu` and
+`wavefront/integrator.cpp`.
+
+### The four answers
+
+**1. Yes, the LLVM backend can target the GPU, the way Halide's does.**
+Halide's `CodeGen_PTX_Dev` is a subclass of its `CodeGen_LLVM` that emits an
+LLVM module for the `nvptx64-nvidia-cuda` triple: a kernel is a function
+with the `PTX_Kernel` calling convention and an `nvvm.annotations` entry
+(`{function, "kernel", 1}`), thread and block indices are the
+`llvm.nvvm.read.ptx.sreg.tid.*` / `ctaid.*` intrinsics, the block size is
+the `nvvm.maxntid` attribute, shared memory is address space 3 (not needed at
+first), math comes from linking CUDA's `libdevice.10.bc` (`__nv_sinf`,
+`__nv_expf`, ...) with `nvvm-reflect` settled, the module goes through the
+`PassBuilder` default pipeline for the NVPTX `TargetMachine`
+(`createTargetMachine(triple, "sm_90", "+ptx85", ...)`) and
+`addPassesToEmitFile(..., AssemblyFile)` produces the PTX *text*. The host
+side (`CodeGen_GPU_Host`) embeds that text as a string constant in the x86
+module and, where the offloaded loop was, calls a runtime that loads the
+module once (`cuModuleLoadData`) and launches (`cuLaunchKernel`) with the
+loop body's closure as the argument buffer -- no nvcc anywhere, only
+`libcuda` at run time. Everything in that list exists in LLVM 19 and our
+`CodeGen_LLVM` already has the seam Halide's has: `make_target_machine`,
+`optimize_module`, `init_module`, `vector_register_bits` are virtual and
+`CodeGen_X86` (91 lines) is the one subclass. What the bind directive
+already says lines up with it: `bind(p_block, GPUBlock)` and `bind(p_thread,
+GPUThread)` are tags on a parfor (SSA/Bind.cpp enforces GPUThread inside
+GPUBlock and nothing inside a thread), acted on at code generation, which is
+exactly where a kernel is cut out. The body of the bound parfor is an SSA
+region (`Cfg` from the body block; the values it reads from outside are what
+`reach` already computes for `defer`) and becomes a device function taking
+that closure; the direct SSA-to-LLVM path is what emits it, which is one
+more reason to finish moving lowering onto that path.
+
+**2. OptiX through LLVM: yes, by the PTX contract.** OptiX takes a program
+as PTX (`optixModuleCreate`; OptiX-IR is the other input and only nvcc makes
+it, so PTX is the road), and its device API is not a library: every
+`optixTrace`, `optixGetPayload_N`, `optixReportIntersection`,
+`optixGetTriangleBarycentrics`, `optixGetLaunchIndex` in `optix_device.h` is
+an inline-PTX `call` to a symbol the OptiX compiler in the driver resolves --
+`optixTrace` is `asm volatile("call (%0..%31), _optix_trace_typed_32,
+(%32..%80);" : thirty-two "=r" payload outputs : "r"/"l"/"f" inputs)`
+(`internal/optix_device_impl.h:81`). LLVM IR carries inline asm for NVPTX;
+clang compiles that very header through the same LLVM, so a `CodeGen_OptiX`
+emitting those calls produces what nvcc would. The programs are ordinary
+PTX entry points named `__raygen__*`, `__closesthit__*`, `__anyhit__*`,
+`__miss__*`, `__intersection__*`; the host builds acceleration structures
+(`optixAccelBuild`, triangles as built-in primitives, our spheres and disks
+as built-in spheres (7.5+) or custom primitives with an intersection program
+generated from `sphere_hit`/`disk_hit`), an instance acceleration structure
+for `Inst` (pbrt's TransformedPrimitive maps one to one onto an OptiX
+instance), the pipeline and the shader binding table, all through the
+function table `optixInit` fills by `dlopen`ing `libnvoptix.so.1`. What
+`bind(trace, RTCore)` means in the three languages: the ADT query is
+unchanged -- an `argmin` over `intersects(r, tri)` is a closest-hit trace,
+`any` is a trace with `OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT` and no
+closest-hit program -- and the *layout* of that tree becomes OptiX's
+acceleration structure rather than a `_tree_layout`, a layout decision that
+promises nothing geometric, as the layout language never does; the query's
+leaf computation (what the argmin records: `t`, the primitive's index, the
+barycentrics) is the closest-hit program writing the payload, and the
+pruning annotations are unused because the hardware prunes. `OptixThread`
+binds the pixel or queue parfor to the raygen launch index
+(`optixGetLaunchIndex`), since `optixTrace` may only be called from OptiX
+programs, not from a plain kernel.
+
+**3. The LLVM does not have to move for a first version.** LLVM 19.1's NVPTX
+knows sm_90a and PTX ISA 8.5; PTX is forward compatible, so `.target sm_90`
+PTX is JIT-compiled by the 595 driver for the 5090, and OptiX accepts any PTX
+the driver does. CUDA 13.2's libdevice bitcode is written at an old bitcode
+version on purpose and LLVM 19 reads it. What an upgrade buys, later: LLVM
+20/21 name sm_100/sm_120 and `+ptx87` (Halide's main lists them), which
+matters only for Blackwell-specific instructions or if the driver's JIT of
+older PTX ever measures slower than native SASS; and a newer OptiX SDK
+(8.x/9.x, headers only, the runtime is the driver's) brings shader execution
+reordering, which is the hardware's answer to the shading divergence this
+whole plan is about and worth measuring once a megakernel runs. Neither
+blocks phase A below.
+
+**4. The split.** Halide's, as the memory of the user's design already says:
+`CodeGen_LLVM` stays target-agnostic; `CodeGen_X86` is the host -- the gang's
+register width, the stack facts, and now the kernel-launch shims Halide puts
+in `CodeGen_GPU_Host`; `CodeGen_PTX` is the device -- kernel entry and
+metadata, thread indices, libdevice math, `vprintf` for `print`, no gangs (a
+`vectorize` under a GPU bind is an error: the warp is the gang); and
+`CodeGen_OptiX`, a subclass of `CodeGen_PTX`, the program entry points and
+the `_optix_*` calls. Beside them `runtime/bonsai_cuda.{h,cpp}` (the driver
+API: context, module cache keyed by the PTX string, `cuLaunchKernel`, memory)
+and `runtime/bonsai_optix.cpp` (function table, acceleration structures,
+pipeline, SBT), both loaded with `dlopen` so a host without a GPU still
+links. `CodeGen_CUDA` (1306 lines of CUDA C++ text through the Stmt printer,
+`-b cuda`, its two goldens stale since the map-to-parfor change) is retired
+once the PTX path renders what it rendered; it is the Stmt-level road the
+SSA-to-LLVM decision already closed.
+
+### The phases
+
+**A. Kernels: `bind(GPUBlock)`/`bind(GPUThread)` on the pixel loop, the scalar
+schedule as a megakernel (one to two weeks).** `CodeGen_PTX`; cutting the
+bound parfor's body out of the SSA as a device function with its closure;
+the host call replaced by a launch through `bonsai_cuda`; arrays as device
+memory -- the exported function's array arguments are host pointers, so the
+runtime uploads each once, memoized by pointer and size for the process
+(invalidated by an explicit call), and downloads the `mut` ones after the
+launch; pbrt-v4 does the equivalent by allocating in managed memory, which
+is the other option and a one-line change in the driver if the copies
+show. Things known to need care: recursion is a `loopify` on the GPU (the
+64-deep traversal stack lives in local memory, as pbrt's does); the Halton
+sampler's 128-bit multiply-inverse arithmetic (`__udivti3` in the CPU
+profile) has to lower on NVPTX; `alloca` is local memory; struct arguments
+by value; `--ffp-contract` carries over. Tests at every level as always:
+`backends/ptx/*.expect` (PTX text, like `backends/llvm`), `correctness/gpu/*`
+run on the machine (a `gpu` label, skipped where `nvidia-smi` finds nothing).
+Measure: `apps/pbrt` with `render.bind(p, GPUThread)` against `pbrt --gpu`
+(OptiX wavefront) and against our CPU schedules, in `eval/render_matrix.py`
+as one more schedule.
+
+**B. Queues on the GPU: the wavefront (one week).** `defer` already makes
+the queue and the drain; on the GPU a queue is global memory with the atomic
+push that exists (`AtomicAdd`), the drain is one launch per round over
+`count` items, and the compaction is the same compress-store idea done with
+warp ballots. A per-pixel queue is pointless on a GPU; the tile-owned queue
+(the tiled wavefront, next on the CPU list) is what a GPU wavefront draws
+from, and a whole-frame queue is pbrt's. Trace, shade and shadow stages as
+separate launches are item 2 of the scheduling list, unchanged.
+
+**C. RT cores: `bind(trace, RTCore)`, `bind(p, OptixThread)` (two to three
+weeks).** `CodeGen_OptiX`; the runtime's acceleration structures from the
+scene the layout language already hands the driver (triangle meshes, spheres,
+disks, instances); closest-hit and any-hit programs generated from the two
+queries (`trace`'s argmin and `trace_any`'s any); the render loop as the
+raygen program in phase A's megakernel form, or the trace stage of phase B's
+wavefront as a raygen over the ray queue, which is how pbrt does it. The
+payload budget is 32 registers, enough for the hit record.
+
+**D. Then performance**: `nvvm.maxntid` and occupancy, fast-math flags, shared
+memory for the per-block part of a queue, shader execution reordering (needs
+the OptiX 8 headers), and the comparison against `pbrt --gpu` across the
+same grid as the CPU sweep.
+
 ## Known-open, smaller
 
 - `cie_tables.h` and `rgb2spec_tables.h` are generated by
