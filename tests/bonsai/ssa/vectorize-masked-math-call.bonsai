@@ -1,0 +1,41 @@
+//! flags: -p ssa
+
+// Golden for a call into the math library made by some lanes of a gang only
+// (see SSA/Linearize.cpp, "A call into the math library"). A lane that is
+// off may hold any value at all -- an infinity, a NaN -- and the library
+// answers those on a slow path, one lane at a time; so the argument an off
+// lane hands over is replaced by one the library answers quickly: 1.0 for
+// every function but atanh, whose pole is at one and which gets 0.0.
+//
+// What to read for in the golden:
+//
+//   * In `angles$gang8_p0` the operand of `sin` is `select(mask, x, 1.0)`
+//     and the operand of `atanh` is `select(mask, y, 0.0)`, each under the
+//     mask of the `if`; `sqrt`, an instruction of the machine, is called on
+//     its operand as it is.
+//   * `unmasked` has no `if`, so its `cos` takes its operand as it is: every
+//     lane is on.
+
+func angles(x : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        if (x[i] > 0.0) {
+            y = x[i] * 0.5;
+            out[i] = sin(x[i]) + atanh(y) + sqrt(x[i]);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+func unmasked(x : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = cos(x[i]);
+    }
+    return;
+}
+
+schedule {
+    angles.vectorize(i);
+    unmasked.vectorize(i);
+}

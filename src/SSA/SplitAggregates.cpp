@@ -463,6 +463,37 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 continue;
             }
 
+            // Reading an array of scalars at a lane's own vector of indices:
+            // `table[o]`, with `o` a lane's four wavelengths rounded to the
+            // table's entries (apps/pbrt's spectrum_at_dense), gives the lane
+            // a vector with one element per index. Its components are the
+            // reads at each component of the index -- reads of a scalar at a
+            // per-lane index, which widening makes gathers of -- so the vector
+            // is split into those, the shape every use of a per-lane vector
+            // expects. The read's execution mask, if it has one, covers each
+            // of them: a lane that is off may hold any index at all.
+            if (instr->op == Instruction::Op::ExtractIdx &&
+                !instr->operands[0]->get_type().element_of().is_vector() &&
+                splitter.per_lane_vector(*instr->operands[1])) {
+                const auto &array = instr->operands[0];
+                internal_assert(array->get_type().is_reference())
+                    << "Reading at a vector of indices out of something that "
+                    << "is not an array: " << instr->name;
+                const auto &index = instr->operands[1];
+                Components components;
+                for (uint32_t k = 0; k < lanes; k++) {
+                    vector<shared_ptr<Value>> operands{
+                        array, splitter.component(index, k)};
+                    if (instr->operands.size() == 3) {
+                        operands.push_back(instr->operands[2]);
+                    }
+                    components.push_back(splitter.emit(
+                        element, Instruction::Op::ExtractIdx, std::move(operands)));
+                }
+                splitter.instrs[instr.get()] = std::move(components);
+                continue;
+            }
+
             // Reading an array of per-lane vectors: each component lives
             // every `lanes` elements apart in memory, so it becomes one
             // strided read per component of the array viewed as its element

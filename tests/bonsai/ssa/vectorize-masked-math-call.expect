@@ -1,0 +1,43 @@
+func angles(x : f32[8], out : mut f32[8]) -> void {
+  let _t3 = x[ramp(0, 1, 8)] in
+  let @16 = f32x8(0f) in
+  let @1 = @16 < _t3 in
+  let @17 = boolx8(false) in
+  let @18 = boolx8(true) in
+  let @10 = select(@1, @17, @18) in
+  let @12 = reduce<any>(@1) in
+  if (@12) {
+    let @19 = f32x8(0.5f) in
+    let y = _t3 * @19 in
+    let @20 = f32x8(1f) in
+    let @13 = select(@1, _t3, @20) in
+    let @3 = sin(@13) in
+    let @21 = f32x8(0f) in
+    let @14 = select(@1, y, @21) in
+    let @4 = atanh(@14) in
+    let @5 = @3 + @4 in
+    let @6 = sqrt(_t3) in
+    let @7 = @5 + @6 in
+    masked_store(out[ramp(0, 1, 8)], @7, @1)
+  }
+  let @11 = reduce<any>(@10) in
+  if (@11) {
+    let @22 = f32x8(-1f) in
+    masked_store(out[ramp(0, 1, 8)], @22, @10)
+  }
+  return
+}
+
+func unmasked(x : f32[8], out : mut f32[8]) -> void {
+  let @0 = x[ramp(0, 1, 8)] in
+  let @1 = cos(@0) in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+
+schedule host {
+    angles.vectorize(i)
+    unmasked.vectorize(i)
+
+}

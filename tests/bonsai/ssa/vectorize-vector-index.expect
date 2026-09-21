@@ -1,0 +1,65 @@
+type i32x4 = i32x4
+type vec4f = f32x4
+
+func at(table : f32[16], o : i32x4) -> f32x4 {
+  let @0 = table[o] in
+  return @0
+}
+
+func guarded(table : f32[16], first : i32[8], out : mut f32[8]) -> void {
+  let _t4 = first[ramp(0, 1, 8)] in
+  let @21 = i32x8(0) in
+  let @1 = @21 <= _t4 in
+  let @22 = boolx8(false) in
+  let @23 = boolx8(true) in
+  let @10 = select(@1, @22, @23) in
+  let @12 = reduce<any>(@1) in
+  if (@12) {
+    let @24 = i32x8(1) in
+    let @2 = _t4 + @24 in
+    let @25 = i32x8(2) in
+    let @3 = _t4 + @25 in
+    let @26 = i32x8(3) in
+    let @4 = _t4 + @26 in
+    let @14 = masked_extract(table[_t4], @1) in
+    let @15 = masked_extract(table[@2], @1) in
+    let @16 = masked_extract(table[@3], @1) in
+    let @17 = masked_extract(table[@4], @1) in
+    let @18 = @14 + @15 in
+    let @19 = @18 + @16 in
+    let @20 = @19 + @17 in
+    masked_store(out[ramp(0, 1, 8)], @20, @1)
+  }
+  let @11 = reduce<any>(@10) in
+  if (@11) {
+    let @27 = f32x8(-1f) in
+    masked_store(out[ramp(0, 1, 8)], @27, @10)
+  }
+  return
+}
+
+func lookup(table : f32[16], first : i32[8], out : mut f32[8]) -> void {
+  let _t5 = first[ramp(0, 1, 8)] in
+  let @16 = i32x8(1) in
+  let @1 = _t5 + @16 in
+  let @17 = i32x8(2) in
+  let @2 = _t5 + @17 in
+  let @18 = i32x8(3) in
+  let @3 = _t5 + @18 in
+  let @9 = table[_t5] in
+  let @10 = table[@1] in
+  let @11 = table[@2] in
+  let @12 = table[@3] in
+  let @13 = @9 + @10 in
+  let @14 = @13 + @11 in
+  let @15 = @14 + @12 in
+  out[ramp(0, 1, 8)] = @15
+  return
+}
+
+
+schedule host {
+    guarded.vectorize(i)
+    lookup.vectorize(i)
+
+}

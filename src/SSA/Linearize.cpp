@@ -297,6 +297,30 @@ bool is_mask_logic(Instruction::Op op) {
 // is such work only when the index is a lane's own -- an inactive lane's may
 // be out of range -- and not when it is a constant, which is how a match arm
 // reads the fields of a variant's payload.
+// Is this intrinsic a call into the math library rather than an instruction
+// of the machine? The transcendental functions are, on every target this
+// compiles for: libm and libmvec on the CPU, libdevice on a GPU. The others
+// -- a square root, a fused multiply-add, a rounding, a minimum -- are one
+// instruction each and answer every input at the same speed.
+bool math_library_call(ir::Intrinsic::OpType op) {
+    switch (op) {
+    case ir::Intrinsic::acos:
+    case ir::Intrinsic::asin:
+    case ir::Intrinsic::atanh:
+    case ir::Intrinsic::atan2:
+    case ir::Intrinsic::cos:
+    case ir::Intrinsic::cosh:
+    case ir::Intrinsic::exp:
+    case ir::Intrinsic::log:
+    case ir::Intrinsic::pow:
+    case ir::Intrinsic::sin:
+    case ir::Intrinsic::tan:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool touches_memory(const Instruction &instr) {
     switch (instr.op) {
     case Instruction::Op::ExtractIdx:
@@ -1975,6 +1999,42 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 instr->operands[1] = std::make_shared<Value>(safe);
                 instrs.insert(instrs.begin() + long(i), safe);
                 i++;
+                continue;
+            }
+            // A call into the math library -- libm's, or libmvec's for a gang
+            // -- takes the lanes that are on somewhere ordinary. A lane that
+            // is off may hold anything: a NaN from a division it never meant
+            // to make, an infinity, a cosine outside [-1, 1]. The library
+            // answers those on its slow path -- libmvec's vector entry points
+            // hand every such lane to the scalar function one at a time,
+            // through glibc's error machinery -- and in a packet render half
+            // the lanes reaching acosf, and one in twenty reaching sinf, were
+            // off lanes carrying such a value. So the lanes that are off ask
+            // for a value the library answers quickly: one, which every one
+            // of these functions is defined and unremarkable at, except atanh,
+            // whose pole is there and which is given zero instead. The same
+            // reason a divisor of an off lane becomes one, above.
+            if (instr->op == Instruction::Op::Intrinsic &&
+                math_library_call(instr->intrinsic)) {
+                const double benign =
+                    instr->intrinsic == ir::Intrinsic::atanh ? 0.0 : 1.0;
+                for (auto &operand : instr->operands) {
+                    const Type &type = operand->get_type();
+                    if (!type.is_float() || type.is_vector() ||
+                        std::holds_alternative<Constant>(operand->data) ||
+                        !divergence.is_varying(name, *operand)) {
+                        continue;
+                    }
+                    auto safe = std::make_shared<Instruction>(
+                        func.get_unique_name(), type, Instruction::Op::Select,
+                        vector<shared_ptr<Value>>{
+                            *mask, operand,
+                            std::make_shared<Value>(Constant{type, benign})},
+                        cfg.block(b));
+                    operand = std::make_shared<Value>(safe);
+                    instrs.insert(instrs.begin() + long(i), safe);
+                    i++;
+                }
                 continue;
             }
             // Stores, and accumulates, which are stores that read first: a

@@ -1,0 +1,33 @@
+//! flags: -p ssa -b llvm -e
+
+// A call into the math library made by some lanes of a gang only (see
+// SSA/Linearize.cpp, "A call into the math library"): the lanes that are on
+// get the library's answer for their own argument, whatever the lanes that
+// are off hold -- here a -inf and a NaN, made at run time so that nothing
+// folds them away -- and the lanes that are off get the other arm's answer.
+
+func [[noinline]] angles(x : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        if (x[i] > 0.0) {
+            y = x[i] * 0.5;
+            out[i] = sin(x[i]) + atanh(y) + sqrt(x[i]);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    x : mut array[f32, 8] = {0.5, -1.0, 1.5, 0.0, 1.0, -3.0, 0.25, 0.0};
+    x[1] = x[1] / x[3];         // -inf
+    x[5] = x[3] / x[7];         // NaN
+    out : mut array[f32, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    angles(x, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    angles.vectorize(i);
+}

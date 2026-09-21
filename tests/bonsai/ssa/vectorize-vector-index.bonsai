@@ -1,0 +1,49 @@
+//! flags: -p ssa
+
+// Golden for a read of an array at a lane's own vector of indices: `table[o]`
+// with `o` a `vector[i32, 4]` the lanes disagree about -- apps/pbrt's spectrum
+// tables, looked up at a path's four wavelengths at once. A lane's result is a
+// vec4f, so the read is split into its components like any per-lane vector
+// (see SSA/SplitAggregates.cpp): one read per component of the index, each a
+// gather across the gang once widened, and each under the gang's mask when
+// the read is conditional -- a lane that is off may hold any index.
+//
+// What to read for in the golden:
+//
+//   * `lookup$gang8_p0` reads `table` four times, at the components of `o`
+//     widened to i32x8, and sums the four f32x8 results; no i32x4 or f32x4
+//     survives in the gang.
+//   * `guarded$gang8_p0` makes the same four reads under the mask of the
+//     `if`, and the lanes that fail the test never read.
+
+element vec4f = vector[f32, 4];
+element i32x4 = vector[i32, 4];
+
+func at(table : array[f32, 16], o : i32x4) -> vec4f = table[o];
+
+func lookup(table : array[f32, 16], first : array[i32, 8],
+            out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        o = i32x4{first[i], first[i] + 1, first[i] + 2, first[i] + 3};
+        out[i] = sum(at(table, o));
+    }
+    return;
+}
+
+func guarded(table : array[f32, 16], first : array[i32, 8],
+             out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        if (first[i] >= 0) {
+            o = i32x4{first[i], first[i] + 1, first[i] + 2, first[i] + 3};
+            out[i] = sum(table[o]);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    lookup.vectorize(i);
+    guarded.vectorize(i);
+}

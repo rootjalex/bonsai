@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm -e
+
+// A read of an array at a lane's own vector of indices, `table[o]` with `o` a
+// per-lane `vector[i32, 4]`, through a gang (see SSA/SplitAggregates.cpp):
+// four gathers, one per component of the index. `guarded` reads under the
+// mask of its `if`, and the lanes it leaves out hold an index of -1 that must
+// never be read: their answer is the -1.0 of the other arm.
+//
+// table[k] = k, so a lane whose first index is f sums f + (f+1) + (f+2) +
+// (f+3) = 4f + 6.
+
+element vec4f = vector[f32, 4];
+element i32x4 = vector[i32, 4];
+
+func at(table : array[f32, 16], o : i32x4) -> vec4f = table[o];
+
+func [[noinline]] lookup(table : array[f32, 16], first : array[i32, 8],
+                         out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        o = i32x4{first[i], first[i] + 1, first[i] + 2, first[i] + 3};
+        out[i] = sum(at(table, o));
+    }
+    return;
+}
+
+func [[noinline]] guarded(table : array[f32, 16], first : array[i32, 8],
+                          out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        if (first[i] >= 0) {
+            o = i32x4{first[i], first[i] + 1, first[i] + 2, first[i] + 3};
+            out[i] = sum(table[o]);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    table : mut array[f32, 16] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
+                                  8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0};
+    out : mut array[f32, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    first : mut array[i32, 8] = {0, 3, 12, 5, 1, 9, 7, 2};
+    lookup(table, first, out);
+    print(out);
+    some : mut array[i32, 8] = {0, -1, 12, -1, 1, -1, 7, -1};
+    guarded(table, some, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    lookup.vectorize(i);
+    guarded.vectorize(i);
+}
