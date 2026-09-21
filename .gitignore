@@ -47,6 +47,11 @@ venv
 # Build dependencies
 deps/llvm-build
 deps/llvm-install
+# One LLVM per branch that pins a different release: deps/llvm-build-23,
+# deps/llvm-install-23, and the bonsai build against it, build-23.
+deps/llvm-build-*
+deps/llvm-install-*
+build-*
 
 # Images produced from RTIOW
 *.ppm

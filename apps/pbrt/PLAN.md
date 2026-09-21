@@ -3605,6 +3605,121 @@ memory for the per-block part of a queue, shader execution reordering (needs
 the OptiX 8 headers), and the comparison against `pbrt --gpu` across the
 same grid as the CPU sweep.
 
+## The LLVM 23 branch: what moving compilers taught (2026-09-21)
+
+`ajr/llvm23-ptx` is the branch for the GPU plan above. Its first task was
+the compiler upgrade, with the user's condition that x86 performance be
+"strictly the same or better". It was not, at first, and finding out why
+turned into four compiler changes that every schedule now benefits from.
+
+**Where LLVM 23 was slower, and why.** The LLVM 23 build of the scalar
+renderer was 1.5-2% slower on killeroo and the packet and compact renders a
+fraction slower. Two causes, both found by reading the generated code rather
+than by profiling alone:
+
+- *The spectrum tables were gathered by accident.* `spectrum_at_dense` read
+  `table[o.x], table[o.y], table[o.z], table[o.w]`, four scalar loads, and
+  LLVM 19's SLP vectorizer merged them into one `vpgatherdps`. LLVM 23's does
+  not ("Gathering non-consecutive loads", in its own words). The program now
+  says what it means -- `table[o]` with `o` the `vector[i32, 4]` of the four
+  wavelengths' indices, one gather -- and the vectorizer learnt to split such a
+  read into one gather per component when the index is a lane's own
+  (`SSA/SplitAggregates.cpp`, tests `vectorize-vector-index`).
+- *libmvec's slow path.* A gang's `sin`, `cos`, `acos` went to glibc's
+  libmvec, which answers a NaN, an infinity or a cosine outside [-1, 1] by
+  calling the scalar function one lane at a time through the error machinery.
+  Off lanes hold whatever they last held: half the lanes reaching `acosf`
+  and one in twenty reaching `sinf` were such lanes, and LLVM 23 happened to
+  leave more of them non-finite than 19 did (+90 million branch mispredictions
+  on a killeroo render). The linearizer now hands a benign argument to a masked
+  libm call (`SSA/Linearize.cpp`), and -- because LLVM hoists that select
+  through its `llvm.sin` -- libm's functions are computed inline on a vector
+  (`CodeGen/VectorMath.h`): exp, log, sin, cos, tan from XNNPACK's target
+  independent SIMD library at the user's direction; asin, acos, atan, atan2
+  and atanh's polynomial from Cephes; cosh and pow from those. All within one
+  ulp of libm over the domains tested (`correctness/llvm/vector-math`), no
+  library call left in the gang code, and the same IR for a GPU later.
+
+**What the user then asked, and what the audit found.** "Are you making sure
+that all intrinsics are properly vectorized? What else is scalarized in the
+vectorized version of the renderer?" The inventory (see the memory note
+"audit gang code for scalarization" for the method): 1,296 scalar `idiv`
+instructions in the gang machine code. x86 has no vector integer divide, so
+every `%` and `/` in a gang -- `(i + p) % l` in `permutation_element`,
+`stratum % x_samples`, the textures' `x % w`, `index % stride` -- became
+sixteen divides with an extract and an insert around each. Two changes:
+
+- *Constant divisors are multiplies now, everywhere* (`SSA/InvariantDivision.h`,
+  at the user's request "like Halide does"): the multiplier from Hacker's
+  Delight's `magicu`/`magic` at compile time, the shortest of Halide's three
+  sequences per constant, signed division truncating as C's does. A dividend
+  known to stay below twice the divisor -- `(axis + 1) % 3` from an `idxmax`
+  over three lanes, pbrt's watertight triangle test -- divides by one
+  comparison, which is what LLVM used to derive from the range and what a
+  multiply would have hidden from it. Along the way the IR simplifier's
+  `x % 2^n -> x & (2^n - 1)` turned out to apply to signed `x` (wrong for a
+  negative one) and to judge 64-bit constants by their low word
+  (`4294967297 % ...` was "a power of two"); both fixed, with the 744-case
+  golden `correctness/llvm/divide-by-constant` computed in Python.
+- *Vector division by anything else goes through doubles*
+  (`CodeGen_LLVM::vector_int_division`): for lanes of 32 bits or fewer the
+  correctly rounded double quotient truncates to the exact integer quotient
+  (the argument is in the code), so a `<16 x i32>` division is two `vdivpd`
+  and two conversions instead of sixteen `idiv`. This belongs to the x86 code
+  generator once the backends are split; a GPU lane never asks.
+- *And through floats, when the bounds allow it* (`divide_bounded_by_floats`,
+  run by the vectorizer before it widens): the same `upper_bound` analysis
+  that serves the constant case bounds both operands, and when their sum is
+  below 2^24 the gang divides in `f32` -- one `vdivps` for sixteen lanes,
+  exact -- and when 64-bit operands stay below 2^53 together, in `f64`. The
+  user asked for exactly this ("Are we able to do bounds analysis to use
+  float div for u32/i32 if we prove that there are less than 23 magnitude
+  bits? And similarly for vector i64/u64 using f64 division if proved low?").
+  The analysis is `upper_bound` in `SSA/InvariantDivision.cpp`: a walk down
+  a value's definition through constants, selects, sums, products, masks,
+  shifts, min/max, widening casts, remainders by constants, `idxmax`/`idxmin`
+  (a lane index), broadcasts and ramps, and its own `select(x < c, x, x -
+  c)` shape; it stops at arguments, loads and anything it has no rule for,
+  and knows nothing of loop ranges yet. What it proves in the renderer today
+  is the axis rotations; the sampler's and textures' divisors come from data
+  and stay unbounded, so those take the double path.
+
+Also fixed on the way: `!=` on floats lowered as an *ordered* compare, so
+`x != x` was never true (`fcmp une` now); `mulhi` of 64-bit lanes, which LLVM
+23's AggressiveInstCombine folds back into an `i128` multiply that x86
+scalarizes with `mulx`, is re-expanded after the optimizer
+(`CodeGen/ExpandVectorMulHigh.h`).
+
+**What remains scalar in the gang, and why it is left.** The Halton sampler:
+`limit = ~0 / base - base` is a 64-bit division by the lane's base
+(`udiv <16 x i64>`, seven sites in `get_1d`/`get_2d`/`get_pixel_2d`), and
+the digit loops' multiplier `div_multiplier(base)` is a 128-by-64 division
+per lane (`udiv <16 x i128>`, two sites: 32 `__udivti3` calls). The base is
+`primes[dimension]`, and every lane of a gang is at the same dimension, but
+the analysis cannot know that: the fix is `specialize(uniform(dimension))`
+-- the directive already agreed as the next scheduling step -- or a table of
+per-prime limits and multipliers. Everything else in the gang is vector code;
+the only per-lane `sinf`/`cosf` calls are on the `*_rare` paths for
+arguments past 1e6, which a render never takes. Two CUDA-backend goldens
+(`backends/cuda/parallel`, `rtiow-primer`) fail on this branch and on
+`ajr/ssa` alike: the Stmt-level `bind` is a no-op there and the pass asserts
+the schedule changed nothing. That backend is what the PTX backend replaces.
+
+**Measured, LLVM 23 against LLVM 19, 16 spp depth 5, best of five, two
+rounds:** killeroo scalar 0.579 s vs 0.584-0.593, packet 0.325 vs 0.345,
+compact 0.326 vs 0.343; book scalar 3.59 vs 3.61-3.65, packet 1.59-1.61 vs
+1.65-1.67, compact 1.56-1.57 vs 1.61-1.63. Faster on every schedule, by
+1-6%; the killeroo images agree with pbrt exactly as before (67.4% of pixels
+within 1e-3, means equal to five digits).
+
+**Next on this branch, in order:** the backend split (`CodeGen_LLVM`
+agnostic, `CodeGen_X86` host with `vector_int_division`, the gather
+intrinsics and the parfor launch shims, `CodeGen_PTX` device), `-b ptx` with
+goldens under `tests/bonsai/backends/ptx/` and execution tests under
+`correctness/gpu/` skipped without a GPU, then `schedules/gpu.bonsai`
+binding pixels to blocks and samples to threads until `render.bonsai`
+compiles to PTX. Phases A0 to D above follow.
+
 ## Known-open, smaller
 
 - `cie_tables.h` and `rgb2spec_tables.h` are generated by
