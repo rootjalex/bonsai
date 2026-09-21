@@ -3743,6 +3743,81 @@ compact 0.326 vs 0.343; book scalar 3.59 vs 3.61-3.65, packet 1.59-1.61 vs
 1-6%; the killeroo images agree with pbrt exactly as before (67.4% of pixels
 within 1e-3, means equal to five digits).
 
+**The plan for what is still scalar in the gangs (2026-09-21).** Audited on
+the packet, compact (wf) packet, compact per-lane and per-lane schedules;
+all four have exactly the same inventory, in the gang machine code:
+
+| what | where | cost per gang call |
+|---|---|---|
+| `div_multiplier(base)`, a 128-by-64 division per lane | `radical_inverse`, `scrambled_radical_inverse`, `owen_scrambled_radical_inverse` | 16 `__udivti3` calls each, 48 in all |
+| `index / stride`, stride a uniform 64-bit value | `get_pixel_2d` | 16 `div r64` |
+| `sinf`/`cosf` a lane at a time for an argument past 1e6 | every sin/cos site | never taken by a render |
+
+Where the 128-bit multiplier comes from, exactly: the app divides a `u64`
+index by a `u64` base -- `b : u64 = cast[[u64]](base)`, `next = v / b`,
+`limit = 0xffffffffffffffff / b - b` (`apps/pbrt/sampler.bonsai` lines
+60-67, 178-187, 208-215, translating pbrt's `RadicalInverse(int, uint64_t)`);
+`SSA/InvariantDivision.cpp` (`emit_multiplier`, line 224) replaces the loop's
+division by a multiply-high and asks for the multiplier with
+`Intrinsic::div_multiplier(b)`, of `b`'s type, u64; and
+`CodeGen_LLVM::division_multiplier` (`src/CodeGen/CodeGen_LLVM.cpp` from line
+2794) computes Granlund & Montgomery's `floor(2^N (2^l - d) / d) + 1` with a
+division twice the width of the divisor -- `wide = getIntNTy(2 * bits)`,
+line 2812, and the `CreateUDiv` at line 2846 (2870 for the signed form) --
+which for N = 64 is an i128 division that LLVM lowers to libgcc's
+`__udivti3`; a vector of divisors is taken apart a lane at a time at lines
+2797-2808. A 64-bit multiplier is inherent to dividing a 64-bit dividend by
+a run-time divisor with one multiply-high; the cost is in *when* it is
+computed, per lane per call, for a base that is one of a thousand primes.
+
+Three things to do, smallest first:
+
+1. *A gang-uniform divisor gets one scalar multiplier* (half a day).
+   `divide_by_invariants` looks for a divisor invariant across a loop; the
+   vectorizer knows a second kind of invariance, across the lanes. Run the
+   same rewrite from `vectorize()` with the divergence analysis in hand (the
+   way `divide_bounded_by_floats` already is): a `Div`/`Mod` whose dividend
+   varies and whose divisor is uniform gets `div_multiplier` on the scalar
+   divisor -- one 128-bit division for the gang -- and the multiply-high on
+   the vector. Removes `get_pixel_2d`'s sixteen `div`s; also serves any
+   `% spp`-shaped division the double path takes today with something
+   cheaper. Tests: an ssa golden and a correctness test with a uniform
+   run-time divisor.
+
+2. *Multipliers for a table, computed once* (two to three days). The base is
+   `primes[base_index]`: a division by an element of an extern table. Give
+   InvariantDivision a third kind of invariance, over the program's run: for
+   `x / T[i]` with `T` an extern array of integers, the compiler declares
+   companion arrays `T$mult`, `T$sh1`, `T$sh2` (or one struct array), fills
+   them at the exported function's entry from `T` with the existing
+   `division_multiplier` code (a thousand primes: about a tenth of a
+   millisecond, once per render), and the division becomes a gather of the
+   multiplier beside the gather of the base, then the multiply-high. No
+   128-bit division remains on any hot path, in the gangs or in the scalar
+   renderer, which spends 0.9% of its time in `__udivti3` today. This is
+   pbrt's own habit made automatic -- it tabulates the primes and the digit
+   permutations per prime -- and the app keeps saying `v / b`. Rejected
+   alternative: the driver computes the tables and the app spells the
+   multiply-high itself, which makes the app say how instead of what.
+   Tests: ssa golden (the companion table, its fill, the gather), a
+   correctness test dividing by a small extern table, and the Halton
+   images unchanged.
+
+3. *`specialize(uniform(x))`* (three to five days; the directive already
+   agreed for the packet traversal's node, see "Where the gang skips an arm
+   is the schedule's to say"). A run-time test that a per-lane value is the
+   same in every active lane, then a copy of the region with it uniform --
+   here: one base, one multiplier, the table reads broadcasts instead of
+   gathers -- and the per-lane copy otherwise. For the sampler the schedule
+   would say `get_1d.specialize(uniform(st.dimension))` or name the base.
+   With (2) done its gain on the sampler is the gathers only; its real value
+   is the traversal, where a gang on one node is the common case, so it
+   comes after (2) unless the traversal is the target first.
+
+The per-lane `sinf`/`cosf` on the rare paths stay: they are the correct
+answer for an argument past the range reduction, cost nothing when not
+taken, and a render never takes them.
+
 **Next on this branch, in order:** the backend split (`CodeGen_LLVM`
 agnostic, `CodeGen_X86` host with `vector_int_division`, the gather
 intrinsics and the parfor launch shims, `CodeGen_PTX` device), `-b ptx` with
