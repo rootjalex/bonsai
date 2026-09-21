@@ -2287,18 +2287,114 @@ So the two next steps for this schedule, in order of what they are worth:
    at the first hit and carried through every round because it is a `mut`
    local of the iteration; pbrt keeps it in the pixel sample state.
 
+**Struct-of-arrays queues, and the producer in the gang** (2026-09-21). Both
+steps above are done, the second first and by a shorter road than the layout
+language: the user asked for struct-of-arrays as the queue's default
+("Make the queue default to struct-of-arrays always. We will later add an
+extension for rewriting queues, but for now, do a SoA default"). A queue is
+now `Queue_<name> { count; <scalar> : T[]; ... }`, one array per scalar of
+the entry -- every aggregate taken down to its leaves, `ray.o` to
+`ray_o_x`, `ray_o_y`, `ray_o_z`, as pbrt's `SOA<Ray>` holds `SOA<Point3f>
+o` holds `float *x, *y, *z` -- each sized by the producer count and named
+after the queue and the scalar (`paths_ray_o_x_0`), 91 arrays per queue for
+this renderer's entry (`Leaf`, `leaves_of`, `take_apart`, `rebuild` in
+`SSA/Defer.cpp`; the header comment in `SSA/Defer.h`). The drain reads a
+gang's entries with a masked dense load per scalar
+(`masked_extract(paths_beta_x[ramp(paths_gang, 1u, 16)], mask)` →
+`llvm.masked.load`) and the compacting push writes each scalar with one
+`compress_store` (`llvm.masked.compressstore`, `vpcompressd`; a new `compact`
+flag on the SSA `Store` and `ir::Store`, lowered by
+`create_compress_store_at`), the prefix scan now built only when a frame
+reads the slot. Two lowering pieces made the loads dense: the simplifier folds
+`bc(a) + ramp(b, s)` into `ramp(a + b, s)` and runs once more after the
+schedule (`SSA/Simplify.cpp`, `SSA/Convert.cpp`), and `as_dense_ramp` in the
+LLVM backend accepts a `1u` stride, which an unsigned loop's ramp has and
+which had been a gather all along.
+
+Two bugs came out of running it on the renderer, neither in the queue. A
+run-time-sized stack array -- the queue's arrays are `T[spp]` -- is carved out
+by LLVM with its size rounded to sixteen bytes and no realignment, while the
+kernel's frame is realigned to the register and the gang call below passes
+forty vector arguments on the stack at the register's alignment: 91 small
+arrays left the stack pointer 32 bytes off and the first `vmovdqa64` faulted
+(the old two `Entry_paths[spp]` arrays happened to be multiples of 256 bytes).
+Such an allocation is now aligned to the register, which makes LLVM realign
+after it (`create_alloca_at_entry`; `correctness/llvm/defer-gang-runtime-size`
+faults without it). And vectorizing the *producer* -- `render.split(s, ...)
+.vectorize(s_lane)` beside the drain's, so that a path's first step runs in a
+gang of sixteen samples and its push compacts into the first round -- found a
+linearizer gap: a uniform branch the fold keeps as a branch (`depth > 1`,
+uniform in a gang all at depth zero) around a divergent early return
+(Russian roulette) leaves the block after it control dependent on the
+survivors' edge, whose mask is computed inside the region; read after the
+join it was a name bound on one path only. Now a mask read past its
+definition's dominance becomes a block argument at the joins between
+(Cytron's placement over the iterated dominance frontier of the graph as
+linearized, pruned, not carried around a loop), handed false along any other
+way in; and the predicate of a kept uniform branch's edge, where the block
+can also be reached around it, is the source's mask conjoined with the
+branch condition, as the paper defines it, rather than the source's mask
+(`SSA/Linearize.cpp`, "The masks"). That also made
+`correctness/cpp/vectorize_uniform_branch` -- pbrt's `AreaLight::L` shape,
+whose golden had recorded this very compiler error -- run and match its scalar
+run; `correctness/llvm/vectorize-uniform-around-return` is the roulette shape.
+
+Measured 2026-09-21, killeroo-simple, `compare.sh --spp 16 --maxdepth 5`,
+best of five, every image matching pbrt (mean radiance 0.99999x):
+
+    pbrt                                        850 ms
+    scalar                                      576 ms
+    packet                                      318-344 ms
+    wavefront, gang drain, AoS, scalar producer  671 ms   (2026-09-20)
+    wavefront, gang drain, SoA, scalar producer  623 ms
+    wavefront-perlane, SoA, scalar producer      805 ms
+    wavefront, SoA, producer in the gang         353 ms   (2.41x pbrt)
+
+`perf` on the 623 ms build said what the 671 ms one had: half the time in
+scalar functions (`full_path_step` 19%, `scrambled_radical_inverse` 10%,
+`sphere_roots` 9%, `triangle_hit` 5%), the first bounce of every sample run
+scalar by the producer loop, against the gang copies (`full_path_step$gang`
+11%, `_pfkernel4`, the drain itself, 7%) -- so the schedule now vectorizes
+the producer too, which is what took the wavefront from 623 to 353 ms. The
+queue's own cost is what is left between 353 and packet's 318-344: the drain
+kernel's per-scalar loads and stores and a call passing forty vector
+arguments by value, some 5-10% at this sample count. With a per-pixel queue
+of 16 paths, compaction cannot make a gang fuller than the packet schedule's
+-- both hold one pixel's 16 samples -- so this is the point at which the two
+should be equal, and they nearly are; the sweep below measures what happens
+as the sample count grows and a pixel's queue holds several gangs.
+
+On the tail loop: `split(.., true)` makes no separate tail loop. The guard
+`outer + inner < end` is one body, and when the inner loop is vectorized the
+guard becomes the gang's mask, a ramp compare -- `ramp(paths_gang, 1u, 16) <
+count` in the IR above -- so the last gang runs partly full under that mask
+(`correctness/llvm/split-tail`'s `gang`).
+
+Two more schedules for the comparison: `schedules/wavefront-perlane.bonsai`,
+the queue's drain over a per-lane traversal (the traversals loopified before
+the drain is vectorized), so that the two wavefront schedules differ from
+`perlane` and `packet` in exactly the queue. `eval/render_matrix.py` runs all
+five by default over depths 1-5 and 16, 32, ..., 1024 spp (best of one run
+from 128 spp up, `--long-spp`), and `eval/summary.py` draws several scenes'
+results on one figure (`eval/README.md`). The sweep asked for -- scenes of
+increasing complexity, the five schedules, depths 1-5, 16-1024 spp -- is
+`eval/plots/<scene>-speedup.{pdf,png}` per scene and
+`eval/plots/summary-speedup.{pdf,png,tsv}` across them; its outcome is in the
+section below when it has run.
+
 ### The next scheduling commands, in order
 
 1. **Measure the scalar wavefront** (done, above) and the **gang drain**
    (done, above: `split` with the GuardWithIf tail and the compacting `Push`;
    the user: "It's probably best to have vectorized queue writes do a
-   compaction step"). What remains of this item is what the measurement
-   asked for: the first step into the gang and the queue's storage laid out
-   a field at a time. A per-pixel queue holds at most spp paths, so its gangs
-   are exactly as full as the packet schedule's; the utilization win needs a
-   tile-owned queue, `render.split(p, p_tile, p_pix, 64)` then
-   `queue(p_tile)`, and then the pixel index varies across the drain's lanes
-   in the film write.
+   compaction step"). The first step is in the gang (the producer loop
+   vectorized) and the queue's storage is laid out a scalar at a time
+   (struct of arrays, the default; 2026-09-21, above). A per-pixel queue
+   holds at most spp paths, so at 16 spp its gangs are exactly as full as the
+   packet schedule's; the utilization win needs more paths per queue --
+   more samples per pixel (the sweep), or a tile-owned queue,
+   `render.split(p, p_tile, p_pix, 64)` then `queue(p_tile)`, and then the
+   pixel index varies across the drain's lanes in the film write.
 2. **Queue kinds by call site.** `defer` addressed to a call inside a function
    (a cursor like `skip`'s, by provenance of the call) so primary, secondary
    and occlusion rays get their own queues. Deferring `trace` is a *non-tail*
@@ -2358,10 +2454,22 @@ renaming in `defer`, and `schedules/wavefront.bonsai`. Tests: `ssa/split-tail`
 and `ssa/defer-gang` (goldens), `backends/llvm/defer-gang` (the IR),
 `correctness/llvm/split-tail`, `defer-gang`, `defer-gang-frame`,
 `defer-gang-mut-local` (run); the `error/split-not-divisible` golden moved
-with the assertion. The suite is green but for the two CUDA goldens. Next on
-this schedule: the first step into the gang (a call-site deferral) and the
-queue's storage laid out a field at a time; then queues by call site and by
-material.
+with the assertion. The suite is green but for the two CUDA goldens.
+
+Committed 2026-09-21, in this order: `96d67c38` the split tail and
+`unify_yields`; `dd620d2f` the compacting push; `c439a0d1` the schedules'
+tails; `5db12cf3` the scene features (blackbody, distant light, disk, coated
+conductor, textured roughness, named coordinate systems); `00a82358` the
+plan; `296982c2` struct-of-arrays queues and the compress-store push;
+`fe9d06ab` run-time-sized allocas aligned to the register; `cc462d2e` the
+linearizer's edge predicates and mask joins around a kept uniform branch;
+`d95c6b39` the wavefront schedules vectorizing the producer and
+`wavefront-perlane`; `d638e8b5` the eval tool's five schedules and
+`eval/summary.py`. Tests added: `correctness/llvm/defer-gang-runtime-size`,
+`vectorize-uniform-around-return`; `correctness/cpp/vectorize_uniform_branch`
+now runs. Next on this schedule: queues by call site (the trace and shadow
+stages) and by material; a tile-owned queue for the compaction to have paths
+to compact.
 
 ## What the scenes need, and what volpath needs
 
