@@ -2730,6 +2730,149 @@ only in clouds. Homogeneous media plus the interface material and the
 ratio-tracked `SampleLd` unlock four scenes; the grid and its DDA add
 smoke-plume; NanoVDB adds three more.
 
+### volpath: the implementation plan (drafted 2026-09-21)
+
+Read from `cpu/integrators.cpp:953-1390` and `media.h`, in the order the
+pieces unlock scenes. Each phase is a separate set of commits with its own
+scene under `apps/pbrt/scenes/` compared against pbrt running *volpath* (the
+comparison has to run both sides on the scene's integrator; a volpath image
+against a path image means nothing even without media, since the two weight
+their samples differently -- see phase 1).
+
+**Phase 0 -- the scene side, so nothing is silently dropped.** In
+`scene_dump.cpp`: accept `Integrator "volpath"` as a fourth `IntegratorTag`
+(its parameters are `path`'s: `maxdepth`, `lightsampler`, `regularize`);
+`MakeNamedMedium` into a `Medium` table in `scene_io.h` -- kind, `sigma_a`,
+`sigma_s`, `scale`, `Le`, `Lescale`, `g`, the medium's transform, and for the
+grids their data (phase 3) -- and `MediumInterface` as the inside/outside
+medium index on every shape (`-1` for none), on the camera (pbrt:
+`CameraTransform` plus `cameraMedium`) and on lights; `Material "interface"`
+and `Material ""` as a material index that says "no BSDF". The driver hands
+these through as arrays like everything else. Nothing renders differently
+yet; what changes is that the nine media scenes convert with their media in
+the file, and `--print-*` style dumps can be checked against pbrt.
+
+**Phase 1 -- volpath with no media** (a `VolPath` arm of `Integrator`;
+unlocks bmw-m6 with `mix`, sportscar with `bilinearmesh`,
+transparent-machines with spectral glass, lte-orb with its samplers,
+sanmiguel with ACES, villa in part). A new tail-recursive
+`vol_path_step` beside `full_path_step`, not a flag on it: the path state
+gains `r_u` and `r_l` (`SampledSpectrum`, the rescaled path probabilities of
+section 14.2.2) and the ray a `medium`, and loses `p_b` -- every MIS weight
+is `1 / r_u.Average()` where path had the unweighted term and `1 / (r_u +
+r_l).Average()` where it had the power heuristic, which is the *balance*
+heuristic in disguise: the same paths, differently weighted, so the two
+integrators converge to the same image with different noise and are not
+interchangeable at low sample counts. Concretely, from `Li`: emission at a
+hit or escape is `beta * Le / r_u.Average()` at depth 0 or after a specular
+bounce, else `r_l *= p_l` (the light sampler's PMF times `PDF_Li`) and
+`beta * Le / (r_u + r_l).Average()`; after the BSDF sample `beta *= f
+|cos| / pdf` and `r_l = r_u / pdf` -- or `r_u / bsdf.PDF(wo, wi)` when
+`pdfIsProportional`, the layered BxDF's stochastic density, which our
+`LayeredBxDF` already flags; Russian roulette on `beta * etaScale /
+r_u.Average()` with `depth > 1`; `SampleLd` (`integrators.cpp:1273`) takes
+`r_p = r_u`, and without media returns `beta * f_hat * L / r_l.Average()`
+for a delta light and `/ (r_l + r_u).Average()` otherwise, with `r_l = r_p *
+p_l` and `r_u = r_p * scatterPDF`; a hit on the way to the light with a
+material is occlusion, a hit without one (phase 2) is stepped through. Note
+`SampleLd` nudges the light-sampling point off the surface by the BSDF's
+side (`OffsetRayOrigin(±wo)`), which `path_sample_ld` does not. The sampler
+dimensions are consumed in pbrt's order (two `Get1D` for the medium RNG's
+hashes and one for `u` are drawn *only when the ray has a medium*, so no-media
+scenes draw exactly what pbrt draws). Scene: `volpath-diffuse.pbrt`, an
+existing small scene with `Integrator "volpath"`, compared at depth 1 and 5.
+
+**Phase 2 -- homogeneous media, the interface, transmittance** (dambreak
+with phase 4's spectral glass; crown with `mix`; the medium half of kroken
+and watercolor). The elements: `MediumProperties { sigma_a, sigma_s, g, Le
+}`; `Medium` as an ADT whose first arm is `Homogeneous { sigma_a, sigma_s, Le
+: tabulated spectra (the conductor tables' 0.1 nm grid and `ConductorIndex`'s
+converter path serve, since pbrt's `DenselySampledSpectrum` is what both
+are), g }`, `SamplePoint(p, lambda)` and `SampleRay(ray, tMax, lambda)`
+giving one `RayMajorantSegment {tMin, tMax, sigma_maj = sigma_a + sigma_s}`;
+`HGPhaseFunction`: `p(wo, wi) = HenyeyGreenstein(dot(wo, wi), g)`,
+`Sample_p` via `SampleHenyeyGreenstein` (pbrt's `sampling.h`), `PDF = p`.
+`SampleT_maj` (`media.h:735`) takes a callback; bonsai has no closures, so it
+is written as the two walks that call it, each a tail-recursive function over
+the segments so a schedule can `loopify` or `defer` it: `medium_walk` for the
+path (delta tracking: `t = tMin + SampleExponential(u, sigma_maj[0])`, `u =
+rng.Uniform()`, `T_maj *= FastExp(-(t - tMin) sigma_maj)`, then absorb /
+real-scatter / null with probabilities `sigma_a[0]/sigma_maj[0]`,
+`sigma_s[0]/sigma_maj[0]`, the rest, by `SampleDiscrete`; emission `betap *
+sigma_a * Le / r_e.Average()` first when `mp.Le`; null: `beta *= T_maj
+sigma_n / pdf`, `r_u *= T_maj sigma_n / pdf`, `r_l *= T_maj sigma_maj /
+pdf`, `pdf = T_maj[0] sigma_n[0]`; real: `depth++ >= maxDepth` terminates,
+`beta *= T_maj sigma_s / pdf`, `r_u` likewise, then `SampleLd` at a
+`MediumInteraction` with the phase function in place of the BSDF and a
+`Sample_p` for the new direction, `r_l = r_u / ps.pdf`; the residual `T_maj /
+T_maj[0]` scales `beta`, `r_u`, `r_l` when the walk leaves the segment) and
+`transmittance_walk` for `SampleLd` (ratio tracking: `T_ray *= T_maj sigma_n
+/ pdf`, `r_l *= T_maj sigma_maj / pdf`, `r_u *= T_maj sigma_n / pdf` with
+`pdf = T_maj[0] sigma_maj[0]`, roulette at `T_ray / (r_l + r_u).Average() <
+0.05` with `q = 0.75`, the ray re-spawned through each interface hit to the
+light with `SpawnRayTo`, an opaque hit returning zero). The RNG is pbrt's
+`RNG(Hash(sampler.Get1D()), Hash(sampler.Get1D()))` for the path walk and
+`RNG(Hash(ray.o), Hash(ray.d))` for the shadow walk -- `Hash` is
+MurmurHash64A over the bytes, to be translated so the streams are pbrt's --
+and our `RNG` element already is PCG32. The medium of a ray: the camera's
+for the primary; after a surface `SpawnRay` takes `dot(w, n) > 0 ? outside :
+inside` from the hit's `MediumInterface`, and a hit whose material is the
+interface calls `SkipIntersection` -- the ray continues from the hit with
+the medium switched and `depth` unchanged -- which in `vol_path_step` is a
+tail call with the new ray and no other change. `trace_any` is not enough
+for the shadow ray once media exist: it becomes the closest-hit `trace`
+repeated, as pbrt's loop is. Scenes: `fog-box.pbrt` (a box with the
+interface material holding a homogeneous medium around a diffuse sphere and
+an area light), `absorbing-glass.pbrt` (a dielectric with an interior
+medium, dambreak's shape: the medium is entered by refraction), and an
+emissive homogeneous one.
+
+**Phase 3 -- grids: `uniformgrid` first** (smoke-plume), **then `nanovdb`**
+(bunny-cloud, disney-cloud, explosion) **and `cloud`** (clouds).
+`GridMedium`: a `SampledGrid<Float>` density (trilinear lookup in the
+medium's space, `bounds` and the medium's transform), `sigma_a`/`sigma_s`
+spectra times the density, an optional `Le` grid or a temperature grid
+turned into blackbody emission (explosion), and the `MajorantGrid` of 16^3
+maxima with the `DDAMajorantIterator` (`media.h:136-214`): the iterator's
+`Next` is the per-voxel step, so the walk's tail recursion carries the DDA's
+state (`voxel[3]`, `nextCrossingT[3]`, `deltaT[3]`, `step[3]`,
+`voxelLimit[3]`) and the `Medium` arm supplies the segment. `RGBGridMedium`
+is the same with rgb grids per coefficient (no scene in the set uses it, so
+last). `NanoVDBMedium`: the converter reads the `.nvdb` with pbrt's own
+nanovdb headers and samples it into a dense `SampledGrid` at the grid's
+resolution (disney-cloud ships a quarter-resolution cloud; if a full one
+proves too large, a sparse tile grid is the fallback, decided then, not
+now), so that the renderer has one grid medium and not a VDB tree walker;
+this is a layout decision, the density values are pbrt's. `CloudMedium` is
+procedural: `Density` from pbrt's `Noise` (Perlin, the permutation and
+gradient tables in `util/noise.cpp`), with a homogeneous majorant.
+
+**Phase 4 -- what the same scenes also need**, each its own small piece:
+spectral `eta` on `dielectric` (named glasses as tabulated spectra; a
+dispersive dielectric terminates the secondary wavelengths,
+`lambda.TerminateSecondary()`) for dambreak, transparent-machines, crown;
+`Material "mix"` (a stochastic choice between two materials by a texture and
+a hash of the hit, `MixMaterial::ChooseMaterial`) for bmw-m6, crown, kroken,
+watercolor; `bilinearmesh` for sportscar and watercolor. Subsurface
+(`BSSRDF`, the probe segment and its reservoir sampling in `Li`) is its own
+later phase, for head and sssdragon.
+
+**Schedules.** `vol_path_step` is a tail recursion like `full_path_step`, so
+`loopify`, `defer` and the packet and compact schedules apply unchanged; the
+medium walk inside it is a loop each lane runs at its own pace, which the
+vectorizer uniformizes as it does the traversal's. pbrt's wavefront puts a
+hit inside a medium on a `MediumSampleQueue` and scattering on a
+`MediumScatterQueue` per phase function (the table above); that is a
+call-site deferral of the walk, which is item 2 of "The next scheduling
+commands" and needs nothing new in the language.
+
+**Order and size.** Phase 0 and 1 together are a couple of days and give the
+first volpath image to compare; phase 2 two to three days and dambreak's
+medium (its glass needs phase 4's spectral eta, a day); phase 3's uniform
+grid and DDA two days for smoke-plume, nanovdb and cloud one to two days
+each. `mix` and `bilinearmesh` are a day each. The subsurface phase is not
+sized here.
+
 ### pbrt's wavefront queues, which a schedule has to reproduce
 
 `wavefront/workitems.h`, `wavefront/integrator.cpp:240-432`. Per depth:
