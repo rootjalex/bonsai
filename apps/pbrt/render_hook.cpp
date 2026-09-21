@@ -31,6 +31,8 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -537,27 +539,126 @@ struct Stage {
     }
 };
 
+// A (path depth, samples per pixel) pair to render the loaded scene at, named
+// as the eval tool names its cells: `d<depth>-s<spp>`.
+struct Cell {
+    std::string name;
+    int32_t depth;
+    uint32_t spp;
+};
+
+static bool parse_cells(const std::string &list, std::vector<Cell> &cells) {
+    std::stringstream in(list);
+    std::string token;
+    while (std::getline(in, token, ',')) {
+        int depth = 0, spp = 0;
+        char d = 0, dash = 0, s = 0;
+        std::stringstream t(token);
+        if (!(t >> d >> depth >> dash >> s >> spp) || d != 'd' || dash != '-' ||
+            s != 's' || depth < 1 || spp < 1 || !(t >> std::ws).eof()) {
+            std::cerr << "--cells: " << token
+                      << " is not a cell; a cell is d<depth>-s<spp>\n";
+            return false;
+        }
+        cells.push_back(Cell{token, int32_t(depth), uint32_t(spp)});
+    }
+    return !cells.empty();
+}
+
+// The scene's sampler at another sample count: PBRT's `--spp`, transcribed
+// as scene_dump transcribes it, since each sampler is overridden the way its
+// own Create overrides it. An independent or halton sampler takes the number
+// as given; a stratified one has to factor it into a grid, walking down from
+// the square root until it finds a divisor (StratifiedSampler::Create), and
+// the grid decides which stratum each sample falls in.
+static bonsai_scene::Sampler sampler_at(bonsai_scene::Sampler s, uint32_t spp) {
+    if (s.tag == bonsai_scene::SamplerTag::Stratified) {
+        uint32_t div = uint32_t(std::sqrt(double(spp)));
+        while (spp % div) {
+            div--;
+        }
+        s.x_samples = spp / div;
+        s.y_samples = spp / s.x_samples;
+        s.samples_per_pixel = s.x_samples * s.y_samples;
+    } else {
+        s.samples_per_pixel = spp;
+    }
+    return s;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cerr << "usage: render <scene.bin> [out.pfm]\n"
-                  << "       render --print-differentials <scene.bin>\n";
+        std::cerr
+            << "usage: render [--spp N] [--maxdepth D] <scene.bin> [out.pfm]\n"
+            << "       render --cells d1-s16,d5-s64,... <scene.bin> "
+               "out-{cell}.pfm\n"
+            << "       render --print-differentials <scene.bin>\n"
+            << "--spp and --maxdepth render the scene at another sample count "
+               "or path depth than it was converted with; --cells renders it "
+               "at several, one after the other, from the one loaded scene, "
+               "the {cell} in the output name standing for each cell's.\n";
         return 1;
     }
     // The same four pixels and the same synthetic hit
     // `scene_dump --print-differentials` uses, printed in the same format so a
     // plain diff is the comparison.
     bool print_differentials = false;
+    // The scene's own sample count and depth unless these say otherwise: the
+    // scene is converted once and rendered at every setting the eval wants,
+    // rather than converted (and its geometry written and read back) once per
+    // setting. What pbrt's `--spp` and the converter's `--maxdepth` do.
+    uint32_t spp_override = 0;
+    int32_t depth_override = 0;
+    std::vector<Cell> cells;
     int arg = 1;
-    if (std::string(argv[arg]) == "--print-differentials") {
-        print_differentials = true;
-        arg++;
+    while (arg < argc && std::string(argv[arg]).rfind("--", 0) == 0) {
+        const std::string option = argv[arg++];
+        if (option == "--print-differentials") {
+            print_differentials = true;
+            continue;
+        }
         if (arg >= argc) {
-            std::cerr << "--print-differentials needs a scene\n";
+            std::cerr << option << " needs a value\n";
+            return 1;
+        }
+        const std::string value = argv[arg++];
+        if (option == "--spp") {
+            spp_override = uint32_t(std::max(0, atoi(value.c_str())));
+            if (spp_override == 0) {
+                std::cerr << "--spp needs a sample count above zero\n";
+                return 1;
+            }
+        } else if (option == "--maxdepth") {
+            depth_override = std::max(0, atoi(value.c_str()));
+            if (depth_override == 0) {
+                std::cerr << "--maxdepth needs a depth above zero\n";
+                return 1;
+            }
+        } else if (option == "--cells") {
+            if (!parse_cells(value, cells)) {
+                return 1;
+            }
+        } else {
+            std::cerr << "unknown option " << option << '\n';
             return 1;
         }
     }
+    if (arg >= argc) {
+        std::cerr << "no scene given (run scene_dump on a .pbrt first)\n";
+        return 1;
+    }
     const char *scene_path = argv[arg++];
     const char *output = (arg < argc) ? argv[arg] : "pbrt.pfm";
+    if (!cells.empty() && std::string(output).find("{cell}") == std::string::npos) {
+        std::cerr << "--cells needs an output name with {cell} in it, one "
+                     "image per cell\n";
+        return 1;
+    }
+    if (!cells.empty() && (spp_override || depth_override)) {
+        std::cerr << "--cells says each cell's sample count and depth; --spp "
+                     "and --maxdepth do not combine with it\n";
+        return 1;
+    }
 
     // The scene came from a .pbrt file through PBRT's own parser; see
     // scene_dump.cpp. Nothing about the scene is written down here, which is
@@ -670,25 +771,31 @@ int main(int argc, char **argv) {
     // Which sampler the scene asked for, built through the generated
     // constructors rather than by setting the tag -- how a variant is laid out
     // is the compiler's business, and writing it by hand here would be a second
-    // place that has to agree with it.
-    Sampler sampler;
-    if (loaded.sampler.tag == bonsai_scene::SamplerTag::Stratified) {
-        Sampler_Stratified(sampler, loaded.sampler.x_samples,
-                           loaded.sampler.y_samples, loaded.sampler.seed,
-                           loaded.sampler.jitter != 0);
-    } else if (loaded.sampler.tag == bonsai_scene::SamplerTag::Halton) {
-        Sampler_Halton(sampler, loaded.sampler.samples_per_pixel,
-                       loaded.sampler.seed, int32_t(loaded.sampler.randomize),
-                       loaded.sampler.base_scales[0],
-                       loaded.sampler.base_scales[1],
-                       loaded.sampler.base_exponents[0],
-                       loaded.sampler.base_exponents[1],
-                       loaded.sampler.mult_inverse[0],
-                       loaded.sampler.mult_inverse[1]);
-    } else {
-        Sampler_Independent(sampler, loaded.sampler.samples_per_pixel,
-                            loaded.sampler.seed);
+    // place that has to agree with it. A function of the description, so that
+    // the same scene can be rendered at another sample count below.
+    const auto make_sampler = [](const bonsai_scene::Sampler &s) {
+        Sampler sampler;
+        if (s.tag == bonsai_scene::SamplerTag::Stratified) {
+            Sampler_Stratified(sampler, s.x_samples, s.y_samples, s.seed,
+                               s.jitter != 0);
+        } else if (s.tag == bonsai_scene::SamplerTag::Halton) {
+            Sampler_Halton(sampler, s.samples_per_pixel, s.seed,
+                           int32_t(s.randomize), s.base_scales[0],
+                           s.base_scales[1], s.base_exponents[0],
+                           s.base_exponents[1], s.mult_inverse[0],
+                           s.mult_inverse[1]);
+        } else {
+            Sampler_Independent(sampler, s.samples_per_pixel, s.seed);
+        }
+        return sampler;
+    };
+    if (spp_override != 0) {
+        loaded.sampler = sampler_at(loaded.sampler, spp_override);
     }
+    if (depth_override != 0) {
+        loaded.max_depth = depth_override;
+    }
+    Sampler sampler = make_sampler(loaded.sampler);
 
     // pbrt: the first thousand primes, which are the Halton sequence's bases,
     // one per dimension. Sieved rather than tabulated -- a table of a thousand
@@ -1600,43 +1707,54 @@ int main(int argc, char **argv) {
     // Integrator variant generated. This is the whole of what a vtable does
     // here: the driver picks a variant, hands it across once, and the bonsai
     // side matches on it -- so adding SimplePath means adding an arm and a case
-    // here, not another exported entry point.
-    Integrator integrator;
-    switch (loaded.integrator) {
-    case bonsai_scene::IntegratorTag::RandomWalk:
-        Integrator_RandomWalk(integrator, loaded.max_depth, light_set);
-        break;
-    case bonsai_scene::IntegratorTag::SimplePath: {
-        // The light sampler is the integrator's, as it is in pbrt: which light
-        // to try is a decision about sampling and not about the scene.
-        LightSampler light_sampler;
-        LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
-        Integrator_SimplePath(integrator, loaded.max_depth, light_sampler,
-                              light_set);
-        break;
-    }
-    case bonsai_scene::IntegratorTag::Path: {
-        // pbrt's `path` defaults to its BVH light sampler. scene_dump serializes
-        // pbrt's own tree and sets `light_sampler` to 1 when a scene has two or
-        // more bounded lights, where the BVH and uniform samplers genuinely
-        // differ; below that the two are the same function and the cheaper
-        // uniform arm stands (see the note in scene_dump.cpp). `num_bounded` is
-        // the area lights, which sit at `[0, first_infinite)`.
-        LightSampler light_sampler;
-        if (loaded.light_sampler == 1) {
-            LightSampler_BVHLights(light_sampler, first_infinite,
-                                   int32_t(lights.size()) - first_infinite);
-        } else {
-            LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
-        }
-        Integrator_Path(integrator, loaded.max_depth, light_sampler, light_set,
-                        loaded.regularize != 0);
-        break;
-    }
-    default:
+    // here, not another exported entry point. A function of the depth, for
+    // the cells below.
+    if (loaded.integrator != bonsai_scene::IntegratorTag::RandomWalk &&
+        loaded.integrator != bonsai_scene::IntegratorTag::SimplePath &&
+        loaded.integrator != bonsai_scene::IntegratorTag::Path) {
         fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
         return 1;
     }
+    const auto make_integrator = [&](int32_t max_depth) {
+        Integrator integrator;
+        switch (loaded.integrator) {
+        case bonsai_scene::IntegratorTag::RandomWalk:
+            Integrator_RandomWalk(integrator, max_depth, light_set);
+            break;
+        case bonsai_scene::IntegratorTag::SimplePath: {
+            // The light sampler is the integrator's, as it is in pbrt: which
+            // light to try is a decision about sampling and not about the
+            // scene.
+            LightSampler light_sampler;
+            LightSampler_UniformLights(light_sampler, int32_t(lights.size()));
+            Integrator_SimplePath(integrator, max_depth, light_sampler,
+                                  light_set);
+            break;
+        }
+        default: {
+            // pbrt's `path` defaults to its BVH light sampler. scene_dump
+            // serializes pbrt's own tree and sets `light_sampler` to 1 when a
+            // scene has two or more bounded lights, where the BVH and uniform
+            // samplers genuinely differ; below that the two are the same
+            // function and the cheaper uniform arm stands (see the note in
+            // scene_dump.cpp). `num_bounded` is the area lights, which sit at
+            // `[0, first_infinite)`.
+            LightSampler light_sampler;
+            if (loaded.light_sampler == 1) {
+                LightSampler_BVHLights(light_sampler, first_infinite,
+                                       int32_t(lights.size()) - first_infinite);
+            } else {
+                LightSampler_UniformLights(light_sampler,
+                                           int32_t(lights.size()));
+            }
+            Integrator_Path(integrator, max_depth, light_sampler, light_set,
+                            loaded.regularize != 0);
+            break;
+        }
+        }
+        return integrator;
+    };
+    Integrator integrator = make_integrator(loaded.max_depth);
 
     lights_stage.reset();
 
@@ -1676,6 +1794,13 @@ int main(int argc, char **argv) {
     if (const char *r = getenv("BONSAI_REPEATS")) {
         repeats = std::max(1, atoi(r));
     }
+    // One render at a sampler and depth, written to `output` and its
+    // companions; the best time of the repeats, or nothing when a file could
+    // not be written. Run once for the scene as loaded (or overridden), or
+    // once per cell of --cells over the one loaded scene.
+    const auto render_and_write =
+        [&](const Sampler &sampler, const Integrator &integrator,
+            const std::string &output) -> std::optional<double> {
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
@@ -1733,8 +1858,7 @@ int main(int argc, char **argv) {
         return bool(pfm);
     };
 
-    const std::string stem =
-        std::string(output).substr(0, std::string(output).rfind('.'));
+    const std::string stem = output.substr(0, output.rfind('.'));
     const std::string shading_output = stem + "-ns.pfm";
     const std::string albedo_output = stem + "-albedo.pfm";
     const std::string radiance_output = stem + "-radiance.pfm";
@@ -1742,19 +1866,51 @@ int main(int argc, char **argv) {
                        write_pfm(shading_output, shading) &&
                        write_pfm(albedo_output, albedo) &&
                        write_pfm(radiance_output, radiance);
+    if (!wrote) {
+        return std::nullopt;
+    }
+    std::cout << "wrote " << output << ", " << shading_output << ", "
+              << albedo_output << " and " << radiance_output << " (" << width
+              << 'x' << height << ", " << shapes.size() << " shapes)\n";
+    return seconds;
+    };
+
+    int status = 0;
+    if (cells.empty()) {
+        const std::optional<double> seconds =
+            render_and_write(sampler, integrator, output);
+        // Parsed by compare.sh. Kept to a line of its own so that it stays
+        // easy to find without the script having to understand anything
+        // else here.
+        if (seconds) {
+            std::cout << "render seconds: " << *seconds << '\n';
+        } else {
+            status = 1;
+        }
+    } else {
+        // Each cell its own sampler and integrator over the scene loaded
+        // once; the eval tool reads one `render seconds <cell>:` line per
+        // cell, in the order it asked.
+        const std::string pattern = output;
+        for (const Cell &cell : cells) {
+            std::string path = pattern;
+            path.replace(path.find("{cell}"), 6, cell.name);
+            const Sampler cell_sampler =
+                make_sampler(sampler_at(loaded.sampler, cell.spp));
+            const Integrator cell_integrator = make_integrator(cell.depth);
+            const std::optional<double> seconds =
+                render_and_write(cell_sampler, cell_integrator, path);
+            if (!seconds) {
+                status = 1;
+                break;
+            }
+            std::cout << "render seconds " << cell.name << ": " << *seconds
+                      << '\n';
+        }
+    }
     free(out);
     free(shading);
     free(albedo);
     free(radiance);
-    if (!wrote) {
-        return 1;
-    }
-
-    std::cout << "wrote " << output << ", " << shading_output << ", "
-              << albedo_output << " and " << radiance_output << " (" << width
-              << 'x' << height << ", " << shapes.size() << " shapes)\n";
-    // Parsed by compare.sh. Kept to a line of its own so that it stays easy
-    // to find without the script having to understand anything else here.
-    std::cout << "render seconds: " << seconds << '\n';
-    return 0;
+    return status;
 }

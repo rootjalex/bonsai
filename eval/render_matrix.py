@@ -10,11 +10,13 @@ the timings -- to eval/out/<scene>/. A cell that has been rendered is not
 rendered again (--rerun to insist), so the plots can be redrawn without
 waiting for the renders.
 
-What is measured. Each (depth, spp) is converted once (scene_dump, at that
-depth and count, on pbrt's own BVH unless --own-tree), pbrt renders it and
-each schedule renders it, best of --repeats runs on each side, pbrt timed by
-its own render timer and this renderer by the driver's. The speedup is pbrt's
-time over the schedule's. Every render is checked against pbrt's the way
+What is measured. The scene is converted once (scene_dump, on pbrt's own BVH
+unless --own-tree); pbrt renders every (depth, spp) it has not rendered, and
+then each schedule's renderer runs once over every cell it is missing from,
+the scene loaded once and rendered at each cell's depth and count (the
+driver's --cells), best of --repeats runs on each side, pbrt timed by its own
+render timer and this renderer by the driver's. The speedup is pbrt's time
+over the schedule's. Every render is checked against pbrt's the way
 apps/pbrt/compare.sh checks one: the set of pixels that received light, the
 mean over the image, and the fraction of lit pixels agreeing closely, with
 compare_gbuffer.py's tolerances -- a stochastic estimate can promise no more
@@ -52,10 +54,14 @@ PREFIX = os.path.join(ROOT, "apps", "pbrt")
 sys.path.insert(0, PREFIX)
 import compare_gbuffer  # noqa: E402  the tolerances, so there is one set
 
+# The queue schedules are labelled "compact (wf)", not "wavefront": what they
+# have of a wavefront renderer is the queue of paths between bounces and its
+# compaction; a true wavefront has a queue per stage (trace, shade, shadow),
+# and "wavefront" is kept for that (the user's naming, 2026-09-21).
 RENDERER_LABELS = {"pbrt": "pbrt", "scalar": "scalar",
                    "perlane": "per-lane", "packet": "packet",
-                   "wavefront-perlane": "wavefront per-lane",
-                   "wavefront": "wavefront packet"}
+                   "wavefront-perlane": "compact (wf) per-lane",
+                   "wavefront": "compact (wf) packet"}
 
 # The schedules in apps/pbrt/schedules/, in the order the figures show them:
 # the sample loop run three ways, then the queue run two ways.
@@ -294,60 +300,116 @@ def render_pbrt(args, out, scene, tag, depth, spp, gbuffer):
     return best
 
 
-def render_ours(out, schedule, tag, repeats):
-    """A schedule's renderer on the converted scene: the best of `repeats`
-    runs, which the driver takes itself, and the images it writes -- the
-    normals at <stem>.pfm, the radiance at <stem>-radiance.pfm."""
-    stem = f"{out}/{tag}-{schedule}"
-    result = run([f"{out}/render_{schedule}.out", f"{out}/{tag}.txt",
-                  f"{stem}.pfm"], env={**os.environ, "BONSAI_REPEATS": str(repeats)})
-    found = re.search(r"^render seconds: ([0-9.eE+-]+)", result, re.M)
-    if not found:
-        raise SystemExit(f"no render time in the driver's output for {tag}")
-    return float(found.group(1))
+def convert_scene(args, out, scene):
+    """The scene converted once, at its own sample count and depth: the
+    renders set theirs (the driver's --cells), so the conversion -- pbrt's
+    parse, its BVH, and a dump that is gigabytes for a large scene -- is not
+    repeated per cell. Converted afresh each run, since the converter may have
+    changed; the dumps an earlier version of this tool made per cell are
+    removed, being the same scene thirty-five times over."""
+    for stale in os.listdir(out):
+        if re.fullmatch(r"d\d+-s\d+\.txt", stale):
+            os.remove(os.path.join(out, stale))
+    flags = [] if args.own_tree else ["--pbrt-tree"]
+    path = f"{out}/scene.txt"
+    say("converting the scene")
+    run([f"{out}/scene_dump", *flags, scene, path], cwd=ROOT)
+    return path
+
+
+def render_cells(out, schedule, cells, repeats, on_cell):
+    """A schedule's renderer over `cells` (tags), from the one converted
+    scene loaded once: the best of `repeats` runs of each, which the driver
+    takes itself, and the images it writes per cell -- the normals at
+    <tag>-<schedule>.pfm, the radiance at <tag>-<schedule>-radiance.pfm.
+    `on_cell(tag, seconds)` is called as each cell's time arrives, so that a
+    long run reports as it goes. Returns {tag: seconds}."""
+    cmd = [f"{out}/render_{schedule}.out", "--cells", ",".join(cells),
+           f"{out}/scene.txt", f"{out}/{{cell}}-{schedule}.pfm"]
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, env={**os.environ,
+                                               "BONSAI_REPEATS": str(repeats)})
+    seconds = {}
+    for line in process.stdout:
+        found = re.match(r"^render seconds (d\d+-s\d+): ([0-9.eE+-]+)", line)
+        if found:
+            seconds[found.group(1)] = float(found.group(2))
+            on_cell(found.group(1), seconds[found.group(1)])
+    process.wait()
+    if process.returncode != 0 or set(seconds) != set(cells):
+        say(f"failed: {' '.join(cmd)}")
+        say(process.stderr.read())
+        raise SystemExit(1)
+    return seconds
 
 
 def measure(args, out, scene, results):
-    """Every cell of the grid that is not in `results` yet."""
+    """Every cell of the grid, for every renderer that has not rendered it
+    yet: pbrt first over the cells it is missing from, then each schedule over
+    the cells it is missing from, in one run of its renderer over the scene
+    loaded once. A schedule added later -- a new file in schedules/ -- is
+    rendered into the cached grid without rendering the others again."""
     film, integrator = scene_film_and_integrator(scene)
     gbuffer = film == "gbuffer" and (integrator or "path") in ("path", "volpath")
     results["gbuffer"] = gbuffer
     cells = results.setdefault("cells", {})
-    for depth in args.depths:
-        for spp in args.spps:
-            tag = f"d{depth}-s{spp}"
-            if tag in cells and not args.rerun:
-                continue
-            say(f"== depth {depth}, {spp} spp (best of {repeats_at(args, spp)})")
-            flags = ["--spp", str(spp), "--maxdepth", str(depth)]
-            if not args.own_tree:
-                flags.append("--pbrt-tree")
-            run([f"{out}/scene_dump", *flags, scene, f"{out}/{tag}.txt"], cwd=ROOT)
-            cell = {"pbrt_seconds": render_pbrt(args, out, scene, tag, depth,
-                                                spp, gbuffer)}
-            say(f"   pbrt: {cell['pbrt_seconds']:.3f} s")
+    grid = [(d, p, f"d{d}-s{p}") for d in args.depths for p in args.spps]
+
+    def save():
+        with open(f"{out}/results.json", "w") as f:
+            json.dump(results, f, indent=1)
+
+    # pbrt, where it has not rendered: its time, and the image every schedule
+    # is checked against.
+    for depth, spp, tag in grid:
+        cell = cells.setdefault(tag, {})
+        if "pbrt_seconds" in cell and \
+                os.path.isfile(f"{out}/{tag}-pbrt-radiance.pfm"):
+            continue
+        say(f"== pbrt: depth {depth}, {spp} spp (best of {repeats_at(args, spp)})")
+        cell["pbrt_seconds"] = render_pbrt(args, out, scene, tag, depth, spp,
+                                           gbuffer)
+        # What the cell's times are the best of, for the figures to say.
+        cell["repeats"] = repeats_at(args, spp)
+        say(f"   pbrt: {cell['pbrt_seconds']:.3f} s")
+        save()
+
+    # Each schedule over the cells it is missing from, grouped by how many
+    # runs each is the best of (one setting per run of the renderer).
+    first = args.schedules[0]
+    for schedule in args.schedules:
+        missing = [(d, p, tag) for d, p, tag in grid if schedule not in cells[tag]]
+        if not missing:
+            continue
+        say(f"== {schedule}: {len(missing)} cells")
+        by_repeats = {}
+        for depth, spp, tag in missing:
+            by_repeats.setdefault(repeats_at(args, spp), []).append(tag)
+
+        def checked(tag, seconds):
+            cell = cells[tag]
             pbrt_radiance = read_pfm(f"{out}/{tag}-pbrt-radiance.pfm")
-            first = None
-            for schedule in args.schedules:
-                seconds = render_ours(out, schedule, tag, repeats_at(args, spp))
-                ours = read_pfm(f"{out}/{tag}-{schedule}-radiance.pfm")
-                check = check_radiance(pbrt_radiance, ours)
-                check["seconds"] = seconds
-                check["speedup"] = cell["pbrt_seconds"] / seconds
-                if first is None:
-                    first = (schedule, ours)
-                    check["same_image_as"] = None
-                else:
-                    check["same_image_as"] = \
-                        first[0] if np.array_equal(first[1], ours) else "differs"
-                cell[schedule] = check
-                verdict = "FAILED: " + "; ".join(check["failed"]) if check["failed"] else "ok"
-                say(f"   {schedule}: {seconds:.3f} s ({check['speedup']:.2f}x pbrt), "
-                    f"mean {check['mean_ratio']:.5f}x, {100 * check['agree']:.1f}% close, "
-                    f"{verdict}")
-            cells[tag] = cell
-            with open(f"{out}/results.json", "w") as f:
-                json.dump(results, f, indent=1)
+            ours = read_pfm(f"{out}/{tag}-{schedule}-radiance.pfm")
+            check = check_radiance(pbrt_radiance, ours)
+            check["seconds"] = seconds
+            check["speedup"] = cell["pbrt_seconds"] / seconds
+            # Bit for bit the same image as the first schedule's, where that
+            # has been rendered (in this run or a cached one).
+            reference = f"{out}/{tag}-{first}-radiance.pfm"
+            if schedule == first or not os.path.isfile(reference):
+                check["same_image_as"] = None
+            else:
+                check["same_image_as"] = \
+                    first if np.array_equal(read_pfm(reference), ours) else "differs"
+            cell[schedule] = check
+            verdict = "FAILED: " + "; ".join(check["failed"]) if check["failed"] else "ok"
+            say(f"   {tag}: {seconds:.3f} s ({check['speedup']:.2f}x pbrt), "
+                f"mean {check['mean_ratio']:.5f}x, {100 * check['agree']:.1f}% close, "
+                f"{verdict}")
+            save()
+
+        for repeats, tags in sorted(by_repeats.items(), reverse=True):
+            render_cells(out, schedule, tags, repeats, checked)
     return results
 
 
@@ -397,6 +459,29 @@ def plot_style():
     return plt
 
 
+def repeats_caption(args, results):
+    """One line saying how many runs the cells are the best of: the same
+    count everywhere, or the two counts a --long-spp run used, or that the
+    cache predates the record."""
+    counts = set()
+    for tag, cell in results["cells"].items():
+        if "repeats" in cell:
+            counts.add(cell["repeats"])
+        else:
+            counts.add(None)
+    if counts == {None}:
+        return "timings: best of an unrecorded number of runs (older cache)"
+    if None in counts:
+        return "timings: best of a number of runs not recorded for every cell"
+    if len(counts) == 1:
+        return f"timings: best of {counts.pop()} runs, both sides"
+    spp = [p for p in args.spps
+           if results["cells"][f"d{args.depths[0]}-s{p}"]["repeats"] == min(counts)]
+    return (f"timings: best of {max(counts)} runs up to {min(spp) // 2} spp, "
+            f"best of {min(counts)} from {min(spp)} spp up (a first look, not "
+            f"a benchmark)")
+
+
 def heatmaps(args, results, scene_name):
     """One panel per schedule, depth down and spp across, the cell its speedup
     over pbrt; one colour scale for all of them so that they read against
@@ -442,6 +527,13 @@ def heatmaps(args, results, scene_name):
                         color="white" if dark else "black")
     bar = fig.colorbar(image, ax=axes[0].tolist(), fraction=0.03, pad=0.02)
     bar.set_label("speedup over pbrt")
+    # How many runs each number is the best of, so a first look is not read
+    # as a benchmark. Recorded per cell by measure(); an older cache says
+    # nothing, and the caption says so.
+    # Below the panels' own labels, which hang under the figure's edge since
+    # the layout is the default one; the tight bounding box takes it in.
+    fig.text(0.0, -0.22, repeats_caption(args, results), fontsize=6,
+             ha="left", va="top", transform=fig.transFigure)
     bar.outline.set_linewidth(0.5)
     fig.savefig(f"{args.plots}/{scene_name}-speedup.pdf", bbox_inches="tight")
     fig.savefig(f"{args.plots}/{scene_name}-speedup.png", bbox_inches="tight")
@@ -580,12 +672,13 @@ def main(argv):
     parser.add_argument("--schedules", nargs="+", default=DEFAULT_SCHEDULES)
     parser.add_argument("--repeats", type=int, default=3,
                         help="best of this many runs, both sides")
-    parser.add_argument("--long-spp", type=int, default=128,
+    parser.add_argument("--long-spp", type=int, default=0,
                         help="from this sample count up a cell is the best of "
-                             "--long-repeats runs instead; a render that long "
-                             "varies little between runs, and repeating it "
-                             "would cost hours (none: --long-spp 0 keeps "
-                             "--repeats everywhere)")
+                             "--long-repeats runs instead -- a shortcut for a "
+                             "first look, since a render that long varies "
+                             "little between runs and repeating it costs "
+                             "hours; the default, 0, keeps --repeats "
+                             "everywhere, which a benchmark needs")
     parser.add_argument("--long-repeats", type=int, default=1,
                         help="best of this many runs from --long-spp up")
     parser.add_argument("--out", default=os.path.join(ROOT, "eval", "out"))
@@ -648,12 +741,19 @@ def main(argv):
     results = json.load(open(results_path)) if os.path.isfile(results_path) else {}
     if args.rerun:
         results = {}
+    # A cell is done when pbrt and every schedule asked for have rendered it;
+    # a schedule missing from a rendered cell is rendered into it.
+    def done(tag):
+        cell = results.get("cells", {}).get(tag)
+        return cell is not None and "pbrt_seconds" in cell and \
+            all(s in cell for s in args.schedules)
     missing = [f"d{d}-s{p}" for d in args.depths for p in args.spps
-               if f"d{d}-s{p}" not in results.get("cells", {})]
+               if not done(f"d{d}-s{p}")]
     if missing:
         results["compile_seconds"] = build(out, args.schedules)
         say("compile seconds: " + ", ".join(
             f"{s} {t:.2f}" for s, t in results["compile_seconds"].items()))
+        convert_scene(args, out, scene)
         measure(args, out, scene, results)
     else:
         say("every cell is rendered already (--rerun to render again)")

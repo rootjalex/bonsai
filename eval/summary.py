@@ -126,6 +126,16 @@ def main(argv):
     fig.legend(handles, labels, loc="upper center", ncol=len(args.schedules),
                frameon=False, bbox_to_anchor=(0.5, 1.0), fontsize=7)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
+    # What the numbers are the best of, as the heatmaps say it: once when
+    # every scene was run the same way, per scene otherwise.
+    captions = {scene: render_matrix.repeats_caption(args, results[scene])
+                for scene in args.scenes}
+    if len(set(captions.values())) == 1:
+        note = next(iter(captions.values()))
+    else:
+        note = "; ".join(f"{scene}: {c}" for scene, c in captions.items())
+    fig.text(0.0, -0.01, note, fontsize=6, ha="left", va="top",
+             transform=fig.transFigure)
 
     stem = args.name
     if stem is None:

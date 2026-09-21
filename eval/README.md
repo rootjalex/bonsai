@@ -24,20 +24,28 @@ Both directories are generated and ignored by git.
 
 ## What is measured
 
-For every cell the scene is converted once by `scene_dump` at that depth and
-sample count, on pbrt's own BVH (`--own-tree` to build this renderer's
-instead), so that what is timed is how each schedule traverses one tree
-rather than whose builder found the better one. pbrt renders it, then each
-schedule's renderer; both sides take the best of `--repeats` runs (default 3)
-up to `--long-spp` samples (default 128), and of `--long-repeats` runs
-(default 1) from there: a render of hundreds of samples per pixel varies
-little between runs, and three of each would cost hours. pbrt is timed by its
-own render timer read out of the EXR it writes and this renderer by its
-driver, around the render call alone, with the scene and the tree built
-beforehand on both sides. The speedup is pbrt's time over the schedule's.
-Every render uses all cores; pbrt's depth reaches it by rewriting the scene's
-`Integrator` directive, since pbrt has no flag for it (the same rewrite
-`apps/pbrt/compare.sh --maxdepth` does).
+The scene is converted once by `scene_dump`, on pbrt's own BVH (`--own-tree`
+to build this renderer's instead), so that what is timed is how each schedule
+traverses one tree rather than whose builder found the better one. pbrt then
+renders every cell it has not rendered -- one process per render, since pbrt
+has no other way -- and each schedule's renderer runs once over every cell it
+is missing from, loading the converted scene once and rendering it at each
+cell's depth and sample count (the driver's `--cells d1-s16,d5-s1024,...`;
+`--spp` and `--maxdepth` do the same for one render). The pavilion's
+converted scene is 1.7 GB and takes twenty seconds to read, so converting and
+reading it per cell and per schedule, as the first version of this tool did,
+was an hour and forty gigabytes of disk per scene. Both sides take the best of
+`--repeats` runs (default 3) at every cell, which is what a benchmark needs;
+`--long-spp N` is the shortcut for a first look, taking the best of
+`--long-repeats` runs (default 1) from N samples per pixel up, since a render
+of hundreds of samples per pixel varies little between runs and three of each
+cost hours (the 2026-09-21 sweep used `--long-spp 128`, and its figures say
+so). pbrt is timed by its own render timer read out of the EXR it writes and this
+renderer by its driver, around the render call alone, with the scene and the
+tree built beforehand on both sides. The speedup is pbrt's time over the
+schedule's. Every render uses all cores; pbrt's depth reaches it by rewriting
+the scene's `Integrator` directive, since pbrt has no flag for it (the same
+rewrite `apps/pbrt/compare.sh --maxdepth` does).
 
 The schedules are the files in `apps/pbrt/schedules/`, five by default and
 `--schedules` for a subset: the sample loop run three ways -- `scalar`,
@@ -76,8 +84,12 @@ and makes the exit code non-zero.
 A cell that has been rendered is not rendered again: the numbers live in
 `eval/out/<scene>/results.json` and the plots are redrawn from them, so the
 figures can be reworked -- another crop, another row order, the normals
-instead of the radiance -- without waiting for the renders. `--rerun` throws
-the cache away, which is what to do after a change to the compiler or the
+instead of the radiance -- without waiting for the renders. The cache is per
+renderer within a cell: a schedule named that a cached cell lacks -- a new
+file in `schedules/` -- is rendered into the grid on its own, against the
+cached pbrt time and image, without rendering the others again, which is how
+a new schedule joins figures that took an afternoon. `--rerun` throws the
+cache away, which is what to do after a change to the compiler or the
 renderer; a cached cell says nothing about the current build.
 
 ## Options
@@ -88,7 +100,7 @@ renderer; a cached cell says nothing about the current build.
     --schedules S ...           default scalar perlane packet wavefront-perlane wavefront
     --repeats N                 best of N runs, both sides; default 3
     --long-spp N                from N samples per pixel up, best of --long-repeats
-                                runs instead; default 128 (0: --repeats throughout)
+                                runs instead; default 0, --repeats throughout
     --long-repeats N            default 1
     --own-tree                  build this renderer's BVH rather than take pbrt's
     --rerun                     render every cell again

@@ -84,6 +84,7 @@ apps/pbrt/*.png
 apps/pbrt/scene_dump
 apps/pbrt/scene.txt
 apps/pbrt/__pycache__/
+eval/__pycache__/
 
 # The headers the C++ backend emits alongside a .o, which the drivers include.
 # Generated, so not committed: the scripts that build a driver compile the
