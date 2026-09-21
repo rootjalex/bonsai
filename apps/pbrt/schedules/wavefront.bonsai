@@ -31,6 +31,14 @@ schedule {
     full_path_step.defer(full_path_step, paths);
     render.split(paths, paths_gang, paths_lane, 16, true)
           .vectorize(paths_lane);
+    // The producer too: every sample's first step -- its camera ray, its
+    // first hit and its first bounce, which end with the push -- is made by
+    // a gang of sixteen samples, and its push compacts the paths that
+    // continue into the queue's first round. Left scalar, the first bounce
+    // was half of a killeroo render's time (PLAN.md, the wavefront's
+    // measurements).
+    render.split(s, s_gang, s_lane, 16, true)
+          .vectorize(s_lane);
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|

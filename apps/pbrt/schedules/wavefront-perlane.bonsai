@@ -1,0 +1,37 @@
+// The wavefront schedule with a per-lane traversal: wavefront.bonsai's queue
+// and gang drain, but with the traversals put on their stacks *before* the
+// drain is vectorized, so that each lane of the gang walks the tree at its
+// own pace over a stack of its own -- perlane.bonsai's traversal under
+// wavefront.bonsai's drain, as perlane.bonsai is under packet.bonsai's
+// sample loop. The two wavefront schedules differ in that one line's
+// position and in nothing else, which is what makes them comparable: what
+// the queue costs and buys is the same in both, and the difference between
+// them is the difference between a per-lane traversal and a packet one.
+//
+// See wavefront.bonsai for what the queue and its drain are, and
+// perlane.bonsai for what a per-lane traversal is and why it gathers.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    paths = render.queue(p);
+    full_path_step.defer(full_path_step, paths);
+    render.split(paths, paths_gang, paths_lane, 16, true)
+          .vectorize(paths_lane);
+    // The producer too, as wavefront.bonsai does; see there.
+    render.split(s, s_gang, s_lane, 16, true)
+          .vectorize(s_lane);
+
+    render.bind(p, CPUThread);
+}
