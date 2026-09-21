@@ -3386,6 +3386,42 @@ reordering, which is the hardware's answer to the shading divergence this
 whole plan is about and worth measuring once a megakernel runs. Neither
 blocks phase A below.
 
+**3b. Which OptiX and which LLVM, decided 2026-09-21.** The user: use the
+most recent OptiX for bonsai, not pbrt's 7.7 -- install it beside the pbrt
+one and point bonsai at it. The current SDK is **OptiX 9.1.0** (December
+2025; needs an R590 driver or newer, which 595.84 is; the download is behind
+the NVIDIA Developer Program login, so it is fetched by hand) and goes to
+`~/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64/`; `runtime/bonsai_optix`
+takes the SDK directory from `BONSAI_OPTIX_SDK` (CMake and environment) with
+that path as the default, pbrt keeps its 7.7 headers, and the two never
+mix -- the OptiX runtime is the driver's in both cases, only the headers and
+the function table differ. 9.x over 7.7 for us: shader execution reordering
+(`optixReorder`, 8.0), OptiX-IR input (nvcc-only, irrelevant), cooperative
+vectors and the newer curve and sphere primitives, and 9.1's ABI.
+
+The most recent stable LLVM is **23.1.1** (September 2026; we are on 19.1).
+What moving would give, by release: 20 -- NVPTX targets sm_100/sm_101/sm_120
+and PTX ISA 8.6/8.7, so the 5090 is compiled for natively rather than as
+sm_90 PTX the driver re-targets, and the old `llvm.nvvm.*` bitcast, rotate,
+ldg and address-space intrinsics are gone (we would use none); 21 -- the
+`captures(none)` attribute in place of `nocapture` and `TargetIntrinsicInfo`
+gone (neither used here); 22 -- **the alignment operand is removed from the
+masked load, store, gather and scatter intrinsics** and moves onto the
+pointer argument, which touches every `CreateMaskedLoad/Store/Gather/Scatter`
+and `CreateMaskedCompressStore` call in `CodeGen_LLVM.cpp`, plus `ptrtoaddr`;
+23 -- NVPTX's default target rises from sm_30 to sm_75, `BranchInst` is
+split into `UncondBrInst`/`CondBrInst` with changed operand order (our
+IRBuilder `CreateBr`/`CreateCondBr` calls survive, anything reading a
+branch's operands does not), `Constant::isZeroValue` becomes `isNullValue`.
+The cost: rebuilding `deps/llvm-project` (an hour on this machine) and a day
+or two of API churn in the two LLVM backends and the JIT, and a check that
+the `std::regex`/CommandLine registration issue seen in a worktree build does
+not recur. The gain that matters for the GPU is the native Blackwell target
+and the newest PTX; for the CPU, two more years of the x86 backend's
+scheduling models for Zen 5 and the vectorizer. Not needed for phase A;
+planned as its own small step before phase C, so the OptiX 9.1 programs are
+compiled with a PTX version the SDK was tested with.
+
 **4. The split.** Halide's, as the memory of the user's design already says:
 `CodeGen_LLVM` stays target-agnostic; `CodeGen_X86` is the host -- the gang's
 register width, the stack facts, and now the kernel-launch shims Halide puts
