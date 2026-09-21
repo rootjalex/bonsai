@@ -44,6 +44,62 @@ import apps/pbrt/frame;
 import apps/pbrt/sampler;
 import apps/pbrt/shapes;
 import apps/pbrt/spectrum;
+import apps/pbrt/transform;
+
+// pbrt: Spectrum, a TaggedPointer over seven kinds, as a light emits one. The
+// arms are the kinds an `L` is in the scenes here, and pbrt's default when a
+// scene writes none. An RGB, which pbrt fits to a sigmoid and multiplies by
+// the colour space's illuminant -- an RGBIlluminantSpectrum is a fit *times*
+// an illuminant, where an albedo is the fit alone, and that multiply is what
+// makes it an emission rather than a reflectance. A blackbody at a
+// temperature. Or the colour space's illuminant itself, D65 for sRGB, which
+// is what an infinite light emits with no `L` written; the fit of a flat
+// spectrum is not exactly flat, so which of the two a light emits is carried
+// rather than guessed. What a light's `scale` is divided by to make a
+// radiance of one mean one nit is the photometric integral of whichever of
+// these it emits, and that division is the converter's (scene_dump.cpp),
+// where pbrt's own spectra are to hand.
+element Emission =
+    | RGBIlluminant(fit : SigmoidPolynomial)
+    // pbrt: BlackbodySpectrum -- Planck's law, normalized to one at the
+    // wavelength Wien's law puts its peak at, so that `scale` alone says how
+    // bright. The normalization is the constructor's, computed by the
+    // converter with pbrt's own `Blackbody` and shipped, so that the spectrum
+    // here is pbrt's to the last bit -- `FastExp` included -- and not a
+    // recomputation of it.
+    | Blackbody(temperature : Float, normalization : Float)
+    | Illuminant;
+
+// pbrt: Blackbody, from util/spectrum.h -- the radiance a black body at `t`
+// kelvin emits at each of four wavelengths given in nanometres. `FastExp`, as
+// pbrt writes it, and `Pow<5>` as pbrt's template multiplies it out: the
+// square, squared, times the base.
+func blackbody(lambda : vec4f, t : Float) -> vec4f {
+    if t <= 0.0 {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    c = 299792458.0;
+    h = 6.62606957e-34;
+    kb = 1.3806488e-23;
+    l = lambda * 1e-9;
+    l2 = l * l;
+    l5 = l2 * l2 * l;
+    x = (h * c) / (l * kb * t);
+    e = vec4f{fast_exp(x.x), fast_exp(x.y), fast_exp(x.z), fast_exp(x.w)};
+    return (2.0 * h * c * c) / (l5 * (e - 1.0));
+}
+
+// pbrt: Spectrum::Sample, the emission at the four wavelengths of a hit.
+func emission_at(e : Emission, lambda : SampledWavelengths) -> vec4f {
+    match e {
+        RGBIlluminant(fit) =>
+            return spectrum_at(fit, lambda) *
+                   spectrum_at_dense(illuminant_d65, lambda);
+        Blackbody(temperature, normalization) =>
+            return blackbody(lambda.lambda, temperature) * normalization;
+        Illuminant => return spectrum_at_dense(illuminant_d65, lambda);
+    }
+}
 
 // pbrt: DiffuseAreaLight, with no image and no alpha mask -- a shape that
 // emits the same radiance in every direction it faces.
@@ -52,14 +108,10 @@ import apps/pbrt/spectrum;
 // any machinery at all: `RandomWalkIntegrator` never samples a light, it finds
 // one by hitting it, so this needs no `SampleLi`, no PDF and no shadow ray.
 //
-// `l` is the RGB the scene wrote, fitted by the driver as every other spectrum
-// is; `scale` is pbrt's own scale after the division that makes a radiance of
-// one mean one nit. What makes this an illuminant rather than a reflectance is
-// the multiply by the colour space's D65 in `area_light_l` below -- pbrt's
-// RGBIlluminantSpectrum is a fit *times* an illuminant, where an albedo is the
-// fit alone.
+// `emission` is the scene's `L` (see Emission above); `scale` is pbrt's own
+// scale after the division that makes a radiance of one mean one nit.
 element AreaLight {
-    l : SigmoidPolynomial;
+    emission : Emission;
     scale : Float;
     two_sided : bool;
 }
@@ -76,8 +128,7 @@ func area_light_l(light : AreaLight, n : vec3f, w : vec3f,
     if !light.two_sided && (dot(n, w) < 0.0) {
         return vec4f{0.0, 0.0, 0.0, 0.0};
     }
-    return light.scale * spectrum_at(light.l, lambda) *
-           spectrum_at_dense(illuminant_d65, lambda);
+    return light.scale * emission_at(light.emission, lambda);
 }
 
 // pbrt: LightLiSample -- a direction towards a light, what arrives along it,
@@ -108,15 +159,12 @@ element LightLiSample {
 // pbrt's `Preprocess` bounds the scene in a sphere and the sample sits two radii
 // away, far enough to be outside anything.
 //
-// `has_l` is not decoration. With no `L` written, pbrt emits the colour space's
-// own illuminant -- for sRGB, D65 itself -- and with an `L` it emits an
-// RGBIlluminantSpectrum, which is a sigmoid fit *times* that illuminant. The
-// two are different spectra and the fit is not the identity, so which one this
-// is has to be carried rather than guessed.
+// `emission` is what it emits: with no `L` written, pbrt emits the colour
+// space's own illuminant -- for sRGB, D65 itself -- and with one, the spectrum
+// the scene wrote (see Emission above).
 element UniformInfiniteLight {
-    l : SigmoidPolynomial;
+    emission : Emission;
     scale : Float;
-    has_l : bool;
     // pbrt: sceneRadius, from Preprocess. The scene's bounding sphere.
     scene_radius : Float;
 }
@@ -180,13 +228,34 @@ element ImageInfiniteLight {
 //
 // Three kinds. The rest go in as their own arms, and `light_sample_li` grows an
 // arm rather than the callers growing a branch.
+// pbrt: DistantLight -- light from one direction, as the sun's is: the same
+// radiance arriving at every point from `w_light`, and no geometry to it. A
+// delta light (LightType::DeltaDirection): `SampleLi` answers the one
+// direction with a density of one, `PDF_Li` is zero -- a BSDF sample never
+// finds it, which is why `path` takes its estimate alone rather than weighing
+// it against the BSDF's -- and an escaped ray sees nothing of it. The point
+// it is sampled at is two scene radii out along the direction, as the
+// infinite lights' is, so that the shadow ray has an end. pbrt keeps it in
+// the light sampler's infinite list, being unbounded, and so does the driver:
+// it sits in the run after the area lights with the infinite ones.
+element DistantLight {
+    emission : Emission;
+    scale : Float;
+    // pbrt: Normalize(renderFromLight(0, 0, 1)) -- the direction the light
+    // arrives *from*, in render space, which the converter takes from the
+    // scene's `from` and `to` under the light's transform.
+    w_light : vec3f;
+    scene_radius : Float;
+}
+
 element Light =
     | DiffuseArea(area : AreaLight, shape : Shape)
     // `sky` rather than the `inf` that reads more naturally: `inf` is the
     // floating-point infinity in stdlib/numerics, and binding it in a match arm
     // shadows it.
     | UniformInfinite(sky : UniformInfiniteLight)
-    | ImageInfinite(img : ImageInfiniteLight);
+    | ImageInfinite(img : ImageInfiniteLight)
+    | Distant(sun : DistantLight);
 
 // pbrt: the scene's lights, one per emissive shape -- which is what pbrt's
 // `std::vector<Light>` is. A primitive names one by index, as it names a
@@ -203,23 +272,17 @@ func light_l(light : Light, n : vec3f, w : vec3f,
         DiffuseArea(area, shape) => return area_light_l(area, n, w, lambda);
         // An infinite light is not a surface, so nothing ever lands on one and
         // this is unreachable for it. pbrt says the same by not declaring `L`
-        // on the class at all.
+        // on the class at all. Nor is a distant light.
         UniformInfinite(sky) => return vec4f{0.0, 0.0, 0.0, 0.0};
         ImageInfinite(img) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Distant(sun) => return vec4f{0.0, 0.0, 0.0, 0.0};
     }
 }
 
 // pbrt: UniformInfiniteLight::Le, `scale * Lemit.Sample(lambda)`.
 func uniform_infinite_le(sky : UniformInfiniteLight,
                          lambda : SampledWavelengths) -> vec4f {
-    illuminant = spectrum_at_dense(illuminant_d65, lambda);
-    // With an L, pbrt's Lemit is an RGBIlluminantSpectrum: the fit times the
-    // colour space's illuminant, which is what `area_light_l` computes too.
-    // Without one, Lemit *is* that illuminant.
-    if sky.has_l {
-        return sky.scale * spectrum_at(sky.l, lambda) * illuminant;
-    }
-    return sky.scale * illuminant;
+    return sky.scale * emission_at(sky.emission, lambda);
 }
 
 // pbrt: RemapPixelCoords under WrapMode::OctahedralSphere -- what an
@@ -296,6 +359,10 @@ func light_le(light : Light, d : vec3f,
         DiffuseArea(area, shape) => return vec4f{0.0, 0.0, 0.0, 0.0};
         UniformInfinite(sky) => return uniform_infinite_le(sky, lambda);
         ImageInfinite(img) => return image_infinite_le(img, d, lambda);
+        // pbrt: a DistantLight has no `Le` of its own, so the base class's
+        // answers -- nothing. A ray that escapes cannot have come from a
+        // single direction by chance.
+        Distant(sun) => return vec4f{0.0, 0.0, 0.0, 0.0};
     }
 }
 
@@ -363,6 +430,16 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
                                  vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
             return s;
         }
+        // pbrt: DistantLight::SampleLi -- the one direction, with a density
+        // of one, whatever `allow_incomplete_pdf` says: nothing else can
+        // find a delta light, so it is never declined.
+        Distant(sun) => {
+            far = ctx.p + 2.0 * sun.scene_radius * sun.w_light;
+            s : LightLiSample = {sun.scale * emission_at(sun.emission, lambda),
+                                 sun.w_light, 1.0, far,
+                                 vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
+            return s;
+        }
         DiffuseArea(area, shape) => {
             found = shape_sample(shape, ctx, u);
             if !found {
@@ -407,6 +484,9 @@ func light_pdf_li(light : Light, ctx : ShapeSampleContext, wi : vec3f,
             return dist2d_pdf(picked, img.resolution, img.resolution, uv,
                               env_dist_values) / (4.0 * pi());
         }
+        // pbrt: DistantLight::PDF_Li is zero -- a delta light has no density
+        // over directions for a BSDF sample to be weighed against.
+        Distant(sun) => return 0.0;
     }
 }
 
@@ -445,6 +525,8 @@ func light_is_delta(light : Light) -> bool {
         // arrives from every direction, so a BSDF sample can find it.
         UniformInfinite(sky) => return false;
         ImageInfinite(img) => return false;
+        // pbrt: LightType::DeltaDirection, which it does.
+        Distant(sun) => return true;
     }
 }
 
@@ -553,7 +635,13 @@ func bvh_descend(u_in : Float, pmf_in : Float,
     while !done {
         node = light_tree[cast[[u32]](node_index)];
         if node.is_leaf != 0u {
-            chosen = cast[[i32]](node.child_or_light);
+            // pbrt: a leaf reached by descent has an importance the descent
+            // already found to be nonzero; the root, when the tree is one
+            // leaf, has not been asked, and a light whose bounds say no
+            // energy reaches the point is declined rather than returned.
+            if (node_index > 0) || (light_node_importance(node, ctx) > 0.0) {
+                chosen = cast[[i32]](node.child_or_light);
+            }
             done = true;
         } else {
             ci0 = light_node_importance(light_tree[cast[[u32]](node_index + 1)],
@@ -761,83 +849,10 @@ func transform_bounds(t : Transform, b : AABB) -> AABB {
     return out;
 }
 
-// pbrt: Transform::ApplyInverse(const Ray &, Float *tMax), the top of
-// TransformedPrimitive::Intersect: the ray moved into the instance's frame, so
-// that everything inside the instance's tree is tested against stored
-// geometry. `inv` is the inverse matrix, so applying it is `ApplyInverse`.
-//
-// The origin is a point and goes through the interval-point arithmetic pbrt
-// uses for it -- `(m00 x + m01 y) + (m02 z + m03)`, paired that way -- and the
-// direction is a vector, through the same rows without the translation. The
-// direction is *not* renormalised, on purpose and as in pbrt: an affine map
-// preserves the parameter along a line only when the direction is transformed
-// rather than rescaled, and it is that parameter -- the `t` of a hit -- that
-// `distmin` answers and that the running best is compared against. Renormalise
-// and an instance could no longer prune against a hit found in another one.
-//
-// pbrt then nudges the origin forward by its rounding error, `o += d * dt`, and
-// takes the same `dt` off `tMax` so that the two sides still agree about where
-// the best hit so far is. That is not done here. The nudge is against a ray
-// re-hitting the surface its origin was rounded onto, which this renderer
-// guards with pbrt's own SpawnRay offset, applied in render space before the
-// ray reaches any instance; and `tMax` is not a field
-// of the query here but the traversal's accumulator, which nothing inside a
-// query may alter (see PLAN.md). Without the nudge the identity the whole
-// arrangement rests on -- a distance along the pulled ray *is* the distance
-// along the original -- holds exactly rather than up to `dt`, and the hit point
-// differs from pbrt's by that `dt`: a few units in the last place.
-func pull_ray(inv : Transform, r : Ray) -> Ray {
-    o = vec3f{fma(inv.r0.y, r.o.y, inv.r0.x * r.o.x) + fma(inv.r0.z, r.o.z, inv.r0.w),
-              fma(inv.r1.y, r.o.y, inv.r1.x * r.o.x) + fma(inv.r1.z, r.o.z, inv.r1.w),
-              fma(inv.r2.y, r.o.y, inv.r2.x * r.o.x) + fma(inv.r2.z, r.o.z, inv.r2.w)};
-    wp = fma(inv.r3.y, r.o.y, inv.r3.x * r.o.x) + fma(inv.r3.z, r.o.z, inv.r3.w);
-    out : Ray = {select(wp == 1.0, o, o / wp), apply_vector(inv, r.d), r.tmax};
-    return out;
-}
-
-// pbrt: Transform::operator()(const SurfaceInteraction &), the bottom of
-// TransformedPrimitive::Intersect: the interaction the instance's own geometry
-// computed, moved into render space once. Points by the matrix, vectors by its
-// upper three by three, normals by the inverse transposed -- pbrt's
-// `operator()(Normal3f)` reads the *columns* of the inverse -- and the two
-// normals renormalised afterwards, as pbrt's are. `shading.n` is then turned
-// to face the geometric normal, which is the last line of pbrt's version.
-//
-// The hit point is pbrt's Point3fi: the position, and the bound on how far the
-// arithmetic could have put it, which grows through the transform the way
-// pbrt's `Transform::operator()(const Point3fi &)` grows it -- the incoming
-// error scaled by the matrix's magnitudes, plus the transform's own rounding.
-func push_surface(m : Transform, inv : Transform,
-                  s : SurfaceGeometry) -> SurfaceGeometry {
-    p = vec3f{fma(m.r0.y, s.p.y, m.r0.x * s.p.x) + fma(m.r0.z, s.p.z, m.r0.w),
-              fma(m.r1.y, s.p.y, m.r1.x * s.p.x) + fma(m.r1.z, s.p.z, m.r1.w),
-              fma(m.r2.y, s.p.y, m.r2.x * s.p.x) + fma(m.r2.z, s.p.z, m.r2.w)};
-    wp = fma(m.r3.y, s.p.y, m.r3.x * s.p.x) + fma(m.r3.z, s.p.z, m.r3.w);
-    g3 = gamma(3);
-    e = s.p_error;
-    p_error = vec3f{
-        (g3 + 1.0) * (abs(m.r0.x) * e.x + abs(m.r0.y) * e.y + abs(m.r0.z) * e.z) +
-            g3 * (abs(m.r0.x * s.p.x) + abs(m.r0.y * s.p.y) + abs(m.r0.z * s.p.z) +
-                  abs(m.r0.w)),
-        (g3 + 1.0) * (abs(m.r1.x) * e.x + abs(m.r1.y) * e.y + abs(m.r1.z) * e.z) +
-            g3 * (abs(m.r1.x * s.p.x) + abs(m.r1.y * s.p.y) + abs(m.r1.z * s.p.z) +
-                  abs(m.r1.w)),
-        (g3 + 1.0) * (abs(m.r2.x) * e.x + abs(m.r2.y) * e.y + abs(m.r2.z) * e.z) +
-            g3 * (abs(m.r2.x * s.p.x) + abs(m.r2.y * s.p.y) + abs(m.r2.z * s.p.z) +
-                  abs(m.r2.w))};
-    n = unit_vector_(apply_normal_inverse(inv, s.n));
-    ns_raw = unit_vector_(apply_normal_inverse(inv, s.ns));
-    ns = select(dot(ns_raw, n) < 0.0, -ns_raw, ns_raw);
-    out : SurfaceGeometry = {n, ns,
-                             apply_vector(m, s.dpdus), apply_vector(m, s.dpdvs),
-                             s.uv,
-                             apply_vector(m, s.dpdu), apply_vector(m, s.dpdv),
-                             apply_normal_inverse(inv, s.dndu),
-                             apply_normal_inverse(inv, s.dndv),
-                             select(wp == 1.0, p, p / wp),
-                             select(wp == 1.0, p_error, p_error / abs(wp))};
-    return out;
-}
+// `pull_ray` and `push_surface` -- pbrt's ApplyInverse of a ray and its
+// transform of a SurfaceInteraction, the top and bottom of
+// TransformedPrimitive::Intersect -- are in shapes.bonsai, since a disk lives
+// in an object space too and is found and moved out by the same two.
 
 // The primitive as a motion: pbrt's TransformedPrimitive moves what it holds
 // and its GeometricPrimitive holds it where it is. These three are the

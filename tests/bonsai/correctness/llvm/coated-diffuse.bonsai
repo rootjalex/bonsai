@@ -56,7 +56,7 @@ func base(r0 : Float, r1 : Float, r2 : Float, r3 : Float) -> DiffuseBxDF {
 // pbrt: CoatedDiffuseMaterial::GetBxDF, with `remaproughness` at its default of
 // true and no scattering medium between the interfaces.
 func coating(roughness : Float, eta : Float, thickness : Float,
-             bottom : DiffuseBxDF) -> CoatedDiffuseBxDF {
+             bottom : DiffuseBxDF) -> LayeredBxDF {
     a = roughness_to_alpha(roughness);
     top : DielectricBxDF = {eta, make_trowbridge_reitz(a, a)};
     return make_coated_diffuse(top, bottom, thickness,
@@ -68,7 +68,7 @@ func coating(roughness : Float, eta : Float, thickness : Float,
 // where the loop runs more than once, because a sum divided by `nSamples` and a
 // sum that forgot to be are the same number at one sample.
 func coating_n(roughness : Float, eta : Float, thickness : Float,
-               bottom : DiffuseBxDF, n : i32) -> CoatedDiffuseBxDF {
+               bottom : DiffuseBxDF, n : i32) -> LayeredBxDF {
     a = roughness_to_alpha(roughness);
     top : DielectricBxDF = {eta, make_trowbridge_reitz(a, a)};
     return make_coated_diffuse(top, bottom, thickness,

@@ -300,10 +300,16 @@ func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
     rgb = clamp(rgb_in, 0.0, 1.0);
 
     // A grey has no largest component and the fit is exact, so pbrt answers it
-    // directly rather than interpolating.
+    // directly rather than interpolating: the constant whose sigmoid is the
+    // grey. For black and for white that constant is a division by zero, and
+    // is meant to be: minus and plus infinity, which `sigmoid` reads as
+    // reflecting nothing and everything. A guard here that answered zero
+    // instead made every black texel reflect half the light -- a textured
+    // floor that pbrt left black in a third of its pixels was lit in all of
+    // them, twelve percent brighter on average -- so there is no guard, as
+    // pbrt has none.
     if (rgb.x == rgb.y) && (rgb.y == rgb.z) {
-        s = select(rgb.x * (1.0 - rgb.x) <= 0.0, 0.0,
-                   (rgb.x - 0.5) / sqrt(rgb.x * (1.0 - rgb.x)));
+        s = (rgb.x - 0.5) / sqrt(rgb.x * (1.0 - rgb.x));
         return SigmoidPolynomial{0.0, 0.0, s};
     }
 

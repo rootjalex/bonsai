@@ -30,6 +30,7 @@ namespace bonsai_scene {
 enum ShapeTag : uint32_t {
     Sphere = 0,
     Triangle = 1,
+    Disk = 2,
 };
 
 enum MaterialTag : uint32_t {
@@ -50,6 +51,12 @@ enum MaterialTag : uint32_t {
     // `reflectance` for the front and adds `transmittance` for what comes
     // through, both scaled by `scale`.
     DiffuseTransmission = 5,
+    // A dielectric coating over a metal: the CoatedDiffuse fields for the
+    // interface (its roughness, `thickness`, `eta`, the medium's albedo and
+    // `g`, `max_depth`, `n_samples`) and the Conductor fields for the metal
+    // (`conductor_spectra` or `reflectance`), plus the metal's own roughness
+    // below.
+    CoatedConductor = 6,
 };
 
 // One of PBRT's PiecewiseLinear2D interpolants, as the renderer reads it.
@@ -197,8 +204,13 @@ struct Material {
     // applies it in GetBSDF rather than in any one material's GetBxDF.
     int32_t displacement_texture = -1;
     // Conductor only: which pair of `conductor_eta` / `conductor_k` tables this
-    // material's index of refraction is.
+    // material's index of refraction is -- or, when the scene gave a
+    // `reflectance` instead of `eta` and `k`, none: PBRT then takes eta as one
+    // and k as the value that reflects `reflectance` at normal incidence, per
+    // wavelength at the hit (ConductorMaterial::GetBxDF), and `reflectance` /
+    // `reflectance_texture` above hold what it was given.
     int32_t conductor_spectra = -1;
+    uint32_t conductor_from_reflectance = 0;
     // Measured only: which entry of `measured_brdfs`.
     int32_t measured = -1;
     // DiffuseTransmission only: what comes through the surface, as an RGB or
@@ -208,10 +220,21 @@ struct Material {
     float transmittance[3] = {0.25f, 0.25f, 0.25f};
     int32_t transmittance_texture = -1;
     float scale = 1.f;
-    // CoatedDiffuse only. The roughness as authored, not as remapped: PBRT
-    // remaps per intersection and `remaproughness` says whether it does at all.
+    // CoatedDiffuse, Conductor and Dielectric. The roughness as authored, not
+    // as remapped: PBRT remaps per intersection and `remaproughness` says
+    // whether it does at all. Each is PBRT's FloatTexture: the constant here,
+    // or an index into `textures` when the scene gave a texture, and -1 when
+    // it did not, as `reflectance_texture` is for a spectrum.
     float u_roughness = 0.f;
     float v_roughness = 0.f;
+    int32_t u_roughness_texture = -1;
+    int32_t v_roughness_texture = -1;
+    // CoatedConductor only: the metal's roughness, the fields above being
+    // the coating's.
+    float conductor_u_roughness = 0.f;
+    float conductor_v_roughness = 0.f;
+    int32_t conductor_u_roughness_texture = -1;
+    int32_t conductor_v_roughness_texture = -1;
     uint32_t remap = 1;
     float thickness = 0.01f;
     float eta = 1.5f;
@@ -273,6 +296,15 @@ struct Light {
     // PBRT's `twosided`. A one-sided light emits only where its normal points,
     // which for a sphere is outwards.
     uint32_t two_sided = 0;
+    // A `blackbody L` in place of the RGB: PBRT's BlackbodySpectrum, Planck's
+    // law at `temperature` kelvin normalized to one at its peak, the
+    // normalization being the constructor's, computed with PBRT's own
+    // `Blackbody` so that the renderer's spectrum is PBRT's to the bit. `l`
+    // is then unused, and `scale` was divided by the photometric integral of
+    // *this* spectrum, as PBRT divides it.
+    uint32_t blackbody = 0;
+    float temperature = 0.f;
+    float blackbody_normalization = 1.f;
 };
 
 // A UniformInfiniteLight: the same radiance from every direction, which is what
@@ -291,6 +323,18 @@ struct InfiniteLight {
     float l[3] = {1.f, 1.f, 1.f};
     float scale = 1.f;
     uint32_t has_l = 0;
+    // A `blackbody L`, as on Light above; `has_l` is then zero and `l` unused.
+    uint32_t blackbody = 0;
+    float temperature = 0.f;
+    float blackbody_normalization = 1.f;
+    // A DistantLight rather than an infinite one: light from the one
+    // direction `direction`, in render space -- PBRT's
+    // Normalize(renderFromLight(0, 0, 1)), the direction it arrives *from*.
+    // The emission fields above are read as for the uniform light, and
+    // `resolution` is zero. It goes in this list because PBRT's light sampler
+    // keeps it with the infinite lights, having no bounds.
+    uint32_t distant = 0;
+    float direction[3] = {0.f, 0.f, 1.f};
     // An ImageInfiniteLight rather than a uniform one: the equal-area
     // octahedral environment map's square resolution, and where its texels
     // begin in the scene's shared texel pool. Zero resolution means there is no
@@ -312,13 +356,29 @@ struct InfiniteLight {
 
 struct Shape {
     uint32_t tag;
-    // Sphere.
+    // Sphere, and the disk's outer radius.
     float radius = 0.f;
     float center[3] = {0.f, 0.f, 0.f};
+    // PBRT's reverseOrientation ^ transformSwapsHandedness: which way the
+    // surface normal points.
     uint32_t flip = 0;
     // Triangle.
     uint32_t mesh = 0;
     uint32_t tri = 0;
+    // Disk. PBRT's is in an object space its transform places -- unlike the
+    // sphere, which is admitted only under a translation -- so both matrices
+    // come along, 4x4 in row order, as an instance's do. `phi_max` is in
+    // radians, clamped to a turn, as PBRT's constructor leaves it; `reverse` is
+    // reverseOrientation alone, which PBRT turns a *sampled* point's normal by
+    // where a hit's normal is turned by `flip`.
+    float render_from_object[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    float object_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    float height = 0.f;
+    float inner_radius = 0.f;
+    float phi_max = 6.28318530717958647692f;
+    uint32_t reverse = 0;
     // Which of the scene's materials this shape was declared under.
     uint32_t material = 0;
     // Which of the scene's lights this shape emits as, or -1 for a shape that
@@ -897,6 +957,9 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::DiffuseTransmission:
             out << "  diffusetransmission";
             break;
+        case MaterialTag::CoatedConductor:
+            out << "  coatedconductor";
+            break;
         default:
             return false;
         }
@@ -914,6 +977,8 @@ inline bool write(const char *path, const Scene &scene) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
             detail::put(out, &m.v_roughness, 1);
+            out << " roughnesstex " << m.u_roughness_texture << ' '
+                << m.v_roughness_texture;
             out << " remap " << m.remap;
             out << " eta";
             detail::put(out, &m.eta, 1);
@@ -922,13 +987,19 @@ inline bool write(const char *path, const Scene &scene) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
             detail::put(out, &m.v_roughness, 1);
+            out << " roughnesstex " << m.u_roughness_texture << ' '
+                << m.v_roughness_texture;
             out << " remap " << m.remap;
             out << " spectra " << m.conductor_spectra;
+            out << " fromreflectance " << m.conductor_from_reflectance;
         }
-        if (m.tag == MaterialTag::CoatedDiffuse) {
+        if (m.tag == MaterialTag::CoatedDiffuse ||
+            m.tag == MaterialTag::CoatedConductor) {
             out << " roughness";
             detail::put(out, &m.u_roughness, 1);
             detail::put(out, &m.v_roughness, 1);
+            out << " roughnesstex " << m.u_roughness_texture << ' '
+                << m.v_roughness_texture;
             out << " remap " << m.remap;
             out << " thickness";
             detail::put(out, &m.thickness, 1);
@@ -941,6 +1012,15 @@ inline bool write(const char *path, const Scene &scene) {
             detail::put(out, &m.g, 1);
             out << " maxdepth " << m.max_depth;
             out << " nsamples " << m.n_samples;
+        }
+        if (m.tag == MaterialTag::CoatedConductor) {
+            out << " conductorroughness";
+            detail::put(out, &m.conductor_u_roughness, 1);
+            detail::put(out, &m.conductor_v_roughness, 1);
+            out << " conductorroughnesstex " << m.conductor_u_roughness_texture
+                << ' ' << m.conductor_v_roughness_texture;
+            out << " spectra " << m.conductor_spectra;
+            out << " fromreflectance " << m.conductor_from_reflectance;
         }
         out << '\n';
     }
@@ -974,16 +1054,29 @@ inline bool write(const char *path, const Scene &scene) {
         out << "  diffuse";
         detail::put(out, l.l, 3);
         detail::put(out, &l.scale, 1);
-        out << " twosided " << l.two_sided << '\n';
+        out << " twosided " << l.two_sided;
+        out << " blackbody " << l.blackbody;
+        detail::put(out, &l.temperature, 1);
+        detail::put(out, &l.blackbody_normalization, 1);
+        out << '\n';
     }
 
     out << "infinite_lights " << scene.infinite_lights.size() << " radius "
         << scene.scene_radius << '\n';
     for (const InfiniteLight &l : scene.infinite_lights) {
-        out << (l.resolution == 0 ? "  uniform" : "  image");
+        out << (l.distant != 0     ? "  distant"
+                : l.resolution == 0 ? "  uniform"
+                                    : "  image");
         detail::put(out, l.l, 3);
         detail::put(out, &l.scale, 1);
         out << " hasl " << l.has_l;
+        out << " blackbody " << l.blackbody;
+        detail::put(out, &l.temperature, 1);
+        detail::put(out, &l.blackbody_normalization, 1);
+        if (l.distant != 0) {
+            out << " direction";
+            detail::put(out, l.direction, 3);
+        }
         if (l.resolution != 0) {
             out << " resolution " << l.resolution << " first " << l.first_texel
                 << " light_from_render";
@@ -1003,6 +1096,17 @@ inline bool write(const char *path, const Scene &scene) {
                 detail::put(out, s.center, 3);
                 detail::put(out, &s.radius, 1);
                 out << " flip " << s.flip;
+            } else if (s.tag == ShapeTag::Disk) {
+                out << "  disk";
+                detail::put(out, &s.height, 1);
+                detail::put(out, &s.radius, 1);
+                detail::put(out, &s.inner_radius, 1);
+                detail::put(out, &s.phi_max, 1);
+                out << " flip " << s.flip << " reverse " << s.reverse
+                    << " render_from_object";
+                detail::put(out, s.render_from_object, 16);
+                out << " object_from_render";
+                detail::put(out, s.object_from_render, 16);
             } else {
                 out << "  tri " << s.mesh << ' ' << s.tri;
             }
@@ -1413,6 +1517,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::Measured;
         } else if (word == "diffusetransmission") {
             m.tag = MaterialTag::DiffuseTransmission;
+        } else if (word == "coatedconductor") {
+            m.tag = MaterialTag::CoatedConductor;
         } else {
             return false;
         }
@@ -1455,6 +1561,14 @@ inline bool read(const char *path, Scene &scene) {
             }
             floats(&m.u_roughness, 1);
             floats(&m.v_roughness, 1);
+            if (!tagged("roughnesstex")) {
+                return false;
+            }
+            in >> m.u_roughness_texture >> m.v_roughness_texture;
+            if (m.u_roughness_texture >= int32_t(scene.textures.size()) ||
+                m.v_roughness_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
             if (!tagged("remap")) {
                 return false;
             }
@@ -1470,6 +1584,14 @@ inline bool read(const char *path, Scene &scene) {
             }
             floats(&m.u_roughness, 1);
             floats(&m.v_roughness, 1);
+            if (!tagged("roughnesstex")) {
+                return false;
+            }
+            in >> m.u_roughness_texture >> m.v_roughness_texture;
+            if (m.u_roughness_texture >= int32_t(scene.textures.size()) ||
+                m.v_roughness_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
             if (!tagged("remap")) {
                 return false;
             }
@@ -1478,13 +1600,26 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             in >> m.conductor_spectra;
+            if (!tagged("fromreflectance")) {
+                return false;
+            }
+            in >> m.conductor_from_reflectance;
         }
-        if (m.tag == MaterialTag::CoatedDiffuse) {
+        if (m.tag == MaterialTag::CoatedDiffuse ||
+            m.tag == MaterialTag::CoatedConductor) {
             if (!tagged("roughness")) {
                 return false;
             }
             floats(&m.u_roughness, 1);
             floats(&m.v_roughness, 1);
+            if (!tagged("roughnesstex")) {
+                return false;
+            }
+            in >> m.u_roughness_texture >> m.v_roughness_texture;
+            if (m.u_roughness_texture >= int32_t(scene.textures.size()) ||
+                m.v_roughness_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
             if (!tagged("remap")) {
                 return false;
             }
@@ -1517,6 +1652,32 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             in >> m.n_samples;
+        }
+        if (m.tag == MaterialTag::CoatedConductor) {
+            if (!tagged("conductorroughness")) {
+                return false;
+            }
+            floats(&m.conductor_u_roughness, 1);
+            floats(&m.conductor_v_roughness, 1);
+            if (!tagged("conductorroughnesstex")) {
+                return false;
+            }
+            in >> m.conductor_u_roughness_texture >>
+                m.conductor_v_roughness_texture;
+            if (m.conductor_u_roughness_texture >=
+                    int32_t(scene.textures.size()) ||
+                m.conductor_v_roughness_texture >=
+                    int32_t(scene.textures.size())) {
+                return false;
+            }
+            if (!tagged("spectra")) {
+                return false;
+            }
+            in >> m.conductor_spectra;
+            if (!tagged("fromreflectance")) {
+                return false;
+            }
+            in >> m.conductor_from_reflectance;
         }
         scene.materials.push_back(m);
     }
@@ -1589,6 +1750,12 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> l.two_sided;
+        if (!tagged("blackbody")) {
+            return false;
+        }
+        in >> l.blackbody;
+        floats(&l.temperature, 1);
+        floats(&l.blackbody_normalization, 1);
         scene.lights.push_back(l);
     }
 
@@ -1602,17 +1769,31 @@ inline bool read(const char *path, Scene &scene) {
     in >> scene.scene_radius;
     scene.infinite_lights.clear();
     for (size_t i = 0; i < count; i++) {
-        if (!(in >> word) || (word != "uniform" && word != "image")) {
+        if (!(in >> word) ||
+            (word != "uniform" && word != "image" && word != "distant")) {
             return false;
         }
         const bool is_image = word == "image";
         InfiniteLight l;
+        l.distant = word == "distant" ? 1u : 0u;
         floats(l.l, 3);
         floats(&l.scale, 1);
         if (!tagged("hasl")) {
             return false;
         }
         in >> l.has_l;
+        if (!tagged("blackbody")) {
+            return false;
+        }
+        in >> l.blackbody;
+        floats(&l.temperature, 1);
+        floats(&l.blackbody_normalization, 1);
+        if (l.distant != 0) {
+            if (!tagged("direction")) {
+                return false;
+            }
+            floats(l.direction, 3);
+        }
         if (is_image) {
             if (!tagged("resolution")) {
                 return false;
@@ -1701,6 +1882,28 @@ inline bool read(const char *path, Scene &scene) {
                 if (s.mesh >= scene.meshes.size()) {
                     return false;
                 }
+            } else if (word == "disk") {
+                s.tag = ShapeTag::Disk;
+                floats(&s.height, 1);
+                floats(&s.radius, 1);
+                floats(&s.inner_radius, 1);
+                floats(&s.phi_max, 1);
+                if (!tagged("flip")) {
+                    return false;
+                }
+                in >> s.flip;
+                if (!tagged("reverse")) {
+                    return false;
+                }
+                in >> s.reverse;
+                if (!tagged("render_from_object")) {
+                    return false;
+                }
+                floats(s.render_from_object, 16);
+                if (!tagged("object_from_render")) {
+                    return false;
+                }
+                floats(s.object_from_render, 16);
             } else {
                 return false;
             }

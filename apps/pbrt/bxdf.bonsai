@@ -29,13 +29,6 @@ import apps/pbrt/textures;
 // For a measured BRDF's five interpolants, likewise.
 import apps/pbrt/measured;
 
-// pbrt's constants, as f32. Written out rather than derived: the rounding of
-// each is part of the answer, and `2.0 * pi()` is not `two_pi()`.
-func pi() -> Float = 3.14159265358979323846;
-func inv_pi() -> Float = 0.31830988618379067154;
-func pi_over_2() -> Float = 1.57079632679489661923;
-func pi_over_4() -> Float = 0.78539816339744830961;
-
 // The smallest positive normal float, which is what pbrt's
 // `std::numeric_limits<Float>::min()` means in the two places it appears here.
 func float_min() -> Float = 1.17549435e-38;
@@ -216,38 +209,10 @@ func fr_complex(cos_i_in : Float, eta : vec4f, k : vec4f) -> vec4f {
     return (complex_norm(r_parl) + complex_norm(r_perp)) / 2.0;
 }
 
-// pbrt: SampleUniformDiskPolar, SampleUniformDiskConcentric and
-// SampleCosineHemisphere, from util/sampling.h.
-func sample_uniform_disk_polar(u : vec2f) -> vec2f {
-    r = sqrt(u.x);
-    theta = 2.0 * pi() * u.y;
-    return vec2f{r * cos(theta), r * sin(theta)};
-}
-
-// The concentric map, which sends the square to the disk without the shearing
-// a polar map introduces -- the reason pbrt uses this one for a hemisphere and
-// the polar one for a microfacet normal.
-func sample_uniform_disk_concentric(u : vec2f) -> vec2f {
-    offset = 2.0 * u - vec2f{1.0, 1.0};
-    if (offset.x == 0.0) && (offset.y == 0.0) {
-        return vec2f{0.0, 0.0};
-    }
-    // Whichever coordinate is larger names the wedge the point falls in.
-    r : mut Float = offset.y;
-    theta : mut Float = pi_over_2() - pi_over_4() * (offset.x / offset.y);
-    if abs(offset.x) > abs(offset.y) {
-        r = offset.x;
-        theta = pi_over_4() * (offset.y / offset.x);
-    }
-    return r * vec2f{cos(theta), sin(theta)};
-}
-
-func sample_cosine_hemisphere(u : vec2f) -> vec3f {
-    d = sample_uniform_disk_concentric(u);
-    return vec3f{d.x, d.y, safe_sqrt(1.0 - sqr(d.x) - sqr(d.y))};
-}
-
-func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();
+// The disk and hemisphere samplers -- SampleUniformDiskPolar,
+// SampleUniformDiskConcentric, SampleCosineHemisphere -- are in
+// sampling.bonsai, with pbrt's constants; a disk shape and the camera's lens
+// sample the disk too and cannot import this file.
 
 // pbrt: SampleExponential, which is the inverse of the exponential CDF.
 func sample_exponential(u : Float, a : Float) -> Float = -log(1.0 - u) / a;
@@ -1095,17 +1060,27 @@ func sample_hg(wo : vec3f, g_in : Float, u : vec2f) -> PhaseSample {
     return s;
 }
 
-// pbrt: CoatedDiffuseBxDF, which is LayeredBxDF<DielectricBxDF, DiffuseBxDF,
-// twoSided = true>. A dielectric coating of some thickness over a diffuse
-// base, with an optionally scattering medium between them.
+// pbrt: the bottom BxDF of a LayeredBxDF, which is a template parameter there
+// and a variant here: the two instantiations pbrt has are CoatedDiffuseBxDF,
+// over a DiffuseBxDF, and CoatedConductorBxDF, over a ConductorBxDF. The
+// walk asks the bottom four things -- f, Sample_f, PDF and Flags -- through
+// the wrappers below, and nothing else about it.
+element LayerBase =
+    | DiffuseBase(d : DiffuseBxDF)
+    | ConductorBase(c : ConductorBxDF);
+
+// pbrt: LayeredBxDF<DielectricBxDF, Bottom, twoSided = true> -- a dielectric
+// coating of some thickness over a base, with an optionally scattering medium
+// between them. CoatedDiffuseBxDF and CoatedConductorBxDF are this with the
+// two bases above.
 //
 // Two-sided means the layers are entered from whichever side the ray arrives
 // on, so the walk always runs with the coating on top and the answer is
 // mirrored back at the end. That is why nothing below ever consults the bottom
 // interface as an entrance.
-element CoatedDiffuseBxDF {
+element LayeredBxDF {
     top : DielectricBxDF;
-    bottom : DiffuseBxDF;
+    bottom : LayerBase;
     thickness : Float;
     g : Float;
     // The single-scattering albedo of the medium between the interfaces. All
@@ -1118,12 +1093,21 @@ element CoatedDiffuseBxDF {
 
 // pbrt: the LayeredBxDF constructor, which is where the thickness is floored.
 // A thickness of exactly zero would make Tr divide by zero.
+func make_layered(top : DielectricBxDF, bottom : LayerBase, thickness : Float,
+                  albedo : vec4f, g : Float, max_depth : i32,
+                  n_samples : i32) -> LayeredBxDF {
+    b : LayeredBxDF = {top, bottom, max(thickness, float_min()), g, albedo,
+                       max_depth, n_samples};
+    return b;
+}
+
+// pbrt: CoatedDiffuseBxDF's constructor -- the layered stack over a diffuse
+// base.
 func make_coated_diffuse(top : DielectricBxDF, bottom : DiffuseBxDF,
                          thickness : Float, albedo : vec4f, g : Float,
-                         max_depth : i32, n_samples : i32) -> CoatedDiffuseBxDF {
-    b : CoatedDiffuseBxDF = {top, bottom, max(thickness, float_min()), g, albedo,
-                             max_depth, n_samples};
-    return b;
+                         max_depth : i32, n_samples : i32) -> LayeredBxDF {
+    return make_layered(top, DiffuseBase(bottom), thickness, albedo, g,
+                        max_depth, n_samples);
 }
 
 // pbrt: LayeredBxDF::Tr, the transmittance of the medium over a depth.
@@ -1136,44 +1120,58 @@ func layer_tr(dz : Float, w : vec3f) -> Float {
 
 // pbrt: TopOrBottomBxDF::Sample_f. Which of the two interfaces a step of the
 // walk is at is data, so the dispatch is a branch rather than a pointer.
-func interface_sample_f(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f,
+func interface_sample_f(b : LayeredBxDF, at_top : bool, wo : vec3f,
                         uc : Float, u : vec2f, radiance : bool,
                         sample_flags : i32) -> option[BSDFSample] {
     if at_top {
         return dielectric_sample_f(b.top, wo, uc, u, radiance, sample_flags);
     }
-    return diffuse_sample_f(b.bottom, wo, uc, u, sample_flags);
+    match b.bottom {
+        DiffuseBase(d) => return diffuse_sample_f(d, wo, uc, u, sample_flags);
+        // pbrt: ConductorBxDF::Sample_f takes uc and the mode and reads
+        // neither; a conductor reflects and does nothing else.
+        ConductorBase(c) => return conductor_sample_f(c, wo, u, sample_flags);
+    }
 }
 
 // pbrt: TopOrBottomBxDF::f and ::PDF, the same dispatch for the other two.
-func interface_f(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f, wi : vec3f,
+func interface_f(b : LayeredBxDF, at_top : bool, wo : vec3f, wi : vec3f,
                  radiance : bool) -> vec4f {
     if at_top {
         return dielectric_f(b.top, wo, wi, radiance);
     }
-    return diffuse_f(b.bottom, wo, wi);
+    match b.bottom {
+        DiffuseBase(d) => return diffuse_f(d, wo, wi);
+        ConductorBase(c) => return conductor_f(c, wo, wi);
+    }
 }
 
-func interface_pdf(b : CoatedDiffuseBxDF, at_top : bool, wo : vec3f,
+func interface_pdf(b : LayeredBxDF, at_top : bool, wo : vec3f,
                    wi : vec3f, sample_flags : i32) -> Float {
     if at_top {
         return dielectric_pdf(b.top, wo, wi, sample_flags);
     }
-    return diffuse_pdf(wo, wi, sample_flags);
+    match b.bottom {
+        DiffuseBase(d) => return diffuse_pdf(wo, wi, sample_flags);
+        ConductorBase(c) => return conductor_pdf(c, wo, wi, sample_flags);
+    }
 }
 
 // pbrt: TopOrBottomBxDF::Flags().
-func interface_flags(b : CoatedDiffuseBxDF, at_top : bool) -> i32 {
+func interface_flags(b : LayeredBxDF, at_top : bool) -> i32 {
     if at_top {
         return dielectric_flags(b.top);
     }
-    return diffuse_flags(b.bottom);
+    match b.bottom {
+        DiffuseBase(d) => return diffuse_flags(d);
+        ConductorBase(c) => return conductor_flags(c);
+    }
 }
 
 // The question the walk actually asks of those flags: whether an interface can
 // be weighted against another estimator at all. A delta has no density to
 // weight with, so where this is true the sampled estimate stands alone.
-func interface_is_specular(b : CoatedDiffuseBxDF, at_top : bool) -> bool =
+func interface_is_specular(b : LayeredBxDF, at_top : bool) -> bool =
     is_specular(interface_flags(b, at_top));
 
 // pbrt: LayeredBxDF::Flags. Always reflective, because a two-sided layered
@@ -1183,9 +1181,9 @@ func interface_is_specular(b : CoatedDiffuseBxDF, at_top : bool) -> bool =
 // The medium counts as diffuse: a scattering albedo between the interfaces
 // spreads the lobe however sharp the two interfaces are, which is what stops a
 // smooth coating over a smooth base being called specular when it is not.
-func coated_flags(b : CoatedDiffuseBxDF) -> i32 {
+func coated_flags(b : LayeredBxDF) -> i32 {
     top_flags = dielectric_flags(b.top);
-    bottom_flags = diffuse_flags(b.bottom);
+    bottom_flags = interface_flags(b, false);
     flags : mut i32 = flag_reflection();
     if is_specular(top_flags) {
         flags = flags | flag_specular();
@@ -1220,7 +1218,7 @@ func coated_flags(b : CoatedDiffuseBxDF) -> i32 {
 // and `dead` instead, because the language has neither. The order of the draws
 // from the RNG is what matters and it is unchanged: nothing below draws after
 // the step that would have returned.
-func coated_sample_f(b : CoatedDiffuseBxDF, wo_in : vec3f, uc : Float,
+func coated_sample_f(b : LayeredBxDF, wo_in : vec3f, uc : Float,
                      u : vec2f, seed : i32) -> option[BSDFSample] {
     flip_wi = wo_in.z < 0.0;
     wo = select(flip_wi, -wo_in, wo_in);
@@ -1397,7 +1395,7 @@ func coated_sample_f(b : CoatedDiffuseBxDF, wo_in : vec3f, uc : Float,
 // one thing `TransportMode` exists for: a path from a light and a path from a
 // camera disagree by the square of an index ratio when they cross into a
 // different medium.
-func coated_f(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
+func coated_f(b : LayeredBxDF, wo_in : vec3f, wi_in : vec3f,
               seed : i32) -> vec4f {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     // Two-sided: a question asked from below is the same question asked from
@@ -1693,7 +1691,7 @@ func coated_f(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
 // writes `Float uc = r(); Point2f u(r(), r());` as two statements, which is the
 // other order: uc, then y, then x, the same as everywhere in `coated_f`.
 // Measured on gcc rather than reasoned about.
-func coated_pdf(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
+func coated_pdf(b : LayeredBxDF, wo_in : vec3f, wi_in : vec3f,
                 seed : i32) -> Float {
     // Two-sided, so a question asked from below is the mirrored question.
     flip = wo_in.z < 0.0;
@@ -1873,7 +1871,7 @@ func coated_pdf(b : CoatedDiffuseBxDF, wo_in : vec3f, wi_in : vec3f,
 // sixteen. A sized array is passed by value, so writing the type out cost three
 // copies of sixty-four bytes at every call, which is to say at every camera ray.
 // pbrt hands `rho` a span for the same reason.
-func coated_rho(b : CoatedDiffuseBxDF, wo : vec3f, seed : i32,
+func coated_rho(b : LayeredBxDF, wo : vec3f, seed : i32,
                 uc : array[Float], ux : array[Float],
                 uy : array[Float]) -> vec4f {
     if wo.z == 0.0 {
@@ -1929,9 +1927,42 @@ func reflectance_at(r : Reflectance, lambda : SampledWavelengths, uv : vec2f,
                           dudy, dvdy, lambda);
 }
 
+// pbrt: FloatTexture, as a material parameter -- a roughness -- is one: the
+// constant it was authored with, or an index into `textures` when it was
+// authored as one, evaluated at the hit. `Reflectance` above is the same
+// thing for a spectrum, and for the same reason: the constant is the common
+// case and stays a constant.
+element FloatParam {
+    value : Float;
+    texture : i32 = -1;
+}
+
+// The parameter at a hit: the constant, or the texture filtered over the
+// footprint the differentials describe.
+func float_param_at(p : FloatParam, uv : vec2f, dudx : Float, dvdx : Float,
+                    dudy : Float, dvdy : Float) -> Float {
+    if p.texture < 0 {
+        return p.value;
+    }
+    return texture_float(textures[cast[[u32]](p.texture)], uv, dudx, dvdx,
+                         dudy, dvdy);
+}
+
+// pbrt: the `uRough`/`vRough` every GetBxDF with a microfacet distribution
+// begins with -- each roughness at the hit, remapped to an alpha when the
+// material says to (TrowbridgeReitzDistribution::RoughnessToAlpha).
+func alphas_at(u_roughness : FloatParam, v_roughness : FloatParam, remap : bool,
+               uv : vec2f, dudx : Float, dvdx : Float, dudy : Float,
+               dvdy : Float) -> vec2f {
+    u = float_param_at(u_roughness, uv, dudx, dvdx, dudy, dvdy);
+    v = float_param_at(v_roughness, uv, dudx, dvdx, dudy, dvdy);
+    return vec2f{select(remap, roughness_to_alpha(u), u),
+                 select(remap, roughness_to_alpha(v), v)};
+}
+
 element CoatedDiffuseMaterial {
     reflectance : Reflectance;
-    u_roughness, v_roughness : Float;
+    u_roughness, v_roughness : FloatParam;
     remap : bool;
     thickness : Float;
     eta : Float;
@@ -1958,7 +1989,7 @@ element CoatedDiffuseMaterial {
 // terminates the secondary wavelengths, and scene_dump refuses that rather than
 // reading it at one wavelength.
 element DielectricMaterial {
-    u_roughness, v_roughness : Float;
+    u_roughness, v_roughness : FloatParam;
     remap : bool;
     eta : Float;
 }
@@ -1980,21 +2011,58 @@ element DiffuseTransmissionMaterial {
 // saying because a dielectric with a spectral eta does: a dielectric bends the
 // ray by an amount that differs per wavelength, so the four can no longer share
 // a path, while a conductor only *absorbs* differently and they can.
+// What a conductor's complex index of refraction is given as. pbrt's
+// ConductorMaterial holds either `eta` and `k` or a `reflectance`, and its
+// GetBxDF branches on which: the index the scene measured -- a pair of
+// tabulated spectra, read at the four wavelengths of the hit -- or the one
+// that reflects `reflectance` at normal incidence, eta one and
+// k = 2 sqrt(r) / sqrt(1 - r), which is the Fresnel equations inverted for a
+// colour an artist picked.
+element ConductorIndex =
+    // An index into `conductor_eta` / `conductor_k`, one table each.
+    | Tabulated(spectra : i32)
+    | FromReflectance(reflectance : Reflectance);
+
 element ConductorMaterial {
-    // An index into `conductor_eta` / `conductor_k`, one 471-entry table each.
-    spectra : i32;
-    u_roughness, v_roughness : Float;
+    index : ConductorIndex;
+    u_roughness, v_roughness : FloatParam;
     remap : bool;
+}
+
+// pbrt: CoatedConductorMaterial -- a dielectric coating over a metal. The
+// interface has its own roughness and index and the conductor its own
+// roughness and complex index, given as `eta`/`k` or a `reflectance` as a
+// bare conductor's is; the medium between them as a coated diffuse's. What
+// is pbrt's alone here: the conductor's index is divided by the interface's,
+// since the metal sits under a medium of that index and Fresnel's equations
+// take the ratio. Declared here, after the index it holds and before
+// `Material` names it; its evaluation at a hit is `coated_conductor_bxdf_at`
+// below.
+element CoatedConductorMaterial {
+    interface_u_roughness, interface_v_roughness : FloatParam;
+    thickness : Float;
+    interface_eta : Float;
+    conductor_u_roughness, conductor_v_roughness : FloatParam;
+    index : ConductorIndex;
+    remap : bool;
+    medium_albedo : SigmoidPolynomial;
+    has_medium : bool;
+    g : Float;
+    max_depth, n_samples : i32;
 }
 
 // Every conductor's eta and k, 4701 entries each at a tenth of a nanometre from
 // 360 nm, laid end to end.
 //
-// Sampled rather than fitted, because pbrt does not fit them: it keeps the
-// published measurements as a PiecewiseLinearSpectrum and interpolates. What
-// ships is that same function on a uniform grid, which reproduces it exactly
-// except inside the one interval straddling each of its own knots -- those are
-// four to six nanometres apart, so all but a handful of intervals are exact.
+// Sampled rather than fitted, because pbrt does not fit them: a named metal is
+// the published measurements kept as a PiecewiseLinearSpectrum and
+// interpolated, and so is a list of pairs written in the scene or read from a
+// .spd file. What ships is that same function on a uniform grid, which
+// reproduces it exactly except inside the one interval straddling each of its
+// own knots -- those are four to six nanometres apart, so all but a handful of
+// intervals are exact. An `rgb eta` is pbrt's RGBUnboundedSpectrum, a sigmoid
+// fit scaled by twice the largest component, and goes on the same grid: the
+// fit is smooth, so the chord across a tenth of a nanometre is the curve.
 // scene_dump measures the residual and prints it; see kConductorPerNm in
 // scene_io.h for why the grid is this fine and not coarser.
 extern conductor_eta : array[Float];
@@ -2025,6 +2093,7 @@ func spectrum_at_linear(table : array[Float], base : u32,
 element Material =
     | Diffuse(albedo : Reflectance)
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
+    | CoatedConductor(cc : CoatedConductorMaterial)
     | Dielectric(g : DielectricMaterial)
     | Conductor(c : ConductorMaterial)
     | DiffuseTransmission(dt : DiffuseTransmissionMaterial)
@@ -2048,10 +2117,10 @@ element Material =
 // empty.
 func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
                     regularize : bool, uv : vec2f, dudx : Float, dvdx : Float,
-                    dudy : Float, dvdy : Float) -> CoatedDiffuseBxDF {
-    alpha_u = select(m.remap, roughness_to_alpha(m.u_roughness), m.u_roughness);
-    alpha_v = select(m.remap, roughness_to_alpha(m.v_roughness), m.v_roughness);
-    distrib : mut TrowbridgeReitz = make_trowbridge_reitz(alpha_u, alpha_v);
+                    dudy : Float, dvdy : Float) -> LayeredBxDF {
+    alpha = alphas_at(m.u_roughness, m.v_roughness, m.remap, uv, dudx, dvdx,
+                      dudy, dvdy);
+    distrib : mut TrowbridgeReitz = make_trowbridge_reitz(alpha.x, alpha.y);
     if regularize {
         distrib = regularize_distrib(distrib);
     }
@@ -2065,6 +2134,57 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
     return make_coated_diffuse(top, bottom, m.thickness, medium,
                                min(max(m.g, -1.0), 1.0), m.max_depth,
                                m.n_samples);
+}
+
+// pbrt: CoatedConductorMaterial::GetBxDF, then the `Regularize` the path
+// integrator asks of the value -- which for this stack widens both
+// distributions, the coating's and the metal's, where a coated diffuse has
+// only the coating to widen.
+func coated_conductor_bxdf_at(m : CoatedConductorMaterial,
+                              lambda : SampledWavelengths, regularize : bool,
+                              uv : vec2f, dudx : Float, dvdx : Float,
+                              dudy : Float, dvdy : Float) -> LayeredBxDF {
+    interface_alpha = alphas_at(m.interface_u_roughness,
+                                m.interface_v_roughness, m.remap, uv, dudx,
+                                dvdx, dudy, dvdy);
+    interface_distrib : mut TrowbridgeReitz =
+        make_trowbridge_reitz(interface_alpha.x, interface_alpha.y);
+    // pbrt: `if (ieta == 0) ieta = 1`.
+    ieta = select(m.interface_eta == 0.0, 1.0, m.interface_eta);
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    ce : mut vec4f = zero;
+    ck : mut vec4f = zero;
+    match m.index {
+        Tabulated(spectra) => {
+            base = cast[[u32]](spectra) * conductor_samples();
+            ce = spectrum_at_linear(conductor_eta, base, lambda);
+            ck = spectrum_at_linear(conductor_k, base, lambda);
+        }
+        FromReflectance(albedo) => {
+            r = min(max(reflectance_at(albedo, lambda, uv, dudx, dvdx, dudy,
+                                       dvdy),
+                        zero),
+                    vec4f{0.9999, 0.9999, 0.9999, 0.9999});
+            ce = vec4f{1.0, 1.0, 1.0, 1.0};
+            ck = 2.0 * sqrt(r) / sqrt(max(1.0 - r, zero));
+        }
+    }
+    conductor_alpha = alphas_at(m.conductor_u_roughness,
+                                m.conductor_v_roughness, m.remap, uv, dudx,
+                                dvdx, dudy, dvdy);
+    conductor_distrib : mut TrowbridgeReitz =
+        make_trowbridge_reitz(conductor_alpha.x, conductor_alpha.y);
+    if regularize {
+        interface_distrib = regularize_distrib(interface_distrib);
+        conductor_distrib = regularize_distrib(conductor_distrib);
+    }
+    top : DielectricBxDF = {ieta, interface_distrib};
+    bottom : ConductorBxDF = {ce / ieta, ck / ieta, conductor_distrib};
+    medium = select(m.has_medium,
+                    min(max(spectrum_at(m.medium_albedo, lambda), 0.0), 1.0),
+                    zero);
+    return make_layered(top, ConductorBase(bottom), m.thickness, medium,
+                        min(max(m.g, -1.0), 1.0), m.max_depth, m.n_samples);
 }
 
 // pbrt: BxDF, the TaggedPointer a BSDF holds. A variant here, as everything
@@ -2085,7 +2205,7 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
 // pbrt, no more and no less.
 element BxDF =
     | Lambertian(d : DiffuseBxDF)
-    | Layered(b : CoatedDiffuseBxDF)
+    | Layered(b : LayeredBxDF)
     // The same `DielectricBxDF` a Layered one has on top of it, on its own.
     | Boundary(g : DielectricBxDF)
     | Metal(c : ConductorBxDF)
@@ -2131,6 +2251,9 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         CoatedDiffuse(m) =>
             return Layered(coated_bxdf_at(m, lambda, regularize, uv, dudx,
                                           dvdx, dudy, dvdy));
+        CoatedConductor(cc) =>
+            return Layered(coated_conductor_bxdf_at(cc, lambda, regularize, uv,
+                                                    dudx, dvdx, dudy, dvdy));
         Measured(index) => {
             // pbrt: MeasuredMaterial::GetBxDF, which is one line -- the
             // wavelengths are what the BxDF needs and everything else about
@@ -2140,31 +2263,47 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         }
         Conductor(c) => {
             // pbrt: ConductorMaterial::GetBxDF.
-            alpha_u = select(c.remap, roughness_to_alpha(c.u_roughness),
-                             c.u_roughness);
-            alpha_v = select(c.remap, roughness_to_alpha(c.v_roughness),
-                             c.v_roughness);
+            alpha = alphas_at(c.u_roughness, c.v_roughness, c.remap, uv, dudx,
+                              dvdx, dudy, dvdy);
             distrib : mut TrowbridgeReitz =
-                make_trowbridge_reitz(alpha_u, alpha_v);
+                make_trowbridge_reitz(alpha.x, alpha.y);
             if regularize {
                 distrib = regularize_distrib(distrib);
             }
-            base = cast[[u32]](c.spectra) * conductor_samples();
-            m : ConductorBxDF = {spectrum_at_linear(conductor_eta, base,
-                                                    lambda),
-                                 spectrum_at_linear(conductor_k, base, lambda),
-                                 distrib};
-            return Metal(m);
+            match c.index {
+                Tabulated(spectra) => {
+                    base = cast[[u32]](spectra) * conductor_samples();
+                    m : ConductorBxDF = {spectrum_at_linear(conductor_eta,
+                                                            base, lambda),
+                                         spectrum_at_linear(conductor_k, base,
+                                                            lambda),
+                                         distrib};
+                    return Metal(m);
+                }
+                FromReflectance(albedo) => {
+                    // pbrt: `Clamp(texEval(reflectance, ctx, lambda), 0,
+                    // .9999)`, then eta one and `2 * Sqrt(r) /
+                    // Sqrt(ClampZero(1 - r))` -- the clamp short of one is
+                    // what keeps a reflectance of one from dividing by zero.
+                    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+                    r = min(max(reflectance_at(albedo, lambda, uv, dudx, dvdx,
+                                               dudy, dvdy),
+                                zero),
+                            vec4f{0.9999, 0.9999, 0.9999, 0.9999});
+                    m : ConductorBxDF = {vec4f{1.0, 1.0, 1.0, 1.0},
+                                         2.0 * sqrt(r) / sqrt(max(1.0 - r, zero)),
+                                         distrib};
+                    return Metal(m);
+                }
+            }
         }
         Dielectric(g) => {
             // pbrt: DielectricMaterial::GetBxDF. The same three lines the
             // coating of a layered material gets, which is the same class.
-            alpha_u = select(g.remap, roughness_to_alpha(g.u_roughness),
-                             g.u_roughness);
-            alpha_v = select(g.remap, roughness_to_alpha(g.v_roughness),
-                             g.v_roughness);
+            alpha = alphas_at(g.u_roughness, g.v_roughness, g.remap, uv, dudx,
+                              dvdx, dudy, dvdy);
             distrib : mut TrowbridgeReitz =
-                make_trowbridge_reitz(alpha_u, alpha_v);
+                make_trowbridge_reitz(alpha.x, alpha.y);
             if regularize {
                 distrib = regularize_distrib(distrib);
             }

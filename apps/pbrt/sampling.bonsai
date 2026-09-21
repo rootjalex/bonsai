@@ -14,6 +14,15 @@
 // declares and that breaks the moment a file is compiled on its own.
 import stdlib/numerics;
 
+// pbrt's constants, as f32. Written out rather than derived: the rounding of
+// each is part of the answer, and `2.0 * pi()` is not `two_pi()`. Here rather
+// than in bxdf.bonsai, where they started, because this file and the shapes
+// use them and bxdf.bonsai imports this one.
+func pi() -> Float = 3.14159265358979323846;
+func inv_pi() -> Float = 0.31830988618379067154;
+func pi_over_2() -> Float = 1.57079632679489661923;
+func pi_over_4() -> Float = 0.78539816339744830961;
+
 func sampling_pi() -> Float = 3.14159265358979323846;
 
 // pbrt: SampleUniformSphere, and the constant density that goes with it.
@@ -305,3 +314,38 @@ func dist2d_pdf(d : Dist2D, nx : i32, ny : i32, uv : vec2f,
     return select(d.integral > 0.0,
                   values[d.first_value + iv * nx + iu] / d.integral, 0.0);
 }
+
+// pbrt: SampleUniformDiskPolar, SampleUniformDiskConcentric and
+// SampleCosineHemisphere, from util/sampling.h. Used by the BSDFs, by the
+// camera's lens, and by a disk shape's area sampling, which is why they are
+// here rather than in bxdf.bonsai.
+func sample_uniform_disk_polar(u : vec2f) -> vec2f {
+    r = sqrt(u.x);
+    theta = 2.0 * pi() * u.y;
+    return vec2f{r * cos(theta), r * sin(theta)};
+}
+
+// The concentric map, which sends the square to the disk without the shearing
+// a polar map introduces -- the reason pbrt uses this one for a hemisphere and
+// the polar one for a microfacet normal.
+func sample_uniform_disk_concentric(u : vec2f) -> vec2f {
+    offset = 2.0 * u - vec2f{1.0, 1.0};
+    if (offset.x == 0.0) && (offset.y == 0.0) {
+        return vec2f{0.0, 0.0};
+    }
+    // Whichever coordinate is larger names the wedge the point falls in.
+    r : mut Float = offset.y;
+    theta : mut Float = pi_over_2() - pi_over_4() * (offset.x / offset.y);
+    if abs(offset.x) > abs(offset.y) {
+        r = offset.x;
+        theta = pi_over_4() * (offset.y / offset.x);
+    }
+    return r * vec2f{cos(theta), sin(theta)};
+}
+
+func sample_cosine_hemisphere(u : vec2f) -> vec3f {
+    d = sample_uniform_disk_concentric(u);
+    return vec3f{d.x, d.y, safe_sqrt(1.0 - sqr(d.x) - sqr(d.y))};
+}
+
+func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();

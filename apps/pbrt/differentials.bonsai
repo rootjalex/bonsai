@@ -18,6 +18,7 @@ import apps/pbrt/bxdf;
 import apps/pbrt/textures;
 import apps/pbrt/shapes;
 import apps/pbrt/camera;
+import apps/pbrt/transform;
 
 // pbrt: DifferenceOfProducts, which is `a*b - c*d` computed so that the
 // cancellation does not eat the answer.
@@ -79,20 +80,6 @@ func apply_rot_row(row : vec3f, v : vec3f) -> Float =
 func apply_rot(m : Rotation, v : vec3f) -> vec3f =
     vec3f{apply_rot_row(m.r0, v), apply_rot_row(m.r1, v),
           apply_rot_row(m.r2, v)};
-
-// pbrt: Transform::ApplyInverse(Normal3f), which is what
-// `CameraFromRender(Normal3f, time)` resolves to -- `renderFromCamera` applied
-// inversely to a normal, which reads the *columns* of the forward matrix
-// because a normal transforms by the inverse transpose.
-//
-// So this takes `render_from_camera` and not `camera_from_render`. For a rigid
-// camera the two give the same bits, since one matrix's columns are the other's
-// rows; written pbrt's way anyway, so that a camera transform with a scale in
-// it would still be right rather than accidentally so.
-func apply_normal_inverse(t : Transform, n : vec3f) -> vec3f =
-    vec3f{fma(t.r2.x, n.z, fma(t.r1.x, n.y, t.r0.x * n.x)),
-          fma(t.r2.y, n.z, fma(t.r1.y, n.y, t.r0.y * n.x)),
-          fma(t.r2.z, n.z, fma(t.r1.z, n.y, t.r0.z * n.x))};
 
 // pbrt: Transform::ApplyInverse(Vector3f), which reads the inverse's rows --
 // and a rotation's inverse is its transpose, so those are this matrix's

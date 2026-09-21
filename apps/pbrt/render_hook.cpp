@@ -150,10 +150,15 @@ struct Meshes {
 // are an index, which is why nothing here has to be allocated or freed.
 struct Shapes {
     static constexpr uint64_t kTagShift = 56;
+    // The tags are the Shape variant's arms in declaration order: Sph, Tri,
+    // Dsk (shapes.bonsai).
     static constexpr uint64_t kSphere = 0;
+    static constexpr uint64_t kTriangle = 1;
+    static constexpr uint64_t kDisk = 2;
 
     const Sph *spheres = nullptr;
     const Tri *triangles = nullptr;
+    const Dsk *disks = nullptr;
 
     static uint64_t tag_of(uint64_t shape) { return shape >> kTagShift; }
     static uint64_t index_of(uint64_t shape) {
@@ -165,22 +170,35 @@ struct Shapes {
     }
 
     bool is_sphere(uint64_t shape) const { return tag_of(shape) == kSphere; }
+    bool is_disk(uint64_t shape) const { return tag_of(shape) == kDisk; }
     const Sphere &sphere(uint64_t shape) const {
         return spheres[index_of(shape)].s;
     }
     const Triangle &triangle(uint64_t shape) const {
         return triangles[index_of(shape)].t;
     }
+    const Disk &disk(uint64_t shape) const { return disks[index_of(shape)].d; }
 };
 
-// pbrt: Sphere::Bounds and Triangle::Bounds. A sphere placed by a translation
-// bounds to its centre plus and minus the radius on each axis; a triangle to
-// the box around its three vertices.
+Bounds3f transform_bounds(const Transform &t, const Bounds3f &b);
+
+// pbrt: Sphere::Bounds, Disk::Bounds and Triangle::Bounds. A sphere placed by
+// a translation bounds to its centre plus and minus the radius on each axis; a
+// disk to the square of its radius in its own plane, moved by its transform
+// -- `(*renderFromObject)(Bounds3f(...))`, the box around the eight corners;
+// a triangle to the box around its three vertices.
 Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
                    const Shapes &shapes) {
     if (shapes.is_sphere(prim.shape)) {
         const Sphere &s = shapes.sphere(prim.shape);
         return Bounds3f{s.center - s.radius, s.center + s.radius};
+    }
+    if (shapes.is_disk(prim.shape)) {
+        const Disk &d = shapes.disk(prim.shape);
+        return transform_bounds(
+            d.render_from_object,
+            Bounds3f{float3{-d.radius, -d.radius, d.height},
+                     float3{d.radius, d.radius, d.height}});
     }
     uint32_t c[3];
     pool.corners(shapes.triangle(prim.shape), c);
@@ -421,11 +439,13 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
 // tree's and, after them, every instance tree's.
 void compact_pools(std::vector<Geometric> &shapes,
                    std::vector<Geometric> &instanced, std::vector<Sph> &spheres,
-                   std::vector<Tri> &triangles) {
+                   std::vector<Tri> &triangles, std::vector<Dsk> &disks) {
     std::vector<Sph> ordered_spheres;
     std::vector<Tri> ordered_triangles;
+    std::vector<Dsk> ordered_disks;
     ordered_spheres.reserve(spheres.size());
     ordered_triangles.reserve(triangles.size());
+    ordered_disks.reserve(disks.size());
 
     for (std::vector<Geometric> *list : {&shapes, &instanced}) {
         for (Geometric &prim : *list) {
@@ -434,6 +454,9 @@ void compact_pools(std::vector<Geometric> &shapes,
             if (tag == Shapes::kSphere) {
                 prim.shape = Shapes::handle(tag, ordered_spheres.size());
                 ordered_spheres.push_back(spheres[index]);
+            } else if (tag == Shapes::kDisk) {
+                prim.shape = Shapes::handle(tag, ordered_disks.size());
+                ordered_disks.push_back(disks[index]);
             } else {
                 prim.shape = Shapes::handle(tag, ordered_triangles.size());
                 ordered_triangles.push_back(triangles[index]);
@@ -443,6 +466,7 @@ void compact_pools(std::vector<Geometric> &shapes,
 
     spheres = std::move(ordered_spheres);
     triangles = std::move(ordered_triangles);
+    disks = std::move(ordered_disks);
 }
 
 // The nodes of a tree PBRT built, packed into the layout the schedule
@@ -922,8 +946,8 @@ int main(int argc, char **argv) {
         if (m.tag == bonsai_scene::MaterialTag::CoatedDiffuse) {
             CoatedDiffuseMaterial coated;
             coated.reflectance = reflectance;
-            coated.u_roughness = m.u_roughness;
-            coated.v_roughness = m.v_roughness;
+            coated.u_roughness = FloatParam{m.u_roughness, m.u_roughness_texture};
+            coated.v_roughness = FloatParam{m.v_roughness, m.v_roughness_texture};
             coated.remap = m.remap != 0;
             coated.thickness = m.thickness;
             coated.eta = m.eta;
@@ -933,19 +957,47 @@ int main(int argc, char **argv) {
             coated.max_depth = m.max_depth;
             coated.n_samples = m.n_samples;
             Material_CoatedDiffuse(material, coated);
+        } else if (m.tag == bonsai_scene::MaterialTag::CoatedConductor) {
+            CoatedConductorMaterial coated;
+            coated.interface_u_roughness =
+                FloatParam{m.u_roughness, m.u_roughness_texture};
+            coated.interface_v_roughness =
+                FloatParam{m.v_roughness, m.v_roughness_texture};
+            coated.thickness = m.thickness;
+            coated.interface_eta = m.eta;
+            coated.conductor_u_roughness = FloatParam{
+                m.conductor_u_roughness, m.conductor_u_roughness_texture};
+            coated.conductor_v_roughness = FloatParam{
+                m.conductor_v_roughness, m.conductor_v_roughness_texture};
+            if (m.conductor_from_reflectance != 0) {
+                ConductorIndex_FromReflectance(coated.index, reflectance);
+            } else {
+                ConductorIndex_Tabulated(coated.index, m.conductor_spectra);
+            }
+            coated.remap = m.remap != 0;
+            coated.medium_albedo = albedo_of(m.medium_albedo);
+            coated.has_medium = m.has_medium != 0;
+            coated.g = m.g;
+            coated.max_depth = m.max_depth;
+            coated.n_samples = m.n_samples;
+            Material_CoatedConductor(material, coated);
         } else if (m.tag == bonsai_scene::MaterialTag::Measured) {
             Material_Measured(material, uint32_t(m.measured));
         } else if (m.tag == bonsai_scene::MaterialTag::Conductor) {
             ConductorMaterial metal;
-            metal.spectra = m.conductor_spectra;
-            metal.u_roughness = m.u_roughness;
-            metal.v_roughness = m.v_roughness;
+            if (m.conductor_from_reflectance != 0) {
+                ConductorIndex_FromReflectance(metal.index, reflectance);
+            } else {
+                ConductorIndex_Tabulated(metal.index, m.conductor_spectra);
+            }
+            metal.u_roughness = FloatParam{m.u_roughness, m.u_roughness_texture};
+            metal.v_roughness = FloatParam{m.v_roughness, m.v_roughness_texture};
             metal.remap = m.remap != 0;
             Material_Conductor(material, metal);
         } else if (m.tag == bonsai_scene::MaterialTag::Dielectric) {
             DielectricMaterial glass;
-            glass.u_roughness = m.u_roughness;
-            glass.v_roughness = m.v_roughness;
+            glass.u_roughness = FloatParam{m.u_roughness, m.u_roughness_texture};
+            glass.v_roughness = FloatParam{m.v_roughness, m.v_roughness_texture};
             glass.remap = m.remap != 0;
             glass.eta = m.eta;
             Material_Dielectric(material, glass);
@@ -1007,19 +1059,23 @@ int main(int argc, char **argv) {
     // the memory handed to them and nothing tells this file when they have.
     // Both lists of shapes, since an instanced shape is a Shape like any other.
     size_t nspheres = 0;
+    size_t ndisks = 0;
     size_t nshapes = 0;
     for (const std::vector<bonsai_scene::Shape> *list :
          {&loaded.shapes, &loaded.instance_shapes}) {
         for (const bonsai_scene::Shape &s : *list) {
             nspheres += s.tag == bonsai_scene::ShapeTag::Sphere;
+            ndisks += s.tag == bonsai_scene::ShapeTag::Disk;
             nshapes++;
         }
     }
     std::vector<Sph> sphere_pool(nspheres);
-    std::vector<Tri> triangle_pool(nshapes - nspheres);
+    std::vector<Dsk> disk_pool(ndisks);
+    std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks);
     // What the constructors bump. Each ends up equal to its pool's size, which
     // is the check that the two passes counted the same thing.
     uint64_t sphere_fill = 0;
+    uint64_t disk_fill = 0;
     uint64_t triangle_fill = 0;
 
     // pbrt: CreatePrimitivesForShapes, run over the top-level shapes and over
@@ -1042,6 +1098,17 @@ int main(int argc, char **argv) {
                 sphere.radius = s.radius;
                 sphere.flip = s.flip != 0;
                 shape = Shape_Sph(sphere, sphere_pool.data(), &sphere_fill);
+            } else if (s.tag == bonsai_scene::ShapeTag::Disk) {
+                Disk disk;
+                disk.render_from_object = to_bonsai(s.render_from_object);
+                disk.object_from_render = to_bonsai(s.object_from_render);
+                disk.height = s.height;
+                disk.radius = s.radius;
+                disk.inner_radius = s.inner_radius;
+                disk.phi_max = s.phi_max;
+                disk.flip = s.flip != 0;
+                disk.reverse = s.reverse != 0;
+                shape = Shape_Dsk(disk, disk_pool.data(), &disk_fill);
             } else {
                 shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
                                   &triangle_fill);
@@ -1079,14 +1146,16 @@ int main(int argc, char **argv) {
         }
     }
     if (sphere_fill != sphere_pool.size() ||
-        triangle_fill != triangle_pool.size()) {
+        triangle_fill != triangle_pool.size() || disk_fill != disk_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
-                        "%zu/%zu triangles\n",
+                        "%zu/%zu triangles, %zu/%zu disks\n",
                 size_t(sphere_fill), sphere_pool.size(),
-                size_t(triangle_fill), triangle_pool.size());
+                size_t(triangle_fill), triangle_pool.size(), size_t(disk_fill),
+                disk_pool.size());
         return 1;
     }
-    const Shapes shape_pools{sphere_pool.data(), triangle_pool.data()};
+    const Shapes shape_pools{sphere_pool.data(), triangle_pool.data(),
+                             disk_pool.data()};
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
     // timing comparison about the traversal rather than about whose builder
@@ -1186,7 +1255,7 @@ int main(int argc, char **argv) {
     // After the trees, because it is the trees that decide the order.
     {
         Stage stage("compact pools");
-        compact_pools(shapes, instanced, sphere_pool, triangle_pool);
+        compact_pools(shapes, instanced, sphere_pool, triangle_pool, disk_pool);
     }
 
     std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
@@ -1223,12 +1292,38 @@ int main(int argc, char **argv) {
         return scale * rsp_scale;
     };
 
-    // The emission of each area light the scene declared.
+    // What a light emits, as the renderer's Emission: a blackbody as the
+    // converter shipped it, the colour space's illuminant when the scene wrote
+    // no L and pbrt emits that itself, or the RGB fitted as above -- whose
+    // factor comes back through the scale. Returns the scale to use.
+    const auto emission_of = [&](const float rgb[3], bool has_rgb,
+                                 uint32_t blackbody, float temperature,
+                                 float normalization, float scale,
+                                 Emission *out) {
+        if (blackbody != 0) {
+            Emission_Blackbody(*out, temperature, normalization);
+            return scale;
+        }
+        if (!has_rgb) {
+            Emission_Illuminant(*out);
+            return scale;
+        }
+        SigmoidPolynomial fit;
+        const float fitted = fit_emission(rgb, scale, &fit);
+        Emission_RGBIlluminant(*out, fit);
+        return fitted;
+    };
+
+    // The emission of each area light the scene declared. An area light with
+    // no L has an RGB of one, which the converter wrote for it.
     std::vector<AreaLight> emission;
     emission.reserve(loaded.lights.size());
     for (const bonsai_scene::Light &l : loaded.lights) {
         AreaLight out_light;
-        out_light.scale = fit_emission(l.l, l.scale, &out_light.l);
+        out_light.scale =
+            emission_of(l.l, /*has_rgb=*/true, l.blackbody, l.temperature,
+                        l.blackbody_normalization, l.scale,
+                        &out_light.emission);
         out_light.two_sided = l.two_sided != 0;
         emission.push_back(out_light);
     }
@@ -1435,6 +1530,18 @@ int main(int argc, char **argv) {
     const int32_t first_infinite = int32_t(lights.size());
     size_t next_dist = 0;
     for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
+        if (l.distant != 0) {
+            DistantLight sun;
+            sun.scale = emission_of(l.l, l.has_l != 0, l.blackbody,
+                                    l.temperature, l.blackbody_normalization,
+                                    l.scale, &sun.emission);
+            sun.w_light = float3{l.direction[0], l.direction[1], l.direction[2]};
+            sun.scene_radius = loaded.scene_radius;
+            Light light;
+            Light_Distant(light, sun);
+            lights.push_back(light);
+            continue;
+        }
         if (l.resolution != 0) {
             const auto rows = [](const float m[16]) {
                 return Transform{float4{m[0], m[1], m[2], m[3]},
@@ -1457,18 +1564,12 @@ int main(int argc, char **argv) {
             continue;
         }
         UniformInfiniteLight sky;
-        // Fitted exactly as an area light's L is. The fit is meaningless when
-        // the scene wrote no L, and `has_l` is what says so; pbrt emits the
-        // colour space's illuminant itself in that case, which
-        // `uniform_infinite_le` reaches directly and which is why the scale
-        // must not pick up the fit's factor either.
-        if (l.has_l) {
-            sky.scale = fit_emission(l.l, l.scale, &sky.l);
-        } else {
-            sky.scale = l.scale;
-            sky.l = SigmoidPolynomial{0.f, 0.f, 0.f};
-        }
-        sky.has_l = l.has_l != 0;
+        // Exactly as an area light's L is, but with the third case: when the
+        // scene wrote no L, pbrt emits the colour space's illuminant itself,
+        // and the scale must not pick up a fit's factor.
+        sky.scale = emission_of(l.l, l.has_l != 0, l.blackbody, l.temperature,
+                                l.blackbody_normalization, l.scale,
+                                &sky.emission);
         sky.scene_radius = loaded.scene_radius;
         Light light;
         Light_UniformInfinite(light, sky);
@@ -1600,7 +1701,7 @@ int main(int argc, char **argv) {
                lights.data(), light_tree.data(), loaded.light_bit_trails.data(),
                materials.data(), material_displacement.data(), rho_uc, rho_ux,
                rho_uy, tree, inst_pool.data(),
-               sphere_pool.data(), triangle_pool.data());
+               sphere_pool.data(), triangle_pool.data(), disk_pool.data());
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());

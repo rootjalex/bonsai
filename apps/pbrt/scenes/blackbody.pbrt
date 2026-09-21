@@ -1,0 +1,80 @@
+# Emission given as a blackbody, and a conductor given as a colour.
+#
+# Two things real scenes write that no other scene here does. `"blackbody L"`
+# is a temperature in kelvin: pbrt builds a BlackbodySpectrum from it, Planck's
+# law normalized to one at its peak, where every other emitter here is an RGB
+# fitted to a sigmoid and multiplied by the colour space's illuminant. Both
+# an area light and a uniform infinite light take one, and both are here,
+# at temperatures apart enough -- a warm 3000 K sphere under a cool 6500 K
+# sky -- that getting either wrong shows. `"rgb reflectance"` on a conductor
+# is the other branch of ConductorMaterial::GetBxDF: no measured index at all,
+# but the one that reflects that colour at normal incidence, eta one and
+# k = 2 sqrt(r) / sqrt(1 - r). The copper sphere beside it is the measured
+# kind, so the two branches are lit by the same lights in the same image.
+#
+# `Integrator "path"` so that the lights are sampled as well as hit -- a
+# blackbody has to come out the same through `SampleLi` as through `Le`.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "blackbody.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The sky: a blackbody, dim.
+LightSource "infinite"
+    "blackbody L" [ 6500 ]
+    "float scale" [ 0.15 ]
+
+# The emitter: a warm blackbody, big and near.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "blackbody L" [ 3000 ]
+        "float scale" [ 8 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A conductor given as a colour: gold-ish, a little rough.
+AttributeBegin
+    Material "conductor"
+        "rgb reflectance" [ 0.95 0.65 0.35 ]
+        "float roughness" [ 0.1 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# And one given as a measured index, pbrt's default copper.
+AttributeBegin
+    Material "conductor"
+        "float roughness" [ 0.1 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

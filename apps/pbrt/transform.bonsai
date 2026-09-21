@@ -1,0 +1,96 @@
+// pbrt: Transform, from util/transform.h -- the matrix, and applying it to a
+// point, a vector and a normal. Its own file because both the camera and the
+// shapes need it: a camera is a transform applied to a ray, and a disk, like
+// pbrt's every quadric, lives in an object space a transform places in the
+// scene. The shapes file cannot import the camera's, which imports it.
+//
+// Nothing here inverts a matrix. The driver hands over both directions it
+// needs already inverted, so storing pbrt's mInv alongside would be storing
+// something never read; where pbrt applies an inverse, the inverse matrix is
+// passed and the function says which association pbrt's ApplyInverse uses.
+import stdlib/numerics;
+
+// pbrt: Transform, minus the inverse it carries alongside the matrix.
+//
+// Rows rather than a flat 16, so that applying one is four dot products.
+element Transform {
+    r0, r1, r2, r3 : vec4f;
+}
+
+// One row of the matrix against a point: `m0*x + m1*y + m2*z`, as fused
+// multiply-adds because pbrt's compiler fuses them. Not a four-element dot
+// product against a homogeneous vector, which is the same number in exact
+// arithmetic and a different one in floating point -- and a camera ray a bit
+// out lands a bit out, which a layered BSDF turns into different noise. See
+// dot_ in stdlib/numerics for which multiply pairs with which add.
+//
+// Two of these, because gcc fuses pbrt's two transforms differently and there
+// is no rule to it (include/SSA/Contract.h): in `Transform::operator()(Point3f)`
+// the *second* product goes into the fused add and the first is its addend,
+// and in `Transform::operator()(Vector3f)` -- the same expression, one term
+// shorter -- it is the *first*. The two agree wherever a row has a zero among
+// its first two entries, which is every camera that looks along an axis, and
+// that is how the difference stayed hidden until a camera with a roll and a
+// lens: the lens put a non-zero point through the point transform and a
+// general direction through the vector one, and pbrt's rays came out an ulp
+// away. Checked bit for bit by apps/pbrt/check_differentials.sh.
+func apply_row(row : vec4f, v : vec3f) -> Float =
+    fma(row.z, v.z, fma(row.y, v.y, row.x * v.x));
+
+func apply_row_vector(row : vec4f, v : vec3f) -> Float =
+    fma(row.z, v.z, fma(row.x, v.x, row.y * v.y));
+
+// pbrt: Transform::operator()(Point3f), which divides through by w. The
+// perspective transform is the whole reason that divide is here: for an
+// affine transform w comes out 1 and PBRT skips it.
+func apply_point(t : Transform, p : vec3f) -> vec3f {
+    xp = apply_row(t.r0, p) + t.r0.w;
+    yp = apply_row(t.r1, p) + t.r1.w;
+    zp = apply_row(t.r2, p) + t.r2.w;
+    wp = apply_row(t.r3, p) + t.r3.w;
+    v = vec3f{xp, yp, zp};
+    return select(wp == 1.0, v, v / wp);
+}
+
+// pbrt: Transform::operator()(Vector3f). A direction ignores the translation
+// column, so this is the upper-left 3x3 and no divide.
+func apply_vector(t : Transform, v : vec3f) -> vec3f {
+    return vec3f{apply_row_vector(t.r0, v), apply_row_vector(t.r1, v),
+                 apply_row_vector(t.r2, v)};
+}
+
+// pbrt: Transform::ApplyInverse(Point3f), applied here as a *forward* transform
+// by the inverse matrix, which the driver hands over. It is not `apply_point`
+// with a different matrix: pbrt writes the inverse as
+// `(m0 x + m1 y) + (m2 z + m3)` where the forward one is left to right, and the
+// two associations round differently. The first pair fuses as the interval
+// transform's does (row_point_interval), the second is one fused multiply-add
+// with the translation as its addend. Checked bit for bit by
+// check_differentials.sh's `invpoint` rows. `ApplyInverse(Vector3f)` needs no
+// twin: it is the vector transform's expression over the other matrix, and
+// fuses as the vector transform does.
+func apply_inverse_row(row : vec4f, p : vec3f) -> Float =
+    fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
+
+func apply_inverse_point(t : Transform, p : vec3f) -> vec3f {
+    v = vec3f{apply_inverse_row(t.r0, p), apply_inverse_row(t.r1, p),
+              apply_inverse_row(t.r2, p)};
+    wp = apply_inverse_row(t.r3, p);
+    return select(wp == 1.0, v, v / wp);
+}
+
+// pbrt: Transform::ApplyInverse(Normal3f), which is what
+// `CameraFromRender(Normal3f, time)` resolves to -- `renderFromCamera` applied
+// inversely to a normal, which reads the *columns* of the forward matrix
+// because a normal transforms by the inverse transpose. The same function is
+// pbrt's `Transform::operator()(Normal3f)` handed the inverse matrix, which
+// is how an instance's and a disk's normals reach render space.
+//
+// So this takes `render_from_camera` and not `camera_from_render`. For a rigid
+// camera the two give the same bits, since one matrix's columns are the other's
+// rows; written pbrt's way anyway, so that a camera transform with a scale in
+// it would still be right rather than accidentally so.
+func apply_normal_inverse(t : Transform, n : vec3f) -> vec3f =
+    vec3f{fma(t.r2.x, n.z, fma(t.r1.x, n.y, t.r0.x * n.x)),
+          fma(t.r2.y, n.z, fma(t.r1.y, n.y, t.r0.y * n.x)),
+          fma(t.r2.z, n.z, fma(t.r1.z, n.y, t.r0.z * n.x))};

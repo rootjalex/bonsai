@@ -10,6 +10,7 @@ import stdlib/numerics;
 import apps/pbrt/frame;
 import apps/pbrt/interval;
 import apps/pbrt/sampling;
+import apps/pbrt/transform;
 
 // pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
 // alongside; the tree lowering needs a bound to prune against.
@@ -420,16 +421,119 @@ func intersects(r : Ray, tri : Triangle) -> bool {
     return cast[[bool]](triangle_t(r, tri));
 }
 
+// pbrt: Disk -- a flat annulus, or a sector of one, in the plane z = height of
+// an object space of its own, placed in the scene by a transform, as pbrt's
+// every quadric is. The sphere above is admitted by scene_dump only under a
+// translation and kept in render space by its centre; a disk is oriented, so
+// its transform comes with it, both ways round: a ray is pulled into object
+// space by `object_from_render` and the hit is pushed out by
+// `render_from_object`, which is pbrt's `(*objectFromRender)(ray)` and
+// `(*renderFromObject)(SurfaceInteraction(...))`, and the same two functions
+// an instance's tree is entered and left by.
+//
+// Two flags, because pbrt has two and uses them in different places. `flip` is
+// reverseOrientation ^ transformSwapsHandedness, which
+// InteractionFromIntersection turns a *hit's* normal by; `reverse` is
+// reverseOrientation alone, which `Sample` turns a *sampled* point's normal
+// by. Under a transform that mirrors, the two differ, and both are pbrt's.
+// `phi_max` is in radians, clamped to a turn, as the constructor leaves it.
+element Disk {
+    render_from_object : Transform;
+    object_from_render : Transform;
+    height : Float;
+    radius : Float;
+    inner_radius : Float;
+    phi_max : Float;
+    flip : bool;
+    reverse : bool;
+}
+
+// pbrt: QuadricIntersection, as a disk fills it: the distance along the ray,
+// the hit in object space, and its azimuth about the disk's axis.
+element DiskHit {
+    t : Float;
+    p_obj : vec3f;
+    phi : Float;
+}
+
+// pbrt: Transform::ApplyInverse(const Ray &, Float *tMax), the top of
+// TransformedPrimitive::Intersect: the ray moved into the instance's frame, so
+// that everything inside the instance's tree is tested against stored
+// geometry. `inv` is the inverse matrix, so applying it is `ApplyInverse`.
+// A disk's `objectFromRender` is applied to a ray by the same arithmetic --
+// pbrt's `operator()(Point3fi)` computes the point in plain floats, paired
+// as below, and only the error bound by intervals -- so this is that too.
+//
+// The origin is a point and goes through the interval-point arithmetic pbrt
+// uses for it -- `(m00 x + m01 y) + (m02 z + m03)`, paired that way -- and the
+// direction is a vector, through the same rows without the translation. The
+// direction is *not* renormalised, on purpose and as in pbrt: an affine map
+// preserves the parameter along a line only when the direction is transformed
+// rather than rescaled, and it is that parameter -- the `t` of a hit -- that
+// `distmin` answers and that the running best is compared against. Renormalise
+// and an instance could no longer prune against a hit found in another one.
+//
+// pbrt then nudges the origin forward by its rounding error, `o += d * dt`, and
+// takes the same `dt` off `tMax` so that the two sides still agree about where
+// the best hit so far is. That is not done here. The nudge is against a ray
+// re-hitting the surface its origin was rounded onto, which this renderer
+// guards with pbrt's own SpawnRay offset, applied in render space before the
+// ray reaches any instance; and `tMax` is not a field
+// of the query here but the traversal's accumulator, which nothing inside a
+// query may alter (see PLAN.md). Without the nudge the identity the whole
+// arrangement rests on -- a distance along the pulled ray *is* the distance
+// along the original -- holds exactly rather than up to `dt`, and the hit point
+// differs from pbrt's by that `dt`: a few units in the last place.
+func pull_ray(inv : Transform, r : Ray) -> Ray {
+    o = vec3f{fma(inv.r0.y, r.o.y, inv.r0.x * r.o.x) + fma(inv.r0.z, r.o.z, inv.r0.w),
+              fma(inv.r1.y, r.o.y, inv.r1.x * r.o.x) + fma(inv.r1.z, r.o.z, inv.r1.w),
+              fma(inv.r2.y, r.o.y, inv.r2.x * r.o.x) + fma(inv.r2.z, r.o.z, inv.r2.w)};
+    wp = fma(inv.r3.y, r.o.y, inv.r3.x * r.o.x) + fma(inv.r3.z, r.o.z, inv.r3.w);
+    out : Ray = {select(wp == 1.0, o, o / wp), apply_vector(inv, r.d), r.tmax};
+    return out;
+}
+
+// pbrt: Disk::BasicIntersect. The ray in object space, where the disk is the
+// plane z = height: the distance to the plane, the point there, and whether
+// it lies between the radii and within phi_max. A ray parallel to the plane
+// misses, whatever its origin.
+func disk_hit(r : Ray, d : Disk) -> option[DiskHit] {
+    pulled = pull_ray(d.object_from_render, r);
+    oi = pulled.o;
+    di = pulled.d;
+    if di.z == 0.0 {
+        return {};
+    }
+    t = (d.height - oi.z) / di.z;
+    if (t <= 0.0) | (t >= r.tmax) {
+        return {};
+    }
+    p = oi + t * di;
+    dist2 = sqr(p.x) + sqr(p.y);
+    if (dist2 > sqr(d.radius)) | (dist2 < sqr(d.inner_radius)) {
+        return {};
+    }
+    phi0 = atan2(p.y, p.x);
+    phi = select(phi0 < 0.0, phi0 + 6.28318530717958647692, phi0);
+    if phi > d.phi_max {
+        return {};
+    }
+    hit : DiskHit = {t, p, phi};
+    return hit;
+}
+
 // pbrt: Shape, the closed set of things a ray can hit. v4 dispatches this
 // through a TaggedPointer over Sphere, Triangle, and the rest; a variant type
 // says the same thing without the pointer.
 //
-// Both shapes are in render space. PBRT keeps a transform per shape and works
-// in object space, tracking error bounds through the round trip; placing
-// shapes is what brings that back, and nothing here needs it yet.
+// The sphere and the triangle are in render space. PBRT keeps a transform per
+// shape and works in object space, tracking error bounds through the round
+// trip; the disk is the one shape here that does the same, since it is
+// oriented and a translation cannot place it.
 element Shape =
     | Sph(s : Sphere)
-    | Tri(t : Triangle);
+    | Tri(t : Triangle)
+    | Dsk(d : Disk);
 
 // pbrt: Shape::Intersect and Shape::IntersectP, as one function each that
 // matches on which shape it has. The tree the schedule builds calls these
@@ -449,6 +553,13 @@ func distmin(r : Ray, sh : Shape) -> Float {
             return inf;
         }
         Tri(t) => return distmin(r, t);
+        Dsk(d) => {
+            hit = disk_hit(r, d);
+            if hit {
+                return (*hit).t;
+            }
+            return inf;
+        }
     }
 }
 
@@ -462,6 +573,13 @@ func distmax(r : Ray, sh : Shape) -> Float {
             return -inf;
         }
         Tri(t) => return distmax(r, t);
+        Dsk(d) => {
+            hit = disk_hit(r, d);
+            if hit {
+                return (*hit).t;
+            }
+            return -inf;
+        }
     }
 }
 
@@ -469,6 +587,7 @@ func intersects(r : Ray, sh : Shape) -> bool {
     match sh {
         Sph(s) => return cast[[bool]](sphere_t(r, s));
         Tri(t) => return intersects(r, t);
+        Dsk(d) => return cast[[bool]](disk_hit(r, d));
     }
 }
 
@@ -619,6 +738,89 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     g : SurfaceGeometry = {n, n, dpdu, dpdv, uv, dpdu, dpdv, dndu, dndv,
                            p + s.center, gamma(5) * abs(p)};
     return g;
+}
+
+// pbrt: Point3fi -- a point and the bound on how far the arithmetic that made
+// it could have strayed.
+element BoundedPoint {
+    p : vec3f;
+    error : vec3f;
+}
+
+// pbrt: Transform::operator()(const Point3fi &): the point by the matrix, in
+// the association pbrt's interval-point arithmetic pairs it -- `(m00 x + m01 y)
+// + (m02 z + m03)` -- and its error grown the way pbrt grows it: the incoming
+// error scaled by the matrix's magnitudes, plus the transform's own rounding.
+// With no incoming error that is pbrt's `gamma(3) * (|m00 x| + |m01 y| + |m02
+// z| + |m03|)`, which is what a sampled point on a disk leaves object space
+// with.
+func push_point(m : Transform, p : vec3f, e : vec3f) -> BoundedPoint {
+    moved = vec3f{fma(m.r0.y, p.y, m.r0.x * p.x) + fma(m.r0.z, p.z, m.r0.w),
+                  fma(m.r1.y, p.y, m.r1.x * p.x) + fma(m.r1.z, p.z, m.r1.w),
+                  fma(m.r2.y, p.y, m.r2.x * p.x) + fma(m.r2.z, p.z, m.r2.w)};
+    wp = fma(m.r3.y, p.y, m.r3.x * p.x) + fma(m.r3.z, p.z, m.r3.w);
+    g3 = gamma(3);
+    p_error = vec3f{
+        (g3 + 1.0) * (abs(m.r0.x) * e.x + abs(m.r0.y) * e.y + abs(m.r0.z) * e.z) +
+            g3 * (abs(m.r0.x * p.x) + abs(m.r0.y * p.y) + abs(m.r0.z * p.z) +
+                  abs(m.r0.w)),
+        (g3 + 1.0) * (abs(m.r1.x) * e.x + abs(m.r1.y) * e.y + abs(m.r1.z) * e.z) +
+            g3 * (abs(m.r1.x * p.x) + abs(m.r1.y * p.y) + abs(m.r1.z * p.z) +
+                  abs(m.r1.w)),
+        (g3 + 1.0) * (abs(m.r2.x) * e.x + abs(m.r2.y) * e.y + abs(m.r2.z) * e.z) +
+            g3 * (abs(m.r2.x * p.x) + abs(m.r2.y * p.y) + abs(m.r2.z * p.z) +
+                  abs(m.r2.w))};
+    out : BoundedPoint = {select(wp == 1.0, moved, moved / wp),
+                          select(wp == 1.0, p_error, p_error / abs(wp))};
+    return out;
+}
+
+// pbrt: Transform::operator()(const SurfaceInteraction &), the bottom of
+// TransformedPrimitive::Intersect: the interaction the instance's own geometry
+// computed, moved into render space once. Points by the matrix, vectors by its
+// upper three by three, normals by the inverse transposed -- pbrt's
+// `operator()(Normal3f)` reads the *columns* of the inverse -- and the two
+// normals renormalised afterwards, as pbrt's are. `shading.n` is then turned
+// to face the geometric normal, which is the last line of pbrt's version.
+// A disk's hit leaves object space through this too.
+func push_surface(m : Transform, inv : Transform,
+                  s : SurfaceGeometry) -> SurfaceGeometry {
+    placed = push_point(m, s.p, s.p_error);
+    n = unit_vector_(apply_normal_inverse(inv, s.n));
+    ns_raw = unit_vector_(apply_normal_inverse(inv, s.ns));
+    ns = select(dot(ns_raw, n) < 0.0, -ns_raw, ns_raw);
+    out : SurfaceGeometry = {n, ns,
+                             apply_vector(m, s.dpdus), apply_vector(m, s.dpdvs),
+                             s.uv,
+                             apply_vector(m, s.dpdu), apply_vector(m, s.dpdv),
+                             apply_normal_inverse(inv, s.dndu),
+                             apply_normal_inverse(inv, s.dndv),
+                             placed.p, placed.error};
+    return out;
+}
+
+// pbrt: Disk::InteractionFromIntersection, and the SurfaceInteraction
+// constructor and transform it ends in. The parameterization is azimuth over
+// phi_max for u and the distance in from the rim over the annulus's width for
+// v; the normal is the cross product of the two partials, turned by `flip`;
+// the hit is refined onto the plane and, being on it exactly, carries no
+// error of its own -- the error it reaches render space with is the
+// transform's. A disk is flat, so the normal does not turn: dndu and dndv are
+// zero, and the shading geometry is the geometry.
+func disk_geometry(d : Disk, hit : DiskHit) -> SurfaceGeometry {
+    p_hit = hit.p_obj;
+    u = hit.phi / d.phi_max;
+    r_hit = sqrt(sqr(p_hit.x) + sqr(p_hit.y));
+    v = (d.radius - r_hit) / (d.radius - d.inner_radius);
+    dpdu = vec3f{-d.phi_max * p_hit.y, d.phi_max * p_hit.x, 0.0};
+    dpdv = vec3f{p_hit.x, p_hit.y, 0.0} * (d.inner_radius - d.radius) / r_hit;
+    zero = vec3f{0.0, 0.0, 0.0};
+    p_obj = vec3f{p_hit.x, p_hit.y, d.height};
+    raw_n = unit_vector(cross_(dpdu, dpdv));
+    n = select(d.flip, -raw_n, raw_n);
+    g : SurfaceGeometry = {n, n, dpdu, dpdv, vec2f{u, v}, dpdu, dpdv, zero,
+                           zero, p_obj, zero};
+    return push_surface(d.render_from_object, d.object_from_render, g);
 }
 
 // pbrt: Triangle::InteractionFromIntersection.
@@ -991,6 +1193,69 @@ func sphere_pdf(s : Sphere, ctx : ShapeSampleContext, wi : vec3f) -> Float {
         one_minus_cos = sin2_theta_max / 2.0;
     }
     return 1.0 / (6.28318530717958647692 * one_minus_cos);
+}
+
+// pbrt: Disk::Area, the sector of the annulus phi_max covers.
+func disk_area(d : Disk) -> Float =
+    d.phi_max * 0.5 * (sqr(d.radius) - sqr(d.inner_radius));
+
+// pbrt: Disk::Sample(u), a point chosen uniformly over the disk's area -- the
+// unit disk sampled concentrically and scaled to the radius, then pushed into
+// render space with the transform's error, and the normal the transform makes
+// of the object space's z, turned by `reverse`. The point is sampled over the
+// whole disk whatever the inner radius and phi_max, as pbrt's is; the density
+// is one over the sector's area all the same. pbrt does not reconcile the two,
+// so neither does this.
+func disk_sample_area(d : Disk, u : vec2f) -> ShapeSample {
+    pd = sample_uniform_disk_concentric(u);
+    p_obj = vec3f{pd.x * d.radius, pd.y * d.radius, d.height};
+    placed = push_point(d.render_from_object, p_obj, vec3f{0.0, 0.0, 0.0});
+    raw_n = unit_vector_(apply_normal_inverse(d.object_from_render,
+                                              vec3f{0.0, 0.0, 1.0}));
+    n = select(d.reverse, -raw_n, raw_n);
+    phi0 = atan2(pd.y, pd.x);
+    phi = select(phi0 < 0.0, phi0 + 6.28318530717958647692, phi0);
+    radius_sample = sqrt(sqr(p_obj.x) + sqr(p_obj.y));
+    uv = vec2f{phi / d.phi_max,
+               (d.radius - radius_sample) / (d.radius - d.inner_radius)};
+    ss : ShapeSample = {placed.p, placed.error, n, uv, 1.0 / disk_area(d)};
+    return ss;
+}
+
+// pbrt: Disk::Sample(ctx, u) -- the area sample above, its density converted
+// to solid angle about the point it is seen from. A point seen edge-on, or
+// coincident, has an infinite density and is declined.
+func disk_sample(d : Disk, ctx : ShapeSampleContext,
+                 u : vec2f) -> option[ShapeSample] {
+    area = disk_sample_area(d, u);
+    wi0 = area.p - ctx.p;
+    if sqlen[[Float]](wi0) == 0.0 {
+        return {};
+    }
+    wi = unit_vector_(wi0);
+    converted : mut ShapeSample = area;
+    converted.pdf = area.pdf / (abs(dot(area.n, -wi)) /
+                                sqlen[[Float]](ctx.p - area.p));
+    if converted.pdf == inf {
+        return {};
+    }
+    return converted;
+}
+
+// pbrt: Disk::PDF(ctx, wi), the density `disk_sample` draws `wi` with: the
+// disk is intersected along `wi` from the context's point, and the area
+// density converted at the hit. Zero for a miss, and zero where the
+// conversion overflows.
+func disk_pdf(d : Disk, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    r : Ray = {offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi), wi, inf};
+    hit = disk_hit(r, d);
+    if !hit {
+        return 0.0;
+    }
+    g = disk_geometry(d, *hit);
+    pdf = (1.0 / disk_area(d)) /
+          (abs(dot(g.n, -wi)) / sqlen[[Float]](ctx.p - g.p));
+    return select(pdf == inf, 0.0, pdf);
 }
 
 // pbrt: SafeASin, the mirror of safe_acos above.
@@ -1368,6 +1633,7 @@ func shape_sample(sh : Shape, ctx : ShapeSampleContext,
     match sh {
         Sph(s) => return sphere_sample(s, ctx, u);
         Tri(t) => return triangle_sample(t, ctx, u);
+        Dsk(d) => return disk_sample(d, ctx, u);
     }
 }
 
@@ -1375,6 +1641,7 @@ func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
     match sh {
         Sph(s) => return sphere_pdf(s, ctx, wi);
         Tri(t) => return triangle_pdf(t, ctx, wi);
+        Dsk(d) => return disk_pdf(d, ctx, wi);
     }
 }
 
@@ -1397,6 +1664,13 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
             hit = triangle_hit(r, tri);
             if hit {
                 return triangle_geometry(tri, (*hit).b);
+            }
+            return missed;
+        }
+        Dsk(d) => {
+            hit = disk_hit(r, d);
+            if hit {
+                return disk_geometry(d, *hit);
             }
             return missed;
         }

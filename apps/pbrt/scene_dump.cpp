@@ -99,6 +99,8 @@ extern const RGBToSpectrumTable::CoefficientArray sRGBToSpectrumTable_Data;
 
 namespace {
 
+[[noreturn]] void fail(const std::string &message);
+
 // Set by `--print-differentials`. Read at the end of `load`, which is where the
 // parsed scene and PBRT's own camera are both in scope; see the block there.
 bool g_print_differentials = false;
@@ -130,6 +132,9 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
 
     void Camera(const std::string &name, pbrt::ParsedParameterVector params,
                 pbrt::FileLoc loc) override {
+        // PBRT: `namedCoordinateSystems["camera"] = Inverse(cameraFromWorld)`,
+        // the CTM at this directive being cameraFromWorld.
+        named_systems["camera"] = pbrt::Inverse(ctm);
         camera_name = name;
         // The vector holds pointers, so a copy still refers to the parameters
         // the base is about to take; reading them here does not consume them.
@@ -280,6 +285,7 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     void WorldBegin(pbrt::FileLoc loc) override {
         ctm = pbrt::Transform();
         ctm_stack.clear();
+        named_systems["world"] = ctm;
         pbrt::BasicSceneBuilder::WorldBegin(loc);
     }
     void AttributeBegin(pbrt::FileLoc loc) override {
@@ -315,9 +321,15 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     void LookAt(pbrt::Float ex, pbrt::Float ey, pbrt::Float ez, pbrt::Float lx,
                 pbrt::Float ly, pbrt::Float lz, pbrt::Float ux, pbrt::Float uy,
                 pbrt::Float uz, pbrt::FileLoc loc) override {
-        ctm = ctm * pbrt::Inverse(pbrt::LookAt(pbrt::Point3f(ex, ey, ez),
-                                               pbrt::Point3f(lx, ly, lz),
-                                               pbrt::Vector3f(ux, uy, uz)));
+        // PBRT: `ctm * lookAt`, where pbrt::LookAt returns the transform whose
+        // forward matrix is cameraFromWorld. Not its inverse, which this
+        // applied until 2026-09-20 -- unnoticed, since nothing placed after
+        // a LookAt inside the world block had been converted, and the camera's
+        // own LookAt comes before WorldBegin, where only the named coordinate
+        // system "camera" reads what it left behind.
+        ctm = ctm * pbrt::LookAt(pbrt::Point3f(ex, ey, ez),
+                                 pbrt::Point3f(lx, ly, lz),
+                                 pbrt::Vector3f(ux, uy, uz));
         pbrt::BasicSceneBuilder::LookAt(ex, ey, ez, lx, ly, lz, ux, uy, uz,
                                         loc);
     }
@@ -331,15 +343,64 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
             pbrt::Transform(pbrt::SquareMatrix<4>(pstd::MakeSpan(tr, 16))));
         pbrt::BasicSceneBuilder::ConcatTransform(tr, loc);
     }
-    // The two that name a transform rather than compose one. Refused where a
-    // light would be affected, because following them means mirroring PBRT's
-    // named-coordinate-system table as well, and no scene here uses them.
+    // The two that name a transform rather than compose one, mirroring PBRT's
+    // named-coordinate-system table: `CoordinateSystem` records the CTM under
+    // a name, `CoordSysTransform` makes a recorded one the CTM, and two names
+    // PBRT records itself -- "camera" at the Camera directive, the inverse of
+    // the CTM there (BasicSceneBuilder::Camera), and "world" at WorldBegin.
+    // killeroo-gold places its distant light with `CoordSysTransform
+    // "camera"`. A name nothing declared is refused: PBRT only warns and
+    // leaves the CTM as it was, and a light placed by it would be somewhere
+    // else.
     void CoordinateSystem(const std::string &n, pbrt::FileLoc loc) override {
+        named_systems[n] = ctm;
         pbrt::BasicSceneBuilder::CoordinateSystem(n, loc);
     }
     void CoordSysTransform(const std::string &n, pbrt::FileLoc loc) override {
-        ctm_is_tracked = false;
+        const auto it = named_systems.find(n);
+        if (it == named_systems.end()) {
+            fail(where(loc) + "CoordSysTransform \"" + n +
+                 "\": no coordinate system of that name has been declared");
+        }
+        ctm = it->second;
         pbrt::BasicSceneBuilder::CoordSysTransform(n, loc);
+    }
+
+    // Participating media. Neither directive is implemented, and until these
+    // were here neither was refused: the base records a named medium and a
+    // shape's interface without complaint, so a scene with fog in it or a
+    // glass with an interior converted with both silently missing -- and a
+    // render that quietly leaves out a medium looks like a renderer that
+    // works. Refused on the spot, naming the kind of medium, which is what
+    // decides which one to implement first (PLAN.md, "What the scenes need").
+    void MakeNamedMedium(const std::string &name,
+                         pbrt::ParsedParameterVector params,
+                         pbrt::FileLoc loc) override {
+        std::string kind = "(no type)";
+        for (const pbrt::ParsedParameter *p : params) {
+            if (p->name == "type" && !p->strings.empty()) {
+                kind = p->strings[0];
+            }
+        }
+        fail(where(loc) + "MakeNamedMedium \"" + name + "\" of type \"" + kind +
+             "\": participating media are not supported -- the `volpath` "
+             "integrator, and every medium, is not implemented");
+    }
+    void MediumInterface(const std::string &inside, const std::string &outside,
+                         pbrt::FileLoc loc) override {
+        // An interface naming no medium on either side is what a scene writes
+        // to leave a medium, and means what no directive means.
+        if (inside.empty() && outside.empty()) {
+            pbrt::BasicSceneBuilder::MediumInterface(inside, outside, loc);
+            return;
+        }
+        fail(where(loc) + "MediumInterface \"" + inside + "\" \"" + outside +
+             "\": participating media are not supported -- the `volpath` "
+             "integrator, and every medium, is not implemented");
+    }
+    static std::string where(const pbrt::FileLoc &loc) {
+        return std::string(loc.filename) + ":" + std::to_string(loc.line) +
+               ": ";
     }
 
     void LightSource(const std::string &name, pbrt::ParsedParameterVector params,
@@ -476,7 +537,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // The mirrored CTM. See the transform overrides above.
     pbrt::Transform ctm;
     std::vector<pbrt::Transform> ctm_stack;
+    // Always true now that the named coordinate systems are followed too;
+    // kept as the record a light carries of how it was placed.
     bool ctm_is_tracked = true;
+    std::map<std::string, pbrt::Transform> named_systems;
     // PBRT's RandomWalkIntegrator default. The name is empty when the scene
     // named no integrator, which is not the same as naming the default: PBRT
     // would fall back to volpath, and this renderer has only the random walk,
@@ -526,6 +590,37 @@ bool material_rgb(const CapturingBuilder::MaterialInfo &m,
     for (int i = 0; i < 3; i++) {
         rgb[i] = v->floats[i];
     }
+    return true;
+}
+
+// A `blackbody <key>` parameter -- one temperature in kelvin -- as PBRT's
+// BlackbodySpectrum: the temperature, and the constructor's normalization,
+// which makes the spectrum one at the wavelength Wien's law puts its peak at.
+// The normalization is computed here with PBRT's own `Blackbody`, `FastExp`
+// and all, and shipped, so the renderer's copy of the spectrum is PBRT's to
+// the last bit rather than a recomputation of it. False when the parameter is
+// absent or is not a blackbody, so the caller can read it as something else.
+bool read_blackbody(const CapturingBuilder::MaterialInfo &m,
+                    const std::string &key, uint32_t *blackbody,
+                    float *temperature, float *normalization) {
+    const CapturingBuilder::MaterialInfo::Value *v = m.find(key);
+    if (v == nullptr || v->type != "blackbody") {
+        return false;
+    }
+    if (v->floats.size() != 1) {
+        fail("the parameter \"blackbody " + key +
+             "\" takes one temperature, in kelvin");
+    }
+    const float t = v->floats[0];
+    if (!(t > 0.f)) {
+        fail("the parameter \"blackbody " + key +
+             "\" needs a positive temperature, not " + std::to_string(t));
+    }
+    *blackbody = 1u;
+    *temperature = t;
+    // PBRT: BlackbodySpectrum::BlackbodySpectrum.
+    const float lambda_max = 2.8977721e-3f / t;
+    *normalization = 1.f / pbrt::Blackbody(lambda_max * 1e9f, t);
     return true;
 }
 
@@ -766,44 +861,116 @@ int32_t convert_measured(const std::string &filename) {
     return index;
 }
 
-// The name a `"spectrum eta"` parameter carries.
-//
-// PBRT lets a spectrum parameter be a named spectrum, an inline list of
-// wavelength/value pairs, a blackbody temperature or an RGB. Only the first is
-// implemented; the rest are refused rather than approximated, because a metal's
-// colour *is* its index curve and a stand-in for it would look like a different
-// metal rather than like an error.
-std::string named_spectrum(const CapturingBuilder::MaterialInfo::Value &v) {
-    if (v.type != "spectrum" || v.strings.size() != 1) {
-        fail("a conductor's `eta` and `k` have to be named spectra here, and "
-             "this one is a `" + v.type + "`");
+// A spectrum parameter read as an unbounded spectrum, which is what a
+// conductor's `eta` and `k` are -- PBRT: ParameterDictionary::
+// extractSpectrumArray with SpectrumType::Unbounded, for one value. An RGB is
+// an RGBUnboundedSpectrum, the sigmoid fit scaled by twice the largest
+// component; a blackbody a BlackbodySpectrum; an inline list of increasing
+// wavelength/value pairs a PiecewiseLinearSpectrum; and a string a named
+// spectrum or, failing that, a file of such pairs found from the scene's
+// directory (readSpectrumFromFile). The spectrum is PBRT's own object, built
+// by PBRT's constructors, and is only ever *evaluated* here, into the tables
+// the renderer interpolates; `key` describes the value for the cache of them.
+pbrt::Spectrum unbounded_spectrum(const CapturingBuilder::MaterialInfo::Value &v,
+                                  const std::string &param,
+                                  pbrt::Allocator alloc, std::string *key) {
+    const auto describe = [&](const std::string &kind) {
+        std::string s = kind;
+        for (const float f : v.floats) {
+            s += " " + std::to_string(f);
+        }
+        for (const std::string &str : v.strings) {
+            s += " " + str;
+        }
+        *key = s;
+    };
+    if (v.type == "rgb") {
+        if (v.floats.size() != 3) {
+            fail("the parameter \"rgb " + param + "\" takes three values");
+        }
+        const pbrt::RGB rgb(v.floats[0], v.floats[1], v.floats[2]);
+        if (rgb.r < 0 || rgb.g < 0 || rgb.b < 0) {
+            fail("the parameter \"rgb " + param +
+                 "\" has a negative component, which PBRT refuses too");
+        }
+        describe("rgb");
+        return alloc.new_object<pbrt::RGBUnboundedSpectrum>(
+            *pbrt::RGBColorSpace::sRGB, rgb);
     }
-    return v.strings[0];
+    if (v.type == "blackbody") {
+        if (v.floats.size() != 1) {
+            fail("the parameter \"blackbody " + param +
+                 "\" takes one temperature");
+        }
+        describe("blackbody");
+        return alloc.new_object<pbrt::BlackbodySpectrum>(v.floats[0]);
+    }
+    if (v.type == "spectrum" && !v.floats.empty()) {
+        if (v.floats.size() % 2 != 0) {
+            fail("the parameter \"spectrum " + param +
+                 "\" has an odd number of values; it takes wavelength/value "
+                 "pairs");
+        }
+        const size_t n = v.floats.size() / 2;
+        std::vector<pbrt::Float> lambda(n), value(n);
+        for (size_t i = 0; i < n; i++) {
+            if (i > 0 && v.floats[2 * i] <= lambda[i - 1]) {
+                fail("the parameter \"spectrum " + param +
+                     "\" has wavelengths that do not increase, at pair " +
+                     std::to_string(i));
+            }
+            lambda[i] = v.floats[2 * i];
+            value[i] = v.floats[2 * i + 1];
+        }
+        describe("spectrum");
+        return alloc.new_object<pbrt::PiecewiseLinearSpectrum>(lambda, value,
+                                                              alloc);
+    }
+    if (v.type == "spectrum" && v.strings.size() == 1) {
+        describe("spectrum");
+        if (const pbrt::Spectrum named = pbrt::GetNamedSpectrum(v.strings[0])) {
+            return named;
+        }
+        const std::string resolved = pbrt::ResolveFilename(v.strings[0]);
+        pstd::optional<pbrt::Spectrum> from_file =
+            pbrt::PiecewiseLinearSpectrum::Read(resolved, alloc);
+        if (!from_file) {
+            fail(v.strings[0] + ": neither a spectrum PBRT knows by name nor "
+                                "a file of wavelength/value pairs it can read");
+        }
+        return *from_file;
+    }
+    fail("the parameter \"" + param + "\" is a `" + v.type +
+         "`, which is not a spectrum: an `rgb`, a `blackbody`, or a `spectrum` "
+         "given as pairs, a name or a file");
 }
 
-// One pair of index-of-refraction curves, resampled at one nanometre.
+// One pair of index-of-refraction curves, resampled at a tenth of a nanometre.
 //
-// PBRT keeps these as a PiecewiseLinearSpectrum over the published
+// PBRT keeps a named metal's as a PiecewiseLinearSpectrum over the published
 // measurements and interpolates between them; this is the same function
-// sampled every nanometre, which the renderer interpolates the same way. That
-// reproduces PBRT exactly wherever a nanometre does not straddle one of the
+// sampled on a grid, which the renderer interpolates the same way. That
+// reproduces PBRT exactly wherever a grid step does not straddle one of the
 // original knots -- they are four to six nanometres apart -- and the residual
-// is measured below rather than assumed.
-int32_t conductor_spectra(const std::string &eta_name,
-                          const std::string &k_name) {
-    const std::string key = eta_name + "|" + k_name;
+// is measured below rather than assumed. A pair given some other way -- an
+// RGB, a list of pairs, a file -- is PBRT's spectrum for it (see
+// unbounded_spectrum), sampled onto the same grid. Neither given is PBRT's
+// default, copper.
+int32_t conductor_spectra(const CapturingBuilder::MaterialInfo::Value *eta_v,
+                          const CapturingBuilder::MaterialInfo::Value *k_v) {
+    pbrt::Allocator alloc;
+    std::string eta_key = "metal-Cu-eta";
+    std::string k_key = "metal-Cu-k";
+    const pbrt::Spectrum eta =
+        eta_v == nullptr ? pbrt::GetNamedSpectrum("metal-Cu-eta")
+                         : unbounded_spectrum(*eta_v, "eta", alloc, &eta_key);
+    const pbrt::Spectrum k =
+        k_v == nullptr ? pbrt::GetNamedSpectrum("metal-Cu-k")
+                       : unbounded_spectrum(*k_v, "k", alloc, &k_key);
+    const std::string key = eta_key + "|" + k_key;
     const auto cached = g_conductor_index.find(key);
     if (cached != g_conductor_index.end()) {
         return cached->second;
-    }
-
-    const pbrt::Spectrum eta = pbrt::GetNamedSpectrum(eta_name);
-    const pbrt::Spectrum k = pbrt::GetNamedSpectrum(k_name);
-    if (!eta) {
-        fail("no spectrum named \"" + eta_name + "\"");
-    }
-    if (!k) {
-        fail("no spectrum named \"" + k_name + "\"");
     }
 
     const int32_t index =
@@ -845,7 +1012,7 @@ int32_t conductor_spectra(const std::string &eta_name,
     }
     fprintf(stderr,
             "scene_dump: %s resampled, worst relative error %.2e at %.2f nm\n",
-            eta_name.c_str(), worst, worst_at);
+            eta_key.c_str(), worst, worst_at);
 
     g_conductor_index.emplace(key, index);
     return index;
@@ -885,6 +1052,65 @@ int32_t material_rgb_or_texture(const CapturingBuilder::MaterialInfo &m,
         rgb[i] = v->floats[i];
     }
     return -1;
+}
+
+// A float parameter that may be a texture -- PBRT's FloatTexture, which every
+// roughness is. The constant is written to `value` and -1 returned; a texture
+// is converted and its index returned, `value` left alone. Absent, `fallback`
+// is written and -1 returned.
+int32_t material_float_or_texture(const CapturingBuilder::MaterialInfo &m,
+                                  const std::string &key, float fallback,
+                                  float *value) {
+    const CapturingBuilder::MaterialInfo::Value *v = m.find(key);
+    if (v == nullptr) {
+        *value = fallback;
+        return -1;
+    }
+    if (v->type == "texture") {
+        if (v->strings.empty()) {
+            fail("the material parameter \"" + key + "\" names no texture");
+        }
+        return convert_texture(v->strings[0]);
+    }
+    if (v->type != "float" || v->floats.size() != 1) {
+        fail("the material parameter \"" + key +
+             "\" has to be a `float` or a texture here, and this one is a `" +
+             v->type + "`");
+    }
+    *value = v->floats[0];
+    return -1;
+}
+
+// PBRT: the roughness of a coated diffuse, conductor or dielectric material,
+// which every one of their `Create`s reads the same way --
+//
+//     FloatTexture uRoughness = parameters.GetFloatTextureOrNull("uroughness");
+//     if (!uRoughness) uRoughness = parameters.GetFloatTexture("roughness", 0.f);
+//
+// and the same for v: an axis's own where given, `roughness` otherwise, each a
+// float or a float texture, and zero -- a perfect mirror -- with none of them.
+// A coated conductor reads two of these, under the prefixes `interface.` and
+// `conductor.`.
+void material_roughness_prefixed(const CapturingBuilder::MaterialInfo &m,
+                                 const std::string &prefix, float *u, float *v,
+                                 int32_t *u_texture, int32_t *v_texture) {
+    const auto axis = [&](const std::string &own, float *value, int32_t *texture) {
+        if (m.find(own) != nullptr) {
+            *texture = material_float_or_texture(m, own, 0.f, value);
+        } else {
+            *texture = material_float_or_texture(m, prefix + "roughness", 0.f,
+                                                 value);
+        }
+    };
+    axis(prefix + "uroughness", u, u_texture);
+    axis(prefix + "vroughness", v, v_texture);
+}
+
+void material_roughness(const CapturingBuilder::MaterialInfo &m,
+                        bonsai_scene::Material &out) {
+    material_roughness_prefixed(m, "", &out.u_roughness, &out.v_roughness,
+                                &out.u_roughness_texture,
+                                &out.v_roughness_texture);
 }
 
 // PBRT's WrapMode, by the names a scene writes.
@@ -1237,20 +1463,20 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
                  "which is PBRT's own error too");
         }
         if (refl != nullptr) {
-            fail("a conductor given `reflectance` rather than `eta`/`k` is not "
-                 "supported yet: PBRT turns it into an index by inverting the "
-                 "Fresnel equations at normal incidence, which is a different "
-                 "path through ConductorMaterial::GetBxDF");
+            // The other branch of ConductorMaterial::GetBxDF: no index at
+            // all, but a reflectance the renderer inverts at the hit -- eta
+            // one, k the value that reflects it at normal incidence. An RGB, a
+            // grey float or a texture, as a diffuse material's is.
+            out.conductor_from_reflectance = 1u;
+            out.reflectance_texture =
+                material_rgb_or_texture(m, "reflectance", out.reflectance);
+        } else {
+            out.conductor_spectra = conductor_spectra(eta, k);
         }
-        out.conductor_spectra = conductor_spectra(
-            eta == nullptr ? std::string("metal-Cu-eta") : named_spectrum(*eta),
-            k == nullptr ? std::string("metal-Cu-k") : named_spectrum(*k));
 
         // The roughness falls back exactly as CoatedDiffuse's does, and
         // defaults to zero -- which makes a perfect mirror.
-        const float roughness = material_float(m, "roughness", 0.f);
-        out.u_roughness = material_float(m, "uroughness", roughness);
-        out.v_roughness = material_float(m, "vroughness", roughness);
+        material_roughness(m, out);
         const CapturingBuilder::MaterialInfo::Value *cremap =
             m.find("remaproughness");
         if (cremap != nullptr) {
@@ -1267,9 +1493,7 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         // PBRT: DielectricMaterial::Create. The roughness falls back the same
         // way CoatedDiffuse's does, and defaults to zero -- which makes the
         // boundary a perfect one and its BSDF a pair of deltas.
-        const float roughness = material_float(m, "roughness", 0.f);
-        out.u_roughness = material_float(m, "uroughness", roughness);
-        out.v_roughness = material_float(m, "vroughness", roughness);
+        material_roughness(m, out);
         const CapturingBuilder::MaterialInfo::Value *dremap =
             m.find("remaproughness");
         if (dremap != nullptr) {
@@ -1300,9 +1524,7 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         // PBRT takes `uroughness` and `vroughness` where they are given and
         // falls back to `roughness` for each independently, which is not the
         // same as falling back to `roughness` only when neither is given.
-        const float roughness = material_float(m, "roughness", 0.f);
-        out.u_roughness = material_float(m, "uroughness", roughness);
-        out.v_roughness = material_float(m, "vroughness", roughness);
+        material_roughness(m, out);
         out.thickness = material_float(m, "thickness", 0.01f);
         out.g = material_float(m, "g", 0.f);
         // `eta` is a spectrum in PBRT unless the scene writes it as a bare
@@ -1319,6 +1541,78 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         }
         out.has_medium = material_rgb(m, "albedo", out.medium_albedo) ? 1u : 0u;
 
+        const CapturingBuilder::MaterialInfo::Value *remap =
+            m.find("remaproughness");
+        if (remap != nullptr) {
+            if (remap->type != "bool" || remap->bools.size() != 1) {
+                fail("`remaproughness` has to be a single bool");
+            }
+            out.remap = remap->bools[0] ? 1u : 0u;
+        }
+        const CapturingBuilder::MaterialInfo::Value *depth = m.find("maxdepth");
+        if (depth != nullptr) {
+            if (depth->type != "integer" || depth->ints.size() != 1) {
+                fail("`maxdepth` has to be a single integer");
+            }
+            out.max_depth = depth->ints[0];
+        }
+        const CapturingBuilder::MaterialInfo::Value *n = m.find("nsamples");
+        if (n != nullptr) {
+            if (n->type != "integer" || n->ints.size() != 1) {
+                fail("`nsamples` has to be a single integer");
+            }
+            out.n_samples = n->ints[0];
+        }
+        return out;
+    }
+
+    if (m.name == "coatedconductor") {
+        // PBRT: CoatedConductorMaterial::Create. The interface is the coated
+        // diffuse's coating under the prefix `interface.` -- its roughness, a
+        // scalar `interface.eta` defaulting to 1.5 -- and the metal is the
+        // conductor material under `conductor.`: its roughness, and its index
+        // as `conductor.eta`/`conductor.k` or a `reflectance`, copper with
+        // none; `thickness`, `g`, `albedo`, `maxdepth`, `nsamples` and
+        // `remaproughness` as the coated diffuse reads them.
+        out.tag = bonsai_scene::MaterialTag::CoatedConductor;
+        material_roughness_prefixed(m, "interface.", &out.u_roughness,
+                                    &out.v_roughness, &out.u_roughness_texture,
+                                    &out.v_roughness_texture);
+        out.thickness = material_float(m, "thickness", 0.01f);
+        out.g = material_float(m, "g", 0.f);
+        const CapturingBuilder::MaterialInfo::Value *ieta =
+            m.find("interface.eta");
+        if (ieta != nullptr) {
+            if (ieta->type != "float" || ieta->floats.size() != 1) {
+                fail("only a scalar `float interface.eta` is supported on "
+                     "coatedconductor, not a named spectrum -- a spectral "
+                     "index terminates the secondary wavelengths, which "
+                     "nothing here does");
+            }
+            out.eta = ieta->floats[0];
+        }
+        out.has_medium = material_rgb(m, "albedo", out.medium_albedo) ? 1u : 0u;
+        material_roughness_prefixed(m, "conductor.", &out.conductor_u_roughness,
+                                    &out.conductor_v_roughness,
+                                    &out.conductor_u_roughness_texture,
+                                    &out.conductor_v_roughness_texture);
+        const CapturingBuilder::MaterialInfo::Value *refl =
+            m.find("reflectance");
+        const CapturingBuilder::MaterialInfo::Value *ceta =
+            m.find("conductor.eta");
+        const CapturingBuilder::MaterialInfo::Value *ck = m.find("conductor.k");
+        if (refl != nullptr && (ceta != nullptr || ck != nullptr)) {
+            fail("a coated conductor may name `reflectance` or "
+                 "`conductor.eta`/`conductor.k`, not both -- which is PBRT's "
+                 "own error too");
+        }
+        if (refl != nullptr) {
+            out.conductor_from_reflectance = 1u;
+            out.reflectance_texture =
+                material_rgb_or_texture(m, "reflectance", out.reflectance);
+        } else {
+            out.conductor_spectra = conductor_spectra(ceta, ck);
+        }
         const CapturingBuilder::MaterialInfo::Value *remap =
             m.find("remaproughness");
         if (remap != nullptr) {
@@ -1361,8 +1655,9 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
-    fail("only the diffuse, coateddiffuse, dielectric, conductor, measured "
-         "and diffusetransmission materials are supported, scene asks for \"" +
+    fail("only the diffuse, coateddiffuse, coatedconductor, dielectric, "
+         "conductor, measured and diffusetransmission materials are "
+         "supported, scene asks for \"" +
          m.name + "\"");
 }
 
@@ -2649,9 +2944,76 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // one every real scene in pbrt-v4-scenes actually asks for -- so it is
     // named in the refusal rather than approximated by its average.
     for (const CapturingBuilder::MaterialInfo &light : builder.lights) {
+        if (light.name == "distant") {
+            // PBRT: DistantLight::Create. The direction is `from - to` under
+            // the light's transform -- PBRT builds a frame whose z axis is
+            // that direction and multiplies `renderFromLight` by it, and
+            // `SampleLi` then reads back `renderFromLight(0, 0, 1)`, which is
+            // the same vector -- and the scale is divided by the photometric
+            // integral of L, then multiplied by an `illuminance` when one is
+            // given, exactly as PBRT does it. L defaults to the colour
+            // space's illuminant, as the uniform infinite light's does.
+            if (!light.ctm_is_tracked) {
+                fail("a `distant` light placed by a named coordinate system "
+                     "is not supported: scene_dump follows the transform stack "
+                     "itself and does not follow that directive");
+            }
+            bonsai_scene::InfiniteLight sun;
+            sun.distant = 1u;
+            const auto point = [&](const char *key, float fallback[3]) {
+                const CapturingBuilder::MaterialInfo::Value *v =
+                    light.find(key);
+                if (v == nullptr) {
+                    return pbrt::Point3f(fallback[0], fallback[1], fallback[2]);
+                }
+                if (v->type != "point3" || v->floats.size() != 3) {
+                    fail(std::string("a `distant` light's `") + key +
+                         "` has to be one point3");
+                }
+                return pbrt::Point3f(v->floats[0], v->floats[1], v->floats[2]);
+            };
+            float origin[3] = {0.f, 0.f, 0.f};
+            float ahead[3] = {0.f, 0.f, 1.f};
+            const pbrt::Point3f from = point("from", origin);
+            const pbrt::Point3f to = point("to", ahead);
+            const pbrt::Transform render_from_light =
+                scene.GetCamera().GetCameraTransform().RenderFromWorld() *
+                light.ctm;
+            const pbrt::Vector3f w =
+                pbrt::Normalize(render_from_light(pbrt::Normalize(from - to)));
+            sun.direction[0] = float(w.x);
+            sun.direction[1] = float(w.y);
+            sun.direction[2] = float(w.z);
+
+            float scale = material_float(light, "scale", 1.f);
+            pbrt::Allocator alloc;
+            if (read_blackbody(light, "L", &sun.blackbody, &sun.temperature,
+                               &sun.blackbody_normalization)) {
+                const pbrt::BlackbodySpectrum emitted(sun.temperature);
+                scale /= float(pbrt::SpectrumToPhotometric(&emitted));
+            } else if (material_rgb(light, "L", sun.l)) {
+                sun.has_l = 1u;
+                const pbrt::RGBIlluminantSpectrum emitted(
+                    *pbrt::RGBColorSpace::sRGB,
+                    pbrt::RGB(sun.l[0], sun.l[1], sun.l[2]));
+                scale /= float(pbrt::SpectrumToPhotometric(&emitted));
+            } else {
+                sun.has_l = 0u;
+                scale /= float(pbrt::SpectrumToPhotometric(
+                    &pbrt::RGBColorSpace::sRGB->illuminant));
+            }
+            const float illuminance = material_float(light, "illuminance", -1.f);
+            if (illuminance > 0.f) {
+                scale *= illuminance;
+            }
+            sun.scale = scale;
+            out.infinite_lights.push_back(sun);
+            continue;
+        }
         if (light.name != "infinite") {
-            fail("this renderer has area lights and uniform infinite lights, "
-                 "and the scene declares a `" + light.name + "` light");
+            fail("this renderer has area lights, uniform and image infinite "
+                 "lights and distant lights, and the scene declares a `" +
+                 light.name + "` light");
         }
         const CapturingBuilder::MaterialInfo::Value *filename =
             light.find("filename");
@@ -2802,7 +3164,15 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             out.infinite_lights.push_back(out_light);
             continue;
         }
-        if (material_rgb(light, "L", out_light.l)) {
+        if (read_blackbody(light, "L", &out_light.blackbody,
+                           &out_light.temperature,
+                           &out_light.blackbody_normalization)) {
+            // PBRT: UniformInfiniteLight::Create with a `blackbody L`, the
+            // scale divided by the photometric integral of that blackbody.
+            const pbrt::BlackbodySpectrum emitted(out_light.temperature);
+            out_light.scale =
+                float(scale / pbrt::SpectrumToPhotometric(&emitted));
+        } else if (material_rgb(light, "L", out_light.l)) {
             out_light.has_l = 1u;
             const pbrt::RGBIlluminantSpectrum emitted(
                 *pbrt::RGBColorSpace::sRGB,
@@ -3349,24 +3719,29 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
 
         bonsai_scene::Light light;
-        // The default when a scene names no L is the colour space's own
-        // illuminant, which for sRGB is D65 -- and an RGB of one puts the fit
-        // through the same path, since that is what the fit of a flat
-        // illuminant is.
-        if (!material_rgb(info, "L", light.l)) {
-            light.l[0] = light.l[1] = light.l[2] = 1.f;
-        }
         // PBRT's own scale, divided by the photometric integral of L so that a
         // radiance of one means one nit. The spectrum that division is over is
-        // the illuminant PBRT would have built from this RGB, so it is built
-        // here the same way.
+        // whichever one PBRT would have built from the scene's `L`, so it is
+        // built here the same way: a blackbody at the temperature written, or
+        // the illuminant fitted from the RGB. The default when a scene names
+        // no L is the colour space's own illuminant, which for sRGB is D65 --
+        // and an RGB of one puts the fit through the same path, since that is
+        // what the fit of a flat illuminant is.
         pbrt::Allocator alloc;
-        const pbrt::RGBIlluminantSpectrum emitted(
-            *pbrt::RGBColorSpace::sRGB,
-            pbrt::RGB(light.l[0], light.l[1], light.l[2]));
-        light.scale =
-            float(material_float(info, "scale", 1.f) /
-                  pbrt::SpectrumToPhotometric(&emitted));
+        const float scale = material_float(info, "scale", 1.f);
+        if (read_blackbody(info, "L", &light.blackbody, &light.temperature,
+                           &light.blackbody_normalization)) {
+            const pbrt::BlackbodySpectrum emitted(light.temperature);
+            light.scale = float(scale / pbrt::SpectrumToPhotometric(&emitted));
+        } else {
+            if (!material_rgb(info, "L", light.l)) {
+                light.l[0] = light.l[1] = light.l[2] = 1.f;
+            }
+            const pbrt::RGBIlluminantSpectrum emitted(
+                *pbrt::RGBColorSpace::sRGB,
+                pbrt::RGB(light.l[0], light.l[1], light.l[2]));
+            light.scale = float(scale / pbrt::SpectrumToPhotometric(&emitted));
+        }
         const CapturingBuilder::MaterialInfo::Value *two =
             info.find("twosided");
         light.two_sided =
@@ -3402,9 +3777,13 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             int emission) -> pbrt::Light {
         const bonsai_scene::Light &em = out.lights[size_t(emission)];
         const pbrt::Spectrum Lemit =
-            light_alloc.new_object<pbrt::RGBIlluminantSpectrum>(
-                *pbrt::RGBColorSpace::sRGB,
-                pbrt::RGB(em.l[0], em.l[1], em.l[2]));
+            em.blackbody != 0
+                ? pbrt::Spectrum(light_alloc.new_object<pbrt::BlackbodySpectrum>(
+                      em.temperature))
+                : pbrt::Spectrum(
+                      light_alloc.new_object<pbrt::RGBIlluminantSpectrum>(
+                          *pbrt::RGBColorSpace::sRGB,
+                          pbrt::RGB(em.l[0], em.l[1], em.l[2])));
         pbrt::DiffuseAreaLight *area =
             light_alloc.new_object<pbrt::DiffuseAreaLight>(
                 render_from_object, pbrt::MediumInterface{}, Lemit, em.scale,
@@ -3504,6 +3883,59 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                     -float(radius), float(radius), 360.f);
                 emitter_lights.push_back(
                     make_area_light(render_from_object, pbrt::Shape(sph), light));
+            }
+            into.push_back(shape);
+
+        } else if (name == "disk") {
+            // PBRT: Disk::Create, and the constructor's clamp of phimax to a
+            // turn and conversion to radians. Unlike the sphere above, any
+            // transform is admitted: the disk stays in its object space and
+            // both matrices go with it, which is how PBRT keeps every quadric.
+            const pbrt::Float height =
+                entity.parameters.GetOneFloat("height", 0.f);
+            const pbrt::Float radius =
+                entity.parameters.GetOneFloat("radius", 1.f);
+            const pbrt::Float inner_radius =
+                entity.parameters.GetOneFloat("innerradius", 0.f);
+            const pbrt::Float phimax =
+                entity.parameters.GetOneFloat("phimax", 360.f);
+            bonsai_scene::Shape shape;
+            shape.tag = bonsai_scene::ShapeTag::Disk;
+            shape.height = float(height);
+            shape.radius = float(radius);
+            shape.inner_radius = float(inner_radius);
+            shape.phi_max = float(pbrt::Radians(pbrt::Clamp(phimax, 0, 360)));
+            const pbrt::Transform object_from_render =
+                pbrt::Inverse(render_from_object);
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    shape.render_from_object[4 * r + c] =
+                        float(render_from_object.GetMatrix()[r][c]);
+                    shape.object_from_render[4 * r + c] =
+                        float(object_from_render.GetMatrix()[r][c]);
+                }
+            }
+            // PBRT: the two orientation flags a Disk keeps, and turns a hit's
+            // and a sampled point's normal by respectively.
+            shape.flip = (entity.reverseOrientation ^
+                          render_from_object.SwapsHandedness())
+                             ? 1u
+                             : 0u;
+            shape.reverse = entity.reverseOrientation ? 1u : 0u;
+            shape.material = material;
+            shape.light = light;
+            shape.alpha = alpha;
+            if (light >= 0) {
+                shape.light_ordinal = next_light_ordinal++;
+                pbrt::Transform *r_from_o =
+                    light_alloc.new_object<pbrt::Transform>(render_from_object);
+                pbrt::Transform *o_from_r =
+                    light_alloc.new_object<pbrt::Transform>(object_from_render);
+                pbrt::Disk *disk = light_alloc.new_object<pbrt::Disk>(
+                    r_from_o, o_from_r, entity.reverseOrientation, height,
+                    radius, inner_radius, phimax);
+                emitter_lights.push_back(
+                    make_area_light(render_from_object, pbrt::Shape(disk), light));
             }
             into.push_back(shape);
 
@@ -3735,26 +4167,26 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     }
 
     // The light sampler, which only `path` reads and which PBRT defaults to
-    // `bvh` there. This renderer has the uniform one and no other.
+    // `bvh` there. Whichever the scene names is the one the renderer runs,
+    // with PBRT's own tree serialized for the BVH one.
     //
-    // The two are the same function on a scene with a single light, and that is
-    // not a hopeful reading of them. BVHLightSampler over one non-infinite
-    // light has a one-node tree, so its PMF is 1 -- the same number the uniform
-    // sampler returns -- and the only way its Sample can differ is by declining
-    // to return the light at all where the light's bounds say no energy can
-    // reach the shading point. That case contributes nothing either way: the
-    // uniform sampler returns the light and the shadow ray or the emitted
-    // radiance then comes out zero. The two draws happen before either sampler
-    // is consulted, so the sampler stream does not move either.
-    //
-    // With two or more bounded lights they genuinely differ -- the BVH sampler
-    // picks by importance and reports the probability it picked with -- and the
-    // tree built above is what reproduces that. It also splits infinite lights
-    // from the tree with a fixed probability, which the uniform sampler does
-    // not, so the two part company as soon as there is a second bounded light
-    // (the single-light case above holds because one bounded light makes the
-    // split come out uniform anyway). Below two, the scene stays on the uniform
-    // sampler, exactly as before.
+    // Until 2026-09-20 a scene with fewer than two bounded lights was put on
+    // the uniform sampler whatever it named, on the argument that the two are
+    // the same function there: over one bounded light the tree is one node
+    // and its PMF is one, as the uniform sampler's is. The PMF is; the *draw*
+    // is not, as soon as an infinite or a distant light is in the scene too.
+    // BVHLightSampler::Sample gives the infinite lights the low end of u --
+    // `u < pInfinite` picks one of them -- and the tree the rest, where the
+    // uniform sampler's `min(u * n, n - 1)` gives the low end to light zero,
+    // which is the bounded one, since the area lights come first in the list.
+    // Same probabilities, opposite assignment of every random number: every
+    // sample picked the other light, and killeroo-gold -- one disk light and
+    // one distant light -- rendered the right mean with not a pixel agreeing.
+    // With one bounded light and nothing else the two do agree, except that
+    // the BVH sampler declines to return the light where its bounds say no
+    // energy can reach the point (the root-leaf importance test in
+    // `bvh_descend`); that contributes nothing either way, and the sampler
+    // stream does not move, but the arm is PBRT's, so it is taken.
     if (out.integrator == bonsai_scene::IntegratorTag::Path) {
         if (builder.light_sampler_name != "uniform" &&
             builder.light_sampler_name != "bvh") {
@@ -3762,8 +4194,11 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                  "light samplers, and the scene asks for `" +
                  builder.light_sampler_name + "`");
         }
-        if (builder.light_sampler_name == "bvh" && emitter_lights.size() >= 2) {
-            dump_light_tree(emitter_lights, out);
+        if (builder.light_sampler_name == "bvh" &&
+            (!emitter_lights.empty() || !out.infinite_lights.empty())) {
+            if (!emitter_lights.empty()) {
+                dump_light_tree(emitter_lights, out);
+            }
             out.light_sampler = 1u;
         }
     }

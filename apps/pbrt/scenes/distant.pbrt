@@ -1,0 +1,67 @@
+# A distant light: the sun. Light from one direction at every point, with no
+# geometry to it -- pbrt's DistantLight, the first delta light here. What a
+# delta light changes in the integrator is the MIS: a BSDF sample can never
+# find it, so `path` takes the light sample's estimate alone rather than
+# weighing it against the BSDF's, and an escaped ray sees nothing of it.
+#
+# The light's `from`/`to` are under a rotation, so the direction the converter
+# ships has been through the transform stack the way pbrt's renderFromLight
+# would take it. A dim uniform sky beside it gives the shadows something to be
+# lit by, and puts a bounded-by-nothing light of each kind in the sampler's
+# infinite list at once.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "distant.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+LightSource "infinite"
+    "rgb L" [ 0.1 0.12 0.15 ]
+
+AttributeBegin
+    Rotate 30 0 1 0
+    LightSource "distant"
+        "point3 from" [ 2 5 3 ]
+        "point3 to" [ 0 0 0 ]
+        "rgb L" [ 3 2.8 2.5 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

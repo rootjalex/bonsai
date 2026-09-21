@@ -1,0 +1,81 @@
+# Disks: pbrt's Disk, the first shape here that lives in an object space its
+# transform places. A disk is oriented, so unlike the sphere it cannot be kept
+# in render space by a centre and a radius; the ray is pulled into object space
+# and the hit pushed out, through the same two transforms an instance's tree
+# is entered and left by.
+#
+# Three of them. The light is a disk facing down, rotated into place; a
+# partial annulus -- an inner radius and a phimax short of a turn -- lies
+# tilted on the floor so the radii test, the azimuth test and the
+# parameterization all show; and a small disk seen edge-on tests the
+# solid-angle conversion of a sample at a grazing angle. `Integrator "path"`
+# so the emitting disk is sampled as well as hit: Disk::Sample and Disk::PDF
+# are what light sampling exercises, and a mirrored transform on the light
+# tells `flip` from `reverse`.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 5 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "disk.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The emitter: a disk whose normal, +z in its own space, is turned to face
+# the floor. The scale mirrors it, so the transform swaps handedness.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 1
+    Scale 1 -1 1
+    Rotate -90 1 0 0
+    AreaLightSource "diffuse"
+        "rgb L" [ 10 9.5 8 ]
+    Shape "disk"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A partial annulus, tilted, with a colour.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.25 0.2 ]
+    Translate -2 1.5 1
+    Rotate -60 1 0 0
+    Rotate 30 0 0 1
+    Shape "disk"
+        "float radius" [ 2 ]
+        "float innerradius" [ 0.6 ]
+        "float phimax" [ 270 ]
+AttributeEnd
+
+# A coated disk, nearly edge-on to the camera.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 3 1.2 0
+    Rotate 80 0 1 0
+    Shape "disk"
+        "float radius" [ 1.2 ]
+        "float height" [ 0.3 ]
+AttributeEnd
