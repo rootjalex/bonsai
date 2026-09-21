@@ -2392,9 +2392,13 @@ section below when it has run.
    (struct of arrays, the default; 2026-09-21, above). A per-pixel queue
    holds at most spp paths, so at 16 spp its gangs are exactly as full as the
    packet schedule's; the utilization win needs more paths per queue --
-   more samples per pixel (the sweep), or a tile-owned queue,
-   `render.split(p, p_tile, p_pix, 64)` then `queue(p_tile)`, and then the
-   pixel index varies across the drain's lanes in the film write.
+   more samples per pixel (the sweep: equal at 16 spp, 5-20% ahead of packet
+   from 64 spp up), or a tile-owned queue, `render.split(p, p_tile, p_pix,
+   64)` then `queue(p_tile)`, and then the pixel index varies across the
+   drain's lanes in the film write. **The tiled wavefront is the next thing
+   to build**, the user's ask on seeing the sweep ("implement a
+   tiled-wavefront to get better compaction at lower spps"), once the sweep
+   has finished running.
 2. **Queue kinds by call site.** `defer` addressed to a call inside a function
    (a cursor like `skip`'s, by provenance of the call) so primary, secondary
    and occlusion rays get their own queues. Deferring `trace` is a *non-tail*

@@ -411,10 +411,12 @@ def heatmaps(args, results, scene_name):
     vmax = max(float(v.max()) for v in speed.values())
     vmin = min(1.0, min(float(v.min()) for v in speed.values()))
     n = len(args.schedules)
-    # Room for a "1.2×" in every cell: a third of an inch per column, and a
-    # page's width at most -- wider than two columns once the sample counts
-    # run to seven and the schedules to five.
-    width = min(10.0, max(2.1 * n + 0.6, 0.34 * len(args.spps) * n + 0.8))
+    # Room for a "1.2×" in every cell: near half an inch per column, which
+    # runs past a two-column page once the sample counts are seven and the
+    # schedules five -- a figure to read, or to crop, rather than to print
+    # whole. The tick labels lean over for the same reason.
+    many = len(args.spps) > 4
+    width = min(16.0, max(2.1 * n + 0.6, 0.46 * len(args.spps) * n + 0.8))
     fig, axes = plt.subplots(1, n, figsize=(width, 0.42 * len(args.depths) + 0.9),
                              squeeze=False)
     cmap = plt.get_cmap("Blues")
@@ -422,7 +424,8 @@ def heatmaps(args, results, scene_name):
         image = ax.imshow(speed[schedule], cmap=cmap, vmin=vmin, vmax=vmax,
                           aspect="auto")
         ax.set_title(RENDERER_LABELS.get(schedule, schedule), pad=4)
-        ax.set_xticks(range(len(args.spps)), [str(p) for p in args.spps])
+        ax.set_xticks(range(len(args.spps)), [str(p) for p in args.spps],
+                      rotation=45 if many else 0)
         ax.set_yticks(range(len(args.depths)), [str(d) for d in args.depths])
         ax.set_xlabel("samples per pixel")
         if schedule == args.schedules[0]:
@@ -435,7 +438,7 @@ def heatmaps(args, results, scene_name):
                 v = speed[schedule][i, j]
                 dark = (v - vmin) / max(vmax - vmin, 1e-9) > 0.55
                 ax.text(j, i, f"{v:.1f}×" + ("†" if failed[schedule][i, j] else ""),
-                        ha="center", va="center", fontsize=7,
+                        ha="center", va="center", fontsize=6 if many else 7,
                         color="white" if dark else "black")
     bar = fig.colorbar(image, ax=axes[0].tolist(), fraction=0.03, pad=0.02)
     bar.set_label("speedup over pbrt")
