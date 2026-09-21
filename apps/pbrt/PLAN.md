@@ -3770,49 +3770,181 @@ which for N = 64 is an i128 division that LLVM lowers to libgcc's
 a run-time divisor with one multiply-high; the cost is in *when* it is
 computed, per lane per call, for a base that is one of a thousand primes.
 
-Three things to do, smallest first:
+Three things to do, smallest first. Each is shown on the code it applies to,
+as the SSA reads before and after, with the reason it computes the same
+thing.
 
-1. *A gang-uniform divisor gets one scalar multiplier* (half a day).
-   `divide_by_invariants` looks for a divisor invariant across a loop; the
-   vectorizer knows a second kind of invariance, across the lanes. Run the
-   same rewrite from `vectorize()` with the divergence analysis in hand (the
-   way `divide_bounded_by_floats` already is): a `Div`/`Mod` whose dividend
-   varies and whose divisor is uniform gets `div_multiplier` on the scalar
-   divisor -- one 128-bit division for the gang -- and the multiply-high on
-   the vector. Removes `get_pixel_2d`'s sixteen `div`s; also serves any
-   `% spp`-shaped division the double path takes today with something
-   cheaper. Tests: an ssa golden and a correctness test with a uniform
-   run-time divisor.
+**1. A gang-uniform divisor gets one scalar multiplier** (half a day).
 
-2. *Multipliers for a table, computed once* (two to three days). The base is
-   `primes[base_index]`: a division by an element of an extern table. Give
-   InvariantDivision a third kind of invariance, over the program's run: for
-   `x / T[i]` with `T` an extern array of integers, the compiler declares
-   companion arrays `T$mult`, `T$sh1`, `T$sh2` (or one struct array), fills
-   them at the exported function's entry from `T` with the existing
-   `division_multiplier` code (a thousand primes: about a tenth of a
-   millisecond, once per render), and the division becomes a gather of the
-   multiplier beside the gather of the base, then the multiply-high. No
-   128-bit division remains on any hot path, in the gangs or in the scalar
-   renderer, which spends 0.9% of its time in `__udivti3` today. This is
-   pbrt's own habit made automatic -- it tabulates the primes and the digit
-   permutations per prime -- and the app keeps saying `v / b`. Rejected
-   alternative: the driver computes the tables and the app spells the
-   multiply-high itself, which makes the app say how instead of what.
-   Tests: ssa golden (the companion table, its fill, the gather), a
-   correctness test dividing by a small extern table, and the Halton
-   images unchanged.
+The program (`sampler.bonsai` line 497, the Halton pixel sample):
 
-3. *`specialize(uniform(x))`* (three to five days; the directive already
-   agreed for the packet traversal's node, see "Where the gang skips an arm
-   is the schedule's to say"). A run-time test that a per-lane value is the
-   same in every active lane, then a copy of the region with it uniform --
-   here: one base, one multiplier, the table reads broadcasts instead of
-   gathers -- and the per-lane copy otherwise. For the sampler the schedule
-   would say `get_1d.specialize(uniform(st.dimension))` or name the base.
-   With (2) done its gain on the sampler is the gathers only; its real value
-   is the traversal, where a gang on one node is the common case, so it
-   comes after (2) unless the traversal is the target first.
+```
+a = cast[[u64]](st.halton_index);            // each lane's own index
+... radical_inverse(1, a / cast[[u64]](bsy)) // bsy: a field of the uniform Sampler
+```
+
+The gang today:
+
+```
+a   : u64x16 = cast<u64x16>(halton_index)
+bsy : u64    = cast<u64>(bsy)                 // uniform: a splat in the IR
+q   : u64x16 = a / u64x16(bsy)                // x86 has no vector divide: 16 x `div r64`
+```
+
+After -- the rewrite `divide_by_invariants` already makes for a divisor a
+loop does not change, made once more for a divisor the lanes do not change,
+run from `vectorize()` with the divergence analysis in hand (as
+`divide_bounded_by_floats` is today):
+
+```
+bsy : u64    = cast<u64>(bsy)
+m   : u64    = div_multiplier(bsy)            // ONE i128 division, scalar, per gang
+l   : u64    = 64 - clz(bsy - 1)              // ceil(log2 bsy)
+sh1 : u64    = min(l, 1)
+sh2 : u64    = max(l, 1) - 1
+t   : u64x16 = mulhi(a, u64x16(m))            // the 32-bit product ladder, all lanes at once
+q   : u64x16 = (t + ((a - t) >> sh1)) >> sh2
+```
+
+Why it is right. Granlund & Montgomery's round-up method (figure 4.2) says:
+for every N-bit n and every d >= 2, with l = ceil(log2 d) and m' =
+floor(2^N (2^l - d) / d) + 1, the quotient floor(n / d) is `(t + ((n - t)
+>> 1)) >> (l - 1)` where t = mulhi(m', n); for d = 1 the shifts above come
+out as sh1 = 0, sh2 = 0 and the expression is n. That is the theorem the
+scalar renderer already relies on for every Halton digit. The one new fact
+used is that `bsy` holds the same value in every lane -- which is what the
+divergence analysis means by uniform, and why it is a splat -- so the
+multiplier computed once from the scalar is the multiplier each lane would
+have computed from its own copy, and the vector multiply-high is the theorem
+applied lane by lane. A uniform divisor is never masked by the linearizer
+(only a divisor the lanes disagree about is guarded with `select(mask, d,
+1)`), so nothing about masks changes.
+
+**2. Multipliers for a table, computed once** (two to three days).
+
+The program (`sampler.bonsai` lines 59-67; the same in the scrambled and
+Owen variants):
+
+```
+func radical_inverse(base_index : i32, a : u64) -> Float {
+    base = primes[base_index];                   // extern primes : array[i32, 1000]
+    b : u64 = cast[[u64]](base);
+    limit = 0xffffffffffffffff / b - b;
+    ...
+    while (v != 0u) && (reversed < limit) {
+        next = v / b;
+```
+
+The gang today, after InvariantDivision:
+
+```
+base  : i32x16 = gather(primes, base_index)    // one prime per lane
+b     : u64x16 = cast<u64x16>(base)
+m     : u64x16 = div_multiplier(b)             // 16 x udiv i128 = 16 __udivti3 calls, ~100 cycles each
+l = 64 - clz(b - 1); sh1 = min(l, 1); sh2 = max(l, 1) - 1
+limit = ((mulhi(m, ~0) + ((~0 - mulhi(m, ~0)) >> sh1)) >> sh2) - b
+loop:  t = mulhi(m, v); next = (t + ((v - t) >> sh1)) >> sh2
+```
+
+After -- the compiler notices a division whose divisor is (a cast of) an
+element of an extern array of integers the program never writes, and gives
+the array a companion filled once, at the exported function's entry, before
+any parfor:
+
+```
+extern primes : array[i32, 1000]                             // the driver's, as before
+primes$div    : array[Divisor64, 1000]                       // compiler-made; Divisor64 = {m : u64, sh1 : u8, sh2 : u8}
+for i in 0:1000 {                                            // at render's entry: 1000 scalar i128 divisions, ~0.1 ms, once
+    d = cast[[u64]](primes[i]);
+    primes$div[i] = {div_multiplier(d), min(l(d), 1), max(l(d), 1) - 1};
+}
+```
+
+and in the radical inverse, scalar or gang:
+
+```
+base          = primes[base_index]                           // the gather as before
+b             = cast<u64>(base)
+{m, sh1, sh2} = primes$div[base_index]                       // one more gather, beside it; no division
+limit = ((mulhi(m, ~0) + ((~0 - mulhi(m, ~0)) >> sh1)) >> sh2) - b
+loop:  t = mulhi(m, v); next = (t + ((v - t) >> sh1)) >> sh2 // unchanged
+```
+
+Why it is right. The multiplier and the two shifts are functions of the
+divisor's value and nothing else. `primes` is an extern array -- an input
+the program only reads; the compiler checks there is no store to it, and a
+table the program writes is not eligible -- so `primes[i]` at entry is
+`primes[base_index]` at every later read with `i = base_index`, and the
+companion entry read there is bit for bit the `div_multiplier(cast<u64>(
+primes[base_index]))` the gang computes per lane today. The arithmetic that
+consumes it is untouched. The companion is keyed to the type the division
+is in: the multiplier for `cast<u64>(primes[i])` is a 64-bit one, not the
+32-bit one for `primes[i]` itself, so the pattern recognized is
+`Div`/`Mod` whose divisor traces to `Cast?(ExtractIdx(T, i))`, and one
+companion is made per (T, type). Externs reach the gangs as parameters
+(`ptr %primes` in every gang signature), so the companion is a hidden
+parameter, allocated in the exported function's frame (16 KB for the
+primes; the app compiles with `--no-heap`) and threaded to callees the way
+`primes` is. The fill costs N divisions per exported call, profitable when
+the divisions per call exceed N -- the sampler makes billions -- and a
+directive can gate it if that judgement ever misfires. This removes every
+128-bit division from every hot path, the scalar renderer's included (0.9%
+of its time in `__udivti3` today), and the app keeps saying `v / b`. The
+alternative -- the driver computes the tables and the app spells the
+multiply-high itself -- is rejected: the app would be saying how, not what.
+
+**3. `specialize(uniform(x))`** (three to five days; the directive already
+agreed for the packet traversal's node, see "Where the gang skips an arm is
+the schedule's to say").
+
+The program: `get_1d(s, st)` draws `radical_inverse(st.dimension, ...)`;
+the schedule would add `get_1d.specialize(uniform(st.dimension))`.
+
+The gang today:
+
+```
+dim  : i32x16 = st.dimension                 // per-lane memory: one per lane
+base : i32x16 = gather(primes, dim)
+b    : u64x16 = cast<u64x16>(base)
+m    : u64x16 = div_multiplier(b)            // 16 __udivti3
+...  digits with mulhi(m, v) ...
+```
+
+After:
+
+```
+dim  : i32x16 = st.dimension
+d0   : i32    = dim[first lane on in mask]
+same : bool   = all(!mask | (dim == i32x16(d0)))   // every active lane agrees?
+if same {                                          // the region, compiled with dim uniform
+    base : i32 = primes[d0]                        // a load, not a gather
+    b    : u64 = cast<u64>(base)
+    m    : u64 = div_multiplier(b)                 // one __udivti3 for the gang
+    ...  digits with mulhi(v, u64x16(m)) ...       // the same loop, m broadcast
+} else {                                           // the region as today
+    base = gather(primes, dim); b = cast(base); m = div_multiplier(b); ...
+}
+```
+
+Why it is right. Both arms are the same program text. The uniform arm is the
+original with every lane's `dim` replaced by `d0`, which is valid because
+the guard has just established `dim[l] == d0` for every active lane `l`, and
+an inactive lane is masked off and reads nothing. Marking `dim` uniform in
+that copy lets the divergence analysis carry the fact forward -- `base`,
+`b`, `m`, `limit`, `inv_base` all come out uniform, the gathers become
+loads, the multiplier is computed once -- without any of it being assumed:
+it is derived from a value the guard fixed. This is Halide's `specialize(
+condition)`: a schedule-level branch with the body compiled twice, once
+under the condition's assumption, which changes what code runs and never
+what any lane computes. `uniform(x)` is the condition "all active lanes
+agree on x", the one the vectorizer can act on. When the lanes agree the
+price is a compare, a reduction and a branch; when they do not, that plus
+the old path. In the packet renderer a gang is sixteen samples of one pixel
+at one bounce, so they agree until a specular lane and a diffuse lane part.
+With (2) done its gain on the sampler is only the gathers turning into
+loads; its real value is the traversal, where a gang on one node is the
+common case -- so it comes after (2), unless the traversal is the target
+first.
 
 The per-lane `sinf`/`cosf` on the rare paths stay: they are the correct
 answer for an argument past the range reduction, cost nothing when not
