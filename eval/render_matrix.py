@@ -559,24 +559,31 @@ def plot_style():
 def repeats_caption(args, results):
     """One line saying how many runs the cells are the best of: the same
     count everywhere, or the two counts a --long-spp run used, or that the
-    cache predates the record."""
-    counts = set()
-    for tag, cell in results["cells"].items():
-        if "repeats" in cell:
-            counts.add(cell["repeats"])
-        else:
-            counts.add(None)
+    cache predates the record. Over this run's grid only: the cache may hold
+    cells of an earlier, wider run -- a first look's best-of-one cells at
+    sample counts this run never asked for -- and the figure shows only
+    this run's."""
+    def repeats(d, p):
+        return results["cells"][f"d{d}-s{p}"].get("repeats")
+    counts = {repeats(d, p) for d in args.depths for p in args.spps}
     if counts == {None}:
         return "timings: best of an unrecorded number of runs (older cache)"
     if None in counts:
         return "timings: best of a number of runs not recorded for every cell"
     if len(counts) == 1:
         return f"timings: best of {counts.pop()} runs, both sides"
-    spp = [p for p in args.spps
-           if results["cells"][f"d{args.depths[0]}-s{p}"]["repeats"] == min(counts)]
-    return (f"timings: best of {max(counts)} runs up to {min(spp) // 2} spp, "
-            f"best of {min(counts)} from {min(spp)} spp up (a first look, not "
-            f"a benchmark)")
+    # Two counts in --long-spp's pattern -- the smaller from some sample count
+    # up, at every depth -- or a mixture with no pattern to name.
+    low, high = min(counts), max(counts)
+    threshold = next((p for p in args.spps if repeats(args.depths[0], p) == low),
+                     None)
+    if threshold is not None and all(
+            repeats(d, p) == (low if p >= threshold else high)
+            for d in args.depths for p in args.spps):
+        return (f"timings: best of {high} runs below {threshold} spp, best of "
+                f"{low} from {threshold} spp up (a first look, not a benchmark)")
+    return (f"timings: best of {high} runs at some cells and of {low} at "
+            f"others")
 
 
 def heatmaps(args, results, scene_name):
