@@ -1,6 +1,7 @@
 #include "CodeGen/CodeGen_PTX.h"
 
 #include "CodeGen/CodeGen_GPU_Host.h"
+#include "CodeGen/MarkDeviceMemory.h"
 #include "IR/Analysis.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -21,6 +22,7 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/SourceMgr.h>
@@ -115,25 +117,33 @@ void set_llvm_option(const char *name, const char *value) {
         << "LLVM refused `-" << name << "=" << value << "`";
 }
 
-// nvcc's `--use_fast_math`, which pbrt's GPU build compiles with, is four
-// flags: `--ftz=true` (finish() gives every device function that denormal
-// mode), `--fmad=true` (contraction, which the NVPTX backend does by
-// default), `--prec-div=false` and `--prec-sqrt=false`. The last two make a
-// float division `div.full.f32` (two ulp, the full range) and `1 / x`
+// The device arithmetic `--fast-math` chooses (CompilerOptions::
+// fast_math). nvcc's `--use_fast_math`, which pbrt's GPU build compiles
+// with, is four flags: `--ftz=true` (finish() gives every device function
+// that denormal mode), `--fmad=true` (contraction, which the NVPTX backend
+// does by default), `--prec-div=false` and `--prec-sqrt=false`. The last two
+// make a float division `div.full.f32` (two ulp, the full range) and `1 / x`
 // `rcp.approx.f32`, and a square root `sqrt.approx.f32`, where the defaults
-// are the IEEE `div.rn.f32` and `sqrt.rn.f32` -- each of which is a check and
-// a slow-path call around the fast estimate, and the megakernel had 3,285
-// divisions and 1,133 square roots of that kind. pbrt --gpu is what the GPU
-// schedules are measured against, so its arithmetic is theirs. Once per
-// process.
-void use_nvcc_fast_math_division() {
-    static bool done = false;
-    if (done) {
-        return;
-    }
-    done = true;
-    set_llvm_option("nvptx-prec-divf32", "1");
-    set_llvm_option("nvptx-prec-sqrtf32", "0");
+// are the IEEE `div.rn.f32` and `sqrt.rn.f32` -- each a check and a slow-path
+// call around the fast estimate, and the megakernel had 3,285 divisions and
+// 1,133 square roots of that kind. Off, the arithmetic is IEEE as on the CPU.
+// Set every time, since the options are process-wide and keep their last
+// value.
+//
+// Whichever way, a float accumulate is the hardware's `atom.add.f32`. LLVM
+// lowers `atomicrmw fadd` to it only in a function that flushes denormals,
+// because the instruction flushes them on global memory whatever the
+// function does, and otherwise expands it to a load and a compare-and-swap
+// loop -- which every film accumulate of the megakernel was, at 5.7 attempts
+// per add with a block's threads all adding into one pixel
+// (NVPTXISelLowering.cpp, shouldExpandAtomicRMWInIR). With fast math off
+// the atomic is allowed its own flush: a denormal partial sum of radiance
+// flushed to zero is not a difference anything measures, and a CAS loop per
+// sample is.
+void set_device_arithmetic(bool fast_math) {
+    set_llvm_option("nvptx-prec-divf32", fast_math ? "1" : "2");
+    set_llvm_option("nvptx-prec-sqrtf32", fast_math ? "0" : "1");
+    set_llvm_option("nvptx-allow-ftz-atomics", "1");
 }
 
 // An instruction with an effect on memory or the world, as the block level
@@ -169,14 +179,12 @@ void CodeGen_PTX::init_module() {
     module->setModuleIdentifier("bonsai_ptx");
     // libdevice's functions ask `__nvvm_reflect("__CUDA_FTZ")` whether
     // denormals are to be flushed to zero, and the NVVMReflect pass answers
-    // from this flag. They are: pbrt's GPU build compiles with
-    // `--use_fast_math`, which is `--ftz=true` among other things, so the
-    // renderer this one is compared against on the GPU flushes denormals in
-    // every device function; and the same choice is what lets a float
-    // accumulate be the native `atom.add.f32` -- see finish(), where each
-    // device function is given the matching denormal mode.
+    // from this flag: yes under --fast-math, which is nvcc's
+    // `--use_fast_math` and so `--ftz=true` (see set_device_arithmetic), and
+    // finish() gives each device function the matching denormal mode; no
+    // otherwise, CUDA's own default and pbrt's CPU build's.
     module->addModuleFlag(llvm::Module::Override, "nvvm-reflect-ftz",
-                          uint32_t(1));
+                          uint32_t(options->fast_math ? 1 : 0));
 }
 
 std::unique_ptr<llvm::TargetMachine>
@@ -193,7 +201,7 @@ CodeGen_PTX::make_target_machine(llvm::Module &m,
         << "driver can see, and no --gpu-arch was given. Name the GPU the "
         << "code is for, e.g. `--gpu-arch sm_90`.";
     const std::string features = ptx_feature(gpu_arch);
-    use_nvcc_fast_math_division();
+    set_device_arithmetic(opts.fast_math);
 
     const llvm::Triple triple("nvptx64-nvidia-cuda");
     std::string error;
@@ -567,6 +575,27 @@ llvm::SyncScope::ID CodeGen_PTX::atomic_scope() {
     return context->getOrInsertSyncScopeID("device");
 }
 
+llvm::FastMathFlags CodeGen_PTX::fast_math_flags() {
+    // nvcc's `--use_fast_math` assumes nothing about NaNs or infinities and
+    // reassociates nothing; it is the four flags set_device_arithmetic and
+    // finish() apply and the intrinsics codegen_math_call picks. LLVM's
+    // `fast` would let the optimizer do more than pbrt's device code does.
+    return llvm::FastMathFlags();
+}
+
+void CodeGen_PTX::register_backend_passes(llvm::PassBuilder &pb) {
+    // At the end of the pipeline: after inlining has brought every device
+    // function into its kernel and SROA has made the by-value structs'
+    // pointers extractvalues of the parameter, which is what the pass roots
+    // its analysis at.
+    pb.registerOptimizerLastEPCallback(
+        [](llvm::ModulePassManager &mpm, llvm::OptimizationLevel,
+           llvm::ThinOrFullLTOPhase) {
+            mpm.addPass(llvm::createModuleToFunctionPassAdaptor(
+                MarkDeviceMemory()));
+        });
+}
+
 llvm::Value *CodeGen_PTX::atomic_address(llvm::Value *loc) {
     // LLVM lowers `atomicrmw fadd` on a float to `atom.add.f32` only when
     // the address is in the global address space in the IR it sees -- the
@@ -630,16 +659,18 @@ llvm::Value *CodeGen_PTX::codegen_math_call(const std::string &name,
     llvm::Type *scalar_ll = single ? f32_t : f64_t;
     const std::vector<llvm::Type *> params(node->args.size(), scalar_ll);
     // libdevice names the float overload with an `f`, as libm does: what
-    // CUDA's own `sinf` compiles to. Under `--use_fast_math`, which pbrt's
-    // GPU build is (see use_nvcc_fast_math_division), nvcc compiles these
-    // ten single-precision functions to their intrinsic forms instead --
-    // `__sinf` for `sinf`, `sin.approx` on the hardware -- which libdevice
-    // holds as `__nv_fast_sinf` and so on. The rest (`atan2f`, `acosf`,
-    // `fabsf`, the double overloads) have no fast form and stay as they are.
+    // CUDA's own `sinf` compiles to. Under --fast-math -- nvcc's
+    // `--use_fast_math`, which pbrt's GPU build is (see
+    // set_device_arithmetic) -- these ten single-precision functions are
+    // their intrinsic forms instead, `__sinf` for `sinf`, `sin.approx` on the
+    // hardware, which libdevice holds as `__nv_fast_sinf` and so on. The
+    // rest (`atan2f`, `acosf`, `fabsf`, the double overloads) have no fast
+    // form and stay as they are.
     static const std::set<std::string> nvcc_fast_math_intrinsics = {
         "sin", "cos", "tan", "sincos", "exp", "exp10", "log", "log2", "log10",
         "pow"};
-    const bool fast = single && nvcc_fast_math_intrinsics.count(name) != 0;
+    const bool fast = single && options->fast_math &&
+                      nvcc_fast_math_intrinsics.count(name) != 0;
     llvm::FunctionCallee callee = module->getOrInsertFunction(
         std::string("__nv_") + (fast ? "fast_" : "") + name +
             (single ? "f" : ""),
@@ -785,25 +816,36 @@ void CodeGen_PTX::link_libdevice() {
 
 void CodeGen_PTX::finish() {
     frames.pop_frame();
-    link_libdevice();
-    // Denormals flushed to zero in every device function, libdevice's
-    // included: what `--use_fast_math` gives pbrt's GPU build (init_module
-    // says why that is the reference), and what makes an accumulate's atomic
-    // the hardware's. `atom.add.f32` on global memory flushes denormals
-    // whatever the function does, so LLVM lowers `atomicrmw fadd` to it only
-    // in a function that flushes them too -- in any other it is a load and a
-    // compare-and-swap loop, which is what every film accumulate of the
-    // megakernel was: with a block's threads all adding into one pixel, 5.7
-    // attempts per add (NVPTXISelLowering.cpp, shouldExpandAtomicRMWInIR).
-    // The typed attribute, `denormal_fpenv(...)`: the string forms of old
-    // (`"denormal-fp-math-f32"`) are what the bitcode reader upgrades, not
-    // what Function::getDenormalMode reads.
-    const llvm::DenormalFPEnv flush(llvm::DenormalMode::getPreserveSign(),
-                                    llvm::DenormalMode::getPreserveSign());
+    // Every device function folded into the kernels that call it. ptxas
+    // inlines them all regardless -- the megakernel's SASS is one function
+    // -- but at the LLVM level twenty-one had stayed separate, parameters
+    // marshalled through local memory, and MarkDeviceMemory (registered in
+    // register_backend_passes) can only tag the loads it sees in the kernel:
+    // a pointer handed to a call is one it has to assume is written. A
+    // function the program marked noinline keeps its word; a recursive one
+    // stays a call, since the inliner will not fold a function into itself.
     for (llvm::Function &fn : *module) {
-        llvm::AttrBuilder flushing(*context);
-        flushing.addDenormalFPEnvAttr(flush);
-        fn.addFnAttrs(flushing);
+        if (!fn.isDeclaration() &&
+            fn.getCallingConv() != llvm::CallingConv::PTX_Kernel &&
+            !fn.hasFnAttribute(llvm::Attribute::NoInline)) {
+            fn.addFnAttr(llvm::Attribute::AlwaysInline);
+        }
+    }
+    link_libdevice();
+    if (options->fast_math) {
+        // Denormals flushed to zero in every device function, libdevice's
+        // included: nvcc's `--ftz=true`, part of the `--use_fast_math` pbrt's
+        // GPU build has (see set_device_arithmetic). The typed attribute,
+        // `denormal_fpenv(...)`: the string forms of old
+        // (`"denormal-fp-math-f32"`) are what the bitcode reader upgrades,
+        // not what Function::getDenormalMode reads.
+        const llvm::DenormalFPEnv flush(llvm::DenormalMode::getPreserveSign(),
+                                        llvm::DenormalMode::getPreserveSign());
+        for (llvm::Function &fn : *module) {
+            llvm::AttrBuilder flushing(*context);
+            flushing.addDenormalFPEnvAttr(flush);
+            fn.addFnAttrs(flushing);
+        }
     }
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] the device module is invalid";

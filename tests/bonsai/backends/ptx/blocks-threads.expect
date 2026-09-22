@@ -4,9 +4,11 @@ source_filename = "bonsai_module"
 target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
-; Function Attrs: norecurse nounwind denormal_fpenv(preservesign)
+; Function Attrs: norecurse nounwind
 define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, float %scale, ptr nofree captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
+  %out.global = addrspacecast ptr %out to ptr addrspace(1)
+  %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
   %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %0 = mul i32 %_stride, %ctaid
   %p = add i32 %0, %_begin
@@ -18,29 +20,29 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, float %scale, ptr
   %4 = fmul float %scale, %3
   %5 = fptosi float %4 to i32
   %6 = sext i32 %p to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %6
+  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %6
   %out1.global = addrspacecast ptr %out1 to ptr addrspace(1)
   %7 = atomicrmw add ptr addrspace(1) %out1.global, i32 %5 syncscope("device") monotonic, align 4
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
 
-; Function Attrs: convergent nocallback nounwind denormal_fpenv(preservesign)
+; Function Attrs: convergent nocallback nounwind
 declare void @llvm.nvvm.barrier.cta.sync.aligned.all(i32) #2
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-attributes #0 = { norecurse nounwind denormal_fpenv(preservesign) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none) }
-attributes #2 = { convergent nocallback nounwind denormal_fpenv(preservesign) }
+attributes #0 = { norecurse nounwind }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { convergent nocallback nounwind }
 
 !llvm.module.flags = !{!0}
 
-!0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
 
 ; ---- device module: PTX ----
 //
@@ -75,8 +77,8 @@ attributes #2 = { convergent nocallback nounwind denormal_fpenv(preservesign) }
 	shl.b32 	%r7, %r5, 2;
 	add.s32 	%r8, %r7, %r6;
 	cvt.rn.f32.s32 	%r9, %r8;
-	mul.rn.ftz.f32 	%r10, %r3, %r9;
-	cvt.rzi.ftz.s32.f32 	%r11, %r10;
+	mul.rn.f32 	%r10, %r3, %r9;
+	cvt.rzi.s32.f32 	%r11, %r10;
 	mul.wide.s32 	%rd3, %r5, 4;
 	add.s64 	%rd4, %rd2, %rd3;
 	atom.relaxed.gpu.global.add.u32 	%r12, [%rd4], %r11;

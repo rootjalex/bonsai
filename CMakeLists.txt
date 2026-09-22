@@ -135,6 +135,7 @@ target_sources(
     # no CUDA library at build time.
     runtime/bonsai_cuda.cpp
     src/CodeGen/ExpandVectorMulHigh.cpp
+    src/CodeGen/MarkDeviceMemory.cpp
     src/CodeGen/VectorMath.cpp
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
@@ -247,6 +248,7 @@ target_sources(
     include/CodeGen/CodeGen_PTX.h
     include/CodeGen/CodeGen_X86.h
     include/CodeGen/ExpandVectorMulHigh.h
+    include/CodeGen/MarkDeviceMemory.h
     include/CodeGen/VectorMath.h
     include/CodeGen/CPP.h
     include/CodeGen/JIT.h

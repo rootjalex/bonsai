@@ -70,6 +70,22 @@ struct CompilerOptions {
     // Only read when some loop is bound to the GPU.
     std::string gpu_arch;
 
+    // `--fast-math`: the platform's fast arithmetic, off by default so that
+    // the default is the exact one. On the CPU it is what clang's -ffast-math
+    // is, LLVM's fast-math flags on every float operation (no NaNs or
+    // infinities assumed, reassociation, reciprocals, approximate functions;
+    // see CodeGen_LLVM::init_module). On the device it is nvcc's
+    // `--use_fast_math`, which is what pbrt's GPU build compiles with:
+    // denormals flushed to zero, `div.full.f32` and `rcp.approx.f32` for a
+    // division, `sqrt.approx.f32` for a root, and libdevice's `__nv_fast_*`
+    // for the ten transcendentals nvcc substitutes -- and not LLVM's flags,
+    // which would assume and reassociate more than nvcc does (see
+    // CodeGen_PTX.cpp). pbrt's CPU build has no fast-math flag, so a
+    // measurement against it leaves this off; one against `pbrt --gpu` turns
+    // it on. A float accumulate on the device is the hardware's
+    // `atom.add.f32` either way.
+    bool fast_math = false;
+
     // Reject a program that would allocate on the heap.
     //
     // Nothing frees a heap allocation -- see the "support deallocation" TODO

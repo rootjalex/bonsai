@@ -374,6 +374,17 @@ void CodeGen_LLVM::init_module() {
     module = std::make_unique<llvm::Module>("bonsai_module", *context);
 }
 
+llvm::FastMathFlags CodeGen_LLVM::fast_math_flags() {
+    // Every flag: no NaNs or infinities, no signed zeros, reassociation,
+    // reciprocals, contraction, approximate functions -- what clang's
+    // -ffast-math sets on every float operation. On the builder, so that
+    // every float instruction it makes carries them and LLVM's own passes
+    // and the vector math library (see target_library_info) may use them.
+    llvm::FastMathFlags flags;
+    flags.setFast();
+    return flags;
+}
+
 llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     // Make function type
     llvm::Type *ret_type = codegen_type(func.ret_type);
@@ -805,6 +816,9 @@ std::unique_ptr<llvm::Module>
 CodeGen_LLVM::compile_program(const Program &program,
                               const CompilerOptions &options) {
     init_module(); // TODO: init_codegen()?
+    if (options.fast_math) {
+        builder->setFastMathFlags(fast_math_flags());
+    }
 
     // Remembered rather than stamped on the module: what a parallel loop
     // lowers to depends on the platform, so generating one has to be able to
@@ -1041,6 +1055,7 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
                 llvm::createModuleToFunctionPassAdaptor(ExpandVectorMulHigh()));
         });
 
+    register_backend_passes(pb);
     tm.registerPassBuilderCallbacks(pb);
     (void)debug_pass_manager;
     mpm = pb.buildPerModuleDefaultPipeline(level);

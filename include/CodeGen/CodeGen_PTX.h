@@ -103,6 +103,11 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     make_target_machine(llvm::Module &module,
                         const CompilerOptions &options) override;
     void init_module() override;
+    // MarkDeviceMemory at the end of the pipeline (see that header).
+    void register_backend_passes(llvm::PassBuilder &pb) override;
+    // None: nvcc's --use_fast_math is not LLVM's flags (set_device_arithmetic
+    // in CodeGen_PTX.cpp says what it is instead).
+    llvm::FastMathFlags fast_math_flags() override;
 
     // A loop bound to GPUThread met inside a block loop's kernel: the
     // thread's iteration, between two barriers. Anything else bound is an

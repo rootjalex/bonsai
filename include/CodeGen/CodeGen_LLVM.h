@@ -131,6 +131,15 @@ struct CodeGen_LLVM : public ir::Visitor {
      * multiple related modules (e.g. multiple device kernels). */
     virtual void init_module();
 
+    // Passes of the backend's own, registered with the pipeline's extension
+    // points before optimize_module builds it: none here; the PTX
+    // generator's marking of device memory.
+    virtual void register_backend_passes(llvm::PassBuilder &) {}
+    // What `--fast-math` puts on every float operation the builder makes:
+    // all of LLVM's flags here, which is clang's -ffast-math; nothing on the
+    // device, whose fast math is nvcc's and is chosen another way (see
+    // CompilerOptions::fast_math and CodeGen_PTX).
+    virtual llvm::FastMathFlags fast_math_flags();
     virtual void optimize_module(llvm::TargetMachine &tm,
                                  const CompilerOptions &options);
     // Called by compile_program once every function is generated and before

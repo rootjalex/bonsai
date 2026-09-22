@@ -38,6 +38,7 @@ add_bonsai_tests(
     blocks-threads.bonsai
     device-function.bonsai
     dynamic-size.bonsai
+    fast-math.bonsai
     map-thread.bonsai
     math.bonsai
     mut-bound.bonsai

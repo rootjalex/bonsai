@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/CodeGen/CodeGen_PTX.cpp:52
+[internal] Error: src/CodeGen/CodeGen_PTX.cpp:56
 
 --> device
 -b ptx: no loop of this program is bound to the GPU, so there is no device code. Bind one in the schedule with `f.bind(i, GPUBlock)` or `f.bind(i, GPUThread)`.

@@ -4,57 +4,312 @@ source_filename = "bonsai_module"
 target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write)
+@__cudart_i2opi_f = internal unnamed_addr addrspace(1) constant [6 x i32] [i32 1011060801, i32 -614296167, i32 -181084736, i32 -64530479, i32 1313084713, i32 -1560706194], align 4
+
+; Function Attrs: nounwind memory(argmem: write)
 define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, float %x, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
+  %out.global = addrspacecast ptr %out to ptr addrspace(1)
+  %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
+  %result.i.i.i.i = alloca [7 x i32], align 4
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
   %i = add i32 %0, %_begin
   %1 = sitofp i32 %i to float
   %2 = fmul float %x, %1
-  %3 = tail call float @llvm.nvvm.sin.approx.ftz.f(float %2) #4
-  %4 = fmul float %2, f0x3FB8AA3B
-  %5 = tail call float @llvm.nvvm.ex2.approx.ftz.f32(float %4)
-  %6 = fmul float %5, 5.000000e-01
-  %7 = fadd float %3, %6
-  %8 = tail call float @llvm.nvvm.lg2.approx.ftz.f(float %2) #4
-  %9 = fmul float %8, 2.000000e+00
-  %10 = tail call float @llvm.nvvm.ex2.approx.ftz.f32(float %9)
-  %11 = fadd float %7, %10
-  %12 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %12
-  store float %11, ptr %out1, align 4, !tbaa !3
+  call void @llvm.lifetime.start.p0(ptr nonnull %result.i.i.i.i)
+  %3 = fmul float %2, f0x3F22F983
+  %4 = tail call i32 @llvm.nvvm.f2i.rn(float %3) #6
+  %5 = sitofp i32 %4 to float
+  %6 = tail call float @llvm.fma.f32(float %5, float f0xBFC90FDA, float %2)
+  %7 = tail call float @llvm.fma.f32(float %5, float f0xB3A22168, float %6)
+  %8 = tail call float @llvm.fma.f32(float %5, float f0xA7C234C5, float %7)
+  %9 = tail call float @llvm.nvvm.fabs.f32(float %2)
+  %10 = fcmp ult float %9, 1.056150e+05
+  br i1 %10, label %__nv_sinf.exit, label %__nv_isinff.exit.i.i.i
+
+__nv_isinff.exit.i.i.i:                           ; preds = %"!par_body_0"
+  %11 = fcmp oeq float %9, +inf
+  br i1 %11, label %__nv_fmul_rn.exit.i.i.i, label %13
+
+__nv_fmul_rn.exit.i.i.i:                          ; preds = %__nv_isinff.exit.i.i.i
+  %12 = tail call float @llvm.nvvm.mul.rn.f(float %2, float 0.000000e+00) #6
+  br label %__nv_sinf.exit
+
+13:                                               ; preds = %__nv_isinff.exit.i.i.i
+  %14 = bitcast float %2 to i32
+  %15 = shl i32 %14, 8
+  %16 = or i32 %15, -2147483648
+  br label %17
+
+17:                                               ; preds = %13, %17
+  %iq.i.i.i.0.i3 = phi i32 [ 0, %13 ], [ %25, %17 ]
+  %hi.i.i.i.0.i2 = phi i32 [ 0, %13 ], [ %23, %17 ]
+  %18 = zext nneg i32 %iq.i.i.i.0.i3 to i64
+  %19 = getelementptr inbounds nuw [4 x i8], ptr addrspace(1) @__cudart_i2opi_f, i64 %18
+  %20 = load i32, ptr addrspace(1) %19, align 4
+  %21 = tail call { i32, i32 } asm "{\0A\09mad.lo.cc.u32   $0, $2, $3, $4;\0A\09madc.hi.u32     $1, $2, $3,  0;\0A\09}", "=r,=r,r,r,r"(i32 %20, i32 %16, i32 %hi.i.i.i.0.i2) #7, !srcloc !3
+  %22 = extractvalue { i32, i32 } %21, 0
+  %23 = extractvalue { i32, i32 } %21, 1
+  %24 = getelementptr inbounds nuw [4 x i8], ptr %result.i.i.i.i, i64 %18
+  store i32 %22, ptr %24, align 4
+  %25 = add nuw nsw i32 %iq.i.i.i.0.i3, 1
+  %exitcond.not = icmp eq i32 %25, 6
+  br i1 %exitcond.not, label %26, label %17, !llvm.loop !4
+
+26:                                               ; preds = %17
+  %27 = lshr i32 %14, 23
+  %28 = and i32 %27, 224
+  %29 = add nsw i32 %28, -128
+  %30 = lshr exact i32 %29, 5
+  %31 = getelementptr inbounds nuw i8, ptr %result.i.i.i.i, i64 24
+  store i32 %23, ptr %31, align 4
+  %32 = sub nsw i32 6, %30
+  %33 = sext i32 %32 to i64
+  %34 = getelementptr inbounds [4 x i8], ptr %result.i.i.i.i, i64 %33
+  %35 = load i32, ptr %34, align 4
+  %36 = sub nsw i32 5, %30
+  %37 = sext i32 %36 to i64
+  %38 = getelementptr inbounds [4 x i8], ptr %result.i.i.i.i, i64 %37
+  %39 = load i32, ptr %38, align 4
+  %40 = freeze i32 %39
+  %41 = and i32 %14, 260046848
+  %.not.i = icmp eq i32 %41, 0
+  br i1 %.not.i, label %__internal_trig_reduction_slowpath.exit.i.i.i, label %42
+
+42:                                               ; preds = %26
+  %43 = sub nsw i32 4, %30
+  %44 = sext i32 %43 to i64
+  %45 = getelementptr inbounds [4 x i8], ptr %result.i.i.i.i, i64 %44
+  %46 = load i32, ptr %45, align 4
+  %47 = tail call i32 @llvm.fshl.i32(i32 %40, i32 %46, i32 %27)
+  br label %__internal_trig_reduction_slowpath.exit.i.i.i
+
+__internal_trig_reduction_slowpath.exit.i.i.i:    ; preds = %42, %26
+  %lo.i.i.i.0.i = phi i32 [ %47, %42 ], [ %40, %26 ]
+  %48 = tail call i32 @llvm.fshl.i32(i32 %35, i32 %40, i32 %27)
+  %49 = lshr i32 %48, 30
+  %50 = tail call i32 @llvm.fshl.i32(i32 %48, i32 %lo.i.i.i.0.i, i32 2)
+  %51 = shl i32 %lo.i.i.i.0.i, 2
+  %52 = lshr i32 %50, 31
+  %53 = add nuw nsw i32 %52, %49
+  %54 = sub nsw i32 0, %53
+  %.not24.i = icmp slt i32 %14, 0
+  %spec.select.i = select i1 %.not24.i, i32 %54, i32 %53
+  %55 = xor i32 %50, %14
+  %.lobit.i = ashr i32 %50, 31
+  %hi.i.i.i.2.i = xor i32 %.lobit.i, %50
+  %lo.i.i.i.1.i = xor i32 %.lobit.i, %51
+  %56 = zext i32 %hi.i.i.i.2.i to i64
+  %57 = shl nuw i64 %56, 32
+  %58 = zext i32 %lo.i.i.i.1.i to i64
+  %59 = or disjoint i64 %57, %58
+  %60 = sitofp i64 %59 to double
+  %61 = fmul nnan double %60, f0x3BF921FB54442D19
+  %62 = fptrunc double %61 to float
+  %63 = fneg float %62
+  %.not67.i = icmp slt i32 %55, 0
+  %r.i.i.i.0.i = select i1 %.not67.i, float %63, float %62
+  br label %__nv_sinf.exit
+
+__nv_sinf.exit:                                   ; preds = %"!par_body_0", %__nv_fmul_rn.exit.i.i.i, %__internal_trig_reduction_slowpath.exit.i.i.i
+  %i.i.1.i = phi i32 [ %4, %"!par_body_0" ], [ 0, %__nv_fmul_rn.exit.i.i.i ], [ %spec.select.i, %__internal_trig_reduction_slowpath.exit.i.i.i ]
+  %t.i.i.1.i = phi float [ %8, %"!par_body_0" ], [ %12, %__nv_fmul_rn.exit.i.i.i ], [ %r.i.i.i.0.i, %__internal_trig_reduction_slowpath.exit.i.i.i ]
+  call void @llvm.lifetime.end.p0(ptr nonnull %result.i.i.i.i)
+  %64 = fcmp olt float %9, f0x00800000
+  %65 = fmul float %9, f0x4B800000
+  %.013.i = select i1 %64, float %65, float %9
+  %expo.i.i.0.i = select i1 %64, float -2.400000e+01, float 0.000000e+00
+  %66 = bitcast float %.013.i to i32
+  %67 = add i32 %66, -1060439283
+  %68 = and i32 %67, -8388608
+  %69 = sub i32 %66, %68
+  %70 = bitcast i32 %69 to float
+  %71 = sitofp i32 %68 to float
+  %72 = tail call float @llvm.fma.f32(float %71, float f0x34000000, float %expo.i.i.0.i)
+  %73 = fadd float %70, -1.000000e+00
+  %74 = fadd float %70, 1.000000e+00
+  %75 = tail call float asm "rcp.approx.ftz.f32 $0,$1;", "=f,f"(float %74) #7, !srcloc !6
+  %76 = fmul float %73, 2.000000e+00
+  %77 = fmul float %76, %75
+  %78 = fmul float %77, %77
+  %79 = fsub float %73, %77
+  %80 = fmul float %79, 2.000000e+00
+  %81 = fneg float %77
+  %82 = tail call float @llvm.fma.f32(float %81, float %73, float %80)
+  %83 = tail call float @llvm.nvvm.mul.rn.f(float %75, float %82) #6
+  %84 = tail call float @llvm.fma.f32(float %78, float f0x3A2C32E4, float f0x3B52E7DB)
+  %85 = tail call float @llvm.fma.f32(float %84, float %78, float f0x3C93BB73)
+  %86 = tail call float @llvm.fma.f32(float %85, float %78, float f0x3DF6384F)
+  %87 = tail call float @llvm.nvvm.mul.rn.f(float %86, float %78) #6
+  %88 = tail call float @llvm.fma.f32(float %77, float f0x3FB8AA3B, float %72)
+  %89 = fsub float %72, %88
+  %90 = tail call float @llvm.fma.f32(float %77, float f0x3FB8AA3B, float %89)
+  %91 = tail call float @llvm.fma.f32(float %83, float f0x3FB8AA3B, float %90)
+  %92 = tail call float @llvm.fma.f32(float %77, float f0x32A55E34, float %91)
+  %93 = fmul float %87, 3.000000e+00
+  %94 = tail call float @llvm.fma.f32(float %93, float %83, float %92)
+  %95 = tail call float @llvm.fma.f32(float %87, float %77, float %94)
+  %96 = tail call float @llvm.nvvm.add.rn.f(float %88, float %95) #6
+  %97 = fneg float %88
+  %98 = tail call float @llvm.nvvm.add.rn.f(float %96, float %97) #6
+  %99 = fneg float %98
+  %100 = tail call float @llvm.nvvm.add.rn.f(float %95, float %99) #6
+  %101 = tail call float @llvm.nvvm.mul.rn.f(float %96, float 2.000000e+00) #6
+  %102 = fneg float %101
+  %103 = tail call float @llvm.fma.f32(float %96, float 2.000000e+00, float %102)
+  %104 = tail call float @llvm.fma.f32(float %100, float 2.000000e+00, float %103)
+  %105 = tail call float @llvm.nvvm.round.f(float %101) #6
+  %106 = fsub float %101, %105
+  %107 = fadd float %106, %104
+  %108 = tail call float @llvm.fma.f32(float %107, float f0x391FCB8E, float f0x3AAF85ED)
+  %109 = tail call float @llvm.fma.f32(float %108, float %107, float f0x3C1D9856)
+  %110 = tail call float @llvm.fma.f32(float %109, float %107, float f0x3D6357BB)
+  %111 = tail call float @llvm.fma.f32(float %110, float %107, float f0x3E75FDEC)
+  %112 = tail call float @llvm.fma.f32(float %111, float %107, float f0x3F317218)
+  %113 = tail call float @llvm.fma.f32(float %112, float %107, float 1.000000e+00)
+  %114 = tail call i32 @llvm.nvvm.f2i.rz(float %105) #6
+  %115 = fcmp ogt float %105, 0.000000e+00
+  %116 = select i1 %115, i32 0, i32 -2097152000
+  %117 = add nsw i32 %116, 2130706432
+  %118 = bitcast i32 %117 to float
+  %119 = fmul float %113, %118
+  %120 = shl i32 %114, 23
+  %121 = sub i32 %120, %116
+  %122 = bitcast i32 %121 to float
+  %123 = fmul float %119, %122
+  %124 = tail call float @llvm.nvvm.fabs.f32(float %101)
+  %125 = fcmp ogt float %124, 1.520000e+02
+  %126 = fcmp olt float %101, 0.000000e+00
+  %127 = select i1 %126, float 0.000000e+00, float +inf
+  %t.i.0.i = select i1 %125, float %127, float %123
+  %128 = fcmp oeq float %2, 1.000000e+00
+  br i1 %128, label %__nv_powf.exit, label %__nv_isnanf.exit.i.i
+
+__nv_isnanf.exit.i.i:                             ; preds = %__nv_sinf.exit
+  %129 = fcmp uno float %9, 0.000000e+00
+  br i1 %129, label %__nv_fadd_rn.exit.i.i, label %__nv_isnanf.exit2.i.i
+
+__nv_fadd_rn.exit.i.i:                            ; preds = %__nv_isnanf.exit.i.i
+  %130 = tail call float @llvm.nvvm.add.rn.f(float %2, float 2.000000e+00) #6
+  br label %__nv_powf.exit
+
+__nv_isnanf.exit2.i.i:                            ; preds = %__nv_isnanf.exit.i.i
+  %131 = fcmp oeq float %2, 0.000000e+00
+  %132 = fcmp oeq float %9, +inf
+  %or.cond.i = or i1 %131, %132
+  %133 = fadd float %2, %2
+  %134 = tail call float @llvm.fabs.f32(float %133)
+  %.t.i.0.i = select i1 %or.cond.i, float %134, float %t.i.0.i
+  br label %__nv_powf.exit
+
+__nv_powf.exit:                                   ; preds = %__nv_isnanf.exit2.i.i, %__nv_sinf.exit, %__nv_fadd_rn.exit.i.i
+  %.6.i = phi float [ 1.000000e+00, %__nv_sinf.exit ], [ %130, %__nv_fadd_rn.exit.i.i ], [ %.t.i.0.i, %__nv_isnanf.exit2.i.i ]
+  %135 = and i32 %i.i.1.i, 2
+  %.not9.i = icmp eq i32 %135, 0
+  %136 = and i32 %i.i.1.i, 1
+  %.not8.i = icmp eq i32 %136, 0
+  %137 = tail call float @llvm.nvvm.mul.rn.f(float %t.i.i.1.i, float %t.i.i.1.i) #6
+  %138 = tail call float @llvm.fma.f32(float %137, float f0x37CBAC00, float f0xBAB607ED)
+  %139 = select i1 %.not8.i, float f0xB94D4153, float %138
+  %140 = select i1 %.not8.i, float f0x3C0885E4, float f0x3D2AAABB
+  %141 = tail call float @llvm.fma.f32(float %139, float %137, float %140)
+  %142 = select i1 %.not8.i, float f0xBE2AAAA8, float f0xBEFFFFFF
+  %143 = tail call float @llvm.fma.f32(float %141, float %137, float %142)
+  %144 = select i1 %.not8.i, float %t.i.i.1.i, float 1.000000e+00
+  %145 = tail call float @llvm.fma.f32(float %137, float %144, float 0.000000e+00)
+  %146 = tail call float @llvm.fma.f32(float %143, float %145, float %144)
+  %147 = fsub float 0.000000e+00, %146
+  %z.i.i.0.i = select i1 %.not9.i, float %146, float %147
+  %148 = tail call float @llvm.fma.f32(float %2, float 5.724980e-03, float 5.000000e-01)
+  %149 = tail call float @llvm.nvvm.saturate.f(float %148) #6
+  %150 = tail call float @llvm.nvvm.fma.rm.f(float %149, float 2.520000e+02, float f0x4B400001) #6
+  %151 = fadd float %150, f0xCB40007F
+  %152 = fneg float %151
+  %153 = tail call float @llvm.fma.f32(float %2, float f0x3FB8AA3B, float %152)
+  %154 = tail call float @llvm.fma.f32(float %2, float f0x32A57060, float %153)
+  %155 = tail call float @llvm.nvvm.ex2.approx.ftz.f32(float %154)
+  %156 = bitcast float %150 to i32
+  %157 = shl i32 %156, 23
+  %158 = bitcast i32 %157 to float
+  %159 = fmul float %155, %158
+  %160 = fmul float %159, 5.000000e-01
+  %161 = fadd float %z.i.i.0.i, %160
+  %162 = fadd float %.6.i, %161
+  %163 = sext i32 %i to i64
+  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %163
+  store float %162, ptr %out1, align 4, !tbaa !7
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind willreturn denormal_fpenv(preservesign) memory(none)
-declare float @llvm.nvvm.sin.approx.ftz.f(float) #2
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.nvvm.f2i.rn(float) #2
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn denormal_fpenv(preservesign) memory(none)
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.nvvm.fabs.f32(float) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.nvvm.mul.rn.f(float, float) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.nvvm.saturate.f(float) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.nvvm.fma.rm.f(float, float, float) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
 declare float @llvm.nvvm.ex2.approx.ftz.f32(float) #3
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn denormal_fpenv(preservesign) memory(none)
-declare float @llvm.nvvm.lg2.approx.ftz.f(float) #3
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.nvvm.add.rn.f(float, float) #2
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none) }
-attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind willreturn denormal_fpenv(preservesign) memory(none) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn denormal_fpenv(preservesign) memory(none) }
-attributes #4 = { nounwind }
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.nvvm.round.f(float) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.nvvm.f2i.rz(float) #2
+
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.fma.f32(float, float, float) #4
+
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.fshl.i32(i32, i32, i32) #4
+
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.fabs.f32(float) #4
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.start.p0(ptr captures(none)) #5
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.end.p0(ptr captures(none)) #5
+
+attributes #0 = { nounwind memory(argmem: write) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(none) }
+attributes #4 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #5 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #6 = { nounwind }
+attributes #7 = { nounwind memory(none) }
 
 !llvm.module.flags = !{!0}
 !llvm.ident = !{!1}
 !nvvmir.version = !{!2}
 
-!0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
 !1 = !{!"clang version 3.8.0 (tags/RELEASE_380/final)"}
 !2 = !{i32 2, i32 0}
-!3 = !{!4, !4, i64 0}
-!4 = !{!"f32", !5, i64 0}
-!5 = !{!"bonsai"}
+!3 = !{i32 33610, i32 33614, i32 33659, i32 33704}
+!4 = distinct !{!4, !5}
+!5 = !{!"llvm.loop.unroll.count", i32 1}
+!6 = !{i32 21289}
+!7 = !{!8, !8, i64 0}
+!8 = !{!"f32", !9, i64 0}
+!9 = !{!"bonsai"}
 
 ; ---- device module: PTX ----
 //
@@ -66,6 +321,7 @@ attributes #4 = { nounwind }
 .address_size 64
 
 	// .globl	_kernel_i_0
+.global .align 4 .b8 __cudart_i2opi_f[24] = {65, 144, 67, 60, 153, 149, 98, 219, 192, 221, 52, 245, 209, 87, 39, 252, 41, 21, 68, 78, 110, 131, 249, 162};
 
 .visible .entry _kernel_i_0(
 	.param .u32 _kernel_i_0_param_0,
@@ -74,30 +330,216 @@ attributes #4 = { nounwind }
 	.param .u64 .ptr .align 1 _kernel_i_0_param_3
 )
 {
-	.reg .b32 	%r<17>;
-	.reg .b64 	%rd<5>;
+	.local .align 4 .b8 	__local_depot0[28];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<17>;
+	.reg .b32 	%r<137>;
+	.reg .b64 	%rd<18>;
 
-	ld.param.b32 	%r1, [_kernel_i_0_param_0];
-	ld.param.b64 	%rd1, [_kernel_i_0_param_3];
-	cvta.to.global.u64 	%rd2, %rd1;
-	ld.param.b32 	%r2, [_kernel_i_0_param_1];
-	ld.param.b32 	%r3, [_kernel_i_0_param_2];
-	mov.u32 	%r4, %tid.x;
-	mad.lo.s32 	%r5, %r2, %r4, %r1;
-	cvt.rn.f32.s32 	%r6, %r5;
-	mul.rn.ftz.f32 	%r7, %r3, %r6;
-	sin.approx.ftz.f32 	%r8, %r7;
-	mul.rn.ftz.f32 	%r9, %r7, 0f3FB8AA3B;
-	ex2.approx.ftz.f32 	%r10, %r9;
-	mul.rn.ftz.f32 	%r11, %r10, 0f3F000000;
-	add.rn.ftz.f32 	%r12, %r8, %r11;
-	lg2.approx.ftz.f32 	%r13, %r7;
-	add.rn.ftz.f32 	%r14, %r13, %r13;
-	ex2.approx.ftz.f32 	%r15, %r14;
-	add.rn.ftz.f32 	%r16, %r12, %r15;
-	mul.wide.s32 	%rd3, %r5, 4;
-	add.s64 	%rd4, %rd2, %rd3;
-	st.global.b32 	[%rd4], %r16;
+	mov.b64 	%SPL, __local_depot0;
+	ld.param.b32 	%r8, [_kernel_i_0_param_0];
+	ld.param.b64 	%rd4, [_kernel_i_0_param_3];
+	cvta.to.global.u64 	%rd1, %rd4;
+	ld.param.b32 	%r9, [_kernel_i_0_param_1];
+	ld.param.b32 	%r10, [_kernel_i_0_param_2];
+	add.u64 	%rd2, %SPL, 0;
+	mov.u32 	%r11, %tid.x;
+	mad.lo.s32 	%r1, %r9, %r11, %r8;
+	cvt.rn.f32.s32 	%r12, %r1;
+	mul.rn.f32 	%r2, %r10, %r12;
+	mul.rn.f32 	%r13, %r2, 0f3F22F983;
+	cvt.rni.s32.f32 	%r134, %r13;
+	cvt.rn.f32.s32 	%r14, %r134;
+	fma.rn.f32 	%r15, %r14, 0fBFC90FDA, %r2;
+	fma.rn.f32 	%r16, %r14, 0fB3A22168, %r15;
+	fma.rn.f32 	%r135, %r14, 0fA7C234C5, %r16;
+	abs.f32 	%r3, %r2;
+	setp.ltu.f32 	%p1, %r3, 0f47CE4780;
+	@%p1 bra 	$L__BB0_8;
+	setp.neu.f32 	%p2, %r3, 0f7F800000;
+	@%p2 bra 	$L__BB0_3;
+	mov.b32 	%r40, 0f00000000;
+	mul.rn.f32 	%r135, %r2, %r40;
+	mov.b32 	%r134, 0;
+	bra.uni 	$L__BB0_8;
+$L__BB0_3:
+	shl.b32 	%r17, %r2, 8;
+	or.b32 	%r20, %r17, -2147483648;
+	mov.b32 	%r132, 0;
+	mov.b64 	%rd17, 0;
+	mov.b64 	%rd5, __cudart_i2opi_f;
+$L__BB0_4:
+	.pragma "nounroll";
+	add.s64 	%rd6, %rd5, %rd17;
+	ld.global.nc.b32 	%r19, [%rd6];
+	// begin inline asm
+	{
+	mad.lo.cc.u32   %r18, %r19, %r20, %r132;
+	madc.hi.u32     %r132, %r19, %r20,  0;
+	}
+	// end inline asm
+	add.s64 	%rd7, %rd2, %rd17;
+	st.local.b32 	[%rd7], %r18;
+	add.s64 	%rd17, %rd17, 4;
+	cvt.u32.u64 	%r21, %rd17;
+	setp.ne.b32 	%p3, %r21, 24;
+	@%p3 bra 	$L__BB0_4;
+	shr.u32 	%r4, %r2, 23;
+	and.b32 	%r22, %r4, 224;
+	add.s32 	%r23, %r22, -128;
+	shr.u32 	%r24, %r23, 5;
+	st.local.b32 	[%rd2+24], %r132;
+	mul.wide.u32 	%rd8, %r24, 4;
+	sub.s64 	%rd3, %rd2, %rd8;
+	ld.local.b32 	%r5, [%rd3+24];
+	ld.local.b32 	%r6, [%rd3+20];
+	and.b32 	%r25, %r2, 260046848;
+	setp.eq.b32 	%p4, %r25, 0;
+	mov.b32 	%r133, %r6;
+	@%p4 bra 	$L__BB0_7;
+	ld.local.b32 	%r26, [%rd3+16];
+	shf.l.wrap.b32 	%r133, %r26, %r6, %r4;
+$L__BB0_7:
+	shf.l.wrap.b32 	%r27, %r6, %r5, %r4;
+	shr.u32 	%r28, %r27, 30;
+	shf.l.wrap.b32 	%r29, %r133, %r27, 2;
+	shl.b32 	%r30, %r133, 2;
+	shr.u32 	%r31, %r29, 31;
+	add.s32 	%r32, %r31, %r28;
+	neg.s32 	%r33, %r32;
+	setp.lt.s32 	%p5, %r2, 0;
+	selp.b32 	%r134, %r33, %r32, %p5;
+	xor.b32 	%r34, %r29, %r2;
+	shr.s32 	%r35, %r29, 31;
+	xor.b32 	%r36, %r35, %r29;
+	xor.b32 	%r37, %r35, %r30;
+	cvt.u64.u32 	%rd9, %r36;
+	shl.b64 	%rd10, %rd9, 32;
+	cvt.u64.u32 	%rd11, %r37;
+	or.b64 	%rd12, %rd10, %rd11;
+	cvt.rn.f64.s64 	%rd13, %rd12;
+	mul.rn.f64 	%rd14, %rd13, 0d3BF921FB54442D19;
+	cvt.rn.f32.f64 	%r38, %rd14;
+	neg.f32 	%r39, %r38;
+	setp.lt.s32 	%p6, %r34, 0;
+	selp.f32 	%r135, %r39, %r38, %p6;
+$L__BB0_8:
+	setp.lt.f32 	%p7, %r3, 0f00800000;
+	mul.rn.f32 	%r43, %r3, 0f4B800000;
+	selp.f32 	%r44, %r43, %r3, %p7;
+	add.s32 	%r46, %r44, -1060439283;
+	and.b32 	%r47, %r46, -8388608;
+	sub.s32 	%r48, %r44, %r47;
+	add.rn.f32 	%r42, %r48, 0f3F800000;
+	// begin inline asm
+	rcp.approx.ftz.f32 %r41,%r42;
+	// end inline asm
+	setp.eq.f32 	%p11, %r2, 0f3F800000;
+	mov.b32 	%r136, 0f3F800000;
+	@%p11 bra 	$L__BB0_12;
+	setp.num.f32 	%p12, %r3, %r3;
+	@!%p12 bra 	$L__BB0_10;
+	selp.f32 	%r45, 0fC1C00000, 0f00000000, %p7;
+	cvt.rn.f32.s32 	%r49, %r47;
+	fma.rn.f32 	%r50, %r49, 0f34000000, %r45;
+	add.rn.f32 	%r51, %r48, 0fBF800000;
+	add.rn.f32 	%r52, %r51, %r51;
+	mul.rn.f32 	%r53, %r52, %r41;
+	mul.rn.f32 	%r54, %r53, %r53;
+	sub.rn.f32 	%r55, %r51, %r53;
+	add.rn.f32 	%r56, %r55, %r55;
+	neg.f32 	%r57, %r53;
+	fma.rn.f32 	%r58, %r57, %r51, %r56;
+	mul.rn.f32 	%r59, %r41, %r58;
+	fma.rn.f32 	%r60, %r54, 0f3A2C32E4, 0f3B52E7DB;
+	fma.rn.f32 	%r61, %r60, %r54, 0f3C93BB73;
+	fma.rn.f32 	%r62, %r61, %r54, 0f3DF6384F;
+	mul.rn.f32 	%r63, %r62, %r54;
+	fma.rn.f32 	%r64, %r53, 0f3FB8AA3B, %r50;
+	sub.rn.f32 	%r65, %r50, %r64;
+	fma.rn.f32 	%r66, %r53, 0f3FB8AA3B, %r65;
+	fma.rn.f32 	%r67, %r59, 0f3FB8AA3B, %r66;
+	fma.rn.f32 	%r68, %r53, 0f32A55E34, %r67;
+	mul.rn.f32 	%r69, %r63, 0f40400000;
+	fma.rn.f32 	%r70, %r69, %r59, %r68;
+	fma.rn.f32 	%r71, %r63, %r53, %r70;
+	add.rn.f32 	%r72, %r64, %r71;
+	sub.rn.f32 	%r73, %r72, %r64;
+	sub.rn.f32 	%r74, %r71, %r73;
+	mov.b32 	%r75, 0f40000000;
+	mul.rn.f32 	%r76, %r72, %r75;
+	neg.f32 	%r77, %r76;
+	fma.rn.f32 	%r78, %r72, 0f40000000, %r77;
+	fma.rn.f32 	%r79, %r74, 0f40000000, %r78;
+	cvt.rni.f32.f32 	%r80, %r76;
+	sub.rn.f32 	%r81, %r76, %r80;
+	add.rn.f32 	%r82, %r81, %r79;
+	fma.rn.f32 	%r83, %r82, 0f391FCB8E, 0f3AAF85ED;
+	fma.rn.f32 	%r84, %r83, %r82, 0f3C1D9856;
+	fma.rn.f32 	%r85, %r84, %r82, 0f3D6357BB;
+	fma.rn.f32 	%r86, %r85, %r82, 0f3E75FDEC;
+	fma.rn.f32 	%r87, %r86, %r82, 0f3F317218;
+	fma.rn.f32 	%r88, %r87, %r82, 0f3F800000;
+	cvt.rzi.s32.f32 	%r89, %r80;
+	setp.gt.f32 	%p8, %r80, 0f00000000;
+	selp.b32 	%r90, 0, -2097152000, %p8;
+	add.s32 	%r91, %r90, 2130706432;
+	mul.rn.f32 	%r92, %r88, %r91;
+	shl.b32 	%r93, %r89, 23;
+	sub.s32 	%r94, %r93, %r90;
+	mul.rn.f32 	%r95, %r92, %r94;
+	abs.f32 	%r96, %r76;
+	setp.gt.f32 	%p9, %r96, 0f43180000;
+	setp.lt.f32 	%p10, %r76, 0f00000000;
+	selp.f32 	%r97, 0f00000000, 0f7F800000, %p10;
+	selp.f32 	%r7, %r97, %r95, %p9;
+	setp.eq.f32 	%p13, %r2, 0f00000000;
+	setp.eq.f32 	%p14, %r3, 0f7F800000;
+	add.rn.f32 	%r98, %r2, %r2;
+	abs.f32 	%r99, %r98;
+	selp.f32 	%r100, %r99, %r7, %p14;
+	selp.f32 	%r136, %r99, %r100, %p13;
+$L__BB0_12:
+	and.b32 	%r102, %r134, 2;
+	setp.eq.b32 	%p15, %r102, 0;
+	and.b32 	%r103, %r134, 1;
+	setp.ne.b32 	%p16, %r103, 0;
+	mul.rn.f32 	%r104, %r135, %r135;
+	fma.rn.f32 	%r105, %r104, 0f37CBAC00, 0fBAB607ED;
+	selp.f32 	%r106, %r105, 0fB94D4153, %p16;
+	selp.f32 	%r107, 0f3D2AAABB, 0f3C0885E4, %p16;
+	fma.rn.f32 	%r108, %r106, %r104, %r107;
+	selp.f32 	%r109, 0fBEFFFFFF, 0fBE2AAAA8, %p16;
+	fma.rn.f32 	%r110, %r108, %r104, %r109;
+	selp.f32 	%r111, 0f3F800000, %r135, %p16;
+	fma.rn.f32 	%r112, %r104, %r111, 0f00000000;
+	fma.rn.f32 	%r113, %r110, %r112, %r111;
+	mov.b32 	%r114, 0f00000000;
+	sub.rn.f32 	%r115, %r114, %r113;
+	selp.f32 	%r116, %r113, %r115, %p15;
+	fma.rn.f32 	%r117, %r2, 0f3BBB989D, 0f3F000000;
+	cvt.sat.f32.f32 	%r118, %r117;
+	mov.b32 	%r119, 0f4B400001;
+	mov.b32 	%r120, 0f437C0000;
+	fma.rm.f32 	%r121, %r118, %r120, %r119;
+	add.rn.f32 	%r122, %r121, 0fCB40007F;
+	neg.f32 	%r123, %r122;
+	fma.rn.f32 	%r124, %r2, 0f3FB8AA3B, %r123;
+	fma.rn.f32 	%r125, %r2, 0f32A57060, %r124;
+	ex2.approx.ftz.f32 	%r126, %r125;
+	shl.b32 	%r127, %r121, 23;
+	mul.rn.f32 	%r128, %r126, %r127;
+	mul.rn.f32 	%r129, %r128, 0f3F000000;
+	add.rn.f32 	%r130, %r116, %r129;
+	add.rn.f32 	%r131, %r136, %r130;
+	mul.wide.s32 	%rd15, %r1, 4;
+	add.s64 	%rd16, %rd1, %rd15;
+	st.global.b32 	[%rd16], %r131;
 	ret;
+$L__BB0_10:
+	mov.b32 	%r101, 0f40000000;
+	add.rn.f32 	%r136, %r2, %r101;
+	bra.uni 	$L__BB0_12;
 
 }

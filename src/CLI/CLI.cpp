@@ -28,6 +28,10 @@ std::string command_help() {
       << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
       << "     | --gpu-arch <sm>             | the GPU device code is for, "
          "e.g. `--gpu-arch sm_120`; the machine's own if not given\n"
+      << "     | --fast-math                 | the platform's fast arithmetic: "
+         "clang's -ffast-math on the CPU; nvcc's --use_fast_math on the GPU "
+         "(flushed denormals, approximate division, square root and "
+         "transcendentals), as pbrt --gpu is built. Exact if not given\n"
       << "     | --no-heap                   | reject heap allocation\n"
       << "     | --ffp-contract              | fuse `a * b + c` into one fma\n"
       << "     | --dump-ssa-preschedule      | print the SSA a schedule acts "
@@ -176,6 +180,10 @@ Flags parse(const std::vector<std::string> &args) {
             internal_assert(i + 1 < args.size());
             options.gpu_arch = args[i + 1];
             ++i;
+            continue;
+        }
+        if (arg == "--fast-math") {
+            options.fast_math = true;
             continue;
         }
         if (arg == "-i" || arg == "--input") {
