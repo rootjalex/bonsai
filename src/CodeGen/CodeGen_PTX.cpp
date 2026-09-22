@@ -21,6 +21,7 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/raw_ostream.h>
@@ -98,6 +99,42 @@ std::string ptx_feature(const std::string &sm) {
     return "+ptx60";
 }
 
+// One of LLVM's own command-line options, set as if it had been given on the
+// command line of a tool: the NVPTX backend reads the precision of its float
+// division and square root from two of these and from nothing else -- no
+// function attribute, no target option -- so this is the only way to choose
+// them. Process-wide, which is fine: they are read by the NVPTX backend
+// alone.
+void set_llvm_option(const char *name, const char *value) {
+    auto &options = llvm::cl::getRegisteredOptions();
+    const auto it = options.find(llvm::StringRef(name));
+    internal_assert(it != options.end())
+        << "this LLVM has no option `" << name << "`";
+    internal_assert(!it->second->addOccurrence(0, name, value))
+        << "LLVM refused `-" << name << "=" << value << "`";
+}
+
+// nvcc's `--use_fast_math`, which pbrt's GPU build compiles with, is four
+// flags: `--ftz=true` (finish() gives every device function that denormal
+// mode), `--fmad=true` (contraction, which the NVPTX backend does by
+// default), `--prec-div=false` and `--prec-sqrt=false`. The last two make a
+// float division `div.full.f32` (two ulp, the full range) and `1 / x`
+// `rcp.approx.f32`, and a square root `sqrt.approx.f32`, where the defaults
+// are the IEEE `div.rn.f32` and `sqrt.rn.f32` -- each of which is a check and
+// a slow-path call around the fast estimate, and the megakernel had 3,285
+// divisions and 1,133 square roots of that kind. pbrt --gpu is what the GPU
+// schedules are measured against, so its arithmetic is theirs. Once per
+// process.
+void use_nvcc_fast_math_division() {
+    static bool done = false;
+    if (done) {
+        return;
+    }
+    done = true;
+    set_llvm_option("nvptx-prec-divf32", "1");
+    set_llvm_option("nvptx-prec-sqrtf32", "0");
+}
+
 // An instruction with an effect on memory or the world, as the block level
 // of a kernel sees it (see CodeGen_PTX::has_effects). An allocation counts:
 // memory made by one thread is that thread's.
@@ -155,6 +192,7 @@ CodeGen_PTX::make_target_machine(llvm::Module &m,
         << "driver can see, and no --gpu-arch was given. Name the GPU the "
         << "code is for, e.g. `--gpu-arch sm_90`.";
     const std::string features = ptx_feature(gpu_arch);
+    use_nvcc_fast_math_division();
 
     const llvm::Triple triple("nvptx64-nvidia-cuda");
     std::string error;

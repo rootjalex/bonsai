@@ -4359,6 +4359,93 @@ What this says about the kernel, in order of what to try:
 None of this changes what the kernel computes, which is why it comes after
 the measurement and not before it.
 
+## What the megakernel's profile said, and the first fixes (2026-09-22)
+
+The measurement over the four scenes (depths 1, 3, 5 by 16 to 256 spp, best
+of three, every image checked against pbrt's) put the megakernel at 5x to
+16x over pbrt CPU where `pbrt --gpu` is 8x to 43x: a quarter to a half of
+the wavefront, and a gap that widens with the scene. Nsight Compute on one
+killeroo launch (depth 5, 64 spp, 490,000 blocks of 64 threads) and a read
+of the PTX and SASS say why, in order of weight:
+
+| what | value |
+|---|---|
+| issue slots busy | 22%; no eligible warp on 77% of cycles |
+| warps per scheduler, active / eligible | 1.92 / 0.26 |
+| occupancy | 16% (255 registers, 8 warps per SM) |
+| active lanes per warp | 11.4 of 32 |
+| stall cycles per instruction | no instruction 2.36, long scoreboard 1.79, wait 1.74, barrier 0.87, branch 0.38 (of 8.55) |
+| local memory | 37% of L1 sectors; 57% of local loads are spills |
+| global loads | all generic (`LD`, no `LDG`), 4,666 four-byte to 57 sixteen-byte; 45% of L2 sectors excess |
+| film accumulates | 709 M CAS requests at L2 for 125 M adds: 5.7 attempts each |
+| SASS | 376K instructions; 3,285 IEEE divisions and 1,133 IEEE square roots, each a check plus a slow-path call |
+
+1. **Lanes and occupancy** are the structural problem, and the argument for
+   the wavefront: a third of each warp working, two warps per scheduler to
+   hide latency with. The register sweep above stands.
+2. **Code size.** The largest stall is the instruction fetch: 376K
+   instructions is far past the instruction cache, and divergent warps pull
+   different regions. pbrt's GPU build is `--use_fast_math`, whose
+   `--prec-div=false --prec-sqrt=false` make a division `div.full.f32` and a
+   square root `sqrt.approx.f32` with no slow path; ours were IEEE. Also
+   twenty-one functions stayed separate at the LLVM level (ptxas inlined
+   them, parameters through local memory and all).
+3. **Local memory**: 1.5 GB of requests in a 0.44 s launch, the 3,232-byte
+   frame (two 64-entry traversal stacks) plus ptxas spills at the cap.
+4. **Generic, scalar global loads**: the layout structs arrive by value
+   with their array pointers inside, and nothing tells LLVM they are
+   global or read-only, so no `ld.global.nc`; and exactly-packed 12-byte
+   vectors cannot be fetched as one 16-byte load.
+5. **The film**: every thread a CAS loop per channel into one pixel's four
+   addresses, with the retries growing with the threads per block -- the
+   depth-1 cliff at 256 spp, where the samples doubled and the time
+   quadrupled.
+6. **The barrier**, 10% of stall cycles: finished samples waiting at the
+   block's end for the pixel's slowest path.
+
+**Done the same day.** (a) The CAS loops: LLVM lowers `atomicrmw fadd` to
+`atom.add.f32` only on a global-address-space pointer in a function that
+flushes denormals, since the instruction flushes them on global memory
+whatever the function does; our kernel pointers were generic and the
+module kept denormals. Every device function now carries
+`denormal_fpenv(preservesign)` -- the typed attribute; LLVM 23 prints the
+old string form but reads only this one -- which is `--ftz=true`, part of
+pbrt --gpu's `--use_fast_math`, and an accumulate's address rooted at a
+kernel argument is cast to the global space (CodeGen_PTX::atomic_address).
+The megakernel's thirteen accumulates are `atom.relaxed.gpu.global.add.f32`
+(tests: backends/ptx/atomic-float, correctness/gpu/atomic-float). killeroo,
+best of three, every image matching pbrt: depth 1 at 256 spp 1.488 s to
+0.521 s (6.8x to 19.4x over pbrt CPU), depth 3 at 256 spp 1.605 to 1.277 s,
+depth 5 at 256 spp 1.630 to 1.491 s; the cliff is gone. (b) The rest of
+`--use_fast_math`'s arithmetic: `div.full.f32`, `rcp.approx.f32`,
+`sqrt.approx.f32` through LLVM's `nvptx-prec-divf32` and
+`nvptx-prec-sqrtf32` options, which are the only knobs it has for them.
+pbrt's CPU build has no fast-math flag at all (its one arithmetic flag,
+`-ffp-contract=off`, is for clang 14 and later; this GCC build contracts, as
+`--ffp-contract` does here), so the CPU backend stays IEEE. Still to do from
+the same flag: the fast transcendentals (`__nv_fast_sinf` and the rest of
+libdevice's `__nv_fast_*`, which nvcc substitutes for the accurate ones).
+
+**Next, in this order.** The read-only marking and global address space for
+the by-value layout structs' pointers (a late LLVM pass on the kernel:
+`noalias readonly` on unwritten pointer parameters, the struct fields'
+pointers cast to the global space, `!invariant.load` on loads through
+read-only roots, which is what selects `ld.global.nc`; the written-capture
+analysis the host uses to decide by-value captures already answers which),
+with the device functions forced inline so the kernel sees every load. Then
+the block-level reduction for the film: a warp shuffle tree, one shared slot
+per warp, one add by the leader, and no atomic at all when the address
+depends only on the block-bound index, which the contention pass already
+knows. Then the register sweep, the block shape, and the stack depth.
+
+**A compiler bug volpath found.** The medium walk's samples were not
+pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,
+because the CSE legality check looked at a call's name and never at its
+arguments -- `hash(draw(c))` was as repeatable as `hash(x)`. Every image
+statistic matched pbrt's regardless; only the per-pixel comparison, on a
+scene where nothing else was random (scenes/emissive-medium.pbrt), showed
+it. Fixed in Opt/CSE.cpp, test correctness/llvm/mut-nested-call-argument.
+
 ## volpath, because `pbrt --gpu` is only volpath (planned 2026-09-22)
 
 pbrt's GPU renderer runs one integrator, the wavefront volpath, whatever the
@@ -4475,6 +4562,38 @@ density, a translation. Scenes: bunny-cloud, clouds, disney-cloud.
 *Phase V4 -- subsurface.* `GetBSSRDF`, the probe-segment intersection with
 `Intersect(r, 1)` collecting hits of the same material into a reservoir, and
 `TabulatedBSSRDF`. Scene: sssdragon. Independent of media.
+
+**Where V1 stands (2026-09-22, in the worktree `../bonsai-volpath`, branch
+`ajr/volpath-wip`, to land here once the packet schedule compiles).**
+Everything above is written: scene_io.h and scene_dump.cpp carry media, the
+interface material, the medium interface per shape and the camera's medium
+(only `homogeneous` converts; the others are refused, as before);
+media.bonsai holds `Medium`, its properties and majorant, pbrt's `FastExp`
+and `Hash` over floats; render.bonsai has `vol_path_step`,
+`vol_medium_step` (SampleT_maj with Li's callback), `vol_shadow_step` and
+`vol_shadow_track` (SampleLd's closest-hit transmittance loop and its ratio
+tracking), `vol_sample_ld`, the interface skips, and `integrator_li` with
+the `VolPath` arm; every schedule loopifies the four walks, and the two
+wavefront schedules put `vol_path_step` on a queue of its own. Reviewed
+line by line against `cpu/integrators.cpp` and `media.h`. Under the scalar
+schedule the four small scenes (scenes/homogeneous-medium, camera-medium,
+emissive-medium, interface-boundary) match pbrt: emissive-medium -- an
+absorbing, emissive haze over black surfaces, so that only the
+sampler-seeded majorant walk is random -- pixel for pixel; the other two
+media scenes in every gbuffer pixel and in the mean, with per-pixel radiance
+parting where pbrt seeds a shadow ray's transmittance RNG from a hash of the
+ray's origin and direction (a last-bit difference in either is another
+stream; pbrt's own GPU and CPU part the same way). Two things pbrt does that
+the first translation did not: `path` and `simplepath` set `specularBounce`
+before skipping an interface (interface-boundary was 6% dark until they
+did), and the random walk stops at an interface rather than skipping it.
+Open: the packet schedule stops in the vectorizer at "a per-lane pointer
+into per-lane memory, which vectorization does not lay out yet"
+(Vectorize.cpp) -- the next compiler gap to close, since every real scene
+now resolves to volpath; the wavefront schedules' second queue is untested;
+and the camera-medium scene's albedo differs on the coated sphere alone
+(804 pixels by 0.007), being checked against the same scene without its
+medium.
 
 **The wavefront question.** pbrt's GPU renderer is a wavefront: per bounce,
 a ray queue is traced (`IntersectClosest`) into queues by outcome -- escaped
