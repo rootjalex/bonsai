@@ -1,5 +1,5 @@
 ; === ssa preschedule ===
-; --- _recloop_func0 (lowered via statements) ---
+; --- _recloop_func0 ---
 func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*)): 
   @0 = load_field(instances, (u32)7)
   _t1035 = extract_idx(@0, instances_index)
@@ -208,7 +208,7 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
   @109 = add(_idx0, (u32)1)
   jmp !for__idx0_20(@109, @100, instances, _t1035, r, _best0, instances_index)
 
-; --- _recloop_func1 (lowered via statements) ---
+; --- _recloop_func1 ---
 func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): 
   @0 = load_field(instances, (u32)3)
   _t1051 = extract_idx(@0, _subtree0_bnode)
@@ -448,7 +448,7 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
 !merge_27(_idx1 : u32, @100 : u32, _t1051 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !then_26, !then_24
   jmp !merge_25(_idx1, @100, _t1051, r, instances, _best0, instances_index, _idx0)
 
-; --- _traverse_tree0 (lowered via statements) ---
+; --- _traverse_tree0 ---
 func _traverse_tree0(r : Ray, instances : _tree_layout0): 
   _best0 = alloca<(__tuple_2*)>()
   @0 = inf()
@@ -487,7 +487,7 @@ func _traverse_tree0(r : Ray, instances : _tree_layout0):
   @20 = load(_best0_result)
   ret @20
 
-; --- _unexported_trace (lowered via statements) ---
+; --- _unexported_trace ---
 func _unexported_trace(r : Ray, instances : _tree_layout0): 
   _traverse_tree0$r66 = alloca<(_option0*)>()
   _best0$i66 = alloca<(__tuple_2*)>()
@@ -529,7 +529,7 @@ func _unexported_trace(r : Ray, instances : _tree_layout0):
   @21 = load(_traverse_tree0$r66)
   ret @21
 
-; --- trace (lowered via statements) ---
+; --- trace ---
 func trace(_ret0 : (_option0*), r : (Ray*), instances : (_tree_layout0*)): 
   _traverse_tree0$r66 = alloca<(_option0*)>()
   _best0$i66 = alloca<(__tuple_2*)>()
@@ -577,7 +577,7 @@ func trace(_ret0 : (_option0*), r : (Ray*), instances : (_tree_layout0*)):
   ret
 
 ; === ssa postschedule ===
-; --- _recloop_func0 (lowered via statements) ---
+; --- _recloop_func0 ---
 func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*)): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
@@ -817,7 +817,7 @@ _recloop_func0!loop(): // preds: !visit
 !visit_done(): // preds: !visit_pop
   jmp !visit(instances_index!top, (bool)0)
 
-; --- _recloop_func1 (lowered via statements) ---
+; --- _recloop_func1 ---
 func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
@@ -1088,7 +1088,7 @@ _recloop_func1!loop(): // preds: !visit
 !visit_done(): // preds: !visit_pop
   jmp !visit(_subtree0_bnode!top, (bool)0)
 
-; --- _traverse_tree0 (lowered via statements) ---
+; --- _traverse_tree0 ---
 func _traverse_tree0(r : Ray, instances : _tree_layout0): 
   _best0 = alloca<(__tuple_2*)>()
   @0 = inf()
@@ -1127,7 +1127,7 @@ func _traverse_tree0(r : Ray, instances : _tree_layout0):
   @20 = load(_best0_result)
   ret @20
 
-; --- _unexported_trace (lowered via statements) ---
+; --- _unexported_trace ---
 func _unexported_trace(r : Ray, instances : _tree_layout0): 
   _traverse_tree0$r66 = alloca<(_option0*)>()
   _best0$i66 = alloca<(__tuple_2*)>()
@@ -1169,7 +1169,7 @@ func _unexported_trace(r : Ray, instances : _tree_layout0):
   @21 = load(_traverse_tree0$r66)
   ret @21
 
-; --- trace (lowered via statements) ---
+; --- trace ---
 func trace(_ret0 : (_option0*), r : (Ray*), instances : (_tree_layout0*)): 
   _traverse_tree0$r66 = alloca<(_option0*)>()
   _best0$i66 = alloca<(__tuple_2*)>()

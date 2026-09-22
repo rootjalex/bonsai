@@ -878,9 +878,11 @@ struct CodeGen_LLVM::SSALowering {
             bind(body_head.args[i].name,
                  cg.codegen_expr(operand(p.body.args[i - 1])));
         }
+        // A loop is expected to be entered, as the statement path's counted
+        // loop says of itself.
         llvm::Value *test =
             cg.codegen_expr(Var::make(begin_e.type(), idx_name) < end_e);
-        cg.builder->CreateCondBr(test, body_bb, exit);
+        cg.builder->CreateCondBr(test, body_bb, exit, cg.very_likely_branch);
 
         cg.builder->SetInsertPoint(body_bb);
         emit_region(p.body.name, body_region, body_bb, latch);
@@ -996,6 +998,13 @@ struct CodeGen_LLVM::SSALowering {
             arg.setName(head.args[i].name);
             bind(head.args[i].name, &arg);
             i++;
+        }
+        // A function that seeds the random generator does so first, as the
+        // statement path does: the state is a local the body's `rand` reads.
+        if (std::find(func.attributes.begin(), func.attributes.end(),
+                      ir::Function::Attribute::setup_rng) !=
+            func.attributes.end()) {
+            cg.emit_rng_setup();
         }
 
         emit_region(entry(), region_of(entry()), entry_bb, nullptr);
@@ -1222,12 +1231,32 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
     const Expr begin_e = loop.operand(p.start), end_e = loop.operand(p.end),
                stride_e = loop.operand(p.stride);
 
-    // The context: begin, stride, then the body's uniform arguments.
-    std::vector<Expr> cap_exprs{begin_e, stride_e};
-    Struct_t::Map fields{{"_begin", begin_e.type()},
-                         {"_stride", stride_e.type()}};
+    // The context: the loop's begin and stride, unless they are constants
+    // the kernel can be given outright -- which they nearly always are, and
+    // a kernel that loaded `0` and `1` from memory to multiply by would be
+    // doing per iteration what the statement path never did -- and then the
+    // body's uniform arguments.
+    const auto is_constant = [](const Expr &e) {
+        return e.as<IntImm>() != nullptr || e.as<UIntImm>() != nullptr;
+    };
+    const bool begin_constant = is_constant(begin_e);
+    const bool stride_constant = is_constant(stride_e);
+    std::vector<Expr> cap_exprs;
+    Struct_t::Map fields;
+    std::optional<size_t> begin_slot, stride_slot;
+    if (!begin_constant) {
+        begin_slot = cap_exprs.size();
+        cap_exprs.push_back(begin_e);
+        fields.push_back({"_begin", begin_e.type()});
+    }
+    if (!stride_constant) {
+        stride_slot = cap_exprs.size();
+        cap_exprs.push_back(stride_e);
+        fields.push_back({"_stride", stride_e.type()});
+    }
     // The body jump passes only the captures, not the index it takes as its
     // first argument, so its i-th value feeds body argument i + 1.
+    const size_t first_capture = cap_exprs.size();
     for (size_t i = 1; i < body_head.args.size(); i++) {
         cap_exprs.push_back(loop.operand(p.body.args[i - 1]));
         fields.push_back({body_head.args[i].name, body_head.args[i].type});
@@ -1280,16 +1309,21 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
             llvm::Value *slot = builder->CreateStructGEP(ctx_ll, kctx, i);
             return builder->CreateLoad(codegen_type(t), slot);
         };
-        llvm::Value *begin_k = load_field(0, begin_e.type());
-        llvm::Value *stride_k = load_field(1, stride_e.type());
+        // The index: begin + n * stride, from the constants or the context.
+        llvm::Value *begin_k = begin_slot ? load_field(*begin_slot, begin_e.type())
+                                          : codegen_expr(begin_e);
+        llvm::Value *stride_k = stride_slot
+                                    ? load_field(*stride_slot, stride_e.type())
+                                    : codegen_expr(stride_e);
         llvm::Value *idx_cast = builder->CreateIntCast(
             kern->getArg(1), codegen_type(begin_e.type()), false);
         llvm::Value *index = builder->CreateAdd(
-            begin_k, builder->CreateMul(idx_cast, stride_k));
+            begin_k, builder->CreateMul(idx_cast, stride_k),
+            body_head.args[0].name);
         loop.bind(body_head.args[0].name, index);
         for (size_t i = 1; i < body_head.args.size(); i++) {
             loop.bind(body_head.args[i].name,
-                      load_field(i + 1, body_head.args[i].type));
+                      load_field(first_capture + i - 1, body_head.args[i].type));
         }
         loop.emit_body(kentry, nullptr);
 

@@ -1,11 +1,14 @@
 //! flags: -p ssa
 
-// bind(i, CPUThread) turned into a launch.
+// bind(i, CPUThread) recorded on the loop.
 //
-// Through the SSA pipeline, which is where a bind is recorded and where
-// Lower/Bindings.cpp acts on it. The loop's body becomes a function of its
-// own, what it reads from around it becomes a context struct, and the loop
-// becomes one call handing both to whatever runs iterations in parallel.
+// Through the SSA pipeline, which is where a bind is recorded: the printed
+// statements show the loop with its binding, and nothing else, because the
+// binding is acted on when code is generated from the SSA form
+// (CodeGen_LLVM::emit_cpu_parfor). There the loop's body becomes a function
+// of its own, what it reads from around it becomes a context struct, and the
+// loop becomes one call handing both to whatever runs iterations in
+// parallel; see backends/llvm/rand-par for that side.
 
 func f(i : i32) {
   print(i); // need side effect to make sure parallel threads are actually running

@@ -16,7 +16,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @Shape_Sph(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 64)) %_ret0, ptr noundef nonnull readonly captures(none) %s) local_unnamed_addr #0 {
-Shape_Sph_entry:
+Shape_Sph:
   %deref_temp = load %struct.Sphere, ptr %s, align 16
   %"@0.center" = extractvalue %struct.Sphere %deref_temp, 0
   %bc = bitcast <3 x float> %"@0.center" to <3 x i32>
@@ -39,7 +39,7 @@ Shape_Sph_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define void @Shape_Tri(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 64)) %_ret1, ptr noundef nonnull readonly captures(none) %t) local_unnamed_addr #0 {
-Shape_Tri_entry:
+Shape_Tri:
   %deref_temp.elt3 = getelementptr inbounds nuw i8, ptr %t, i64 16
   %deref_temp.unpack457 = load <3 x i32>, ptr %deref_temp.elt3, align 16
   %deref_temp.elt5 = getelementptr inbounds nuw i8, ptr %t, i64 32

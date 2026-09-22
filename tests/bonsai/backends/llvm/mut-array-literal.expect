@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree nounwind willreturn memory(readwrite, argmem: none, target_mem: none)
 define float @second(float noundef %x) local_unnamed_addr #0 {
-second_entry:
+second:
   %0 = fmul float %x, 5.000000e+00
   %_untyped = tail call dereferenceable_or_null(8) ptr @malloc(i64 8)
   store float %x, ptr %_untyped, align 4

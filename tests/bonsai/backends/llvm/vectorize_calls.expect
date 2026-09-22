@@ -44,14 +44,14 @@ conditional_store:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @scale(float noundef %x, float noundef %k) local_unnamed_addr #2 {
-scale_entry:
+scale:
   %0 = fmul float %x, %k
   ret float %0
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @store_to(ptr nofree noundef writeonly captures(none) %out, i32 noundef %i, float noundef %v) local_unnamed_addr #3 {
-store_to_entry:
+store_to:
   %0 = sext i32 %i to i64
   %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %0
   store float %v, ptr %out1, align 4, !tbaa !0

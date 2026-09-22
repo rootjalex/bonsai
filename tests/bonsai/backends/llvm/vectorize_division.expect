@@ -48,7 +48,7 @@ divide_signed:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef i32 @scalar(i32 noundef %a, i32 noundef %b) local_unnamed_addr #1 {
-scalar_entry:
+scalar:
   %0 = udiv i32 %a, %b
   ret i32 %0
 }

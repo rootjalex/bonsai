@@ -3,21 +3,21 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i32 0, 33) i32 @clz_u32(i32 noundef %a) local_unnamed_addr #0 {
-clz_u32_entry:
+clz_u32:
   %0 = tail call range(i32 0, 33) i32 @llvm.ctlz.i32(i32 %a, i1 false)
   ret i32 %0
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i64 0, 65) <4 x i64> @clz_u64x4(<4 x i64> noundef %a) local_unnamed_addr #0 {
-clz_u64x4_entry:
+clz_u64x4:
   %0 = tail call range(i64 0, 65) <4 x i64> @llvm.ctlz.v4i64(<4 x i64> %a, i1 false)
   ret <4 x i64> %0
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i32 @mulhi_i32(i32 noundef %a, i32 noundef %b) local_unnamed_addr #0 {
-mulhi_i32_entry:
+mulhi_i32:
   %0 = sext i32 %a to i64
   %1 = sext i32 %b to i64
   %mulhi_wide = mul nsw i64 %1, %0
@@ -28,7 +28,7 @@ mulhi_i32_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i64 @mulhi_i64(i64 noundef %a, i64 noundef %b) local_unnamed_addr #0 {
-mulhi_i64_entry:
+mulhi_i64:
   %0 = sext i64 %a to i128
   %1 = sext i64 %b to i128
   %mulhi_wide = mul nsw i128 %1, %0
@@ -39,7 +39,7 @@ mulhi_i64_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <4 x i64> @mulhi_i64x4(<4 x i64> noundef %a, <4 x i64> noundef %b) local_unnamed_addr #0 {
-mulhi_i64x4_entry:
+mulhi_i64x4:
   %mulhi_al = and <4 x i64> %b, splat (i64 4294967295)
   %mulhi_ah = lshr <4 x i64> %b, splat (i64 32)
   %mulhi_bl = and <4 x i64> %a, splat (i64 4294967295)
@@ -70,7 +70,7 @@ mulhi_i64x4_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i32 0, -1) i32 @mulhi_u32(i32 noundef %a, i32 noundef %b) local_unnamed_addr #0 {
-mulhi_u32_entry:
+mulhi_u32:
   %0 = zext i32 %a to i64
   %1 = zext i32 %b to i64
   %mulhi_wide = mul nuw i64 %1, %0
@@ -81,7 +81,7 @@ mulhi_u32_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i32 0, -1) <4 x i32> @mulhi_u32x4(<4 x i32> noundef %a, <4 x i32> noundef %b) local_unnamed_addr #0 {
-mulhi_u32x4_entry:
+mulhi_u32x4:
   %0 = zext <4 x i32> %a to <4 x i64>
   %1 = zext <4 x i32> %b to <4 x i64>
   %mulhi_wide = mul nuw <4 x i64> %1, %0
@@ -92,7 +92,7 @@ mulhi_u32x4_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i64 0, -1) i64 @mulhi_u64(i64 noundef %a, i64 noundef %b) local_unnamed_addr #0 {
-mulhi_u64_entry:
+mulhi_u64:
   %0 = zext i64 %a to i128
   %1 = zext i64 %b to i128
   %mulhi_wide = mul nuw i128 %1, %0
@@ -103,7 +103,7 @@ mulhi_u64_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define range(i64 0, -1) <4 x i64> @mulhi_u64x4(<4 x i64> noundef %a, <4 x i64> noundef %b) local_unnamed_addr #0 {
-mulhi_u64x4_entry:
+mulhi_u64x4:
   %mulhi_al = and <4 x i64> %b, splat (i64 4294967295)
   %mulhi_ah = lshr <4 x i64> %b, splat (i64 32)
   %mulhi_bl = and <4 x i64> %a, splat (i64 4294967295)
@@ -128,7 +128,7 @@ mulhi_u64x4_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i32 @multiplier_i32(i32 noundef %d) local_unnamed_addr #0 {
-multiplier_i32_entry:
+multiplier_i32:
   %div_multiplier_abs = tail call i32 @llvm.abs.i32(i32 %d, i1 false)
   %0 = icmp eq i32 %d, 0
   %div_multiplier_safe = select i1 %0, i32 1, i32 %div_multiplier_abs
@@ -148,7 +148,7 @@ multiplier_i32_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i64 @multiplier_i64(i64 noundef %d) local_unnamed_addr #0 {
-multiplier_i64_entry:
+multiplier_i64:
   %div_multiplier_abs = tail call i64 @llvm.abs.i64(i64 %d, i1 false)
   %0 = icmp eq i64 %d, 0
   %div_multiplier_safe = select i1 %0, i64 1, i64 %div_multiplier_abs
@@ -168,7 +168,7 @@ multiplier_i64_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i32 @multiplier_u32(i32 noundef %d) local_unnamed_addr #0 {
-multiplier_u32_entry:
+multiplier_u32:
   %div_multiplier_safe = tail call i32 @llvm.umax.i32(i32 %d, i32 1)
   %0 = add i32 %div_multiplier_safe, -1
   %1 = tail call range(i32 0, 33) i32 @llvm.ctlz.i32(i32 %0, i1 false)
@@ -188,7 +188,7 @@ multiplier_u32_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i64 @multiplier_u64(i64 noundef %d) local_unnamed_addr #0 {
-multiplier_u64_entry:
+multiplier_u64:
   %div_multiplier_safe = tail call i64 @llvm.umax.i64(i64 %d, i64 1)
   %0 = add i64 %div_multiplier_safe, -1
   %1 = tail call range(i64 0, 65) i64 @llvm.ctlz.i64(i64 %0, i1 false)

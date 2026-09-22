@@ -1,97 +1,56 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%struct._ctx0 = type { i32, ptr }
-%struct._ctx1 = type { i32, ptr }
-%struct._ctx2 = type { i32, ptr }
-
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define void @_parfunc0(ptr nofree noundef nonnull readonly captures(none) %ctx0, i64 noundef %_parfor_idx) #0 {
-_parfunc0_entry:
-  %0 = lshr i64 %_parfor_idx, 1
-  %ctx0_out = getelementptr inbounds nuw i8, ptr %ctx0, i64 8
-  %ctx0_out_ld = load ptr, ptr %ctx0_out, align 8
-  %1 = and i64 %0, 2147483647
-  %ctx0_out_ld1 = getelementptr inbounds nuw [4 x i8], ptr %ctx0_out_ld, i64 %1
-  %2 = atomicrmw fadd ptr %ctx0_out_ld1, float 1.000000e+00 monotonic, align 4
-  ret void
-}
-
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define void @_parfunc1(ptr nofree noundef nonnull readonly captures(none) %ctx1, i64 noundef %_parfor_idx) #1 {
-_parfunc1_entry:
-  %ctx1_out = getelementptr inbounds nuw i8, ptr %ctx1, i64 8
-  %ctx1_out_ld = load ptr, ptr %ctx1_out, align 8
-  %sext = shl i64 %_parfor_idx, 32
-  %0 = ashr exact i64 %sext, 30
-  %ctx1_out_ld1 = getelementptr inbounds i8, ptr %ctx1_out_ld, i64 %0
-  %acc_base = load float, ptr %ctx1_out_ld1, align 4
-  %1 = fadd float %acc_base, 1.000000e+00
-  store float %1, ptr %ctx1_out_ld1, align 4
-  ret void
-}
-
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define void @_parfunc2(ptr nofree noundef nonnull readonly captures(none) %ctx2, i64 %_parfor_idx) #0 {
-_parfunc2_entry:
-  %ctx2_out = getelementptr inbounds nuw i8, ptr %ctx2, i64 8
-  %ctx2_out_ld = load ptr, ptr %ctx2_out, align 8
-  %0 = atomicrmw fadd ptr %ctx2_out_ld, float 1.000000e+00 monotonic, align 4
-  ret void
-}
+%struct._pfctx0 = type { ptr }
+%struct._pfctx2 = type { ptr }
+%struct._pfctx4 = type { ptr }
 
 define void @derived_bound(i32 noundef %n, ptr noundef %out) local_unnamed_addr {
-derived_bound_entry:
-  %ctx = alloca %struct._ctx0, align 8
-  store i32 %n, ptr %ctx, align 8
-  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %ctx, i64 8
-  store ptr %out, ptr %.fca.1.gep, align 8
+derived_bound:
+  %_pfctx = alloca %struct._pfctx0, align 16
+  store ptr %out, ptr %_pfctx, align 16
   %0 = zext i32 %n to i64
-  call void @bonsai_parallel_for(i64 %0, ptr nonnull %ctx, ptr nonnull @_parfunc0)
+  call void @bonsai_parallel_for(i64 %0, ptr nonnull %_pfctx, ptr nonnull @_pfkernel1)
   ret void
 }
 
 define void @per_lane_bound(i32 noundef %n, ptr noundef %out) local_unnamed_addr {
-per_lane_bound_entry:
-  %ctx = alloca %struct._ctx1, align 8
-  store i32 %n, ptr %ctx, align 8
-  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %ctx, i64 8
-  store ptr %out, ptr %.fca.1.gep, align 8
+per_lane_bound:
+  %_pfctx = alloca %struct._pfctx2, align 16
+  store ptr %out, ptr %_pfctx, align 16
   %0 = zext i32 %n to i64
-  call void @bonsai_parallel_for(i64 %0, ptr nonnull %ctx, ptr nonnull @_parfunc1)
+  call void @bonsai_parallel_for(i64 %0, ptr nonnull %_pfctx, ptr nonnull @_pfkernel3)
   ret void
 }
 
 define void @shared_bound(i32 noundef %n, ptr noundef %out) local_unnamed_addr {
-shared_bound_entry:
-  %ctx = alloca %struct._ctx2, align 8
-  store i32 %n, ptr %ctx, align 8
-  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %ctx, i64 8
-  store ptr %out, ptr %.fca.1.gep, align 8
+shared_bound:
+  %_pfctx = alloca %struct._pfctx4, align 16
+  store ptr %out, ptr %_pfctx, align 16
   %0 = zext i32 %n to i64
-  call void @bonsai_parallel_for(i64 %0, ptr nonnull %ctx, ptr nonnull @_parfunc2)
+  call void @bonsai_parallel_for(i64 %0, ptr nonnull %_pfctx, ptr nonnull @_pfkernel5)
   ret void
 }
 
 ; Function Attrs: nofree norecurse nosync nounwind memory(argmem: readwrite)
-define void @shared_unbound(i32 noundef %n, ptr nofree noundef captures(none) %out) local_unnamed_addr #2 {
-shared_unbound_entry:
+define void @shared_unbound(i32 noundef %n, ptr nofree noundef captures(none) %out) local_unnamed_addr #0 {
+shared_unbound:
   %.not = icmp eq i32 %n, 0
-  br i1 %.not, label %i0_for_end, label %i0_for.preheader, !prof !0
+  br i1 %.not, label %i6_pf_exit, label %"!par_body_0.lr.ph", !prof !0
 
-i0_for.preheader:                                 ; preds = %shared_unbound_entry
+"!par_body_0.lr.ph":                              ; preds = %shared_unbound
   %out.promoted = load float, ptr %out, align 4
   %xtraiter = and i32 %n, 7
   %0 = icmp ult i32 %n, 8
-  br i1 %0, label %i0_for.epil.preheader, label %i0_for.preheader.new
+  br i1 %0, label %"!par_body_0.epil.preheader", label %"!par_body_0.lr.ph.new", !prof !1
 
-i0_for.preheader.new:                             ; preds = %i0_for.preheader
+"!par_body_0.lr.ph.new":                          ; preds = %"!par_body_0.lr.ph"
   %unroll_iter = and i32 %n, -8
-  br label %i0_for
+  br label %"!par_body_0"
 
-i0_for:                                           ; preds = %i0_for, %i0_for.preheader.new
-  %acc_base3 = phi float [ %out.promoted, %i0_for.preheader.new ], [ %8, %i0_for ]
-  %niter = phi i32 [ 0, %i0_for.preheader.new ], [ %niter.next.7, %i0_for ]
+"!par_body_0":                                    ; preds = %"!par_body_0", %"!par_body_0.lr.ph.new"
+  %acc_base3 = phi float [ %out.promoted, %"!par_body_0.lr.ph.new" ], [ %8, %"!par_body_0" ]
+  %niter = phi i32 [ 0, %"!par_body_0.lr.ph.new" ], [ %niter.next.7, %"!par_body_0" ]
   %1 = fadd float %acc_base3, 1.000000e+00
   %2 = fadd float %1, 1.000000e+00
   %3 = fadd float %2, 1.000000e+00
@@ -102,45 +61,79 @@ i0_for:                                           ; preds = %i0_for, %i0_for.pre
   %8 = fadd float %7, 1.000000e+00
   %niter.next.7 = add i32 %niter, 8
   %niter.ncmp.7 = icmp eq i32 %niter.next.7, %unroll_iter
-  br i1 %niter.ncmp.7, label %i0_for_end.loopexit.unr-lcssa, label %i0_for
+  br i1 %niter.ncmp.7, label %i6_pf_head.i6_pf_exit_crit_edge.unr-lcssa, label %"!par_body_0", !prof !1
 
-i0_for_end.loopexit.unr-lcssa:                    ; preds = %i0_for
+i6_pf_head.i6_pf_exit_crit_edge.unr-lcssa:        ; preds = %"!par_body_0"
   %lcmp.mod.not = icmp eq i32 %xtraiter, 0
-  br i1 %lcmp.mod.not, label %i0_for_end.loopexit, label %i0_for.epil.preheader
+  br i1 %lcmp.mod.not, label %i6_pf_head.i6_pf_exit_crit_edge, label %"!par_body_0.epil.preheader", !prof !1
 
-i0_for.epil.preheader:                            ; preds = %i0_for_end.loopexit.unr-lcssa, %i0_for.preheader
-  %acc_base3.epil.init = phi float [ %out.promoted, %i0_for.preheader ], [ %8, %i0_for_end.loopexit.unr-lcssa ]
+"!par_body_0.epil.preheader":                     ; preds = %i6_pf_head.i6_pf_exit_crit_edge.unr-lcssa, %"!par_body_0.lr.ph"
+  %acc_base3.epil.init = phi float [ %out.promoted, %"!par_body_0.lr.ph" ], [ %8, %i6_pf_head.i6_pf_exit_crit_edge.unr-lcssa ]
   %lcmp.mod5 = icmp ne i32 %xtraiter, 0
   tail call void @llvm.assume(i1 %lcmp.mod5)
-  br label %i0_for.epil
+  br label %"!par_body_0.epil"
 
-i0_for.epil:                                      ; preds = %i0_for.epil, %i0_for.epil.preheader
-  %acc_base3.epil = phi float [ %9, %i0_for.epil ], [ %acc_base3.epil.init, %i0_for.epil.preheader ]
-  %epil.iter = phi i32 [ %epil.iter.next, %i0_for.epil ], [ 0, %i0_for.epil.preheader ]
+"!par_body_0.epil":                               ; preds = %"!par_body_0.epil", %"!par_body_0.epil.preheader"
+  %acc_base3.epil = phi float [ %acc_base3.epil.init, %"!par_body_0.epil.preheader" ], [ %9, %"!par_body_0.epil" ]
+  %epil.iter = phi i32 [ 0, %"!par_body_0.epil.preheader" ], [ %epil.iter.next, %"!par_body_0.epil" ]
   %9 = fadd float %acc_base3.epil, 1.000000e+00
   %epil.iter.next = add i32 %epil.iter, 1
   %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter
-  br i1 %epil.iter.cmp.not, label %i0_for_end.loopexit, label %i0_for.epil, !llvm.loop !1
+  br i1 %epil.iter.cmp.not, label %i6_pf_head.i6_pf_exit_crit_edge, label %"!par_body_0.epil", !prof !2, !llvm.loop !3
 
-i0_for_end.loopexit:                              ; preds = %i0_for.epil, %i0_for_end.loopexit.unr-lcssa
-  %.lcssa = phi float [ %8, %i0_for_end.loopexit.unr-lcssa ], [ %9, %i0_for.epil ]
+i6_pf_head.i6_pf_exit_crit_edge:                  ; preds = %"!par_body_0.epil", %i6_pf_head.i6_pf_exit_crit_edge.unr-lcssa
+  %.lcssa = phi float [ %8, %i6_pf_head.i6_pf_exit_crit_edge.unr-lcssa ], [ %9, %"!par_body_0.epil" ]
   store float %.lcssa, ptr %out, align 4
-  br label %i0_for_end
+  br label %i6_pf_exit
 
-i0_for_end:                                       ; preds = %i0_for_end.loopexit, %shared_unbound_entry
+i6_pf_exit:                                       ; preds = %i6_pf_head.i6_pf_exit_crit_edge, %shared_unbound
+  ret void
+}
+
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1) #1 {
+"!par_body_0":
+  %2 = load ptr, ptr %0, align 8
+  %3 = lshr i64 %1, 1
+  %4 = and i64 %3, 2147483647
+  %out = getelementptr inbounds nuw [4 x i8], ptr %2, i64 %4
+  %5 = atomicrmw fadd ptr %out, float 1.000000e+00 monotonic, align 4
   ret void
 }
 
 declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
 
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1) #2 {
+"!par_body_0":
+  %2 = load ptr, ptr %0, align 8
+  %sext = shl i64 %1, 32
+  %3 = ashr exact i64 %sext, 30
+  %out = getelementptr inbounds i8, ptr %2, i64 %3
+  %acc_base = load float, ptr %out, align 4
+  %4 = fadd float %acc_base, 1.000000e+00
+  store float %4, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1) #1 {
+"!par_body_0":
+  %2 = load ptr, ptr %0, align 8
+  %3 = atomicrmw fadd ptr %2, float 1.000000e+00 monotonic, align 4
+  ret void
+}
+
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
 declare void @llvm.assume(i1 noundef) #3
 
-attributes #0 = { mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #2 = { nofree norecurse nosync nounwind memory(argmem: readwrite) }
+attributes #0 = { nofree norecurse nosync nounwind memory(argmem: readwrite) }
+attributes #1 = { mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
 attributes #3 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
-!0 = !{!"branch_weights", i32 0, i32 1073741824}
-!1 = distinct !{!1, !2}
-!2 = !{!"llvm.loop.unroll.disable"}
+!0 = !{!"branch_weights", i32 0, i32 1}
+!1 = !{!"branch_weights", i32 0, i32 -2147483648}
+!2 = !{!"branch_weights", i32 306783378, i32 1840700270}
+!3 = distinct !{!3, !4}
+!4 = !{!"llvm.loop.unroll.disable"}

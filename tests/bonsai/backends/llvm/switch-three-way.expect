@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @Blob_Split(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 48)) %_ret0, i32 noundef %lo, i32 noundef %hi) local_unnamed_addr #0 {
-Blob_Split_entry:
+Blob_Split:
   store i8 1, ptr %_ret0, align 4
   %_ret0.repack1 = getelementptr inbounds nuw i8, ptr %_ret0, i64 1
   %_ret0.repack3 = getelementptr inbounds nuw i8, ptr %_ret0, i64 16
@@ -18,7 +18,7 @@ Blob_Split_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @Blob_Whole(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 48)) %_ret1, float noundef %x) local_unnamed_addr #0 {
-Blob_Whole_entry:
+Blob_Whole:
   %_ret1.repack3 = getelementptr inbounds nuw i8, ptr %_ret1, i64 16
   tail call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(16) %_ret1, i8 0, i64 16, i1 false)
   store float %x, ptr %_ret1.repack3, align 4
@@ -29,7 +29,7 @@ Blob_Whole_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
 define void @Blob_Wide(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 48)) %_ret2, <3 x float> noundef %v, i1 noundef %neg) local_unnamed_addr #0 {
-Blob_Wide_entry:
+Blob_Wide:
   %bc = bitcast <3 x float> %v to <3 x i32>
   %0 = extractelement <3 x i32> %bc, i64 2
   %1 = zext i1 %neg to i32
@@ -56,45 +56,45 @@ Blob_Wide_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define float @weigh(ptr noundef nonnull readonly captures(none) %b, float noundef %k) local_unnamed_addr #1 {
-weigh_entry:
+weigh:
   %deref_temp.unpack = load i8, ptr %b, align 4
-  %deref_temp.elt9 = getelementptr inbounds nuw i8, ptr %b, i64 16
-  %deref_temp.unpack10.unpack = load i32, ptr %deref_temp.elt9, align 4
-  %deref_temp.unpack10.elt41 = getelementptr inbounds nuw i8, ptr %b, i64 20
-  %deref_temp.unpack10.unpack42 = load i32, ptr %deref_temp.unpack10.elt41, align 4
-  switch i8 %deref_temp.unpack, label %default_bb [
-    i8 0, label %case0_bb
-    i8 1, label %case1_bb
+  %deref_temp.elt15 = getelementptr inbounds nuw i8, ptr %b, i64 16
+  %deref_temp.unpack16.unpack = load i32, ptr %deref_temp.elt15, align 4
+  %deref_temp.unpack16.elt47 = getelementptr inbounds nuw i8, ptr %b, i64 20
+  %deref_temp.unpack16.unpack48 = load i32, ptr %deref_temp.unpack16.elt47, align 4
+  switch i8 %deref_temp.unpack, label %"!case_3" [
+    i8 0, label %"!case_1"
+    i8 1, label %"!case_2"
   ]
 
-common.ret:                                       ; preds = %case1_bb, %after_bb
-  %common.ret.op = phi float [ %0, %after_bb ], [ %8, %case1_bb ]
+"!case_3":                                        ; preds = %weigh
+  %deref_temp.unpack16.elt53 = getelementptr inbounds nuw i8, ptr %b, i64 32
+  %deref_temp.unpack16.unpack54 = load i32, ptr %deref_temp.unpack16.elt53, align 4
+  %0 = and i32 %deref_temp.unpack16.unpack54, 255
+  %.not = icmp eq i32 %0, 0
+  %.v = select i1 %.not, i32 %deref_temp.unpack16.unpack48, i32 %deref_temp.unpack16.unpack
+  %1 = bitcast i32 %.v to float
+  %2 = fsub float %k, %1
+  br label %"!merge_0"
+
+common.ret:                                       ; preds = %"!merge_0", %"!case_2"
+  %common.ret.op = phi float [ %4, %"!case_2" ], [ %8, %"!merge_0" ]
   ret float %common.ret.op
 
-after_bb:                                         ; preds = %default_bb, %case0_bb
-  %acc.0 = phi float [ %3, %default_bb ], [ %6, %case0_bb ]
-  %0 = fmul float %acc.0, 3.000000e+00
+"!case_2":                                        ; preds = %weigh
+  %3 = add i32 %deref_temp.unpack16.unpack48, %deref_temp.unpack16.unpack
+  %4 = sitofp i32 %3 to float
   br label %common.ret
 
-default_bb:                                       ; preds = %weigh_entry
-  %deref_temp.unpack10.elt47 = getelementptr inbounds nuw i8, ptr %b, i64 32
-  %deref_temp.unpack10.unpack48 = load i32, ptr %deref_temp.unpack10.elt47, align 4
-  %1 = and i32 %deref_temp.unpack10.unpack48, 255
-  %.not = icmp eq i32 %1, 0
-  %.v = select i1 %.not, i32 %deref_temp.unpack10.unpack42, i32 %deref_temp.unpack10.unpack
-  %2 = bitcast i32 %.v to float
-  %3 = fsub float %k, %2
-  br label %after_bb
+"!case_1":                                        ; preds = %weigh
+  %5 = bitcast i32 %deref_temp.unpack16.unpack to float
+  %6 = fmul float %5, 2.000000e+00
+  %7 = fadd float %k, %6
+  br label %"!merge_0"
 
-case0_bb:                                         ; preds = %weigh_entry
-  %4 = bitcast i32 %deref_temp.unpack10.unpack to float
-  %5 = fmul float %4, 2.000000e+00
-  %6 = fadd float %k, %5
-  br label %after_bb
-
-case1_bb:                                         ; preds = %weigh_entry
-  %7 = add i32 %deref_temp.unpack10.unpack42, %deref_temp.unpack10.unpack
-  %8 = sitofp i32 %7 to float
+"!merge_0":                                       ; preds = %"!case_3", %"!case_1"
+  %acc5.sroa.speculated = phi float [ %7, %"!case_1" ], [ %2, %"!case_3" ]
+  %8 = fmul float %acc5.sroa.speculated, 3.000000e+00
   br label %common.ret
 }
 

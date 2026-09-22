@@ -1,5 +1,5 @@
 ; === ssa preschedule ===
-; --- countdown (lowered via statements) ---
+; --- countdown ---
 func countdown(n : i32, acc : i32): 
   @0 = leq(n, (i32)0)
   dispatch @0 [!merge_1(n, acc), !then_0(acc)]
@@ -15,7 +15,7 @@ func countdown(n : i32, acc : i32):
 !countdown_call_cont_2(@3 : i32): // preds: !merge_1
   ret @3
 
-; --- fill (lowered via statements) ---
+; --- fill ---
 func fill(n : i32, acc : i32, out : i32[4], i : i32): 
   @0 = leq(n, (i32)0)
   dispatch @0 [!merge_1(n, acc, out, i), !then_0(acc, out, i)]
@@ -34,7 +34,7 @@ func fill(n : i32, acc : i32, out : i32[4], i : i32):
   ret
 
 ; === ssa postschedule ===
-; --- countdown (lowered via statements) ---
+; --- countdown ---
 func countdown(n : i32, acc : i32): 
   jmp countdown!loop(n, acc)
 
@@ -53,7 +53,7 @@ countdown!loop(n!loop : i32, acc!loop : i32): // preds: !merge_1, countdown
 !countdown_call_cont_2(@3 : i32): 
   ret @3
 
-; --- fill (lowered via statements) ---
+; --- fill ---
 func fill(n : i32, acc : i32, out : i32[4], i : i32): 
   jmp fill!loop(n, acc)
 

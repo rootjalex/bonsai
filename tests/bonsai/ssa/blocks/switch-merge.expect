@@ -1,5 +1,5 @@
 ; === ssa preschedule ===
-; --- Blob_Split (lowered via statements) ---
+; --- Blob_Split ---
 func Blob_Split(_ret0 : (Blob*), lo : i32, hi : i32): 
   @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
   @1 = reinterpret<u32>(lo)
@@ -9,7 +9,7 @@ func Blob_Split(_ret0 : (Blob*), lo : i32, hi : i32):
   store _ret0 @4
   ret
 
-; --- Blob_Whole (lowered via statements) ---
+; --- Blob_Whole ---
 func Blob_Whole(_ret1 : (Blob*), x : f32): 
   @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
   @1 = reinterpret<u32>(x)
@@ -18,7 +18,7 @@ func Blob_Whole(_ret1 : (Blob*), x : f32):
   store _ret1 @3
   ret
 
-; --- Blob_Wide (lowered via statements) ---
+; --- Blob_Wide ---
 func Blob_Wide(_ret2 : (Blob*), v : f32x3, neg : bool): 
   @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
   @1 = extract_idx(v, (u32)0)
@@ -33,7 +33,7 @@ func Blob_Wide(_ret2 : (Blob*), v : f32x3, neg : bool):
   store _ret2 @9
   ret
 
-; --- _unexported_Blob_Split (lowered via statements) ---
+; --- _unexported_Blob_Split ---
 func _unexported_Blob_Split(lo : i32, hi : i32): 
   @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
   @1 = reinterpret<u32>(lo)
@@ -42,7 +42,7 @@ func _unexported_Blob_Split(lo : i32, hi : i32):
   @4 = make_struct<Blob>((u8)1, @0, @3)
   ret @4
 
-; --- _unexported_Blob_Whole (lowered via statements) ---
+; --- _unexported_Blob_Whole ---
 func _unexported_Blob_Whole(x : f32): 
   @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
   @1 = reinterpret<u32>(x)
@@ -50,7 +50,7 @@ func _unexported_Blob_Whole(x : f32):
   @3 = make_struct<Blob>((u8)0, @0, @2)
   ret @3
 
-; --- _unexported_Blob_Wide (lowered via statements) ---
+; --- _unexported_Blob_Wide ---
 func _unexported_Blob_Wide(v : f32x3, neg : bool): 
   @0 = make_struct<[[packed]] u8x15>((u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0, (u8)0)
   @1 = extract_idx(v, (u32)0)
@@ -64,7 +64,7 @@ func _unexported_Blob_Wide(v : f32x3, neg : bool):
   @9 = make_struct<Blob>((u8)2, @0, @8)
   ret @9
 
-; --- weigh (lowered via statements) ---
+; --- weigh ---
 func weigh(b : (Blob*), k : f32): 
   acc = alloca<(f32*)>()
   store acc k

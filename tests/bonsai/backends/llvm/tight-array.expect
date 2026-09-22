@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 define <3 x float> @centroid(i32 noundef %a, i32 noundef %b, i32 noundef %c, ptr nofree noundef readonly captures(none) %positions) local_unnamed_addr #0 {
-centroid_entry:
+centroid:
   %0 = sext i32 %a to i64
   %extract_ptr = getelementptr inbounds [12 x i8], ptr %positions, i64 %0
   %extract.unpack = load float, ptr %extract_ptr, align 4

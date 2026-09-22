@@ -1,5 +1,5 @@
 ; === ssa preschedule ===
-; --- Prim_Inst (lowered via statements) ---
+; --- Prim_Inst ---
 func Prim_Inst(render_from_instance : (Transform*), blas : u32, Prim_Inst_pool : Inst[], Prim_Inst_fill : u64[]): 
   @0 = load(render_from_instance)
   callc Prim_Inst_new(@0, blas, Prim_Inst_pool, Prim_Inst_fill) !Prim_Inst_new_call_cont_0()
@@ -7,7 +7,7 @@ func Prim_Inst(render_from_instance : (Transform*), blas : u32, Prim_Inst_pool :
 !Prim_Inst_new_call_cont_0(@1 : u64): // preds: Prim_Inst
   ret @1
 
-; --- Prim_Inst_new (lowered via statements) ---
+; --- Prim_Inst_new ---
 func Prim_Inst_new(render_from_instance : Transform, blas : u32, Prim_Inst_pool : Inst[], Prim_Inst_fill : u64[]): 
   @0 = gep(Prim_Inst_fill, (u64)0)
   _index = atomic.add(@0, (u64)1)
@@ -18,7 +18,7 @@ func Prim_Inst_new(render_from_instance : Transform, blas : u32, Prim_Inst_pool 
   @5 = bwor(@4, _index)
   ret @5
 
-; --- Prim_Solo (lowered via statements) ---
+; --- Prim_Solo ---
 func Prim_Solo(tri : (Triangle*), Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[]): 
   @0 = load(tri)
   callc Prim_Solo_new(@0, Prim_Solo_pool, Prim_Solo_fill) !Prim_Solo_new_call_cont_0()
@@ -26,7 +26,7 @@ func Prim_Solo(tri : (Triangle*), Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[
 !Prim_Solo_new_call_cont_0(@1 : u64): // preds: Prim_Solo
   ret @1
 
-; --- Prim_Solo_new (lowered via statements) ---
+; --- Prim_Solo_new ---
 func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[]): 
   @0 = gep(Prim_Solo_fill, (u64)0)
   _index = atomic.add(@0, (u64)1)
@@ -37,7 +37,7 @@ func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : Solo[], Prim_Solo_fill : u64
   @5 = bwor(@4, _index)
   ret @5
 
-; --- _match0 (lowered via statements) ---
+; --- _match0 ---
 func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]): 
   @0 = load_field(_matched, (u32)0)
   dispatch @0 [!case_0(Prim_Solo_pool, prims, _matched), !case_1(prims, _matched)]
@@ -59,7 +59,7 @@ func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]):
   @11 = extract_idx(@8, @10)
   ret @11
 
-; --- _recloop_func0 (lowered via statements) ---
+; --- _recloop_func0 ---
 func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : (__tuple_2*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   @0 = load_field(prims, (u32)7)
   _t1262 = extract_idx(@0, prims_index)
@@ -441,7 +441,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
 !_recloop_func1_call_cont_44(_idx0 : u32, @106 : u32, _t1262 : _tree_layout4, prims : _tree_layout0, r : Ray, Prim_Inst_pool : Inst[], _t275$i36 : f32x3, _t614 : f32x3, Prim_Solo_pool : Solo[], _best0 : (__tuple_2*), prims_index : u32): // preds: !merge_41
   jmp !merge_28(_idx0, @106, _t1262, prims, r, Prim_Inst_pool, _t275$i36, _t614, Prim_Solo_pool, _best0, prims_index)
 
-; --- _recloop_func1 (lowered via statements) ---
+; --- _recloop_func1 ---
 func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : (__tuple_2*), prims_index : u32, _idx0 : u32): 
   @0 = load_field(prims, (u32)3)
   _t1305 = extract_idx(@0, _subtree0_bnode)
@@ -716,7 +716,7 @@ func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray
 !merge_34(_idx1 : u32, @106 : u32, _t1305 : _tree_layout1, _pulled1 : Ray, prims : _tree_layout0, _best0 : (__tuple_2*), prims_index : u32, _idx0 : u32): // preds: !then_33, !then_31
   jmp !merge_32(_idx1, @106, _t1305, _pulled1, prims, _best0, prims_index, _idx0)
 
-; --- _traverse_tree0 (lowered via statements) ---
+; --- _traverse_tree0 ---
 func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   _best0 = alloca<(__tuple_2*)>()
   @0 = inf()
@@ -778,7 +778,7 @@ func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Pr
   store _match0$r10 @22
   jmp !merge_3(prims, _best0, _match0$r10, _best0_result)
 
-; --- _unexported_trace (lowered via statements) ---
+; --- _unexported_trace ---
 func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   _traverse_tree0$r33 = alloca<(_option0*)>()
   _best0$i33 = alloca<(__tuple_2*)>()
@@ -843,7 +843,7 @@ func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], 
   store _match0$r47 @22
   jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33)
 
-; --- apply (lowered via statements) ---
+; --- apply ---
 func apply(t : Transform, p : f32x3): 
   @0 = load_field(t, (u32)0)
   @1 = extract_idx(p, (u32)0)
@@ -863,7 +863,7 @@ func apply(t : Transform, p : f32x3):
   @15 = add(@13, @14)
   ret @15
 
-; --- trace (lowered via statements) ---
+; --- trace ---
 func trace(_ret0 : (_option0*), r : (Ray*), prims : (_tree_layout0*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   _traverse_tree0$r33 = alloca<(_option0*)>()
   _best0$i33 = alloca<(__tuple_2*)>()
@@ -934,7 +934,7 @@ func trace(_ret0 : (_option0*), r : (Ray*), prims : (_tree_layout0*), Prim_Solo_
   store _match0$r47 @26
   jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33, _ret0)
 
-; --- transform_Prim_AABB (lowered via statements) ---
+; --- transform_Prim_AABB ---
 func transform_Prim_AABB(p : u64, b : AABB, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   @0 = shr(p, (u64)56)
   dispatch @0 [!case_0(b), !case_1(Prim_Inst_pool, p, b)]
@@ -1082,7 +1082,7 @@ func transform_Prim_AABB(p : u64, b : AABB, Prim_Solo_pool : Solo[], Prim_Inst_p
   @135 = load(transform_Transform_AABB$r34)
   ret @135
 
-; --- transform_Transform_AABB (lowered via statements) ---
+; --- transform_Transform_AABB ---
 func transform_Transform_AABB(t : Transform, b : AABB): 
   @0 = load_field(t, (u32)0)
   @1 = load_field(b, (u32)0)
@@ -1397,7 +1397,7 @@ func transform_Transform_AABB(t : Transform, b : AABB):
   out = make_struct<AABB>(lo, hi)
   ret out
 
-; --- untransform_Prim_Ray (lowered via statements) ---
+; --- untransform_Prim_Ray ---
 func untransform_Prim_Ray(p : u64, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   @0 = shr(p, (u64)56)
   dispatch @0 [!case_0(r), !case_1(Prim_Inst_pool, p, r)]
@@ -1445,7 +1445,7 @@ func untransform_Prim_Ray(p : u64, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_p
   @35 = load(untransform_Transform_Ray$r35)
   ret @35
 
-; --- untransform_Transform_Ray (lowered via statements) ---
+; --- untransform_Transform_Ray ---
 func untransform_Transform_Ray(t : Transform, r : Ray): 
   @0 = load_field(t, (u32)4)
   @1 = load_field(r, (u32)0)
@@ -1488,7 +1488,7 @@ func untransform_Transform_Ray(t : Transform, r : Ray):
   ret out
 
 ; === ssa postschedule ===
-; --- Prim_Inst (lowered via statements) ---
+; --- Prim_Inst ---
 func Prim_Inst(render_from_instance : (Transform*), blas : u32, Prim_Inst_pool : Inst[], Prim_Inst_fill : u64[]): 
   @0 = load(render_from_instance)
   callc Prim_Inst_new(@0, blas, Prim_Inst_pool, Prim_Inst_fill) !Prim_Inst_new_call_cont_0()
@@ -1496,7 +1496,7 @@ func Prim_Inst(render_from_instance : (Transform*), blas : u32, Prim_Inst_pool :
 !Prim_Inst_new_call_cont_0(@1 : u64): // preds: Prim_Inst
   ret @1
 
-; --- Prim_Inst_new (lowered via statements) ---
+; --- Prim_Inst_new ---
 func Prim_Inst_new(render_from_instance : Transform, blas : u32, Prim_Inst_pool : Inst[], Prim_Inst_fill : u64[]): 
   @0 = gep(Prim_Inst_fill, (u64)0)
   _index = atomic.add(@0, (u64)1)
@@ -1507,7 +1507,7 @@ func Prim_Inst_new(render_from_instance : Transform, blas : u32, Prim_Inst_pool 
   @5 = bwor(@4, _index)
   ret @5
 
-; --- Prim_Solo (lowered via statements) ---
+; --- Prim_Solo ---
 func Prim_Solo(tri : (Triangle*), Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[]): 
   @0 = load(tri)
   callc Prim_Solo_new(@0, Prim_Solo_pool, Prim_Solo_fill) !Prim_Solo_new_call_cont_0()
@@ -1515,7 +1515,7 @@ func Prim_Solo(tri : (Triangle*), Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[
 !Prim_Solo_new_call_cont_0(@1 : u64): // preds: Prim_Solo
   ret @1
 
-; --- Prim_Solo_new (lowered via statements) ---
+; --- Prim_Solo_new ---
 func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[]): 
   @0 = gep(Prim_Solo_fill, (u64)0)
   _index = atomic.add(@0, (u64)1)
@@ -1526,7 +1526,7 @@ func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : Solo[], Prim_Solo_fill : u64
   @5 = bwor(@4, _index)
   ret @5
 
-; --- _match0 (lowered via statements) ---
+; --- _match0 ---
 func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]): 
   @0 = load_field(_matched, (u32)0)
   dispatch @0 [!case_0(Prim_Solo_pool, prims, _matched), !case_1(prims, _matched)]
@@ -1548,7 +1548,7 @@ func _match0(_matched : _ref0, prims : _tree_layout0, Prim_Solo_pool : Solo[]):
   @11 = extract_idx(@8, @10)
   ret @11
 
-; --- _recloop_func0 (lowered via statements) ---
+; --- _recloop_func0 ---
 func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : (__tuple_2*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
@@ -1961,7 +1961,7 @@ _recloop_func0!loop(): // preds: !visit
 !visit_done(): // preds: !visit_pop
   jmp !visit(prims_index!top, (bool)0)
 
-; --- _recloop_func1 (lowered via statements) ---
+; --- _recloop_func1 ---
 func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : (__tuple_2*), prims_index : u32, _idx0 : u32): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
@@ -2267,7 +2267,7 @@ _recloop_func1!loop(): // preds: !visit
 !visit_done(): // preds: !visit_pop
   jmp !visit(_subtree0_bnode!top, (bool)0)
 
-; --- _traverse_tree0 (lowered via statements) ---
+; --- _traverse_tree0 ---
 func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   _best0 = alloca<(__tuple_2*)>()
   @0 = inf()
@@ -2329,7 +2329,7 @@ func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Pr
   store _match0$r10 @22
   jmp !merge_3(prims, _best0, _match0$r10, _best0_result)
 
-; --- _unexported_trace (lowered via statements) ---
+; --- _unexported_trace ---
 func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   _traverse_tree0$r33 = alloca<(_option0*)>()
   _best0$i33 = alloca<(__tuple_2*)>()
@@ -2394,7 +2394,7 @@ func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], 
   store _match0$r47 @22
   jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33)
 
-; --- apply (lowered via statements) ---
+; --- apply ---
 func apply(t : Transform, p : f32x3): 
   @0 = load_field(t, (u32)0)
   @1 = extract_idx(p, (u32)0)
@@ -2414,7 +2414,7 @@ func apply(t : Transform, p : f32x3):
   @15 = add(@13, @14)
   ret @15
 
-; --- trace (lowered via statements) ---
+; --- trace ---
 func trace(_ret0 : (_option0*), r : (Ray*), prims : (_tree_layout0*), Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   _traverse_tree0$r33 = alloca<(_option0*)>()
   _best0$i33 = alloca<(__tuple_2*)>()
@@ -2485,7 +2485,7 @@ func trace(_ret0 : (_option0*), r : (Ray*), prims : (_tree_layout0*), Prim_Solo_
   store _match0$r47 @26
   jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33, _ret0)
 
-; --- transform_Prim_AABB (lowered via statements) ---
+; --- transform_Prim_AABB ---
 func transform_Prim_AABB(p : u64, b : AABB, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   @0 = shr(p, (u64)56)
   dispatch @0 [!case_0(b), !case_1(Prim_Inst_pool, p, b)]
@@ -2633,7 +2633,7 @@ func transform_Prim_AABB(p : u64, b : AABB, Prim_Solo_pool : Solo[], Prim_Inst_p
   @135 = load(transform_Transform_AABB$r34)
   ret @135
 
-; --- transform_Transform_AABB (lowered via statements) ---
+; --- transform_Transform_AABB ---
 func transform_Transform_AABB(t : Transform, b : AABB): 
   @0 = load_field(t, (u32)0)
   @1 = load_field(b, (u32)0)
@@ -2948,7 +2948,7 @@ func transform_Transform_AABB(t : Transform, b : AABB):
   out = make_struct<AABB>(lo, hi)
   ret out
 
-; --- untransform_Prim_Ray (lowered via statements) ---
+; --- untransform_Prim_Ray ---
 func untransform_Prim_Ray(p : u64, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
   @0 = shr(p, (u64)56)
   dispatch @0 [!case_0(r), !case_1(Prim_Inst_pool, p, r)]
@@ -2996,7 +2996,7 @@ func untransform_Prim_Ray(p : u64, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_p
   @35 = load(untransform_Transform_Ray$r35)
   ret @35
 
-; --- untransform_Transform_Ray (lowered via statements) ---
+; --- untransform_Transform_Ray ---
 func untransform_Transform_Ray(t : Transform, r : Ray): 
   @0 = load_field(t, (u32)4)
   @1 = load_field(r, (u32)0)

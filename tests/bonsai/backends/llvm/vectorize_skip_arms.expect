@@ -230,75 +230,75 @@ weigh_all:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define float @weigh_one(float noundef %x) local_unnamed_addr #1 {
-weigh_one_entry:
+weigh_one:
   %0 = fcmp ogt float %x, 2.000000e+00
-  br i1 %0, label %then_bb.i, label %next_bb.i
+  br i1 %0, label %"!then_0.i", label %"!else_1.i"
 
-after_bb.i:                                       ; preds = %next_bb3.i, %next_bb.i
-  %acc.0.i = phi float [ %14, %next_bb3.i ], [ %12, %next_bb.i ]
-  %1 = fcmp olt float %x, 0.000000e+00
-  br i1 %1, label %case0_bb.i, label %next_bb6.i
+"!then_0.i":                                      ; preds = %weigh_one
+  %1 = tail call nnan float @llvm.sqrt.f32(float %x)
+  %2 = fmul nnan float %1, 3.000000e+00
+  %3 = fadd float %2, 1.000000e+00
+  %4 = fcmp ogt float %3, 7.000000e+00
+  br i1 %4, label %weigh.exit, label %"!merge_4.i"
 
-then_bb.i:                                        ; preds = %weigh_one_entry
-  %2 = tail call nnan float @llvm.sqrt.f32(float %x)
-  %3 = fmul nnan float %2, 3.000000e+00
-  %4 = fadd float %3, 1.000000e+00
-  %5 = fcmp ogt float %4, 7.000000e+00
-  br i1 %5, label %weigh.exit, label %next_bb3.i
+"!merge_4.i":                                     ; preds = %"!then_0.i"
+  %5 = fmul float %3, %3
+  %6 = fsub float %5, %x
+  br label %"!merge_2.i"
 
-next_bb.i:                                        ; preds = %weigh_one_entry
-  %6 = fmul float %x, %x
-  %7 = fmul float %6, 5.000000e-01
-  %8 = fadd float %7, 1.000000e+00
-  %9 = fmul float %8, %8
-  %10 = fmul float %8, 3.000000e+00
-  %11 = fadd float %9, %10
-  %12 = fadd float %11, -1.000000e+00
-  br label %after_bb.i
+"!else_1.i":                                      ; preds = %weigh_one
+  %7 = fmul float %x, %x
+  %8 = fmul float %7, 5.000000e-01
+  %9 = fadd float %8, 1.000000e+00
+  %10 = fmul float %9, %9
+  %11 = fmul float %9, 3.000000e+00
+  %12 = fadd float %10, %11
+  %13 = fadd float %12, -1.000000e+00
+  br label %"!merge_2.i"
 
-next_bb3.i:                                       ; preds = %then_bb.i
-  %13 = fmul float %4, %4
-  %14 = fsub float %13, %x
-  br label %after_bb.i
+"!merge_2.i":                                     ; preds = %"!else_1.i", %"!merge_4.i"
+  %storemerge.i = phi float [ %13, %"!else_1.i" ], [ %6, %"!merge_4.i" ]
+  %14 = fcmp olt float %x, 0.000000e+00
+  br i1 %14, label %"!case_12.i", label %"!else_6.i"
 
-next_bb6.i:                                       ; preds = %after_bb.i
+"!else_6.i":                                      ; preds = %"!merge_2.i"
   %15 = fcmp olt float %x, 4.000000e+00
-  br i1 %15, label %case1_bb.i, label %default_bb.i
+  br i1 %15, label %"!case_13.i", label %"!case_14.i"
 
-after_bb10.i:                                     ; preds = %case1_bb.i, %case0_bb.i, %default_bb.i
-  %w.0.i = phi float [ %22, %default_bb.i ], [ %28, %case0_bb.i ], [ %34, %case1_bb.i ]
-  %16 = fadd float %acc.0.i, %w.0.i
+"!case_14.i":                                     ; preds = %"!else_6.i"
+  %16 = fmul float %x, 2.500000e-01
+  %17 = fmul float %x, %x
+  %18 = fmul float %16, %16
+  %19 = fsub float %17, %18
+  %20 = fmul float %19, 3.000000e+00
+  %21 = fadd float %16, %20
+  br label %"!merge_11.i"
+
+"!case_13.i":                                     ; preds = %"!else_6.i"
+  %22 = fmul nnan float %x, 5.000000e-01
+  %23 = fmul nnan float %x, %22
+  %24 = fmul nnan float %23, 2.000000e+00
+  %25 = fmul float %22, %22
+  %26 = fadd float %25, %24
+  %27 = fsub float %26, %x
+  br label %"!merge_11.i"
+
+"!case_12.i":                                     ; preds = %"!merge_2.i"
+  %28 = fsub float 0.000000e+00, %x
+  %29 = fmul float %28, %28
+  %30 = fmul nnan float %29, 3.000000e+00
+  %31 = fmul nnan float %28, 5.000000e-01
+  %32 = fadd float %31, %30
+  %33 = fsub float %32, %28
+  br label %"!merge_11.i"
+
+"!merge_11.i":                                    ; preds = %"!case_12.i", %"!case_13.i", %"!case_14.i"
+  %w32.sroa.speculated.i = phi float [ %33, %"!case_12.i" ], [ %27, %"!case_13.i" ], [ %21, %"!case_14.i" ]
+  %34 = fadd float %storemerge.i, %w32.sroa.speculated.i
   br label %weigh.exit
 
-default_bb.i:                                     ; preds = %next_bb6.i
-  %17 = fmul float %x, 2.500000e-01
-  %18 = fmul float %x, %x
-  %19 = fmul float %17, %17
-  %20 = fsub float %18, %19
-  %21 = fmul float %20, 3.000000e+00
-  %22 = fadd float %17, %21
-  br label %after_bb10.i
-
-case0_bb.i:                                       ; preds = %after_bb.i
-  %23 = fsub float 0.000000e+00, %x
-  %24 = fmul float %23, %23
-  %25 = fmul nnan float %24, 3.000000e+00
-  %26 = fmul nnan float %23, 5.000000e-01
-  %27 = fadd float %26, %25
-  %28 = fsub float %27, %23
-  br label %after_bb10.i
-
-case1_bb.i:                                       ; preds = %next_bb6.i
-  %29 = fmul nnan float %x, 5.000000e-01
-  %30 = fmul nnan float %x, %29
-  %31 = fmul nnan float %30, 2.000000e+00
-  %32 = fmul float %29, %29
-  %33 = fadd float %32, %31
-  %34 = fsub float %33, %x
-  br label %after_bb10.i
-
-weigh.exit:                                       ; preds = %then_bb.i, %after_bb10.i
-  %common.ret.op.i = phi float [ %16, %after_bb10.i ], [ %4, %then_bb.i ]
+weigh.exit:                                       ; preds = %"!then_0.i", %"!merge_11.i"
+  %common.ret.op.i = phi float [ %34, %"!merge_11.i" ], [ %3, %"!then_0.i" ]
   ret float %common.ret.op.i
 }
 

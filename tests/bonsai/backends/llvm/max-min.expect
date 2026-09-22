@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @clamp01(float noundef %x) local_unnamed_addr #0 {
-clamp01_entry:
+clamp01:
   %max_lt = fcmp olt float %x, 0.000000e+00
   %max = select i1 %max_lt, float 0.000000e+00, float %x
   %min_lt = fcmp ogt float %max, 1.000000e+00
@@ -13,7 +13,7 @@ clamp01_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @fmax2(float noundef %a, float noundef %b) local_unnamed_addr #0 {
-fmax2_entry:
+fmax2:
   %max_lt = fcmp olt float %a, %b
   %max = select i1 %max_lt, float %b, float %a
   ret float %max
@@ -21,7 +21,7 @@ fmax2_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @fmin2(float noundef %a, float noundef %b) local_unnamed_addr #0 {
-fmin2_entry:
+fmin2:
   %min_lt = fcmp olt float %b, %a
   %min = select i1 %min_lt, float %b, float %a
   ret float %min
@@ -29,14 +29,14 @@ fmin2_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef i32 @imax(i32 noundef %a, i32 noundef %b) local_unnamed_addr #0 {
-imax_entry:
+imax:
   %0 = tail call i32 @llvm.smax.i32(i32 %a, i32 %b)
   ret i32 %0
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef <3 x float> @vmax(<3 x float> noundef %a, <3 x float> noundef %b) local_unnamed_addr #0 {
-vmax_entry:
+vmax:
   %max_lt = fcmp olt <3 x float> %a, %b
   %max = select <3 x i1> %max_lt, <3 x float> %b, <3 x float> %a
   ret <3 x float> %max
@@ -44,7 +44,7 @@ vmax_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef <3 x float> @vmin(<3 x float> noundef %a, <3 x float> noundef %b) local_unnamed_addr #0 {
-vmin_entry:
+vmin:
   %min_lt = fcmp olt <3 x float> %b, %a
   %min = select <3 x i1> %min_lt, <3 x float> %b, <3 x float> %a
   ret <3 x float> %min

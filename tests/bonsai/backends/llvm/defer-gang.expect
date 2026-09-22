@@ -69,7 +69,7 @@ run:
   call fastcc void @walk(i32 %9, ptr %out, i32 %4, ptr %sums_queue1134)
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, 40
-  br i1 %exitcond.not, label %"sums!round.preheader", label %"!par_body_0"
+  br i1 %exitcond.not, label %"sums!round.preheader", label %"!par_body_0", !prof !3
 
 sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sums_gang"
   %10 = add i32 %"sums!round252", 1
@@ -107,40 +107,40 @@ sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sum
 "sums!run_yield_sums_gang":                       ; preds = %"sums!run", %"sums!run_step_sums_lane"
   %18 = add i32 %sums_gang50, 16
   %19 = icmp ult i32 %18, %"@9.count54"
-  br i1 %19, label %"sums!run_step_sums_lane", label %sums_gang1_pf_exit
+  br i1 %19, label %"sums!run_step_sums_lane", label %sums_gang1_pf_exit, !prof !4
 }
 
 ; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define internal fastcc void @walk(i32 noundef %n, ptr nofree noundef writeonly captures(none) %out, i32 noundef range(i32 -2147483648, 40) %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #1 {
-walk_entry:
+walk:
   %0 = icmp sgt i32 %n, 0
-  br i1 %0, label %next_bb, label %then_bb
+  br i1 %0, label %"!merge_1", label %"!then_0"
 
-common.ret:                                       ; preds = %next_bb, %then_bb
+common.ret:                                       ; preds = %"!merge_1", %"!then_0"
   ret void
 
-then_bb:                                          ; preds = %walk_entry
+"!then_0":                                        ; preds = %walk
   %1 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %1
-  store i32 0, ptr %out1, align 4, !tbaa !3
+  %out14 = getelementptr inbounds [4 x i8], ptr %out, i64 %1
+  store i32 0, ptr %out14, align 4, !tbaa !5
   br label %common.ret
 
-next_bb:                                          ; preds = %walk_entry
+"!merge_1":                                       ; preds = %walk
   %2 = add nsw i32 %n, -1
   %3 = atomicrmw add ptr %_queue_sums, i32 1 monotonic, align 4
   %4 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 8
-  %n2 = load ptr, ptr %4, align 8
+  %n9 = load ptr, ptr %4, align 8
   %5 = sext i32 %3 to i64
-  %"@9" = getelementptr inbounds [4 x i8], ptr %n2, i64 %5
-  store i32 %2, ptr %"@9", align 4, !tbaa !3
+  %"@9" = getelementptr inbounds [4 x i8], ptr %n9, i64 %5
+  store i32 %2, ptr %"@9", align 4, !tbaa !5
   %6 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 16
-  %acc4 = load ptr, ptr %6, align 8
-  %"@12" = getelementptr inbounds [4 x i8], ptr %acc4, i64 %5
-  store i32 %n, ptr %"@12", align 4, !tbaa !3
+  %acc11 = load ptr, ptr %6, align 8
+  %"@12" = getelementptr inbounds [4 x i8], ptr %acc11, i64 %5
+  store i32 %n, ptr %"@12", align 4, !tbaa !5
   %7 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 24
-  %i6 = load ptr, ptr %7, align 8
-  %"@15" = getelementptr inbounds [4 x i8], ptr %i6, i64 %5
-  store i32 %i, ptr %"@15", align 4, !tbaa !3
+  %i13 = load ptr, ptr %7, align 8
+  %"@15" = getelementptr inbounds [4 x i8], ptr %i13, i64 %5
+  store i32 %i, ptr %"@15", align 4, !tbaa !5
   br label %common.ret
 }
 
@@ -214,5 +214,7 @@ attributes #6 = { nocallback nocreateundeforpoison nofree nosync nounwind specul
 !0 = !{!1, !1, i64 0}
 !1 = !{!"u32", !2, i64 0}
 !2 = !{!"bonsai"}
-!3 = !{!4, !4, i64 0}
-!4 = !{!"i32", !2, i64 0}
+!3 = !{!"branch_weights", i32 0, i32 1073741824}
+!4 = !{!"branch_weights", i32 1073741824, i32 0}
+!5 = !{!6, !6, i64 0}
+!6 = !{!"i32", !2, i64 0}

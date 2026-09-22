@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
 define internal fastcc noundef float @scale(float noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k) unnamed_addr #0 {
-scale_entry:
+scale:
   %0 = fmul float %x, %k
   ret float %0
 }
@@ -55,26 +55,26 @@ weigh_all:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @weigh_one(float noundef %x) local_unnamed_addr #2 {
-weigh_one_entry:
+weigh_one:
   %0 = fcmp ogt float %x, 2.000000e+00
-  br i1 %0, label %then_bb.i, label %next_bb.i
+  br i1 %0, label %"!then_0.i", label %"!else_1.i"
 
-after_bb.i:                                       ; preds = %next_bb.i, %then_bb.i
-  %acc.0.i = phi float [ %2, %then_bb.i ], [ %4, %next_bb.i ]
-  %1 = fadd float %acc.0.i, 1.000000e+00
+"!then_0.i":                                      ; preds = %weigh_one
+  %1 = tail call fastcc float @scale(float %x, float 3.000000e+00)
+  %2 = fcmp ogt float %1, 2.000000e+01
+  br i1 %2, label %weigh.exit, label %"!merge_2.i"
+
+"!else_1.i":                                      ; preds = %weigh_one
+  %3 = tail call fastcc float @scale(float %x, float 5.000000e+00)
+  br label %"!merge_2.i"
+
+"!merge_2.i":                                     ; preds = %"!else_1.i", %"!then_0.i"
+  %acc8.sroa.speculated.i = phi float [ %3, %"!else_1.i" ], [ %1, %"!then_0.i" ]
+  %4 = fadd float %acc8.sroa.speculated.i, 1.000000e+00
   br label %weigh.exit
 
-then_bb.i:                                        ; preds = %weigh_one_entry
-  %2 = tail call fastcc float @scale(float %x, float 3.000000e+00)
-  %3 = fcmp ogt float %2, 2.000000e+01
-  br i1 %3, label %weigh.exit, label %after_bb.i
-
-next_bb.i:                                        ; preds = %weigh_one_entry
-  %4 = tail call fastcc float @scale(float %x, float 5.000000e+00)
-  br label %after_bb.i
-
-weigh.exit:                                       ; preds = %after_bb.i, %then_bb.i
-  %common.ret.op.i = phi float [ %1, %after_bb.i ], [ %2, %then_bb.i ]
+weigh.exit:                                       ; preds = %"!then_0.i", %"!merge_2.i"
+  %common.ret.op.i = phi float [ %4, %"!merge_2.i" ], [ %1, %"!then_0.i" ]
   ret float %common.ret.op.i
 }
 

@@ -1,21 +1,15 @@
-type _ctx0 = struct _ctx0{ fs : i32[8]; _alloc0 : i32[8] }
-
-func [[kernel]] _parfunc0(ctx0 : mut (_ctx0*), _parfor_idx : i64) -> void {
-  let _i0 = cast<i32>(cast<i64>(0) + (cast<i64>(1) * _parfor_idx)) in
-  let i$i0 = (*ctx0).fs[_i0] in
-  f$r0 : mut i32
-  print(i$i0)
-  let @1 = i$i0 + 1 in
-  f$r0 = @1
-  let @2 = (*f$r0) in
-  ctx0._alloc0[_i0] = @2
-  return
-}
-
 func _traverse_array0(fs : i32[8]) -> i32[8] {
   alloc _alloc0 : mut i32[8]
-  ctx : mut _ctx0 := build<_ctx0>(fs, _alloc0)
-  launch 8 _parfunc0(ctx)
+  parfor _i0 in [0:8:1] {
+    let i$i0 = fs[_i0] in
+    f$r0 : mut i32
+    print(i$i0)
+    let @1 = i$i0 + 1 in
+    f$r0 = @1
+    let @2 = (*f$r0) in
+    _alloc0[_i0] = @2
+    continue
+  }
   return _alloc0
 }
 

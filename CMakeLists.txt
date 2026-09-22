@@ -198,7 +198,6 @@ target_sources(
     src/Lower/ADTLayout.cpp
     src/Lower/ADTs.cpp
     src/Lower/WordStorage.cpp
-    src/Lower/Bindings.cpp
     src/Opt/Simplify.cpp
     src/Opt/PullQueries.cpp
     src/Opt/JumpThreading.cpp
@@ -320,7 +319,6 @@ target_sources(
     include/Lower/ADTLayout.h
     include/Lower/ADTs.h
     include/Lower/WordStorage.h
-    include/Lower/Bindings.h
     include/Opt/Simplify.h
     include/Opt/JumpThreading.h
     include/Opt/Unswitch.h

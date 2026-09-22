@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @acos8(<8 x float> noundef %x) local_unnamed_addr #0 {
-acos8_entry:
+acos8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = fcmp ogt <8 x float> %0, splat (float 5.000000e-01)
   %2 = fmul <8 x float> %x, %x
@@ -29,7 +29,7 @@ acos8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @asin8(<8 x float> noundef %x) local_unnamed_addr #0 {
-asin8_entry:
+asin8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = fcmp ogt <8 x float> %0, splat (float 5.000000e-01)
   %2 = fmul <8 x float> %x, %x
@@ -51,7 +51,7 @@ asin8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @atan2_8(<8 x float> noundef %y, <8 x float> noundef %x) local_unnamed_addr #0 {
-atan2_8_entry:
+atan2_8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %y)
   %1 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %2 = fdiv <8 x float> %0, %1
@@ -91,7 +91,7 @@ atan2_8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @atanh8(<8 x float> noundef %x) local_unnamed_addr #0 {
-atanh8_entry:
+atanh8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = fcmp olt <8 x float> %0, splat (float 5.000000e-01)
   %2 = fmul <8 x float> %x, %x
@@ -147,7 +147,7 @@ atanh8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
 define <8 x float> @cos8(<8 x float> noundef %x) local_unnamed_addr #1 {
-cos8_entry:
+cos8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
   %2 = fcmp une <8 x float> %0, splat (float +inf)
@@ -178,10 +178,10 @@ cos8_entry:
   %25 = fmul <8 x float> %19, %24
   %26 = select <8 x i1> %2, <8 x float> %25, <8 x float> splat (float +qnan)
   %27 = bitcast <8 x i1> %sincos_rare to i8
-  %.not9 = icmp eq i8 %27, 0
-  br i1 %.not9, label %cos_join, label %cos_rare, !prof !0
+  %.not10 = icmp eq i8 %27, 0
+  br i1 %.not10, label %cos_join, label %cos_rare, !prof !0
 
-cos_rare:                                         ; preds = %cos8_entry
+cos_rare:                                         ; preds = %cos8
   %28 = extractelement <8 x float> %x, i64 0
   %cos = tail call float @cosf(float %28)
   %29 = insertelement <8 x float> poison, float %cos, i64 0
@@ -209,14 +209,14 @@ cos_rare:                                         ; preds = %cos8_entry
   %44 = select <8 x i1> %sincos_rare, <8 x float> %43, <8 x float> %26
   br label %cos_join
 
-cos_join:                                         ; preds = %cos_rare, %cos8_entry
-  %cos8 = phi <8 x float> [ %26, %cos8_entry ], [ %44, %cos_rare ]
-  ret <8 x float> %cos8
+cos_join:                                         ; preds = %cos_rare, %cos8
+  %cos9 = phi <8 x float> [ %26, %cos8 ], [ %44, %cos_rare ]
+  ret <8 x float> %cos9
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @cosh8(<8 x float> noundef %x) local_unnamed_addr #0 {
-cosh8_entry:
+cosh8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = tail call <8 x float> @llvm.maxnum.v8f32(<8 x float> %0, <8 x float> splat (float f0xC2B00F34))
   %2 = tail call <8 x float> @llvm.minnum.v8f32(<8 x float> %1, <8 x float> splat (float f0x42B17218))
@@ -249,7 +249,7 @@ cosh8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <4 x double> @double_exp4(<4 x double> noundef %x) local_unnamed_addr #0 {
-double_exp4_entry:
+double_exp4:
   %0 = tail call <4 x double> @llvm.maxnum.v4f64(<4 x double> %x, <4 x double> splat (double f0xC08628B76E3A7B61))
   %1 = tail call <4 x double> @llvm.minnum.v4f64(<4 x double> %0, <4 x double> splat (double f0x40862E42FEFA39EF))
   %2 = fmul nnan <4 x double> %1, splat (double f0x3FF71547652B82FE)
@@ -283,7 +283,7 @@ double_exp4_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
 define <4 x double> @double_sin4(<4 x double> noundef %x) local_unnamed_addr #1 {
-double_sin4_entry:
+double_sin4:
   %0 = tail call <4 x double> @llvm.fabs.v4f64(<4 x double> %x)
   %1 = fcmp ole <4 x double> %0, splat (double 1.000000e+12)
   %2 = fcmp une <4 x double> %0, splat (double +inf)
@@ -320,7 +320,7 @@ double_sin4_entry:
   %.not = icmp eq i4 %31, 0
   br i1 %.not, label %sin_join, label %sin_rare, !prof !0
 
-sin_rare:                                         ; preds = %double_sin4_entry
+sin_rare:                                         ; preds = %double_sin4
   %32 = extractelement <4 x double> %x, i64 0
   %sin = tail call double @sin(double %32)
   %33 = insertelement <4 x double> poison, double %sin, i64 0
@@ -336,14 +336,14 @@ sin_rare:                                         ; preds = %double_sin4_entry
   %40 = select <4 x i1> %sincos_rare, <4 x double> %39, <4 x double> %30
   br label %sin_join
 
-sin_join:                                         ; preds = %sin_rare, %double_sin4_entry
-  %sin4 = phi <4 x double> [ %30, %double_sin4_entry ], [ %40, %sin_rare ]
+sin_join:                                         ; preds = %sin_rare, %double_sin4
+  %sin4 = phi <4 x double> [ %30, %double_sin4 ], [ %40, %sin_rare ]
   ret <4 x double> %sin4
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @exp8(<8 x float> noundef %x) local_unnamed_addr #0 {
-exp8_entry:
+exp8:
   %0 = tail call <8 x float> @llvm.maxnum.v8f32(<8 x float> %x, <8 x float> splat (float f0xC2B00F34))
   %1 = tail call <8 x float> @llvm.minnum.v8f32(<8 x float> %0, <8 x float> splat (float f0x42B17218))
   %2 = fmul nnan <8 x float> %1, splat (float f0x3FB8AA3B)
@@ -373,7 +373,7 @@ exp8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @log8(<8 x float> noundef %x) local_unnamed_addr #0 {
-log8_entry:
+log8:
   %0 = fcmp olt <8 x float> %x, splat (float f0x00800000)
   %1 = fmul <8 x float> %x, splat (float f0x4B800000)
   %2 = select <8 x i1> %0, <8 x float> %1, <8 x float> %x
@@ -411,7 +411,7 @@ log8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <8 x float> @pow8(<8 x float> noundef %x, <8 x float> noundef %y) local_unnamed_addr #0 {
-pow8_entry:
+pow8:
   %0 = fpext <8 x float> %y to <8 x double>
   %1 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %2 = fpext <8 x float> %1 to <8 x double>
@@ -509,7 +509,7 @@ pow8_entry:
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
 define <8 x float> @sin8(<8 x float> noundef %x) local_unnamed_addr #1 {
-sin8_entry:
+sin8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
   %2 = fcmp une <8 x float> %0, splat (float +inf)
@@ -542,7 +542,7 @@ sin8_entry:
   %.not = icmp eq i8 %27, 0
   br i1 %.not, label %sin_join, label %sin_rare, !prof !0
 
-sin_rare:                                         ; preds = %sin8_entry
+sin_rare:                                         ; preds = %sin8
   %28 = extractelement <8 x float> %x, i64 0
   %sin = tail call float @sinf(float %28)
   %29 = insertelement <8 x float> poison, float %sin, i64 0
@@ -570,14 +570,14 @@ sin_rare:                                         ; preds = %sin8_entry
   %44 = select <8 x i1> %sincos_rare, <8 x float> %43, <8 x float> %26
   br label %sin_join
 
-sin_join:                                         ; preds = %sin_rare, %sin8_entry
-  %sin8 = phi <8 x float> [ %26, %sin8_entry ], [ %44, %sin_rare ]
-  ret <8 x float> %sin8
+sin_join:                                         ; preds = %sin_rare, %sin8
+  %sin9 = phi <8 x float> [ %26, %sin8 ], [ %44, %sin_rare ]
+  ret <8 x float> %sin9
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write)
 define <8 x float> @tan8(<8 x float> noundef %x) local_unnamed_addr #1 {
-tan8_entry:
+tan8:
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %x)
   %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
   %2 = fcmp une <8 x float> %0, splat (float +inf)
@@ -621,10 +621,10 @@ tan8_entry:
   %39 = select <8 x i1> %2, <8 x float> %37, <8 x float> splat (float +qnan)
   %40 = fdiv <8 x float> %38, %39
   %41 = bitcast <8 x i1> %sincos_rare to i8
-  %.not9 = icmp eq i8 %41, 0
-  br i1 %.not9, label %tan_join, label %tan_rare, !prof !0
+  %.not10 = icmp eq i8 %41, 0
+  br i1 %.not10, label %tan_join, label %tan_rare, !prof !0
 
-tan_rare:                                         ; preds = %tan8_entry
+tan_rare:                                         ; preds = %tan8
   %42 = extractelement <8 x float> %x, i64 0
   %tan = tail call float @tanf(float %42)
   %43 = insertelement <8 x float> poison, float %tan, i64 0
@@ -652,9 +652,9 @@ tan_rare:                                         ; preds = %tan8_entry
   %58 = select <8 x i1> %sincos_rare, <8 x float> %57, <8 x float> %40
   br label %tan_join
 
-tan_join:                                         ; preds = %tan_rare, %tan8_entry
-  %tan8 = phi <8 x float> [ %40, %tan8_entry ], [ %58, %tan_rare ]
-  ret <8 x float> %tan8
+tan_join:                                         ; preds = %tan_rare, %tan8
+  %tan9 = phi <8 x float> [ %40, %tan8 ], [ %58, %tan_rare ]
+  ret <8 x float> %tan9
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)

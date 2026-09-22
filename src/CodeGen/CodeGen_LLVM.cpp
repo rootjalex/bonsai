@@ -525,31 +525,7 @@ void CodeGen_LLVM::compile_function(const Function &func,
     }
 
     if (func.must_setup_rng()) {
-        const uint32_t lanes = native_vector_bits() / 32;
-        llvm::Function *rand_function = module->getFunction("rand");
-        if (!rand_function) {
-            llvm::FunctionType *rand_func_type =
-                llvm::FunctionType::get(i32_t, {}, false);
-            rand_function = llvm::Function::Create(
-                rand_func_type, llvm::GlobalValue::ExternalLinkage, "rand",
-                module.get());
-        }
-
-        // Generate i32 x lanes vector using repeated scalar rand() calls
-        llvm::Value *rand_vec =
-            llvm::UndefValue::get(llvm::FixedVectorType::get(i32_t, lanes));
-        for (uint32_t i = 0; i < lanes; ++i) {
-            llvm::Value *r = builder->CreateCall(rand_function);
-            rand_vec = builder->CreateInsertElement(rand_vec, r, i);
-        }
-
-        // Allocate space on stack for vector (aligned to vector width)
-        llvm::AllocaInst *rng_state_ptr = builder->CreateAlloca(
-            rand_vec->getType(), nullptr, lower::rng_state_name);
-        rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
-        builder->CreateStore(rand_vec, rng_state_ptr);
-
-        frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
+        emit_rng_setup();
     }
 
     codegen_stmt(func.body);
@@ -587,6 +563,34 @@ void CodeGen_LLVM::compile_function(const Function &func,
     current_sret = nullptr;
 
     // function->dump();
+}
+
+void CodeGen_LLVM::emit_rng_setup() {
+    const uint32_t lanes = native_vector_bits() / 32;
+    llvm::Function *rand_function = module->getFunction("rand");
+    if (!rand_function) {
+        llvm::FunctionType *rand_func_type =
+            llvm::FunctionType::get(i32_t, {}, false);
+        rand_function = llvm::Function::Create(
+            rand_func_type, llvm::GlobalValue::ExternalLinkage, "rand",
+            module.get());
+    }
+
+    // The seed: one lane per call of C's rand().
+    llvm::Value *rand_vec =
+        llvm::UndefValue::get(llvm::FixedVectorType::get(i32_t, lanes));
+    for (uint32_t i = 0; i < lanes; ++i) {
+        llvm::Value *r = builder->CreateCall(rand_function);
+        rand_vec = builder->CreateInsertElement(rand_vec, r, i);
+    }
+
+    // The state lives on the stack, aligned as the vector is.
+    llvm::AllocaInst *rng_state_ptr = builder->CreateAlloca(
+        rand_vec->getType(), nullptr, lower::rng_state_name);
+    rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
+    builder->CreateStore(rand_vec, rng_state_ptr);
+
+    frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
 }
 
 std::unique_ptr<llvm::Module>

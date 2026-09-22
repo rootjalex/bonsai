@@ -1,5 +1,5 @@
 ; === ssa preschedule ===
-; --- _recloop_func0 (lowered via statements) ---
+; --- _recloop_func0 ---
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : (__tuple_1*)): 
   @0 = load_field(triangles, (u32)3)
   _t623 = extract_idx(@0, triangles_index)
@@ -238,7 +238,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 !merge_27(_idx0 : u32, @105 : u32, _t623 : _tree_layout1, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !then_26, !then_24
   jmp !merge_25(_idx0, @105, _t623, ray, triangles, _best0)
 
-; --- _traverse_tree0 (lowered via statements) ---
+; --- _traverse_tree0 ---
 func _traverse_tree0(ray : Ray, triangles : _tree_layout0): 
   _best0 = alloca<(__tuple_1*)>()
   @0 = inf()
@@ -271,7 +271,7 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0):
   @14 = load(_best0_result)
   ret @14
 
-; --- _unexported_trace (lowered via statements) ---
+; --- _unexported_trace ---
 func _unexported_trace(ray : Ray, triangles : _tree_layout0): 
   _traverse_tree0$r25 = alloca<(_option0*)>()
   _best0$i25 = alloca<(__tuple_1*)>()
@@ -307,7 +307,7 @@ func _unexported_trace(ray : Ray, triangles : _tree_layout0):
   @15 = load(_traverse_tree0$r25)
   ret @15
 
-; --- trace (lowered via statements) ---
+; --- trace ---
 func trace(_ret0 : (_option0*), ray : (Ray*), triangles : (_tree_layout0*)): 
   _traverse_tree0$r25 = alloca<(_option0*)>()
   _best0$i25 = alloca<(__tuple_1*)>()
@@ -348,7 +348,7 @@ func trace(_ret0 : (_option0*), ray : (Ray*), triangles : (_tree_layout0*)):
   ret
 
 ; === ssa postschedule ===
-; --- _recloop_func0 (lowered via statements) ---
+; --- _recloop_func0 ---
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : (__tuple_1*)): 
   @0 = load_field(triangles, (u32)3)
   _t623 = extract_idx(@0, triangles_index)
@@ -588,7 +588,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 !merge_27(_idx0 : u32, @105 : u32, _t623 : _tree_layout1, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !then_26, !then_24
   jmp !merge_25(_idx0, @105, _t623, ray, triangles, _best0)
 
-; --- _traverse_tree0 (lowered via statements) ---
+; --- _traverse_tree0 ---
 func _traverse_tree0(ray : Ray, triangles : _tree_layout0): 
   _best0 = alloca<(__tuple_1*)>()
   @0 = inf()
@@ -621,7 +621,7 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0):
   @14 = load(_best0_result)
   ret @14
 
-; --- _unexported_trace (lowered via statements) ---
+; --- _unexported_trace ---
 func _unexported_trace(ray : Ray, triangles : _tree_layout0): 
   _traverse_tree0$r25 = alloca<(_option0*)>()
   _best0$i25 = alloca<(__tuple_1*)>()
@@ -657,7 +657,7 @@ func _unexported_trace(ray : Ray, triangles : _tree_layout0):
   @15 = load(_traverse_tree0$r25)
   ret @15
 
-; --- trace (lowered via statements) ---
+; --- trace ---
 func trace(_ret0 : (_option0*), ray : (Ray*), triangles : (_tree_layout0*)): 
   _traverse_tree0$r25 = alloca<(_option0*)>()
   _best0$i25 = alloca<(__tuple_1*)>()

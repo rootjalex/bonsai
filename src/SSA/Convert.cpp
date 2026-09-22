@@ -1485,10 +1485,7 @@ void dump_ssa(std::ostream &os, const std::string &when, const FuncMap &fmap,
         if (!include_imported && has(f, ir::Function::Attribute::imported)) {
             continue;
         }
-        const bool direct = has(f, ir::Function::Attribute::vectorized);
-        os << "; --- " << fname
-           << (direct ? " (lowered from here)" : " (lowered via statements)")
-           << " ---\n";
+        os << "; --- " << fname << " ---\n";
         f->dump(os);
     }
 }
@@ -1889,39 +1886,25 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
 
     ir::FuncMap new_funcs;
 
-    // A program with a loop bound to the GPU is generated from its SSA in
-    // full. The loop's body is cut out of the block graph as a kernel, and
-    // the kernel is a device module of its own into which every function it
-    // reaches is compiled -- from the same SSA, by the same lowering, on the
-    // device's code generator (see CodeGen_PTX). Generating the host side
-    // from statements and the device side from blocks would be two readings
-    // of one program; one reading is what makes the two sides agree.
-    const bool gpu_program =
-        std::any_of(fmap.begin(), fmap.end(), [](const auto &entry) {
-            return binds_to_gpu(*entry.second);
-        });
-
     for (const auto &[fname, f] : fmap) {
         // The relooper runs for every function regardless of what generates
         // code for it: reading a schedule's work as ordinary statements is
-        // worth the pass on its own.
+        // worth the pass on its own, and the C++ and CUDA backends print
+        // from the statements.
         new_funcs[fname] = codegen_stmt(*f, func_type_map);
 
-        // A vectorized function is generated from the SSA instead, which is
-        // the shape its control flow is actually in -- what partial
-        // linearization leaves behind fits structured statements worst.
-        // Asked of the SSA function, which is where vectorize() recorded it.
-        const bool direct =
-            gpu_program ||
-            std::find(f->attributes.begin(), f->attributes.end(),
-                      ir::Function::Attribute::vectorized) !=
-                f->attributes.end();
-        if (keep_ssa != nullptr && direct) {
+        // Every function's SSA is kept, and the LLVM backends generate from
+        // it rather than from the statements: blocks with arguments are
+        // blocks with phis, which is the form LLVM wants, and the relooper
+        // re-derives structure that LLVM then discards -- a re-derivation
+        // that cannot represent what partial linearization leaves of a
+        // vectorized function at all. A program with a loop on the GPU
+        // depends on this too: the loop's body is cut out of the block graph
+        // as a kernel, and the device module compiles every function the
+        // kernel reaches from the same SSA the host has (see CodeGen_PTX),
+        // so that the two sides are one reading of the program.
+        if (keep_ssa != nullptr) {
             keep_ssa->ssa_funcs[fname] = f;
-            if (options.is_verbose) {
-                std::cerr << "; keeping the SSA of " << fname
-                          << " for direct lowering\n";
-            }
         }
     }
 

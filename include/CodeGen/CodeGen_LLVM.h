@@ -141,6 +141,11 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     llvm::Function *declare_function(const ir::Function &func);
     void compile_function(const ir::Function &func, llvm::Function *function);
+    // The random generator's state for a function that seeds it (see
+    // Lower/Random.h): seeded from C's rand(), held in a stack slot bound
+    // under lower::rng_state_name, at the entry of the function being
+    // compiled.
+    void emit_rng_setup();
 
     // Generate a function straight from its SSA form, instead of from the
     // statements the relooper rebuilds out of it (see ir::Program::ssa_funcs).

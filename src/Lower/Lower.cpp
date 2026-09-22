@@ -3,7 +3,6 @@
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
 #include "Lower/ADTs.h"
-#include "Lower/Bindings.h"
 #include "Lower/Canonicalize.h"
 #include "Lower/DynamicArrays.h"
 #include "Lower/DynamicSets.h"
@@ -337,9 +336,6 @@ PassManager register_passes(const CompilerOptions &options) {
         ssa.push_back(std::make_unique<RenamePointerToExpr>());
     }
     ssa.push_back(std::make_unique<ir::ssa::ConvertToSSA>());
-    // After the SSA conversion, because that is what applies the schedule and
-    // so what decides which loops carry a binding at all.
-    ssa.push_back(std::make_unique<LowerBindings>());
     manager.register_alias("ssa", ssa);
 
     // Same lowering as "ssa", but dumps the SSA control-flow analyses instead

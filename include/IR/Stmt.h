@@ -518,7 +518,9 @@ struct ParFor : StmtNode<ParFor> {
     // The hardware a schedule bound this loop to, if any. A parfor says its
     // iterations may run in any order; this says what to run them on, and one
     // without it is emitted as an ordinary sequential loop. Set by bind() and
-    // acted on when code is generated -- see Lower/Bindings.h.
+    // acted on when code is generated from the SSA form -- see
+    // CodeGen_LLVM::emit_bound_parfor; the statement form of a bound loop is
+    // only ever printed.
     std::optional<Resource> binding;
 
     Type index_type() const;

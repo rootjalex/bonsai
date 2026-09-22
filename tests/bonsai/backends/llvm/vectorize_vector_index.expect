@@ -3,7 +3,7 @@ source_filename = "bonsai_module"
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read)
 define <4 x float> @at(ptr noundef %table, <4 x i32> noundef %o) local_unnamed_addr #0 {
-at_entry:
+at:
   %0 = sext <4 x i32> %o to <4 x i64>
   %extract_ptrs = getelementptr inbounds [4 x i8], ptr %table, <4 x i64> %0
   %extract = tail call <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr> align 4 %extract_ptrs, <4 x i1> splat (i1 true), <4 x float> poison)
