@@ -71,8 +71,8 @@ weigh_one:
   br label %"!merge_2.i"
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!then_0.i"
-  %acc8.sroa.speculated.i = phi float [ %3, %"!else_1.i" ], [ %1, %"!then_0.i" ]
-  %4 = fadd float %acc8.sroa.speculated.i, 1.000000e+00
+  %acc.i = phi float [ %3, %"!else_1.i" ], [ %1, %"!then_0.i" ]
+  %4 = fadd float %acc.i, 1.000000e+00
   br label %weigh.exit
 
 weigh.exit:                                       ; preds = %"!then_0.i", %"!merge_2.i"

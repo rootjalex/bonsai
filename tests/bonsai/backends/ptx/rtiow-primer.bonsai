@@ -1,4 +1,15 @@
-//! flags: -b cuda
+//! flags: -p ssa -b ptx
+
+// Ray Tracing in One Weekend's spheres, one pixel per GPU thread: the
+// scene's tree, an extern the exported `image` receives as a layout struct
+// of buffer descriptors, is placed on the device by the launch; the
+// traversal is the loop over a stack that `trace.loopify(64)` makes of it,
+// in each thread's local memory; the tail recursion of `sample` is a loop.
+// The image itself is the exported function's heap allocation on the host,
+// which the launch hands the kernel and copies back. The two `map`s over
+// rows and columns are collapsed into the one loop the threads are bound to,
+// so the camera and the tree reach the kernel through the collapsed loop's
+// step, which has to pass them on rather than name them.
 
 import stdlib/numerics;
 import stdlib/random;

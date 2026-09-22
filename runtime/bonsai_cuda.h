@@ -66,14 +66,22 @@ void bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                         int64_t block_x, void **params, int64_t nparams,
                         bonsai_cuda_buffer *buffers, int64_t nbuffers);
 
+// Loads the PTX module ahead of its first launch, so that the load is part
+// of a driver's setup rather than of its first timed call. What the
+// generated `bonsai_gpu_prepare()` calls (see CodeGen_GPU_Host).
+void bonsai_cuda_load(const char *ptx);
+
 // The compute capability of device 0, as NVPTX names it -- "sm_120" -- or
 // an empty string when there is no driver or no device. What the compiler
 // follows when no `--gpu-arch` was given.
 const char *bonsai_cuda_device_arch(void);
 
 // Device memory, for runtime/bonsai_buffer.h: `bytes` of it (never zero),
-// its release, and the two copies. Each aborts with the driver's reason on
-// failure, as the launch does.
+// its release, and the two copies. Allocation and release are the
+// stream-ordered `cuMemAllocAsync`/`cuMemFreeAsync` on the null stream,
+// which take memory from and return it to the device's pool rather than
+// synchronizing the device as the plain calls do. Each aborts with the
+// driver's reason on failure, as the launch does.
 void *bonsai_cuda_malloc(uint64_t bytes);
 void bonsai_cuda_free(void *device);
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
@@ -111,8 +119,8 @@ struct Driver {
     CUresult (*cuCtxSetCurrent)(CUcontext);
     CUresult (*cuModuleLoadData)(CUmodule *, const void *);
     CUresult (*cuModuleGetFunction)(CUfunction *, CUmodule, const char *);
-    CUresult (*cuMemAlloc)(CUdeviceptr *, size_t);
-    CUresult (*cuMemFree)(CUdeviceptr);
+    CUresult (*cuMemAllocAsync)(CUdeviceptr *, size_t, CUstream);
+    CUresult (*cuMemFreeAsync)(CUdeviceptr, CUstream);
     CUresult (*cuMemcpyHtoD)(CUdeviceptr, const void *, size_t);
     CUresult (*cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
     CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned,
@@ -159,8 +167,8 @@ inline Driver &driver() {
         load(d.cuCtxSetCurrent, "cuCtxSetCurrent");
         load(d.cuModuleLoadData, "cuModuleLoadData");
         load(d.cuModuleGetFunction, "cuModuleGetFunction");
-        load(d.cuMemAlloc, "cuMemAlloc_v2");
-        load(d.cuMemFree, "cuMemFree_v2");
+        load(d.cuMemAllocAsync, "cuMemAllocAsync");
+        load(d.cuMemFreeAsync, "cuMemFreeAsync");
         load(d.cuMemcpyHtoD, "cuMemcpyHtoD_v2");
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
         load(d.cuLaunchKernel, "cuLaunchKernel");
@@ -243,6 +251,24 @@ inline Driver &ready(const char *what) {
     return d;
 }
 
+// The module for `ptx`, loaded on first use and kept. Keyed by the address
+// of the text, which is a constant of the program that embeds it and so the
+// same for every launch from that program. The caller holds the mutex.
+inline CUmodule module_of(Driver &d, const char *ptx) {
+    if (const auto it = d.modules.find(ptx); it != d.modules.end()) {
+        return it->second;
+    }
+    CUmodule module = nullptr;
+    check(d, d.cuModuleLoadData(&module, ptx), "cuModuleLoadData");
+    d.modules[ptx] = module;
+    return module;
+}
+
+// The null stream: every allocation, release and launch here is ordered on
+// it, so a kernel sees the memory allocated before it and a release waits
+// for the kernel that used the memory.
+constexpr CUstream null_stream = nullptr;
+
 } // namespace bonsai_cuda_detail
 
 extern "C" {
@@ -252,13 +278,22 @@ __attribute__((used)) inline const char *bonsai_cuda_device_arch(void) {
     return d.ok ? d.arch.c_str() : "";
 }
 
+__attribute__((used)) inline void bonsai_cuda_load(const char *ptx) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("load the PTX module");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    module_of(d, ptx);
+}
+
 __attribute__((used)) inline void *bonsai_cuda_malloc(uint64_t bytes) {
     using namespace bonsai_cuda_detail;
     Driver &d = ready("allocate device memory");
     std::lock_guard<std::mutex> lock(d.mutex);
     CUdeviceptr device = 0;
-    check(d, d.cuMemAlloc(&device, size_t(bytes == 0 ? 1 : bytes)),
-          "cuMemAlloc(" + std::to_string(bytes) + ")");
+    check(d,
+          d.cuMemAllocAsync(&device, size_t(bytes == 0 ? 1 : bytes),
+                            null_stream),
+          "cuMemAllocAsync(" + std::to_string(bytes) + ")");
     return reinterpret_cast<void *>(device);
 }
 
@@ -266,7 +301,9 @@ __attribute__((used)) inline void bonsai_cuda_free(void *device) {
     using namespace bonsai_cuda_detail;
     Driver &d = ready("free device memory");
     std::lock_guard<std::mutex> lock(d.mutex);
-    check(d, d.cuMemFree(reinterpret_cast<CUdeviceptr>(device)), "cuMemFree");
+    check(d,
+          d.cuMemFreeAsync(reinterpret_cast<CUdeviceptr>(device), null_stream),
+          "cuMemFreeAsync");
 }
 
 __attribute__((used)) inline void
@@ -302,16 +339,7 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
     // them.
     std::lock_guard<std::mutex> lock(d.mutex);
 
-    // The module, loaded on first use. Keyed by the address of the text,
-    // which is a constant of the program that embeds it and so the same for
-    // every launch from that program.
-    CUmodule module = nullptr;
-    if (const auto it = d.modules.find(ptx); it != d.modules.end()) {
-        module = it->second;
-    } else {
-        check(d, d.cuModuleLoadData(&module, ptx), "cuModuleLoadData");
-        d.modules[ptx] = module;
-    }
+    CUmodule module = module_of(d, ptx);
     CUfunction function = nullptr;
     check(d, d.cuModuleGetFunction(&function, module, kernel),
           "cuModuleGetFunction(" + std::string(kernel) + ")");
@@ -337,10 +365,10 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                  " of " + std::to_string(nparams));
         }
         // A zero-length array is a valid pointer with nothing behind it;
-        // cuMemAlloc of zero bytes is an error, so it is a byte.
+        // an allocation of zero bytes is an error, so it is a byte.
         const size_t bytes = buffer.bytes == 0 ? 1 : size_t(buffer.bytes);
-        check(d, d.cuMemAlloc(&device_memory[b], bytes),
-              "cuMemAlloc(" + std::to_string(bytes) + ")");
+        check(d, d.cuMemAllocAsync(&device_memory[b], bytes, null_stream),
+              "cuMemAllocAsync(" + std::to_string(bytes) + ")");
         if (buffer.bytes != 0) {
             check(d,
                   d.cuMemcpyHtoD(device_memory[b], buffer.host,
@@ -367,7 +395,8 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                                  size_t(buffer.bytes)),
                   "cuMemcpyDtoH");
         }
-        check(d, d.cuMemFree(device_memory[b]), "cuMemFree");
+        check(d, d.cuMemFreeAsync(device_memory[b], null_stream),
+              "cuMemFreeAsync");
         *static_cast<void **>(params[buffer.param]) = buffer.host;
     }
 }

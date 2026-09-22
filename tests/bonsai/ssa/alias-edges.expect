@@ -27,15 +27,14 @@ func [[noinline]] sample(x : f32) -> PS {
 
 func through_arm(x : f32, n : i32) -> f32 {
   beta : mut f32
-  beta = 1f
   w : mut f32x3
-  let @0 = build<f32x3>(0f, 0f, 1f) in
-  w = @0
   depth : mut i32
+  let @0 = build<f32x3>(0f, 0f, 1f) in
+  beta = 1f
+  w = @0
   depth = 0
   while ((*depth) < n) {
-    let @3 = (*depth) in
-    let @4 = cast<f32>(@3) in
+    let @4 = cast<f32>((*depth)) in
     let @5 = x + @4 in
     let @6 = sample(@5) in
     let ps = @6 in
@@ -50,25 +49,19 @@ func through_arm(x : f32, n : i32) -> f32 {
     } else {
       let _t28 = ps in
       let _t3 = _t28.pdf in
-      let @14 = (*beta) in
       let @15 = ps.p in
-      let @16 = @14 * @15 in
+      let @16 = (*beta) * @15 in
       let @17 = @16 / _t3 in
-      beta = @17
       let @18 = _t28.wi in
-      w = @18
-      let @19 = (*beta) in
-      let @20 = @19 + _t3 in
+      let @20 = @17 + _t3 in
       beta = @20
+      w = @18
     }
-    let @21 = (*depth) in
-    let @22 = @21 + 1 in
+    let @22 = (*depth) + 1 in
     depth = @22
   }
-  let @23 = (*beta) in
-  let @24 = (*w) in
-  let @25 = @24[2u] in
-  let @26 = @23 * @25 in
+  let @25 = (*w)[2u] in
+  let @26 = (*beta) * @25 in
   return @26
 }
 
@@ -96,14 +89,13 @@ func [[noinline]] through_call(x : f32) -> f32 {
 }
 
 func through_storage(x : f32, n : i32) -> f32 {
-  _t42 : mut f32x3
   acc : mut f32
-  acc = 0f
   depth : mut i32
+  _t42 : mut f32x3
+  acc = 0f
   depth = 0
   while ((*depth) < n) {
-    let @2 = (*depth) in
-    let @3 = cast<f32>(@2) in
+    let @3 = cast<f32>((*depth)) in
     let @4 = x + @3 in
     let @5 = sample(@4) in
     let _t39 = @5 in
@@ -115,31 +107,28 @@ func through_storage(x : f32, n : i32) -> f32 {
     let @11 = @10 < 0.5f in
     if (@11) {
       _t42 = u
-      let @12 = (*acc) in
       let @13 = (*_t42)[0u] in
       let @14 = sample(@13) in
+      let @12 = (*acc) in
       let @15 = @14.p in
       let @16 = @12 + @15 in
       acc = @16
     } else {
       _t42 = u
     }
-    let @17 = (*acc) in
     let @18 = (*_t42)[0u] in
     let @19 = u[1u] in
     let @20 = @18 * @19 in
-    let @21 = @17 + @20 in
+    let @21 = (*acc) + @20 in
     let @22 = u[2u] in
     let @23 = sample(@22) in
     let @24 = @23.pdf in
     let @25 = @21 + @24 in
+    let @27 = (*depth) + 1 in
     acc = @25
-    let @26 = (*depth) in
-    let @27 = @26 + 1 in
     depth = @27
   }
-  let @28 = (*acc) in
-  return @28
+  return (*acc)
 }
 
 

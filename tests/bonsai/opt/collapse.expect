@@ -83,14 +83,11 @@ func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
     let @12 = i_c % @7 in
     let _i0 = @11 in
     let _i1 = @12 in
-    f$r0 : mut i32
     print(_i0, _i1)
     let @0 = _i0 + _i1 in
-    f$r0 = @0
-    let @1 = (*f$r0) in
     let @2 = _i0 * h in
     let @3 = @2 + _i1 in
-    _alloc3[@3] = @1
+    _alloc3[@3] = @0
     continue
   }
   let @5 = reinterpret_cast<i32[h][w]>(_alloc3) in
@@ -128,12 +125,9 @@ func _traverse_array4(w : i32) -> i32[w] {
     let ii = @10 in
     let @3 = io + ii in
     let _i0 = @3 in
-    f$r1 : mut i32
     print(_i0, 1)
     let @0 = _i0 + 1 in
-    f$r1 = @0
-    let @1 = (*f$r1) in
-    _alloc4[_i0] = @1
+    _alloc4[_i0] = @0
     continue
   }
   return _alloc4

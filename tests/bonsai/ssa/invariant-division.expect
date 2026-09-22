@@ -1,4 +1,6 @@
 func digits(n : u64, b : u64) -> u64 {
+  v : mut u64
+  r : mut u64
   let @16 = div_multiplier(b) in
   let @17 = b - 1u in
   let @18 = clz(@17) in
@@ -6,34 +8,28 @@ func digits(n : u64, b : u64) -> u64 {
   let @20 = min(@19, 1u) in
   let @21 = max(@19, 1u) in
   let @22 = @21 - 1u in
-  v : mut u64
-  v = n
-  r : mut u64
-  r = 0u
   let @27 = mulhi(@16, 18446744073709551615u) in
   let @28 = 18446744073709551615u - @27 in
   let @29 = @28 >> @20 in
   let @30 = @27 + @29 in
   let @0 = @30 >> @22 in
   let limit = @0 - b in
+  v = n
+  r = 0u
   while (((*v) != 0u) && ((*r) < limit)) {
-    let @7 = (*v) in
-    let @23 = mulhi(@16, @7) in
-    let @24 = @7 - @23 in
+    let @23 = mulhi(@16, (*v)) in
+    let @24 = (*v) - @23 in
     let @25 = @24 >> @20 in
     let @26 = @23 + @25 in
     let next = @26 >> @22 in
-    let @9 = (*r) in
-    let @10 = @9 * b in
-    let @11 = (*v) in
+    let @10 = (*r) * b in
     let @12 = next * b in
-    let @13 = @11 - @12 in
+    let @13 = (*v) - @12 in
     let @14 = @10 + @13 in
-    r = @14
     v = next
+    r = @14
   }
-  let @15 = (*r) in
-  return @15
+  return (*r)
 }
 
 func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
@@ -109,6 +105,8 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
 
 func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
   _t3 : mut u64
+  v : mut u64
+  r : mut u64
   let @0 = bases[i] in
   let b = cast<u64>(@0) in
   let @13 = div_multiplier(b) in
@@ -118,32 +116,28 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
   let @17 = min(@16, 1u) in
   let @18 = max(@16, 1u) in
   let @19 = @18 - 1u in
-  v : mut u64
-  v = n
-  r : mut u64
-  r = 0u
   _t3 = b
+  v = n
+  r = 0u
   while ((*v) != 0u) {
-    let @4 = (*v) in
-    let @20 = mulhi(@13, @4) in
-    let @21 = @4 - @20 in
+    let @20 = mulhi(@13, (*v)) in
+    let @21 = (*v) - @20 in
     let @22 = @21 >> @17 in
     let @23 = @20 + @22 in
     let next = @23 >> @19 in
-    let @6 = (*r) in
-    let @7 = @6 * b in
-    let @8 = (*v) in
+    let @7 = (*r) * b in
     let @9 = next * b in
-    let @10 = @8 - @9 in
+    let @10 = (*v) - @9 in
     let @11 = @7 + @10 in
-    r = @11
     v = next
+    r = @11
   }
-  let @12 = (*r) in
-  return @12
+  return (*r)
 }
 
 func digits32(n : u32, b : u32) -> u32 {
+  v : mut u32
+  r : mut u32
   let @11 = div_multiplier(b) in
   let @12 = b - 1u in
   let @13 = clz(@12) in
@@ -151,31 +145,27 @@ func digits32(n : u32, b : u32) -> u32 {
   let @15 = min(@14, 1u) in
   let @16 = max(@14, 1u) in
   let @17 = @16 - 1u in
-  v : mut u32
   v = n
-  r : mut u32
   r = 0u
   while ((*v) != 0u) {
-    let @2 = (*v) in
-    let @18 = mulhi(@11, @2) in
-    let @19 = @2 - @18 in
+    let @18 = mulhi(@11, (*v)) in
+    let @19 = (*v) - @18 in
     let @20 = @19 >> @15 in
     let @21 = @18 + @20 in
     let next = @21 >> @17 in
-    let @4 = (*r) in
-    let @5 = @4 * b in
-    let @6 = (*v) in
+    let @5 = (*r) * b in
     let @7 = next * b in
-    let @8 = @6 - @7 in
+    let @8 = (*v) - @7 in
     let @9 = @5 + @8 in
-    r = @9
     v = next
+    r = @9
   }
-  let @10 = (*r) in
-  return @10
+  return (*r)
 }
 
 func permuted_digits(n : u64, b : u64) -> u64 {
+  v : mut u64
+  r : mut u64
   let @18 = div_multiplier(b) in
   let @19 = b - 1u in
   let @20 = clz(@19) in
@@ -183,55 +173,44 @@ func permuted_digits(n : u64, b : u64) -> u64 {
   let @22 = min(@21, 1u) in
   let @23 = max(@21, 1u) in
   let @24 = @23 - 1u in
-  v : mut u64
-  v = n
-  r : mut u64
-  r = 0u
   let @29 = mulhi(@18, 18446744073709551615u) in
   let @30 = 18446744073709551615u - @29 in
   let @31 = @30 >> @22 in
   let @32 = @29 + @31 in
   let @0 = @32 >> @24 in
   let limit = @0 - b in
+  v = n
+  r = 0u
   while (((*v) != 0u) && ((*r) < limit)) {
-    let @7 = (*v) in
-    let @25 = mulhi(@18, @7) in
-    let @26 = @7 - @25 in
+    let @25 = mulhi(@18, (*v)) in
+    let @26 = (*v) - @25 in
     let @27 = @26 >> @22 in
     let @28 = @25 + @27 in
     let next = @28 >> @24 in
-    let @9 = (*r) in
-    let @10 = @9 * b in
-    let @11 = (*v) in
+    let @10 = (*r) * b in
     let @12 = next * b in
-    let @13 = @11 - @12 in
-    let @14 = (*r) in
-    let @15 = scramble(@13, @14) in
+    let @13 = (*v) - @12 in
+    let @15 = scramble(@13, (*r)) in
     let @16 = @10 + @15 in
-    r = @16
     v = next
+    r = @16
   }
-  let @17 = (*r) in
-  return @17
+  return (*r)
 }
 
 func quarters(n : u64) -> u64 {
   total : mut u64
-  total = 0u
   v : mut u64
+  total = 0u
   v = n
   while ((*v) != 0u) {
-    let @2 = (*total) in
-    let @3 = (*v) in
-    let @4 = @3 & 3u in
-    let @5 = @2 + @4 in
+    let @4 = (*v) & 3u in
+    let @5 = (*total) + @4 in
+    let @7 = (*v) >> 2u in
     total = @5
-    let @6 = (*v) in
-    let @7 = @6 >> 2u in
     v = @7
   }
-  let @8 = (*total) in
-  return @8
+  return (*total)
 }
 
 func [[export]] run(out : mut u64[8], bases : u64[8]) -> void {

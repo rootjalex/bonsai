@@ -65,8 +65,10 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     using CodeGen_CPU::create_alloca_at_entry;
     using CodeGen_CPU::exported_buffers;
     using CodeGen_CPU::i64_t;
+    using CodeGen_CPU::layout_descriptors;
     using CodeGen_CPU::module;
     using CodeGen_CPU::trip_count;
+    using CodeGen_CPU::unwrap_layout;
     using CodeGen_CPU::void_t;
 
     void emit_gpu_launch(CodeGen_LLVM::BoundLoop &loop);

@@ -1,0 +1,41 @@
+//! flags: -p ssa -b ptx
+
+// Random numbers drawn inside loops bound to the GPU. The generator's state
+// is thread-specific: the function's own state is a slot on the host's stack,
+// which the kernel cannot reach and which every thread would otherwise share.
+// So the state is not a kernel parameter; a thread of the flat loop seeds its
+// own from its index in the kernel's prologue, and a thread of a block from
+// the block's state -- itself seeded from the block's number -- and its own
+// number, so that no two threads of the launch draw the same sequence.
+
+func noise(out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = rand();
+    }
+    return;
+}
+
+func grid(out : mut array[f32, 12]) -> void {
+    parfor b in 0:3 {
+        parfor t in 0:4 {
+            out[b * 4 + t] = rand();
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[f32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    noise(a);
+    print(a);
+    g : mut array[f32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    grid(g);
+    print(g);
+    return 0;
+}
+
+schedule {
+    noise.bind(i, GPUThread);
+    grid.bind(b, GPUBlock);
+    grid.bind(t, GPUThread);
+}

@@ -2,26 +2,25 @@ func visit(node : i32, out : mut i32[16], depth : i32) -> void {
   node!top : mut i32
   depth!top : mut i32
   !live : mut bool
+  !count : mut u32
   !stack : mut i32[64]
   !stack0 : mut i32[64]
-  !count : mut u32
-  !count = 0u
   node!top = node
   depth!top = depth
   !live = true
+  !count = 0u
   while ((*!live)) {
     let @0 = (*depth!top) <= 0 in
     if (@0) {
-      let @5 = (*!count) in
-      let @6 = @5 != 0u in
+      let @6 = (*!count) != 0u in
       if (@6) {
-        let @7 = @5 - 1u in
-        !count = @7
+        let @7 = (*!count) - 1u in
         let @8 = !stack[@7] in
         let @9 = !stack0[@7] in
         node!top = @8
         depth!top = @9
         !live = true
+        !count = @7
       } else {
         !live = false
       }
@@ -29,15 +28,14 @@ func visit(node : i32, out : mut i32[16], depth : i32) -> void {
       out[(*node!top)] = (*depth!top)
       let _t0 = (*node!top) << 1 in
       let _t1 = (*depth!top) - 1 in
-      let @10 = (*!count) in
-      !stack[@10] = _t0
-      !stack0[@10] = _t1
-      let @13 = @10 + 1u in
-      !count = @13
+      !stack[(*!count)] = _t0
+      !stack0[(*!count)] = _t1
+      let @13 = (*!count) + 1u in
       let @4 = _t0 + 1 in
       node!top = @4
       depth!top = _t1
       !live = true
+      !count = @13
     }
   }
   return

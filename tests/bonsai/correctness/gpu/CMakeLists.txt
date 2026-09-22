@@ -35,7 +35,9 @@ add_bonsai_tests(
     device-function.bonsai
     dynamic-size.bonsai
     math.bonsai
+    mut-bound.bonsai
     print.bonsai
+    rand.bonsai
     struct-capture.bonsai
     threads.bonsai
 )

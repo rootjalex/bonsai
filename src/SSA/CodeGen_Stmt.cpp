@@ -592,6 +592,12 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         break;
     }
     case Instruction::Op::Intrinsic: {
+        // `rand` carries the generator's state as its last operand in SSA
+        // (see SSA/Convert.cpp); the expression form names it instead.
+        if (instr.intrinsic == ir::Intrinsic::rand) {
+            internal_assert(!args.empty()) << "rand without its state";
+            args.pop_back();
+        }
         value = ir::Intrinsic::make(instr.intrinsic, std::move(args));
         break;
     }

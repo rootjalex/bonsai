@@ -19,15 +19,23 @@ namespace {
 _tree_layout0 build_tree(std::vector<float> values) {
     constexpr uint64_t MAX_LEAF_COUNT = 4;
 
+    // The layout's arrays reach the program as buffer descriptors
+    // (runtime/bonsai_buffer.h), which have to outlive the tree.
     _tree_layout0 tree;
     tree.pCount = values.size();
-    tree.prims = static_cast<float *>(std::malloc(sizeof(float) * tree.pCount));
+    float *prims = static_cast<float *>(std::malloc(sizeof(float) * tree.pCount));
     std::sort(values.begin(), values.end());
-    std::copy(values.begin(), values.end(), tree.prims);
+    std::copy(values.begin(), values.end(), prims);
+    static bonsai_buffer prims_buffer;
+    prims_buffer = bonsai_buffer_wrap(prims, sizeof(float) * tree.pCount);
+    tree.prims = &prims_buffer;
 
     tree.nCount = 2 * tree.pCount - 1;
-    tree.group0_index = static_cast<_tree_layout1 *>(
+    _tree_layout1 *nodes = static_cast<_tree_layout1 *>(
         std::malloc(sizeof(_tree_layout1) * tree.nCount));
+    static bonsai_buffer nodes_buffer;
+    nodes_buffer = bonsai_buffer_wrap(nodes, sizeof(_tree_layout1) * tree.nCount);
+    tree.group0_index = &nodes_buffer;
 
     uint64_t next_node = 0;
     std::function<uint64_t(uint64_t, uint64_t)> handle_range =
@@ -36,21 +44,21 @@ _tree_layout0 build_tree(std::vector<float> values) {
         const uint64_t this_index = next_node++;
         assert(this_index < tree.nCount);
 
-        tree.group0_index[this_index].low = tree.prims[low];
-        tree.group0_index[this_index].high = tree.prims[high - 1];
+        nodes[this_index].low = prims[low];
+        nodes[this_index].high = prims[high - 1];
 
         if (count <= MAX_LEAF_COUNT) {
-            tree.group0_index[this_index].nPrims = count;
+            nodes[this_index].nPrims = count;
             reinterpret_cast<_tree_layout3 *>(
-                &tree.group0_index[this_index].split0on_nPrims)
+                &nodes[this_index].split0on_nPrims)
                 ->pOffset = low;
         } else {
-            tree.group0_index[this_index].nPrims = 0;
+            nodes[this_index].nPrims = 0;
             const uint64_t mid = low + count / 2;
             handle_range(low, mid);
             const uint64_t right = handle_range(mid, high);
             reinterpret_cast<_tree_layout2 *>(
-                &tree.group0_index[this_index].split0on_nPrims)
+                &nodes[this_index].split0on_nPrims)
                 ->offset = right - this_index;
         }
         return this_index;
@@ -125,7 +133,7 @@ int main() {
 
     std::cout << (failures == 0 ? "all queries match a linear scan\n"
                                 : "FAILED\n");
-    std::free(tree.prims);
-    std::free(tree.group0_index);
+    std::free(tree.prims->host);
+    std::free(tree.group0_index->host);
     return failures == 0 ? 0 : 1;
 }

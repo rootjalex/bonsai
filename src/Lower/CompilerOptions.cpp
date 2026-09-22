@@ -32,7 +32,6 @@ void verify_options(const CompilerOptions &options) {
     case BackendTarget::ASM:
     case BackendTarget::CPP:
     case BackendTarget::CPPX:
-    case BackendTarget::CUDA:
     case BackendTarget::PTX:
         internal_assert(!options.is_execute)
             << "backend: " << backend_to_string(backend)
@@ -50,8 +49,6 @@ std::string backend_to_string(BackendTarget target) {
         return "cpp";
     case BackendTarget::CPPX:
         return "cppx";
-    case BackendTarget::CUDA:
-        return "cuda";
     case BackendTarget::LLVM:
         return "llvm";
     case BackendTarget::PTX:
@@ -66,8 +63,6 @@ BackendTarget string_to_backend(std::string_view in) {
         return BackendTarget::ASM;
     if (in == "cpp")
         return BackendTarget::CPP;
-    if (in == "cuda")
-        return BackendTarget::CUDA;
     if (in == "llvm")
         return BackendTarget::LLVM;
     if (in == "ptx")

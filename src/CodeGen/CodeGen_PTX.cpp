@@ -4,6 +4,7 @@
 #include "IR/Analysis.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
+#include "Lower/Random.h"
 #include "SSA/Analysis.h"
 
 #include "bonsai_cuda.h"
@@ -288,7 +289,8 @@ void CodeGen_PTX::compile_reachable(const std::vector<std::string> &roots) {
 }
 
 CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
-                                            const Terminator::ParFor &loop) {
+                                            const Terminator::ParFor &loop,
+                                            const std::vector<bool> &by_value) {
     internal_assert(loop.binding.has_value() &&
                     (*loop.binding == Resource::GPUBlock ||
                      *loop.binding == Resource::GPUThread))
@@ -310,11 +312,26 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
     // Everything the body reaches, first, so that the body's calls resolve.
     compile_reachable(callees(ir::ssa::Cfg(host, loop.body.name).blocks()));
 
-    // The kernel: void(begin, stride, captures...), every argument by value.
+    // The kernel: void(begin, stride, captures...), every argument by value
+    // -- a capture that is a pointer to an unwritten struct as the struct.
+    // The random generator's state, if the body reads one, is not a
+    // parameter: each thread seeds its own (see emit_rng_setup(index)).
+    const std::vector<size_t> captures = launch_captures(*body_head);
+    internal_assert(by_value.size() == captures.size())
+        << "add_kernel: " << by_value.size() << " by-value flags for "
+        << captures.size() << " captures";
     std::vector<llvm::Type *> params{codegen_type(loop.start->get_type()),
                                      codegen_type(loop.stride->get_type())};
-    for (size_t i = 1; i < body_head->args.size(); i++) {
-        params.push_back(codegen_type(body_head->args[i].type));
+    for (size_t k = 0; k < captures.size(); k++) {
+        const Type &type = body_head->args[captures[k]].type;
+        if (by_value[k]) {
+            const Ptr_t *ptr_t = type.as<Ptr_t>();
+            internal_assert(ptr_t != nullptr)
+                << "a by-value capture that is not a pointer: " << type;
+            params.push_back(codegen_type(ptr_t->etype));
+        } else {
+            params.push_back(codegen_type(type));
+        }
     }
     const llvm::DataLayout &dl = module->getDataLayout();
     for (llvm::Type *t : params) {
@@ -342,10 +359,24 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
         llvm::Value *index = builder->CreateAdd(
             begin, builder->CreateMul(n, stride), body_head->args[0].name);
         bound.bind(body_head->args[0].name, index);
-        for (size_t i = 1; i < body_head->args.size(); i++) {
-            llvm::Argument *arg = fn->getArg(unsigned(i + 1));
-            arg->setName(body_head->args[i].name);
-            bound.bind(body_head->args[i].name, arg);
+        for (size_t k = 0; k < captures.size(); k++) {
+            llvm::Argument *arg = fn->getArg(unsigned(k + 2));
+            const std::string &name = body_head->args[captures[k]].name;
+            if (by_value[k]) {
+                // The struct came as a parameter; the body wants its
+                // address, so it gets a local holding the value.
+                arg->setName(name + "_value");
+                llvm::Value *local =
+                    create_alloca_at_entry(arg->getType(), name);
+                builder->CreateStore(arg, local);
+                bound.bind(name, local);
+                continue;
+            }
+            arg->setName(name);
+            bound.bind(name, arg);
+        }
+        if (seeds_rng(*body_head)) {
+            emit_rng_setup(index, /*outer_state=*/nullptr);
         }
         // A block loop's body with a thread loop in it is run by every
         // thread of the block, and its effects are made once; see
@@ -442,9 +473,21 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
         llvm::Value *index = builder->CreateAdd(
             begin, builder->CreateMul(n, stride), body_head.args[0].name);
         loop.bind(body_head.args[0].name, index);
-        for (size_t i = 1; i < body_head.args.size(); i++) {
+        for (const size_t i : launch_captures(body_head)) {
             loop.bind(body_head.args[i].name,
                       codegen_expr(loop.operand(p.body.args[i - 1])));
+        }
+        if (seeds_rng(body_head)) {
+            // The thread's own state, from the block's -- which the block
+            // body has, seeded from the block's number, since the thread
+            // loop reading the state is what made the block body capture it
+            // -- and the thread's number.
+            const auto block_state = frames.from_frames(lower::rng_state_name);
+            internal_assert(block_state.has_value())
+                << "the thread loop over " << p.index
+                << " draws random numbers, but the block loop around it has "
+                << "no generator state";
+            emit_rng_setup(index, *block_state);
         }
         llvm::BasicBlock *body_bb =
             llvm::BasicBlock::Create(*context, p.body.name, current_function);

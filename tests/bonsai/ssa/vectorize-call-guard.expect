@@ -11,23 +11,20 @@ func [[noinline]] scale$gang8_v0$masked(x : f32x8, k : f32, !mask : boolx8) -> f
 
 func weigh(x : f32) -> f32 {
   acc : mut f32
-  acc = 0f
   let @0 = 2f < x in
   if (@0) {
     let @1 = scale(x, 3f) in
-    acc = @1
-    let @2 = (*acc) in
-    let @3 = 20f < @2 in
+    let @3 = 20f < @1 in
     if (@3) {
-      let @4 = (*acc) in
-      return @4
+      return @1
+    } else {
+      acc = @1
     }
   } else {
     let @5 = scale(x, 5f) in
     acc = @5
   }
-  let @6 = (*acc) in
-  let @7 = @6 + 1f in
+  let @7 = (*acc) + 1f in
   return @7
 }
 

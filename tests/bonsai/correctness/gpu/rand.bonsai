@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm -e
+
+// Random numbers drawn inside loops bound to the GPU, run there. Each thread
+// seeds its own generator state from its index (see backends/ptx/rand.bonsai),
+// which is a fixed function of the indices rather than of anything the host
+// drew, so the numbers are the same on every run and every GPU: the golden
+// is what they are, and shows every thread drawing a number of its own.
+
+func noise(out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = rand();
+    }
+    return;
+}
+
+func grid(out : mut array[f32, 12]) -> void {
+    parfor b in 0:3 {
+        parfor t in 0:4 {
+            out[b * 4 + t] = rand();
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[f32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    noise(a);
+    print(a);
+    g : mut array[f32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    grid(g);
+    print(g);
+    return 0;
+}
+
+schedule {
+    noise.bind(i, GPUThread);
+    grid.bind(b, GPUBlock);
+    grid.bind(t, GPUThread);
+}

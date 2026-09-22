@@ -103,13 +103,13 @@ weigh_all:
 define float @weigh_one(float noundef %x) local_unnamed_addr #0 {
 weigh_one:
   %0 = fcmp olt float %x, 0.000000e+00
-  br i1 %0, label %"!case_11", label %"!else_1"
+  br i1 %0, label %"!case_17", label %"!else_1"
 
 "!else_1":                                        ; preds = %weigh_one
   %1 = fcmp olt float %x, 4.000000e+00
-  br i1 %1, label %"!merge_10", label %"!case_13"
+  br i1 %1, label %"!case_18", label %"!case_19"
 
-"!case_13":                                       ; preds = %"!else_1"
+"!case_19":                                       ; preds = %"!else_1"
   %2 = fmul float %x, 2.500000e-01
   %3 = fmul float %x, 6.000000e+00
   %4 = fmul float %2, 6.000000e+00
@@ -123,7 +123,7 @@ weigh_one:
   %12 = fcmp olt float %11, %8
   %13 = and i1 %10, %12
   %14 = fadd float %5, 1.000000e+00
-  %"p$i1084.1190" = select i1 %13, float %14, float %5
+  %"p$i102470" = select i1 %13, float %14, float %5
   %15 = fsub float %9, %11
   %16 = fmul float %15, 3.000000e+00
   %17 = fmul float %2, 5.000000e-01
@@ -131,38 +131,38 @@ weigh_one:
   %19 = fsub float %18, %x
   br label %"!merge_16"
 
-"!case_11":                                       ; preds = %weigh_one
-  %20 = fsub float 0.000000e+00, %x
-  %21 = fmul nnan float %20, 6.000000e+00
-  %22 = fmul nnan float %x, 5.000000e-01
-  %23 = fmul float %22, %22
-  %24 = fadd float %23, 1.000000e+00
-  %25 = fmul float %20, %20
+"!case_18":                                       ; preds = %"!else_1"
+  %20 = fmul nnan float %x, 5.000000e-01
+  %21 = fmul nnan float %x, 2.000000e+00
+  %22 = fmul nnan float %20, 2.000000e+00
+  %23 = fadd float %21, %22
+  %24 = fmul float %20, %20
+  %25 = fmul float %x, %x
   %26 = fcmp olt float %24, %25
-  %27 = fadd float %21, 1.000000e+00
-  %"p$i1084.1197" = select i1 %26, float %27, float %21
-  %28 = fmul nnan float %25, 3.000000e+00
+  %27 = fcmp ogt float %24, 1.000000e+00
+  %28 = and i1 %26, %27
+  %29 = fadd float %23, 1.000000e+00
+  %"p$i1024" = select i1 %28, float %29, float %23
+  %30 = fmul nnan float %x, %20
   br label %"!merge_16"
 
-"!merge_10":                                      ; preds = %"!else_1"
-  %29 = fmul nnan float %x, 5.000000e-01
-  %30 = fmul nnan float %x, 2.000000e+00
-  %31 = fmul nnan float %29, 2.000000e+00
-  %32 = fadd float %30, %31
-  %33 = fmul float %29, %29
-  %34 = fmul float %x, %x
-  %35 = fcmp olt float %33, %34
-  %36 = fcmp ogt float %33, 1.000000e+00
-  %37 = and i1 %35, %36
+"!case_17":                                       ; preds = %weigh_one
+  %31 = fsub float 0.000000e+00, %x
+  %32 = fmul nnan float %31, 6.000000e+00
+  %33 = fmul nnan float %x, 5.000000e-01
+  %34 = fmul float %33, %33
+  %35 = fadd float %34, 1.000000e+00
+  %36 = fmul float %31, %31
+  %37 = fcmp olt float %35, %36
   %38 = fadd float %32, 1.000000e+00
-  %"p$i1084.1205" = select i1 %37, float %38, float %32
-  %39 = fmul nnan float %x, %29
+  %"p$i102479" = select i1 %37, float %38, float %32
+  %39 = fmul nnan float %36, 3.000000e+00
   br label %"!merge_16"
 
-"!merge_16":                                      ; preds = %"!case_13", %"!merge_10", %"!case_11"
-  %"p$i1084.1189" = phi float [ %"p$i1084.1197", %"!case_11" ], [ %"p$i1084.1205", %"!merge_10" ], [ %"p$i1084.1190", %"!case_13" ]
-  %"a$i1678.sroa.speculated" = phi float [ %28, %"!case_11" ], [ %39, %"!merge_10" ], [ %19, %"!case_13" ]
-  %40 = fadd float %"p$i1084.1189", %"a$i1678.sroa.speculated"
+"!merge_16":                                      ; preds = %"!case_19", %"!case_18", %"!case_17"
+  %"p$i102472" = phi float [ %"p$i102479", %"!case_17" ], [ %"p$i1024", %"!case_18" ], [ %"p$i102470", %"!case_19" ]
+  %"a$i16" = phi float [ %39, %"!case_17" ], [ %30, %"!case_18" ], [ %19, %"!case_19" ]
+  %40 = fadd float %"p$i102472", %"a$i16"
   ret float %40
 }
 

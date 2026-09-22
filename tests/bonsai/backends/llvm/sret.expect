@@ -9,37 +9,38 @@ define internal fastcc void @_unexported_count_up(ptr noalias nofree noundef non
 _unexported_count_up:
   %_ret = alloca %struct.F4, align 16
   %0 = icmp eq i32 %n, 0
-  %acc.elt = extractvalue %struct.F4 %acc, 0
   br i1 %0, label %"!then_0", label %"!merge_1"
 
 common.ret:                                       ; preds = %"!merge_1", %"!then_0"
-  %1 = phi <4 x float> [ %5, %"!then_0" ], [ %13, %"!merge_1" ]
+  %1 = phi <4 x float> [ %5, %"!then_0" ], [ %17, %"!merge_1" ]
   store <4 x float> %1, ptr %_sret, align 4
   ret void
 
 "!then_0":                                        ; preds = %_unexported_count_up
-  %acc.elt11 = extractvalue %struct.F4 %acc, 1
-  %acc.elt13 = extractvalue %struct.F4 %acc, 2
-  %acc.elt15 = extractvalue %struct.F4 %acc, 3
+  %acc.elt = extractvalue %struct.F4 %acc, 0
+  %acc.elt15 = extractvalue %struct.F4 %acc, 1
+  %acc.elt17 = extractvalue %struct.F4 %acc, 2
+  %acc.elt19 = extractvalue %struct.F4 %acc, 3
   %2 = insertelement <4 x float> poison, float %acc.elt, i64 0
-  %3 = insertelement <4 x float> %2, float %acc.elt11, i64 1
-  %4 = insertelement <4 x float> %3, float %acc.elt13, i64 2
-  %5 = insertelement <4 x float> %4, float %acc.elt15, i64 3
+  %3 = insertelement <4 x float> %2, float %acc.elt15, i64 1
+  %4 = insertelement <4 x float> %3, float %acc.elt17, i64 2
+  %5 = insertelement <4 x float> %4, float %acc.elt19, i64 3
   br label %common.ret
 
 "!merge_1":                                       ; preds = %_unexported_count_up
-  %6 = fadd float %acc.elt, 1.000000e+00
-  %acc.b = extractvalue %struct.F4 %acc, 1
-  %7 = fadd float %acc.b, 2.000000e+00
-  %acc.c = extractvalue %struct.F4 %acc, 2
-  %acc.d = extractvalue %struct.F4 %acc, 3
-  %8 = insertvalue %struct.F4 undef, float %6, 0
-  %9 = insertvalue %struct.F4 %8, float %7, 1
-  %10 = insertvalue %struct.F4 %9, float %acc.c, 2
-  %11 = insertvalue %struct.F4 %10, float %acc.d, 3
-  %12 = add i32 %n, -1
-  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %11, i32 %12)
-  %13 = load <4 x float>, ptr %_ret, align 16
+  %6 = extractvalue %struct.F4 %acc, 3
+  %7 = extractvalue %struct.F4 %acc, 2
+  %8 = extractvalue %struct.F4 %acc, 1
+  %9 = extractvalue %struct.F4 %acc, 0
+  %10 = fadd float %9, 1.000000e+00
+  %11 = fadd float %8, 2.000000e+00
+  %12 = insertvalue %struct.F4 undef, float %10, 0
+  %13 = insertvalue %struct.F4 %12, float %11, 1
+  %14 = insertvalue %struct.F4 %13, float %7, 2
+  %15 = insertvalue %struct.F4 %14, float %6, 3
+  %16 = add i32 %n, -1
+  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %15, i32 %16)
+  %17 = load <4 x float>, ptr %_ret, align 16
   br label %common.ret
 }
 

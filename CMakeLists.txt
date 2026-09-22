@@ -124,7 +124,6 @@ target_sources(
     PRIVATE
     src/CLI/CLI.cpp
     src/CodeGen/ASM.cpp
-    src/CodeGen/CodeGen_CUDA.cpp
     src/CodeGen/CodeGen_GPU_Host.cpp
     src/CodeGen/CodeGen_LLVM.cpp
     src/CodeGen/CodeGen_LLVM_SSA.cpp
@@ -209,6 +208,7 @@ target_sources(
     src/SSA/AnalyzeDivergence.cpp
     src/SSA/Bind.cpp
     src/SSA/CloneFunction.cpp
+    src/SSA/CloseBodies.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
     src/SSA/Contention.cpp
@@ -242,7 +242,6 @@ target_sources(
     include/Bonsai.h
     include/CLI/CLI.h
     include/CodeGen/ASM.h
-    include/CodeGen/CodeGen_CUDA.h
     include/CodeGen/CodeGen_GPU_Host.h
     include/CodeGen/CodeGen_LLVM.h
     include/CodeGen/CodeGen_PTX.h
@@ -328,6 +327,7 @@ target_sources(
     include/SSA/Analysis.h
     include/SSA/AnalyzeDivergence.h
     include/SSA/CloneFunction.h
+    include/SSA/CloseBodies.h
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
     include/SSA/Defer.h

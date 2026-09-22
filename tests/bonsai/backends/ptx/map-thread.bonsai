@@ -1,0 +1,24 @@
+//! flags: -p ssa -b ptx
+
+// A `map` whose loop is bound to GPUThread: the map's parfor is the kernel,
+// its function called per thread, and the print inside it the device's
+// vprintf. The result array is a heap allocation of the exported function,
+// on the host, which the launch copies over and back.
+
+func f(i : i32) {
+  print(i);
+  return i + 1;
+}
+
+func apply_function(n: i32, fs: array[i32, n]) -> array[i32, n] {
+  return map(f, fs);
+}
+
+func [[export]] entry(n: i32, a: array[i32, n]) {
+    b: array[i32, n] = apply_function(n, a);
+    return b;
+}
+
+schedule {
+    apply_function.bind(i0, GPUThread);
+}

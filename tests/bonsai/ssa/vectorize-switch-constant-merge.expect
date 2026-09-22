@@ -67,21 +67,9 @@ func never(b : Blob) -> bool {
 }
 
 func weigh(b : Blob, k : f32) -> f32 {
-  never$r6 : mut bool
   let @0 = b.tag in
-  switch (@0) {
-  case 0: { // Blob.Whole of never
-    never$r6 = false
-  } break;
-  case 1: { // Blob.Split of never
-    never$r6 = false
-  } break;
-  default: { // Blob.Wide of never
-    never$r6 = false
-  }
-  }
-  let @1 = (*never$r6) in
-  if (@1) {
+  let never$r6 = false in
+  if (never$r6) {
     return 0f
   } else {
     let @2 = k * 2f in

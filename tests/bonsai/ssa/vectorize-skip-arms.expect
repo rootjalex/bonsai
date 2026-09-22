@@ -42,7 +42,8 @@ func classify(x : f32) -> Shape {
 
 func weigh(x : f32) -> f32 {
   acc : mut f32
-  acc = 0f
+  classify$r6 : mut Shape
+  w : mut f32
   let @0 = 2f < x in
   if (@0) {
     let @1 = sqrt(x) in
@@ -67,7 +68,6 @@ func weigh(x : f32) -> f32 {
     let @13 = @12 - 1f in
     acc = @13
   }
-  classify$r6 : mut Shape
   let @14 = x < 0f in
   if (@14) {
     let @15 = build<[[packed]] u8x3>(0u, 0u, 0u) in
@@ -96,14 +96,10 @@ func weigh(x : f32) -> f32 {
       classify$r6 = @32
     }
   }
-  w : mut f32
-  w = 0f
-  let @33 = (*classify$r6) in
-  let @34 = @33.tag in
+  let @34 = (*classify$r6).tag in
   switch (@34) {
   case 0: { // Shape.Disc of weigh
-    let @35 = (*classify$r6) in
-    let @36 = @35.payload in
+    let @36 = (*classify$r6).payload in
     let @37 = @36[0u] in
     let r = reinterpret_cast<f32>(@37) in
     let @39 = r * r in
@@ -114,8 +110,7 @@ func weigh(x : f32) -> f32 {
     w = @43
   } break;
   case 1: { // Shape.Box of weigh
-    let @44 = (*classify$r6) in
-    let _t35 = @44.payload in
+    let _t35 = (*classify$r6).payload in
     let @46 = _t35[0u] in
     let wd = reinterpret_cast<f32>(@46) in
     let @48 = _t35[1u] in
@@ -128,8 +123,7 @@ func weigh(x : f32) -> f32 {
     w = @54
   } break;
   default: { // Shape.Ring of weigh
-    let @55 = (*classify$r6) in
-    let _t41 = @55.payload in
+    let _t41 = (*classify$r6).payload in
     let @57 = _t41[0u] in
     let ro = reinterpret_cast<f32>(@57) in
     let @59 = _t41[1u] in
@@ -142,9 +136,7 @@ func weigh(x : f32) -> f32 {
     w = @65
   }
   }
-  let @66 = (*acc) in
-  let @67 = (*w) in
-  let @68 = @66 + @67 in
+  let @68 = (*acc) + (*w) in
   return @68
 }
 

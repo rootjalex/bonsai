@@ -1,0 +1,32 @@
+//! flags: -p ssa -b ptx
+
+// A `mut` local settled before the loops -- by a branch, as a match on the
+// sampler settles the renderer's sample count -- is the thread loop's bound
+// and is read inside the body. The local is a slot on the host's stack until
+// SSA/PromoteAllocas.h makes it a value, so the kernel takes `n` as an
+// integer parameter, not a pointer the launch would have to copy, and the
+// launch reads the block size from the same value.
+func fill(out : mut array[i32, 12], kind : i32) -> void {
+    n : mut u32 = 3u;
+    if (kind == 1) {
+        n = 4u;
+    }
+    parfor b in 0u:3u {
+        parfor t in 0u:n {
+            out[b * n + t] = cast[[i32]](b * 10u + t);
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    fill(out, 1);
+    print(out);
+    return 0;
+}
+
+schedule {
+    fill.bind(b, GPUBlock);
+    fill.bind(t, GPUThread);
+}

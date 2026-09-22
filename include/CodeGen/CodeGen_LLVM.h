@@ -146,6 +146,29 @@ struct CodeGen_LLVM : public ir::Visitor {
     // under lower::rng_state_name, at the entry of the function being
     // compiled.
     void emit_rng_setup();
+    // The generator's state for one iteration of a loop bound to hardware
+    // threads, at the entry of the iteration's body. The state is
+    // thread-specific -- Lower/Random.cpp's rule, and what the parallel
+    // runtime and the GPU both need, since the function's own state is one
+    // stack slot that every thread would otherwise share, and on the device
+    // is not even addressable -- so each iteration makes its own, seeded
+    // from its `index` as Halide seeds random_int from the loop variables:
+    // rng32(index) for the first lane and the lanes after it in order, and,
+    // when the loop is inside another bound loop whose state is
+    // `outer_state`, rng32(outer's first lane + index), so that the threads
+    // of two blocks with the same thread number draw different numbers.
+    void emit_rng_setup(llvm::Value *index, llvm::Value *outer_state);
+    // Both of the above: `state`, a vector of one seed per lane, into a stack
+    // slot bound under lower::rng_state_name -- in the innermost frame,
+    // shadowing an enclosing function's state, when `shadows`; as a new
+    // name otherwise.
+    void bind_rng_state(llvm::Value *state, bool shadows);
+    // Which of a bound loop body's arguments after its index a launch hands
+    // over: all of them but the generator's state, which is made afresh by
+    // emit_rng_setup(index) in the body's prologue instead. Positions into
+    // `body_head.args`; position i is passed the loop's body.args[i - 1].
+    static std::vector<size_t> launch_captures(const ir::ssa::Block &body_head);
+    static bool seeds_rng(const ir::ssa::Block &body_head);
 
     //===------------------------------------------------------------------===//
     // Buffers: an exported function's arrays
@@ -162,15 +185,23 @@ struct CodeGen_LLVM : public ir::Visitor {
     // descriptor: they go to the function's internal twin (see
     // Lower/ReturnToOutParameter.h).
 
-    // What the prologue learnt about one array parameter of the exported
-    // function being compiled: its descriptor, whether the function may
-    // write it, and whether any host-side code of the function reads or
-    // writes it (as against only a kernel).
+    // What the prologue learnt about one buffer-bearing parameter of the
+    // exported function being compiled: its descriptor, whether the
+    // function may write it, and whether any host-side code of the function
+    // reads or writes it (as against only a kernel).
+    //
+    // Two kinds of parameter carry buffers. An array is one descriptor. A
+    // layout struct -- a tree's `_tree_layout`, a struct the layout language
+    // built whose fields are counts and arrays -- arrives with each of its
+    // array fields a descriptor (`layout` names the struct), and is read
+    // into the form the program uses, with each array's pointer for the side
+    // in question, by unwrap_layout.
     struct ExportedBuffer {
         llvm::Value *descriptor = nullptr;
         ir::Type type;
         bool mutating = false;
         bool host_used = false;
+        const ir::Struct_t *layout = nullptr;
     };
     // By parameter name, for the function being compiled.
     std::map<std::string, ExportedBuffer> exported_buffers;
@@ -178,15 +209,34 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *buffer_require(llvm::Value *descriptor, bool device);
     // `bonsai_buffer_mark_dirty(descriptor, side)`.
     void buffer_mark_dirty(llvm::Value *descriptor, bool device);
+    // A layout struct as the driver handed it over, read into a struct of the
+    // program's form in a stack slot of the current function: every count as
+    // it is, every array field's descriptor asked for on `device`'s side,
+    // and, if `mark_dirty`, marked dirty there (the function may write it).
+    // `boundary` points at the driver's struct.
+    llvm::Value *unwrap_layout(llvm::Value *boundary, const ir::Struct_t *layout,
+                               bool device, bool mark_dirty,
+                               const std::string &name);
+    // Every array field's descriptor of the layout at `boundary`.
+    std::vector<llvm::Value *> layout_descriptors(llvm::Value *boundary,
+                                                  const ir::Struct_t *layout);
 
   public:
-    // Per exported function, the side each array parameter is needed on, in
-    // parameter order: BONSAI_HOST (1), BONSAI_DEVICE (2), or both. What the
+    // Per exported function, the side each buffer of a call is needed on, in
+    // parameter order -- an array parameter one entry, a layout struct one
+    // per array field: BONSAI_HOST (1), BONSAI_DEVICE (2), or both. What the
     // generated header prints as `<function>_sides`, for a driver that stages
     // its buffers before a timed call (bonsai_buffer_stage_all).
     const std::map<std::string, std::vector<uint8_t>> &exported_sides() const {
         return sides_of_exported;
     }
+    // The struct a parameter of `type` (a struct, or a pointer to one) is a
+    // layout of -- one with a dynamically sized array among its fields, as
+    // the layout language builds them -- or null. What the C boundary hands
+    // over with a buffer descriptor per array field.
+    static const ir::Struct_t *layout_struct_of(const ir::Type &type);
+    // The number of array fields of `layout`: how many descriptors it holds.
+    static size_t layout_buffer_count(const ir::Struct_t *layout);
 
   protected:
     std::map<std::string, std::vector<uint8_t>> sides_of_exported;

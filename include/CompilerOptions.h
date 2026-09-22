@@ -11,7 +11,6 @@ enum class BackendTarget {
     LLVM = 2, // Generate LLVM IR.
     CPP = 3,  // Generate C++ header with respective .o file.
     CPPX = 4, // Generate C++ header and source file.
-    CUDA = 5, // Generate CUDA code.
     // The device side of a program whose loops a schedule bound to the GPU:
     // the LLVM IR of the kernels and the functions they reach, then the PTX
     // LLVM makes of it. The host side of the same program is what `-b llvm`

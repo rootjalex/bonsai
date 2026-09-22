@@ -99,14 +99,21 @@ static std::array<float, 3> pack(const float3 &v) {
 }
 
 _tree_layout0 build_tree(std::vector<Shape> &shapes) {
+    // The layout's arrays reach the program as buffer descriptors
+    // (runtime/bonsai_buffer.h), which have to outlive the tree.
     _tree_layout0 tree;
     tree.pCount = uint32_t(shapes.size());
-    tree.prims = shapes.data();
+    static bonsai_buffer prims_buffer;
+    prims_buffer = bonsai_buffer_wrap(shapes.data(), shapes.size() * sizeof(Shape));
+    tree.prims = &prims_buffer;
 
     const size_t leaf_count = tree.pCount;
     tree.nCount = uint32_t(leaf_count + (leaf_count - 1));
-    tree.group0_index =
+    _tree_layout1 *nodes =
         (_tree_layout1 *)malloc(sizeof(_tree_layout1) * tree.nCount);
+    static bonsai_buffer nodes_buffer;
+    nodes_buffer = bonsai_buffer_wrap(nodes, sizeof(_tree_layout1) * tree.nCount);
+    tree.group0_index = &nodes_buffer;
 
     uint32_t next_node = 0;
     std::function<uint32_t(uint32_t, uint32_t, uint32_t)> handle_range =
@@ -120,19 +127,19 @@ _tree_layout0 build_tree(std::vector<Shape> &shapes) {
         // in different lanes, which is how pbrt's leaves are and what a
         // gang's masked walk has to get right.
         if (count <= 2) {
-            tree.group0_index[self].nPrims = uint8_t(count);
+            nodes[self].nPrims = uint8_t(count);
             *reinterpret_cast<uint16_t *>(
-                &tree.group0_index[self].split0on_nPrims) = uint16_t(low);
+                &nodes[self].split0on_nPrims) = uint16_t(low);
             Sphere b = bounds_of(shapes[low]);
             for (uint32_t i = low + 1; i < high; i++) {
                 b = merge(b, bounds_of(shapes[i]));
             }
-            tree.group0_index[self].center = pack(b.center);
-            tree.group0_index[self].radius = b.radius;
+            nodes[self].center = pack(b.center);
+            nodes[self].radius = b.radius;
             return self;
         }
 
-        tree.group0_index[self].nPrims = 0;
+        nodes[self].nPrims = 0;
 
         float3 lo = bounds_of(shapes[low]).center;
         float3 hi = lo;
@@ -149,7 +156,7 @@ _tree_layout0 build_tree(std::vector<Shape> &shapes) {
         if (extent[2] > extent[axis]) {
             axis = 2;
         }
-        tree.group0_index[self].axis = uint8_t(axis);
+        nodes[self].axis = uint8_t(axis);
 
         const uint32_t mid = low + count / 2;
         std::nth_element(
@@ -161,15 +168,15 @@ _tree_layout0 build_tree(std::vector<Shape> &shapes) {
         const uint32_t left = handle_range(low, mid, depth + 1);
         const uint32_t right = handle_range(mid, high, depth + 1);
         *reinterpret_cast<uint16_t *>(
-            &tree.group0_index[self].split0on_nPrims) = uint16_t(right - self);
+            &nodes[self].split0on_nPrims) = uint16_t(right - self);
 
         const Sphere merged =
-            merge(Sphere{widen(tree.group0_index[left].center),
-                         tree.group0_index[left].radius},
-                  Sphere{widen(tree.group0_index[right].center),
-                         tree.group0_index[right].radius});
-        tree.group0_index[self].center = pack(merged.center);
-        tree.group0_index[self].radius = merged.radius;
+            merge(Sphere{widen(nodes[left].center),
+                         nodes[left].radius},
+                  Sphere{widen(nodes[right].center),
+                         nodes[right].radius});
+        nodes[self].center = pack(merged.center);
+        nodes[self].radius = merged.radius;
         return self;
     };
 
@@ -226,5 +233,5 @@ int main() {
     std::cout << '\n' << (same ? "same as scalar" : "DIFFERS from scalar")
               << '\n';
 
-    free(tree.group0_index);
+    free(tree.group0_index->host);
 }

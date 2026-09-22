@@ -524,23 +524,34 @@ void CodeGen_LLVM::compile_function(const Function &func,
 
         // An exported function's array is a buffer descriptor (see
         // ExportedBuffer): the parameter's name is bound to its host pointer.
+        // A layout struct's array fields are descriptors likewise, and the
+        // name is bound to a struct of the program's form read out of it.
         // Statements never hold a loop bound to the GPU -- a bind needs the
         // SSA pipeline -- so every array is used on the host and nowhere
         // else.
-        if (func.is_exported() && arg_info.type.is<Array_t>()) {
+        const Struct_t *layout = layout_struct_of(arg_info.type);
+        if (func.is_exported() &&
+            (arg_info.type.is<Array_t>() || layout != nullptr)) {
             arg.setName(name + "_buffer");
             ExportedBuffer buffer;
             buffer.descriptor = &arg;
             buffer.type = arg_info.type;
             buffer.mutating = arg_info.mutating;
             buffer.host_used = true;
-            arg_value = buffer_require(&arg, /*device=*/false);
-            arg_value->setName(name);
-            if (arg_info.mutating) {
-                buffer_mark_dirty(&arg, /*device=*/false);
+            buffer.layout = layout;
+            if (layout != nullptr) {
+                arg_value = unwrap_layout(&arg, layout, /*device=*/false,
+                                          arg_info.mutating, name);
+                sides.insert(sides.end(), layout_buffer_count(layout), 1);
+            } else {
+                arg_value = buffer_require(&arg, /*device=*/false);
+                arg_value->setName(name);
+                if (arg_info.mutating) {
+                    buffer_mark_dirty(&arg, /*device=*/false);
+                }
+                sides.push_back(1);
             }
             exported_buffers[name] = buffer;
-            sides.push_back(1);
         }
 
         frames.add_to_frame(arg_info.name, arg_value);
@@ -613,6 +624,131 @@ void CodeGen_LLVM::buffer_mark_dirty(llvm::Value *descriptor, bool device) {
                         {descriptor, llvm::ConstantInt::get(i32_t, device ? 2 : 1)});
 }
 
+const Struct_t *CodeGen_LLVM::layout_struct_of(const Type &type) {
+    const Struct_t *s = type.as<Struct_t>();
+    if (const Ptr_t *p = type.as<Ptr_t>()) {
+        s = p->etype.as<Struct_t>();
+    }
+    if (s == nullptr) {
+        return nullptr;
+    }
+    // A fixed-size array field is stored in place and is no buffer; a field
+    // sized by another field or by nothing is the layout language's array,
+    // a pointer to storage of its own.
+    for (const auto &field : s->fields) {
+        const Array_t *array_t = field.type.as<Array_t>();
+        if (array_t != nullptr &&
+            !(array_t->size.defined() &&
+              get_constant_value(array_t->size).has_value())) {
+            return s;
+        }
+    }
+    return nullptr;
+}
+
+size_t CodeGen_LLVM::layout_buffer_count(const Struct_t *layout) {
+    size_t count = 0;
+    for (const auto &field : layout->fields) {
+        count += field.type.is<Array_t>() ? 1 : 0;
+    }
+    return count;
+}
+
+// What a field of `struct_ll` is known to be aligned to: its own type's
+// alignment in a struct laid out normally, and only a byte in a packed one,
+// as a layout struct is -- the C declaration says `__attribute__((packed))`
+// and promises nothing about where the driver put it.
+static llvm::Align field_alignment(const llvm::DataLayout &dl,
+                                   llvm::StructType *struct_ll, unsigned index) {
+    if (struct_ll->isPacked()) {
+        return llvm::Align(1);
+    }
+    return dl.getABITypeAlign(struct_ll->getElementType(index));
+}
+
+std::vector<llvm::Value *>
+CodeGen_LLVM::layout_descriptors(llvm::Value *boundary, const Struct_t *layout) {
+    // The driver's struct has the program's LLVM layout: a descriptor pointer
+    // where the program has an array's pointer, and a pointer is a pointer.
+    // Fields the LLVM struct leaves out (references) are skipped in the
+    // index, as visit(const Struct_t *) skips them.
+    auto *struct_ll = llvm::cast<llvm::StructType>(codegen_type(Type(layout)));
+    const llvm::DataLayout &dl = module->getDataLayout();
+    std::vector<llvm::Value *> descriptors;
+    unsigned index = 0;
+    for (const auto &field : layout->fields) {
+        if (field.type.is<Ref_t>()) {
+            continue;
+        }
+        if (field.type.is<Array_t>()) {
+            llvm::Value *slot = builder->CreateStructGEP(struct_ll, boundary, index);
+            descriptors.push_back(builder->CreateAlignedLoad(
+                llvm::PointerType::getUnqual(*context), slot,
+                field_alignment(dl, struct_ll, index), field.name + "_buffer"));
+        }
+        index++;
+    }
+    return descriptors;
+}
+
+llvm::Value *CodeGen_LLVM::unwrap_layout(llvm::Value *boundary,
+                                         const Struct_t *layout, bool device,
+                                         bool mark_dirty,
+                                         const std::string &name) {
+    auto *struct_ll = llvm::cast<llvm::StructType>(codegen_type(Type(layout)));
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Value *internal = create_alloca_at_entry(struct_ll, name);
+    unsigned index = 0;
+    for (const auto &field : layout->fields) {
+        if (field.type.is<Ref_t>()) {
+            continue;
+        }
+        llvm::Type *field_ll = struct_ll->getElementType(index);
+        const llvm::Align align = field_alignment(dl, struct_ll, index);
+        llvm::Value *from = builder->CreateStructGEP(struct_ll, boundary, index);
+        llvm::Value *value =
+            builder->CreateAlignedLoad(field_ll, from, align, field.name);
+        if (field.type.is<Array_t>()) {
+            llvm::Value *descriptor = value;
+            value = buffer_require(descriptor, device);
+            value->setName(field.name);
+            if (mark_dirty) {
+                buffer_mark_dirty(descriptor, device);
+            }
+        }
+        builder->CreateAlignedStore(
+            value, builder->CreateStructGEP(struct_ll, internal, index), align);
+        index++;
+    }
+    return internal;
+}
+
+namespace {
+
+// The polynomial Halide's pseudorandom generator applies to its state,
+// `rng32(x) = c0 + x * (c1 + x * c2)`, which visit(Intrinsic::rand) draws
+// each number with and emit_rng_setup(index) seeds a thread's state with.
+// https://github.com/halide/Halide/blob/bf9c55dd1392b87cfc82371ee40157786eb4ec78/src/Random.cpp#L19
+constexpr uint32_t rng_c0 = 576942909;
+constexpr uint32_t rng_c1 = 1121052041;
+constexpr uint32_t rng_c2 = 1040796640;
+
+} // namespace
+
+void CodeGen_LLVM::bind_rng_state(llvm::Value *state, bool shadows) {
+    // The state lives on the stack, aligned as the vector is.
+    const uint32_t lanes = native_vector_bits() / 32;
+    llvm::AllocaInst *rng_state_ptr =
+        builder->CreateAlloca(state->getType(), nullptr, lower::rng_state_name);
+    rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
+    builder->CreateStore(state, rng_state_ptr);
+    if (shadows) {
+        frames.set_local(lower::rng_state_name, rng_state_ptr);
+    } else {
+        frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
+    }
+}
+
 void CodeGen_LLVM::emit_rng_setup() {
     const uint32_t lanes = native_vector_bits() / 32;
     llvm::Function *rand_function = module->getFunction("rand");
@@ -631,14 +767,38 @@ void CodeGen_LLVM::emit_rng_setup() {
         llvm::Value *r = builder->CreateCall(rand_function);
         rand_vec = builder->CreateInsertElement(rand_vec, r, i);
     }
+    bind_rng_state(rand_vec, /*shadows=*/false);
+}
 
-    // The state lives on the stack, aligned as the vector is.
-    llvm::AllocaInst *rng_state_ptr = builder->CreateAlloca(
-        rand_vec->getType(), nullptr, lower::rng_state_name);
-    rng_state_ptr->setAlignment(llvm::Align(alignof(uint32_t) * lanes));
-    builder->CreateStore(rand_vec, rng_state_ptr);
-
-    frames.add_to_frame(lower::rng_state_name, rng_state_ptr);
+void CodeGen_LLVM::emit_rng_setup(llvm::Value *index,
+                                  llvm::Value *outer_state) {
+    const uint32_t lanes = native_vector_bits() / 32;
+    auto *vec_ty = llvm::FixedVectorType::get(i32_t, lanes);
+    llvm::Value *x = builder->CreateIntCast(index, i32_t, /*isSigned=*/false);
+    if (outer_state != nullptr) {
+        llvm::Value *outer = create_aligned_load(vec_ty, outer_state, "rng_outer");
+        x = builder->CreateAdd(builder->CreateExtractElement(outer, uint64_t(0)),
+                               x);
+    }
+    // rng32(x), and the lanes counting on from it: the state a thread whose
+    // seed happened to be `rng32(x)` on the host would have.
+    llvm::Value *h = builder->CreateMul(llvm::ConstantInt::get(i32_t, rng_c2), x);
+    h = builder->CreateAdd(h, llvm::ConstantInt::get(i32_t, rng_c1));
+    h = builder->CreateMul(h, x);
+    h = builder->CreateAdd(h, llvm::ConstantInt::get(i32_t, rng_c0), "rng_seed");
+    std::vector<llvm::Constant *> lane_offsets;
+    for (uint32_t i = 0; i < lanes; ++i) {
+        lane_offsets.push_back(llvm::ConstantInt::get(i32_t, i));
+    }
+    llvm::Value *state = builder->CreateAdd(
+        builder->CreateVectorSplat(lanes, h),
+        llvm::ConstantVector::get(lane_offsets), lower::rng_state_name);
+    // Shadowing the state of the function the loop is in, which is bound in
+    // an enclosing frame when the body is compiled -- for a CPU kernel, in
+    // the frame of the function being compiled around it; for a thread loop
+    // in a block kernel, the block's -- and is the state each thread must
+    // not draw from.
+    bind_rng_state(state, /*shadows=*/true);
 }
 
 std::unique_ptr<llvm::Module>
@@ -3133,9 +3293,9 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         llvm::Type *vec_ty =
             llvm::VectorType::get(i32_t, lanes, /*Scalable=*/false);
 
-        const uint64_t c0 = 576942909;
-        const uint64_t c1 = 1121052041;
-        const uint64_t c2 = 1040796640;
+        const uint64_t c0 = rng_c0;
+        const uint64_t c1 = rng_c1;
+        const uint64_t c2 = rng_c2;
 
         auto broadcast_const = [&](uint64_t val) {
             return llvm::ConstantVector::getSplat(

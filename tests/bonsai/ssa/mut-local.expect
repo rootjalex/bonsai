@@ -6,8 +6,8 @@ define noundef float @clamp_low(float noundef %x, float noundef %lo) local_unnam
 clamp_low:
   %0 = fcmp olt float %x, %lo
   %1 = fmul float %x, 2.000000e+00
-  %y4.sroa.speculated = select i1 %0, float %lo, float %1
-  ret float %y4.sroa.speculated
+  %y = select i1 %0, float %lo, float %1
+  ret float %y
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)

@@ -11,6 +11,8 @@ run:
   %scale = tail call ptr @bonsai_buffer_require(ptr %scale_buffer, i32 1)
   %extract_ptr = getelementptr inbounds nuw i8, ptr %scale, i64 4
   %extract = load i32, ptr %extract_ptr, align 4
+  %device = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 2)
+  %device1 = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 2)
   store i32 0, ptr %_launch_args, align 16
   store ptr %_launch_args, ptr %_launch_params, align 16
   %0 = getelementptr inbounds nuw i8, ptr %_launch_args, i64 4
@@ -18,7 +20,6 @@ run:
   %1 = getelementptr inbounds nuw i8, ptr %_launch_params, i64 8
   store ptr %0, ptr %1, align 8
   %2 = getelementptr inbounds nuw i8, ptr %_launch_args, i64 8
-  %device = call ptr @bonsai_buffer_require(ptr %a_buffer, i32 2)
   store ptr %device, ptr %2, align 8
   %3 = getelementptr inbounds nuw i8, ptr %_launch_params, i64 16
   store ptr %2, ptr %3, align 16
@@ -27,7 +28,6 @@ run:
   %5 = getelementptr inbounds nuw i8, ptr %_launch_params, i64 24
   store ptr %4, ptr %5, align 8
   %6 = getelementptr inbounds nuw i8, ptr %_launch_args, i64 24
-  %device1 = call ptr @bonsai_buffer_require(ptr %out_buffer, i32 2)
   store ptr %device1, ptr %6, align 8
   %7 = getelementptr inbounds nuw i8, ptr %_launch_params, i64 32
   store ptr %6, ptr %7, align 16
@@ -42,3 +42,11 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_cuda_launch(ptr, ptr, i64, i64, ptr, i64, ptr, i64) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+define void @bonsai_gpu_prepare() local_unnamed_addr {
+prepare:
+  tail call void @bonsai_cuda_load(ptr nonnull @_bonsai_ptx_text)
+  ret void
+}
+
+declare void @bonsai_cuda_load(ptr) local_unnamed_addr

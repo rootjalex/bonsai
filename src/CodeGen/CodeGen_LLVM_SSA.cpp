@@ -1,12 +1,14 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
 #include "IR/Operators.h"
+#include "Lower/Random.h"
 #include "SSA/Analysis.h"
 #include "SSA/SSA.h"
 
 #include "Error.h"
 #include "Utils.h"
 
+#include <algorithm>
 #include <functional>
 #include <map>
 #include <set>
@@ -46,8 +48,60 @@ struct CodeGen_LLVM::SSALowering {
 
     std::map<std::string, llvm::BasicBlock *> blocks;
     std::map<std::string, const Block *> by_name;
-    // Per block, the phi standing for each of its arguments, in order.
-    std::map<std::string, std::vector<llvm::PHINode *>> phis;
+    // A block argument as phis: one per scalar leaf of its type, and the
+    // aggregate rebuilt from them, which is what the argument's name is
+    // bound to. Per field rather than one phi of the struct because LLVM
+    // neither splits an aggregate phi by field nor if-converts one, so a
+    // struct-typed argument merged at a join would keep the branch that a
+    // struct held in memory -- which SROA splits by field and mem2reg then
+    // makes scalar phis of -- loses to a select. The phis here stand for
+    // exactly that memory (SSA/PromoteAllocas.h), so they are made as SROA
+    // would have made them; the insertvalues rebuilding the aggregate and
+    // the extractvalues feeding the leaves fold away against each other.
+    // create_select does the same for a select of aggregate type.
+    struct ArgPhis {
+        llvm::Value *value = nullptr;
+        // Each leaf's phi, with the path of indices to the leaf in the
+        // aggregate; empty for an argument that is itself a leaf.
+        std::vector<std::pair<llvm::PHINode *, std::vector<unsigned>>> leaves;
+    };
+    // Per block, the phis standing for each of its arguments, in order.
+    std::map<std::string, std::vector<ArgPhis>> phis;
+
+    void make_leaf_phis(
+        llvm::Type *type, const std::string &name, std::vector<unsigned> &path,
+        std::vector<std::pair<llvm::PHINode *, std::vector<unsigned>>> &leaves) {
+        if (auto *st = llvm::dyn_cast<llvm::StructType>(type)) {
+            for (unsigned i = 0; i < st->getNumElements(); i++) {
+                path.push_back(i);
+                make_leaf_phis(st->getElementType(i),
+                               name + "." + std::to_string(i), path, leaves);
+                path.pop_back();
+            }
+            return;
+        }
+        leaves.emplace_back(cg.builder->CreatePHI(type, 0, name), path);
+    }
+
+    // The argument's value from its leaves: the leaf itself, or the
+    // aggregate with each leaf inserted at its path.
+    llvm::Value *rebuild(llvm::Type *type, const ArgPhis &arg,
+                         const std::string &name) {
+        if (!llvm::isa<llvm::StructType>(type)) {
+            internal_assert(arg.leaves.size() == 1 && arg.leaves[0].second.empty())
+                << "a non-aggregate block argument with " << arg.leaves.size()
+                << " leaves";
+            return arg.leaves[0].first;
+        }
+        llvm::Value *value = llvm::PoisonValue::get(type);
+        for (const auto &[phi, path] : arg.leaves) {
+            value = cg.builder->CreateInsertValue(value, phi, path);
+        }
+        if (!arg.leaves.empty()) {
+            value->setName(name);
+        }
+        return value;
+    }
     // Where a `Yield` (the end of one parfor iteration) goes, innermost last:
     // the latch of the loop a serial parfor became, or null in a parallel
     // parfor's kernel, where the iteration is a function call that returns.
@@ -341,6 +395,12 @@ struct CodeGen_LLVM::SSALowering {
         case Instruction::Op::Abs:
             return Intrinsic::make(Intrinsic::OpType::abs, std::move(args));
         case Instruction::Op::Intrinsic:
+            // `rand` carries the generator's state as its last operand in SSA
+            // (see SSA/Convert.cpp); the expression form names it instead.
+            if (instr.intrinsic == Intrinsic::rand) {
+                internal_assert(n >= 1) << "rand without its state";
+                args.pop_back();
+            }
             return Intrinsic::make(instr.intrinsic, std::move(args));
         case Instruction::Op::Reduce:
             internal_assert(n == 1) << "a reduction takes one value";
@@ -654,7 +714,7 @@ struct CodeGen_LLVM::SSALowering {
             return;
         }
         for (size_t i = 0; i < block.args.size(); i++) {
-            bind(block.args[i].name, found->second[i]);
+            bind(block.args[i].name, found->second[i].value);
         }
     }
 
@@ -684,11 +744,22 @@ struct CodeGen_LLVM::SSALowering {
                            << " from " << from->getName().str() << " is "
                            << got_os.str();
         };
+        // Each leaf of the value to the leaf's phi, extracted here in the
+        // block the edge leaves from.
+        auto feed = [&](const ArgPhis &arg, llvm::Value *value, size_t i,
+                        const std::string &what) {
+            for (const auto &[phi, path] : arg.leaves) {
+                llvm::Value *leaf =
+                    path.empty() ? value
+                                 : cg.builder->CreateExtractValue(value, path);
+                matching(phi, leaf, i, what);
+                phi->addIncoming(leaf, from);
+            }
+        };
         if (before != nullptr) {
             internal_assert(!target.empty())
                 << jump.name << " takes no value from the call before it";
-            matching(target[0], before, 0, "the value the call returns");
-            target[0]->addIncoming(before, from);
+            feed(target[0], before, 0, "the value the call returns");
         }
         internal_assert(jump.args.size() + first == target.size())
             << "Jump to " << jump.name << " passes "
@@ -696,8 +767,7 @@ struct CodeGen_LLVM::SSALowering {
             << target.size();
         for (size_t i = 0; i < jump.args.size(); i++) {
             llvm::Value *value = cg.codegen_expr(operand(jump.args[i]));
-            matching(target[first + i], value, first + i, "the value passed");
-            target[first + i]->addIncoming(value, from);
+            feed(target[first + i], value, first + i, "the value passed");
         }
     }
 
@@ -807,10 +877,17 @@ struct CodeGen_LLVM::SSALowering {
                 continue;
             }
             cg.builder->SetInsertPoint(blocks.at(name));
-            std::vector<llvm::PHINode *> made;
-            for (const Argument &arg : block.args) {
-                made.push_back(cg.builder->CreatePHI(cg.codegen_type(arg.type),
-                                                     0, arg.name));
+            std::vector<ArgPhis> made(block.args.size());
+            // Every phi first -- a block's phis lead it -- and then the
+            // aggregates rebuilt from theirs.
+            for (size_t i = 0; i < block.args.size(); i++) {
+                std::vector<unsigned> path;
+                make_leaf_phis(cg.codegen_type(block.args[i].type),
+                               block.args[i].name, path, made[i].leaves);
+            }
+            for (size_t i = 0; i < block.args.size(); i++) {
+                made[i].value = rebuild(cg.codegen_type(block.args[i].type),
+                                        made[i], block.args[i].name);
             }
             phis[name] = std::move(made);
         }
@@ -1159,7 +1236,11 @@ struct CodeGen_LLVM::SSALowering {
                 << "than its entry block declares";
             const Argument &declared = head.args[i];
             i++;
-            if (!exported || !declared.type.is<Array_t>()) {
+            const Struct_t *layout =
+                exported ? CodeGen_LLVM::layout_struct_of(declared.type)
+                         : nullptr;
+            if (!exported ||
+                (!declared.type.is<Array_t>() && layout == nullptr)) {
                 arg.setName(declared.name);
                 bind(declared.name, &arg);
                 continue;
@@ -1170,10 +1251,20 @@ struct CodeGen_LLVM::SSALowering {
             buffer.type = declared.type;
             buffer.mutating = declared.mutating;
             buffer.host_used = uses.host.count(declared.name) != 0;
+            buffer.layout = layout;
             const bool device_used = uses.device.count(declared.name) != 0;
-            sides.push_back((buffer.host_used ? 1 : 0) | (device_used ? 2 : 0));
+            const uint8_t side =
+                (buffer.host_used ? 1 : 0) | (device_used ? 2 : 0);
+            // A layout struct is as many buffers as it has array fields, all
+            // needed where the struct is.
+            sides.insert(sides.end(),
+                         layout ? CodeGen_LLVM::layout_buffer_count(layout) : 1,
+                         side);
             llvm::Value *bound = nullptr;
-            if (buffer.host_used) {
+            if (buffer.host_used && layout != nullptr) {
+                bound = cg.unwrap_layout(&arg, layout, /*device=*/false,
+                                         buffer.mutating, declared.name);
+            } else if (buffer.host_used) {
                 bound = cg.buffer_require(&arg, /*device=*/false);
                 bound->setName(declared.name);
                 if (buffer.mutating) {
@@ -1410,6 +1501,23 @@ Expr CodeGen_LLVM::trip_count(const Expr &begin, const Expr &end,
     return (end - begin + (stride - make_const(stride.type(), 1))) / stride;
 }
 
+std::vector<size_t> CodeGen_LLVM::launch_captures(const Block &body_head) {
+    std::vector<size_t> captures;
+    for (size_t i = 1; i < body_head.args.size(); i++) {
+        if (body_head.args[i].name != lower::rng_state_name) {
+            captures.push_back(i);
+        }
+    }
+    return captures;
+}
+
+bool CodeGen_LLVM::seeds_rng(const Block &body_head) {
+    return std::any_of(body_head.args.begin() + 1, body_head.args.end(),
+                       [](const ir::ssa::Argument &arg) {
+                           return arg.name == lower::rng_state_name;
+                       });
+}
+
 // A parfor a schedule bound to CPU threads: the body region is compiled as
 // a kernel taking a context pointer and an iteration number, and the parent
 // packs the captures into that context and calls `bonsai_parallel_for`. The
@@ -1446,9 +1554,12 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
         fields.push_back({"_stride", stride_e.type()});
     }
     // The body jump passes only the captures, not the index it takes as its
-    // first argument, so its i-th value feeds body argument i + 1.
+    // first argument, so its i-th value feeds body argument i + 1. The
+    // random generator's state is not among them: it is thread-specific,
+    // and each iteration seeds its own below (see emit_rng_setup(index)).
     const size_t first_capture = cap_exprs.size();
-    for (size_t i = 1; i < body_head.args.size(); i++) {
+    const std::vector<size_t> captures = launch_captures(body_head);
+    for (const size_t i : captures) {
         cap_exprs.push_back(loop.operand(p.body.args[i - 1]));
         fields.push_back({body_head.args[i].name, body_head.args[i].type});
     }
@@ -1512,9 +1623,12 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
             begin_k, builder->CreateMul(idx_cast, stride_k),
             body_head.args[0].name);
         loop.bind(body_head.args[0].name, index);
-        for (size_t i = 1; i < body_head.args.size(); i++) {
-            loop.bind(body_head.args[i].name,
-                      load_field(first_capture + i - 1, body_head.args[i].type));
+        for (size_t k = 0; k < captures.size(); k++) {
+            const ir::ssa::Argument &arg = body_head.args[captures[k]];
+            loop.bind(arg.name, load_field(first_capture + k, arg.type));
+        }
+        if (seeds_rng(body_head)) {
+            emit_rng_setup(index, /*outer_state=*/nullptr);
         }
         loop.emit_body(kentry, nullptr);
 

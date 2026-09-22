@@ -80,23 +80,32 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), t : (Triangle*)) -> void {
 }
 
 func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
+  intersectsp_ray_sphere$r34 : mut _option1
+  intersects_Ray_Sphere$r0 : mut bool
+  distmax_Ray_Sphere$r1 : mut f32
+  distmin_Ray_Sphere$r2 : mut f32
   _idx0 : mut u16
+  intersects_Ray_Shape$r3 : mut bool
+  intersectsp_ray_sphere$r21$i35 : mut _option1
+  intersects_Ray_Sphere$r35 : mut bool
+  distmin_Ray_Shape$r4 : mut f32
+  intersectsp_ray_sphere$r17$i36 : mut _option1
+  distmin_Ray_Sphere$r36 : mut f32
+  distmin_Ray_Triangle$r37 : mut f32
   shapes_index!top : mut u16
   !live : mut bool
-  !stack : mut u16[64]
   !count : mut u32
-  !count = 0u
+  !stack : mut u16[64]
   shapes_index!top = shapes_index
   !live = true
+  !count = 0u
   while ((*!live)) {
     let @0 = shapes.group0_index in
     let _t905 = @0[(*shapes_index!top)] in
-    intersects_Ray_Sphere$r0 : mut bool
     let @2 = _t905.center in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t905.radius in
     let _t909 = build<Sphere>(@3, @4) in
-    intersectsp_ray_sphere$r34 : mut _option1
     let _t569 = r.o in
     let @7 = _t909.center in
     let _t911 = @7 - _t569 in
@@ -138,11 +147,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       let @41 = build<_option1>(interval$i34, true) in
       intersectsp_ray_sphere$r34 = @41
     }
-    let @42 = (*intersectsp_ray_sphere$r34) in
-    let _t583 = @42.set in
+    let _t583 = (*intersectsp_ray_sphere$r34).set in
     if (_t583) {
-      let @44 = (*intersectsp_ray_sphere$r34) in
-      let extract$i0 = @44.value in
+      let extract$i0 = (*intersectsp_ray_sphere$r34).value in
       let @46 = extract$i0.low in
       let @47 = r.tmax in
       let @48 = @46 < @47 in
@@ -153,25 +160,19 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
     } else {
       intersects_Ray_Sphere$r0 = false
     }
-    let @52 = (*intersects_Ray_Sphere$r0) in
-    if (@52) {
-      distmax_Ray_Sphere$r1 : mut f32
+    if ((*intersects_Ray_Sphere$r0)) {
       if (_t583) {
-        let @53 = (*intersectsp_ray_sphere$r34) in
-        let extract$i1 = @53.value in
+        let extract$i1 = (*intersectsp_ray_sphere$r34).value in
         let @55 = extract$i1.high in
         distmax_Ray_Sphere$r1 = @55
       } else {
         let @56 = (f32)inf in
         distmax_Ray_Sphere$r1 = @56
       }
-      let @57 = (*distmax_Ray_Sphere$r1) in
-      let @58 = 0.001f < @57 in
+      let @58 = 0.001f < (*distmax_Ray_Sphere$r1) in
       if (@58) {
-        distmin_Ray_Sphere$r2 : mut f32
         if (_t583) {
-          let @59 = (*intersectsp_ray_sphere$r34) in
-          let extract$i2 = @59.value in
+          let extract$i2 = (*intersectsp_ray_sphere$r34).value in
           let @61 = extract$i2.low in
           distmin_Ray_Sphere$r2 = @61
         } else {
@@ -179,10 +180,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
           let @63 = 0f - @62 in
           distmin_Ray_Sphere$r2 = @63
         }
-        let @64 = (*distmin_Ray_Sphere$r2) in
         let @65 = (*_best0) in
         let @66 = @65._field0 in
-        let @67 = @64 < @66 in
+        let @67 = (*distmin_Ray_Sphere$r2) < @66 in
         if (@67) {
           let _t85 = _t905.nPrims in
           let @69 = _t85 == 0u in
@@ -201,12 +201,11 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             let @82 = !_t31 in
             let @266 = select(@82, @76, @80) in
             let @267 = select(@82, @80, @76) in
-            let @273 = (*!count) in
-            !stack[@273] = @267
-            let @275 = @273 + 1u in
-            !count = @275
+            !stack[(*!count)] = @267
+            let @275 = (*!count) + 1u in
             shapes_index!top = @266
             !live = true
+            !count = @275
             continue
           } else {
             let @84 = cast<u16>(_t85) in
@@ -218,7 +217,6 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
               let _t927 = @88 + (*_idx0) in
               let @90 = shapes.prims in
               let _t929 = @90[_t927] in
-              intersects_Ray_Shape$r3 : mut bool
               let _t361 = _t929.tag in
               switch (_t361) {
               case 0: { // Shape.Sph of intersects_Ray_Shape
@@ -233,8 +231,6 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                 let @101 = _t249$i3[4u] in
                 let @102 = reinterpret_cast<f32>(@101) in
                 let _t939 = build<Sphere>(@100, @102) in
-                intersects_Ray_Sphere$r35 : mut bool
-                intersectsp_ray_sphere$r21$i35 : mut _option1
                 let @104 = _t939.center in
                 let _t941 = @104 - _t569 in
                 let @106 = _t294$i34[0] in
@@ -272,11 +268,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   let @135 = build<_option1>(interval$i21$i35, true) in
                   intersectsp_ray_sphere$r21$i35 = @135
                 }
-                let @136 = (*intersectsp_ray_sphere$r21$i35) in
-                let @137 = @136.set in
+                let @137 = (*intersectsp_ray_sphere$r21$i35).set in
                 if (@137) {
-                  let @138 = (*intersectsp_ray_sphere$r21$i35) in
-                  let extract$i35 = @138.value in
+                  let extract$i35 = (*intersectsp_ray_sphere$r21$i35).value in
                   let @140 = extract$i35.low in
                   let @141 = r.tmax in
                   let @142 = @140 < @141 in
@@ -287,8 +281,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                 } else {
                   intersects_Ray_Sphere$r35 = false
                 }
-                let @146 = (*intersects_Ray_Sphere$r35) in
-                intersects_Ray_Shape$r3 = @146
+                intersects_Ray_Shape$r3 = (*intersects_Ray_Sphere$r35)
               } break;
               default: { // Shape.Tri of intersects_Ray_Shape
                 let _t262$i3 = _t929.payload in
@@ -319,9 +312,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                 intersects_Ray_Shape$r3 = @171
               }
               }
-              let @172 = (*intersects_Ray_Shape$r3) in
-              if (@172) {
-                distmin_Ray_Shape$r4 : mut f32
+              if ((*intersects_Ray_Shape$r3)) {
                 switch (_t361) {
                 case 0: { // Shape.Sph of distmin_Ray_Shape
                   let _t181$i4 = _t929.payload in
@@ -335,8 +326,6 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   let @181 = _t181$i4[4u] in
                   let @182 = reinterpret_cast<f32>(@181) in
                   let _t962 = build<Sphere>(@180, @182) in
-                  distmin_Ray_Sphere$r36 : mut f32
-                  intersectsp_ray_sphere$r17$i36 : mut _option1
                   let @184 = _t962.center in
                   let _t964 = @184 - _t569 in
                   let @186 = _t294$i34[0] in
@@ -374,11 +363,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                     let @215 = build<_option1>(interval$i17$i36, true) in
                     intersectsp_ray_sphere$r17$i36 = @215
                   }
-                  let @216 = (*intersectsp_ray_sphere$r17$i36) in
-                  let @217 = @216.set in
+                  let @217 = (*intersectsp_ray_sphere$r17$i36).set in
                   if (@217) {
-                    let @218 = (*intersectsp_ray_sphere$r17$i36) in
-                    let extract$i36 = @218.value in
+                    let extract$i36 = (*intersectsp_ray_sphere$r17$i36).value in
                     let @220 = extract$i36.low in
                     distmin_Ray_Sphere$r36 = @220
                   } else {
@@ -386,12 +373,10 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                     let @222 = 0f - @221 in
                     distmin_Ray_Sphere$r36 = @222
                   }
-                  let @223 = (*distmin_Ray_Sphere$r36) in
-                  distmin_Ray_Shape$r4 = @223
+                  distmin_Ray_Shape$r4 = (*distmin_Ray_Sphere$r36)
                 } break;
                 default: { // Shape.Tri of distmin_Ray_Shape
                   let _t194$i4 = _t929.payload in
-                  distmin_Ray_Triangle$r37 : mut f32
                   let @225 = _t194$i4[0u] in
                   let @226 = reinterpret_cast<f32>(@225) in
                   let @227 = _t194$i4[1u] in
@@ -425,21 +410,17 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                     let @251 = (f32)inf in
                     distmin_Ray_Triangle$r37 = @251
                   }
-                  let @252 = (*distmin_Ray_Triangle$r37) in
-                  distmin_Ray_Shape$r4 = @252
+                  distmin_Ray_Shape$r4 = (*distmin_Ray_Triangle$r37)
                 }
                 }
-                let @253 = (*distmin_Ray_Shape$r4) in
-                let @254 = 0.001f < @253 in
+                let @254 = 0.001f < (*distmin_Ray_Shape$r4) in
                 if (@254) {
-                  let @255 = (*distmin_Ray_Shape$r4) in
                   let @256 = (*_best0) in
                   let @257 = @256._field0 in
-                  let @258 = @255 < @257 in
+                  let @258 = (*distmin_Ray_Shape$r4) < @257 in
                   if (@258) {
-                    let @259 = (*distmin_Ray_Shape$r4) in
                     let @260 = build<__tuple_0>(_t927) in
-                    let @261 = build<__tuple_1>(@259, @260) in
+                    let @261 = build<__tuple_1>((*distmin_Ray_Shape$r4), @260) in
                     _best0 = @261
                   }
                 }
@@ -451,14 +432,13 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
         }
       }
     }
-    let @269 = (*!count) in
-    let @270 = @269 != 0u in
+    let @270 = (*!count) != 0u in
     if (@270) {
-      let @271 = @269 - 1u in
-      !count = @271
+      let @271 = (*!count) - 1u in
       let @272 = !stack[@271] in
       shapes_index!top = @272
       !live = true
+      !count = @271
     } else {
       !live = false
     }
@@ -1150,15 +1130,14 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
 }
 
 func _traverse_tree0(r : Ray, shapes : _tree_layout0) -> _option0 {
+  _best0_result : mut _option0
   _best0 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0 = @2
   _recloop_func0(0u, shapes, r, _best0)
-  _best0_result : mut _option0
   let @3 = build<_option0>() in
-  _best0_result = @3
   let @4 = (*_best0) in
   let @5 = @4._field0 in
   let @6 = (f32)inf in
@@ -1171,17 +1150,20 @@ func _traverse_tree0(r : Ray, shapes : _tree_layout0) -> _option0 {
     let @12 = @8[@11] in
     let @13 = build<_option0>(@12, true) in
     _best0_result = @13
+  } else {
+    _best0_result = @3
   }
-  let @14 = (*_best0_result) in
-  return @14
+  return (*_best0_result)
 }
 
 func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
+  intersectsp_ray_sphere$r39 : mut _option1
+  distmax_Ray_Sphere$r10 : mut f32
+  distmax_Ray_Triangle$r11 : mut f32
   let @0 = sh.tag in
   switch (@0) {
   case 0: { // Shape.Sph of distmax_Ray_Shape
     let _t150 = sh.payload in
-    distmax_Ray_Sphere$r10 : mut f32
     let @2 = _t150[0u] in
     let @3 = reinterpret_cast<f32>(@2) in
     let @4 = _t150[1u] in
@@ -1192,7 +1174,6 @@ func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
     let @9 = _t150[4u] in
     let @10 = reinterpret_cast<f32>(@9) in
     let _t1032 = build<Sphere>(@8, @10) in
-    intersectsp_ray_sphere$r39 : mut _option1
     let @12 = _t1032.center in
     let @13 = r.o in
     let _t1035 = @12 - @13 in
@@ -1234,23 +1215,19 @@ func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       let @47 = build<_option1>(interval$i39, true) in
       intersectsp_ray_sphere$r39 = @47
     }
-    let @48 = (*intersectsp_ray_sphere$r39) in
-    let @49 = @48.set in
+    let @49 = (*intersectsp_ray_sphere$r39).set in
     if (@49) {
-      let @50 = (*intersectsp_ray_sphere$r39) in
-      let extract$i10 = @50.value in
+      let extract$i10 = (*intersectsp_ray_sphere$r39).value in
       let @52 = extract$i10.high in
       distmax_Ray_Sphere$r10 = @52
     } else {
       let @53 = (f32)inf in
       distmax_Ray_Sphere$r10 = @53
     }
-    let @54 = (*distmax_Ray_Sphere$r10) in
-    return @54
+    return (*distmax_Ray_Sphere$r10)
   } break;
   default: { // Shape.Tri of distmax_Ray_Shape
     let _t163 = sh.payload in
-    distmax_Ray_Triangle$r11 : mut f32
     let @56 = _t163[0u] in
     let @57 = reinterpret_cast<f32>(@56) in
     let @58 = _t163[1u] in
@@ -1285,18 +1262,19 @@ func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       let @83 = 0f - @82 in
       distmax_Ray_Triangle$r11 = @83
     }
-    let @84 = (*distmax_Ray_Triangle$r11) in
-    return @84
+    return (*distmax_Ray_Triangle$r11)
   }
   }
 }
 
 func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
+  intersectsp_ray_sphere$r42 : mut _option1
+  distmin_Ray_Sphere$r15 : mut f32
+  distmin_Ray_Triangle$r16 : mut f32
   let @0 = sh.tag in
   switch (@0) {
   case 0: { // Shape.Sph of distmin_Ray_Shape
     let _t181 = sh.payload in
-    distmin_Ray_Sphere$r15 : mut f32
     let @2 = _t181[0u] in
     let @3 = reinterpret_cast<f32>(@2) in
     let @4 = _t181[1u] in
@@ -1307,7 +1285,6 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
     let @9 = _t181[4u] in
     let @10 = reinterpret_cast<f32>(@9) in
     let _t1100 = build<Sphere>(@8, @10) in
-    intersectsp_ray_sphere$r42 : mut _option1
     let @12 = _t1100.center in
     let @13 = r.o in
     let _t1103 = @12 - @13 in
@@ -1349,11 +1326,9 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       let @47 = build<_option1>(interval$i42, true) in
       intersectsp_ray_sphere$r42 = @47
     }
-    let @48 = (*intersectsp_ray_sphere$r42) in
-    let @49 = @48.set in
+    let @49 = (*intersectsp_ray_sphere$r42).set in
     if (@49) {
-      let @50 = (*intersectsp_ray_sphere$r42) in
-      let extract$i15 = @50.value in
+      let extract$i15 = (*intersectsp_ray_sphere$r42).value in
       let @52 = extract$i15.low in
       distmin_Ray_Sphere$r15 = @52
     } else {
@@ -1361,12 +1336,10 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       let @54 = 0f - @53 in
       distmin_Ray_Sphere$r15 = @54
     }
-    let @55 = (*distmin_Ray_Sphere$r15) in
-    return @55
+    return (*distmin_Ray_Sphere$r15)
   } break;
   default: { // Shape.Tri of distmin_Ray_Shape
     let _t194 = sh.payload in
-    distmin_Ray_Triangle$r16 : mut f32
     let @57 = _t194[0u] in
     let @58 = reinterpret_cast<f32>(@57) in
     let @59 = _t194[1u] in
@@ -1400,23 +1373,20 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       let @83 = (f32)inf in
       distmin_Ray_Triangle$r16 = @83
     }
-    let @84 = (*distmin_Ray_Triangle$r16) in
-    return @84
+    return (*distmin_Ray_Triangle$r16)
   }
   }
 }
 
 func hit_z(r : Ray, shapes : _tree_layout0) -> f32 {
-  _traverse_tree0$r43 : mut _option0
+  _best0_result$i43 : mut _option0
   _best0$i43 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0$i43 = @2
   _recloop_func0(0u, shapes, r, _best0$i43)
-  _best0_result$i43 : mut _option0
   let @3 = build<_option0>() in
-  _best0_result$i43 = @3
   let @4 = (*_best0$i43) in
   let @5 = @4._field0 in
   let @6 = (f32)inf in
@@ -1429,17 +1399,15 @@ func hit_z(r : Ray, shapes : _tree_layout0) -> f32 {
     let @12 = @8[@11] in
     let @13 = build<_option0>(@12, true) in
     _best0_result$i43 = @13
+  } else {
+    _best0_result$i43 = @3
   }
-  let @14 = (*_best0_result$i43) in
-  _traverse_tree0$r43 = @14
-  let @15 = (*_traverse_tree0$r43) in
-  let @16 = @15.set in
+  let @16 = (*_best0_result$i43).set in
   let @17 = !@16 in
   if (@17) {
     return -1f
   } else {
-    let @18 = (*_traverse_tree0$r43) in
-    let s = @18.value in
+    let s = (*_best0_result$i43).value in
     let @20 = s.tag in
     switch (@20) {
     case 0: { // Shape.Sph of hit_z
@@ -1720,11 +1688,12 @@ func [[export]] hit_z_all(rs : Ray[8], out : mut f32[8], shapes : (_tree_layout0
 }
 
 func intersects_Ray_Shape(r : Ray, sh : Shape) -> bool {
+  intersectsp_ray_sphere$r46 : mut _option1
+  intersects_Ray_Sphere$r20 : mut bool
   let @0 = sh.tag in
   switch (@0) {
   case 0: { // Shape.Sph of intersects_Ray_Shape
     let _t249 = sh.payload in
-    intersects_Ray_Sphere$r20 : mut bool
     let @2 = _t249[0u] in
     let @3 = reinterpret_cast<f32>(@2) in
     let @4 = _t249[1u] in
@@ -1735,7 +1704,6 @@ func intersects_Ray_Shape(r : Ray, sh : Shape) -> bool {
     let @9 = _t249[4u] in
     let @10 = reinterpret_cast<f32>(@9) in
     let _t1171 = build<Sphere>(@8, @10) in
-    intersectsp_ray_sphere$r46 : mut _option1
     let @12 = _t1171.center in
     let @13 = r.o in
     let _t1174 = @12 - @13 in
@@ -1777,11 +1745,9 @@ func intersects_Ray_Shape(r : Ray, sh : Shape) -> bool {
       let @47 = build<_option1>(interval$i46, true) in
       intersectsp_ray_sphere$r46 = @47
     }
-    let @48 = (*intersectsp_ray_sphere$r46) in
-    let @49 = @48.set in
+    let @49 = (*intersectsp_ray_sphere$r46).set in
     if (@49) {
-      let @50 = (*intersectsp_ray_sphere$r46) in
-      let extract$i20 = @50.value in
+      let extract$i20 = (*intersectsp_ray_sphere$r46).value in
       let @52 = extract$i20.low in
       let @53 = r.tmax in
       let @54 = @52 < @53 in
@@ -1792,8 +1758,7 @@ func intersects_Ray_Shape(r : Ray, sh : Shape) -> bool {
     } else {
       intersects_Ray_Sphere$r20 = false
     }
-    let @58 = (*intersects_Ray_Sphere$r20) in
-    return @58
+    return (*intersects_Ray_Sphere$r20)
   } break;
   default: { // Shape.Tri of intersects_Ray_Shape
     let _t262 = sh.payload in
@@ -1827,16 +1792,14 @@ func intersects_Ray_Shape(r : Ray, sh : Shape) -> bool {
 }
 
 func trace(r : Ray, shapes : _tree_layout0) -> _option0 {
-  _traverse_tree0$r33 : mut _option0
+  _best0_result$i33 : mut _option0
   _best0$i33 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0$i33 = @2
   _recloop_func0(0u, shapes, r, _best0$i33)
-  _best0_result$i33 : mut _option0
   let @3 = build<_option0>() in
-  _best0_result$i33 = @3
   let @4 = (*_best0$i33) in
   let @5 = @4._field0 in
   let @6 = (f32)inf in
@@ -1849,11 +1812,10 @@ func trace(r : Ray, shapes : _tree_layout0) -> _option0 {
     let @12 = @8[@11] in
     let @13 = build<_option0>(@12, true) in
     _best0_result$i33 = @13
+  } else {
+    _best0_result$i33 = @3
   }
-  let @14 = (*_best0_result$i33) in
-  _traverse_tree0$r33 = @14
-  let @15 = (*_traverse_tree0$r33) in
-  return @15
+  return (*_best0_result$i33)
 }
 
 

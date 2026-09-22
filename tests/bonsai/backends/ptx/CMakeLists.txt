@@ -37,8 +37,12 @@ add_bonsai_tests(
     blocks-threads.bonsai
     device-function.bonsai
     dynamic-size.bonsai
+    map-thread.bonsai
     math.bonsai
+    mut-bound.bonsai
     print.bonsai
+    rand.bonsai
+    rtiow-primer.bonsai
     struct-capture.bonsai
     threads.bonsai
 )

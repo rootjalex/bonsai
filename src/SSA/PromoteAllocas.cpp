@@ -219,14 +219,37 @@ vector<Candidate> find_candidates(Function &func, const Cfg &region) {
 
         // Passing the pointer on as a block argument is just threading, and
         // is unwound by the promotion -- but only within the region, and
-        // never into a ParFor body: the body ends at a Yield, so a value
-        // stored there reaches no use the rename walk can see, and promoting
-        // the allocation would silently drop the store.
+        // into a ParFor body only for reading: the body ends at a Yield, so
+        // a value stored there reaches no use the rename walk can see, and
+        // promoting an allocation the body writes would silently drop the
+        // store. One the body only reads is a value that reaches the loop
+        // and is the same on every iteration -- a `mut` local settled before
+        // the loop, a sample count chosen by a match on the sampler -- and
+        // promoting it is what lets the body be handed the value rather than
+        // the address of a slot on the function's stack, which a body that
+        // runs on another machine cannot read.
         if (inside) {
             if (const auto *p =
                     std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+                const Cfg body(func, p->body.name);
                 for (const auto &arg : p->body.args) {
-                    reject_if_named(*arg);
+                    for (const Candidate &c : candidates) {
+                        if (!refers_to(*arg, c.name)) {
+                            continue;
+                        }
+                        for (const auto &inner : body.blocks()) {
+                            for (const auto &instr : inner->instrs) {
+                                const bool writes =
+                                    (instr->op == Instruction::Op::Store ||
+                                     accumulate_binop(instr->op).has_value()) &&
+                                    !instr->operands.empty() &&
+                                    refers_to(*instr->operands[0], c.name);
+                                if (writes) {
+                                    rejected.insert(c.name);
+                                }
+                            }
+                        }
+                    }
                 }
             }
             // Threading keeps the name (Block::get_value): the argument that
@@ -502,6 +525,13 @@ size_t promote_allocas(Function &func, const string &entry) {
                     substitute(operand);
                 }
             }
+            // The by-name index too: a `let x = *p` renames the load, and
+            // any block that then names `x` holds the load's value in its
+            // index. clone_function copies the index, and would find a
+            // deleted instruction there.
+            for (auto &[_, value] : block.lookups) {
+                substitute(value);
+            }
             for (auto &[jump, _] : jumps(block)) {
                 for (auto &arg : jump->args) {
                     substitute(arg);
@@ -515,6 +545,28 @@ size_t promote_allocas(Function &func, const string &entry) {
                     std::get_if<Terminator::Return>(&block.terminator.data)) {
                 if (r->value) {
                     substitute(r->value);
+                }
+            }
+            // A loop's bounds and a multi-call's per-lane values and keys
+            // read values too, without being anyone's jump argument. A
+            // parfor over `0:n` where `n` was loaded from a promoted local
+            // -- the sample count a match on the sampler settled -- kept
+            // naming the deleted load here, which nothing then defined.
+            if (auto *p =
+                    std::get_if<Terminator::ParFor>(&block.terminator.data)) {
+                substitute(p->start);
+                substitute(p->end);
+                substitute(p->stride);
+            }
+            if (auto *m =
+                    std::get_if<Terminator::MultiCall>(&block.terminator.data)) {
+                for (auto &vs : m->varying) {
+                    for (auto &v : vs) {
+                        substitute(v);
+                    }
+                }
+                for (auto &k : m->keys) {
+                    substitute(k);
                 }
             }
         }

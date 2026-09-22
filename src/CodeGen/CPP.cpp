@@ -1,5 +1,6 @@
 #include "CodeGen/CPP.h"
 
+#include "CodeGen/CodeGen_GPU_Host.h"
 #include "CodeGen/CodeGen_LLVM.h"
 
 #include "IR/Analysis.h"
@@ -37,11 +38,18 @@ namespace codegen {
 
 using namespace ir;
 
-void emit_type(std::ostream &ss, Type type) {
+// `host_layouts`, when given, names the layout structs the C boundary hands
+// over with buffer descriptors for fields; the program's own form of such a
+// struct, with the arrays' pointers, is printed as `<name>_host` (see
+// BonsaiToCpp::emit_type).
+void emit_type(std::ostream &ss, Type type,
+               const std::set<std::string> *host_layouts) {
     struct Emit : public Visitor {
         std::ostream &ss;
+        const std::set<std::string> *host_layouts;
 
-        Emit(std::ostream &ss) : ss(ss) {}
+        Emit(std::ostream &ss, const std::set<std::string> *host_layouts)
+            : ss(ss), host_layouts(host_layouts) {}
 
         void visit(const Void_t *node) override { ss << "void"; }
 
@@ -110,7 +118,12 @@ void emit_type(std::ostream &ss, Type type) {
             ss << node->lanes;
         }
 
-        void visit(const Struct_t *node) override { ss << node->name; }
+        void visit(const Struct_t *node) override {
+            ss << node->name;
+            if (host_layouts != nullptr && host_layouts->count(node->name)) {
+                ss << "_host";
+            }
+        }
 
         void visit(const Tuple_t *node) override {
             ss << "std::tuple<";
@@ -166,7 +179,7 @@ void emit_type(std::ostream &ss, Type type) {
         RESTRICT_VISITOR(Rand_State_t);
     };
 
-    Emit emitter(ss);
+    Emit emitter(ss, host_layouts);
     type.accept(&emitter);
 }
 
@@ -266,11 +279,23 @@ void emit_const_var(std::stringstream &ss, const Expr &expr) {
     expr.accept(&emitter);
 }
 
-void emit_type_declaration(std::stringstream &ss, Type type) {
+// A struct in `buffer_layouts` is a layout the C boundary hands over: its
+// array fields are `bonsai_buffer *` (runtime/bonsai_buffer.h). One in
+// `host_layouts` is such a layout's program-side form, `<name>_host`, with
+// the arrays' pointers; what the C++ source backend builds out of the
+// boundary form in an exported function's prologue.
+void emit_type_declaration(std::stringstream &ss, Type type,
+                           const std::set<std::string> *buffer_layouts = nullptr,
+                           const std::set<std::string> *host_layouts = nullptr) {
     auto indent = std::string(4, ' ');
 
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
-        ss << "struct" << ' ' << struct_t->name << ' ' << '{' << '\n';
+        const bool buffers =
+            buffer_layouts != nullptr && buffer_layouts->count(struct_t->name);
+        const bool host =
+            host_layouts != nullptr && host_layouts->count(struct_t->name);
+        ss << "struct" << ' ' << struct_t->name << (host ? "_host" : "") << ' '
+           << '{' << '\n';
         for (const auto &[name, child] : struct_t->fields) {
             ss << indent;
             if (const Array_t *array_t = child.as<Array_t>();
@@ -279,13 +304,15 @@ void emit_type_declaration(std::stringstream &ss, Type type) {
                 // as a pointers, since its capacity may be resized.
                 !is_dynamic_array_struct_type(type)) {
 
-                emit_type(ss, array_t->etype);
+                emit_type(ss, array_t->etype, host_layouts);
                 std::optional<uint64_t> size =
                     get_constant_value(array_t->size);
                 internal_assert(size.has_value());
                 ss << " " << name << "[" << *size << "]";
+            } else if (buffers && child.is<Array_t>()) {
+                ss << "bonsai_buffer *" << name;
             } else {
-                emit_type(ss, child);
+                emit_type(ss, child, host_layouts);
                 ss << " " << name;
             }
             if (const auto &it = struct_t->defaults.find(name);
@@ -355,10 +382,21 @@ class BonsaiToCpp : ir::Printer {
     std::string
     create_header(const Program &program, bool allow_mangling,
                   const std::map<std::string, std::vector<uint8_t>> &sides =
-                      {}) {
+                      {},
+                  bool gpu = false) {
         sides_of_exported = sides;
+        find_boundary_layouts(program);
         emit_prologue(allow_mangling);
         emit_program(program);
+        if (gpu) {
+            // The program has kernels: the driver can load them ahead of
+            // its first timed call (see CodeGen_GPU_Host::end_functions).
+            ss << "\n// Loads the program's GPU code, so that the load is "
+                  "part of setup rather\n// than of the first call that "
+                  "launches a kernel.\n"
+                  "#define BONSAI_HAS_GPU 1\n"
+                  "void bonsai_gpu_prepare(void);\n";
+        }
         emit_epilogue(allow_mangling);
         emit_buffer_helpers(program);
         return ss.str();
@@ -370,6 +408,8 @@ class BonsaiToCpp : ir::Printer {
             ss << "#include \"" << header_name << "\""
                << '\n'; // c++ runtime types.
         }
+        find_boundary_layouts(program);
+        printing_source = true;
         emit_private_types(program);
         emit_funcs(program.funcs);
         return ss.str();
@@ -378,6 +418,38 @@ class BonsaiToCpp : ir::Printer {
   private:
     std::stringstream ss;
     std::map<std::string, std::vector<uint8_t>> sides_of_exported;
+
+    // The layout structs exported functions take -- a tree's `_tree_layout`,
+    // whose fields are counts and arrays -- which the C boundary hands over
+    // with a buffer descriptor for each array field. In the header they are
+    // declared that way; in the C++ source, which is the program's own code,
+    // the same struct with the arrays' pointers is `<name>_host`, and an
+    // exported function's prologue builds one from the other.
+    std::set<std::string> boundary_layouts;
+    std::map<std::string, Type> boundary_layout_types;
+    bool printing_source = false;
+
+    void find_boundary_layouts(const Program &program) {
+        for (const auto &[_, func] : program.funcs) {
+            if (!func->is_exported()) {
+                continue;
+            }
+            for (const Function::Argument &arg : func->args) {
+                if (const Struct_t *layout =
+                        CodeGen_LLVM::layout_struct_of(arg.type)) {
+                    boundary_layouts.insert(layout->name);
+                    boundary_layout_types.emplace(layout->name, Type(layout));
+                }
+            }
+        }
+    }
+
+    // The type printer, naming a boundary layout's program-side form in the
+    // source: the free emit_type with the renames this printer knows.
+    void emit_type(std::ostream &os, const Type &type) {
+        codegen::emit_type(os, type,
+                           printing_source ? &boundary_layouts : nullptr);
+    }
 
     // `descriptor`: the parameter is an exported function's array, which
     // arrives as a buffer descriptor (runtime/bonsai_buffer.h) rather than
@@ -465,10 +537,20 @@ class BonsaiToCpp : ir::Printer {
             const Function::Argument &arg = func.args[i];
             const bool descriptor =
                 func.is_exported() && arg.type.is<Array_t>();
-            emit_signature_type(arg.type, /*is_mutating=*/arg.mutating,
-                                /*is_return_type=*/false, descriptor);
-            ss << ' ' << arg.name;
-            if (descriptor && definition) {
+            const Struct_t *layout =
+                func.is_exported() ? CodeGen_LLVM::layout_struct_of(arg.type)
+                                   : nullptr;
+            if (layout != nullptr) {
+                // The boundary form, by reference, under its own name even
+                // in the source, where the program's form is `<name>_host`.
+                ss << (arg.mutating ? "" : "const ") << layout->name << "& ";
+            } else {
+                emit_signature_type(arg.type, /*is_mutating=*/arg.mutating,
+                                    /*is_return_type=*/false, descriptor);
+                ss << ' ';
+            }
+            ss << arg.name;
+            if ((descriptor || layout != nullptr) && definition) {
                 ss << "_buffer";
             }
             if (i + 1 == e) {
@@ -484,6 +566,34 @@ class BonsaiToCpp : ir::Printer {
     // uses; the ones the function may write marked dirty there.
     void emit_buffer_unwrap(const Function &func) {
         for (const Function::Argument &arg : func.args) {
+            if (const Struct_t *layout =
+                    CodeGen_LLVM::layout_struct_of(arg.type)) {
+                // The program's form of the layout, field by field: counts
+                // as they are, arrays asked for on the host.
+                const std::string host = arg.name + "_host";
+                ss << get_indent() << layout->name << "_host " << host << ";\n";
+                for (const auto &field : layout->fields) {
+                    ss << get_indent() << host << "." << field.name << " = ";
+                    if (field.type.is<Array_t>()) {
+                        ss << "static_cast<";
+                        emit_type(ss, field.type);
+                        ss << ">(bonsai_buffer_require(" << arg.name
+                           << "_buffer." << field.name << ", BONSAI_HOST))";
+                    } else {
+                        ss << arg.name << "_buffer." << field.name;
+                    }
+                    ss << ";\n";
+                    if (field.type.is<Array_t>() && arg.mutating) {
+                        ss << get_indent() << "bonsai_buffer_mark_dirty("
+                           << arg.name << "_buffer." << field.name
+                           << ", BONSAI_HOST);\n";
+                    }
+                }
+                ss << get_indent() << (arg.mutating ? "" : "const ")
+                   << layout->name << "_host &" << arg.name << " = " << host
+                   << ";\n";
+                continue;
+            }
             const Array_t *array_t = arg.type.as<Array_t>();
             if (array_t == nullptr) {
                 continue;
@@ -524,37 +634,53 @@ class BonsaiToCpp : ir::Printer {
             if (!func->is_exported()) {
                 continue;
             }
+            // The buffers of a call, in parameter order: an array parameter
+            // is one, a layout struct parameter one per array field.
             std::vector<const Function::Argument *> arrays;
+            std::vector<std::string> buffer_names;
             for (const Function::Argument &arg : func->args) {
                 if (arg.type.is<Array_t>()) {
                     arrays.push_back(&arg);
+                    buffer_names.push_back(arg.name);
+                } else if (const Struct_t *layout =
+                               CodeGen_LLVM::layout_struct_of(arg.type)) {
+                    for (const auto &field : layout->fields) {
+                        if (field.type.is<Array_t>()) {
+                            buffer_names.push_back(arg.name + "." + field.name);
+                        }
+                    }
                 }
             }
-            if (arrays.empty()) {
+            if (buffer_names.empty()) {
                 continue;
             }
             ss << '\n';
 
             // The sides.
-            std::vector<uint8_t> sides(arrays.size(), 1);
+            std::vector<uint8_t> sides(buffer_names.size(), 1);
             if (const auto found = sides_of_exported.find(func->name);
                 found != sides_of_exported.end() &&
-                found->second.size() == arrays.size()) {
+                found->second.size() == buffer_names.size()) {
                 sides = found->second;
             }
             ss << "// Where " << func->name
-               << " needs each of its arrays, in parameter order (";
-            for (size_t i = 0; i < arrays.size(); i++) {
-                ss << (i ? ", " : "") << arrays[i]->name;
+               << " needs each of its buffers, in parameter order (";
+            for (size_t i = 0; i < buffer_names.size(); i++) {
+                ss << (i ? ", " : "") << buffer_names[i];
             }
             ss << "): BONSAI_HOST, BONSAI_DEVICE, or both. For\n"
                << "// bonsai_buffer_stage_all, ahead of a timed call.\n";
             ss << "static const uint8_t " << func->name << "_sides["
-               << arrays.size() << "] = {";
+               << buffer_names.size() << "] = {";
             for (size_t i = 0; i < sides.size(); i++) {
                 ss << (i ? ", " : "") << unsigned(sides[i]);
             }
             ss << "};\n\n";
+            if (arrays.empty()) {
+                // A layout is handed over as the struct of descriptors the
+                // driver built; there is no pointer form to offer.
+                continue;
+            }
 
             // The convenience form.
             ss << "// " << func->name
@@ -676,7 +802,7 @@ class BonsaiToCpp : ir::Printer {
         }
         for (const Type &type : exported_types) {
             ss << get_indent();
-            emit_type_declaration(ss, type);
+            emit_type_declaration(ss, type, &boundary_layouts);
         }
         ss << '\n';
         for (const auto &[_, func] : program.funcs) {
@@ -745,6 +871,12 @@ class BonsaiToCpp : ir::Printer {
                 continue;
             }
             emit_type_declaration(ss, type);
+        }
+        // The program's form of each layout the header declares with buffer
+        // descriptors: the same struct with the arrays' pointers, under the
+        // name the source uses for it (see emit_type).
+        for (const auto &[_, type] : boundary_layout_types) {
+            emit_type_declaration(ss, type, nullptr, &boundary_layouts);
         }
         ss << '\n';
     }
@@ -1466,6 +1598,13 @@ class BonsaiToCpp : ir::Printer {
 
 } // namespace
 
+// Whether the program compiled into a device module as well: a GPU host with
+// a device generator that saw a kernel.
+static bool has_device(const CodeGen_LLVM &codegen) {
+    const auto *host = dynamic_cast<const CodeGen_GPU_Host_Interface *>(&codegen);
+    return host != nullptr && host->device_codegen() != nullptr;
+}
+
 void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Compile the program to LLVM.
     std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(program, options);
@@ -1481,9 +1620,9 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     if (options.output_file.empty()) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
-        llvm::outs() << BonsaiToCpp().create_header(program,
-                                                    /*allow_mangling=*/false,
-                                                    codegen->exported_sides())
+        llvm::outs() << BonsaiToCpp().create_header(
+                            program, /*allow_mangling=*/false,
+                            codegen->exported_sides(), has_device(*codegen))
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -1516,7 +1655,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     file.open(options.output_file + ".h");
     file << BonsaiToCpp().create_header(program,
                                         /*allow_mangling=*/false,
-                                        codegen->exported_sides());
+                                        codegen->exported_sides(),
+                                        has_device(*codegen));
     file.close();
 }
 

@@ -26,24 +26,27 @@ type vec4f = f32x4
 extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; high : [[packed]] f32x3; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : mut (__tuple_1*)) -> void {
+  intersectsp_ray_aabb$r26 : mut _option1
+  tmin$i26 : mut f32
+  tmax$i26 : mut f32
+  intersects_Ray_AABB$r0 : mut bool
+  distmin_Ray_AABB$r1 : mut f32
   _idx0 : mut u32
   triangles_index!top : mut u32
   !live : mut bool
-  !stack : mut u32[64]
   !count : mut u32
-  !count = 0u
+  !stack : mut u32[64]
   triangles_index!top = triangles_index
   !live = true
+  !count = 0u
   while ((*!live)) {
     let @0 = triangles.group0_index in
     let _t623 = @0[(*triangles_index!top)] in
-    intersects_Ray_AABB$r0 : mut bool
     let @2 = _t623.low in
     let @3 = cast<f32x3>(@2) in
     let @4 = _t623.high in
     let @5 = cast<f32x3>(@4) in
     let _t628 = build<AABB>(@3, @5) in
-    intersectsp_ray_aabb$r26 : mut _option1
     let @7 = f32x3(1f) in
     let @8 = ray.d in
     let _t630 = @7 / @8 in
@@ -54,89 +57,60 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
     let low_parts$i26 = select(dirIsNeg$i26, _t131$i26, _t132$i26) in
     let high_parts$i26 = select(dirIsNeg$i26, _t132$i26, _t131$i26) in
     let _t135$i26 = ray.o in
-    tMin$i26 : mut f32x3
     let @17 = low_parts$i26 - _t135$i26 in
     let @18 = @17 * _t630 in
-    tMin$i26 = @18
-    tMax$i26 : mut f32x3
     let @19 = high_parts$i26 - _t135$i26 in
     let @20 = @19 * _t630 in
-    tMax$i26 = @20
-    gamma$r14$i26 : mut f32
     let @21 = (f32)eps in
     let @22 = 0.5f * @21 in
     let _t632 = 3f * @22 in
     let @24 = 1f - _t632 in
     let @25 = _t632 / @24 in
-    gamma$r14$i26 = @25
-    let @26 = (*gamma$r14$i26) in
-    let @27 = 2f * @26 in
+    let @27 = 2f * @25 in
     let @28 = 1f + @27 in
-    tMax$i26 *= @28
-    let @29 = (*tMax$i26) in
-    let @30 = @29[1u] in
-    let @31 = (*tMin$i26) in
-    let @32 = @31[0u] in
+    let @138 = @20 * f32x3(@28) in
+    let @30 = @138[1u] in
+    let @32 = @18[0u] in
     let @33 = @30 < @32 in
-    let @34 = (*tMax$i26) in
-    let @35 = @34[0u] in
-    let @36 = (*tMin$i26) in
-    let @37 = @36[1u] in
+    let @35 = @138[0u] in
+    let @37 = @18[1u] in
     let @38 = @35 < @37 in
     let @39 = @33 || @38 in
     if (@39) {
       let @40 = build<_option1>() in
       intersectsp_ray_aabb$r26 = @40
     } else {
-      tmin$i26 : mut f32
-      let @41 = (*tMin$i26) in
-      let @42 = @41[0u] in
-      let @43 = (*tMin$i26) in
-      let @44 = @43[1u] in
+      let @42 = @18[0u] in
+      let @44 = @18[1u] in
       let @45 = max(@42, @44) in
-      tmin$i26 = @45
-      tmax$i26 : mut f32
-      let @46 = (*tMax$i26) in
-      let @47 = @46[0u] in
-      let @48 = (*tMax$i26) in
-      let @49 = @48[1u] in
+      let @47 = @138[0u] in
+      let @49 = @138[1u] in
       let @50 = min(@47, @49) in
-      tmax$i26 = @50
-      let @51 = (*tMax$i26) in
-      let @52 = @51[2u] in
-      let @53 = (*tmin$i26) in
-      let @54 = @52 < @53 in
-      let @55 = (*tmax$i26) in
-      let @56 = (*tMin$i26) in
-      let @57 = @56[2u] in
-      let @58 = @55 < @57 in
+      let @52 = @138[2u] in
+      let @54 = @52 < @45 in
+      let @57 = @18[2u] in
+      let @58 = @50 < @57 in
       let @59 = @54 || @58 in
       if (@59) {
         let @60 = build<_option1>() in
         intersectsp_ray_aabb$r26 = @60
+        tmin$i26 = @45
+        tmax$i26 = @50
       } else {
-        let @61 = (*tmin$i26) in
-        let @62 = (*tMin$i26) in
-        let @63 = @62[2u] in
-        let @64 = max(@61, @63) in
-        tmin$i26 = @64
-        let @65 = (*tmax$i26) in
-        let @66 = (*tMax$i26) in
-        let @67 = @66[2u] in
-        let @68 = min(@65, @67) in
-        tmax$i26 = @68
-        let @69 = (*tmin$i26) in
-        let @70 = (*tmax$i26) in
-        let @71 = build<FInterval>(@69, @70) in
+        let @63 = @18[2u] in
+        let @64 = max(@45, @63) in
+        let @67 = @138[2u] in
+        let @68 = min(@50, @67) in
+        let @71 = build<FInterval>(@64, @68) in
         let @72 = build<_option1>(@71, true) in
         intersectsp_ray_aabb$r26 = @72
+        tmin$i26 = @64
+        tmax$i26 = @68
       }
     }
-    let @73 = (*intersectsp_ray_aabb$r26) in
-    let _t351 = @73.set in
+    let _t351 = (*intersectsp_ray_aabb$r26).set in
     if (_t351) {
-      let @75 = (*intersectsp_ray_aabb$r26) in
-      let extract$i0 = @75.value in
+      let extract$i0 = (*intersectsp_ray_aabb$r26).value in
       let @77 = extract$i0.low in
       let @78 = ray.tmax in
       let @79 = @77 < @78 in
@@ -147,12 +121,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
     } else {
       intersects_Ray_AABB$r0 = false
     }
-    let @83 = (*intersects_Ray_AABB$r0) in
-    if (@83) {
-      distmin_Ray_AABB$r1 : mut f32
+    if ((*intersects_Ray_AABB$r0)) {
       if (_t351) {
-        let @84 = (*intersectsp_ray_aabb$r26) in
-        let extract$i1 = @84.value in
+        let extract$i1 = (*intersectsp_ray_aabb$r26).value in
         let @86 = extract$i1.low in
         distmin_Ray_AABB$r1 = @86
       } else {
@@ -160,10 +131,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         let @88 = 0f - @87 in
         distmin_Ray_AABB$r1 = @88
       }
-      let @89 = (*distmin_Ray_AABB$r1) in
       let @90 = (*_best0) in
       let @91 = @90._field0 in
-      let @92 = @89 < @91 in
+      let @92 = (*distmin_Ray_AABB$r1) < @91 in
       if (@92) {
         let _t64 = _t623.nPrims in
         let @94 = _t64 == 0u in
@@ -178,12 +148,11 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
           let @103 = !_t19 in
           let @128 = select(@103, @97, @101) in
           let @129 = select(@103, @101, @97) in
-          let @135 = (*!count) in
-          !stack[@135] = @129
-          let @137 = @135 + 1u in
-          !count = @137
+          !stack[(*!count)] = @129
+          let @137 = (*!count) + 1u in
           triangles_index!top = @128
           !live = true
+          !count = @137
           continue
         } else {
           let @105 = cast<u32>(_t64) in
@@ -199,18 +168,14 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
             let _t643 = @113 in
             let @114 = _t643.set in
             if (@114) {
-              distmin_Ray_Triangle$r2 : mut f32
               let isect_$i2 = _t643.value in
               let @116 = isect_$i2.t in
-              distmin_Ray_Triangle$r2 = @116
-              let @117 = (*distmin_Ray_Triangle$r2) in
               let @118 = (*_best0) in
               let @119 = @118._field0 in
-              let @120 = @117 < @119 in
+              let @120 = @116 < @119 in
               if (@120) {
-                let @121 = (*distmin_Ray_Triangle$r2) in
                 let @122 = build<__tuple_0>(_t640) in
-                let @123 = build<__tuple_1>(@121, @122) in
+                let @123 = build<__tuple_1>(@116, @122) in
                 _best0 = @123
               }
             }
@@ -220,14 +185,13 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         }
       }
     }
-    let @131 = (*!count) in
-    let @132 = @131 != 0u in
+    let @132 = (*!count) != 0u in
     if (@132) {
-      let @133 = @131 - 1u in
-      !count = @133
+      let @133 = (*!count) - 1u in
       let @134 = !stack[@133] in
       triangles_index!top = @134
       !live = true
+      !count = @133
     } else {
       !live = false
     }
@@ -236,15 +200,14 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 }
 
 func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
+  _best0_result : mut _option0
   _best0 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0 = @2
   _recloop_func0(0u, triangles, ray, _best0)
-  _best0_result : mut _option0
   let @3 = build<_option0>() in
-  _best0_result = @3
   let @4 = (*_best0) in
   let @5 = @4._field0 in
   let @6 = (f32)inf in
@@ -257,13 +220,14 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
     let @12 = @8[@11] in
     let @13 = build<_option0>(@12, true) in
     _best0_result = @13
+  } else {
+    _best0_result = @3
   }
-  let @14 = (*_best0_result) in
-  return @14
+  return (*_best0_result)
 }
 
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_layout0*)) -> void {
-  _traverse_tree0$r25 : mut _option0
+  _best0_result$i25 : mut _option0
   _best0$i25 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
@@ -272,9 +236,7 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_
   let @3 = (*triangles) in
   let @4 = (*ray) in
   _recloop_func0(0u, @3, @4, _best0$i25)
-  _best0_result$i25 : mut _option0
   let @5 = build<_option0>() in
-  _best0_result$i25 = @5
   let @6 = (*_best0$i25) in
   let @7 = @6._field0 in
   let @8 = (f32)inf in
@@ -288,11 +250,10 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_
     let @15 = @11[@14] in
     let @16 = build<_option0>(@15, true) in
     _best0_result$i25 = @16
+  } else {
+    _best0_result$i25 = @5
   }
-  let @17 = (*_best0_result$i25) in
-  _traverse_tree0$r25 = @17
-  let @18 = (*_traverse_tree0$r25) in
-  _ret0 = @18
+  _ret0 = (*_best0_result$i25)
   return
 }
 

@@ -58,21 +58,21 @@ Blob_Wide:
 define float @weigh(ptr noundef nonnull readonly captures(none) %b, float noundef %k) local_unnamed_addr #1 {
 weigh:
   %deref_temp.unpack = load i8, ptr %b, align 4
-  %deref_temp.elt15 = getelementptr inbounds nuw i8, ptr %b, i64 16
-  %deref_temp.unpack16.unpack = load i32, ptr %deref_temp.elt15, align 4
-  %deref_temp.unpack16.elt47 = getelementptr inbounds nuw i8, ptr %b, i64 20
-  %deref_temp.unpack16.unpack48 = load i32, ptr %deref_temp.unpack16.elt47, align 4
+  %deref_temp.elt9 = getelementptr inbounds nuw i8, ptr %b, i64 16
+  %deref_temp.unpack10.unpack = load i32, ptr %deref_temp.elt9, align 4
+  %deref_temp.unpack10.elt41 = getelementptr inbounds nuw i8, ptr %b, i64 20
+  %deref_temp.unpack10.unpack42 = load i32, ptr %deref_temp.unpack10.elt41, align 4
   switch i8 %deref_temp.unpack, label %"!case_3" [
     i8 0, label %"!case_1"
     i8 1, label %"!case_2"
   ]
 
 "!case_3":                                        ; preds = %weigh
-  %deref_temp.unpack16.elt53 = getelementptr inbounds nuw i8, ptr %b, i64 32
-  %deref_temp.unpack16.unpack54 = load i32, ptr %deref_temp.unpack16.elt53, align 4
-  %0 = and i32 %deref_temp.unpack16.unpack54, 255
+  %deref_temp.unpack10.elt47 = getelementptr inbounds nuw i8, ptr %b, i64 32
+  %deref_temp.unpack10.unpack48 = load i32, ptr %deref_temp.unpack10.elt47, align 4
+  %0 = and i32 %deref_temp.unpack10.unpack48, 255
   %.not = icmp eq i32 %0, 0
-  %.v = select i1 %.not, i32 %deref_temp.unpack16.unpack48, i32 %deref_temp.unpack16.unpack
+  %.v = select i1 %.not, i32 %deref_temp.unpack10.unpack42, i32 %deref_temp.unpack10.unpack
   %1 = bitcast i32 %.v to float
   %2 = fsub float %k, %1
   br label %"!merge_0"
@@ -82,19 +82,19 @@ common.ret:                                       ; preds = %"!merge_0", %"!case
   ret float %common.ret.op
 
 "!case_2":                                        ; preds = %weigh
-  %3 = add i32 %deref_temp.unpack16.unpack48, %deref_temp.unpack16.unpack
+  %3 = add i32 %deref_temp.unpack10.unpack42, %deref_temp.unpack10.unpack
   %4 = sitofp i32 %3 to float
   br label %common.ret
 
 "!case_1":                                        ; preds = %weigh
-  %5 = bitcast i32 %deref_temp.unpack16.unpack to float
+  %5 = bitcast i32 %deref_temp.unpack10.unpack to float
   %6 = fmul float %5, 2.000000e+00
   %7 = fadd float %k, %6
   br label %"!merge_0"
 
 "!merge_0":                                       ; preds = %"!case_3", %"!case_1"
-  %acc5.sroa.speculated = phi float [ %7, %"!case_1" ], [ %2, %"!case_3" ]
-  %8 = fmul float %acc5.sroa.speculated, 3.000000e+00
+  %acc = phi float [ %7, %"!case_1" ], [ %2, %"!case_3" ]
+  %8 = fmul float %acc, 3.000000e+00
   br label %common.ret
 }
 

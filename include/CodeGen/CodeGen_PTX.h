@@ -69,10 +69,17 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // Adds the body of `loop` -- a parfor of `host` bound to GPUBlock or
     // GPUThread -- to the module as a kernel, and every function the body
     // reaches as a device function. The kernel takes the loop's begin and
-    // stride and then the body's captures, by value, in the order the body
-    // block declares them after its index.
+    // stride and then the body's captures, in the order the body block
+    // declares them after its index (CodeGen_LLVM::launch_captures: the
+    // random generator's state is not one, each thread seeding its own). A
+    // capture the host marks in `by_value`, one flag per capture, is a
+    // pointer to a struct the kernel never writes: it comes as the struct
+    // itself, a kernel parameter rather than memory the launch would have to
+    // copy over, and the kernel's prologue gives it an address in a local of
+    // its own.
     Kernel add_kernel(const ir::ssa::Function &host,
-                      const ir::ssa::Terminator::ParFor &loop);
+                      const ir::ssa::Terminator::ParFor &loop,
+                      const std::vector<bool> &by_value);
 
     // Links libdevice for whatever maths the module calls, optimizes, and
     // emits the PTX. Nothing may be added after.

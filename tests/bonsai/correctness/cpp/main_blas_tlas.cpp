@@ -275,15 +275,25 @@ int main() {
         insts.push_back(p.instance);
     }
 
+    // The layout's arrays reach the program as buffer descriptors
+    // (runtime/bonsai_buffer.h).
+    bonsai_buffer tris_buffer =
+        bonsai_buffer_wrap(tris.data(), tris.size() * sizeof(tris[0]));
+    bonsai_buffer blas_buffer = bonsai_buffer_wrap(
+        blas_nodes.data(), blas_nodes.size() * sizeof(blas_nodes[0]));
+    bonsai_buffer insts_buffer =
+        bonsai_buffer_wrap(insts.data(), insts.size() * sizeof(insts[0]));
+    bonsai_buffer tlas_buffer = bonsai_buffer_wrap(
+        tlas_nodes.data(), tlas_nodes.size() * sizeof(tlas_nodes[0]));
     _tree_layout0 scene;
     scene.tCount = uint32_t(tris.size());
-    scene.tris = tris.data();
+    scene.tris = &tris_buffer;
     scene.bCount = uint32_t(blas_nodes.size());
-    scene.group0_bnode = blas_nodes.data();
+    scene.group0_bnode = &blas_buffer;
     scene.iCount = uint32_t(insts.size());
-    scene.insts = insts.data();
+    scene.insts = &insts_buffer;
     scene.nCount = uint32_t(tlas_nodes.size());
-    scene.group1_index = tlas_nodes.data();
+    scene.group1_index = &tlas_buffer;
 
     const float3 forward = float3{1.0f, 0.0f, 0.0f};
     auto ray = [&](float y, float z) {

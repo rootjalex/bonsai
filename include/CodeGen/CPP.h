@@ -27,7 +27,11 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options);
 void to_cppx(const ir::Program &program, const CompilerOptions &options);
 
 // Emits the appropriate C++ type for a given bonsai type.
-void emit_type(std::ostream &ss, ir::Type type);
+// `host_layouts`, when given, names the layout structs the C boundary hands
+// over with buffer descriptors for fields; the program's own form of such a
+// struct is printed as `<name>_host` (see BonsaiToCpp in CPP.cpp).
+void emit_type(std::ostream &ss, ir::Type type,
+               const std::set<std::string> *host_layouts = nullptr);
 
 } // namespace codegen
 } // namespace bonsai

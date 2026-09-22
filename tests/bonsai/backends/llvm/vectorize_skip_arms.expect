@@ -1,10 +1,6 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-%"struct.[[packed]] u32x2$v8" = type { <8 x i32>, <8 x i32> }
-%"struct.Shape$v8" = type { <8 x i8>, %"struct.[[packed]] u8x3$v8", %"struct.[[packed]] u32x2$v8" }
-%"struct.[[packed]] u8x3$v8" = type { <8 x i8>, <8 x i8>, <8 x i8> }
-
 define void @weigh_all(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 weigh_all:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
@@ -56,177 +52,90 @@ weigh_all:
   %19 = or <8 x i1> %"@71!join.i", %not..i
   %20 = fcmp olt <8 x float> %extract, zeroinitializer
   %21 = xor <8 x i1> %20, %19
-  %22 = bitcast <8 x i1> %20 to i8
-  %.not7.i = icmp eq i8 %22, 0
-  br i1 %.not7.i, label %"!else_6!any.i", label %"!then_5.i"
-
-"!then_5.i":                                      ; preds = %"!merge_2.i"
-  %23 = fsub <8 x float> zeroinitializer, %extract
-  %24 = bitcast <8 x float> %23 to <8 x i32>
-  %25 = insertvalue %"struct.[[packed]] u32x2$v8" undef, <8 x i32> %24, 0
-  %26 = insertvalue %"struct.[[packed]] u32x2$v8" %25, <8 x i32> zeroinitializer, 1
-  %27 = insertvalue %"struct.Shape$v8" { <8 x i8> zeroinitializer, %"struct.[[packed]] u8x3$v8" zeroinitializer, %"struct.[[packed]] u32x2$v8" undef }, %"struct.[[packed]] u32x2$v8" %26, 2
-  br label %"!else_6!any.i"
-
-"!else_6!any.i":                                  ; preds = %"!then_5.i", %"!merge_2.i"
-  %"classify$r6!skip1.i" = phi %"struct.Shape$v8" [ undef, %"!merge_2.i" ], [ %27, %"!then_5.i" ]
-  %28 = bitcast <8 x i1> %21 to i8
-  %.not8.i = icmp eq i8 %28, 0
+  %22 = fsub <8 x float> zeroinitializer, %extract
+  %23 = bitcast <8 x i1> %21 to i8
+  %.not8.i = icmp eq i8 %23, 0
   br i1 %.not8.i, label %"!merge_7.i", label %"!else_6.i"
 
-"!else_6.i":                                      ; preds = %"!else_6!any.i"
-  %29 = fcmp olt <8 x float> %extract, splat (float 4.000000e+00)
-  %not.9.i = xor <8 x i1> %29, splat (i1 true)
-  %30 = and <8 x i1> %19, %not.9.i
-  %31 = and <8 x i1> %29, %21
-  %32 = bitcast <8 x i1> %31 to i8
-  %.not10.i = icmp eq i8 %32, 0
-  br i1 %.not10.i, label %"!else_9!any.i", label %"!then_8.i"
-
-"!then_8.i":                                      ; preds = %"!else_6.i"
-  %33 = bitcast <8 x float> %extract to <8 x i32>
-  %34 = fmul <8 x float> %extract, splat (float 5.000000e-01)
-  %35 = bitcast <8 x float> %34 to <8 x i32>
-  %36 = insertvalue %"struct.[[packed]] u32x2$v8" undef, <8 x i32> %33, 0
-  %37 = insertvalue %"struct.[[packed]] u32x2$v8" %36, <8 x i32> %35, 1
-  %38 = insertvalue %"struct.Shape$v8" { <8 x i8> splat (i8 1), %"struct.[[packed]] u8x3$v8" zeroinitializer, %"struct.[[packed]] u32x2$v8" undef }, %"struct.[[packed]] u32x2$v8" %37, 2
-  br label %"!else_9!any.i"
-
-"!else_9!any.i":                                  ; preds = %"!then_8.i", %"!else_6.i"
-  %"classify$r6!skip.i" = phi %"struct.Shape$v8" [ undef, %"!else_6.i" ], [ %38, %"!then_8.i" ]
-  %39 = bitcast <8 x i1> %30 to i8
-  %.not11.i = icmp eq i8 %39, 0
+"!else_6.i":                                      ; preds = %"!merge_2.i"
+  %24 = fcmp uge <8 x float> %extract, splat (float 4.000000e+00)
+  %25 = and <8 x i1> %24, %19
+  %26 = fmul <8 x float> %extract, splat (float 5.000000e-01)
+  %27 = bitcast <8 x i1> %25 to i8
+  %.not11.i = icmp eq i8 %27, 0
   br i1 %.not11.i, label %"!merge_10.i", label %"!else_9.i"
 
-"!else_9.i":                                      ; preds = %"!else_9!any.i"
-  %40 = bitcast <8 x float> %extract to <8 x i32>
-  %41 = fmul <8 x float> %extract, splat (float 2.500000e-01)
-  %42 = bitcast <8 x float> %41 to <8 x i32>
-  %43 = select <8 x i1> %30, <8 x i8> splat (i8 2), <8 x i8> splat (i8 1)
-  %44 = insertvalue %"struct.Shape$v8" undef, <8 x i8> %43, 0
-  %45 = extractvalue %"struct.Shape$v8" %"classify$r6!skip.i", 1
-  %46 = extractvalue %"struct.[[packed]] u8x3$v8" %45, 0
-  %47 = select <8 x i1> %30, <8 x i8> zeroinitializer, <8 x i8> %46
-  %48 = insertvalue %"struct.[[packed]] u8x3$v8" undef, <8 x i8> %47, 0
-  %49 = extractvalue %"struct.[[packed]] u8x3$v8" %45, 1
-  %50 = select <8 x i1> %30, <8 x i8> zeroinitializer, <8 x i8> %49
-  %51 = insertvalue %"struct.[[packed]] u8x3$v8" %48, <8 x i8> %50, 1
-  %52 = extractvalue %"struct.[[packed]] u8x3$v8" %45, 2
-  %53 = select <8 x i1> %30, <8 x i8> zeroinitializer, <8 x i8> %52
-  %54 = insertvalue %"struct.[[packed]] u8x3$v8" %51, <8 x i8> %53, 2
-  %55 = insertvalue %"struct.Shape$v8" %44, %"struct.[[packed]] u8x3$v8" %54, 1
-  %56 = extractvalue %"struct.Shape$v8" %"classify$r6!skip.i", 2
-  %57 = extractvalue %"struct.[[packed]] u32x2$v8" %56, 0
-  %58 = select <8 x i1> %30, <8 x i32> %40, <8 x i32> %57
-  %59 = insertvalue %"struct.[[packed]] u32x2$v8" undef, <8 x i32> %58, 0
-  %60 = extractvalue %"struct.[[packed]] u32x2$v8" %56, 1
-  %61 = select <8 x i1> %30, <8 x i32> %42, <8 x i32> %60
-  %62 = insertvalue %"struct.[[packed]] u32x2$v8" %59, <8 x i32> %61, 1
-  %63 = insertvalue %"struct.Shape$v8" %55, %"struct.[[packed]] u32x2$v8" %62, 2
+"!else_9.i":                                      ; preds = %"!else_6.i"
+  %28 = fmul <8 x float> %extract, splat (float 2.500000e-01)
+  %29 = select <8 x i1> %25, <8 x i8> splat (i8 2), <8 x i8> splat (i8 1)
+  %.v.i = select <8 x i1> %25, <8 x float> %28, <8 x float> %26
   br label %"!merge_10.i"
 
-"!merge_10.i":                                    ; preds = %"!else_9.i", %"!else_9!any.i"
-  %"classify$r6!skip0.i" = phi %"struct.Shape$v8" [ %"classify$r6!skip.i", %"!else_9!any.i" ], [ %63, %"!else_9.i" ]
-  %64 = extractvalue %"struct.Shape$v8" %"classify$r6!skip0.i", 0
-  %65 = select <8 x i1> %21, <8 x i8> %64, <8 x i8> zeroinitializer
-  %66 = insertvalue %"struct.Shape$v8" undef, <8 x i8> %65, 0
-  %67 = extractvalue %"struct.Shape$v8" %"classify$r6!skip1.i", 1
-  %68 = extractvalue %"struct.Shape$v8" %"classify$r6!skip0.i", 1
-  %69 = extractvalue %"struct.[[packed]] u8x3$v8" %67, 0
-  %70 = extractvalue %"struct.[[packed]] u8x3$v8" %68, 0
-  %71 = select <8 x i1> %21, <8 x i8> %70, <8 x i8> %69
-  %72 = insertvalue %"struct.[[packed]] u8x3$v8" undef, <8 x i8> %71, 0
-  %73 = extractvalue %"struct.[[packed]] u8x3$v8" %67, 1
-  %74 = extractvalue %"struct.[[packed]] u8x3$v8" %68, 1
-  %75 = select <8 x i1> %21, <8 x i8> %74, <8 x i8> %73
-  %76 = insertvalue %"struct.[[packed]] u8x3$v8" %72, <8 x i8> %75, 1
-  %77 = extractvalue %"struct.[[packed]] u8x3$v8" %67, 2
-  %78 = extractvalue %"struct.[[packed]] u8x3$v8" %68, 2
-  %79 = select <8 x i1> %21, <8 x i8> %78, <8 x i8> %77
-  %80 = insertvalue %"struct.[[packed]] u8x3$v8" %76, <8 x i8> %79, 2
-  %81 = insertvalue %"struct.Shape$v8" %66, %"struct.[[packed]] u8x3$v8" %80, 1
-  %82 = extractvalue %"struct.Shape$v8" %"classify$r6!skip1.i", 2
-  %83 = extractvalue %"struct.Shape$v8" %"classify$r6!skip0.i", 2
-  %84 = extractvalue %"struct.[[packed]] u32x2$v8" %82, 0
-  %85 = extractvalue %"struct.[[packed]] u32x2$v8" %83, 0
-  %86 = select <8 x i1> %21, <8 x i32> %85, <8 x i32> %84
-  %87 = insertvalue %"struct.[[packed]] u32x2$v8" undef, <8 x i32> %86, 0
-  %88 = extractvalue %"struct.[[packed]] u32x2$v8" %82, 1
-  %89 = extractvalue %"struct.[[packed]] u32x2$v8" %83, 1
-  %90 = select <8 x i1> %21, <8 x i32> %89, <8 x i32> %88
-  %91 = insertvalue %"struct.[[packed]] u32x2$v8" %87, <8 x i32> %90, 1
-  %92 = insertvalue %"struct.Shape$v8" %81, %"struct.[[packed]] u32x2$v8" %91, 2
+"!merge_10.i":                                    ; preds = %"!else_9.i", %"!else_6.i"
+  %"classify$r6!skip0.0.i" = phi <8 x i8> [ splat (i8 1), %"!else_6.i" ], [ %29, %"!else_9.i" ]
+  %"classify$r6!skip0.2.1.in.i" = phi <8 x float> [ %26, %"!else_6.i" ], [ %.v.i, %"!else_9.i" ]
+  %30 = select <8 x i1> %21, <8 x i8> %"classify$r6!skip0.0.i", <8 x i8> zeroinitializer
+  %.v15.i = select <8 x i1> %21, <8 x float> %extract, <8 x float> %22
+  %31 = select <8 x i1> %21, <8 x float> %"classify$r6!skip0.2.1.in.i", <8 x float> zeroinitializer
   br label %"!merge_7.i"
 
-"!merge_7.i":                                     ; preds = %"!merge_10.i", %"!else_6!any.i"
-  %"classify$r6!skip2.i" = phi %"struct.Shape$v8" [ %"classify$r6!skip1.i", %"!else_6!any.i" ], [ %92, %"!merge_10.i" ]
-  %"classify$r6!skip2.tag.i" = extractvalue %"struct.Shape$v8" %"classify$r6!skip2.i", 0
-  %93 = icmp eq <8 x i8> %"classify$r6!skip2.tag.i", zeroinitializer
-  %94 = and <8 x i1> %19, %93
-  %95 = icmp eq <8 x i8> %"classify$r6!skip2.tag.i", splat (i8 1)
-  %96 = and <8 x i1> %19, %95
-  %97 = icmp ugt <8 x i8> %"classify$r6!skip2.tag.i", splat (i8 1)
-  %98 = and <8 x i1> %19, %97
-  %99 = bitcast <8 x i1> %98 to i8
-  %.not12.i = icmp eq i8 %99, 0
+"!merge_7.i":                                     ; preds = %"!merge_10.i", %"!merge_2.i"
+  %"classify$r6!skip2.0.i" = phi <8 x i8> [ zeroinitializer, %"!merge_2.i" ], [ %30, %"!merge_10.i" ]
+  %"classify$r6!skip2.2.0.in.i" = phi <8 x float> [ %22, %"!merge_2.i" ], [ %.v15.i, %"!merge_10.i" ]
+  %"classify$r6!skip2.2.1.i" = phi <8 x float> [ zeroinitializer, %"!merge_2.i" ], [ %31, %"!merge_10.i" ]
+  %32 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", zeroinitializer
+  %33 = and <8 x i1> %19, %32
+  %34 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
+  %35 = and <8 x i1> %19, %34
+  %36 = icmp samesign ugt <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
+  %37 = and <8 x i1> %19, %36
+  %38 = bitcast <8 x i1> %37 to i8
+  %.not12.i = icmp eq i8 %38, 0
   br i1 %.not12.i, label %"!case_13!any.i", label %"!case_14.i"
 
 "!case_14.i":                                     ; preds = %"!merge_7.i"
-  %"classify$r6!skip2.payload2.i" = extractvalue %"struct.Shape$v8" %"classify$r6!skip2.i", 2
-  %"_t41.!0.i" = extractvalue %"struct.[[packed]] u32x2$v8" %"classify$r6!skip2.payload2.i", 0
-  %100 = bitcast <8 x i32> %"_t41.!0.i" to <8 x float>
-  %"_t41.!1.i" = extractvalue %"struct.[[packed]] u32x2$v8" %"classify$r6!skip2.payload2.i", 1
-  %101 = bitcast <8 x i32> %"_t41.!1.i" to <8 x float>
-  %102 = fmul <8 x float> %100, %100
-  %103 = fmul <8 x float> %101, %101
-  %104 = fsub <8 x float> %102, %103
-  %105 = fmul <8 x float> %104, splat (float 3.000000e+00)
-  %106 = fadd <8 x float> %105, %101
+  %39 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
+  %40 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
+  %41 = fsub <8 x float> %39, %40
+  %42 = fmul <8 x float> %41, splat (float 3.000000e+00)
+  %43 = fadd <8 x float> %"classify$r6!skip2.2.1.i", %42
   br label %"!case_13!any.i"
 
 "!case_13!any.i":                                 ; preds = %"!case_14.i", %"!merge_7.i"
-  %"w!skip.i" = phi <8 x float> [ undef, %"!merge_7.i" ], [ %106, %"!case_14.i" ]
-  %107 = bitcast <8 x i1> %96 to i8
-  %.not13.i = icmp eq i8 %107, 0
+  %"w!skip.i" = phi <8 x float> [ undef, %"!merge_7.i" ], [ %43, %"!case_14.i" ]
+  %44 = bitcast <8 x i1> %35 to i8
+  %.not13.i = icmp eq i8 %44, 0
   br i1 %.not13.i, label %"!case_12!any.i", label %"!case_13.i"
 
 "!case_13.i":                                     ; preds = %"!case_13!any.i"
-  %"classify$r6!skip2.payload1.i" = extractvalue %"struct.Shape$v8" %"classify$r6!skip2.i", 2
-  %"_t35.!0.i" = extractvalue %"struct.[[packed]] u32x2$v8" %"classify$r6!skip2.payload1.i", 0
-  %108 = bitcast <8 x i32> %"_t35.!0.i" to <8 x float>
-  %"_t35.!1.i" = extractvalue %"struct.[[packed]] u32x2$v8" %"classify$r6!skip2.payload1.i", 1
-  %109 = bitcast <8 x i32> %"_t35.!1.i" to <8 x float>
-  %110 = fmul <8 x float> %108, %109
-  %111 = fmul <8 x float> %110, splat (float 2.000000e+00)
-  %112 = fmul <8 x float> %109, %109
-  %113 = fadd <8 x float> %112, %111
-  %114 = fsub <8 x float> %113, %108
-  %115 = select <8 x i1> %96, <8 x float> %114, <8 x float> %"w!skip.i"
+  %45 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.1.i"
+  %46 = fmul <8 x float> %45, splat (float 2.000000e+00)
+  %47 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
+  %48 = fadd <8 x float> %47, %46
+  %49 = fsub <8 x float> %48, %"classify$r6!skip2.2.0.in.i"
+  %50 = select <8 x i1> %35, <8 x float> %49, <8 x float> %"w!skip.i"
   br label %"!case_12!any.i"
 
 "!case_12!any.i":                                 ; preds = %"!case_13.i", %"!case_13!any.i"
-  %"w!skip0.i" = phi <8 x float> [ %"w!skip.i", %"!case_13!any.i" ], [ %115, %"!case_13.i" ]
-  %116 = bitcast <8 x i1> %94 to i8
-  %.not14.i = icmp eq i8 %116, 0
+  %"w!skip0.i" = phi <8 x float> [ %"w!skip.i", %"!case_13!any.i" ], [ %50, %"!case_13.i" ]
+  %51 = bitcast <8 x i1> %33 to i8
+  %.not14.i = icmp eq i8 %51, 0
   br i1 %.not14.i, label %"weigh$gang8_v0.exit", label %"!case_12.i"
 
 "!case_12.i":                                     ; preds = %"!case_12!any.i"
-  %"classify$r6!skip2.payload.i" = extractvalue %"struct.Shape$v8" %"classify$r6!skip2.i", 2
-  %"@36.!0.i" = extractvalue %"struct.[[packed]] u32x2$v8" %"classify$r6!skip2.payload.i", 0
-  %117 = bitcast <8 x i32> %"@36.!0.i" to <8 x float>
-  %118 = fmul <8 x float> %117, %117
-  %119 = fmul <8 x float> %118, splat (float 3.000000e+00)
-  %120 = fmul <8 x float> %117, splat (float 5.000000e-01)
-  %121 = fadd <8 x float> %120, %119
-  %122 = fsub <8 x float> %121, %117
-  %123 = select <8 x i1> %94, <8 x float> %122, <8 x float> %"w!skip0.i"
+  %52 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
+  %53 = fmul <8 x float> %52, splat (float 3.000000e+00)
+  %54 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", splat (float 5.000000e-01)
+  %55 = fadd <8 x float> %54, %53
+  %56 = fsub <8 x float> %55, %"classify$r6!skip2.2.0.in.i"
+  %57 = select <8 x i1> %33, <8 x float> %56, <8 x float> %"w!skip0.i"
   br label %"weigh$gang8_v0.exit"
 
 "weigh$gang8_v0.exit":                            ; preds = %"!case_12!any.i", %"!case_12.i"
-  %"w!skip1.i" = phi <8 x float> [ %"w!skip0.i", %"!case_12!any.i" ], [ %123, %"!case_12.i" ]
-  %124 = fadd <8 x float> %"acc!skip0.i", %"w!skip1.i"
-  %125 = select <8 x i1> %19, <8 x float> %124, <8 x float> %"!ret!skip.i"
-  store <8 x float> %125, ptr %out, align 4
+  %"w!skip1.i" = phi <8 x float> [ %"w!skip0.i", %"!case_12!any.i" ], [ %57, %"!case_12.i" ]
+  %58 = fadd <8 x float> %"acc!skip0.i", %"w!skip1.i"
+  %59 = select <8 x i1> %19, <8 x float> %58, <8 x float> %"!ret!skip.i"
+  store <8 x float> %59, ptr %out, align 4
   ret void
 }
 
@@ -259,7 +168,7 @@ weigh_one:
   br label %"!merge_2.i"
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!merge_4.i"
-  %storemerge.i = phi float [ %13, %"!else_1.i" ], [ %6, %"!merge_4.i" ]
+  %acc.i = phi float [ %13, %"!else_1.i" ], [ %6, %"!merge_4.i" ]
   %14 = fcmp olt float %x, 0.000000e+00
   br i1 %14, label %"!case_12.i", label %"!else_6.i"
 
@@ -295,8 +204,8 @@ weigh_one:
   br label %"!merge_11.i"
 
 "!merge_11.i":                                    ; preds = %"!case_12.i", %"!case_13.i", %"!case_14.i"
-  %w32.sroa.speculated.i = phi float [ %33, %"!case_12.i" ], [ %27, %"!case_13.i" ], [ %21, %"!case_14.i" ]
-  %34 = fadd float %storemerge.i, %w32.sroa.speculated.i
+  %w.i = phi float [ %33, %"!case_12.i" ], [ %27, %"!case_13.i" ], [ %21, %"!case_14.i" ]
+  %34 = fadd float %acc.i, %w.i
   br label %weigh.exit
 
 weigh.exit:                                       ; preds = %"!then_0.i", %"!merge_11.i"

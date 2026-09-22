@@ -1532,15 +1532,22 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // The tree's arrays reach the renderer as buffer descriptors, like every
+    // other array (see the buffers below), so that a GPU schedule finds them
+    // resident on the device once staged.
+    bonsai_buffer b_geoms = buffer_of(instanced);
+    bonsai_buffer b_group0_bnode = buffer_of(instance_nodes);
+    bonsai_buffer b_prims = buffer_of(prims);
+    bonsai_buffer b_group1_index = buffer_of(nodes);
     _tree_layout0 tree;
     tree.gCount = uint32_t(instanced.size());
-    tree.geoms = instanced.data();
+    tree.geoms = &b_geoms;
     tree.bCount = uint32_t(instance_nodes.size());
-    tree.group0_bnode = instance_nodes.data();
+    tree.group0_bnode = &b_group0_bnode;
     tree.pCount = uint32_t(prims.size());
-    tree.prims = prims.data();
+    tree.prims = &b_prims;
     tree.nCount = uint32_t(nodes.size());
-    tree.group1_index = nodes.data();
+    tree.group1_index = &b_group1_index;
 
     // And the lights that are not shapes, appended after the area ones --
     // which is the order pbrt builds its own list in, area lights from
@@ -1902,12 +1909,18 @@ int main(int argc, char **argv) {
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
         &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
         &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
+        // The tree's arrays, in the order its layout struct declares them.
+        &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
         &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool};
     constexpr size_t render_buffer_count =
         sizeof(render_buffers) / sizeof(render_buffers[0]);
     static_assert(render_buffer_count == sizeof(render_sides),
-                  "render_hook.cpp lists a different number of arrays than "
+                  "render_hook.cpp lists a different number of buffers than "
                   "render.h declares for render");
+#ifdef BONSAI_HAS_GPU
+    // The kernels, loaded before anything is timed.
+    bonsai_gpu_prepare();
+#endif
     bonsai_buffer *const film_buffers[] = {&b_normal_out, &b_shading_out,
                                            &b_albedo_out, &b_radiance_out,
                                            &b_weight_out};

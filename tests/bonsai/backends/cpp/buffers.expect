@@ -11,7 +11,7 @@ void combine(const uint32_t n, bonsai_buffer * weights, bonsai_buffer * a, bonsa
 float total(const uint32_t n, bonsai_buffer * a);
 }
 
-// Where combine needs each of its arrays, in parameter order (weights, a, out): BONSAI_HOST, BONSAI_DEVICE, or both. For
+// Where combine needs each of its buffers, in parameter order (weights, a, out): BONSAI_HOST, BONSAI_DEVICE, or both. For
 // bonsai_buffer_stage_all, ahead of a timed call.
 static const uint8_t combine_sides[3] = {1, 1, 1};
 
@@ -24,7 +24,7 @@ static inline void combine(const uint32_t n, const std::array<float, 4>& weights
     combine(n, &weights_buffer, &a_buffer, &out_buffer);
 }
 
-// Where total needs each of its arrays, in parameter order (a): BONSAI_HOST, BONSAI_DEVICE, or both. For
+// Where total needs each of its buffers, in parameter order (a): BONSAI_HOST, BONSAI_DEVICE, or both. For
 // bonsai_buffer_stage_all, ahead of a timed call.
 static const uint8_t total_sides[1] = {1};
 

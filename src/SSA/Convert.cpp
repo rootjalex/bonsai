@@ -1,11 +1,13 @@
 #include "SSA/Convert.h"
 
 #include "SSA/Analysis.h"
+#include "SSA/CloseBodies.h"
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
 #include "SSA/Defer.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/InvariantDivision.h"
+#include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
@@ -1079,9 +1081,21 @@ struct FunctionBuilder : Visitor {
         }
 
         std::vector<std::shared_ptr<Value>> args;
-        args.reserve(node->args.size());
+        args.reserve(node->args.size() + 1);
         for (const auto &arg : node->args) {
             args.emplace_back(get_value(arg));
+        }
+        // `rand` reads and advances the generator's state, which the Stmt
+        // form leaves implicit: the backend finds it by name. In SSA a
+        // block's values are what it is passed, so the state is an operand,
+        // last, after the count when there is one -- which is what threads
+        // it into a parfor body's arguments and so into the captures of the
+        // kernel the body becomes (see CodeGen_LLVM::launch_captures, which
+        // then leaves it out of the launch: each thread seeds its own). The
+        // paths back to an expression drop the operand again.
+        if (node->op == Intrinsic::rand) {
+            args.emplace_back(block->get_value(
+                lower::rng_state_name, Ptr_t::make(Rand_State_t::make())));
         }
 
         if (const auto op = get_intrinsic(node->op)) {
@@ -1882,6 +1896,25 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // and the store it stands for (see SSA/Defer.h).
     for (const auto &[name, f] : fmap) {
         lower_pushes(*f);
+    }
+    // A `mut` local the builder put in memory that nothing but loads and
+    // stores ever touch is a value from here on (SSA/PromoteAllocas.h). After
+    // the rewrites rather than before them, because a rewrite may be about
+    // the memory: defer() saves a `mut` local of the producer's iteration in
+    // the queue entry by its slot, and would not see a value to save. Before
+    // the code generators, because a loop body handed a value can run
+    // anywhere, where one handed the address of a slot on the function's
+    // stack cannot -- the sample count a match on the sampler settled is
+    // what the GPU thread loop's bound is, and it has to reach the launch.
+    for (const auto &[name, f] : fmap) {
+        promote_allocas(*f, f->blocks.front()->name);
+    }
+    // Every parfor body's arguments are its captures again, whatever the
+    // rewrites above and the promotion left of that (see SSA/CloseBodies.h):
+    // the code generators make a kernel of a bound loop's body from those
+    // arguments.
+    for (const auto &[name, f] : fmap) {
+        close_parfor_bodies(*f);
     }
 
     ir::FuncMap new_funcs;

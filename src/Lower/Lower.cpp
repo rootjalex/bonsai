@@ -241,10 +241,6 @@ PassManager register_passes(const CompilerOptions &options) {
     // This should always run last! It duplicates the exported functions.
     core.push_back(std::make_unique<ReturnToOutParameter>());
     core.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
-        // This must go after Mutability, since it requires PtrTo.
-        core.push_back(std::make_unique<RenamePointerToExpr>());
-    }
     manager.register_alias("core", core);
 
     // SSA: like `core`, but skips LoopTransforms (the Stmt-level scheduler,
@@ -331,10 +327,6 @@ PassManager register_passes(const CompilerOptions &options) {
     // This should always run last! It duplicates the exported functions.
     ssa.push_back(std::make_unique<ReturnToOutParameter>());
     ssa.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
-        // This must go after Mutability, since it requires PtrTo.
-        ssa.push_back(std::make_unique<RenamePointerToExpr>());
-    }
     ssa.push_back(std::make_unique<ir::ssa::ConvertToSSA>());
     manager.register_alias("ssa", ssa);
 
@@ -373,9 +365,6 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerGenerics>());
     ssa_analysis.push_back(std::make_unique<ReturnToOutParameter>());
     ssa_analysis.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
-        ssa_analysis.push_back(std::make_unique<RenamePointerToExpr>());
-    }
     ssa_analysis.push_back(std::make_unique<ir::ssa::DumpSSAAnalysis>());
     manager.register_alias("ssa-analysis", ssa_analysis);
 
@@ -430,10 +419,6 @@ PassManager register_passes(const CompilerOptions &options) {
     // This should always run last! It duplicates the exported functions.
     d.push_back(std::make_unique<ReturnToOutParameter>());
     d.push_back(std::make_unique<Mutability>());
-    if (options.target == BackendTarget::CUDA) {
-        // This must go after Mutability, since it requires PtrTo.
-        d.push_back(std::make_unique<RenamePointerToExpr>());
-    }
 
     manager.register_alias("default", d);
 

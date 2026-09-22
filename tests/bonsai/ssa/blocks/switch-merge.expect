@@ -115,7 +115,6 @@ func [[export]] Blob_Wide(_ret2 : mut (Blob*), v : f32x3, neg : bool) -> void {
 
 func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   acc : mut f32
-  acc = k
   let @0 = (*b) in
   let @1 = @0.tag in
   switch (@1) {
@@ -124,9 +123,8 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
     let @3 = @2.payload in
     let @4 = @3[0u] in
     let x = reinterpret_cast<f32>(@4) in
-    let @6 = (*acc) in
     let @7 = x * 2f in
-    let @8 = @6 + @7 in
+    let @8 = k + @7 in
     acc = @8
   } break;
   case 1: { // Blob.Split of weigh
@@ -141,10 +139,10 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
     return @16
   } break;
   default: {
+    acc = k
   }
   }
-  let @17 = (*acc) in
-  let @18 = @17 * 3f in
+  let @18 = (*acc) * 3f in
   return @18
 }
 

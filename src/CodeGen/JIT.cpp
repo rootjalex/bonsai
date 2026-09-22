@@ -51,6 +51,7 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
                 llvm::JITSymbolFlags::Exported);
         };
         define("bonsai_cuda_launch", &bonsai_cuda_launch);
+        define("bonsai_cuda_load", &bonsai_cuda_load);
         // An exported function's prologue calls these; under the JIT nothing
         // calls the exported entry (main calls its internal twin), but the
         // entry is in the module and has to link.

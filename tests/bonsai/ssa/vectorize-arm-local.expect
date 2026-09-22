@@ -1,18 +1,17 @@
 func clip(x : f32) -> f32 {
+  y : mut f32
   let @0 = x < 0f in
   if (@0) {
     return 0f
   } else {
-    y : mut f32
     let @1 = x * 2f in
-    y = @1
-    let @2 = (*y) in
-    let @3 = 10f < @2 in
+    let @3 = 10f < @1 in
     if (@3) {
       y = 10f
+    } else {
+      y = @1
     }
-    let @4 = (*y) in
-    let @5 = @4 + 1f in
+    let @5 = (*y) + 1f in
     return @5
   }
 }
