@@ -96,7 +96,10 @@ SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 OUT="${2:-$PREFIX/pbrt.pfm}"
 PNG="${OUT%.pfm}.png"
 
-cmake --build build -j
+# The compiler's build directory, as compare.sh takes it: `build` unless
+# BONSAI_BUILD_DIR names another (build-23, for the LLVM 23 build).
+BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
+cmake --build "$BONSAI_BUILD_DIR" -j
 
 # The scene comes from a .pbrt file, read by PBRT's own parser. Needs a built
 # pbrt; see build_scene_dump.sh.
@@ -131,15 +134,15 @@ if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
   echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
   exit 1
 fi
-./build/compiler -p ssa "${INPUTS[@]}" -o $PREFIX/render.bir
-./build/compiler "${FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/render.ll
-./build/compiler "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
+"./$BONSAI_BUILD_DIR/compiler" -p ssa "${INPUTS[@]}" -o $PREFIX/render.bir
+"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/render.ll
+"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" -o $PREFIX/render.out
 
-./$PREFIX/render.out "$PREFIX/scene.txt" "$OUT"
+./$PREFIX/render.out --no-implicit-copies "$PREFIX/scene.txt" "$OUT"
 
 # The image holds normals rather than radiance, so the encoding is the remap
 # that makes a direction visible rather than pbrt's sRGB curve.

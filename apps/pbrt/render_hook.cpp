@@ -40,6 +40,27 @@ namespace {
 
 constexpr uint32_t MaxTreeDepth = 64;
 
+// The renderer's arrays reach it as buffer descriptors
+// (runtime/bonsai_buffer.h): where the bytes are on the host and on the
+// device, and which copy is current. These make one over an array this
+// driver owns, in each of the shapes the arrays here come in.
+template <typename T> bonsai_buffer buffer_of(const std::vector<T> &v) {
+    return bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(v.data())),
+                              v.size() * sizeof(T));
+}
+template <typename T, size_t N> bonsai_buffer buffer_of(const std::array<T, N> &a) {
+    return bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(a.data())),
+                              sizeof(a));
+}
+template <typename T, size_t N> bonsai_buffer buffer_of(const T (&a)[N]) {
+    return bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(a)),
+                              sizeof(a));
+}
+template <typename T> bonsai_buffer buffer_of(T *p, size_t count) {
+    return bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(p)),
+                              count * sizeof(T));
+}
+
 // The camera transforms are no longer derived here. Perspective, LookAt, the
 // screen window and the matrix inverse that composes them all used to live in
 // this file, kept in step with PBRT's by hand; scene_dump.cpp now asks PBRT
@@ -615,6 +636,13 @@ int main(int argc, char **argv) {
         const std::string option = argv[arg++];
         if (option == "--print-differentials") {
             print_differentials = true;
+            continue;
+        }
+        if (option == "--no-implicit-copies") {
+            // The renderer's buffers are staged before the timer starts (see
+            // render_and_write below); a copy the compiled render would make
+            // inside the timed region is then an error rather than a number.
+            bonsai_buffer_implicit_copies(0);
             continue;
         }
         if (arg >= argc) {
@@ -1798,6 +1826,92 @@ int main(int argc, char **argv) {
     if (const char *r = getenv("BONSAI_REPEATS")) {
         repeats = std::max(1, atoi(r));
     }
+    // The renderer's arrays as buffer descriptors, in render's parameter
+    // order. Made once; staged, before each timed run, where render's
+    // `render_sides` table says it needs each -- the host, the device, or
+    // both -- which is a copy the first time and a flag test after; and left
+    // resident across the repeats and the cells. The film comes back to the
+    // host when a cell's repeats are done, outside the timer. Under
+    // --no-implicit-copies the compiled render refuses any copy this staging
+    // did not cover, so a timed region can never quietly include a transfer.
+    bonsai_buffer b_normal_out = buffer_of(out, npixels);
+    bonsai_buffer b_shading_out = buffer_of(shading, npixels);
+    bonsai_buffer b_albedo_out = buffer_of(albedo, npixels);
+    bonsai_buffer b_radiance_out = buffer_of(radiance, npixels);
+    bonsai_buffer b_weight_out = buffer_of(weights, npixels);
+    bonsai_buffer b_textures = buffer_of(textures);
+    bonsai_buffer b_texture_levels = buffer_of(texture_levels);
+    bonsai_buffer b_texture_texels = buffer_of(texture_texels);
+    bonsai_buffer b_rgb_table = buffer_of(loaded.rgb_table);
+    bonsai_buffer b_pl2d = buffer_of(pl2d);
+    bonsai_buffer b_pl_data = buffer_of(loaded.pl_data);
+    bonsai_buffer b_pl_marginal = buffer_of(loaded.pl_marginal);
+    bonsai_buffer b_pl_conditional = buffer_of(loaded.pl_conditional);
+    bonsai_buffer b_pl_params = buffer_of(loaded.pl_params);
+    bonsai_buffer b_measured_brdfs = buffer_of(measured_brdfs);
+    bonsai_buffer b_conductor_eta = buffer_of(loaded.conductor_eta);
+    bonsai_buffer b_conductor_k = buffer_of(loaded.conductor_k);
+    bonsai_buffer b_meshes = buffer_of(meshes);
+    bonsai_buffer b_mesh_indices = buffer_of(loaded.indices);
+    bonsai_buffer b_mesh_positions = buffer_of(positions);
+    bonsai_buffer b_mesh_normals = buffer_of(normals);
+    bonsai_buffer b_mesh_uvs = buffer_of(uvs);
+    bonsai_buffer b_cie_x = buffer_of(x);
+    bonsai_buffer b_cie_y = buffer_of(y);
+    bonsai_buffer b_cie_z = buffer_of(z);
+    bonsai_buffer b_illuminant_d65 = buffer_of(d65);
+    bonsai_buffer b_sensor_r = buffer_of(sensor_r);
+    bonsai_buffer b_sensor_g = buffer_of(sensor_g);
+    bonsai_buffer b_sensor_b = buffer_of(sensor_b);
+    bonsai_buffer b_output_rgb_from_sensor = buffer_of(output_rgb_from_sensor);
+    bonsai_buffer b_filter_f = buffer_of(filter_f);
+    bonsai_buffer b_filter_cond_cdf = buffer_of(filter_cond_cdf);
+    bonsai_buffer b_filter_marg_func = buffer_of(filter_marg_func);
+    bonsai_buffer b_filter_marg_cdf = buffer_of(filter_marg_cdf);
+    bonsai_buffer b_primes = buffer_of(primes);
+    bonsai_buffer b_digit_permutations = buffer_of(digit_permutations);
+    bonsai_buffer b_digit_permutation_offsets = buffer_of(digit_permutation_offsets);
+    bonsai_buffer b_env_texels = buffer_of(env_texels);
+    bonsai_buffer b_env_dist_values = buffer_of(env_dist_values);
+    bonsai_buffer b_env_dist_cond_cdf = buffer_of(env_dist_cond_cdf);
+    bonsai_buffer b_env_dist_marg_func = buffer_of(env_dist_marg_func);
+    bonsai_buffer b_env_dist_marg_cdf = buffer_of(env_dist_marg_cdf);
+    bonsai_buffer b_lights = buffer_of(lights);
+    bonsai_buffer b_light_tree = buffer_of(light_tree);
+    bonsai_buffer b_light_bit_trails = buffer_of(loaded.light_bit_trails);
+    bonsai_buffer b_materials = buffer_of(materials);
+    bonsai_buffer b_material_displacement = buffer_of(material_displacement);
+    bonsai_buffer b_rho_uc = buffer_of(rho_uc);
+    bonsai_buffer b_rho_ux = buffer_of(rho_ux);
+    bonsai_buffer b_rho_uy = buffer_of(rho_uy);
+    bonsai_buffer b_inst_pool = buffer_of(inst_pool);
+    bonsai_buffer b_sphere_pool = buffer_of(sphere_pool);
+    bonsai_buffer b_triangle_pool = buffer_of(triangle_pool);
+    bonsai_buffer b_disk_pool = buffer_of(disk_pool);
+    bonsai_buffer *render_buffers[] = {
+        &b_normal_out, &b_shading_out, &b_albedo_out, &b_radiance_out,
+        &b_weight_out, &b_textures, &b_texture_levels, &b_texture_texels,
+        &b_rgb_table, &b_pl2d, &b_pl_data, &b_pl_marginal, &b_pl_conditional,
+        &b_pl_params, &b_measured_brdfs, &b_conductor_eta, &b_conductor_k,
+        &b_meshes, &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
+        &b_mesh_uvs, &b_cie_x, &b_cie_y, &b_cie_z, &b_illuminant_d65,
+        &b_sensor_r, &b_sensor_g, &b_sensor_b, &b_output_rgb_from_sensor,
+        &b_filter_f, &b_filter_cond_cdf, &b_filter_marg_func,
+        &b_filter_marg_cdf, &b_primes, &b_digit_permutations,
+        &b_digit_permutation_offsets, &b_env_texels, &b_env_dist_values,
+        &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
+        &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
+        &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
+        &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool};
+    constexpr size_t render_buffer_count =
+        sizeof(render_buffers) / sizeof(render_buffers[0]);
+    static_assert(render_buffer_count == sizeof(render_sides),
+                  "render_hook.cpp lists a different number of arrays than "
+                  "render.h declares for render");
+    bonsai_buffer *const film_buffers[] = {&b_normal_out, &b_shading_out,
+                                           &b_albedo_out, &b_radiance_out,
+                                           &b_weight_out};
+
     // One render at a sampler and depth, written to `output` and its
     // companions; the best time of the repeats, or nothing when a file could
     // not be written. Run once for the scene as loaded (or overridden), or
@@ -1805,35 +1919,38 @@ int main(int argc, char **argv) {
     const auto render_and_write =
         [&](const Sampler &sampler, const Integrator &integrator,
             const std::string &output) -> std::optional<double> {
+    bonsai_buffer_stage_all(render_buffers, render_sides, render_buffer_count);
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
                loaded.film_visible_surface != 0, loaded.imaging_ratio,
-               loaded.max_component_value, out,
-               shading, albedo, radiance, weights, textures.data(),
-               texture_levels.data(), texture_texels.data(),
-               loaded.rgb_table.data(), pl2d.data(), loaded.pl_data.data(),
-               loaded.pl_marginal.data(), loaded.pl_conditional.data(),
-               loaded.pl_params.data(), measured_brdfs.data(),
-               loaded.conductor_eta.data(), loaded.conductor_k.data(),
-               meshes.data(),
-               loaded.indices.data(), positions.data(), normals.data(),
-               uvs.data(), x, y, z, d65, sensor_r, sensor_g, sensor_b,
-               output_rgb_from_sensor, filter_f.data(),
-               filter_cond_cdf.data(), filter_marg_func.data(),
-               filter_marg_cdf.data(), primes, digit_permutations.data(),
-               digit_permutation_offsets, env_texels.data(),
-               env_dist_values.data(), env_dist_cond_cdf.data(),
-               env_dist_marg_func.data(), env_dist_marg_cdf.data(),
-               lights.data(), light_tree.data(), loaded.light_bit_trails.data(),
-               materials.data(), material_displacement.data(), rho_uc, rho_ux,
-               rho_uy, tree, inst_pool.data(),
-               sphere_pool.data(), triangle_pool.data(), disk_pool.data());
+               loaded.max_component_value, &b_normal_out, &b_shading_out,
+               &b_albedo_out, &b_radiance_out, &b_weight_out, &b_textures,
+               &b_texture_levels, &b_texture_texels, &b_rgb_table, &b_pl2d,
+               &b_pl_data, &b_pl_marginal, &b_pl_conditional, &b_pl_params,
+               &b_measured_brdfs, &b_conductor_eta, &b_conductor_k, &b_meshes,
+               &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
+               &b_mesh_uvs, &b_cie_x, &b_cie_y, &b_cie_z, &b_illuminant_d65,
+               &b_sensor_r, &b_sensor_g, &b_sensor_b,
+               &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
+               &b_filter_marg_func, &b_filter_marg_cdf, &b_primes,
+               &b_digit_permutations, &b_digit_permutation_offsets,
+               &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,
+               &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_lights,
+               &b_light_tree, &b_light_bit_trails, &b_materials,
+               &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
+               tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
+               &b_disk_pool);
         const auto finished = std::chrono::steady_clock::now();
         seconds = std::min(
             seconds, std::chrono::duration<double>(finished - started).count());
+    }
+    // The film, back on the host for writing: a copy only when the render
+    // ran on the device, and outside the timer either way.
+    for (bonsai_buffer *film : film_buffers) {
+        bonsai_buffer_stage(film, BONSAI_HOST);
     }
 
     // What pbrt writes: the film's linear values, unencoded. pbrt quantizes
@@ -1911,6 +2028,9 @@ int main(int argc, char **argv) {
             std::cout << "render seconds " << cell.name << ": " << *seconds
                       << '\n';
         }
+    }
+    for (bonsai_buffer *buffer : render_buffers) {
+        bonsai_buffer_free(buffer);
     }
     free(out);
     free(shading);

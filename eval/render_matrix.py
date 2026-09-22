@@ -327,7 +327,11 @@ def render_cells(out, schedule, cells, repeats, on_cell):
     <tag>-<schedule>.pfm, the radiance at <tag>-<schedule>-radiance.pfm.
     `on_cell(tag, seconds)` is called as each cell's time arrives, so that a
     long run reports as it goes. Returns {tag: seconds}."""
-    cmd = [f"{out}/render_{schedule}.out", "--cells", ",".join(cells),
+    # --no-implicit-copies: the driver stages every buffer before its timer
+    # starts, and a copy the compiled render would otherwise make inside the
+    # timed region is an error rather than a number.
+    cmd = [f"{out}/render_{schedule}.out", "--no-implicit-copies",
+           "--cells", ",".join(cells),
            f"{out}/scene.txt", f"{out}/{{cell}}-{schedule}.pfm"]
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, env={**os.environ,

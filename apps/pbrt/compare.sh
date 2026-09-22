@@ -407,8 +407,11 @@ fi
     -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" -o "$WORK/render.out"
-BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" "$WORK/scene.txt" \
-    "$WORK/bonsai.pfm")
+# --no-implicit-copies: the driver stages every buffer before its timer
+# starts, and a copy the compiled render would make inside the timed region
+# is an error rather than a number (see runtime/bonsai_buffer.h).
+BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" --no-implicit-copies \
+    "$WORK/scene.txt" "$WORK/bonsai.pfm")
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
 
