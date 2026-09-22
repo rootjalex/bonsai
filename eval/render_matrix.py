@@ -369,7 +369,8 @@ def convert_scene(args, out, scene, shared):
         converter = ["scene_dump.cpp", "scene_io.h", "cie_tables.h",
                      "measured_io.h", "build_scene_dump.sh"]
         inputs = max(newest_under(os.path.dirname(scene)),
-                     *(os.path.getmtime(f"{ROOT}/{PREFIX}/{f}") for f in converter),
+                     *(os.path.getmtime(os.path.join(ROOT, PREFIX, f))
+                       for f in converter),
                      os.path.getmtime(args.pbrt))
         if inputs < made:
             say("the scene is converted already (nothing it depends on has "
