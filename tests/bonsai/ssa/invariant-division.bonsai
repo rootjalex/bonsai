@@ -22,13 +22,11 @@
 //   * The divisions by the constant `4u` in `quarters` are a shift and a
 //     mask (see divide-by-constant.bonsai for the constant case in full).
 //   * `digits16` divides by a base read from a `u16` table -- pbrt's primes,
-//     none above 7919 -- so the divisor is known to be below 2^16, and its
-//     64-bit multiplier is two exact double divisions (`cast<f64>`, `/`,
-//     `cast<u64>` twice, see bounded_multiplier) with no `div_multiplier`
-//     intrinsic and so no 128-bit division; `digits32` has a `u32` divisor
-//     bounded by its type alone and gets the same two steps in place of a
-//     64-bit division. `digits`, whose `u64` divisor nothing bounds, keeps
-//     the intrinsic.
+//     none above 7919 -- and `digits32` by a `u32`, and both keep the
+//     `div_multiplier` intrinsic all the same: on a scalar the multiplier is
+//     one hardware division twice the width, and nothing beats that. A
+//     gang's per-lane multipliers of such divisors are the ones done by
+//     double division instead; see vectorize-bounded-multiplier.bonsai.
 //   * `permuted_digits` is `digits` with a call in the loop body -- pbrt's
 //     Owen-scrambled radical inverse permutes each digit through a function
 //     -- so the loop's values pass through the call's continuation block on

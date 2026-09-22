@@ -87,6 +87,26 @@ size_t divide_bounded_by_floats(Function &func, const Divergence &divergence);
 size_t divide_by_uniform_divisors(Function &func, const Divergence &divergence,
                                   const std::string &region_entry);
 
+// A gang's multipliers for divisors known to be small, by double division.
+//
+// The multiplier of a divisor d is floor(2^N (2^l - d) / d) + 1: a division
+// twice the word's width. On a scalar that is one hardware instruction --
+// x86's `div` takes a 128-bit dividend, and libgcc's __udivti3 is that one
+// instruction when the high word is below the divisor, as it is here -- so a
+// scalar keeps the intrinsic. A vector of divisors has no such instruction,
+// and is taken apart into one library call per lane. When the divisor is
+// known to be below 2^21 (a 64-bit word; any divisor of a narrower word), the
+// multiplier is instead two exact double divisions -- long division in base
+// 2^(N/2), each digit a correctly rounded double quotient that truncates to
+// the integer one because numerator plus divisor stay below 2^53 (the
+// argument is at bounded_multiplier in the source) -- which the whole gang
+// does in two vector instructions. Bounds come from upper_bound, or from a
+// type of 32 bits or fewer. apps/pbrt: the Halton bases are primes from a u16
+// table, so every lane's 128-bit division went. Run by the vectorizer after
+// divide_by_uniform_divisors, on the multipliers the divergence analysis
+// calls varying. Returns how many were expanded.
+size_t expand_bounded_multipliers(Function &func, const Divergence &divergence);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

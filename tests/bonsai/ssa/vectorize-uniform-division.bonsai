@@ -13,9 +13,9 @@
 //     shifts and an addition, all on `u64x8`. No `/` on a vector remains.
 //   * `parts$gang8_p0` is the same for `%`: the quotient as above, then
 //     `n - q * d`.
-//   * `small$gang8_p0` divides by a `u32`, whose multiplier is two scalar
-//     double divisions (its type bounds it, see bounded_multiplier), and the
-//     lanes' `mulhi` is on `u32x8`.
+//   * `small$gang8_p0` divides by a `u32`: the same, with the multiplier a
+//     scalar `div_multiplier` -- one hardware 64-bit division for the gang
+//     -- and the lanes' `mulhi` on `u32x8`.
 //   * The scalar `scale` keeps its `/`: one lane, one divide.
 
 func scale(a : array[u64, 8], d : u64, out : mut array[u64, 8]) -> void {

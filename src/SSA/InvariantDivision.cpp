@@ -221,16 +221,28 @@ struct Multiplier {
 
 optional<uint64_t> upper_bound(const ValuePtr &v, unsigned depth);
 
-// What a divisor is known to be at most: what upper_bound proves, or for an
-// unsigned type of 32 bits or fewer, what the type says.
+// What a divisor's magnitude is known to be at most: what upper_bound
+// proves, or for a type of 32 bits or fewer, what the type says.
 optional<uint64_t> divisor_bound(const ValuePtr &d, const Type &type) {
     if (const optional<uint64_t> b = upper_bound(d, 0)) {
         return b;
     }
-    if (type.is_uint() && type.bits() <= 32) {
-        return (uint64_t(1) << type.bits()) - 1;
+    if (type.bits() <= 32) {
+        return type.is_uint() ? (uint64_t(1) << type.bits()) - 1
+                              : uint64_t(1) << (type.bits() - 1);
     }
     return std::nullopt;
+}
+
+// Does the two-step multiplier (bounded_multiplier) apply to a divisor of
+// `type` known to be at most `bound`?
+bool two_step_fits(const Type &type, const optional<uint64_t> &bound) {
+    const uint64_t bits = type.bits();
+    if (!bound || bits > 64 || bits < 8 || bits % 2 != 0) {
+        return false;
+    }
+    const uint64_t half = bits / 2;
+    return *bound < (uint64_t(1) << 53) / ((uint64_t(1) << half) + 1);
 }
 
 // The multiplier `numerator_high * 2^N / ad + 1` (mod 2^N) by two exact
@@ -261,14 +273,10 @@ optional<ValuePtr> bounded_multiplier(Emitter &e, const ValuePtr &ad,
                                       const Type &type,
                                       const optional<uint64_t> &bound) {
     const uint64_t bits = type.bits();
-    if (!bound || bits > 64 || bits < 8 || bits % 2 != 0) {
+    if (!two_step_fits(type, bound)) {
         return std::nullopt;
     }
     const uint64_t half = bits / 2;
-    // ad (2^H + 1) < 2^53, with ad <= bound.
-    if (*bound >= (uint64_t(1) << 53) / ((uint64_t(1) << half) + 1)) {
-        return std::nullopt;
-    }
     // The word the two numerators are computed in: 64 bits, so that
     // ad 2^H fits it -- for a 64-bit word the bound (below 2^21) already says
     // so; for a narrower word every divisor of its width does.
@@ -306,79 +314,102 @@ Multiplier emit_multiplier(Emitter &e, const ValuePtr &d, const Type &type) {
     auto name_of = [](const ValuePtr &v) {
         return std::get<shared_ptr<Instruction>>(v->data)->name;
     };
-    const optional<uint64_t> bound = divisor_bound(d, type);
-    ValuePtr zero = e.constant(type, 0);
-    ValuePtr one = e.constant(type, 1);
-
+    // The multiplier itself is the intrinsic: on a scalar, one hardware
+    // division twice the width (x86's `div` takes a 128-bit dividend, and
+    // libgcc's __udivti3 is that one instruction when the high word is below
+    // the divisor, as it is here). A gang's vector of them is another
+    // matter -- see expand_bounded_multipliers, which the vectorizer runs.
+    ValuePtr m = e.intrinsic(ir::Intrinsic::div_multiplier, type, {d});
+    out.m = name_of(m);
     if (type.is_uint()) {
         // l = ceil(log2 d) = N - clz(d - 1); sh1 = min(l, 1), sh2 = max(l, 1)
         // - 1 (Granlund & Montgomery, figure 4.2). With sh1 = 0 for d = 1
         // the quotient below comes out as n itself, so d = 1 needs no case
         // of its own.
-        ValuePtr dm1 = e.emit(Instruction::Op::Sub, type, {d, one});
+        ValuePtr dm1 = e.emit(Instruction::Op::Sub, type, {d, e.constant(type, 1)});
         ValuePtr clz = e.intrinsic(ir::Intrinsic::clz, type, {dm1});
         ValuePtr l = e.emit(Instruction::Op::Sub, type, {e.constant(type, bits), clz});
-        ValuePtr sh1 = e.emit(Instruction::Op::Min, type, {l, one});
-        ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, one});
-        ValuePtr sh2 = e.emit(Instruction::Op::Sub, type, {l1, one});
+        ValuePtr sh1 = e.emit(Instruction::Op::Min, type, {l, e.constant(type, 1)});
+        ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, e.constant(type, 1)});
+        ValuePtr sh2 = e.emit(Instruction::Op::Sub, type, {l1, e.constant(type, 1)});
         out.sh1 = name_of(sh1);
         out.sh2 = name_of(sh2);
-        // m' = floor(2^N (2^l - d) / d) + 1. A zero divisor divides by one
-        // instead: its multiplier is never used, but this is computed where
-        // the divisor is defined, for lanes that never divide too. 2^l as
-        // an N-bit number is zero when l = N, and a shift by N is not.
-        ValuePtr m;
-        if (bound) {
-            ValuePtr ds = e.emit(Instruction::Op::Select, type,
-                                 {e.emit(Instruction::Op::Eq, Bool_t::make(), {d, zero}),
-                                  one, d});
-            ValuePtr two_l = e.emit(
-                Instruction::Op::Select, type,
-                {e.emit(Instruction::Op::Eq, Bool_t::make(), {l, e.constant(type, bits)}),
-                 zero, e.emit(Instruction::Op::Shl, type, {one, l})});
-            ValuePtr a = e.emit(Instruction::Op::Sub, type, {two_l, ds});
-            if (const optional<ValuePtr> two_step =
-                    bounded_multiplier(e, ds, a, type, bound)) {
-                m = *two_step;
-            }
-        }
-        if (!m) {
-            m = e.intrinsic(ir::Intrinsic::div_multiplier, type, {d});
-        }
-        out.m = name_of(m);
         return out;
     }
     // Signed: l = max(ceil(log2 |d|), 1), the shift is l - 1, and the sign of
     // d is applied to the quotient at the end (figure 5.2).
+    ValuePtr zero = e.constant(type, 0);
     ValuePtr negative = e.emit(Instruction::Op::Lt, Bool_t::make(), {d, zero});
     ValuePtr negated = e.emit(Instruction::Op::Sub, type, {zero, d});
     ValuePtr ad = e.emit(Instruction::Op::Select, type, {negative, negated, d});
-    ValuePtr adm1 = e.emit(Instruction::Op::Sub, type, {ad, one});
+    ValuePtr adm1 = e.emit(Instruction::Op::Sub, type, {ad, e.constant(type, 1)});
     ValuePtr clz = e.intrinsic(ir::Intrinsic::clz, type, {adm1});
     ValuePtr l = e.emit(Instruction::Op::Sub, type, {e.constant(type, bits), clz});
-    ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, one});
-    ValuePtr sh = e.emit(Instruction::Op::Sub, type, {l1, one});
+    ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, e.constant(type, 1)});
+    ValuePtr sh = e.emit(Instruction::Op::Sub, type, {l1, e.constant(type, 1)});
     out.sh1 = name_of(sh);
     out.negative = name_of(negative);
-    // m = floor(2^(N + l - 1) / |d|) + 1, taken modulo 2^N: the multiple of
-    // 2^N divided is 2^(l - 1). A bound on d is a bound on |d| here, since
-    // upper_bound only bounds a value it knows non-negative.
-    ValuePtr m;
-    if (bound) {
+    return out;
+}
+
+// The two-step form of a div_multiplier `instr` whose divisor is bounded,
+// emitted in front of it in `block` at `index`; `instr` becomes the result.
+// Returns how many instructions were added in front. See
+// expand_bounded_multipliers for when this is wanted.
+size_t expand_multiplier(Function &func, const shared_ptr<Block> &block,
+                         size_t index, const optional<uint64_t> &bound) {
+    const shared_ptr<Instruction> instr = block->instrs[index];
+    const Type type = instr->type;
+    const uint64_t bits = type.bits();
+    const ValuePtr d = instr->operands[0];
+    Emitter e{func, block, index};
+    ValuePtr zero = e.constant(type, 0);
+    ValuePtr one = e.constant(type, 1);
+    optional<ValuePtr> m;
+    if (type.is_uint()) {
+        // m' = floor(2^N (2^l - d) / d) + 1. A zero divisor divides by one
+        // instead: its multiplier is never used, but this is computed where
+        // the divisor is defined, for lanes that never divide too. 2^l as
+        // an N-bit number is zero when l = N, and a shift by N is not.
+        ValuePtr ds = e.emit(Instruction::Op::Select, type,
+                             {e.emit(Instruction::Op::Eq, Bool_t::make(), {d, zero}),
+                              one, d});
+        ValuePtr dm1 = e.emit(Instruction::Op::Sub, type, {ds, one});
+        ValuePtr clz = e.intrinsic(ir::Intrinsic::clz, type, {dm1});
+        ValuePtr l = e.emit(Instruction::Op::Sub, type, {e.constant(type, bits), clz});
+        ValuePtr two_l = e.emit(
+            Instruction::Op::Select, type,
+            {e.emit(Instruction::Op::Eq, Bool_t::make(), {l, e.constant(type, bits)}),
+             zero, e.emit(Instruction::Op::Shl, type, {one, l})});
+        ValuePtr a = e.emit(Instruction::Op::Sub, type, {two_l, ds});
+        m = bounded_multiplier(e, ds, a, type, bound);
+    } else {
+        // m = floor(2^(N + l - 1) / |d|) + 1, taken modulo 2^N: the multiple
+        // of 2^N divided is 2^(l - 1), l = max(ceil(log2 |d|), 1). The bound
+        // is on |d|: upper_bound bounds only a value it knows non-negative,
+        // and a narrow type bounds its magnitude.
+        ValuePtr negative = e.emit(Instruction::Op::Lt, Bool_t::make(), {d, zero});
+        ValuePtr ad = e.emit(Instruction::Op::Select, type,
+                             {negative, e.emit(Instruction::Op::Sub, type, {zero, d}), d});
         ValuePtr ads = e.emit(Instruction::Op::Select, type,
                               {e.emit(Instruction::Op::Eq, Bool_t::make(), {ad, zero}),
                                one, ad});
+        ValuePtr adm1 = e.emit(Instruction::Op::Sub, type, {ads, one});
+        ValuePtr clz = e.intrinsic(ir::Intrinsic::clz, type, {adm1});
+        ValuePtr l = e.emit(Instruction::Op::Sub, type, {e.constant(type, bits), clz});
+        ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, one});
+        ValuePtr sh = e.emit(Instruction::Op::Sub, type, {l1, one});
         ValuePtr half_pow = e.emit(Instruction::Op::Shl, type, {one, sh});
-        if (const optional<ValuePtr> two_step =
-                bounded_multiplier(e, ads, half_pow, type, bound)) {
-            m = *two_step;
-        }
+        m = bounded_multiplier(e, ads, half_pow, type, bound);
     }
-    if (!m) {
-        m = e.intrinsic(ir::Intrinsic::div_multiplier, type, {d});
-    }
-    out.m = name_of(m);
-    return out;
+    internal_assert(m.has_value())
+        << "the two-step multiplier was asked for a divisor it does not fit: "
+        << instr->name;
+    // The instruction keeps its name, as the result plus nothing, which the
+    // simplifier folds away.
+    instr->op = Instruction::Op::Add;
+    instr->operands = {*m, zero};
+    return e.at - index;
 }
 
 // Rewrites the division `instr`, at `index` in `block`, to use `mult`. The
@@ -1157,6 +1188,29 @@ size_t divide_by_invariants(Function &func) {
 size_t divide_by_uniform_divisors(Function &func, const Divergence &divergence,
                                   const string &region_entry) {
     return divide_by_definitions(func, &divergence, &region_entry);
+}
+
+size_t expand_bounded_multipliers(Function &func, const Divergence &divergence) {
+    size_t expanded = 0;
+    for (const shared_ptr<Block> &block : func.blocks) {
+        for (size_t i = 0; i < block->instrs.size(); i++) {
+            const shared_ptr<Instruction> &instr = block->instrs[i];
+            if (instr->op != Instruction::Op::Intrinsic ||
+                instr->intrinsic != ir::Intrinsic::div_multiplier ||
+                instr->operands.size() != 1 || !instr->type.is<Int_t, UInt_t>() ||
+                !divergence.instrs.count(instr.get())) {
+                continue; // not a multiplier, or one the gang shares
+            }
+            const optional<uint64_t> bound =
+                divisor_bound(instr->operands[0], instr->type);
+            if (!two_step_fits(instr->type, bound)) {
+                continue;
+            }
+            i += expand_multiplier(func, block, i, bound);
+            expanded++;
+        }
+    }
+    return expanded;
 }
 
 } // namespace ssa

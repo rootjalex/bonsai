@@ -1,0 +1,170 @@
+func digits(ns : u64[8], bases : u16[8], out : mut u64[8]) -> void {
+  v!loop : mut u64x8
+  r!loop : mut u64x8
+  !live : mut boolx8
+  !exit.while_end_4 : mut boolx8
+  !track.while_end_4.2 : mut u64x8
+  let @0 = bases[ramp(0, 1, 8)] in
+  let b = cast<u64x8>(@0) in
+  let @61 = u64x8(0u) in
+  let @38 = b == @61 in
+  let @62 = u64x8(1u) in
+  let @39 = select(@38, @62, b) in
+  let @63 = u64x8(1u) in
+  let @40 = @39 - @63 in
+  let @41 = clz(@40) in
+  let @64 = u64x8(64u) in
+  let @42 = @64 - @41 in
+  let @65 = u64x8(64u) in
+  let @43 = @42 == @65 in
+  let @66 = u64x8(1u) in
+  let @44 = @66 << @42 in
+  let @67 = u64x8(0u) in
+  let @45 = select(@43, @67, @44) in
+  let @46 = @45 - @39 in
+  let @47 = cast<f64x8>(@39) in
+  let @68 = u64x8(32u) in
+  let @48 = @46 << @68 in
+  let @49 = cast<f64x8>(@48) in
+  let @50 = @49 / @47 in
+  let @51 = cast<u64x8>(@50) in
+  let @52 = @51 * @39 in
+  let @53 = @48 - @52 in
+  let @69 = u64x8(32u) in
+  let @54 = @53 << @69 in
+  let @55 = cast<f64x8>(@54) in
+  let @56 = @55 / @47 in
+  let @57 = cast<u64x8>(@56) in
+  let @70 = u64x8(32u) in
+  let @58 = @51 << @70 in
+  let @59 = @58 + @57 in
+  let @71 = u64x8(1u) in
+  let @60 = @59 + @71 in
+  let @72 = u64x8(0u) in
+  let @15 = @60 + @72 in
+  let @73 = u64x8(1u) in
+  let @16 = b - @73 in
+  let @17 = clz(@16) in
+  let @74 = u64x8(64u) in
+  let @18 = @74 - @17 in
+  let @75 = u64x8(1u) in
+  let @19 = min(@18, @75) in
+  let @76 = u64x8(1u) in
+  let @20 = max(@18, @76) in
+  let @77 = u64x8(1u) in
+  let @21 = @20 - @77 in
+  let @2 = ns[ramp(0, 1, 8)] in
+  let @83 = u64x8(0u) in
+  let @84 = boolx8(true) in
+  let @85 = boolx8(false) in
+  v!loop = @2
+  r!loop = @83
+  !live = @84
+  !exit.while_end_4 = @85
+  !track.while_end_4.2 = undef
+  while (reduce<any>((*!live))) {
+    let @78 = u64x8(0u) in
+    let @4 = (*v!loop) != @78 in
+    let @79 = boolx8(false) in
+    let @80 = boolx8(true) in
+    let @27 = select(@4, @79, @80) in
+    let @28 = (*!live) && @27 in
+    let @29 = (*!live) && @4 in
+    let @22 = mulhi(@15, (*v!loop)) in
+    let @23 = (*v!loop) - @22 in
+    let @24 = @23 >> @19 in
+    let @25 = @22 + @24 in
+    let next = @25 >> @21 in
+    let @8 = (*r!loop) * b in
+    let @10 = next * b in
+    let @11 = (*v!loop) - @10 in
+    let @12 = @8 + @11 in
+    let @30 = select(@29, next, (*v!loop)) in
+    let @32 = select(@29, @12, (*r!loop)) in
+    let @31 = select(@28, (*v!loop), @30) in
+    let @33 = select(@28, (*r!loop), @32) in
+    let @81 = boolx8(false) in
+    let @34 = select(@28, @81, (*!live)) in
+    let @82 = boolx8(true) in
+    let @35 = select(@28, @82, (*!exit.while_end_4)) in
+    let @36 = select(@28, (*r!loop), (*!track.while_end_4.2)) in
+    v!loop = @31
+    r!loop = @33
+    !live = @34
+    !exit.while_end_4 = @35
+    !track.while_end_4.2 = @36
+  }
+  out[ramp(0, 1, 8)] = (*!track.while_end_4.2)
+  return
+}
+
+func wide(ns : u64[8], bases : u64[8], out : mut u64[8]) -> void {
+  v!loop : mut u64x8
+  r!loop : mut u64x8
+  !live : mut boolx8
+  !exit.while_end_4 : mut boolx8
+  !track.while_end_4.2 : mut u64x8
+  let b = bases[ramp(0, 1, 8)] in
+  let @14 = div_multiplier(b) in
+  let @37 = u64x8(1u) in
+  let @15 = b - @37 in
+  let @16 = clz(@15) in
+  let @38 = u64x8(64u) in
+  let @17 = @38 - @16 in
+  let @39 = u64x8(1u) in
+  let @18 = min(@17, @39) in
+  let @40 = u64x8(1u) in
+  let @19 = max(@17, @40) in
+  let @41 = u64x8(1u) in
+  let @20 = @19 - @41 in
+  let @1 = ns[ramp(0, 1, 8)] in
+  let @47 = u64x8(0u) in
+  let @48 = boolx8(true) in
+  let @49 = boolx8(false) in
+  v!loop = @1
+  r!loop = @47
+  !live = @48
+  !exit.while_end_4 = @49
+  !track.while_end_4.2 = undef
+  while (reduce<any>((*!live))) {
+    let @42 = u64x8(0u) in
+    let @3 = (*v!loop) != @42 in
+    let @43 = boolx8(false) in
+    let @44 = boolx8(true) in
+    let @26 = select(@3, @43, @44) in
+    let @27 = (*!live) && @26 in
+    let @28 = (*!live) && @3 in
+    let @21 = mulhi(@14, (*v!loop)) in
+    let @22 = (*v!loop) - @21 in
+    let @23 = @22 >> @18 in
+    let @24 = @21 + @23 in
+    let next = @24 >> @20 in
+    let @7 = (*r!loop) * b in
+    let @9 = next * b in
+    let @10 = (*v!loop) - @9 in
+    let @11 = @7 + @10 in
+    let @29 = select(@28, next, (*v!loop)) in
+    let @31 = select(@28, @11, (*r!loop)) in
+    let @30 = select(@27, (*v!loop), @29) in
+    let @32 = select(@27, (*r!loop), @31) in
+    let @45 = boolx8(false) in
+    let @33 = select(@27, @45, (*!live)) in
+    let @46 = boolx8(true) in
+    let @34 = select(@27, @46, (*!exit.while_end_4)) in
+    let @35 = select(@27, (*r!loop), (*!track.while_end_4.2)) in
+    v!loop = @30
+    r!loop = @32
+    !live = @33
+    !exit.while_end_4 = @34
+    !track.while_end_4.2 = @35
+  }
+  out[ramp(0, 1, 8)] = (*!track.while_end_4.2)
+  return
+}
+
+
+schedule host {
+    digits.vectorize(i)
+    wide.vectorize(i)
+
+}

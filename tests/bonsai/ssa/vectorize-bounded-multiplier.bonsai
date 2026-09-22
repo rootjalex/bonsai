@@ -1,0 +1,57 @@
+//! flags: -p ssa
+
+// Golden for a gang whose lanes each divide by a divisor of their own that is
+// known to be small (see expand_bounded_multipliers in
+// SSA/InvariantDivision.h): apps/pbrt's Halton digit loops, each lane
+// dividing a 64-bit index by its own prime from a `u16` table.
+//
+// What to read for in the golden:
+//
+//   * In `digits$gang8_p0_p1` the divisor `b` is a `u64x8` cast from a
+//     `u16x8`, so each lane's is below 2^16, and the per-lane multiplier is
+//     computed as two double divisions -- `cast<f64x8>`, `/`, `cast<u64x8>`,
+//     a multiply and a subtraction for the remainder, the same again, then
+//     assembled by shifts -- with no `div_multiplier` on a vector anywhere.
+//     The digit loop divides by `mulhi` as before.
+//   * In `wide$gang8_p0_p1` the divisor is a `u64` from a `u64` table, which
+//     nothing bounds: the lanes' `div_multiplier(b)` stays, a 128-bit
+//     division per lane, since there is nothing exact and cheaper.
+//   * The scalar `digits` keeps its `div_multiplier`: a lane on its own has
+//     the hardware division.
+
+func digits(ns : array[u64, 8], bases : array[u16, 8],
+            out : mut array[u64, 8]) -> void {
+    parfor i in 0:8 {
+        b : u64 = cast[[u64]](bases[i]);
+        v : mut u64 = ns[i];
+        r : mut u64 = 0u;
+        while v != 0u {
+            next = v / b;
+            r = r * b + (v - next * b);
+            v = next;
+        }
+        out[i] = r;
+    }
+    return;
+}
+
+func wide(ns : array[u64, 8], bases : array[u64, 8],
+          out : mut array[u64, 8]) -> void {
+    parfor i in 0:8 {
+        b = bases[i];
+        v : mut u64 = ns[i];
+        r : mut u64 = 0u;
+        while v != 0u {
+            next = v / b;
+            r = r * b + (v - next * b);
+            v = next;
+        }
+        out[i] = r;
+    }
+    return;
+}
+
+schedule {
+    digits.vectorize(i);
+    wide.vectorize(i);
+}

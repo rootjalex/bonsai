@@ -1,28 +1,28 @@
 func digits(n : u64, b : u64) -> u64 {
-  let @16 = b - 1u in
-  let @17 = clz(@16) in
-  let @18 = 64u - @17 in
-  let @19 = min(@18, 1u) in
-  let @20 = max(@18, 1u) in
-  let @21 = @20 - 1u in
-  let @22 = div_multiplier(b) in
+  let @16 = div_multiplier(b) in
+  let @17 = b - 1u in
+  let @18 = clz(@17) in
+  let @19 = 64u - @18 in
+  let @20 = min(@19, 1u) in
+  let @21 = max(@19, 1u) in
+  let @22 = @21 - 1u in
   v : mut u64
   v = n
   r : mut u64
   r = 0u
-  let @27 = mulhi(@22, 18446744073709551615u) in
+  let @27 = mulhi(@16, 18446744073709551615u) in
   let @28 = 18446744073709551615u - @27 in
-  let @29 = @28 >> @19 in
+  let @29 = @28 >> @20 in
   let @30 = @27 + @29 in
-  let @0 = @30 >> @21 in
+  let @0 = @30 >> @22 in
   let limit = @0 - b in
   while (((*v) != 0u) && ((*r) < limit)) {
     let @7 = (*v) in
-    let @23 = mulhi(@22, @7) in
+    let @23 = mulhi(@16, @7) in
     let @24 = @7 - @23 in
-    let @25 = @24 >> @19 in
+    let @25 = @24 >> @20 in
     let @26 = @23 + @25 in
-    let next = @26 >> @21 in
+    let next = @26 >> @22 in
     let @9 = (*r) in
     let @10 = @9 * b in
     let @11 = (*v) in
@@ -42,25 +42,25 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   !live : mut boolx8
   !exit.while_end_2 : mut boolx8
   !track.while_end_2.0 : mut u64x8
+  let @16 = div_multiplier(b) in
   let @42 = u64x8(1u) in
-  let @16 = b - @42 in
-  let @17 = clz(@16) in
+  let @17 = b - @42 in
+  let @18 = clz(@17) in
   let @43 = u64x8(64u) in
-  let @18 = @43 - @17 in
+  let @19 = @43 - @18 in
   let @44 = u64x8(1u) in
-  let @19 = min(@18, @44) in
+  let @20 = min(@19, @44) in
   let @45 = u64x8(1u) in
-  let @20 = max(@18, @45) in
+  let @21 = max(@19, @45) in
   let @46 = u64x8(1u) in
-  let @21 = @20 - @46 in
-  let @22 = div_multiplier(b) in
+  let @22 = @21 - @46 in
   let @47 = u64x8(18446744073709551615u) in
-  let @27 = mulhi(@22, @47) in
+  let @27 = mulhi(@16, @47) in
   let @48 = u64x8(18446744073709551615u) in
   let @28 = @48 - @27 in
-  let @29 = @28 >> @19 in
+  let @29 = @28 >> @20 in
   let @30 = @27 + @29 in
-  let @0 = @30 >> @21 in
+  let @0 = @30 >> @22 in
   let limit = @0 - b in
   let @54 = u64x8(0u) in
   let @55 = boolx8(true) in
@@ -80,11 +80,11 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
     let @32 = select(@6, @50, @51) in
     let @33 = (*!live) && @32 in
     let @34 = (*!live) && @6 in
-    let @23 = mulhi(@22, (*v!loop)) in
+    let @23 = mulhi(@16, (*v!loop)) in
     let @24 = (*v!loop) - @23 in
-    let @25 = @24 >> @19 in
+    let @25 = @24 >> @20 in
     let @26 = @23 + @25 in
-    let next = @26 >> @21 in
+    let next = @26 >> @22 in
     let @10 = (*r!loop) * b in
     let @12 = next * b in
     let @13 = (*v!loop) - @12 in
@@ -111,32 +111,13 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
   _t3 : mut u64
   let @0 = bases[i] in
   let b = cast<u64>(@0) in
-  let @13 = b - 1u in
-  let @14 = clz(@13) in
-  let @15 = 64u - @14 in
-  let @16 = min(@15, 1u) in
-  let @17 = max(@15, 1u) in
-  let @18 = @17 - 1u in
-  let @19 = b == 0u in
-  let @20 = select(@19, 1u, b) in
-  let @21 = @15 == 64u in
-  let @22 = 1u << @15 in
-  let @23 = select(@21, 0u, @22) in
-  let @24 = @23 - @20 in
-  let @25 = cast<f64>(@20) in
-  let @26 = @24 << 32u in
-  let @27 = cast<f64>(@26) in
-  let @28 = @27 / @25 in
-  let @29 = cast<u64>(@28) in
-  let @30 = @29 * @20 in
-  let @31 = @26 - @30 in
-  let @32 = @31 << 32u in
-  let @33 = cast<f64>(@32) in
-  let @34 = @33 / @25 in
-  let @35 = cast<u64>(@34) in
-  let @36 = @29 << 32u in
-  let @37 = @36 + @35 in
-  let @38 = @37 + 1u in
+  let @13 = div_multiplier(b) in
+  let @14 = b - 1u in
+  let @15 = clz(@14) in
+  let @16 = 64u - @15 in
+  let @17 = min(@16, 1u) in
+  let @18 = max(@16, 1u) in
+  let @19 = @18 - 1u in
   v : mut u64
   v = n
   r : mut u64
@@ -144,11 +125,11 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
   _t3 = b
   while ((*v) != 0u) {
     let @4 = (*v) in
-    let @39 = mulhi(@38, @4) in
-    let @40 = @4 - @39 in
-    let @41 = @40 >> @16 in
-    let @42 = @39 + @41 in
-    let next = @42 >> @18 in
+    let @20 = mulhi(@13, @4) in
+    let @21 = @4 - @20 in
+    let @22 = @21 >> @17 in
+    let @23 = @20 + @22 in
+    let next = @23 >> @19 in
     let @6 = (*r) in
     let @7 = @6 * b in
     let @8 = (*v) in
@@ -163,46 +144,24 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
 }
 
 func digits32(n : u32, b : u32) -> u32 {
-  let @11 = b - 1u in
-  let @12 = clz(@11) in
-  let @13 = 32u - @12 in
-  let @14 = min(@13, 1u) in
-  let @15 = max(@13, 1u) in
-  let @16 = @15 - 1u in
-  let @17 = b == 0u in
-  let @18 = select(@17, 1u, b) in
-  let @19 = @13 == 32u in
-  let @20 = 1u << @13 in
-  let @21 = select(@19, 0u, @20) in
-  let @22 = @21 - @18 in
-  let @23 = cast<u64>(@18) in
-  let @24 = cast<f64>(@23) in
-  let @25 = cast<u64>(@22) in
-  let @26 = @25 << 16u in
-  let @27 = cast<f64>(@26) in
-  let @28 = @27 / @24 in
-  let @29 = cast<u64>(@28) in
-  let @30 = @29 * @23 in
-  let @31 = @26 - @30 in
-  let @32 = @31 << 16u in
-  let @33 = cast<f64>(@32) in
-  let @34 = @33 / @24 in
-  let @35 = cast<u64>(@34) in
-  let @36 = @29 << 16u in
-  let @37 = @36 + @35 in
-  let @38 = @37 + 1u in
-  let @39 = cast<u32>(@38) in
+  let @11 = div_multiplier(b) in
+  let @12 = b - 1u in
+  let @13 = clz(@12) in
+  let @14 = 32u - @13 in
+  let @15 = min(@14, 1u) in
+  let @16 = max(@14, 1u) in
+  let @17 = @16 - 1u in
   v : mut u32
   v = n
   r : mut u32
   r = 0u
   while ((*v) != 0u) {
     let @2 = (*v) in
-    let @40 = mulhi(@39, @2) in
-    let @41 = @2 - @40 in
-    let @42 = @41 >> @14 in
-    let @43 = @40 + @42 in
-    let next = @43 >> @16 in
+    let @18 = mulhi(@11, @2) in
+    let @19 = @2 - @18 in
+    let @20 = @19 >> @15 in
+    let @21 = @18 + @20 in
+    let next = @21 >> @17 in
     let @4 = (*r) in
     let @5 = @4 * b in
     let @6 = (*v) in
@@ -217,30 +176,30 @@ func digits32(n : u32, b : u32) -> u32 {
 }
 
 func permuted_digits(n : u64, b : u64) -> u64 {
-  let @18 = b - 1u in
-  let @19 = clz(@18) in
-  let @20 = 64u - @19 in
-  let @21 = min(@20, 1u) in
-  let @22 = max(@20, 1u) in
-  let @23 = @22 - 1u in
-  let @24 = div_multiplier(b) in
+  let @18 = div_multiplier(b) in
+  let @19 = b - 1u in
+  let @20 = clz(@19) in
+  let @21 = 64u - @20 in
+  let @22 = min(@21, 1u) in
+  let @23 = max(@21, 1u) in
+  let @24 = @23 - 1u in
   v : mut u64
   v = n
   r : mut u64
   r = 0u
-  let @29 = mulhi(@24, 18446744073709551615u) in
+  let @29 = mulhi(@18, 18446744073709551615u) in
   let @30 = 18446744073709551615u - @29 in
-  let @31 = @30 >> @21 in
+  let @31 = @30 >> @22 in
   let @32 = @29 + @31 in
-  let @0 = @32 >> @23 in
+  let @0 = @32 >> @24 in
   let limit = @0 - b in
   while (((*v) != 0u) && ((*r) < limit)) {
     let @7 = (*v) in
-    let @25 = mulhi(@24, @7) in
+    let @25 = mulhi(@18, @7) in
     let @26 = @7 - @25 in
-    let @27 = @26 >> @21 in
+    let @27 = @26 >> @22 in
     let @28 = @25 + @27 in
-    let next = @28 >> @23 in
+    let next = @28 >> @24 in
     let @9 = (*r) in
     let @10 = @9 * b in
     let @11 = (*v) in
