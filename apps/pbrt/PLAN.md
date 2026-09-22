@@ -3753,6 +3753,27 @@ all four have exactly the same inventory, in the gang machine code:
 | `index / stride`, stride a uniform 64-bit value | `get_pixel_2d` | 16 `div r64` |
 | `sinf`/`cosf` a lane at a time for an argument past 1e6 | every sin/cos site | never taken by a render |
 
+**Done, later the same day (items 0 and 1 below; commits `f1b682b5`,
+`1748e759`, `642eed39`).** The gang machine code of the packet renderer now
+holds no per-lane divide and no per-lane 128-bit call. What it holds
+instead, each once per gang call rather than once per lane: three
+`__udivti3` in `get_pixel_2d` and fourteen `div r64` across `get_1d`,
+`get_2d`, `texture_bilerp` and `alpha_accepts` -- the multipliers of
+divisors the lanes share (the sampler's base scale and stride, a texture's
+width and height, `spp`), computed on the scalar as the user asked ("the 128
+bit stuff on scalars, not vectors"). Measured against LLVM 19, 16 spp, depth
+5, best of five, two rounds: killeroo scalar 0.586 vs 0.586-0.596 s, packet
+0.319-0.320 vs 0.345-0.346, compact 0.317-0.319 vs 0.344-0.346; book scalar
+3.61-3.67 vs 3.63-3.68, packet 1.58-1.61 vs 1.66-1.69, compact 1.55-1.56 vs
+1.62-1.65. Every image identical to before the division work. One correction
+to item 0 as first written: the two double divisions do *not* beat a
+scalar's `__udivti3` -- libgcc's is a single hardware `div r64` when the
+high word is below the divisor, as it is here -- so applying them to the
+scalar renderer cost it 2%; they are for a gang's per-lane divisors only
+(`expand_bounded_multipliers`, run by the vectorizer), and the scalar keeps
+the intrinsic. Item 2 below is no longer needed for the sampler; item 3
+stands, for the traversal.
+
 Where the 128-bit multiplier comes from, exactly: the app divides a `u64`
 index by a `u64` base -- `b : u64 = cast[[u64]](base)`, `next = v / b`,
 `limit = 0xffffffffffffffff / b - b` (`apps/pbrt/sampler.bonsai` lines
@@ -3819,20 +3840,26 @@ needs `A 2^32 + d < 2^53`, step two `d 2^32 + d < 2^53`; both hold for `d <
 2^21`, and the primes give `d < 2^13`. In a gang the multiplier is four
 `vdivpd` and some conversions for sixteen lanes, about 30 cycles, instead
 of sixteen `__udivti3` calls, about 1600; all 48 of the remaining 128-bit
-divisions go, in every vectorized schedule. It applies to the scalar
-renderer too, where two `divsd` beat one `__udivti3`, so its 0.9% goes as
-well. The digit loop keeps its multiply-high, about eight cycles a digit,
-which is why this beats the other way of using the bound -- dividing `v`
-itself by two double divisions per digit -- and the `limit` is already a
-multiply-high by the same multiplier. It is the `divide_bounded_by_floats`
-rewrite once more, applied to `Intrinsic::div_multiplier(d)` when
-`upper_bound(d)` proves `d < 2^21`, unsigned as above and signed
-(`floor(2^(63+l) / |d|) + 1`, the same two steps on `2^(l-1) << 32`). Tests:
-an ssa golden, a correctness test against Python's multipliers, and the
+divisions go, in every vectorized schedule. Not for a scalar: there the
+intrinsic is one hardware `div r64` (libgcc's `__udivti3` takes that path
+when the high word is below the divisor), which two dependent `divsd` do
+not beat -- measured, 2% of the scalar render lost, and undone. The digit
+loop keeps its multiply-high, about eight cycles a digit, which is why this
+beats the other way of using the bound -- dividing `v` itself by two double
+divisions per digit -- and the `limit` is already a multiply-high by the
+same multiplier. It is `expand_bounded_multipliers`, run by the vectorizer
+on the `div_multiplier` instructions the divergence analysis calls varying,
+when `upper_bound(d)` (or a type of 32 bits or fewer) bounds the divisor,
+unsigned as above and signed (`floor(2^(63+l) / |d|) + 1`, the same two
+steps on `2^(l-1) << 32`). Tests: `ssa/vectorize-bounded-multiplier`,
+`correctness/llvm/bounded-multiplier` against Python's arithmetic, and the
 Halton images unchanged. With this, item 2 below is needed only for a
 divisor whose type does not bound it.
 
-**1. A gang-uniform divisor gets one scalar multiplier** (half a day).
+**1. A gang-uniform divisor gets one scalar multiplier** (half a day; done,
+`divide_by_uniform_divisors`, with the multiplier computed at the
+vectorized region's entry when the divisor comes from outside it -- the
+edge into a parfor's body carries no new arguments).
 
 The program (`sampler.bonsai` line 497, the Halton pixel sample):
 
