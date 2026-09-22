@@ -4134,19 +4134,53 @@ improved, its thread contexts dropping an unused capture and the constant
 loop bounds the closure had stored and reloaded per iteration. Suite: 928 of
 930, the two failures the stale `-b cuda` goldens that fail on every branch.
 
-**Where `render.bonsai` stops**, with `schedules/gpu.bonsai` (the scalar
-schedule's loops, `render.bind(p, GPUBlock)`, `render.bind(s, GPUThread)`):
-the whole program compiles for the device and the launch is refused at
-`normal_out : mut array[vec3f]` -- an exported function's array of no
-stated length, which the launch cannot size. That is phase A0 exactly: the
-exported function's arrays as buffer descriptors that know their size and
-residency, `bonsai_buffer_require(b, Device)` at the launch instead of a
-copy, and the driver staging the scene once. Then phase A proper: the
-tree's `_tree_layout`, whose node arrays a top-level copy would not move
-(refused now as "elements hold pointers of their own"), placed on the device
-by the layout; the 128-bit multiply-inverse arithmetic on NVPTX; the pixel
-loop's `alloca`s that PromoteAllocas left (`sqlen_$r1227`, an inlined
-function's return slot) which SROA takes on the device as on the host.
+**Phase A0, done the same day (commits `540d0336` "buffer descriptors" and
+`d57b34c1` "pbrt: the driver wraps and stages").** `runtime/bonsai_buffer.h`, header-only
+like the parallel runtime: `bonsai_buffer { host, device, bytes, flags }`
+with `host_dirty`/`device_dirty`, `bonsai_buffer_wrap(host, bytes)`,
+`bonsai_buffer_require(b, side)` (the pointer for that side, allocating and
+copying only when that side's copy is missing or stale),
+`bonsai_buffer_mark_dirty`, `bonsai_buffer_stage` /`_stage_all` (the
+driver's explicit copies), `bonsai_buffer_free`, and
+`bonsai_buffer_implicit_copies(0)`, under which a `require` that would copy
+aborts naming the buffer and the side. `runtime/bonsai_cuda.h` became
+header-only too, with the memory primitives the buffers use, so a driver has
+the whole runtime by including the generated header. An exported function's
+array parameters are `bonsai_buffer *` in the header and in the LLVM
+signature; the prologue asks for each one the host-side code uses on the
+host and marks the mutable ones host-dirty; a GPU launch asks for a captured
+one on the device instead of copying, and marks it device-dirty after
+(`CodeGen_GPU_Host::emit_gpu_launch`); which side each is used on comes from
+a walk of the SSA that stops at GPU-bound bodies
+(`SSALowering::classify_uses`), and the header prints it as
+`<function>_sides[]` for `bonsai_buffer_stage_all`. An exported function with
+arrays that the program itself calls gets an internal twin, as struct
+returns already did (`Lower/ReturnToOutParameter.cpp`, now only when
+something calls it, which removed the dead twins from the goldens); the
+header also carries a pointer-and-std::array form of each such function
+that wraps for the one call (unsized as `BONSAI_BUFFER_UNSIZED`, which is
+fine on the host and an error the moment a kernel needs it), so the C++
+tests' drivers needed no change. `render_hook.cpp` wraps its fifty-four
+arrays, stages them per `render_sides` before the timer, fetches the film
+after the repeats, and takes `--no-implicit-copies`, which `compare.sh`,
+`render.sh` and `eval/render_matrix.py` pass. Tests: `backends/cpp/buffers`
+(the header), `backends/llvm/gpu-launch-buffers` (the launch through
+descriptors), `correctness/cpp/buffers` (staged and pointer forms on the
+CPU), `correctness/gpu/buffers-cpp` (a `-b cpp` driver on the GPU: staged
+once, two launches with copies forbidden, the host copy untouched until
+fetched). Suite 934/936, the two the stale `-b cuda` goldens; the scalar
+render runs through the new driver with copies forbidden.
+
+**Where `render.bonsai` stops now**, with `schedules/gpu.bonsai`: every
+array parameter is a descriptor and the launch is refused at `primitives :
+_tree_layout0*` -- the tree, a struct whose fields point at its node and
+primitive arrays, which a copy of the struct would not move. That is phase A
+proper: the layout language placing the tree it built on the device (each
+of the layout struct's arrays a buffer of its own, or the whole layout built
+device-side by the driver's runtime call for it), then the 128-bit
+multiply-inverse arithmetic on NVPTX, and the pixel loop's `alloca`s that
+PromoteAllocas left (`sqlen_$r1227`, an inlined function's return slot),
+which SROA takes on the device as on the host.
 
 **Left as noted.** The kernel's `begin`/`stride` are parameters even when
 constant (two `ld.param` per thread; the CPU kernel bakes them in). Two
@@ -4154,7 +4188,13 @@ thread loops in one block body (fusion, Halide's rule). Block-shared locals
 and effectful block-level calls (shared memory). `-b cuda` is to be retired
 once the PTX path renders what it rendered; its two goldens are stale. The
 `Launch` statement node and `CodeGen_LLVM::visit(const Launch *)` are now
-unreachable and can go with the relooper.
+unreachable and can go with the relooper. A buffer reaches a kernel only as
+a whole and only from the exported function's own body: an array handed
+down a call into a function that launches is a bare pointer again (refused
+as unsized when it is), and an address inside a buffer as a capture is
+refused too. A host use of a buffer after a launch in the same function
+copies it back right after the launch, which is the heterogeneous case the
+design says should copy; nothing in apps/pbrt does this yet.
 
 ## Known-open, smaller
 
