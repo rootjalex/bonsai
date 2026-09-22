@@ -187,15 +187,18 @@ def tbb_flags(compiler):
     return []
 
 
-def build(out, schedules):
+def build(shared, schedules):
     """The compiler, scene_dump, and a renderer per schedule (its compile
-    timed, being part of what a schedule costs). Returns the compile times."""
+    timed, being part of what a schedule costs), into `shared`. Once per
+    invocation, not per scene: the renderer does not depend on the scene,
+    and compiling the compact packet takes two minutes. Returns the compile
+    times."""
     # The compiler's build directory: `build` unless BONSAI_BUILD_DIR names
     # another, as compare.sh reads it too.
     build_dir = os.environ.get("BONSAI_BUILD_DIR", "build")
     run(["cmake", "--build", build_dir, "-j"], cwd=ROOT)
-    run(["bash", f"{PREFIX}/build_scene_dump.sh", f"{out}/scene_dump"], cwd=ROOT)
-    run([f"{out}/scene_dump", "--check-tables"], cwd=ROOT)
+    run(["bash", f"{PREFIX}/build_scene_dump.sh", f"{shared}/scene_dump"], cwd=ROOT)
+    run([f"{shared}/scene_dump", "--check-tables"], cwd=ROOT)
     compiler = cxx()
     flags = tbb_flags(compiler)
     compile_seconds = {}
@@ -207,7 +210,7 @@ def build(out, schedules):
         started = time.perf_counter()
         run([f"./{build_dir}/compiler", "-p", "ssa", "--no-heap", "--ffp-contract",
              "-i", f"{PREFIX}/render.bonsai", "-i", file, "-b", "cpp",
-             "-o", f"{out}/render_{schedule}"], cwd=ROOT)
+             "-o", f"{shared}/render_{schedule}"], cwd=ROOT)
         compile_seconds[schedule] = time.perf_counter() - started
         # render_hook.cpp includes "render.h": each schedule's in a directory
         # of its own, with the driver copied beside it. Copied, not found
@@ -218,14 +221,14 @@ def build(out, schedules):
         # why this went unnoticed until the GPU schedule's, whose buffers are
         # staged to the device rather than the host, was built against the
         # scalar one and found nothing on the device at its first launch.
-        include = f"{out}/inc_{schedule}"
+        include = f"{shared}/inc_{schedule}"
         os.makedirs(include, exist_ok=True)
-        shutil.copy(f"{out}/render_{schedule}.h", f"{include}/render.h")
+        shutil.copy(f"{shared}/render_{schedule}.h", f"{include}/render.h")
         shutil.copy(f"{PREFIX}/render_hook.cpp", f"{include}/render_hook.cpp")
         run([compiler, "-g", "-std=c++20", "-O3", "-I.", f"-I{PREFIX}",
              f"{include}/render_hook.cpp",
-             f"{out}/render_{schedule}.o", *flags,
-             "-o", f"{out}/render_{schedule}.out"], cwd=ROOT)
+             f"{shared}/render_{schedule}.o", *flags,
+             "-o", f"{shared}/render_{schedule}.out"], cwd=ROOT)
     return compile_seconds
 
 
@@ -326,34 +329,68 @@ def render_pbrt(args, out, scene, tag, depth, spp, gbuffer, gpu=False):
     return best
 
 
-def convert_scene(args, out, scene):
+def newest_under(root, suffixes=None):
+    """The latest modification time of any file under `root` (of the given
+    suffixes, or all), and 0 for none."""
+    latest = 0.0
+    for directory, _, files in os.walk(root):
+        for name in files:
+            if suffixes is not None and not name.endswith(suffixes):
+                continue
+            try:
+                latest = max(latest, os.path.getmtime(os.path.join(directory, name)))
+            except OSError:
+                continue
+    return latest
+
+
+def convert_scene(args, out, scene, shared):
     """The scene converted once, at its own sample count and depth: the
     renders set theirs (the driver's --cells), so the conversion -- pbrt's
     parse, its BVH, and a dump that is gigabytes for a large scene -- is not
-    repeated per cell. Converted afresh each run, since the converter may have
-    changed; the dumps an earlier version of this tool made per cell are
+    repeated per cell. Nor per run, when nothing it depends on has changed:
+    the dump is kept if it is newer than every file under the scene's own
+    directory (its `Include`s and meshes live there), newer than the
+    converter's sources (apps/pbrt's C++, which is what the converter's
+    behaviour is a function of; its binary is rebuilt every run), and was
+    made with the same tree flag. Anything newer, or any doubt, converts
+    again. The dumps an earlier version of this tool made per cell are
     removed, being the same scene thirty-five times over."""
     for stale in os.listdir(out):
         if re.fullmatch(r"d\d+-s\d+\.txt", stale):
             os.remove(os.path.join(out, stale))
     flags = [] if args.own_tree else ["--pbrt-tree"]
     path = f"{out}/scene.txt"
+    stamp = f"{out}/scene.txt.flags"
+    if os.path.isfile(path) and os.path.isfile(stamp) and \
+            open(stamp).read().strip() == " ".join(flags):
+        made = os.path.getmtime(path)
+        inputs = max(newest_under(os.path.dirname(scene)),
+                     newest_under(PREFIX, (".cpp", ".h")),
+                     os.path.getmtime(args.pbrt))  # the BVH is pbrt's
+        if inputs < made:
+            say("the scene is converted already (nothing it depends on has "
+                "changed since; remove scene.txt to convert again)")
+            return path
     say("converting the scene")
-    run([f"{out}/scene_dump", *flags, scene, path], cwd=ROOT)
+    run([f"{shared}/scene_dump", *flags, scene, path], cwd=ROOT)
+    with open(stamp, "w") as f:
+        f.write(" ".join(flags) + "\n")
     return path
 
 
-def render_cells(out, schedule, cells, repeats, on_cell):
-    """A schedule's renderer over `cells` (tags), from the one converted
-    scene loaded once: the best of `repeats` runs of each, which the driver
-    takes itself, and the images it writes per cell -- the normals at
-    <tag>-<schedule>.pfm, the radiance at <tag>-<schedule>-radiance.pfm.
-    `on_cell(tag, seconds)` is called as each cell's time arrives, so that a
-    long run reports as it goes. Returns {tag: seconds}."""
+def render_cells(shared, out, schedule, cells, repeats, on_cell):
+    """A schedule's renderer (built in `shared`) over `cells` (tags), from
+    the one converted scene loaded once: the best of `repeats` runs of each,
+    which the driver takes itself, and the images it writes per cell -- the
+    normals at <tag>-<schedule>.pfm, the radiance at
+    <tag>-<schedule>-radiance.pfm. `on_cell(tag, seconds)` is called as each
+    cell's time arrives, so that a long run reports as it goes. Returns
+    {tag: seconds}."""
     # --no-implicit-copies: the driver stages every buffer before its timer
     # starts, and a copy the compiled render would otherwise make inside the
     # timed region is an error rather than a number.
-    cmd = [f"{out}/render_{schedule}.out", "--no-implicit-copies",
+    cmd = [f"{shared}/render_{schedule}.out", "--no-implicit-copies",
            "--cells", ",".join(cells),
            f"{out}/scene.txt", f"{out}/{{cell}}-{schedule}.pfm"]
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -373,7 +410,7 @@ def render_cells(out, schedule, cells, repeats, on_cell):
     return seconds
 
 
-def measure(args, out, scene, results):
+def measure(args, out, scene, results, shared):
     """Every cell of the grid, for every renderer that has not rendered it
     yet: pbrt first over the cells it is missing from, then each schedule over
     the cells it is missing from, in one run of its renderer over the scene
@@ -466,7 +503,7 @@ def measure(args, out, scene, results):
             save()
 
         for repeats, tags in sorted(by_repeats.items(), reverse=True):
-            render_cells(out, schedule, tags, repeats, checked)
+            render_cells(shared, out, schedule, tags, repeats, checked)
     return results
 
 
@@ -723,7 +760,9 @@ def image_grid(args, out, scene_name, results):
 def main(argv):
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("scene", help="a .pbrt scene")
+    parser.add_argument("scene", nargs="+",
+                        help="a .pbrt scene, or several: the renderers are "
+                             "built once and each scene measured in turn")
     parser.add_argument("--depths", type=int, nargs="+", default=[1, 2, 3, 4, 5])
     parser.add_argument("--spps", type=int, nargs="+", default=DEFAULT_SPPS)
     parser.add_argument("--schedules", nargs="+", default=DEFAULT_SCHEDULES)
@@ -786,9 +825,10 @@ def main(argv):
     # pbrt on the GPU when asked. The schedules alone are what is built.
     args.renderers = [*args.schedules, *(["pbrt-gpu"] if args.pbrt_gpu else [])]
 
-    scene = os.path.abspath(args.scene)
-    if not os.path.isfile(scene):
-        raise SystemExit(f"no scene at {scene}")
+    scenes = [os.path.abspath(s) for s in args.scene]
+    for scene in scenes:
+        if not os.path.isfile(scene):
+            raise SystemExit(f"no scene at {scene}")
     if not os.access(args.pbrt, os.X_OK):
         raise SystemExit(f"no pbrt at {args.pbrt}: set PBRT or pass --pbrt")
     # Everything the options can get wrong, before an hour of rendering.
@@ -806,10 +846,29 @@ def main(argv):
             raise SystemExit(f"--grid-at {args.grid_at}: not one of the "
                              f"{'spps' if args.grid_along == 'depth' else 'depths'} "
                              f"of this run ({axis})")
+    # The renderers, built once for every scene of the run, in a directory
+    # beside the scenes' own.
+    shared = os.path.join(os.path.abspath(args.out), "_build")
+    os.makedirs(shared, exist_ok=True)
+    os.makedirs(args.plots, exist_ok=True)
+    compiled = {}
+    status = 0
+    for scene in scenes:
+        status = max(status, measure_scene(args, scene, shared, images, compiled))
+    return status
+
+
+def measure_scene(args, scene, shared, images, compiled):
+    """One scene of the run: its cache, the cells it is missing, the
+    renders, the table and the figures. `compiled` is the compile times if
+    the renderers were built earlier in this run, else empty; the first
+    scene to need them builds into `shared` and fills it for the scenes
+    after. Returns 1 if an image failed the check against pbrt, 0
+    otherwise."""
     scene_name = os.path.splitext(os.path.basename(scene))[0]
     out = os.path.join(os.path.abspath(args.out), scene_name)
     os.makedirs(out, exist_ok=True)
-    os.makedirs(args.plots, exist_ok=True)
+    say(f"##### {scene_name}")
 
     results_path = f"{out}/results.json"
     results = json.load(open(results_path)) if os.path.isfile(results_path) else {}
@@ -846,11 +905,13 @@ def main(argv):
     missing = [f"d{d}-s{p}" for d in args.depths for p in args.spps
                if not done(f"d{d}-s{p}")]
     if missing:
-        results["compile_seconds"] = build(out, args.schedules)
-        say("compile seconds: " + ", ".join(
-            f"{s} {t:.2f}" for s, t in results["compile_seconds"].items()))
-        convert_scene(args, out, scene)
-        measure(args, out, scene, results)
+        if not compiled:
+            compiled.update(build(shared, args.schedules))
+            say("compile seconds: " + ", ".join(
+                f"{s} {t:.2f}" for s, t in compiled.items()))
+        results["compile_seconds"] = dict(compiled)
+        convert_scene(args, out, scene, shared)
+        measure(args, out, scene, results, shared)
     else:
         say("every cell is rendered already (--rerun to render again)")
 
@@ -866,9 +927,10 @@ def main(argv):
                 for s in args.renderers
                 if results["cells"][f"d{d}-s{p}"][s]["failed"]]
     if failures:
-        say("FAILED against pbrt: " + ", ".join(f"{t} {s}" for t, s in failures))
+        say(f"{scene_name}: FAILED against pbrt: " +
+            ", ".join(f"{t} {s}" for t, s in failures))
         return 1
-    say("every image matches pbrt")
+    say(f"{scene_name}: every image matches pbrt")
     return 0
 
 

@@ -9,16 +9,21 @@ on one figure (see "Several scenes on one figure").
     python3 eval/render_matrix.py ~/projects/pbrt-v4-scenes/killeroos/killeroo-simple.pbrt
     python3 eval/render_matrix.py ~/projects/pbrt-v4-scenes/killeroos/killeroo-simple.pbrt \
         --depths 1 2 3 4 5 --spps 16 64 256 --schedules scalar packet
+    python3 eval/render_matrix.py ~/projects/pbrt-v4-scenes/killeroos/killeroo-simple.pbrt \
+        ~/projects/pbrt-v4-scenes/book/book.pbrt ~/projects/pbrt-v4-scenes/pavilion/pavilion-day.pbrt
 
 Run from the repository root, inside the `bonsai` conda environment (its
 `bin` first on `PATH`; `BONSAI_CXX` pointing at its `clang++` if the shell has
-another). Everything it writes goes under `eval/`:
+another). Several scenes may be named: the renderers are built once and the
+scenes measured in turn, each with its own results and figures. Everything it
+writes goes under `eval/`:
 
     eval/plots/<scene>-speedup.pdf, .png      the heatmaps
     eval/plots/<scene>-grid-<channel>.pdf     the image grid (--grid)
     eval/plots/<scene>-d<depth>-s<spp>-<renderer>-<channel>.png   images asked for (--images)
     eval/out/<scene>/results.json, results.tsv                    every number
-    eval/out/<scene>/                         the converted scenes, the renders, the built renderers
+    eval/out/<scene>/                         the converted scene and the renders
+    eval/out/_build/                          the built converter and renderers
 
 Both directories are generated and ignored by git.
 
@@ -26,7 +31,13 @@ Both directories are generated and ignored by git.
 
 The scene is converted once by `scene_dump`, on pbrt's own BVH (`--own-tree`
 to build this renderer's instead), so that what is timed is how each schedule
-traverses one tree rather than whose builder found the better one. pbrt then
+traverses one tree rather than whose builder found the better one. The
+conversion is kept between runs while nothing it depends on has changed: the
+dump is used again if it is newer than every file under the scene's
+directory, than the converter's sources in `apps/pbrt/`, and than the pbrt
+binary, and was made with the same tree flag (the pavilion's conversion is
+four minutes, the zero-day frame's five; remove `scene.txt` to force one).
+pbrt then
 renders every cell it has not rendered -- one process per render, since pbrt
 has no other way -- and each schedule's renderer runs once over every cell it
 is missing from, loading the converted scene once and rendering it at each
@@ -58,8 +69,11 @@ loop on their threads, one kernel per render, its buffers staged to the
 device before the timer and its film fetched after (it needs the GPU and
 CUDA's libdevice, as `-b ptx` does). Each is compiled beside
 `apps/pbrt/render.bonsai` as a second input; the compile is timed too and
-printed, being part of what a schedule costs. The compiler is rebuilt first
-(`cmake --build build`, or the directory `BONSAI_BUILD_DIR` names). The
+printed, being part of what a schedule costs. The renderers do not depend on
+the scene, so they are built once per run, into `eval/out/_build/`, however
+many scenes the run names (the compact packet's compile is two minutes). The
+compiler is rebuilt first (`cmake --build build`, or the directory
+`BONSAI_BUILD_DIR` names). The
 default grid is depths 1 to 5 by 16, 32, 64, ..., 1024 samples per pixel: 35
 cells, each rendered by pbrt and the five schedules, which is an hour for a
 small scene and an afternoon for a large one, so start it and leave the
@@ -105,13 +119,16 @@ instead of the radiance -- without waiting for the renders. The cache is per
 renderer within a cell: a schedule named that a cached cell lacks -- a new
 file in `schedules/` -- is rendered into the grid on its own, against the
 cached pbrt time and image, without rendering the others again, which is how
-a new schedule joins figures that took an afternoon. `--rerun` throws the
-cache away, which is what to do after a change to the compiler or the
-renderer; a cached cell says nothing about the current build.
+a new schedule joins figures that took an afternoon. `--rerun` alone throws
+the cache away; `--rerun wavefront gpu` renders only the renderers named
+again, at this run's cells, and keeps the rest -- which is what to do after
+a change to the compiler or the renderer, since a cached schedule cell says
+nothing about the current build while pbrt's cells say what they always
+did (and `--rerun pbrt` brings a cell measured once up to `--repeats`).
 
 ## Options
 
-    SCENE                       a .pbrt scene (positional)
+    SCENE ...                   one or more .pbrt scenes (positional)
     --depths D ...              path depths, default 1 2 3 4 5
     --spps N ...                samples per pixel, default 16 32 64 128 256 512 1024
     --schedules S ...           default scalar perlane packet wavefront-perlane wavefront
@@ -121,7 +138,8 @@ renderer; a cached cell says nothing about the current build.
     --long-repeats N            default 1
     --own-tree                  build this renderer's BVH rather than take pbrt's
     --pbrt-gpu                  render every cell with `pbrt --gpu` too (see above)
-    --rerun                     render every cell again
+    --rerun [RENDERER ...]      render again: every renderer at every cell, or
+                                only the ones named (pbrt, pbrt-gpu, a schedule)
     --pbrt PATH                 the pbrt binary (default $PBRT or ~/projects/pbrt-v4/build/pbrt;
                                 imgtool is expected beside it, or $IMGTOOL)
     --out DIR, --plots DIR      where things go (default eval/out, eval/plots)
