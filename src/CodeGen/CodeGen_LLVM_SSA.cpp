@@ -1089,6 +1089,33 @@ struct CodeGen_LLVM::SSALowering {
                 uses.host.insert(a->name);
             }
         };
+        // A jump's arguments: a parameter handed to the target under its own
+        // name is threading -- the value flowing past a branch or a join,
+        // which the builder does for every value the code beyond needs --
+        // and not a read of it on the host. Counting it as one made every
+        // buffer of a function with a branch before its launch "both", and
+        // so marked the kernel's outputs host-dirty on every call. Handed
+        // under another name it is a use like any other, since the reads
+        // beyond go by that name. `first` is where the target's argument
+        // list the jump's own values start (a call continuation is handed
+        // the returned value before them); a jump to a block this function
+        // does not have -- a call's jump to its callee -- is all uses.
+        const auto note_jump = [&](const Terminator::Jump &j, size_t first) {
+            const auto target = by_name.find(j.name);
+            for (size_t k = 0; k < j.args.size(); k++) {
+                const auto *a = std::get_if<Argument>(&j.args[k]->data);
+                if (a == nullptr) {
+                    continue;
+                }
+                const size_t at = k + first;
+                const bool threaded = target != by_name.end() &&
+                                      at < target->second->args.size() &&
+                                      target->second->args[at].name == a->name;
+                if (!threaded) {
+                    uses.host.insert(a->name);
+                }
+            }
+        };
         std::set<std::string> seen;
         std::vector<std::string> work{entry()};
         while (!work.empty()) {
@@ -1111,17 +1138,13 @@ struct CodeGen_LLVM::SSALowering {
                 ir::ssa::overloads{
                     [](const std::monostate &) {},
                     [&](const Terminator::Jump &j) {
-                        for (const auto &a : j.args) {
-                            note_host(a);
-                        }
+                        note_jump(j, 0);
                         work.push_back(j.name);
                     },
                     [&](const Terminator::Dispatch &d) {
                         note_host(d.cond);
                         for (const auto &t : d.targets) {
-                            for (const auto &a : t.args) {
-                                note_host(a);
-                            }
+                            note_jump(t, 0);
                             work.push_back(t.name);
                         }
                     },
@@ -1134,9 +1157,7 @@ struct CodeGen_LLVM::SSALowering {
                         for (const auto &a : c.call.args) {
                             note_host(a);
                         }
-                        for (const auto &a : c.cont.args) {
-                            note_host(a);
-                        }
+                        note_jump(c.cont, c.drop ? 0 : 1);
                         work.push_back(c.cont.name);
                     },
                     [&](const Terminator::MultiCall &c) {
@@ -1148,18 +1169,14 @@ struct CodeGen_LLVM::SSALowering {
                                 note_host(a);
                             }
                         }
-                        for (const auto &a : c.cont.args) {
-                            note_host(a);
-                        }
+                        note_jump(c.cont, c.drop ? 0 : 1);
                         work.push_back(c.cont.name);
                     },
                     [&](const Terminator::ParFor &p) {
                         note_host(p.start);
                         note_host(p.end);
                         note_host(p.stride);
-                        for (const auto &a : p.cont.args) {
-                            note_host(a);
-                        }
+                        note_jump(p.cont, 0);
                         work.push_back(p.cont.name);
                         const bool gpu =
                             p.binding.has_value() &&
@@ -1176,9 +1193,7 @@ struct CodeGen_LLVM::SSALowering {
                             }
                             return;
                         }
-                        for (const auto &a : p.body.args) {
-                            note_host(a);
-                        }
+                        note_jump(p.body, 1);
                         work.push_back(p.body.name);
                     },
                     [](const Terminator::Yield &) {},

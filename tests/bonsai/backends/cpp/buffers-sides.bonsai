@@ -1,0 +1,26 @@
+//! flags: -b cpp --gpu-arch sm_90
+
+// The sides table when there is control flow before the launch. The branch
+// on `mode` threads every parameter through its arms and the join as block
+// arguments, under their own names; that is the value flowing past, not the
+// host reading it, so `a` and `out`, which only the kernel touches, are
+// needed on the device alone (2), and `bias`, which only the code after the
+// loop reads, on the host alone (1). Counting the threading as a host use
+// made every buffer "both", so a driver staged the kernel's outputs to the
+// host too and the function's prologue then marked them dirty there on
+// every call -- a copy per call for arrays the host never looks at.
+func [[export]] scale(n : u32, mode : u32, a : array[f32, n],
+                      out : mut array[f32, n], bias : array[f32, 4]) -> f32 {
+    k : mut f32 = 1.0;
+    if (mode == 1u) {
+        k = 2.0;
+    }
+    parfor i in 0u:n {
+        out[i] = a[i] * k;
+    }
+    return bias[0] + bias[1];
+}
+
+schedule {
+    scale.bind(i, GPUThread);
+}

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/LoopTransforms.cpp:735
+
+--> !must_change || !body.same_as(before)
+This schedule changed nothing in scale. The Stmt-level loop transforms match sequential loops only, and `map` now lowers to a parfor, so the loop named is not one they can reach. Compile with `-p ssa`, where split and collapse work on parfor loops.

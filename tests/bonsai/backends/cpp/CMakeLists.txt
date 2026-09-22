@@ -5,6 +5,7 @@ add_bonsai_tests(
     FLAGS --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
     buffers.bonsai
+    buffers-sides.bonsai
     not-exported.bonsai
     simple.bonsai
     struct.bonsai
