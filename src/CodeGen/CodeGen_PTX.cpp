@@ -30,6 +30,7 @@
 #include <llvm/TargetParser/Triple.h>
 
 #include <cstdlib>
+#include <set>
 
 namespace bonsai {
 
@@ -629,9 +630,19 @@ llvm::Value *CodeGen_PTX::codegen_math_call(const std::string &name,
     llvm::Type *scalar_ll = single ? f32_t : f64_t;
     const std::vector<llvm::Type *> params(node->args.size(), scalar_ll);
     // libdevice names the float overload with an `f`, as libm does: what
-    // CUDA's own `sinf` compiles to.
+    // CUDA's own `sinf` compiles to. Under `--use_fast_math`, which pbrt's
+    // GPU build is (see use_nvcc_fast_math_division), nvcc compiles these
+    // ten single-precision functions to their intrinsic forms instead --
+    // `__sinf` for `sinf`, `sin.approx` on the hardware -- which libdevice
+    // holds as `__nv_fast_sinf` and so on. The rest (`atan2f`, `acosf`,
+    // `fabsf`, the double overloads) have no fast form and stay as they are.
+    static const std::set<std::string> nvcc_fast_math_intrinsics = {
+        "sin", "cos", "tan", "sincos", "exp", "exp10", "log", "log2", "log10",
+        "pow"};
+    const bool fast = single && nvcc_fast_math_intrinsics.count(name) != 0;
     llvm::FunctionCallee callee = module->getOrInsertFunction(
-        "__nv_" + name + (single ? "f" : ""),
+        std::string("__nv_") + (fast ? "fast_" : "") + name +
+            (single ? "f" : ""),
         llvm::FunctionType::get(scalar_ll, params, /*isVarArg=*/false));
 
     std::vector<llvm::Value *> args;
