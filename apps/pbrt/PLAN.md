@@ -4171,30 +4171,135 @@ once, two launches with copies forbidden, the host copy untouched until
 fetched). Suite 934/936, the two the stale `-b cuda` goldens; the scalar
 render runs through the new driver with copies forbidden.
 
-**Where `render.bonsai` stops now**, with `schedules/gpu.bonsai`: every
-array parameter is a descriptor and the launch is refused at `primitives :
-_tree_layout0*` -- the tree, a struct whose fields point at its node and
-primitive arrays, which a copy of the struct would not move. That is phase A
-proper: the layout language placing the tree it built on the device (each
-of the layout struct's arrays a buffer of its own, or the whole layout built
-device-side by the driver's runtime call for it), then the 128-bit
-multiply-inverse arithmetic on NVPTX, and the pixel loop's `alloca`s that
-PromoteAllocas left (`sqlen_$r1227`, an inlined function's return slot),
-which SROA takes on the device as on the host.
+**Where `render.bonsai` stopped at this point**, with `schedules/gpu.bonsai`:
+every array parameter was a descriptor and the launch was refused at
+`primitives : _tree_layout0*` -- the tree, a struct whose fields point at
+its node and primitive arrays, which a copy of the struct would not move.
+The next section is that phase, and the renderer running.
 
 **Left as noted.** The kernel's `begin`/`stride` are parameters even when
 constant (two `ld.param` per thread; the CPU kernel bakes them in). Two
 thread loops in one block body (fusion, Halide's rule). Block-shared locals
-and effectful block-level calls (shared memory). `-b cuda` is to be retired
-once the PTX path renders what it rendered; its two goldens are stale. The
-`Launch` statement node and `CodeGen_LLVM::visit(const Launch *)` are now
-unreachable and can go with the relooper. A buffer reaches a kernel only as
-a whole and only from the exported function's own body: an array handed
-down a call into a function that launches is a bare pointer again (refused
-as unsized when it is), and an address inside a buffer as a capture is
-refused too. A host use of a buffer after a launch in the same function
-copies it back right after the launch, which is the heterogeneous case the
-design says should copy; nothing in apps/pbrt does this yet.
+and effectful block-level calls (shared memory). The `Launch` statement node
+and `CodeGen_LLVM::visit(const Launch *)` are now unreachable and can go
+with the relooper, as can the `[[kernel]]` attribute. A buffer reaches a
+kernel only as a whole and only from the exported function's own body: an
+array handed down a call into a function that launches is a bare pointer
+again (refused as unsized when it is), and an address inside a buffer as a
+capture is refused too. A host use of a buffer after a launch in the same
+function copies it back right after the launch, which is the heterogeneous
+case the design says should copy; nothing in apps/pbrt does this yet.
+
+## Phase A: the tree on the device, and the megakernel renders (2026-09-22)
+
+Done, in five commits (`74a9f558`, `0aa23ffb`, `bb4bee93`, `7f6d8cf1` and
+this plan): `render.bonsai` with `schedules/gpu.bonsai` compiles to one
+kernel, launches with no copies, and renders what the CPU renders.
+
+**The tree as buffers.** A layout struct -- one with an array field whose
+size is not a constant (`CodeGen_LLVM::layout_struct_of`) -- crosses the
+exported boundary as a struct of `bonsai_buffer *`, one per array field,
+which is what the header now declares (`_tree_layout0` holds descriptors;
+the program's own view of it is printed as the `_host` twin) and what
+`render_hook.cpp` fills in (`b_geoms`, `b_group0_bnode`, `b_prims`,
+`b_group1_index`, listed in `render_buffers` at the tree's position, and
+in `render_sides` as `primitives.geoms` and so on). The prologue unwraps it
+for the host -- each field required on the host, the struct of host
+pointers built in a stack slot and passed by value -- and a launch unwraps
+it for the device the same way with device pointers
+(`CodeGen_LLVM::unwrap_layout`, `layout_descriptors`; the fields are read
+and written at the packed struct's own alignment). More generally a
+capture that is a pointer to a struct the kernel never writes travels as
+the struct itself, one kernel parameter, not memory to allocate and copy
+around every launch (`CodeGen_GPU_Host::capture_written`, the `by_value`
+flags `CodeGen_PTX::add_kernel` takes): the camera, the sampler, the
+integrator, the filter all go this way. Device memory is
+`cuMemAllocAsync`/`cuMemFreeAsync` on the null stream, everywhere. The
+PTX module is loaded by `bonsai_gpu_prepare()`, which the header declares
+under `BONSAI_HAS_GPU` and the driver calls before anything is timed. The
+`-b cuda` text backend, its runtime header and its stale goldens are gone;
+its two GPU-bound tests are `backends/ptx/map-thread` and
+`backends/ptx/rtiow-primer` now.
+
+**Each thread its own random state.** The generator's state was a capture:
+the host function's stack slot, shared by every iteration -- a race on CPU
+threads and an unreadable address on the device. Lower/Random.cpp's own
+rule is that the state is thread-specific, so a bound loop's body seeds its
+own in its prologue (`CodeGen_LLVM::emit_rng_setup(index, outer)`):
+Halide's `rng32` of the iteration's index for the first lane and the lanes
+after it in order, and for a thread loop inside a block loop `rng32(the
+block's first lane + the thread's number)`, so no two threads of a launch
+draw the same sequence and the numbers are a function of the indices
+alone (`correctness/gpu/rand` has a fixed golden for that reason). The
+state is left out of the kernel's parameters (`CodeGen_LLVM::launch_captures`)
+on both the CPU and the GPU path; `rand` in SSA carries the state as its
+last operand (SSA/Convert.cpp), which is what threads it into a body's
+arguments in the first place -- a body that called `rand` directly, with no
+callee to pass the state to, had no capture for it and resolved the name
+to the enclosing function's slot.
+
+**`mut` locals are values before codegen.** The sample count is a `mut`
+local settled by a match on the sampler; the thread loop's bound was a load
+of its stack slot inside the block body, which the launch cannot evaluate
+and the kernel cannot read. `promote_allocas` (SSA/PromoteAllocas.h,
+Cytron et al.'s mem2reg, which loopify and vectorize already ran for their
+own reasons) now runs on every function after the schedule's rewrites and
+before code generation (after, because defer() saves a `mut` local by its
+slot). Three gaps in it surfaced: a promoted local read inside a parfor
+body was refused outright (now only one the body writes is), a loop's
+bounds and a multi-call's per-lane values kept naming the deleted load, and
+so did the blocks' by-name index, which clone_function copies. Then
+`close_parfor_bodies` (SSA/CloseBodies.h) makes every parfor body's
+arguments its captures again -- every value the body uses from outside,
+threaded in under its own name by `Block::get_value` -- since promotion,
+and collapse() before it (`74a9f558`), leave bodies naming values of the
+enclosing blocks, which is fine inside one function and not for a kernel.
+And a block argument of struct type is lowered as one phi per scalar leaf
+with the aggregate rebuilt by insertvalue (`SSALowering::ArgPhis`), as SROA
+would have made of the memory: LLVM neither splits nor if-converts an
+aggregate phi, and the first promotion put sixteen branches and ten
+predicate moves into the primer's kernel; per-field it is within ten IR
+instructions of before, and the packet traversal lost 117 instructions and
+thirteen gathers, since a per-field phi lets the payload words nothing
+reads die.
+
+**Sides.** `SSALowering::classify_uses` counted a parameter threaded through
+a branch's arms under its own name as a host use, so every one of
+`render`'s fifty-eight buffers was "both": the driver staged the film to
+the host too, the prologue marked it host-dirty on every call, and the
+first launch aborted under `--no-implicit-copies` asking for a 92 MB copy.
+Threading is not a use; a value handed on under another name is
+(`backends/cpp/buffers-sides`). `render_sides` is all `2` now: every buffer
+is the kernel's alone, staged once before the timer.
+
+**What the megakernel does.** Three-spheres, 3200x1800, first look (the
+driver's best of five, one run each, RTX 5090 against 32 CPU threads):
+GPU 0.145 s, CPU scalar schedule 0.161 s; normals, shading normals and
+albedo bit-identical to the CPU's, radiance zero on both.
+Area-light-path: GPU 0.037 s, CPU scalar 0.262 s; normals and albedo
+identical, radiance differing in 9.8% of pixels by 2.6e-4 on average and
+0.11 at most -- the paths diverge where libdevice's transcendentals and
+NVPTX's fma placement differ from glibc's and x86's, and a path integrator
+amplifies a last-bit difference into a different bounce. The launch passes
+sixty-nine parameters and zero copies. Not benchmark numbers: one run
+each, the CPU side the scalar schedule rather than the packet one, and
+nothing tuned -- the kernel is 10948 virtual 32-bit registers before
+ptxas allocates and spills, with a 2 KB local depot for the two traversal
+stacks, and a block is a pixel's samples, which is a small block.
+
+**Next.** Measure properly: the packet schedule and `pbrt --gpu` on the
+same scenes, several runs. Then the kernel's cost: register pressure
+(launch bounds, `maxrregcount`), the block shape (samples per block is
+pbrt's choice too, but pbrt's wavefront is not a megakernel), the local
+stacks. Then the RT cores: `bind(trace, RTCore)`, OptiX's launch and the
+traversal as a closest-hit program, which is phase B of "NVIDIA GPU
+support". Smaller, found on the way: a function with `setup_rng` whose
+every draw moved into kernels still seeds itself from C's `rand()` at
+entry (dead lanes, an effectful call kept); defer() saves a `mut` local by
+its slot but not a plain value live across the deferred call -- promotion
+runs after it so nothing exposes this, but it would if promotion moved
+earlier; the exported function's `bonsai_buffer_require` calls cost it
+LLVM's inferred memory attributes, which its internal twin keeps.
 
 ## Known-open, smaller
 
