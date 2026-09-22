@@ -101,54 +101,54 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
   !count = 0u
   while ((*!live)) {
     let @0 = shapes.group0_index in
-    let _t905 = @0[(*shapes_index!top)] in
-    let @2 = _t905.center in
+    let _t902 = @0[(*shapes_index!top)] in
+    let @2 = _t902.center in
     let @3 = cast<f32x3>(@2) in
-    let @4 = _t905.radius in
-    let _t909 = build<Sphere>(@3, @4) in
-    let _t569 = r.o in
-    let @7 = _t909.center in
-    let _t911 = @7 - _t569 in
+    let @4 = _t902.radius in
+    let _t906 = build<Sphere>(@3, @4) in
+    let _t566 = r.o in
+    let @7 = _t906.center in
+    let _t908 = @7 - _t566 in
     let _t294$i34 = r.d in
     let @10 = _t294$i34 * _t294$i34 in
     let a$i34 = reduce<+>(@10) in
     let @12 = _t294$i34[0] in
-    let @13 = _t911[0] in
+    let @13 = _t908[0] in
     let @14 = @12 * @13 in
     let @15 = _t294$i34[1] in
-    let @16 = _t911[1] in
+    let @16 = _t908[1] in
     let @17 = @15 * @16 in
     let @18 = @14 + @17 in
     let @19 = _t294$i34[2] in
-    let @20 = _t911[2] in
+    let @20 = _t908[2] in
     let @21 = @19 * @20 in
     let _t298$i34 = @18 + @21 in
-    let _t300$i34 = _t909.radius in
+    let _t300$i34 = _t906.radius in
     let @24 = _t298$i34 * _t298$i34 in
-    let @25 = _t911 * _t911 in
+    let @25 = _t908 * _t908 in
     let @26 = reduce<+>(@25) in
     let @27 = _t300$i34 * _t300$i34 in
     let @28 = @26 - @27 in
     let @29 = a$i34 * @28 in
-    let _t917 = @24 - @29 in
-    let @31 = _t917 < 0f in
+    let _t914 = @24 - @29 in
+    let @31 = _t914 < 0f in
     if (@31) {
       let @32 = build<_option1>() in
       intersectsp_ray_sphere$r34 = @32
     } else {
-      let sqrtd$i34 = sqrt(_t917) in
+      let sqrtd$i34 = sqrt(_t914) in
       let @34 = _t298$i34 - sqrtd$i34 in
-      let _t919 = @34 / a$i34 in
+      let _t916 = @34 / a$i34 in
       let @36 = _t298$i34 + sqrtd$i34 in
-      let _t921 = @36 / a$i34 in
-      let @38 = min(_t919, _t921) in
-      let @39 = max(_t919, _t921) in
+      let _t918 = @36 / a$i34 in
+      let @38 = min(_t916, _t918) in
+      let @39 = max(_t916, _t918) in
       let interval$i34 = build<FInterval>(@38, @39) in
       let @41 = build<_option1>(interval$i34, true) in
       intersectsp_ray_sphere$r34 = @41
     }
-    let _t583 = (*intersectsp_ray_sphere$r34).set in
-    if (_t583) {
+    let _t580 = (*intersectsp_ray_sphere$r34).set in
+    if (_t580) {
       let extract$i0 = (*intersectsp_ray_sphere$r34).value in
       let @46 = extract$i0.low in
       let @47 = r.tmax in
@@ -161,7 +161,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       intersects_Ray_Sphere$r0 = false
     }
     if ((*intersects_Ray_Sphere$r0)) {
-      if (_t583) {
+      if (_t580) {
         let extract$i1 = (*intersectsp_ray_sphere$r34).value in
         let @55 = extract$i1.high in
         distmax_Ray_Sphere$r1 = @55
@@ -171,7 +171,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       }
       let @58 = 0.001f < (*distmax_Ray_Sphere$r1) in
       if (@58) {
-        if (_t583) {
+        if (_t580) {
           let extract$i2 = (*intersectsp_ray_sphere$r34).value in
           let @61 = extract$i2.low in
           distmin_Ray_Sphere$r2 = @61
@@ -184,17 +184,17 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
         let @66 = @65._field0 in
         let @67 = (*distmin_Ray_Sphere$r2) < @66 in
         if (@67) {
-          let _t85 = _t905.nPrims in
+          let _t85 = _t902.nPrims in
           let @69 = _t85 == 0u in
           if (@69) {
             let @70 = f32x3(1f) in
             let @71 = @70 / _t294$i34 in
             let @72 = f32x3(0f) in
             let @73 = @71 < @72 in
-            let @74 = _t905.axis in
+            let @74 = _t902.axis in
             let _t31 = @73[@74] in
             let @76 = (*shapes_index!top) + 1u in
-            let @77 = _t905.split0on_nPrims in
+            let @77 = _t902.split0on_nPrims in
             let @78 = reinterpret_cast<_tree_layout2>(@77) in
             let @79 = @78.offset in
             let @80 = (*shapes_index!top) + @79 in
@@ -211,16 +211,16 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             let @84 = cast<u16>(_t85) in
             _idx0 = 0u
             while ((*_idx0) < @84) {
-              let @86 = _t905.split0on_nPrims in
+              let @86 = _t902.split0on_nPrims in
               let @87 = reinterpret_cast<_tree_layout3>(@86) in
               let @88 = @87.pOffset in
-              let _t927 = @88 + (*_idx0) in
+              let _t924 = @88 + (*_idx0) in
               let @90 = shapes.prims in
-              let _t929 = @90[_t927] in
-              let _t361 = _t929.tag in
-              switch (_t361) {
+              let _t926 = @90[_t924] in
+              let _t358 = _t926.tag in
+              switch (_t358) {
               case 0: { // Shape.Sph of intersects_Ray_Shape
-                let _t249$i3 = _t929.payload in
+                let _t249$i3 = _t926.payload in
                 let @94 = _t249$i3[0u] in
                 let @95 = reinterpret_cast<f32>(@94) in
                 let @96 = _t249$i3[1u] in
@@ -230,40 +230,40 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                 let @100 = build<f32x3>(@95, @97, @99) in
                 let @101 = _t249$i3[4u] in
                 let @102 = reinterpret_cast<f32>(@101) in
-                let _t939 = build<Sphere>(@100, @102) in
-                let @104 = _t939.center in
-                let _t941 = @104 - _t569 in
+                let _t936 = build<Sphere>(@100, @102) in
+                let @104 = _t936.center in
+                let _t938 = @104 - _t566 in
                 let @106 = _t294$i34[0] in
-                let @107 = _t941[0] in
+                let @107 = _t938[0] in
                 let @108 = @106 * @107 in
                 let @109 = _t294$i34[1] in
-                let @110 = _t941[1] in
+                let @110 = _t938[1] in
                 let @111 = @109 * @110 in
                 let @112 = @108 + @111 in
                 let @113 = _t294$i34[2] in
-                let @114 = _t941[2] in
+                let @114 = _t938[2] in
                 let @115 = @113 * @114 in
                 let _t298$i21$i35 = @112 + @115 in
-                let _t300$i21$i35 = _t939.radius in
+                let _t300$i21$i35 = _t936.radius in
                 let @118 = _t298$i21$i35 * _t298$i21$i35 in
-                let @119 = _t941 * _t941 in
+                let @119 = _t938 * _t938 in
                 let @120 = reduce<+>(@119) in
                 let @121 = _t300$i21$i35 * _t300$i21$i35 in
                 let @122 = @120 - @121 in
                 let @123 = a$i34 * @122 in
-                let _t947 = @118 - @123 in
-                let @125 = _t947 < 0f in
+                let _t944 = @118 - @123 in
+                let @125 = _t944 < 0f in
                 if (@125) {
                   let @126 = build<_option1>() in
                   intersectsp_ray_sphere$r21$i35 = @126
                 } else {
-                  let sqrtd$i21$i35 = sqrt(_t947) in
+                  let sqrtd$i21$i35 = sqrt(_t944) in
                   let @128 = _t298$i21$i35 - sqrtd$i21$i35 in
-                  let _t949 = @128 / a$i34 in
+                  let _t946 = @128 / a$i34 in
                   let @130 = _t298$i21$i35 + sqrtd$i21$i35 in
-                  let _t951 = @130 / a$i34 in
-                  let @132 = min(_t949, _t951) in
-                  let @133 = max(_t949, _t951) in
+                  let _t948 = @130 / a$i34 in
+                  let @132 = min(_t946, _t948) in
+                  let @133 = max(_t946, _t948) in
                   let interval$i21$i35 = build<FInterval>(@132, @133) in
                   let @135 = build<_option1>(interval$i21$i35, true) in
                   intersectsp_ray_sphere$r21$i35 = @135
@@ -284,7 +284,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                 intersects_Ray_Shape$r3 = (*intersects_Ray_Sphere$r35)
               } break;
               default: { // Shape.Tri of intersects_Ray_Shape
-                let _t262$i3 = _t929.payload in
+                let _t262$i3 = _t926.payload in
                 let @148 = _t262$i3[0u] in
                 let @149 = reinterpret_cast<f32>(@148) in
                 let @150 = _t262$i3[1u] in
@@ -313,9 +313,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
               }
               }
               if ((*intersects_Ray_Shape$r3)) {
-                switch (_t361) {
+                switch (_t358) {
                 case 0: { // Shape.Sph of distmin_Ray_Shape
-                  let _t181$i4 = _t929.payload in
+                  let _t181$i4 = _t926.payload in
                   let @174 = _t181$i4[0u] in
                   let @175 = reinterpret_cast<f32>(@174) in
                   let @176 = _t181$i4[1u] in
@@ -325,40 +325,40 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   let @180 = build<f32x3>(@175, @177, @179) in
                   let @181 = _t181$i4[4u] in
                   let @182 = reinterpret_cast<f32>(@181) in
-                  let _t962 = build<Sphere>(@180, @182) in
-                  let @184 = _t962.center in
-                  let _t964 = @184 - _t569 in
+                  let _t959 = build<Sphere>(@180, @182) in
+                  let @184 = _t959.center in
+                  let _t961 = @184 - _t566 in
                   let @186 = _t294$i34[0] in
-                  let @187 = _t964[0] in
+                  let @187 = _t961[0] in
                   let @188 = @186 * @187 in
                   let @189 = _t294$i34[1] in
-                  let @190 = _t964[1] in
+                  let @190 = _t961[1] in
                   let @191 = @189 * @190 in
                   let @192 = @188 + @191 in
                   let @193 = _t294$i34[2] in
-                  let @194 = _t964[2] in
+                  let @194 = _t961[2] in
                   let @195 = @193 * @194 in
                   let _t298$i17$i36 = @192 + @195 in
-                  let _t300$i17$i36 = _t962.radius in
+                  let _t300$i17$i36 = _t959.radius in
                   let @198 = _t298$i17$i36 * _t298$i17$i36 in
-                  let @199 = _t964 * _t964 in
+                  let @199 = _t961 * _t961 in
                   let @200 = reduce<+>(@199) in
                   let @201 = _t300$i17$i36 * _t300$i17$i36 in
                   let @202 = @200 - @201 in
                   let @203 = a$i34 * @202 in
-                  let _t970 = @198 - @203 in
-                  let @205 = _t970 < 0f in
+                  let _t967 = @198 - @203 in
+                  let @205 = _t967 < 0f in
                   if (@205) {
                     let @206 = build<_option1>() in
                     intersectsp_ray_sphere$r17$i36 = @206
                   } else {
-                    let sqrtd$i17$i36 = sqrt(_t970) in
+                    let sqrtd$i17$i36 = sqrt(_t967) in
                     let @208 = _t298$i17$i36 - sqrtd$i17$i36 in
-                    let _t972 = @208 / a$i34 in
+                    let _t969 = @208 / a$i34 in
                     let @210 = _t298$i17$i36 + sqrtd$i17$i36 in
-                    let _t974 = @210 / a$i34 in
-                    let @212 = min(_t972, _t974) in
-                    let @213 = max(_t972, _t974) in
+                    let _t971 = @210 / a$i34 in
+                    let @212 = min(_t969, _t971) in
+                    let @213 = max(_t969, _t971) in
                     let interval$i17$i36 = build<FInterval>(@212, @213) in
                     let @215 = build<_option1>(interval$i17$i36, true) in
                     intersectsp_ray_sphere$r17$i36 = @215
@@ -376,7 +376,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   distmin_Ray_Shape$r4 = (*distmin_Ray_Sphere$r36)
                 } break;
                 default: { // Shape.Tri of distmin_Ray_Shape
-                  let _t194$i4 = _t929.payload in
+                  let _t194$i4 = _t926.payload in
                   let @225 = _t194$i4[0u] in
                   let @226 = reinterpret_cast<f32>(@225) in
                   let @227 = _t194$i4[1u] in
@@ -400,10 +400,10 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   let @245 = build<f32x3>(@240, @242, @244) in
                   let @246 = build<Triangle>(@231, @238, @245) in
                   let @247 = intersectsp_ray_tri(r, @246) in
-                  let _t997 = @247 in
-                  let @248 = _t997.set in
+                  let _t994 = @247 in
+                  let @248 = _t994.set in
                   if (@248) {
-                    let isect_$i37 = _t997.value in
+                    let isect_$i37 = _t994.value in
                     let @250 = isect_$i37.t in
                     distmin_Ray_Triangle$r37 = @250
                   } else {
@@ -419,7 +419,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   let @257 = @256._field0 in
                   let @258 = (*distmin_Ray_Shape$r4) < @257 in
                   if (@258) {
-                    let @260 = build<__tuple_0>(_t927) in
+                    let @260 = build<__tuple_0>(_t924) in
                     let @261 = build<__tuple_1>((*distmin_Ray_Shape$r4), @260) in
                     _best0 = @261
                   }
@@ -463,23 +463,23 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
   !count = 0u
   while ((*!live)) {
     let @0 = shapes.group0_index in
-    let _t905 = @0[(*shapes_index!top)] in
-    let @2 = _t905.center in
+    let _t902 = @0[(*shapes_index!top)] in
+    let @2 = _t902.center in
     let @3 = cast<f32x3>(@2) in
-    let @4 = _t905.radius in
-    let _t909 = build<Sphere>(@3, @4) in
-    let _t569 = r.o in
-    let @7 = _t909.center in
+    let @4 = _t902.radius in
+    let _t906 = build<Sphere>(@3, @4) in
+    let _t566 = r.o in
+    let @7 = _t906.center in
     let @333 = @7[0u] in
-    let @334 = _t569.!0 in
+    let @334 = _t566.!0 in
     let @402 = f32x8(@333) in
     let @335 = @402 - @334 in
     let @336 = @7[1u] in
-    let @337 = _t569.!1 in
+    let @337 = _t566.!1 in
     let @403 = f32x8(@336) in
     let @338 = @403 - @337 in
     let @339 = @7[2u] in
-    let @340 = _t569.!2 in
+    let @340 = _t566.!2 in
     let @404 = f32x8(@339) in
     let @341 = @404 - @340 in
     let _t294$i34 = r.d in
@@ -499,7 +499,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
     let @19 = _t294$i34.!2 in
     let @21 = @19 * @341 in
     let _t298$i34 = @18 + @21 in
-    let _t300$i34 = _t909.radius in
+    let _t300$i34 = _t906.radius in
     let @24 = _t298$i34 * _t298$i34 in
     let @350 = @335 * @335 in
     let @351 = @338 * @338 in
@@ -510,22 +510,22 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
     let @405 = f32x8(@27) in
     let @28 = @354 - @405 in
     let @29 = @349 * @28 in
-    let _t917 = @24 - @29 in
+    let _t914 = @24 - @29 in
     let @406 = f32x8(0f) in
-    let @31 = _t917 < @406 in
+    let @31 = _t914 < @406 in
     let @407 = boolx8(false) in
     let @408 = boolx8(true) in
     let @268 = select(@31, @407, @408) in
     let @269 = (*!mask!top) && @268 in
     let @270 = (*!mask!top) && @31 in
     let @32 = build<_option1>() in
-    let sqrtd$i34 = sqrt(_t917) in
+    let sqrtd$i34 = sqrt(_t914) in
     let @34 = _t298$i34 - sqrtd$i34 in
-    let _t919 = @34 / @349 in
+    let _t916 = @34 / @349 in
     let @36 = _t298$i34 + sqrtd$i34 in
-    let _t921 = @36 / @349 in
-    let @38 = min(_t919, _t921) in
-    let @39 = max(_t919, _t921) in
+    let _t918 = @36 / @349 in
+    let @38 = min(_t916, _t918) in
+    let @39 = max(_t916, _t918) in
     let interval$i34 = build<FInterval$v8>(@38, @39) in
     let @409 = boolx8(true) in
     let @41 = build<_option1$v8>(interval$i34, @409) in
@@ -539,12 +539,12 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
     let @417 = boolx8(@416) in
     let @418 = build<_option1$v8>(@415, @417) in
     let @319 = select(@269, @41, @418) in
-    let _t583 = @319.set in
+    let _t580 = @319.set in
     let @419 = boolx8(false) in
     let @420 = boolx8(true) in
-    let @271 = select(_t583, @419, @420) in
+    let @271 = select(_t580, @419, @420) in
     let @272 = (*!mask!top) && @271 in
-    let @273 = (*!mask!top) && _t583 in
+    let @273 = (*!mask!top) && _t580 in
     let extract$i0 = @319.value in
     let @46 = extract$i0.low in
     let @47 = r.tmax in
@@ -564,9 +564,9 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
     if (@313) {
       let @425 = boolx8(false) in
       let @426 = boolx8(true) in
-      let @277 = select(_t583, @425, @426) in
+      let @277 = select(_t580, @425, @426) in
       let @278 = @276 && @277 in
-      let @279 = @276 && _t583 in
+      let @279 = @276 && _t580 in
       let extract$i1 = @319.value in
       let @55 = extract$i1.high in
       let @56 = (f32)inf in
@@ -583,9 +583,9 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
       if (@314) {
         let @431 = boolx8(false) in
         let @432 = boolx8(true) in
-        let @283 = select(_t583, @431, @432) in
+        let @283 = select(_t580, @431, @432) in
         let @284 = @282 && @283 in
-        let @285 = @282 && _t583 in
+        let @285 = @282 && _t580 in
         let extract$i2 = @319.value in
         let @61 = extract$i2.low in
         let @62 = (f32)inf in
@@ -602,7 +602,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
         let @288 = @282 && @67 in
         let @315 = reduce<any>(@288) in
         if (@315) {
-          let _t85 = _t905.nPrims in
+          let _t85 = _t902.nPrims in
           let @69 = _t85 == 0u in
           if (@69) {
             let @70 = f32x3(1f) in
@@ -628,7 +628,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             let @368 = @72[2u] in
             let @441 = f32x8(@368) in
             let @369 = @363 < @441 in
-            let @74 = _t905.axis in
+            let @74 = _t902.axis in
             let @370 = @74 == 1u in
             let @442 = boolx8(@370) in
             let @371 = select(@442, @367, @369) in
@@ -636,7 +636,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             let @443 = boolx8(@372) in
             let @373 = select(@443, @365, @371) in
             let @76 = (*shapes_index!top) + 1u in
-            let @77 = _t905.split0on_nPrims in
+            let @77 = _t902.split0on_nPrims in
             let @78 = reinterpret_cast<_tree_layout2>(@77) in
             let @79 = @78.offset in
             let @80 = (*shapes_index!top) + @79 in
@@ -661,16 +661,16 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             _idx0 = 0u
             a$i34 = @349
             while ((*_idx0) < @84) {
-              let @86 = _t905.split0on_nPrims in
+              let @86 = _t902.split0on_nPrims in
               let @87 = reinterpret_cast<_tree_layout3>(@86) in
               let @88 = @87.pOffset in
-              let _t927 = @88 + (*_idx0) in
+              let _t924 = @88 + (*_idx0) in
               let @90 = shapes.prims in
-              let _t929 = @90[_t927] in
-              let _t361 = _t929.tag in
-              switch (_t361) {
+              let _t926 = @90[_t924] in
+              let _t358 = _t926.tag in
+              switch (_t358) {
               case 0: { // Shape.Sph of intersects_Ray_Shape
-                let _t249$i3 = _t929.payload in
+                let _t249$i3 = _t926.payload in
                 let @94 = _t249$i3[0u] in
                 let @95 = reinterpret_cast<f32>(@94) in
                 let @96 = _t249$i3[1u] in
@@ -680,18 +680,18 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                 let @100 = build<f32x3>(@95, @97, @99) in
                 let @101 = _t249$i3[4u] in
                 let @102 = reinterpret_cast<f32>(@101) in
-                let _t939 = build<Sphere>(@100, @102) in
-                let @104 = _t939.center in
+                let _t936 = build<Sphere>(@100, @102) in
+                let @104 = _t936.center in
                 let @374 = @104[0u] in
-                let @375 = _t569.!0 in
+                let @375 = _t566.!0 in
                 let @444 = f32x8(@374) in
                 let @376 = @444 - @375 in
                 let @377 = @104[1u] in
-                let @378 = _t569.!1 in
+                let @378 = _t566.!1 in
                 let @445 = f32x8(@377) in
                 let @379 = @445 - @378 in
                 let @380 = @104[2u] in
-                let @381 = _t569.!2 in
+                let @381 = _t566.!2 in
                 let @446 = f32x8(@380) in
                 let @382 = @446 - @381 in
                 let @106 = _t294$i34.!0 in
@@ -702,7 +702,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                 let @113 = _t294$i34.!2 in
                 let @115 = @113 * @382 in
                 let _t298$i21$i35 = @112 + @115 in
-                let _t300$i21$i35 = _t939.radius in
+                let _t300$i21$i35 = _t936.radius in
                 let @118 = _t298$i21$i35 * _t298$i21$i35 in
                 let @383 = @376 * @376 in
                 let @384 = @379 * @379 in
@@ -713,22 +713,22 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                 let @447 = f32x8(@121) in
                 let @122 = @387 - @447 in
                 let @123 = (*a$i34) * @122 in
-                let _t947 = @118 - @123 in
+                let _t944 = @118 - @123 in
                 let @448 = f32x8(0f) in
-                let @125 = _t947 < @448 in
+                let @125 = _t944 < @448 in
                 let @449 = boolx8(false) in
                 let @450 = boolx8(true) in
                 let @289 = select(@125, @449, @450) in
                 let @290 = @288 && @289 in
                 let @291 = @288 && @125 in
                 let @126 = build<_option1>() in
-                let sqrtd$i21$i35 = sqrt(_t947) in
+                let sqrtd$i21$i35 = sqrt(_t944) in
                 let @128 = _t298$i21$i35 - sqrtd$i21$i35 in
-                let _t949 = @128 / (*a$i34) in
+                let _t946 = @128 / (*a$i34) in
                 let @130 = _t298$i21$i35 + sqrtd$i21$i35 in
-                let _t951 = @130 / (*a$i34) in
-                let @132 = min(_t949, _t951) in
-                let @133 = max(_t949, _t951) in
+                let _t948 = @130 / (*a$i34) in
+                let @132 = min(_t946, _t948) in
+                let @133 = max(_t946, _t948) in
                 let interval$i21$i35 = build<FInterval$v8>(@132, @133) in
                 let @451 = boolx8(true) in
                 let @135 = build<_option1$v8>(interval$i21$i35, @451) in
@@ -761,7 +761,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                 intersects_Ray_Shape$r3 = @324
               } break;
               default: { // Shape.Tri of intersects_Ray_Shape
-                let _t262$i3 = _t929.payload in
+                let _t262$i3 = _t926.payload in
                 let @148 = _t262$i3[0u] in
                 let @149 = reinterpret_cast<f32>(@148) in
                 let @150 = _t262$i3[1u] in
@@ -796,9 +796,9 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
               let @297 = @288 && (*intersects_Ray_Shape$r3) in
               let @316 = reduce<any>(@297) in
               if (@316) {
-                switch (_t361) {
+                switch (_t358) {
                 case 0: { // Shape.Sph of distmin_Ray_Shape
-                  let _t181$i4 = _t929.payload in
+                  let _t181$i4 = _t926.payload in
                   let @174 = _t181$i4[0u] in
                   let @175 = reinterpret_cast<f32>(@174) in
                   let @176 = _t181$i4[1u] in
@@ -808,18 +808,18 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   let @180 = build<f32x3>(@175, @177, @179) in
                   let @181 = _t181$i4[4u] in
                   let @182 = reinterpret_cast<f32>(@181) in
-                  let _t962 = build<Sphere>(@180, @182) in
-                  let @184 = _t962.center in
+                  let _t959 = build<Sphere>(@180, @182) in
+                  let @184 = _t959.center in
                   let @388 = @184[0u] in
-                  let @389 = _t569.!0 in
+                  let @389 = _t566.!0 in
                   let @470 = f32x8(@388) in
                   let @390 = @470 - @389 in
                   let @391 = @184[1u] in
-                  let @392 = _t569.!1 in
+                  let @392 = _t566.!1 in
                   let @471 = f32x8(@391) in
                   let @393 = @471 - @392 in
                   let @394 = @184[2u] in
-                  let @395 = _t569.!2 in
+                  let @395 = _t566.!2 in
                   let @472 = f32x8(@394) in
                   let @396 = @472 - @395 in
                   let @186 = _t294$i34.!0 in
@@ -830,7 +830,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   let @193 = _t294$i34.!2 in
                   let @195 = @193 * @396 in
                   let _t298$i17$i36 = @192 + @195 in
-                  let _t300$i17$i36 = _t962.radius in
+                  let _t300$i17$i36 = _t959.radius in
                   let @198 = _t298$i17$i36 * _t298$i17$i36 in
                   let @397 = @390 * @390 in
                   let @398 = @393 * @393 in
@@ -841,22 +841,22 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   let @473 = f32x8(@201) in
                   let @202 = @401 - @473 in
                   let @203 = (*a$i34) * @202 in
-                  let _t970 = @198 - @203 in
+                  let _t967 = @198 - @203 in
                   let @474 = f32x8(0f) in
-                  let @205 = _t970 < @474 in
+                  let @205 = _t967 < @474 in
                   let @475 = boolx8(false) in
                   let @476 = boolx8(true) in
                   let @301 = select(@205, @475, @476) in
                   let @302 = @297 && @301 in
                   let @303 = @297 && @205 in
                   let @206 = build<_option1>() in
-                  let sqrtd$i17$i36 = sqrt(_t970) in
+                  let sqrtd$i17$i36 = sqrt(_t967) in
                   let @208 = _t298$i17$i36 - sqrtd$i17$i36 in
-                  let _t972 = @208 / (*a$i34) in
+                  let _t969 = @208 / (*a$i34) in
                   let @210 = _t298$i17$i36 + sqrtd$i17$i36 in
-                  let _t974 = @210 / (*a$i34) in
-                  let @212 = min(_t972, _t974) in
-                  let @213 = max(_t972, _t974) in
+                  let _t971 = @210 / (*a$i34) in
+                  let @212 = min(_t969, _t971) in
+                  let @213 = max(_t969, _t971) in
                   let interval$i17$i36 = build<FInterval$v8>(@212, @213) in
                   let @477 = boolx8(true) in
                   let @215 = build<_option1$v8>(interval$i17$i36, @477) in
@@ -885,7 +885,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   distmin_Ray_Shape$r4 = @327
                 } break;
                 default: { // Shape.Tri of distmin_Ray_Shape
-                  let _t194$i4 = _t929.payload in
+                  let _t194$i4 = _t926.payload in
                   let @225 = _t194$i4[0u] in
                   let @226 = reinterpret_cast<f32>(@225) in
                   let @227 = _t194$i4[1u] in
@@ -909,14 +909,14 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   let @245 = build<f32x3>(@240, @242, @244) in
                   let @246 = build<Triangle>(@231, @238, @245) in
                   let @247 = intersectsp_ray_tri$gang8_v0$masked(r, @246, @297) in
-                  let _t997 = @247 in
-                  let @248 = _t997.set in
+                  let _t994 = @247 in
+                  let @248 = _t994.set in
                   let @467 = boolx8(false) in
                   let @468 = boolx8(true) in
                   let @298 = select(@248, @467, @468) in
                   let @299 = @297 && @298 in
                   let @300 = @297 && @248 in
-                  let isect_$i37 = _t997.value in
+                  let isect_$i37 = _t994.value in
                   let @250 = isect_$i37.t in
                   let @251 = (f32)inf in
                   let @469 = f32x8(@251) in
@@ -943,7 +943,7 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   let @312 = @309 && @258 in
                   let @318 = reduce<any>(@312) in
                   if (@318) {
-                    let @260 = build<__tuple_0>(_t927) in
+                    let @260 = build<__tuple_0>(_t924) in
                     let @495 = @260._field0 in
                     let @496 = u16x8(@495) in
                     let @497 = build<__tuple_0$v8>(@496) in
@@ -1019,44 +1019,44 @@ func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
     let @8 = build<f32x3>(@3, @5, @7) in
     let @9 = _t150[4u] in
     let @10 = reinterpret_cast<f32>(@9) in
-    let _t1032 = build<Sphere>(@8, @10) in
-    let @12 = _t1032.center in
+    let _t1029 = build<Sphere>(@8, @10) in
+    let @12 = _t1029.center in
     let @13 = r.o in
-    let _t1035 = @12 - @13 in
+    let _t1032 = @12 - @13 in
     let _t294$i39 = r.d in
     let @16 = _t294$i39 * _t294$i39 in
     let a$i39 = reduce<+>(@16) in
     let @18 = _t294$i39[0] in
-    let @19 = _t1035[0] in
+    let @19 = _t1032[0] in
     let @20 = @18 * @19 in
     let @21 = _t294$i39[1] in
-    let @22 = _t1035[1] in
+    let @22 = _t1032[1] in
     let @23 = @21 * @22 in
     let @24 = @20 + @23 in
     let @25 = _t294$i39[2] in
-    let @26 = _t1035[2] in
+    let @26 = _t1032[2] in
     let @27 = @25 * @26 in
     let _t298$i39 = @24 + @27 in
-    let _t300$i39 = _t1032.radius in
+    let _t300$i39 = _t1029.radius in
     let @30 = _t298$i39 * _t298$i39 in
-    let @31 = _t1035 * _t1035 in
+    let @31 = _t1032 * _t1032 in
     let @32 = reduce<+>(@31) in
     let @33 = _t300$i39 * _t300$i39 in
     let @34 = @32 - @33 in
     let @35 = a$i39 * @34 in
-    let _t1042 = @30 - @35 in
-    let @37 = _t1042 < 0f in
+    let _t1039 = @30 - @35 in
+    let @37 = _t1039 < 0f in
     if (@37) {
       let @38 = build<_option1>() in
       intersectsp_ray_sphere$r39 = @38
     } else {
-      let sqrtd$i39 = sqrt(_t1042) in
+      let sqrtd$i39 = sqrt(_t1039) in
       let @40 = _t298$i39 - sqrtd$i39 in
-      let _t1044 = @40 / a$i39 in
+      let _t1041 = @40 / a$i39 in
       let @42 = _t298$i39 + sqrtd$i39 in
-      let _t1046 = @42 / a$i39 in
-      let @44 = min(_t1044, _t1046) in
-      let @45 = max(_t1044, _t1046) in
+      let _t1043 = @42 / a$i39 in
+      let @44 = min(_t1041, _t1043) in
+      let @45 = max(_t1041, _t1043) in
       let interval$i39 = build<FInterval>(@44, @45) in
       let @47 = build<_option1>(interval$i39, true) in
       intersectsp_ray_sphere$r39 = @47
@@ -1097,10 +1097,10 @@ func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
     let @76 = build<f32x3>(@71, @73, @75) in
     let @77 = build<Triangle>(@62, @69, @76) in
     let @78 = intersectsp_ray_tri(r, @77) in
-    let _t1069 = @78 in
-    let @79 = _t1069.set in
+    let _t1066 = @78 in
+    let @79 = _t1066.set in
     if (@79) {
-      let isect_$i11 = _t1069.value in
+      let isect_$i11 = _t1066.value in
       let @81 = isect_$i11.t in
       distmax_Ray_Triangle$r11 = @81
     } else {
@@ -1130,44 +1130,44 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
     let @8 = build<f32x3>(@3, @5, @7) in
     let @9 = _t181[4u] in
     let @10 = reinterpret_cast<f32>(@9) in
-    let _t1100 = build<Sphere>(@8, @10) in
-    let @12 = _t1100.center in
+    let _t1097 = build<Sphere>(@8, @10) in
+    let @12 = _t1097.center in
     let @13 = r.o in
-    let _t1103 = @12 - @13 in
+    let _t1100 = @12 - @13 in
     let _t294$i42 = r.d in
     let @16 = _t294$i42 * _t294$i42 in
     let a$i42 = reduce<+>(@16) in
     let @18 = _t294$i42[0] in
-    let @19 = _t1103[0] in
+    let @19 = _t1100[0] in
     let @20 = @18 * @19 in
     let @21 = _t294$i42[1] in
-    let @22 = _t1103[1] in
+    let @22 = _t1100[1] in
     let @23 = @21 * @22 in
     let @24 = @20 + @23 in
     let @25 = _t294$i42[2] in
-    let @26 = _t1103[2] in
+    let @26 = _t1100[2] in
     let @27 = @25 * @26 in
     let _t298$i42 = @24 + @27 in
-    let _t300$i42 = _t1100.radius in
+    let _t300$i42 = _t1097.radius in
     let @30 = _t298$i42 * _t298$i42 in
-    let @31 = _t1103 * _t1103 in
+    let @31 = _t1100 * _t1100 in
     let @32 = reduce<+>(@31) in
     let @33 = _t300$i42 * _t300$i42 in
     let @34 = @32 - @33 in
     let @35 = a$i42 * @34 in
-    let _t1110 = @30 - @35 in
-    let @37 = _t1110 < 0f in
+    let _t1107 = @30 - @35 in
+    let @37 = _t1107 < 0f in
     if (@37) {
       let @38 = build<_option1>() in
       intersectsp_ray_sphere$r42 = @38
     } else {
-      let sqrtd$i42 = sqrt(_t1110) in
+      let sqrtd$i42 = sqrt(_t1107) in
       let @40 = _t298$i42 - sqrtd$i42 in
-      let _t1112 = @40 / a$i42 in
+      let _t1109 = @40 / a$i42 in
       let @42 = _t298$i42 + sqrtd$i42 in
-      let _t1114 = @42 / a$i42 in
-      let @44 = min(_t1112, _t1114) in
-      let @45 = max(_t1112, _t1114) in
+      let _t1111 = @42 / a$i42 in
+      let @44 = min(_t1109, _t1111) in
+      let @45 = max(_t1109, _t1111) in
       let interval$i42 = build<FInterval>(@44, @45) in
       let @47 = build<_option1>(interval$i42, true) in
       intersectsp_ray_sphere$r42 = @47
@@ -1209,10 +1209,10 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
     let @77 = build<f32x3>(@72, @74, @76) in
     let @78 = build<Triangle>(@63, @70, @77) in
     let @79 = intersectsp_ray_tri(r, @78) in
-    let _t1137 = @79 in
-    let @80 = _t1137.set in
+    let _t1134 = @79 in
+    let @80 = _t1134.set in
     if (@80) {
-      let isect_$i16 = _t1137.value in
+      let isect_$i16 = _t1134.value in
       let @82 = isect_$i16.t in
       distmin_Ray_Triangle$r16 = @82
     } else {
@@ -1550,44 +1550,44 @@ func intersects_Ray_Shape(r : Ray, sh : Shape) -> bool {
     let @8 = build<f32x3>(@3, @5, @7) in
     let @9 = _t249[4u] in
     let @10 = reinterpret_cast<f32>(@9) in
-    let _t1171 = build<Sphere>(@8, @10) in
-    let @12 = _t1171.center in
+    let _t1168 = build<Sphere>(@8, @10) in
+    let @12 = _t1168.center in
     let @13 = r.o in
-    let _t1174 = @12 - @13 in
+    let _t1171 = @12 - @13 in
     let _t294$i46 = r.d in
     let @16 = _t294$i46 * _t294$i46 in
     let a$i46 = reduce<+>(@16) in
     let @18 = _t294$i46[0] in
-    let @19 = _t1174[0] in
+    let @19 = _t1171[0] in
     let @20 = @18 * @19 in
     let @21 = _t294$i46[1] in
-    let @22 = _t1174[1] in
+    let @22 = _t1171[1] in
     let @23 = @21 * @22 in
     let @24 = @20 + @23 in
     let @25 = _t294$i46[2] in
-    let @26 = _t1174[2] in
+    let @26 = _t1171[2] in
     let @27 = @25 * @26 in
     let _t298$i46 = @24 + @27 in
-    let _t300$i46 = _t1171.radius in
+    let _t300$i46 = _t1168.radius in
     let @30 = _t298$i46 * _t298$i46 in
-    let @31 = _t1174 * _t1174 in
+    let @31 = _t1171 * _t1171 in
     let @32 = reduce<+>(@31) in
     let @33 = _t300$i46 * _t300$i46 in
     let @34 = @32 - @33 in
     let @35 = a$i46 * @34 in
-    let _t1181 = @30 - @35 in
-    let @37 = _t1181 < 0f in
+    let _t1178 = @30 - @35 in
+    let @37 = _t1178 < 0f in
     if (@37) {
       let @38 = build<_option1>() in
       intersectsp_ray_sphere$r46 = @38
     } else {
-      let sqrtd$i46 = sqrt(_t1181) in
+      let sqrtd$i46 = sqrt(_t1178) in
       let @40 = _t298$i46 - sqrtd$i46 in
-      let _t1183 = @40 / a$i46 in
+      let _t1180 = @40 / a$i46 in
       let @42 = _t298$i46 + sqrtd$i46 in
-      let _t1185 = @42 / a$i46 in
-      let @44 = min(_t1183, _t1185) in
-      let @45 = max(_t1183, _t1185) in
+      let _t1182 = @42 / a$i46 in
+      let @44 = min(_t1180, _t1182) in
+      let @45 = max(_t1180, _t1182) in
       let interval$i46 = build<FInterval>(@44, @45) in
       let @47 = build<_option1>(interval$i46, true) in
       intersectsp_ray_sphere$r46 = @47

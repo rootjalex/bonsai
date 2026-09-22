@@ -1,0 +1,37 @@
+//! flags: -p ssa -b llvm -e
+
+// Float accumulates from the threads of a block into one place, run on the
+// GPU: backends/ptx/atomic-float.bonsai shows they are the hardware's atomic
+// add rather than a compare-and-swap loop; this checks the sums are right --
+// no update lost, every component of the vector its own atomic.
+import stdlib/numerics;
+
+func run(total : mut array[Float, 4], rgb : mut array[vec3f, 4]) -> void {
+    parfor p in 0:4 {
+        total[p] = 0.0;
+        rgb[p] = vec3f{0.0, 0.0, 0.0};
+        parfor s in 0:8 {
+            f = cast[[Float]](s) * 0.5;
+            atomic total[p] += f;
+            atomic rgb[p] += vec3f{f, 2.0 * f, cast[[Float]](p)};
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    total : mut array[Float, 4] = {0.0, 0.0, 0.0, 0.0};
+    zero = vec3f{0.0, 0.0, 0.0};
+    rgb : mut array[vec3f, 4] = {zero, zero, zero, zero};
+    run(total, rgb);
+    // 0 + 0.5 + ... + 3.5 = 14, in every pixel.
+    print(total);
+    // 14, 28, and the pixel's own index eight times over.
+    print(rgb);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
-; Function Attrs: norecurse nounwind
+; Function Attrs: norecurse nounwind denormal_fpenv(preservesign)
 define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
   %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
@@ -38,16 +38,16 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, ptr nofree writeo
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
 declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
 
-; Function Attrs: convergent nocallback nounwind
+; Function Attrs: convergent nocallback nounwind denormal_fpenv(preservesign)
 declare void @llvm.nvvm.barrier.cta.sync.aligned.all(i32) #2
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write)
 define ptx_kernel void @_kernel_i_1(i32 %_begin, i32 %_stride, ptr nofree writeonly captures(none) %out) local_unnamed_addr #3 {
 "!par_body_0":
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -71,14 +71,14 @@ define ptx_kernel void @_kernel_i_1(i32 %_begin, i32 %_stride, ptr nofree writeo
   ret void
 }
 
-attributes #0 = { norecurse nounwind }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { convergent nocallback nounwind }
-attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #0 = { norecurse nounwind denormal_fpenv(preservesign) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none) }
+attributes #2 = { convergent nocallback nounwind denormal_fpenv(preservesign) }
+attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write) }
 
 !llvm.module.flags = !{!0}
 
-!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
 !1 = !{!2, !2, i64 0}
 !2 = !{!"f32", !3, i64 0}
 !3 = !{!"bonsai"}
@@ -121,7 +121,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	mad.lo.s32 	%r13, %r12, %r11, 6517565;
 	and.b32 	%r14, %r13, 8388607;
 	or.b32 	%r15, %r14, 1065353216;
-	add.rn.f32 	%r16, %r15, 0fBF800000;
+	add.rn.ftz.f32 	%r16, %r15, 0fBF800000;
 	shl.b32 	%r17, %r4, 2;
 	add.s32 	%r18, %r17, %r6;
 	mul.wide.s32 	%rd3, %r18, 4;
@@ -154,7 +154,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	mad.lo.s32 	%r9, %r8, %r7, 6517565;
 	and.b32 	%r10, %r9, 8388607;
 	or.b32 	%r11, %r10, 1065353216;
-	add.rn.f32 	%r12, %r11, 0fBF800000;
+	add.rn.ftz.f32 	%r12, %r11, 0fBF800000;
 	mul.wide.s32 	%rd3, %r4, 4;
 	add.s64 	%rd4, %rd2, %rd3;
 	st.global.b32 	[%rd4], %r12;

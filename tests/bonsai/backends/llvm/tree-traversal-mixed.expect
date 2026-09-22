@@ -189,14 +189,14 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   %42 = and i64 %extract1059, 72057594037927935
   %extract_ptr1075 = getelementptr inbounds nuw [144 x i8], ptr %Prim_Inst_pool, i64 %42
   %extract1076 = load %struct.Inst, ptr %extract_ptr1075, align 16
-  %_t1296.blas = extractvalue %struct.Inst %extract1076, 1
-  %_t1296.render_from_instance = extractvalue %struct.Inst %extract1076, 0
-  %"t$i38.i0" = extractvalue %struct.Transform %_t1296.render_from_instance, 4
+  %_t1290.blas = extractvalue %struct.Inst %extract1076, 1
+  %_t1290.render_from_instance = extractvalue %struct.Inst %extract1076, 0
+  %"t$i38.i0" = extractvalue %struct.Transform %_t1290.render_from_instance, 4
   %43 = fmul <3 x float> %.splat1084, %"t$i38.i0"
-  %"t$i38.i1" = extractvalue %struct.Transform %_t1296.render_from_instance, 5
+  %"t$i38.i1" = extractvalue %struct.Transform %_t1290.render_from_instance, 5
   %44 = fmul <3 x float> %.splat1086, %"t$i38.i1"
   %45 = fadd <3 x float> %43, %44
-  %"t$i38.i2" = extractvalue %struct.Transform %_t1296.render_from_instance, 6
+  %"t$i38.i2" = extractvalue %struct.Transform %_t1290.render_from_instance, 6
   %46 = fmul <3 x float> %.splat1088, %"t$i38.i2"
   %47 = fadd <3 x float> %46, %45
   %48 = fmul <3 x float> %.splat1078, %"t$i38.i0"
@@ -204,12 +204,12 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   %50 = fadd <3 x float> %48, %49
   %51 = fmul <3 x float> %.splat1082, %"t$i38.i2"
   %52 = fadd <3 x float> %51, %50
-  %"t$i38.i3" = extractvalue %struct.Transform %_t1296.render_from_instance, 7
+  %"t$i38.i3" = extractvalue %struct.Transform %_t1290.render_from_instance, 7
   %53 = fadd <3 x float> %"t$i38.i3", %52
   %54 = insertvalue %struct.Ray poison, <3 x float> %53, 0
   %55 = insertvalue %struct.Ray %54, <3 x float> %47, 1
   %"untransform_Prim_Ray$r5" = insertvalue %struct.Ray %55, float %2, 2
-  tail call fastcc void @_recloop_func1(i32 %_t1296.blas, %struct._tree_layout0 %prims, %struct.Ray %"untransform_Prim_Ray$r5", ptr %_best0, i32 %prims_index.tr, i32 %39)
+  tail call fastcc void @_recloop_func1(i32 %_t1290.blas, %struct._tree_layout0 %prims, %struct.Ray %"untransform_Prim_Ray$r5", ptr %_best0, i32 %prims_index.tr, i32 %39)
   br label %"!merge_28"
 
 "!merge_31":                                      ; preds = %"!for__idx0_body_26"

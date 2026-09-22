@@ -6,7 +6,8 @@ target triple = "nvptx64-nvidia-cuda"
 
 @0 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 
-define ptx_kernel void @_kernel__i0_0(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %fs, ptr nofree writeonly captures(none) %_alloc0) local_unnamed_addr {
+; Function Attrs: denormal_fpenv(preservesign)
+define ptx_kernel void @_kernel__i0_0(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %fs, ptr nofree writeonly captures(none) %_alloc0) local_unnamed_addr #0 {
 "!par_body_0":
   %_print_args = alloca { i32 }, align 16
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -23,16 +24,18 @@ define ptx_kernel void @_kernel__i0_0(i32 %_begin, i32 %_stride, ptr nofree read
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #0
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
+declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-declare i32 @vprintf(ptr, ptr) local_unnamed_addr
+; Function Attrs: denormal_fpenv(preservesign)
+declare i32 @vprintf(ptr, ptr) local_unnamed_addr #0
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { denormal_fpenv(preservesign) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none) }
 
 !llvm.module.flags = !{!0}
 
-!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
 !1 = !{!2, !2, i64 0}
 !2 = !{!"i32", !3, i64 0}
 !3 = !{!"bonsai"}

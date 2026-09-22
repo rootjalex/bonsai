@@ -32,6 +32,7 @@ add_bonsai_tests(
     ${ptx_disabled}
     FLAGS --gpu-arch sm_90 --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
+    atomic-float.bonsai
     block-effects.bonsai
     blocks.bonsai
     blocks-threads.bonsai

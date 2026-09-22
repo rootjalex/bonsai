@@ -1,0 +1,81 @@
+//! flags: -p ssa -b llvm -e
+
+// A call that mutates its argument, nested inside another call's argument
+// list.
+//
+//     hash(draw(st));
+//     hash(draw(st));
+//
+// Both `draw`s must advance `st`, as they do when each is its own statement
+// (`d = draw(st); hash(d);`). What went wrong was pbrt's volpath integrator
+// seeding its majorant-sampling RNG with `Hash(sampler.Get1D())` twice in a
+// row: written the same way in bonsai, the second hash saw the sampler where
+// the first had found it, and the third draw -- the exponential step's --
+// was the wrong number too. Every image statistic still matched pbrt's,
+// because a stream is a stream; only the per-pixel comparison against pbrt
+// showed that the samples were not pbrt's.
+element Counter {
+    n : u32;
+}
+
+func draw(c : mut Counter) -> u32 {
+    was = c.n;
+    c.n = c.n + 1u;
+    return was;
+}
+
+func hash(v : u32) -> u32 = v * 10u + 3u;
+
+// The mutating call as an argument, twice: the second must see the first.
+func nested(c : mut Counter) -> u32 {
+    a = hash(draw(c));
+    b = hash(draw(c));
+    return a * 1000u + b;
+}
+
+// The same through a field of a mutable parameter, which is how a sampler's
+// RNG is reached.
+element Holder {
+    tag : u32;
+    c : Counter;
+}
+
+func nested_field(h : mut Holder) -> u32 {
+    a = hash(draw(h.c));
+    b = hash(draw(h.c));
+    return a * 1000u + b;
+}
+
+// Two mutating calls as arguments of one call: both advance, in order.
+func pair(a : u32, b : u32) -> u32 = a * 100u + b;
+
+func both_arguments(c : mut Counter) -> u32 {
+    return pair(draw(c), draw(c));
+}
+
+func [[export]] plain() -> u32 {
+    c : mut Counter = {0u};
+    return nested(c);
+}
+
+func [[export]] through_field() -> u32 {
+    h : mut Holder = {7u, Counter{5u}};
+    r = nested_field(h);
+    // And the writes landed: two draws from 5 leave 7.
+    return r * 10u + h.c.n;
+}
+
+func [[export]] in_one_call() -> u32 {
+    c : mut Counter = {1u};
+    return both_arguments(c);
+}
+
+func main() -> i32 {
+    // hash(0) = 3, hash(1) = 13: 3013.
+    print(plain());
+    // hash(5) = 53, hash(6) = 63: 53063, then the counter at 7: 530637.
+    print(through_field());
+    // draws 1 then 2: 102.
+    print(in_one_call());
+    return 0;
+}

@@ -65,10 +65,19 @@ struct CseLegalChecker : public ir::Visitor {
         // a = print_and_return(x); #1
         // b = print_and_return(x); #2 (same, but would only print once)
         const auto *v = node->func.as<ir::Var>();
-        if (v == nullptr) {
-            return;
+        if (v != nullptr) {
+            is_legal &= !side_effect_functions.contains(v->name);
         }
-        is_legal &= !side_effect_functions.contains(v->name);
+        // And the arguments are part of the expression: `hash(draw(c))` is
+        // no more repeatable than `draw(c)` is, whatever `hash` does. This
+        // used to stop at the callee's name, so two `hash(draw(st))` in a
+        // row became one -- which is how pbrt's volpath integrator, seeding
+        // its RNG with `Hash(sampler.Get1D())` twice, drew the same number
+        // twice and then the wrong one for its first step (see
+        // tests/bonsai/correctness/llvm/mut-nested-call-argument.bonsai).
+        for (const ir::Expr &arg : node->args) {
+            arg.accept(this);
+        }
     }
 
     bool is_legal = true;

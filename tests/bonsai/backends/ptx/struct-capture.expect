@@ -6,7 +6,7 @@ target triple = "nvptx64-nvidia-cuda"
 
 %struct.Affine = type { float, i32 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write)
 define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, %struct.Affine %a, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -24,15 +24,15 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, %struct.Affine %a
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none) }
 
 !llvm.module.flags = !{!0}
 
-!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
 !1 = !{!2, !2, i64 0}
 !2 = !{!"i32", !3, i64 0}
 !3 = !{!"bonsai"}
@@ -67,8 +67,8 @@ attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable wi
 	mov.u32 	%r5, %tid.x;
 	mad.lo.s32 	%r6, %r2, %r5, %r1;
 	cvt.rn.f32.s32 	%r7, %r6;
-	mul.rn.f32 	%r8, %r4, %r7;
-	cvt.rzi.s32.f32 	%r9, %r8;
+	mul.rn.ftz.f32 	%r8, %r4, %r7;
+	cvt.rzi.ftz.s32.f32 	%r9, %r8;
 	add.s32 	%r10, %r3, %r9;
 	mul.wide.s32 	%rd3, %r6, 4;
 	add.s64 	%rd4, %rd2, %rd3;

@@ -832,6 +832,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // fence of its own, and a system-scope atomic on the GPU is the slower
     // instruction for a guarantee nothing there needs.
     virtual llvm::SyncScope::ID atomic_scope() { return llvm::SyncScope::System; }
+    // The address an atomic read-modify-write is made on, given the address
+    // the program computed: the same one here, and on a device one qualified
+    // with the memory it is known to be in (CodeGen_PTX), which is what lets
+    // LLVM pick the hardware's atomic over a compare-and-swap loop.
+    virtual llvm::Value *atomic_address(llvm::Value *loc) { return loc; }
     // One indivisible read-modify-write per lane that is on: lane k's value
     // into lane k's place. `ptrs` is one address per lane (a scatter) or the
     // one address of memory laid out per lane, in which case lane k's place

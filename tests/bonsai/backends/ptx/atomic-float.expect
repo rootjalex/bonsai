@@ -5,7 +5,7 @@ target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64
 target triple = "nvptx64-nvidia-cuda"
 
 ; Function Attrs: norecurse nounwind denormal_fpenv(preservesign)
-define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, ptr nofree captures(none) %out, ptr nofree captures(none) %hits) local_unnamed_addr #0 {
+define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, ptr nofree captures(none) %total, ptr nofree captures(none) %rgb) local_unnamed_addr #0 {
 "!par_body_0":
   %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %0 = mul i32 %_stride, %ctaid
@@ -13,34 +13,32 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, ptr nofree captur
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %leader = icmp eq i32 %tid, 0
   %1 = sext i32 %p to i64
-  br i1 %leader, label %if_lane, label %if_lane_after7
+  br i1 %leader, label %if_lane, label %if_lane_after5
 
 if_lane:                                          ; preds = %"!par_body_0"
-  %hits8 = getelementptr inbounds [4 x i8], ptr %hits, i64 %1
-  %out3 = getelementptr inbounds [4 x i8], ptr %out, i64 %1
-  %2 = mul i32 %p, 1000
-  store i32 %2, ptr %out3, align 4, !tbaa !1
-  store i32 0, ptr %hits8, align 4, !tbaa !1
-  br label %if_lane_after7
+  %rgb6 = getelementptr inbounds [16 x i8], ptr %rgb, i64 %1
+  %total1 = getelementptr inbounds [4 x i8], ptr %total, i64 %1
+  store float 0.000000e+00, ptr %total1, align 4, !tbaa !1
+  store <3 x float> zeroinitializer, ptr %rgb6, align 16, !tbaa !1
+  br label %if_lane_after5
 
-if_lane_after7:                                   ; preds = %"!par_body_0", %if_lane
+if_lane_after5:                                   ; preds = %"!par_body_0", %if_lane
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
-  %out10 = getelementptr inbounds [4 x i8], ptr %out, i64 %1
-  %out10.global = addrspacecast ptr %out10 to ptr addrspace(1)
-  %3 = atomicrmw add ptr addrspace(1) %out10.global, i32 %tid syncscope("device") monotonic, align 4
-  %hits11 = getelementptr inbounds [4 x i8], ptr %hits, i64 %1
-  %hits11.global = addrspacecast ptr %hits11 to ptr addrspace(1)
-  %4 = atomicrmw add ptr addrspace(1) %hits11.global, i32 1 syncscope("device") monotonic, align 4
+  %2 = uitofp nneg i32 %tid to float
+  %3 = fmul nnan float %2, 5.000000e-01
+  %total8 = getelementptr inbounds [4 x i8], ptr %total, i64 %1
+  %total8.global = addrspacecast ptr %total8 to ptr addrspace(1)
+  %4 = atomicrmw fadd ptr addrspace(1) %total8.global, float %3 syncscope("device") monotonic, align 4
+  %5 = fmul nnan float %3, 2.000000e+00
+  %6 = sitofp i32 %p to float
+  %rgb9 = getelementptr inbounds [16 x i8], ptr %rgb, i64 %1
+  %rgb9.global = addrspacecast ptr %rgb9 to ptr addrspace(1)
+  %7 = atomicrmw fadd ptr addrspace(1) %rgb9.global, float %3 syncscope("device") monotonic, align 4
+  %8 = getelementptr inbounds nuw i8, ptr addrspace(1) %rgb9.global, i64 4
+  %9 = atomicrmw fadd ptr addrspace(1) %8, float %5 syncscope("device") monotonic, align 4
+  %10 = getelementptr inbounds nuw i8, ptr addrspace(1) %rgb9.global, i64 8
+  %11 = atomicrmw fadd ptr addrspace(1) %10, float %6 syncscope("device") monotonic, align 4
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
-  br i1 %leader, label %if_lane14, label %if_lane_after15
-
-if_lane14:                                        ; preds = %if_lane_after7
-  %extract = load i32, ptr %hits11, align 4
-  %5 = shl i32 %extract, 1
-  store i32 %5, ptr %hits11, align 4, !tbaa !1
-  br label %if_lane_after15
-
-if_lane_after15:                                  ; preds = %if_lane14, %if_lane_after7
   ret void
 }
 
@@ -61,7 +59,7 @@ attributes #2 = { convergent nocallback nounwind denormal_fpenv(preservesign) }
 
 !0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
 !1 = !{!2, !2, i64 0}
-!2 = !{!"i32", !3, i64 0}
+!2 = !{!"f32", !3, i64 0}
 !3 = !{!"bonsai"}
 
 ; ---- device module: PTX ----
@@ -83,8 +81,8 @@ attributes #2 = { convergent nocallback nounwind denormal_fpenv(preservesign) }
 )
 {
 	.reg .pred 	%p<2>;
-	.reg .b32 	%r<11>;
-	.reg .b64 	%rd<8>;
+	.reg .b32 	%r<14>;
+	.reg .b64 	%rd<9>;
 
 	ld.param.b32 	%r3, [_kernel_p_0_param_0];
 	ld.param.b64 	%rd3, [_kernel_p_0_param_3];
@@ -93,26 +91,28 @@ attributes #2 = { convergent nocallback nounwind denormal_fpenv(preservesign) }
 	ld.param.b64 	%rd5, [_kernel_p_0_param_2];
 	cvta.to.global.u64 	%rd6, %rd5;
 	mov.u32 	%r5, %ctaid.x;
-	mad.lo.s32 	%r6, %r4, %r5, %r3;
-	mov.u32 	%r1, %tid.x;
-	setp.ne.b32 	%p1, %r1, 0;
-	mul.wide.s32 	%rd7, %r6, 4;
+	mad.lo.s32 	%r1, %r4, %r5, %r3;
+	mov.u32 	%r2, %tid.x;
+	setp.ne.b32 	%p1, %r2, 0;
+	mul.wide.s32 	%rd7, %r1, 16;
 	add.s64 	%rd1, %rd4, %rd7;
-	add.s64 	%rd2, %rd6, %rd7;
+	mul.wide.s32 	%rd8, %r1, 4;
+	add.s64 	%rd2, %rd6, %rd8;
 	@%p1 bra 	$L__BB0_2;
-	mul.lo.s32 	%r2, %r6, 1000;
-	st.global.b32 	[%rd2], %r2;
-	st.global.b32 	[%rd1], 0;
+	st.global.b32 	[%rd2], 0;
+	st.global.b32 	[%rd1+8], 0;
+	st.global.b64 	[%rd1], 0;
 $L__BB0_2:
 	bar.sync 	0;
-	atom.relaxed.gpu.global.add.u32 	%r7, [%rd2], %r1;
-	atom.relaxed.gpu.global.add.u32 	%r8, [%rd1], 1;
+	cvt.rn.f32.u32 	%r6, %r2;
+	mul.rn.ftz.f32 	%r7, %r6, 0f3F000000;
+	atom.relaxed.gpu.global.add.f32 	%r8, [%rd2], %r7;
+	add.rn.ftz.f32 	%r9, %r7, %r7;
+	cvt.rn.f32.s32 	%r10, %r1;
+	atom.relaxed.gpu.global.add.f32 	%r11, [%rd1], %r7;
+	atom.relaxed.gpu.global.add.f32 	%r12, [%rd1+4], %r9;
+	atom.relaxed.gpu.global.add.f32 	%r13, [%rd1+8], %r10;
 	bar.sync 	0;
-	@%p1 bra 	$L__BB0_4;
-	ld.global.b32 	%r9, [%rd1];
-	shl.b32 	%r10, %r9, 1;
-	st.global.b32 	[%rd1], %r10;
-$L__BB0_4:
 	ret;
 
 }

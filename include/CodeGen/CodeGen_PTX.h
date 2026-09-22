@@ -113,6 +113,10 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // Device scope: `atom.gpu`, what CUDA's atomicAdd is, rather than the
     // system-scope `atom.sys` LLVM's default names.
     llvm::SyncScope::ID atomic_scope() override;
+    // The address cast to the global address space when it is rooted at a
+    // kernel argument -- device memory, by construction -- so that a float
+    // accumulate is `atom.add.f32` and not a compare-and-swap loop.
+    llvm::Value *atomic_address(llvm::Value *loc) override;
     bool effects_run_once() const override { return block_level; }
     void check_block_level_call(const std::string &callee) override;
 

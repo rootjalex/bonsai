@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write)
 define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
@@ -17,15 +17,15 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofre
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn denormal_fpenv(preservesign) memory(argmem: write) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn denormal_fpenv(preservesign) memory(none) }
 
 !llvm.module.flags = !{!0}
 
-!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 1}
 !1 = !{!2, !2, i64 0}
 !2 = !{!"i32", !3, i64 0}
 !3 = !{!"bonsai"}

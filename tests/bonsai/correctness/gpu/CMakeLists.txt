@@ -28,6 +28,7 @@ add_bonsai_tests(
     LABELS correctness gpu
     ${gpu_disabled}
     FILES
+    atomic-float.bonsai
     block-effects.bonsai
     blocks.bonsai
     blocks-threads.bonsai

@@ -9,8 +9,10 @@
 
 #include "bonsai_cuda.h"
 
+#include <llvm/ADT/FloatingPointMode.h>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IntrinsicsNVPTX.h>
@@ -129,11 +131,14 @@ void CodeGen_PTX::init_module() {
     module->setModuleIdentifier("bonsai_ptx");
     // libdevice's functions ask `__nvvm_reflect("__CUDA_FTZ")` whether
     // denormals are to be flushed to zero, and the NVVMReflect pass answers
-    // from this flag. CUDA's default -- nvcc without --ftz -- is that they
-    // are not, and pbrt is built that way, so its answers are the ones with
-    // denormals kept.
+    // from this flag. They are: pbrt's GPU build compiles with
+    // `--use_fast_math`, which is `--ftz=true` among other things, so the
+    // renderer this one is compared against on the GPU flushes denormals in
+    // every device function; and the same choice is what lets a float
+    // accumulate be the native `atom.add.f32` -- see finish(), where each
+    // device function is given the matching denormal mode.
     module->addModuleFlag(llvm::Module::Override, "nvvm-reflect-ftz",
-                          uint32_t(0));
+                          uint32_t(1));
 }
 
 std::unique_ptr<llvm::TargetMachine>
@@ -523,6 +528,30 @@ llvm::SyncScope::ID CodeGen_PTX::atomic_scope() {
     return context->getOrInsertSyncScopeID("device");
 }
 
+llvm::Value *CodeGen_PTX::atomic_address(llvm::Value *loc) {
+    // LLVM lowers `atomicrmw fadd` on a float to `atom.add.f32` only when
+    // the address is in the global address space in the IR it sees -- the
+    // instruction flushes denormals there, and the function's denormal mode
+    // has to say so too (finish()) -- and expands every other case to a
+    // compare-and-swap loop (NVPTXISelLowering.cpp,
+    // shouldExpandAtomicRMWInIR). A kernel's pointer parameters are generic
+    // pointers in the IR, and nothing before the expansion pass qualifies
+    // them: the backend's own inference runs on loads and stores it can
+    // trace to a `byval` parameter, not on a pointer parameter's atomics.
+    // What every such pointer is, though, is device memory: the launch put
+    // it there. So an address rooted at a kernel argument is cast to the
+    // global space here, before the atomic is made on it.
+    const llvm::Value *root = llvm::getUnderlyingObject(loc);
+    const auto *arg = llvm::dyn_cast<llvm::Argument>(root);
+    if (arg == nullptr ||
+        arg->getParent()->getCallingConv() != llvm::CallingConv::PTX_Kernel) {
+        return loc;
+    }
+    return builder->CreateAddrSpaceCast(
+        loc, llvm::PointerType::get(*context, /*AddressSpace=*/1),
+        loc->getName() + ".global");
+}
+
 llvm::Value *CodeGen_PTX::effects_once_guard() {
     if (!block_level) {
         return nullptr;
@@ -708,6 +737,25 @@ void CodeGen_PTX::link_libdevice() {
 void CodeGen_PTX::finish() {
     frames.pop_frame();
     link_libdevice();
+    // Denormals flushed to zero in every device function, libdevice's
+    // included: what `--use_fast_math` gives pbrt's GPU build (init_module
+    // says why that is the reference), and what makes an accumulate's atomic
+    // the hardware's. `atom.add.f32` on global memory flushes denormals
+    // whatever the function does, so LLVM lowers `atomicrmw fadd` to it only
+    // in a function that flushes them too -- in any other it is a load and a
+    // compare-and-swap loop, which is what every film accumulate of the
+    // megakernel was: with a block's threads all adding into one pixel, 5.7
+    // attempts per add (NVPTXISelLowering.cpp, shouldExpandAtomicRMWInIR).
+    // The typed attribute, `denormal_fpenv(...)`: the string forms of old
+    // (`"denormal-fp-math-f32"`) are what the bitcode reader upgrades, not
+    // what Function::getDenormalMode reads.
+    const llvm::DenormalFPEnv flush(llvm::DenormalMode::getPreserveSign(),
+                                    llvm::DenormalMode::getPreserveSign());
+    for (llvm::Function &fn : *module) {
+        llvm::AttrBuilder flushing(*context);
+        flushing.addDenormalFPEnvAttr(flush);
+        fn.addFnAttrs(flushing);
+    }
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] the device module is invalid";
     optimize_module(*target_machine, *options);

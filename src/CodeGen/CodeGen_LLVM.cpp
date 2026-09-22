@@ -3767,8 +3767,8 @@ void CodeGen_LLVM::visit(const AtomicAdd *node) {
     llvm::AtomicOrdering ordering = llvm::AtomicOrdering::Monotonic;
     llvm::MaybeAlign alignment; // chooses alignment if necessary
     llvm::Value *old =
-        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, acc, alignment,
-                                 ordering, atomic_scope());
+        builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, atomic_address(ptr),
+                                 acc, alignment, ordering, atomic_scope());
 
     value = old;
 }
@@ -4923,8 +4923,9 @@ void CodeGen_LLVM::visit(const Append *node) {
     // Get a unique index for this thread.
     llvm::Value *one = builder->getInt32(1);
     llvm::Value *index = builder->CreateAtomicRMW(
-        llvm::AtomicRMWInst::Add, size_ptr, one, llvm::MaybeAlign(),
-        llvm::AtomicOrdering::AcquireRelease, atomic_scope());
+        llvm::AtomicRMWInst::Add, atomic_address(size_ptr), one,
+        llvm::MaybeAlign(), llvm::AtomicOrdering::AcquireRelease,
+        atomic_scope());
     // Pointer to the capacity of the array.
     int32_t capacity_idx = find_struct_index("capacity", struct_t->fields);
     llvm::Value *capacity_ptr =
@@ -5023,9 +5024,10 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             const llvm::AtomicRMWInst::BinOp rmw =
                 atomic_rmw_op(node->op, v->etype);
             llvm::Type *elem_t = codegen_type(v->etype);
+            llvm::Value *place = atomic_address(loc);
             for (uint32_t k = 0; k < v->lanes; k++) {
                 llvm::Value *ptr = builder->CreateInBoundsGEP(
-                    elem_t, loc, {llvm::ConstantInt::get(i64_t, k)});
+                    elem_t, place, {llvm::ConstantInt::get(i64_t, k)});
                 llvm::Value *component =
                     builder->CreateExtractElement(update, uint64_t(k));
                 builder->CreateAtomicRMW(rmw, ptr, component, llvm::MaybeAlign(),
@@ -5034,8 +5036,8 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
             }
             return;
         }
-        builder->CreateAtomicRMW(atomic_rmw_op(node->op, value_t), loc, update,
-                                 llvm::MaybeAlign(),
+        builder->CreateAtomicRMW(atomic_rmw_op(node->op, value_t),
+                                 atomic_address(loc), update, llvm::MaybeAlign(),
                                  llvm::AtomicOrdering::Monotonic, atomic_scope());
         return;
     }
@@ -5568,7 +5570,8 @@ void CodeGen_LLVM::emit_atomic_lanes(Accumulate::OpType op, const Type &value_t,
                           {llvm::ConstantInt::get(i32_t, 0),
                            llvm::ConstantInt::get(i32_t, k)});
             llvm::Value *v = builder->CreateExtractElement(values, uint64_t(k));
-            builder->CreateAtomicRMW(rmw, ptr, v, llvm::MaybeAlign(),
+            builder->CreateAtomicRMW(rmw, atomic_address(ptr), v,
+                                     llvm::MaybeAlign(),
                                      llvm::AtomicOrdering::Monotonic,
                                      atomic_scope());
         });

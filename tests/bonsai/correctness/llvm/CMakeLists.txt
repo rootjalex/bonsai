@@ -64,6 +64,7 @@ add_bonsai_tests(
     mut-array-literal.bonsai
     mut-element-field-argument.bonsai
     mut-field-argument.bonsai
+    mut-nested-call-argument.bonsai
     print-float.bonsai
     shadowed-mutable.bonsai
     print.bonsai
