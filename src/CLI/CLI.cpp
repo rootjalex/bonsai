@@ -28,6 +28,9 @@ std::string command_help() {
       << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
       << "     | --gpu-arch <sm>             | the GPU device code is for, "
          "e.g. `--gpu-arch sm_120`; the machine's own if not given\n"
+      << "     | --gpu-max-registers <n>     | the most registers a kernel's "
+         "thread may use (PTX .maxnreg; pbrt's GPU build uses 128); ptxas's "
+         "own choice if not given\n"
       << "     | --fast-math                 | the platform's fast arithmetic: "
          "clang's -ffast-math on the CPU; nvcc's --use_fast_math on the GPU "
          "(flushed denormals, approximate division, square root and "
@@ -184,6 +187,16 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "--fast-math") {
             options.fast_math = true;
+            continue;
+        }
+        if (arg == "--gpu-max-registers") {
+            internal_assert(i + 1 < args.size());
+            const int n = std::atoi(args[i + 1].c_str());
+            internal_assert(n > 0 && n <= 255)
+                << "--gpu-max-registers takes a count from 1 to 255, not `"
+                << args[i + 1] << "`";
+            options.gpu_max_registers = uint32_t(n);
+            ++i;
             continue;
         }
         if (arg == "-i" || arg == "--input") {

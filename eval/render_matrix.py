@@ -193,14 +193,16 @@ def gpu_schedule(file):
     return "GPUBlock" in text or "GPUThread" in text
 
 
-def build(shared, schedules, fast_math):
+def build(shared, schedules, fast_math, gpu_max_registers):
     """The compiler, scene_dump, and a renderer per schedule (its compile
     timed, being part of what a schedule costs), into `shared`. Once per
     invocation, not per scene: the renderer does not depend on the scene,
     and compiling the compact packet takes two minutes. `fast_math` is
     "auto", "on" or "off": the compiler's --fast-math for every schedule, for
     none, or (auto) for the GPU schedules alone, since pbrt's GPU build is
-    nvcc's --use_fast_math and its CPU build is exact. Returns the compile
+    nvcc's --use_fast_math and its CPU build is exact. `gpu_max_registers`,
+    when not 0, caps a GPU schedule's registers per thread (the compiler's
+    --gpu-max-registers; pbrt's GPU build uses 128). Returns the compile
     times and, per schedule, the flags it was compiled with."""
     # The compiler's build directory: `build` unless BONSAI_BUILD_DIR names
     # another, as compare.sh reads it too.
@@ -216,8 +218,11 @@ def build(shared, schedules, fast_math):
         file = f"{PREFIX}/schedules/{schedule}.bonsai"
         if not os.path.isfile(file):
             raise SystemExit(f"no schedule {file}")
-        fast = fast_math == "on" or (fast_math == "auto" and gpu_schedule(file))
-        flags = ["--ffp-contract", *(["--fast-math"] if fast else [])]
+        gpu = gpu_schedule(file)
+        fast = fast_math == "on" or (fast_math == "auto" and gpu)
+        flags = ["--ffp-contract", *(["--fast-math"] if fast else []),
+                 *(["--gpu-max-registers", str(gpu_max_registers)]
+                   if gpu and gpu_max_registers else [])]
         compile_flags[schedule] = flags
         say(f"compiling {schedule} ({' '.join(flags)})")
         started = time.perf_counter()
@@ -815,6 +820,12 @@ def main(argv):
                              "pbrt's GPU build is nvcc's --use_fast_math and "
                              "its CPU build is exact; on gives it to every "
                              "schedule, off to none")
+    parser.add_argument("--gpu-max-registers", type=int, default=0,
+                        metavar="N",
+                        help="cap a GPU schedule's registers per thread "
+                             "(the compiler's --gpu-max-registers; pbrt's "
+                             "GPU build uses 128); 0, the default, leaves "
+                             "ptxas its choice")
     parser.add_argument("--pbrt-gpu", action="store_true",
                         help="render every cell with `pbrt --gpu` too, as a "
                              "second reference column: pbrt's wavefront "
@@ -937,7 +948,8 @@ def measure_scene(args, scene, shared, images, compiled):
                if not done(f"d{d}-s{p}")]
     if missing:
         if not compiled:
-            seconds, flags = build(shared, args.schedules, args.fast_math)
+            seconds, flags = build(shared, args.schedules, args.fast_math,
+                                   args.gpu_max_registers)
             compiled.update({"seconds": seconds, "flags": flags})
             say("compile seconds: " + ", ".join(
                 f"{s} {t:.2f}" for s, t in seconds.items()))

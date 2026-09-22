@@ -86,6 +86,15 @@ struct CompilerOptions {
     // `atom.add.f32` either way.
     bool fast_math = false;
 
+    // `--gpu-max-registers N`: the most registers a thread of a kernel may
+    // use, as PTX's `.maxnreg` directive states it to ptxas, which then
+    // spills to stay under it; 0 leaves ptxas its own choice (255 for the
+    // megakernel, which is 8 warps per SM). pbrt's GPU build is compiled
+    // with `-maxrregcount 128`. What a cap buys in occupancy against what
+    // its spills cost is a measurement per kernel, which is what this is
+    // for.
+    uint32_t gpu_max_registers = 0;
+
     // Reject a program that would allocate on the heap.
     //
     // Nothing frees a heap allocation -- see the "support deallocation" TODO

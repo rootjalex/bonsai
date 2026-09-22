@@ -147,6 +147,8 @@ did (and `--rerun pbrt` brings a cell measured once up to `--repeats`).
                                 GPU schedules alone, since pbrt's GPU build is
                                 nvcc's --use_fast_math and its CPU build is exact;
                                 recorded per schedule in results.json
+    --gpu-max-registers N       cap a GPU schedule's registers per thread (pbrt's
+                                GPU build uses 128); default 0, ptxas's own choice
     --pbrt-gpu                  render every cell with `pbrt --gpu` too (see above)
     --rerun [RENDERER ...]      render again: every renderer at every cell, or
                                 only the ones named (pbrt, pbrt-gpu, a schedule)

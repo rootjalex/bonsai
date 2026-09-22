@@ -398,6 +398,11 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
     fn->setCallingConv(llvm::CallingConv::PTX_Kernel);
     fn->getArg(0)->setName("_begin");
     fn->getArg(1)->setName("_stride");
+    // `--gpu-max-registers`: the `.maxnreg` directive on the kernel, which
+    // the NVPTX printer takes from this attribute (NVVMAttributes.h).
+    if (options->gpu_max_registers != 0) {
+        fn->addFnAttr("nvvm.maxnreg", std::to_string(options->gpu_max_registers));
+    }
 
     compile_kernel_body(host, loop, fn, [&](BoundLoop &bound) {
         // The index: the block's number for a block loop, the thread's for
