@@ -187,12 +187,21 @@ def tbb_flags(compiler):
     return []
 
 
-def build(shared, schedules):
+def gpu_schedule(file):
+    """Whether the schedule binds a loop to the GPU."""
+    text = open(file).read()
+    return "GPUBlock" in text or "GPUThread" in text
+
+
+def build(shared, schedules, fast_math):
     """The compiler, scene_dump, and a renderer per schedule (its compile
     timed, being part of what a schedule costs), into `shared`. Once per
     invocation, not per scene: the renderer does not depend on the scene,
-    and compiling the compact packet takes two minutes. Returns the compile
-    times."""
+    and compiling the compact packet takes two minutes. `fast_math` is
+    "auto", "on" or "off": the compiler's --fast-math for every schedule, for
+    none, or (auto) for the GPU schedules alone, since pbrt's GPU build is
+    nvcc's --use_fast_math and its CPU build is exact. Returns the compile
+    times and, per schedule, the flags it was compiled with."""
     # The compiler's build directory: `build` unless BONSAI_BUILD_DIR names
     # another, as compare.sh reads it too.
     build_dir = os.environ.get("BONSAI_BUILD_DIR", "build")
@@ -200,15 +209,19 @@ def build(shared, schedules):
     run(["bash", f"{PREFIX}/build_scene_dump.sh", f"{shared}/scene_dump"], cwd=ROOT)
     run([f"{shared}/scene_dump", "--check-tables"], cwd=ROOT)
     compiler = cxx()
-    flags = tbb_flags(compiler)
+    tbb = tbb_flags(compiler)
     compile_seconds = {}
+    compile_flags = {}
     for schedule in schedules:
         file = f"{PREFIX}/schedules/{schedule}.bonsai"
         if not os.path.isfile(file):
             raise SystemExit(f"no schedule {file}")
-        say(f"compiling {schedule}")
+        fast = fast_math == "on" or (fast_math == "auto" and gpu_schedule(file))
+        flags = ["--ffp-contract", *(["--fast-math"] if fast else [])]
+        compile_flags[schedule] = flags
+        say(f"compiling {schedule} ({' '.join(flags)})")
         started = time.perf_counter()
-        run([f"./{build_dir}/compiler", "-p", "ssa", "--no-heap", "--ffp-contract",
+        run([f"./{build_dir}/compiler", "-p", "ssa", "--no-heap", *flags,
              "-i", f"{PREFIX}/render.bonsai", "-i", file, "-b", "cpp",
              "-o", f"{shared}/render_{schedule}"], cwd=ROOT)
         compile_seconds[schedule] = time.perf_counter() - started
@@ -227,9 +240,9 @@ def build(shared, schedules):
         shutil.copy(f"{PREFIX}/render_hook.cpp", f"{include}/render_hook.cpp")
         run([compiler, "-g", "-std=c++20", "-O3", "-I.", f"-I{PREFIX}",
              f"{include}/render_hook.cpp",
-             f"{shared}/render_{schedule}.o", *flags,
+             f"{shared}/render_{schedule}.o", *tbb,
              "-o", f"{shared}/render_{schedule}.out"], cwd=ROOT)
-    return compile_seconds
+    return compile_seconds, compile_flags
 
 
 #===------------------------------------------------------------------------===#
@@ -795,6 +808,13 @@ def main(argv):
     parser.add_argument("--own-tree", action="store_true",
                         help="build this renderer's own BVH rather than take "
                              "pbrt's")
+    parser.add_argument("--fast-math", choices=["auto", "on", "off"],
+                        default="auto",
+                        help="the compiler's --fast-math: auto (default) "
+                             "gives it to the GPU schedules alone, since "
+                             "pbrt's GPU build is nvcc's --use_fast_math and "
+                             "its CPU build is exact; on gives it to every "
+                             "schedule, off to none")
     parser.add_argument("--pbrt-gpu", action="store_true",
                         help="render every cell with `pbrt --gpu` too, as a "
                              "second reference column: pbrt's wavefront "
@@ -917,10 +937,15 @@ def measure_scene(args, scene, shared, images, compiled):
                if not done(f"d{d}-s{p}")]
     if missing:
         if not compiled:
-            compiled.update(build(shared, args.schedules))
+            seconds, flags = build(shared, args.schedules, args.fast_math)
+            compiled.update({"seconds": seconds, "flags": flags})
             say("compile seconds: " + ", ".join(
-                f"{s} {t:.2f}" for s, t in compiled.items()))
-        results["compile_seconds"] = dict(compiled)
+                f"{s} {t:.2f}" for s, t in seconds.items()))
+        results["compile_seconds"] = dict(compiled["seconds"])
+        # What each renderer was compiled with, beside its numbers: a cell
+        # measured with --fast-math and one without are not the same
+        # renderer.
+        results["compile_flags"] = dict(compiled["flags"])
         convert_scene(args, out, scene, shared)
         measure(args, out, scene, results, shared)
     else:

@@ -69,7 +69,13 @@ loop on their threads, one kernel per render, its buffers staged to the
 device before the timer and its film fetched after (it needs the GPU and
 CUDA's libdevice, as `-b ptx` does). Each is compiled beside
 `apps/pbrt/render.bonsai` as a second input; the compile is timed too and
-printed, being part of what a schedule costs. The renderers do not depend on
+printed, being part of what a schedule costs. A GPU schedule is compiled
+with the compiler's `--fast-math` (nvcc's `--use_fast_math`: flushed
+denormals, approximate division, square root and transcendentals), because
+that is how pbrt's GPU build is compiled and `pbrt --gpu` is what it is
+measured against; a CPU schedule is compiled exact, as pbrt's CPU build is.
+`--fast-math on|off` overrides that for every schedule, and each schedule's
+flags are recorded beside its numbers in `results.json`. The renderers do not depend on
 the scene, so they are built once per run, into `eval/out/_build/`, however
 many scenes the run names (the compact packet's compile is two minutes). The
 compiler is rebuilt first (`cmake --build build`, or the directory
@@ -137,6 +143,10 @@ did (and `--rerun pbrt` brings a cell measured once up to `--repeats`).
                                 runs instead; default 0, --repeats throughout
     --long-repeats N            default 1
     --own-tree                  build this renderer's BVH rather than take pbrt's
+    --fast-math auto|on|off     the compiler's --fast-math: auto (default) for the
+                                GPU schedules alone, since pbrt's GPU build is
+                                nvcc's --use_fast_math and its CPU build is exact;
+                                recorded per schedule in results.json
     --pbrt-gpu                  render every cell with `pbrt --gpu` too (see above)
     --rerun [RENDERER ...]      render again: every renderer at every cell, or
                                 only the ones named (pbrt, pbrt-gpu, a schedule)

@@ -402,7 +402,16 @@ if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
   echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
   exit 1
 fi
-"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
+# --fast-math for a schedule that runs on the GPU: pbrt's GPU build is nvcc's
+# --use_fast_math, and that is what the device code is compared against
+# (see CompilerOptions::fast_math). A CPU schedule is compared against pbrt's
+# CPU build, which has no such flag, and stays exact.
+FAST_MATH=()
+if grep -q "GPUBlock\|GPUThread" "$PREFIX/schedules/$SCHEDULE.bonsai"; then
+  FAST_MATH=(--fast-math)
+  echo "a GPU schedule: compiled with --fast-math, as pbrt --gpu is built."
+fi
+"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${FAST_MATH[@]}" \
     -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
     -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \

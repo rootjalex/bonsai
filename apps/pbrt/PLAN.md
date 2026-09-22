@@ -4417,26 +4417,46 @@ The megakernel's thirteen accumulates are `atom.relaxed.gpu.global.add.f32`
 best of three, every image matching pbrt: depth 1 at 256 spp 1.488 s to
 0.521 s (6.8x to 19.4x over pbrt CPU), depth 3 at 256 spp 1.605 to 1.277 s,
 depth 5 at 256 spp 1.630 to 1.491 s; the cliff is gone. (b) The rest of
-`--use_fast_math`'s arithmetic: `div.full.f32`, `rcp.approx.f32`,
-`sqrt.approx.f32` through LLVM's `nvptx-prec-divf32` and
-`nvptx-prec-sqrtf32` options, which are the only knobs it has for them.
-pbrt's CPU build has no fast-math flag at all (its one arithmetic flag,
-`-ffp-contract=off`, is for clang 14 and later; this GCC build contracts, as
-`--ffp-contract` does here), so the CPU backend stays IEEE. Still to do from
-the same flag: the fast transcendentals (`__nv_fast_sinf` and the rest of
-libdevice's `__nv_fast_*`, which nvcc substitutes for the accurate ones).
+`--use_fast_math`, behind a flag. pbrt's CPU build has no fast-math flag at
+all (its one arithmetic flag, `-ffp-contract=off`, is for clang 14 and
+later; this GCC build contracts, as `--ffp-contract` does here), and the
+user's direction was that fast math is a flag, off by default, and that not
+every benchmark may use it. So `--fast-math` (CompilerOptions::fast_math):
+on the CPU it is clang's -ffast-math, LLVM's flags on every float
+operation; on the device it is nvcc's `--use_fast_math` exactly --
+denormals flushed (the `denormal_fpenv` attribute), `div.full.f32`,
+`rcp.approx.f32`, `sqrt.approx.f32` through LLVM's `nvptx-prec-divf32` and
+`nvptx-prec-sqrtf32` options (the only knobs it has for them), and
+libdevice's `__nv_fast_*` for the ten transcendentals nvcc substitutes --
+and not LLVM's flags, which would assume and reassociate more than nvcc
+does. compare.sh, render.sh and the eval harness (`--fast-math auto`, the
+default) give it to the GPU schedules alone, as pbrt --gpu is built, and
+record it per schedule in results.json. Without it a float accumulate is
+still `atom.add.f32`: the backend allows the atomic its own denormal flush
+(`nvptx-allow-ftz-atomics`), a CAS loop per sample being the thing ruled
+out. Measured on killeroo, fast math over exact was 1.25x to 1.39x at depths
+3 and 5, mostly the division: the megakernel had 3,285 IEEE divisions, each
+a check and a slow-path call, and its SASS went from 376K instructions to
+118K with all of `--use_fast_math` on. (c) Device memory said in the IR
+(CodeGen/MarkDeviceMemory): every device function inlined into its kernel
+(`alwaysinline`; ptxas did so anyway, but at the LLVM level twenty-one had
+stayed separate, and a load inside a callee is one the pass cannot see),
+then, at the end of the pipeline, each pointer parameter and each pointer
+inside a by-value struct parameter (an `extractvalue` once SROA has run)
+cast to the global address space and back, which the backend's inference
+carries to every load, store and atomic derived from it, and every load
+whose roots the kernel never stores to, never operates on atomically and
+never hands to a call tagged `!invariant.load` -- which with the global
+space is what selects `ld.global.nc`, the non-coherent load. The tests'
+kernels went from generic `ld.b8` to `ld.global.nc.b8`; the megakernel's
+counts are below.
 
-**Next, in this order.** The read-only marking and global address space for
-the by-value layout structs' pointers (a late LLVM pass on the kernel:
-`noalias readonly` on unwritten pointer parameters, the struct fields'
-pointers cast to the global space, `!invariant.load` on loads through
-read-only roots, which is what selects `ld.global.nc`; the written-capture
-analysis the host uses to decide by-value captures already answers which),
-with the device functions forced inline so the kernel sees every load. Then
-the block-level reduction for the film: a warp shuffle tree, one shared slot
-per warp, one add by the leader, and no atomic at all when the address
-depends only on the block-bound index, which the contention pass already
-knows. Then the register sweep, the block shape, and the stack depth.
+**Next, in this order.** The block-level reduction for the film: a warp
+shuffle tree, one shared slot per warp, one add by the leader, and no
+atomic at all when the address depends only on the block-bound index, which
+the contention pass already knows. Then the register sweep (pbrt's own GPU
+build is `-maxrregcount 128`, so pbrt --gpu runs at twice this kernel's
+occupancy), the block shape, and the stack depth.
 
 **A compiler bug volpath found.** The medium walk's samples were not
 pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,
