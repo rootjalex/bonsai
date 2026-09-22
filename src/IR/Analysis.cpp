@@ -485,6 +485,18 @@ std::vector<TypedVar> gather_free_vars(const Function &func) {
         gather.seen_vars.insert(arg.name);
     }
     func.body.accept(&gather);
+    // A function that seeds the random generator has its state bound by its
+    // own prologue (Lower/Random.cpp gives it the setup_rng attribute instead
+    // of a state parameter), so the state is not free in it, however much the
+    // body reads it and hands it to the calls it makes. Without this a
+    // program that both declares an extern and calls `rand` from an exported
+    // function has LowerExterns, running again after LowerRandom, take the
+    // state for an undeclared extern.
+    if (func.must_setup_rng()) {
+        std::erase_if(gather.free_vars, [](const TypedVar &var) {
+            return var.type.is<Rand_State_t>();
+        });
+    }
     return std::move(gather.free_vars);
 }
 
