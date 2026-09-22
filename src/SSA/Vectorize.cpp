@@ -1286,6 +1286,11 @@ void guard_call(Function &func, Cfg &region, BlockId b) {
     func.blocks.insert(
         std::find(func.blocks.begin(), func.blocks.end(), block) + 1, guarded);
     region.add_block(guarded);
+    // The continuation is reached two ways now: from the guard directly when
+    // no lane is on, and from the call. Its own list of predecessors says so,
+    // as the graph does; a list that still named only the block the call
+    // used to be in made a rebuilt one look like a second edge had appeared.
+    region[region.id(cont->name)].preds.push_back(guarded);
 }
 
 // Points each call in `region` at a variant of its callee taking the

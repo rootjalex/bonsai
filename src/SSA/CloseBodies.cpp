@@ -92,7 +92,15 @@ void index_definitions(Function &func) {
 
 size_t close_parfor_bodies(Function &func) {
     index_definitions(func);
-    refresh_preds(func);
+    // Threading a value in walks the body head's predecessors
+    // (Block::get_value), so they have to be right, and right means the
+    // live graph's: a block a rewrite left behind that nothing reaches any
+    // more still names its old targets, and a predecessor list rebuilt from
+    // every block would count it -- which made a call continuation of an
+    // imported function appear to have two predecessors, and the relooper
+    // refuse it. Dropping the dead blocks first is what makes the rebuilt
+    // lists true.
+    remove_unreachable_blocks(func);
 
     // The loops, gathered first: threading a value in adds arguments to
     // blocks and to jumps, not blocks to the function, so the list stays

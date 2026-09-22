@@ -13,6 +13,7 @@
 
 #include "Utils.h"
 
+#include <algorithm>
 #include <iostream>
 #include <optional>
 #include <queue>
@@ -1416,6 +1417,37 @@ Stmt structurize(const std::string &start, const std::string &exit,
         return it == preds_of.end() ? none : it->second;
     };
 
+    // A call's continuation is entered from the call, and from nowhere else
+    // -- with one exception. A gang's call under a mask is guarded by a test
+    // that some lane is on (Vectorize.cpp's guard_call): the block before
+    // the call dispatches on it, into the call or straight into the
+    // continuation with an undefined result, so the continuation has two
+    // predecessors, the guard and the call, and the guard is the one whose
+    // dispatch also leads to the call. That shape is the if-without-else
+    // the dispatch case below builds; any other second predecessor is a
+    // graph this structuring does not read.
+    auto check_continuation = [&](const std::string &cont) {
+        const std::vector<std::string> &preds = preds_named(cont);
+        const std::string &call_block = name;
+        for (const std::string &pred : preds) {
+            if (pred == call_block) {
+                continue;
+            }
+            const auto *guard = std::get_if<Terminator::Dispatch>(
+                &block_map.at(pred)->terminator.data);
+            const bool leads_to_call =
+                guard != nullptr &&
+                std::any_of(guard->targets.begin(), guard->targets.end(),
+                            [&](const Terminator::Jump &t) {
+                                return t.name == call_block;
+                            });
+            internal_assert(leads_to_call)
+                << "Call continuation " << cont << " is entered from "
+                << pred << ", which is not the call in " << call_block
+                << " nor a guard around it";
+        }
+    };
+
     auto root_of = [&](std::shared_ptr<Value> v,
                        const Block *at) -> std::shared_ptr<Value> {
         std::set<const Block *> seen;
@@ -1881,13 +1913,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
                 [&](const Terminator::Call &c) {
                     auto &cont_block = block_map.at(c.cont.name);
-
-                    // A call continuation always has exactly one predecessor —
-                    // the call site.
-                    internal_assert(cont_block->preds.size() == 1)
-                        << "Call continuation " << c.cont.name << " has "
-                        << cont_block->preds.size()
-                        << " predecessors, expected exactly 1";
+                    check_continuation(c.cont.name);
 
                     // The values that live across the call, which the
                     // continuation takes as block arguments after the return
@@ -1937,11 +1963,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     // the run has already run, and there is nothing left for
                     // keeping it together to buy.
                     auto &cont_block = block_map.at(c.cont.name);
-
-                    internal_assert(cont_block->preds.size() == 1)
-                        << "Call continuation " << c.cont.name << " has "
-                        << cont_block->preds.size()
-                        << " predecessors, expected exactly 1";
+                    check_continuation(c.cont.name);
 
                     internal_assert(c.keys.empty())
                         << "The run in " << block->name << " still carries "
