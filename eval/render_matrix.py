@@ -58,10 +58,20 @@ import compare_gbuffer  # noqa: E402  the tolerances, so there is one set
 # have of a wavefront renderer is the queue of paths between bounces and its
 # compaction; a true wavefront has a queue per stage (trace, shade, shadow),
 # and "wavefront" is kept for that (the user's naming, 2026-09-21).
-RENDERER_LABELS = {"pbrt": "pbrt", "scalar": "scalar",
+#
+# "pbrt-gpu" is `pbrt --gpu`, which is not a schedule but a second reference:
+# pbrt's wavefront renderer on the GPU. It runs pbrt's *volpath* integrator
+# whatever the scene names -- pbrt has no other GPU integrator -- so on a
+# scene without media it converges to the same image as pbrt's path
+# integrator and is checked against it like the schedules are, but its time
+# is the time of a different integrator until this renderer has volpath too.
+# The label says so.
+RENDERER_LABELS = {"pbrt": "pbrt", "pbrt-gpu": "pbrt --gpu (volpath)",
+                   "scalar": "scalar",
                    "perlane": "per-lane", "packet": "packet",
                    "wavefront-perlane": "compact (wf) per-lane",
-                   "wavefront": "compact (wf) packet"}
+                   "wavefront": "compact (wf) packet",
+                   "gpu": "GPU megakernel"}
 
 # The schedules in apps/pbrt/schedules/, in the order the figures show them:
 # the sample loop run three ways, then the queue run two ways.
@@ -277,17 +287,22 @@ def repeats_at(args, spp):
     return args.repeats
 
 
-def render_pbrt(args, out, scene, tag, depth, spp, gbuffer):
+def render_pbrt(args, out, scene, tag, depth, spp, gbuffer, gpu=False):
     """pbrt on the scene at this depth and count: the best time of the cell's
     repeats (see repeats_at), the radiance as a PFM, and the normals when the
-    film has them."""
-    exr = f"{out}/{tag}-pbrt.exr"
+    film has them. With `gpu`, `pbrt --gpu` -- pbrt's wavefront volpath on
+    the GPU (see RENDERER_LABELS), timed by the same render timer, which
+    pbrt starts after the scene is on the device; its files are the
+    `<tag>-pbrt-gpu` ones, and it writes no normals."""
+    name = "pbrt-gpu" if gpu else "pbrt"
+    exr = f"{out}/{tag}-{name}.exr"
     best = None
     for _ in range(repeats_at(args, spp)):
         if os.path.exists(exr):
             os.remove(exr)
         result = subprocess.run(
-            [args.pbrt, "--outfile", exr, "--spp", str(spp)],
+            [args.pbrt, *(["--gpu"] if gpu else []), "--outfile", exr,
+             "--spp", str(spp)],
             input=pbrt_scene_text(scene, depth), capture_output=True,
             text=True, cwd=os.path.dirname(scene))
         if not os.path.exists(exr) or os.path.getsize(exr) == 0:
@@ -296,8 +311,8 @@ def render_pbrt(args, out, scene, tag, depth, spp, gbuffer):
         seconds = pbrt_render_seconds(imgtool(args.pbrt), exr)
         best = seconds if best is None else min(best, seconds)
     run([imgtool(args.pbrt), "convert", "--channels", "R,G,B",
-         "--outfile", f"{out}/{tag}-pbrt-radiance.pfm", exr])
-    if gbuffer:
+         "--outfile", f"{out}/{tag}-{name}-radiance.pfm", exr])
+    if gbuffer and not gpu:
         run([imgtool(args.pbrt), "convert", "--channels", "N.X,N.Y,N.Z",
              "--outfile", f"{out}/{tag}-pbrt.pfm", exr])
     return best
@@ -381,6 +396,33 @@ def measure(args, out, scene, results):
         say(f"   pbrt: {cell['pbrt_seconds']:.3f} s")
         save()
 
+    # pbrt on the GPU, where asked and not rendered: a second reference,
+    # recorded like a schedule -- its time, its speedup over pbrt's CPU
+    # render, and its image checked against that render's -- so that the
+    # table and the figures carry it as a column. It is a different
+    # integrator (see RENDERER_LABELS), which the label says.
+    if args.pbrt_gpu:
+        for depth, spp, tag in grid:
+            cell = cells[tag]
+            if "pbrt-gpu" in cell and \
+                    os.path.isfile(f"{out}/{tag}-pbrt-gpu-radiance.pfm"):
+                continue
+            say(f"== pbrt --gpu: depth {depth}, {spp} spp "
+                f"(best of {repeats_at(args, spp)})")
+            seconds = render_pbrt(args, out, scene, tag, depth, spp,
+                                  gbuffer=False, gpu=True)
+            check = check_radiance(read_pfm(f"{out}/{tag}-pbrt-radiance.pfm"),
+                                   read_pfm(f"{out}/{tag}-pbrt-gpu-radiance.pfm"))
+            check["seconds"] = seconds
+            check["speedup"] = cell["pbrt_seconds"] / seconds
+            check["same_image_as"] = None
+            cell["pbrt-gpu"] = check
+            verdict = "FAILED: " + "; ".join(check["failed"]) if check["failed"] else "ok"
+            say(f"   pbrt --gpu: {seconds:.3f} s ({check['speedup']:.2f}x pbrt), "
+                f"mean {check['mean_ratio']:.5f}x, {100 * check['agree']:.1f}% close, "
+                f"{verdict}")
+            save()
+
     # Each schedule over the cells it is missing from, grouped by how many
     # runs each is the best of (one setting per run of the renderer).
     first = args.schedules[0]
@@ -431,7 +473,7 @@ def table(args, results, path):
     for depth in args.depths:
         for spp in args.spps:
             cell = results["cells"][f"d{depth}-s{spp}"]
-            for schedule in args.schedules:
+            for schedule in args.renderers:
                 c = cell[schedule]
                 rows.append("\t".join(map(str, [
                     depth, spp, schedule, f"{c['seconds']:.4f}",
@@ -496,13 +538,13 @@ def heatmaps(args, results, scene_name):
     plt = plot_style()
     speed = {s: np.array([[results["cells"][f"d{d}-s{p}"][s]["speedup"]
                            for p in args.spps] for d in args.depths])
-             for s in args.schedules}
+             for s in args.renderers}
     failed = {s: np.array([[bool(results["cells"][f"d{d}-s{p}"][s]["failed"])
                             for p in args.spps] for d in args.depths])
-              for s in args.schedules}
+              for s in args.renderers}
     vmax = max(float(v.max()) for v in speed.values())
     vmin = min(1.0, min(float(v.min()) for v in speed.values()))
-    n = len(args.schedules)
+    n = len(args.renderers)
     # Room for a "1.2×" in every cell: near half an inch per column, which
     # runs past a two-column page once the sample counts are seven and the
     # schedules five -- a figure to read, or to crop, rather than to print
@@ -512,7 +554,7 @@ def heatmaps(args, results, scene_name):
     fig, axes = plt.subplots(1, n, figsize=(width, 0.42 * len(args.depths) + 0.9),
                              squeeze=False)
     cmap = plt.get_cmap("Blues")
-    for ax, schedule in zip(axes[0], args.schedules):
+    for ax, schedule in zip(axes[0], args.renderers):
         image = ax.imshow(speed[schedule], cmap=cmap, vmin=vmin, vmax=vmax,
                           aspect="auto")
         ax.set_title(RENDERER_LABELS.get(schedule, schedule), pad=4)
@@ -520,7 +562,7 @@ def heatmaps(args, results, scene_name):
                       rotation=45 if many else 0)
         ax.set_yticks(range(len(args.depths)), [str(d) for d in args.depths])
         ax.set_xlabel("samples per pixel")
-        if schedule == args.schedules[0]:
+        if schedule == args.renderers[0]:
             ax.set_ylabel("path depth")
         ax.tick_params(length=0)
         for spine in ax.spines.values():
@@ -573,7 +615,7 @@ def images_wanted(args):
     rendering so that a mistyped list fails in a second rather than after the
     run: `none`, `all`, or cells as depth:spp (every renderer) or
     depth:spp:renderer."""
-    renderers = ["pbrt", *args.schedules]
+    renderers = ["pbrt", *args.renderers]
     every = [(d, p, r) for d in args.depths for p in args.spps for r in renderers]
     if not args.images or args.images == ["none"]:
         return []
@@ -695,8 +737,19 @@ def main(argv):
     parser.add_argument("--own-tree", action="store_true",
                         help="build this renderer's own BVH rather than take "
                              "pbrt's")
-    parser.add_argument("--rerun", action="store_true",
-                        help="render every cell again, cached or not")
+    parser.add_argument("--pbrt-gpu", action="store_true",
+                        help="render every cell with `pbrt --gpu` too, as a "
+                             "second reference column: pbrt's wavefront "
+                             "renderer on the GPU, which is its volpath "
+                             "integrator whatever the scene names")
+    parser.add_argument("--rerun", nargs="*", default=None, metavar="RENDERER",
+                        help="render again, cached or not: every renderer at "
+                             "every cell of this run when given alone, or "
+                             "only the renderers named (pbrt, pbrt-gpu, or a "
+                             "schedule) -- what to do after a change to the "
+                             "compiler, which touches the schedules and not "
+                             "pbrt, or to bring a cell measured once up to "
+                             "--repeats runs")
     parser.add_argument("--images", nargs="*", default=["none"],
                         help="which renders to write as PNGs: none, all, or "
                              "cells as depth:spp or depth:spp:renderer")
@@ -721,6 +774,9 @@ def main(argv):
         args.long_spp = None
     if args.repeats < 1 or args.long_repeats < 1:
         raise SystemExit("--repeats and --long-repeats are at least 1")
+    # What the table and the figures have a column for: the schedules, and
+    # pbrt on the GPU when asked. The schedules alone are what is built.
+    args.renderers = [*args.schedules, *(["pbrt-gpu"] if args.pbrt_gpu else [])]
 
     scene = os.path.abspath(args.scene)
     if not os.path.isfile(scene):
@@ -729,10 +785,13 @@ def main(argv):
         raise SystemExit(f"no pbrt at {args.pbrt}: set PBRT or pass --pbrt")
     # Everything the options can get wrong, before an hour of rendering.
     images = images_wanted(args)
-    for renderer in args.grid_rows:
-        if renderer not in ["pbrt", *args.schedules]:
-            raise SystemExit(f"--grid-rows {renderer}: not pbrt or a schedule "
-                             f"of this run ({args.schedules})")
+    # The rows are checked only when a grid is drawn: the default rows name
+    # the packet schedule, which a run over other schedules does not have and
+    # does not need unless it draws the grid.
+    for renderer in args.grid_rows if args.grid else []:
+        if renderer not in ["pbrt", *args.renderers]:
+            raise SystemExit(f"--grid-rows {renderer}: not pbrt or a renderer "
+                             f"of this run ({args.renderers})")
     if args.grid_at is not None:
         axis = args.spps if args.grid_along == "depth" else args.depths
         if args.grid_at not in axis:
@@ -746,14 +805,36 @@ def main(argv):
 
     results_path = f"{out}/results.json"
     results = json.load(open(results_path)) if os.path.isfile(results_path) else {}
-    if args.rerun:
+    if args.rerun == []:
         results = {}
+    elif args.rerun:
+        # Only the renderers named, and only at this run's cells: a cached
+        # cell of a wider grid is left as it was. pbrt's time is the one
+        # every speedup is over, so rendering it again means the schedules
+        # cached in the cell are stale too; they are kept, since a run that
+        # does not name them does not print them, and their speedup is
+        # recomputed from the new time where it is.
+        for renderer in args.rerun:
+            if renderer not in ["pbrt", *args.renderers]:
+                raise SystemExit(f"--rerun {renderer}: not pbrt or a renderer "
+                                 f"of this run ({args.renderers})")
+        for d in args.depths:
+            for p in args.spps:
+                cell = results.get("cells", {}).get(f"d{d}-s{p}")
+                if cell is None:
+                    continue
+                for renderer in args.rerun:
+                    if renderer == "pbrt":
+                        cell.pop("pbrt_seconds", None)
+                        cell.pop("repeats", None)
+                    else:
+                        cell.pop(renderer, None)
     # A cell is done when pbrt and every schedule asked for have rendered it;
     # a schedule missing from a rendered cell is rendered into it.
     def done(tag):
         cell = results.get("cells", {}).get(tag)
         return cell is not None and "pbrt_seconds" in cell and \
-            all(s in cell for s in args.schedules)
+            all(s in cell for s in args.renderers)
     missing = [f"d{d}-s{p}" for d in args.depths for p in args.spps
                if not done(f"d{d}-s{p}")]
     if missing:
@@ -774,7 +855,7 @@ def main(argv):
     # Over this run's grid only: the cache may hold cells of an earlier,
     # wider run that this run's schedules never rendered.
     failures = [(f"d{d}-s{p}", s) for d in args.depths for p in args.spps
-                for s in args.schedules
+                for s in args.renderers
                 if results["cells"][f"d{d}-s{p}"][s]["failed"]]
     if failures:
         say("FAILED against pbrt: " + ", ".join(f"{t} {s}" for t, s in failures))

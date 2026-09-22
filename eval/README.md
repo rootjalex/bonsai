@@ -52,13 +52,30 @@ The schedules are the files in `apps/pbrt/schedules/`, five by default and
 `perlane` (a gang of samples, each lane walking the tree on its own) and
 `packet` (the gang walking the tree together) -- and the queue run two ways,
 `wavefront-perlane` and `wavefront` (packet), whose gangs are drawn from a
-per-pixel queue of paths and compacted between bounces. Each is compiled
-beside `apps/pbrt/render.bonsai` as a second input; the compile is timed too
-and printed, being part of what a schedule costs. The compiler is rebuilt
-first (`cmake --build build`). The default grid is depths 1 to 5 by 16, 32,
-64, ..., 1024 samples per pixel: 35 cells, each rendered by pbrt and the five
-schedules, which is an hour for a small scene and an afternoon for a large
-one, so start it and leave the machine alone.
+per-pixel queue of paths and compacted between bounces. `gpu` is the sixth,
+not in the default set: the pixel loop on the GPU's blocks and the sample
+loop on their threads, one kernel per render, its buffers staged to the
+device before the timer and its film fetched after (it needs the GPU and
+CUDA's libdevice, as `-b ptx` does). Each is compiled beside
+`apps/pbrt/render.bonsai` as a second input; the compile is timed too and
+printed, being part of what a schedule costs. The compiler is rebuilt first
+(`cmake --build build`, or the directory `BONSAI_BUILD_DIR` names). The
+default grid is depths 1 to 5 by 16, 32, 64, ..., 1024 samples per pixel: 35
+cells, each rendered by pbrt and the five schedules, which is an hour for a
+small scene and an afternoon for a large one, so start it and leave the
+machine alone.
+
+`--pbrt-gpu` adds a second reference: `pbrt --gpu`, pbrt's wavefront renderer
+on the GPU, rendered at every cell the same way (one process per render,
+best of the repeats, timed by pbrt's render timer, which starts after the
+scene is on the device) and carried in the table and the heatmaps as a
+column with its speedup over pbrt's CPU render. It is pbrt's *volpath*
+integrator whatever the scene names, since pbrt has no other GPU integrator:
+on a scene without media that converges to the same image as `path`, so it
+is checked against pbrt's CPU image like the schedules are, but its time is
+the time of a different integrator, and a comparison of the `gpu` schedule
+against it means something only once this renderer has volpath too. The
+column's label says so.
 
 Run it with nothing else on the machine. Every source of noise adds time, and
 the minimum of three runs removes only some of it.
@@ -103,6 +120,7 @@ renderer; a cached cell says nothing about the current build.
                                 runs instead; default 0, --repeats throughout
     --long-repeats N            default 1
     --own-tree                  build this renderer's BVH rather than take pbrt's
+    --pbrt-gpu                  render every cell with `pbrt --gpu` too (see above)
     --rerun                     render every cell again
     --pbrt PATH                 the pbrt binary (default $PBRT or ~/projects/pbrt-v4/build/pbrt;
                                 imgtool is expected beside it, or $IMGTOOL)
