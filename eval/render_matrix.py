@@ -210,12 +210,20 @@ def build(out, schedules):
              "-o", f"{out}/render_{schedule}"], cwd=ROOT)
         compile_seconds[schedule] = time.perf_counter() - started
         # render_hook.cpp includes "render.h": each schedule's in a directory
-        # of its own.
+        # of its own, with the driver copied beside it. Copied, not found
+        # through -I: a quoted include looks in the including file's own
+        # directory first, so a driver compiled from apps/pbrt/ takes the
+        # render.h that render.sh last left there -- another schedule's --
+        # whatever -I says. Every CPU schedule's header is the same, which is
+        # why this went unnoticed until the GPU schedule's, whose buffers are
+        # staged to the device rather than the host, was built against the
+        # scalar one and found nothing on the device at its first launch.
         include = f"{out}/inc_{schedule}"
         os.makedirs(include, exist_ok=True)
         shutil.copy(f"{out}/render_{schedule}.h", f"{include}/render.h")
+        shutil.copy(f"{PREFIX}/render_hook.cpp", f"{include}/render_hook.cpp")
         run([compiler, "-g", "-std=c++20", "-O3", "-I.", f"-I{PREFIX}",
-             f"-I{include}", f"{PREFIX}/render_hook.cpp",
+             f"{include}/render_hook.cpp",
              f"{out}/render_{schedule}.o", *flags,
              "-o", f"{out}/render_{schedule}.out"], cwd=ROOT)
     return compile_seconds
