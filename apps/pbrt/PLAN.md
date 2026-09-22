@@ -4035,13 +4035,126 @@ The per-lane `sinf`/`cosf` on the rare paths stay: they are the correct
 answer for an argument past the range reduction, cost nothing when not
 taken, and a render never takes them.
 
-**Next on this branch, in order:** the backend split (`CodeGen_LLVM`
-agnostic, `CodeGen_X86` host with `vector_int_division`, the gather
-intrinsics and the parfor launch shims, `CodeGen_PTX` device), `-b ptx` with
-goldens under `tests/bonsai/backends/ptx/` and execution tests under
-`correctness/gpu/` skipped without a GPU, then `schedules/gpu.bonsai`
-binding pixels to blocks and samples to threads until `render.bonsai`
-compiles to PTX. Phases A0 to D above follow.
+**Next on this branch was** the backend split and the PTX backend, which
+the section below records; phases A0 to D above follow it.
+
+## The backend split and the software PTX backend (2026-09-22)
+
+Done, in four commits (`8ca67f0f`, `bd1f5442`, `e10bf0de`, `c90fbcda`):
+the LLVM backends are Halide's class structure, a program's GPU-bound loops
+become kernels of a device module that launches through the CUDA driver, and
+every function of every program is generated from its SSA form.
+
+**The classes, as Halide has them.** `CodeGen_LLVM` knows no machine and no
+device: the lowering that is the same everywhere, plus virtual seams with
+neutral defaults -- `indirect_return_type` (nothing is returned indirectly),
+`vector_int_division` (nothing), `vector_math_symbol` and
+`probe_host_libraries` (no vector maths library), `codegen_math_call`
+(LLVM's intrinsics), `emit_printf` (C's printf), `atomic_scope` (system),
+`emit_bound_parfor` (CPUThread through `bonsai_parallel_for`, as Halide's
+base handles a parallel loop; anything else an error), `end_functions`
+(nothing), `effects_once_guard` (none). `CodeGen_X86` answers with the
+machine's facts: the SysV return-register budget, the register width, the
+gather instructions, division through doubles, glibc's libmvec.
+`CodeGen_GPU_Host<CodeGen_CPU>` (`include/CodeGen/CodeGen_GPU_Host.h`) is
+Halide's template over the CPU generator, instantiated by
+`make_llvm_codegen` only for a program whose schedule binds a loop to the
+GPU (the analogue of Halide's `has_gpu_feature()`): it owns the
+`CodeGen_PTX`, hands it each bound loop as a kernel, embeds the PTX text as
+a string once every host function is generated (`end_functions`), and emits
+the launch where the loop was. `CodeGen_PTX` is the device. The user's
+words that fixed this shape, after a first draft put the launch machinery
+in the base: "Why are you putting PTX specific stuff inside the base
+codegen_llvm function? Is that how Halide does it? It doesn't seem very
+modular, but use Halide as a guide for how to do this."
+
+**What a bound loop becomes.** A parfor bound to GPUBlock is one block per
+iteration; the GPUThread loop directly inside its body, if there is one, is
+one thread per iteration of that, and the grid and block are exactly those
+counts, so the kernel reads its indices off `ctaid.x` and `tid.x` and needs
+no guard. A GPUThread loop with no block loop around it is one block of that
+many threads (at most 1024, which the runtime checks); a GPUBlock loop with
+no thread loop is blocks of one thread. The kernel takes the loop's begin
+and stride and then the body's captures -- the body block's arguments after
+its index, which the SSA form has already computed as the closure -- by
+value; a capture that is an address (an `array[T, n]`, a `T*`) is a
+`bonsai_cuda_buffer` the runtime copies to the device before the launch and
+back after it, since the memory is the host's and the schedule, in moving
+the loop, moved the data. The thread loop's bounds have to be captures or
+constants of the block body (one launch has one block size), or it is an
+error saying so. The block body's code outside the thread loop is run by
+every thread of the block -- a block is only its threads -- so a value there
+is computed by each alike, a store, accumulate or print into memory beyond
+the thread is made by thread zero alone with `bar.sync` on either side of
+the thread loop (Halide's rule in FuseGPUThreadLoops), a local made there is
+each thread's own (stores into it unguarded), and a thread loop that reads
+such a local, a call with effects at that level, two thread loops in one
+block body, or a fetch-and-add there are errors naming shared memory or
+loop fusion as the missing piece. Atomics on the device are
+`syncscope("device")`, CUDA's `atomicAdd`, not the system-scope instruction
+LLVM defaults to. Maths comes from CUDA's libdevice (`__nv_sinf` and the
+rest, what `sinf` is under nvcc), linked with `LinkOnlyNeeded` and
+internalized so it inlines, only when something calls into it; `print` is
+`vprintf` with its arguments packed in a struct. The PTX ISA version follows
+the SM (`sm_120` gets `+ptx87`, `sm_90` `+ptx78`, ...), and the SM is
+`--gpu-arch` or, when none is given, the GPU in the machine as the driver
+reports it (`bonsai_cuda_device_arch`), never a guess.
+
+**The runtime**, `runtime/bonsai_cuda.{h,cpp}`: the driver API by `dlopen`
+of `libcuda.so.1` with the handful of entry points declared locally (no
+CUDA toolkit at build time), the primary context of device 0, a module cache
+keyed by the PTX string's address, `cuLaunchKernel`, the buffer copies, and
+`abort` with the driver's reason on any failure. Linked into the compiler
+too, so that the JIT (`-e`) runs GPU programs -- `bonsai_cuda_launch` is
+defined for the JIT by address, since a static library's symbols are not in
+the process's dynamic table -- and so that the PTX backend can ask which GPU
+this is.
+
+**Tests.** `backends/ptx/*` (nine programs: block and thread loops in every
+combination, block-level effects, a device function, libdevice maths,
+vprintf, a struct capture, a run-time-sized array; goldens are the device
+module's optimized IR then its PTX, pinned to `sm_90`; disabled at configure
+time without libdevice), `correctness/gpu/*` (the same nine, run on the GPU
+through the JIT; every one prints what the CPU prints; disabled without a
+GPU), and six `error/gpu-*`/`error/ptx-*` goldens for the refusals above.
+`-b ptx` prints the device side; `-b llvm` the host side with the PTX
+embedded.
+
+**Everything from SSA.** `SSA/Convert.cpp` keeps every function's SSA and the
+LLVM backends generate every one from it; the relooper still runs, since the
+C++ and CUDA printers read statements, but no LLVM code comes from them. The
+direct path gained the two things it lacked (a `Print` instruction and the
+random generator's seeding, `emit_rng_setup`), and `Lower/Bindings.cpp` --
+the statement-level pass that made thread kernels as closures -- is gone,
+because the SSA path makes them (`emit_cpu_parfor`) and the pass had begun
+manufacturing kernels nothing called. Of the 36 goldens that moved, every one
+but `demote-atomics` has the same opcode histogram as before (block and value
+names differ, since the SSA path names blocks itself); `demote-atomics`
+improved, its thread contexts dropping an unused capture and the constant
+loop bounds the closure had stored and reloaded per iteration. Suite: 928 of
+930, the two failures the stale `-b cuda` goldens that fail on every branch.
+
+**Where `render.bonsai` stops**, with `schedules/gpu.bonsai` (the scalar
+schedule's loops, `render.bind(p, GPUBlock)`, `render.bind(s, GPUThread)`):
+the whole program compiles for the device and the launch is refused at
+`normal_out : mut array[vec3f]` -- an exported function's array of no
+stated length, which the launch cannot size. That is phase A0 exactly: the
+exported function's arrays as buffer descriptors that know their size and
+residency, `bonsai_buffer_require(b, Device)` at the launch instead of a
+copy, and the driver staging the scene once. Then phase A proper: the
+tree's `_tree_layout`, whose node arrays a top-level copy would not move
+(refused now as "elements hold pointers of their own"), placed on the device
+by the layout; the 128-bit multiply-inverse arithmetic on NVPTX; the pixel
+loop's `alloca`s that PromoteAllocas left (`sqlen_$r1227`, an inlined
+function's return slot) which SROA takes on the device as on the host.
+
+**Left as noted.** The kernel's `begin`/`stride` are parameters even when
+constant (two `ld.param` per thread; the CPU kernel bakes them in). Two
+thread loops in one block body (fusion, Halide's rule). Block-shared locals
+and effectful block-level calls (shared memory). `-b cuda` is to be retired
+once the PTX path renders what it rendered; its two goldens are stale. The
+`Launch` statement node and `CodeGen_LLVM::visit(const Launch *)` are now
+unreachable and can go with the relooper.
 
 ## Known-open, smaller
 
