@@ -1,0 +1,21 @@
+//! flags: -p ssa -b ptx
+
+// A loop bound to GPUThread with no block loop around it: one block of as
+// many threads as the loop has iterations, each writing its own element.
+func square(out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        out[i] = i * i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    square(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    square.bind(i, GPUThread);
+}

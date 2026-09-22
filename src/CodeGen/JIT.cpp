@@ -3,6 +3,9 @@
 #include "CodeGen/CodeGen_LLVM.h"
 #include "Error.h"
 
+#include "bonsai_cuda.h"
+
+#include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
@@ -30,10 +33,24 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
             << ", which are the externs it reads and which nothing here can "
                "supply. Compile to a backend and link a driver instead.";
     }
-    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(program, options);
     std::unique_ptr<llvm::orc::LLJIT> JIT =
         llvm::cantFail(llvm::orc::LLJITBuilder().create());
     internal_assert(JIT != nullptr) << "Failed to generate JIT";
+
+    // The runtime the generated code calls into is the one linked into this
+    // process. libc's symbols the JIT finds on its own, since they are in the
+    // dynamic symbol table; the runtime's are in a static library and are
+    // not, so they are defined here by address.
+    {
+        llvm::orc::SymbolMap runtime;
+        runtime[JIT->mangleAndIntern("bonsai_cuda_launch")] =
+            llvm::orc::ExecutorSymbolDef(
+                llvm::orc::ExecutorAddr::fromPtr(&bonsai_cuda_launch),
+                llvm::JITSymbolFlags::Exported);
+        llvm::cantFail(JIT->getMainJITDylib().define(
+            llvm::orc::absoluteSymbols(std::move(runtime))));
+    }
 
     std::unique_ptr<llvm::Module> module =
         codegen->compile_program(program, options);

@@ -1,0 +1,26 @@
+//! flags: -p ssa -b llvm --gpu-arch sm_90
+
+// A thread loop whose trip count depends on the block index. A launch has
+// one block size for every block, so the thread loop's bounds have to be
+// known on the host before the block loop starts; a bound computed inside
+// the block loop's body is refused rather than guessed at.
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        parfor s in 0:(p + 1) {
+            atomic out[p] += s;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

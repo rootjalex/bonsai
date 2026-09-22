@@ -1107,6 +1107,19 @@ BlockIndex compute_block_index(const Graph &g, const DomTree &dom,
     return index;
 }
 
+bool binds_to_gpu(const Function &func) {
+    for (const auto &block : func.blocks) {
+        const auto *loop =
+            std::get_if<Terminator::ParFor>(&block->terminator.data);
+        if (loop != nullptr && loop->binding.has_value() &&
+            (*loop->binding == Resource::GPUBlock ||
+             *loop->binding == Resource::GPUThread)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

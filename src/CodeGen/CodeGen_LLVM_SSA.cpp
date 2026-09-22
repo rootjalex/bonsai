@@ -397,12 +397,67 @@ struct CodeGen_LLVM::SSALowering {
         }
     }
 
+    // A side effect on memory or the outside world, as opposed to a value:
+    // what a kernel makes once per block where the block's threads all run
+    // the same code (see CodeGen_LLVM::effects_once_guard).
+    static bool is_effect(Instruction::Op op) {
+        switch (op) {
+        case Instruction::Op::AccAdd:
+        case Instruction::Op::AccMul:
+        case Instruction::Op::AccSub:
+        case Instruction::Op::AccMin:
+        case Instruction::Op::AccMax:
+        case Instruction::Op::AccArgmin:
+        case Instruction::Op::AccArgmax:
+        case Instruction::Op::Store:
+        case Instruction::Op::Print:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     void emit_instruction(const std::shared_ptr<Instruction> &instr) {
+        // Where one thread of many makes the effects, an effect goes under
+        // that thread's guard; everything else is a value every thread
+        // computes for itself.
+        if (is_effect(instr->op)) {
+            if (llvm::Value *guard = cg.effects_once_guard()) {
+                cg.emit_if(guard, [&] { emit_instruction_unguarded(instr); });
+                return;
+            }
+        }
+        emit_instruction_unguarded(instr);
+    }
+
+    void emit_instruction_unguarded(const std::shared_ptr<Instruction> &instr) {
         // Pure address and shape helpers, written out at their uses by
         // operand() rather than bound to a name of their own.
         if (instr->op == Instruction::Op::GEP ||
             instr->op == Instruction::Op::FieldPtr ||
             instr->op == Instruction::Op::Ramp) {
+            return;
+        }
+        if (cg.effects_run_once() &&
+            (instr->op == Instruction::Op::Alloca ||
+             instr->op == Instruction::Op::Alloc ||
+             instr->op == Instruction::Op::AtomicAdd ||
+             instr->op == Instruction::Op::Append)) {
+            // A local made here would be one per thread where the program
+            // means one per block, and a value fetched here would exist in
+            // the thread that fetched it only. Both want shared memory, which
+            // is how a block's threads hold one thing between them.
+            internal_error
+                << "[unimplemented] " << op_name(instr->op) << " `"
+                << instr->name << "` in the body of a loop bound to GPUBlock, "
+                << "outside its thread loop. A block's threads all run this "
+                << "code, and what is made here has to be one thing the "
+                << "block shares -- shared memory, which the PTX backend "
+                << "does not allocate yet. Move it into the thread loop, or "
+                << "out of the block loop.";
+        }
+        if (instr->op == Instruction::Op::Print) {
+            cg.codegen_stmt(Print::make(operands(*instr)));
             return;
         }
         if (instr->op == Instruction::Op::Alloca ||
@@ -840,137 +895,70 @@ struct CodeGen_LLVM::SSALowering {
         cg.builder->SetInsertPoint(exit);
     }
 
-    // A parfor a schedule bound to CPU threads: the body region is compiled as
-    // a kernel taking a context pointer and an iteration number, and the parent
-    // packs the captures into that context and calls `bonsai_parallel_for`. The
-    // captures are the body's uniform arguments, which the SSA already threads
-    // for us, plus the loop's begin and stride, which the kernel needs to turn
-    // its iteration number into the index.
-    void emit_parallel_parfor(const Terminator::ParFor &p,
-                              const std::set<std::string> &body_region,
-                              const Block &body_head) {
-        internal_assert(*p.binding == Resource::CPUThread)
-            << "only CPUThread parfors are lowered from SSA so far";
-        const Expr begin_e = operand(p.start), end_e = operand(p.end),
-                   stride_e = operand(p.stride);
-
-        // The context: begin, stride, then the body's uniform arguments.
-        std::vector<Expr> cap_exprs{begin_e, stride_e};
-        Struct_t::Map fields{{"_begin", begin_e.type()},
-                             {"_stride", stride_e.type()}};
-        // The body jump passes only the captures, not the index it takes as its
-        // first argument, so its i-th value feeds body argument i + 1.
-        for (size_t i = 1; i < body_head.args.size(); i++) {
-            cap_exprs.push_back(operand(p.body.args[i - 1]));
-            fields.push_back({body_head.args[i].name, body_head.args[i].type});
-        }
-        const Type ctx_t = Struct_t::make(
-            "_pfctx" + std::to_string(cg.forall_loop_id++), fields);
-        auto *ctx_ll = llvm::cast<llvm::StructType>(cg.codegen_type(ctx_t));
-
-        // Parent side: pack the context and count the iterations.
-        llvm::Value *ctx = cg.create_alloca_at_entry(ctx_ll, "_pfctx");
-        for (size_t i = 0; i < cap_exprs.size(); i++) {
-            llvm::Value *slot = cg.builder->CreateStructGEP(ctx_ll, ctx, i);
-            cg.builder->CreateStore(cg.codegen_expr(cap_exprs[i]), slot);
-        }
-        llvm::Value *begin_ll = cg.codegen_expr(begin_e);
-        llvm::Value *end_ll = cg.codegen_expr(end_e);
-        llvm::Value *stride_ll = cg.codegen_expr(stride_e);
-        llvm::Value *num = cg.builder->CreateAdd(
-            cg.builder->CreateSub(end_ll, begin_ll),
-            cg.builder->CreateSub(stride_ll,
-                                  llvm::ConstantInt::get(stride_ll->getType(),
-                                                         1)));
-        const bool sgn = begin_e.type().is_int();
-        llvm::Value *count_idx = sgn ? cg.builder->CreateSDiv(num, stride_ll)
-                                     : cg.builder->CreateUDiv(num, stride_ll);
-        llvm::Value *count =
-            cg.builder->CreateIntCast(count_idx, cg.i64_t, sgn);
-
-        // The kernel: void(context*, i64 index).
-        llvm::Type *ptr_t = llvm::PointerType::getUnqual(*cg.context);
-        llvm::FunctionType *kern_ty =
-            llvm::FunctionType::get(cg.void_t, {ptr_t, cg.i64_t}, false);
-        llvm::Function *kern = llvm::Function::Create(
-            kern_ty, llvm::Function::InternalLinkage,
-            "_pfkernel" + std::to_string(cg.forall_loop_id++), cg.module.get());
-        // The kernel is reached only through the runtime's function pointer, so
-        // it is entered on the sixteen-byte-aligned stack the C ABI promises and
-        // nothing more. A gang is eight lanes wide, which is a 256-bit vector;
-        // left to itself the optimizer widened the kernel's body to AVX-512 and
-        // spilled 512-bit vectors, whose sixty-four-byte alignment the function
-        // would have had to realign its own stack to provide and did not, so an
-        // aligned store of one to a merely sixteen-aligned slot faulted. Capping
-        // the width at the gang's own keeps the spills sixteen-aligned, which is
-        // what the entry stack already is.
-        kern->addFnAttr("frame-pointer", "all");
-
-        {
-            llvm::IRBuilderBase::InsertPoint here = cg.builder->saveIP();
-            llvm::Function *saved_fn = cg.current_function;
-            llvm::Value *saved_sret = cg.current_sret;
-            cg.current_function = kern;
-            cg.current_sret = nullptr;
-            cg.frames.push_frame();
-
-            llvm::BasicBlock *kentry =
-                llvm::BasicBlock::Create(*cg.context, p.body.name, kern);
-            cg.builder->SetInsertPoint(kentry);
-            llvm::Value *kctx = kern->getArg(0);
-            const auto load_field = [&](size_t i, const Type &t) {
-                llvm::Value *slot = cg.builder->CreateStructGEP(ctx_ll, kctx, i);
-                return cg.builder->CreateLoad(cg.codegen_type(t), slot);
-            };
-            llvm::Value *begin_k = load_field(0, begin_e.type());
-            llvm::Value *stride_k = load_field(1, stride_e.type());
-            llvm::Value *idx_cast = cg.builder->CreateIntCast(
-                kern->getArg(1), cg.codegen_type(begin_e.type()), false);
-            llvm::Value *index = cg.builder->CreateAdd(
-                begin_k, cg.builder->CreateMul(idx_cast, stride_k));
-            bind(body_head.args[0].name, index);
-            for (size_t i = 1; i < body_head.args.size(); i++) {
-                bind(body_head.args[i].name,
-                     load_field(i + 1, body_head.args[i].type));
-            }
-            emit_region(p.body.name, body_region, kentry, nullptr);
-
-            cg.frames.pop_frame();
-            cg.current_sret = saved_sret;
-            cg.current_function = saved_fn;
-            cg.builder->restoreIP(here);
-        }
-
-        // One call: run the kernel over the iterations. See
-        // runtime/bonsai_parallel.h and CodeGen_LLVM::visit(const Launch *).
-        llvm::FunctionType *pf_ty = llvm::FunctionType::get(
-            cg.void_t, {cg.i64_t, ptr_t, ptr_t}, false);
-        llvm::Function *pf = cg.module->getFunction("bonsai_parallel_for");
-        if (!pf) {
-            pf = llvm::Function::Create(pf_ty,
-                                        llvm::Function::ExternalLinkage,
-                                        "bonsai_parallel_for", cg.module.get());
-        }
-        cg.builder->CreateCall(pf, {count, ctx, kern});
+    // The loop `p` as the code generator placing it sees it (see
+    // CodeGen_LLVM::BoundLoop): its blocks, and this lowering's operand
+    // reading, name binding and region emission, lent out as closures.
+    CodeGen_LLVM::BoundLoop bound_loop(const Terminator::ParFor &p) {
+        const std::set<std::string> body_region = region_of(p.body.name);
+        const Block &body_head = *by_name.at(p.body.name);
+        internal_assert(!body_head.args.empty())
+            << "parfor body " << p.body.name << " takes no index argument";
+        return CodeGen_LLVM::BoundLoop{
+            func,
+            p,
+            body_head,
+            [this](const std::shared_ptr<Value> &v) { return operand(v); },
+            [this](const std::string &name, llvm::Value *value) {
+                bind(name, value);
+            },
+            [this, p, body_region](llvm::BasicBlock *entry,
+                                   llvm::BasicBlock *yield_to) {
+                emit_region(p.body.name, body_region, entry, yield_to);
+            },
+        };
     }
 
     // A parfor terminator: the loop it stands for, then its continuation.
     void emit_parfor(const Terminator::ParFor &p) {
         llvm::BasicBlock *preheader = cg.builder->GetInsertBlock();
-        const std::set<std::string> body_region = region_of(p.body.name);
-        const Block &body_head = *by_name.at(p.body.name);
-        internal_assert(!body_head.args.empty())
-            << "parfor body " << p.body.name << " takes no index argument";
 
         if (p.binding.has_value()) {
-            emit_parallel_parfor(p, body_region, body_head);
+            // Placed on hardware: what that means is the code generator's
+            // to say -- a call into the thread runtime, a kernel launch, or
+            // the loop of a kernel's threads (see emit_bound_parfor).
+            CodeGen_LLVM::BoundLoop loop = bound_loop(p);
+            cg.emit_bound_parfor(loop);
         } else {
+            const std::set<std::string> body_region = region_of(p.body.name);
+            const Block &body_head = *by_name.at(p.body.name);
+            internal_assert(!body_head.args.empty())
+                << "parfor body " << p.body.name << " takes no index argument";
             emit_serial_parfor(p, preheader, body_region, body_head);
         }
 
         llvm::BasicBlock *from = cg.builder->GetInsertBlock();
         supply(p.cont, from, 0);
         cg.builder->CreateBr(blocks.at(p.cont.name));
+    }
+
+    // Emits the body of `p` as the whole of the current function, `kernel`:
+    // the entry block, `prologue` binding the body's arguments, then the
+    // body's blocks. See CodeGen_LLVM::compile_kernel_body.
+    void run_kernel(const Terminator::ParFor &p,
+                    const std::function<void(CodeGen_LLVM::BoundLoop &)>
+                        &prologue) {
+        for (const auto &block : func.blocks) {
+            by_name[block->name] = block.get();
+        }
+        cg.frames.push_frame();
+        cg.current_sret = nullptr;
+        llvm::BasicBlock *entry_bb =
+            llvm::BasicBlock::Create(*cg.context, p.body.name, function);
+        cg.builder->SetInsertPoint(entry_bb);
+        CodeGen_LLVM::BoundLoop loop = bound_loop(p);
+        prologue(loop);
+        loop.emit_body(entry_bb, nullptr);
+        cg.frames.pop_frame();
     }
 
     void run() {
@@ -1080,6 +1068,7 @@ struct CodeGen_LLVM::SSALowering {
                         cg.module->getFunction(c.call.name);
                     internal_assert(callee)
                         << "Call to undeclared function " << c.call.name;
+                    cg.check_block_level_call(c.call.name);
                     std::vector<llvm::Value *> args;
                     for (const auto &a : c.call.args) {
                         args.push_back(cg.codegen_expr(operand(a)));
@@ -1106,6 +1095,7 @@ struct CodeGen_LLVM::SSALowering {
                         cg.module->getFunction(c.call.name);
                     internal_assert(callee)
                         << "Call to undeclared function " << c.call.name;
+                    cg.check_block_level_call(c.call.name);
                     internal_assert(c.drop || c.varying.size() == 1)
                         << block.name << " keeps the result of a run of "
                         << c.varying.size()
@@ -1168,6 +1158,157 @@ void CodeGen_LLVM::compile_function(const ir::ssa::Function &func,
 
     current_function = nullptr;
     current_sret = nullptr;
+}
+
+void CodeGen_LLVM::compile_kernel_body(
+    const ir::ssa::Function &func, const Terminator::ParFor &loop,
+    llvm::Function *kernel,
+    const std::function<void(BoundLoop &)> &prologue) {
+    internal_assert(current_function == nullptr);
+    internal_assert(kernel);
+    current_function = kernel;
+    lowering_from_ssa = true;
+
+    llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
+    SSALowering(*this, func, kernel).run_kernel(loop, prologue);
+    builder->restoreIP(here);
+
+    lowering_from_ssa = false;
+
+    internal_assert(!llvm::verifyFunction(*kernel, &llvm::errs()))
+        << "Function verification failed for " << kernel->getName().str()
+        << ", the body of the loop over " << loop.index << " as a kernel";
+
+    current_function = nullptr;
+    current_sret = nullptr;
+}
+
+void CodeGen_LLVM::emit_bound_parfor(BoundLoop &loop) {
+    switch (*loop.loop.binding) {
+    case Resource::CPUThread:
+        emit_cpu_parfor(loop);
+        return;
+    case Resource::GPUBlock:
+    case Resource::GPUThread:
+        // A program with a loop on the GPU is compiled by CodeGen_GPU_Host,
+        // which answers this; reaching here means make_llvm_codegen was not
+        // asked, or a device generator met a loop it does not run.
+        internal_error << "bind(" << loop.loop.index << ", "
+                       << to_string(*loop.loop.binding)
+                       << "): this code generator has no GPU to place the "
+                       << "loop on.";
+    case Resource::RTCore:
+    case Resource::OptixThread:
+        internal_error << "bind(" << loop.loop.index << ", "
+                       << to_string(*loop.loop.binding)
+                       << "): the OptiX backend is not built yet.";
+    }
+}
+
+Expr CodeGen_LLVM::trip_count(const Expr &begin, const Expr &end,
+                              const Expr &stride) {
+    return (end - begin + (stride - make_const(stride.type(), 1))) / stride;
+}
+
+// A parfor a schedule bound to CPU threads: the body region is compiled as
+// a kernel taking a context pointer and an iteration number, and the parent
+// packs the captures into that context and calls `bonsai_parallel_for`. The
+// captures are the body's uniform arguments, which the SSA already threads
+// for us, plus the loop's begin and stride, which the kernel needs to turn
+// its iteration number into the index.
+void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
+    const Terminator::ParFor &p = loop.loop;
+    const Block &body_head = loop.body_head;
+    const Expr begin_e = loop.operand(p.start), end_e = loop.operand(p.end),
+               stride_e = loop.operand(p.stride);
+
+    // The context: begin, stride, then the body's uniform arguments.
+    std::vector<Expr> cap_exprs{begin_e, stride_e};
+    Struct_t::Map fields{{"_begin", begin_e.type()},
+                         {"_stride", stride_e.type()}};
+    // The body jump passes only the captures, not the index it takes as its
+    // first argument, so its i-th value feeds body argument i + 1.
+    for (size_t i = 1; i < body_head.args.size(); i++) {
+        cap_exprs.push_back(loop.operand(p.body.args[i - 1]));
+        fields.push_back({body_head.args[i].name, body_head.args[i].type});
+    }
+    const Type ctx_t =
+        Struct_t::make("_pfctx" + std::to_string(forall_loop_id++), fields);
+    auto *ctx_ll = llvm::cast<llvm::StructType>(codegen_type(ctx_t));
+
+    // Parent side: pack the context and count the iterations.
+    llvm::Value *ctx = create_alloca_at_entry(ctx_ll, "_pfctx");
+    for (size_t i = 0; i < cap_exprs.size(); i++) {
+        llvm::Value *slot = builder->CreateStructGEP(ctx_ll, ctx, i);
+        builder->CreateStore(codegen_expr(cap_exprs[i]), slot);
+    }
+    llvm::Value *count = builder->CreateIntCast(
+        codegen_expr(trip_count(begin_e, end_e, stride_e)), i64_t,
+        begin_e.type().is_int());
+
+    // The kernel: void(context*, i64 index).
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::FunctionType *kern_ty =
+        llvm::FunctionType::get(void_t, {ptr_t, i64_t}, false);
+    llvm::Function *kern = llvm::Function::Create(
+        kern_ty, llvm::Function::InternalLinkage,
+        "_pfkernel" + std::to_string(forall_loop_id++), module.get());
+    // The kernel is reached only through the runtime's function pointer, so
+    // it is entered on the sixteen-byte-aligned stack the C ABI promises and
+    // nothing more. A gang is eight lanes wide, which is a 256-bit vector;
+    // left to itself the optimizer widened the kernel's body to AVX-512 and
+    // spilled 512-bit vectors, whose sixty-four-byte alignment the function
+    // would have had to realign its own stack to provide and did not, so an
+    // aligned store of one to a merely sixteen-aligned slot faulted. Capping
+    // the width at the gang's own keeps the spills sixteen-aligned, which is
+    // what the entry stack already is.
+    kern->addFnAttr("frame-pointer", "all");
+
+    {
+        llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
+        llvm::Function *saved_fn = current_function;
+        llvm::Value *saved_sret = current_sret;
+        current_function = kern;
+        current_sret = nullptr;
+        frames.push_frame();
+
+        llvm::BasicBlock *kentry =
+            llvm::BasicBlock::Create(*context, p.body.name, kern);
+        builder->SetInsertPoint(kentry);
+        llvm::Value *kctx = kern->getArg(0);
+        const auto load_field = [&](size_t i, const Type &t) {
+            llvm::Value *slot = builder->CreateStructGEP(ctx_ll, kctx, i);
+            return builder->CreateLoad(codegen_type(t), slot);
+        };
+        llvm::Value *begin_k = load_field(0, begin_e.type());
+        llvm::Value *stride_k = load_field(1, stride_e.type());
+        llvm::Value *idx_cast = builder->CreateIntCast(
+            kern->getArg(1), codegen_type(begin_e.type()), false);
+        llvm::Value *index = builder->CreateAdd(
+            begin_k, builder->CreateMul(idx_cast, stride_k));
+        loop.bind(body_head.args[0].name, index);
+        for (size_t i = 1; i < body_head.args.size(); i++) {
+            loop.bind(body_head.args[i].name,
+                      load_field(i + 1, body_head.args[i].type));
+        }
+        loop.emit_body(kentry, nullptr);
+
+        frames.pop_frame();
+        current_sret = saved_sret;
+        current_function = saved_fn;
+        builder->restoreIP(here);
+    }
+
+    // One call: run the kernel over the iterations. See
+    // runtime/bonsai_parallel.h and CodeGen_LLVM::visit(const Launch *).
+    llvm::FunctionType *pf_ty =
+        llvm::FunctionType::get(void_t, {i64_t, ptr_t, ptr_t}, false);
+    llvm::Function *pf = module->getFunction("bonsai_parallel_for");
+    if (!pf) {
+        pf = llvm::Function::Create(pf_ty, llvm::Function::ExternalLinkage,
+                                    "bonsai_parallel_for", module.get());
+    }
+    builder->CreateCall(pf, {count, ctx, kern});
 }
 
 } // namespace bonsai

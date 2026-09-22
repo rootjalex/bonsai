@@ -1,0 +1,659 @@
+#include "CodeGen/CodeGen_PTX.h"
+
+#include "CodeGen/CodeGen_GPU_Host.h"
+#include "IR/Analysis.h"
+#include "IR/Operators.h"
+#include "IR/Printer.h"
+#include "SSA/Analysis.h"
+
+#include "bonsai_cuda.h"
+
+#include <llvm/ADT/SmallString.h>
+#include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/IntrinsicsNVPTX.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Verifier.h>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Linker/Linker.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/SourceMgr.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/TargetParser/Triple.h>
+
+#include <cstdlib>
+
+namespace bonsai {
+
+using namespace ir;
+using ir::ssa::Argument;
+using ir::ssa::Block;
+using ir::ssa::Constant;
+using ir::ssa::Instruction;
+using ir::ssa::Terminator;
+using ir::ssa::Value;
+
+namespace codegen {
+
+void to_ptx(const Program &program, const CompilerOptions &options) {
+    // The whole program is compiled, as `-b llvm` compiles it: the device
+    // module is made by the host's generator as it meets the bound loops.
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(program, options);
+    std::unique_ptr<llvm::Module> host = codegen->compile_program(program, options);
+    auto *gpu_host = dynamic_cast<CodeGen_GPU_Host_Interface *>(codegen.get());
+    CodeGen_PTX *device = gpu_host ? gpu_host->device_codegen() : nullptr;
+    internal_assert(device)
+        << "-b ptx: no loop of this program is bound to the GPU, so there is "
+        << "no device code. Bind one in the schedule with `f.bind(i, GPUBlock)` "
+        << "or `f.bind(i, GPUThread)`.";
+    std::unique_ptr<llvm::raw_fd_ostream> file;
+    llvm::raw_ostream *os = &llvm::outs();
+    if (!options.output_file.empty()) {
+        file = make_raw_fd_ostream(options.output_file);
+        os = file.get();
+    }
+    *os << "; ---- device module: LLVM IR ----\n"
+        << device->optimized_ir() << "\n; ---- device module: PTX ----\n"
+        << device->ptx();
+    // llvm::outs() is buffered and flushes on exit, which is after the test
+    // runner has stopped capturing it.
+    os->flush();
+}
+
+} // namespace codegen
+
+namespace {
+
+// The PTX ISA version an SM needs, as the NVPTX feature that asks for it.
+// The driver compiles any PTX at or above the version its release knows, so
+// the lowest one the SM exists in is the one every driver that has the SM
+// accepts: 8.7 introduced sm_120 (CUDA 12.8), 8.6 the sm_100 family (12.7),
+// 7.8 sm_90 (11.8), 7.0 sm_80 (11.0), 6.3 sm_75 (10.0).
+std::string ptx_feature(const std::string &sm) {
+    internal_assert(sm.rfind("sm_", 0) == 0 && sm.size() > 3)
+        << "--gpu-arch takes an SM name, `sm_120` say, not `" << sm << "`";
+    const int n = std::atoi(sm.c_str() + 3);
+    if (n >= 120) {
+        return "+ptx87";
+    }
+    if (n >= 100) {
+        return "+ptx86";
+    }
+    if (n >= 90) {
+        return "+ptx78";
+    }
+    if (n >= 80) {
+        return "+ptx70";
+    }
+    if (n >= 75) {
+        return "+ptx63";
+    }
+    return "+ptx60";
+}
+
+// An instruction with an effect on memory or the world, as the block level
+// of a kernel sees it (see CodeGen_PTX::has_effects). An allocation counts:
+// memory made by one thread is that thread's.
+bool has_effect(Instruction::Op op) {
+    switch (op) {
+    case Instruction::Op::AccAdd:
+    case Instruction::Op::AccMul:
+    case Instruction::Op::AccSub:
+    case Instruction::Op::AccMin:
+    case Instruction::Op::AccMax:
+    case Instruction::Op::AccArgmin:
+    case Instruction::Op::AccArgmax:
+    case Instruction::Op::Store:
+    case Instruction::Op::Print:
+    case Instruction::Op::Append:
+    case Instruction::Op::Push:
+    case Instruction::Op::AtomicAdd:
+    case Instruction::Op::Alloc:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
+CodeGen_PTX::CodeGen_PTX() = default;
+
+void CodeGen_PTX::init_module() {
+    CodeGen_LLVM::init_module();
+    module->setModuleIdentifier("bonsai_ptx");
+    // libdevice's functions ask `__nvvm_reflect("__CUDA_FTZ")` whether
+    // denormals are to be flushed to zero, and the NVVMReflect pass answers
+    // from this flag. CUDA's default -- nvcc without --ftz -- is that they
+    // are not, and pbrt is built that way, so its answers are the ones with
+    // denormals kept.
+    module->addModuleFlag(llvm::Module::Override, "nvvm-reflect-ftz",
+                          uint32_t(0));
+}
+
+std::unique_ptr<llvm::TargetMachine>
+CodeGen_PTX::make_target_machine(llvm::Module &m,
+                                 const CompilerOptions &opts) {
+    // The GPU named, or the one in this machine: following the host, as the
+    // CPU generator does with the host's CPU. With neither there is nothing
+    // to follow, and generating for some GPU the machine may not have would
+    // be code that looks right until it is launched.
+    gpu_arch = opts.gpu_arch.empty() ? std::string(bonsai_cuda_device_arch())
+                                     : opts.gpu_arch;
+    internal_assert(!gpu_arch.empty())
+        << "no GPU to compile for: this machine has no CUDA device the "
+        << "driver can see, and no --gpu-arch was given. Name the GPU the "
+        << "code is for, e.g. `--gpu-arch sm_90`.";
+    const std::string features = ptx_feature(gpu_arch);
+
+    const llvm::Triple triple("nvptx64-nvidia-cuda");
+    std::string error;
+    const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
+    internal_assert(target != nullptr)
+        << "this LLVM was built without the NVPTX target: " << error;
+    llvm::TargetOptions target_options;
+    auto *tm = target->createTargetMachine(
+        triple, gpu_arch, features, target_options, llvm::Reloc::Static,
+        llvm::CodeModel::Small, llvm::CodeGenOptLevel::Aggressive);
+    m.setDataLayout(tm->createDataLayout());
+    m.setTargetTriple(triple);
+    target_triple = triple.str();
+    return std::unique_ptr<llvm::TargetMachine>(tm);
+}
+
+void CodeGen_PTX::begin(const Program &program_, const CompilerOptions &options_) {
+    program = &program_;
+    options = &options_;
+    init_module();
+    no_heap = options->no_heap;
+    target_machine = make_target_machine(*module, *options);
+    declare_struct_types(gather_struct_types(*program));
+    frames.push_frame();
+}
+
+const Terminator::ParFor *
+CodeGen_PTX::nested_thread_loop(const ir::ssa::Function &host,
+                                const Terminator::ParFor &loop) {
+    // The body's blocks end at its yield, so this is the body and whatever
+    // loops it holds.
+    const ir::ssa::Cfg body(host, loop.body.name);
+    const Terminator::ParFor *found = nullptr;
+    for (const auto &block : body.blocks()) {
+        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+        if (p == nullptr || !p->binding.has_value() ||
+            *p->binding != Resource::GPUThread) {
+            continue;
+        }
+        internal_assert(found == nullptr)
+            << "[unimplemented] the loop over " << loop.index
+            << ", bound to GPUBlock, holds two loops bound to GPUThread ("
+            << found->index << " and " << p->index << "). A launch has one "
+            << "block size, so two thread loops would have to be fused into "
+            << "one, which is not built yet.";
+        found = p;
+    }
+    return found;
+}
+
+std::vector<std::string>
+CodeGen_PTX::callees(const std::vector<std::shared_ptr<Block>> &region) {
+    std::vector<std::string> names;
+    for (const auto &block : region) {
+        for (const auto &instr : block->instrs) {
+            for (const auto &operand : instr->operands) {
+                internal_assert(!operand->get_type().template is<Function_t>())
+                    << "[unimplemented] `" << instr->name << "` takes a "
+                    << "function as a value; device code reaches functions "
+                    << "by call only";
+            }
+        }
+        std::visit(ir::ssa::overloads{
+                       [&](const Terminator::Call &c) {
+                           names.push_back(c.call.name);
+                       },
+                       [&](const Terminator::MultiCall &c) {
+                           names.push_back(c.call.name);
+                       },
+                       [](const auto &) {},
+                   },
+                   block->terminator.data);
+    }
+    return names;
+}
+
+bool CodeGen_PTX::has_effects(const std::string &function) {
+    if (const auto it = effects.find(function); it != effects.end()) {
+        return it->second;
+    }
+    // Provisionally none, so that a recursion through this function comes
+    // back with an answer; whatever else it does is found below.
+    effects[function] = false;
+    const auto f = program->ssa_funcs.find(function);
+    internal_assert(f != program->ssa_funcs.end())
+        << "`" << function << "` has no SSA form";
+    bool result = false;
+    for (const auto &block : f->second->blocks) {
+        for (const auto &instr : block->instrs) {
+            result = result || has_effect(instr->op);
+        }
+        std::visit(ir::ssa::overloads{
+                       [&](const Terminator::Call &c) {
+                           result = result || has_effects(c.call.name);
+                       },
+                       [&](const Terminator::MultiCall &c) {
+                           result = result || has_effects(c.call.name);
+                       },
+                       [&](const Terminator::ParFor &p) {
+                           result = result || p.binding.has_value();
+                       },
+                       [](const auto &) {},
+                   },
+                   block->terminator.data);
+    }
+    effects[function] = result;
+    return result;
+}
+
+void CodeGen_PTX::compile_reachable(const std::vector<std::string> &roots) {
+    // Declared as they are found, compiled once all are declared: a body's
+    // calls have to find their callees in the module.
+    std::vector<std::pair<const ir::ssa::Function *, llvm::Function *>> found;
+    std::vector<std::string> work(roots);
+    while (!work.empty()) {
+        const std::string name = work.back();
+        work.pop_back();
+        if (!declared.insert(name).second) {
+            continue;
+        }
+        const auto f = program->funcs.find(name);
+        internal_assert(f != program->funcs.end())
+            << "a kernel calls `" << name << "`, which the program does not define";
+        const auto s = program->ssa_funcs.find(name);
+        internal_assert(s != program->ssa_funcs.end())
+            << "`" << name << "` has no SSA form to compile for the device. A "
+            << "program with a loop on the GPU keeps every function's (see "
+            << "SSA/Convert.cpp).";
+        found.emplace_back(s->second.get(), declare_function(*f->second));
+        for (std::string &callee : callees(s->second->blocks)) {
+            work.push_back(std::move(callee));
+        }
+    }
+    for (auto &[ssa, fn] : found) {
+        compile_function(*ssa, fn);
+    }
+}
+
+CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
+                                            const Terminator::ParFor &loop) {
+    internal_assert(loop.binding.has_value() &&
+                    (*loop.binding == Resource::GPUBlock ||
+                     *loop.binding == Resource::GPUThread))
+        << "add_kernel of a loop not bound to the GPU";
+    const bool blocks = *loop.binding == Resource::GPUBlock;
+    Kernel kernel;
+    kernel.name = "_kernel_" + loop.index + "_" + std::to_string(kernel_count++);
+    kernel.thread_loop = blocks ? nested_thread_loop(host, loop) : nullptr;
+
+    const Block *body_head = nullptr;
+    for (const auto &block : host.blocks) {
+        if (block->name == loop.body.name) {
+            body_head = block.get();
+        }
+    }
+    internal_assert(body_head != nullptr && !body_head->args.empty())
+        << "the body of the loop over " << loop.index << " has no index";
+
+    // Everything the body reaches, first, so that the body's calls resolve.
+    compile_reachable(callees(ir::ssa::Cfg(host, loop.body.name).blocks()));
+
+    // The kernel: void(begin, stride, captures...), every argument by value.
+    std::vector<llvm::Type *> params{codegen_type(loop.start->get_type()),
+                                     codegen_type(loop.stride->get_type())};
+    for (size_t i = 1; i < body_head->args.size(); i++) {
+        params.push_back(codegen_type(body_head->args[i].type));
+    }
+    const llvm::DataLayout &dl = module->getDataLayout();
+    for (llvm::Type *t : params) {
+        kernel.param_bytes.push_back(dl.getTypeAllocSize(t));
+    }
+    llvm::Function *fn = llvm::Function::Create(
+        llvm::FunctionType::get(void_t, params, /*isVarArg=*/false),
+        llvm::GlobalValue::ExternalLinkage, kernel.name, module.get());
+    // What makes it an entry point the driver can launch rather than a
+    // device function: the calling convention, which is how LLVM has marked
+    // kernels since the nvvm.annotations metadata was retired.
+    fn->setCallingConv(llvm::CallingConv::PTX_Kernel);
+    fn->getArg(0)->setName("_begin");
+    fn->getArg(1)->setName("_stride");
+
+    compile_kernel_body(host, loop, fn, [&](BoundLoop &bound) {
+        // The index: the block's number for a block loop, the thread's for
+        // a thread loop, as the loop counts -- begin + n * stride. Exact,
+        // because the launch made exactly as many of each as the loop has
+        // iterations, so nothing is past the end.
+        llvm::Value *raw = blocks ? block_index() : thread_index();
+        llvm::Value *begin = fn->getArg(0);
+        llvm::Value *stride = fn->getArg(1);
+        llvm::Value *n = builder->CreateIntCast(raw, begin->getType(), false);
+        llvm::Value *index = builder->CreateAdd(
+            begin, builder->CreateMul(n, stride), body_head->args[0].name);
+        bound.bind(body_head->args[0].name, index);
+        for (size_t i = 1; i < body_head->args.size(); i++) {
+            llvm::Argument *arg = fn->getArg(unsigned(i + 1));
+            arg->setName(body_head->args[i].name);
+            bound.bind(body_head->args[i].name, arg);
+        }
+        // A block loop's body with a thread loop in it is run by every
+        // thread of the block, and its effects are made once; see
+        // effects_once_guard. Without a thread loop the block is one thread
+        // and there is nothing to guard.
+        block_level = kernel.thread_loop != nullptr;
+    });
+    block_level = false;
+    return kernel;
+}
+
+llvm::Value *CodeGen_PTX::thread_index() {
+    return builder->CreateCall(
+        llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), llvm::Intrinsic::nvvm_read_ptx_sreg_tid_x),
+        {}, "tid");
+}
+
+llvm::Value *CodeGen_PTX::block_index() {
+    return builder->CreateCall(
+        llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), llvm::Intrinsic::nvvm_read_ptx_sreg_ctaid_x),
+        {}, "ctaid");
+}
+
+void CodeGen_PTX::barrier() {
+    // `bar.sync 0`: every thread of the block arrives, and the writes each
+    // made before are visible to all of them after.
+    builder->CreateCall(
+        llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), llvm::Intrinsic::nvvm_barrier_cta_sync_aligned_all),
+        {llvm::ConstantInt::get(i32_t, 0)});
+}
+
+void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
+    const Terminator::ParFor &p = loop.loop;
+    const Block &body_head = loop.body_head;
+    switch (*p.binding) {
+    case Resource::GPUThread: {
+        // Reached from a block loop's kernel body, where every thread of the
+        // block runs and this is where they part: each takes the iteration
+        // its thread number names. A barrier on either side orders the
+        // block-level effects (made by one thread, see effects_once_guard)
+        // before and after the iterations. Anywhere else -- inside another
+        // thread loop, or in a function a kernel calls -- there is no block
+        // of threads waiting to be given iterations.
+        internal_assert(block_level)
+            << "bind(" << p.index << ", GPUThread): this loop is not directly "
+            << "inside a loop bound to GPUBlock. A thread loop is the threads "
+            << "of a block, so it sits inside the block loop, once; it cannot "
+            << "be nested in another thread loop or reached from a function "
+            << "a kernel calls.";
+        barrier();
+        const Expr begin_e = loop.operand(p.start),
+                   stride_e = loop.operand(p.stride);
+        frames.push_frame();
+        llvm::Value *begin = codegen_expr(begin_e);
+        llvm::Value *stride = codegen_expr(stride_e);
+        llvm::Value *n =
+            builder->CreateIntCast(thread_index(), begin->getType(), false);
+        llvm::Value *index = builder->CreateAdd(
+            begin, builder->CreateMul(n, stride), body_head.args[0].name);
+        loop.bind(body_head.args[0].name, index);
+        for (size_t i = 1; i < body_head.args.size(); i++) {
+            loop.bind(body_head.args[i].name,
+                      codegen_expr(loop.operand(p.body.args[i - 1])));
+        }
+        llvm::BasicBlock *body_bb =
+            llvm::BasicBlock::Create(*context, p.body.name, current_function);
+        llvm::BasicBlock *join = llvm::BasicBlock::Create(
+            *context, p.index + "_join", current_function);
+        builder->CreateBr(body_bb);
+        builder->SetInsertPoint(body_bb);
+        block_level = false;
+        loop.emit_body(body_bb, join);
+        block_level = true;
+        builder->SetInsertPoint(join);
+        barrier();
+        frames.pop_frame();
+        return;
+    }
+    case Resource::GPUBlock:
+        internal_error << "bind(" << p.index << ", GPUBlock): this loop is "
+                       << "inside code that already runs on the GPU. Blocks "
+                       << "do not nest; a block loop is the outermost loop "
+                       << "on the device.";
+    case Resource::CPUThread:
+        internal_error << "bind(" << p.index << ", CPUThread): this loop is "
+                       << "inside code that runs on the GPU, where there are "
+                       << "no CPU threads to bind to.";
+    case Resource::RTCore:
+    case Resource::OptixThread:
+        internal_error << "bind(" << p.index << ", " << to_string(*p.binding)
+                       << "): the OptiX backend is not built yet.";
+    }
+}
+
+llvm::SyncScope::ID CodeGen_PTX::atomic_scope() {
+    return context->getOrInsertSyncScopeID("device");
+}
+
+llvm::Value *CodeGen_PTX::effects_once_guard() {
+    if (!block_level) {
+        return nullptr;
+    }
+    return builder->CreateICmpEQ(thread_index(),
+                                 llvm::ConstantInt::get(i32_t, 0), "leader");
+}
+
+void CodeGen_PTX::check_block_level_call(const std::string &callee) {
+    if (!block_level || !has_effects(callee)) {
+        return;
+    }
+    internal_error
+        << "[unimplemented] `" << callee << "` is called in the body of a "
+        << "loop bound to GPUBlock, outside its thread loop, and has side "
+        << "effects. Every thread of the block runs that body, so a call "
+        << "there is made once per thread unless it is pure; a call with "
+        << "effects would have to be made by one thread and its result "
+        << "shared through shared memory, which the PTX backend does not do "
+        << "yet. Move the call into the thread loop, or out of the block "
+        << "loop.";
+}
+
+llvm::Value *CodeGen_PTX::codegen_math_call(const std::string &name,
+                                            const Intrinsic *node) {
+    internal_assert(!node->args.empty())
+        << "libdevice call " << name << " takes arguments: " << Expr(node);
+    const Type arg_type = node->args[0].type();
+    const bool is_vector = arg_type.is<Vector_t>();
+    const Type scalar_type = is_vector ? arg_type.element_of() : arg_type;
+    internal_assert(scalar_type.is_float())
+        << "libdevice call " << name << " expects a float: " << Expr(node);
+    const bool single = scalar_type.bits() == 32;
+    internal_assert(single || scalar_type.bits() == 64)
+        << "No libdevice entry point for " << scalar_type << " in "
+        << Expr(node);
+    llvm::Type *scalar_ll = single ? f32_t : f64_t;
+    const std::vector<llvm::Type *> params(node->args.size(), scalar_ll);
+    // libdevice names the float overload with an `f`, as libm does: what
+    // CUDA's own `sinf` compiles to.
+    llvm::FunctionCallee callee = module->getOrInsertFunction(
+        "__nv_" + name + (single ? "f" : ""),
+        llvm::FunctionType::get(scalar_ll, params, /*isVarArg=*/false));
+
+    std::vector<llvm::Value *> args;
+    args.reserve(node->args.size());
+    for (const Expr &arg : node->args) {
+        args.push_back(codegen_expr(arg));
+    }
+    if (!is_vector) {
+        return builder->CreateCall(callee, args, name);
+    }
+    // A vector is its components, each computed as a thread computes a
+    // scalar: there is no gang here to compute them side by side.
+    llvm::Value *result = llvm::UndefValue::get(codegen_type(node->type));
+    for (uint32_t lane = 0; lane < arg_type.lanes(); lane++) {
+        llvm::Value *index = llvm::ConstantInt::get(i32_t, lane);
+        std::vector<llvm::Value *> lane_args;
+        lane_args.reserve(args.size());
+        for (llvm::Value *arg : args) {
+            lane_args.push_back(builder->CreateExtractElement(arg, index));
+        }
+        llvm::Value *applied = builder->CreateCall(callee, lane_args, name);
+        result = builder->CreateInsertElement(result, applied, index);
+    }
+    return result;
+}
+
+llvm::Value *CodeGen_PTX::emit_printf(llvm::Value *format,
+                                      const std::vector<llvm::Value *> &args) {
+    // int vprintf(const char *format, void *args): the arguments packed in
+    // memory one after another, each at its natural alignment, which is
+    // what a struct of them is. print_helper has already applied C's
+    // promotions -- a float is a double -- so the specifiers read what is
+    // there.
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::FunctionCallee vprintf = module->getOrInsertFunction(
+        "vprintf",
+        llvm::FunctionType::get(i32_t, {ptr_t, ptr_t}, /*isVarArg=*/false));
+    llvm::Value *buffer = llvm::ConstantPointerNull::get(ptr_t);
+    if (!args.empty()) {
+        std::vector<llvm::Type *> types;
+        types.reserve(args.size());
+        for (llvm::Value *arg : args) {
+            types.push_back(arg->getType());
+        }
+        auto *packed = llvm::StructType::get(*context, types);
+        llvm::Value *slot = create_alloca_at_entry(packed, "_print_args");
+        for (size_t i = 0; i < args.size(); i++) {
+            builder->CreateStore(args[i],
+                                 builder->CreateStructGEP(packed, slot, i));
+        }
+        buffer = slot;
+    }
+    return builder->CreateCall(vprintf, {format, buffer});
+}
+
+llvm::FunctionCallee CodeGen_PTX::get_pthread_lock() {
+    internal_error << "[unimplemented] a dynamic array grown on the device: "
+                   << "there is no mutex to grow it under. Size it on the host.";
+}
+
+llvm::FunctionCallee CodeGen_PTX::get_pthread_unlock() {
+    return get_pthread_lock();
+}
+
+llvm::FunctionCallee CodeGen_PTX::get_pthread_init() {
+    return get_pthread_lock();
+}
+
+std::string CodeGen_PTX::find_libdevice() {
+    // Where the CUDA toolkit keeps it: named outright, or under the
+    // toolkit's root, or where the toolkit installs itself by default.
+    std::vector<std::string> tried;
+    if (const char *named = std::getenv("BONSAI_LIBDEVICE")) {
+        if (llvm::sys::fs::exists(named)) {
+            return named;
+        }
+        tried.push_back(named);
+    }
+    std::vector<std::string> roots;
+    for (const char *var : {"CUDA_HOME", "CUDA_PATH"}) {
+        if (const char *root = std::getenv(var)) {
+            roots.push_back(root);
+        }
+    }
+    roots.push_back("/usr/local/cuda");
+    roots.push_back("/opt/cuda");
+    for (const std::string &root : roots) {
+        const std::string path = root + "/nvvm/libdevice/libdevice.10.bc";
+        if (llvm::sys::fs::exists(path)) {
+            return path;
+        }
+        tried.push_back(path);
+    }
+    std::string message =
+        "libdevice.10.bc, CUDA's device maths library, was not found; the "
+        "device code calls into it. Set BONSAI_LIBDEVICE to the file or "
+        "CUDA_HOME to the toolkit. Tried:";
+    for (const std::string &path : tried) {
+        message += "\n  " + path;
+    }
+    internal_error << message;
+}
+
+void CodeGen_PTX::link_libdevice() {
+    // Only when something calls into it: a kernel with no transcendental
+    // maths needs no library, and so compiles on a machine without the
+    // toolkit.
+    bool needed = false;
+    for (const llvm::Function &f : *module) {
+        if (f.isDeclaration() && f.getName().starts_with("__nv_")) {
+            needed = true;
+            break;
+        }
+    }
+    if (!needed) {
+        return;
+    }
+    const std::string path = find_libdevice();
+    llvm::SMDiagnostic diagnostic;
+    std::unique_ptr<llvm::Module> lib =
+        llvm::parseIRFile(path, diagnostic, *context);
+    internal_assert(lib != nullptr)
+        << "could not read " << path << ": " << diagnostic.getMessage().str();
+    // libdevice is written for a generic nvptx64 machine; ours is this one,
+    // and the linker refuses two layouts.
+    lib->setDataLayout(module->getDataLayout());
+    lib->setTargetTriple(module->getTargetTriple());
+    const bool failed = llvm::Linker::linkModules(
+        *module, std::move(lib), llvm::Linker::Flags::LinkOnlyNeeded);
+    internal_assert(!failed) << "linking " << path << " failed";
+    // Internal, as clang makes builtin bitcode it links: what was pulled in
+    // is then inlined into its one caller and dropped, rather than kept as
+    // an exported function of the module.
+    for (llvm::Function &f : *module) {
+        if (!f.isDeclaration() && f.getName().starts_with("__nv_")) {
+            f.setLinkage(llvm::GlobalValue::InternalLinkage);
+        }
+    }
+}
+
+void CodeGen_PTX::finish() {
+    frames.pop_frame();
+    link_libdevice();
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "[pre-optimization] the device module is invalid";
+    optimize_module(*target_machine, *options);
+    internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
+        << "[post-optimization] the device module is invalid";
+    {
+        llvm::raw_string_ostream os(ir_text);
+        module->print(os, nullptr);
+    }
+    // The PTX, as text: what the driver takes (cuModuleLoadData) and what
+    // OptiX will. The legacy pass manager is still the only complete API for
+    // the code generation passes.
+    llvm::SmallString<0> buffer;
+    llvm::raw_svector_ostream os(buffer);
+    llvm::legacy::PassManager pm;
+    pm.add(new llvm::TargetLibraryInfoWrapperPass(
+        target_library_info(llvm::Triple(module->getTargetTriple()))));
+    internal_assert(!target_machine->addPassesToEmitFile(
+        pm, os, nullptr, llvm::CodeGenFileType::AssemblyFile))
+        << "the NVPTX target cannot emit assembly";
+    pm.run(*module);
+    ptx_text = buffer.str().str();
+}
+
+} // namespace bonsai

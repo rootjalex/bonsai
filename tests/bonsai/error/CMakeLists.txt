@@ -29,6 +29,11 @@ add_bonsai_tests(
     sort-needs-ssa.bonsai
     split-not-divisible.bonsai
     ssa-unimplemented-transform.bonsai
+    gpu-block-level-call.bonsai
+    gpu-block-level-local.bonsai
+    gpu-thread-bounds-in-block.bonsai
+    gpu-two-thread-loops.bonsai
+    ptx-no-gpu-loop.bonsai
     bad_layout_split.bonsai
     bad_path_layout.bonsai
     f42.bonsai

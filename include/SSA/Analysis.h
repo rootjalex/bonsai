@@ -521,6 +521,12 @@ std::vector<Lattice> solve_dataflow(
     return in;
 }
 
+// Whether some parfor of `func` is bound to the GPU (GPUBlock or GPUThread).
+// What makes a program need the GPU host and a device module, and every
+// function of it lowered straight from SSA (see SSA/Convert.cpp and
+// make_llvm_codegen).
+bool binds_to_gpu(const Function &func);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

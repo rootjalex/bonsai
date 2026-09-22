@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_GPU_Host.cpp:207
+the end of the thread loop over s is computed inside the body of the block loop over p. A launch has one block size, so the thread loop's bounds have to be known before the block loop starts: compute them outside it.

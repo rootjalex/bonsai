@@ -1,0 +1,26 @@
+//! flags: -p ssa -b ptx
+
+// A kernel that calls a function: the function is compiled into the device
+// module from the same SSA the host has, as an internal device function.
+// Kept out of line so that it is visible as one.
+func [[noinline]] triple_plus_one(i : i32) -> i32 {
+    return i * 3 + 1;
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = triple_plus_one(i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

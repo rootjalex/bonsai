@@ -1,0 +1,29 @@
+//! flags: -p ssa -b llvm --gpu-arch sm_90
+
+// A local of the block loop's body that the thread loop accumulates into.
+// Every thread of a block runs the block body, so a local made there is one
+// per thread where the program means one per block; holding one thing
+// between a block's threads is shared memory, which the PTX backend does
+// not allocate yet, so this is refused rather than made per thread.
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        acc : mut i32 = 0;
+        parfor s in 0:8 {
+            atomic acc += s;
+        }
+        out[p] = acc;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

@@ -1,0 +1,31 @@
+//! flags: -p ssa -b llvm --gpu-arch sm_90
+
+// Two thread loops in one block loop. One launch has one block size, so
+// two thread loops would have to be fused into a single loop over the
+// larger count with the shorter one guarded, which is not built yet; the
+// schedule is refused rather than one loop silently run by the other's
+// threads.
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        parfor s in 0:8 {
+            atomic out[p] += s;
+        }
+        parfor t in 0:2 {
+            atomic out[p] += t;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(t, GPUThread);
+}

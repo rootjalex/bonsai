@@ -1,0 +1,22 @@
+//! flags: -p ssa -b llvm -e
+
+// An array whose length is a run-time value: the launch has to know how
+// many bytes to move to the device, and reads the length off the array's
+// type where the loop is, as the host knows it there.
+func [[noinline]] run(n : i32, out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = n - i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    run(10, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

@@ -88,7 +88,7 @@ void emit_file(const std::string &filename,
 } // namespace
 
 void to_asm(const ir::Program &program, const CompilerOptions &options) {
-    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(program, options);
     std::unique_ptr<llvm::Module> result =
         codegen->compile_program(program, options);
     std::unique_ptr<llvm::TargetMachine> target_machine =

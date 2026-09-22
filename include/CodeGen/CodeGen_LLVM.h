@@ -17,15 +17,18 @@
  *     gang fills and a stack slot is aligned to, the machine's own gather
  *     instructions, a vector of integers divided through doubles, and glibc's
  *     libmvec for a vector's transcendental functions.
+ *   - CodeGen_GPU_Host<CodeGen_CPU> (the host of a program with loops on
+ *     the GPU), layered over whichever CPU generator the machine has, as
+ *     Halide's CodeGen_GPU_Host is: it owns the device generator, hands it
+ *     the bound loops as kernels, embeds the PTX and emits the launches.
  *   - CodeGen_PTX (the device): a kernel's entry and its thread indices,
  *     libdevice for maths, vprintf for print, and no thread runtime at all.
  *
- * The base class also plays the *host* role: a parfor a schedule bound to
- * CPU threads is a call into the parallel runtime, and one bound to the GPU
- * is a device module compiled by CodeGen_PTX and a launch through the CUDA
- * runtime. Those are calls against a C ABI that any CPU host has, so they
- * are not a fact about the x86; CodeGen_PTX, being the device, overrides
- * them with what a bound loop is inside a kernel.
+ * This class knows nothing of devices. What it does know about a parfor a
+ * schedule bound to hardware is the one binding every CPU host answers the
+ * same way -- CPUThread is a call into the parallel runtime, as Halide's
+ * base handles a parallel loop -- and for the rest it has a virtual the
+ * GPU host and the device each answer for themselves.
  */
 
 #include "CompilerOptions.h"
@@ -34,6 +37,7 @@
 #include "IR/Program.h"
 #include "IR/Visitor.h"
 #include "LLVMIncl.h"
+#include "SSA/SSA.h"
 #include "Scope.h"
 
 #include <llvm/Analysis/TargetLibraryInfo.h>
@@ -59,9 +63,12 @@ struct CodeGen_LLVM;
 // The code generator for the machine `options` name, or the host's when they
 // name none: the target-agnostic CodeGen_LLVM, or the subclass that knows the
 // target's own instructions where LLVM's generic form loses something
-// (CodeGen_X86). Every backend that generates LLVM goes through this, so that
-// they all agree on what a program compiles to.
-std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const CompilerOptions &options);
+// (CodeGen_X86); and, for a program whose schedule binds a loop to the GPU,
+// the GPU host layered over that (CodeGen_GPU_Host), which is what Halide
+// does for a target with a GPU feature. Every backend that generates LLVM
+// goes through this, so that they all agree on what a program compiles to.
+std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const ir::Program &program,
+                                                const CompilerOptions &options);
 
 struct CodeGen_LLVM : public ir::Visitor {
     CodeGen_LLVM();
@@ -74,6 +81,26 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::unique_ptr<llvm::LLVMContext> steal_context() {
         return std::move(context);
     }
+
+    // A parfor a schedule bound to a hardware resource, as the code generator
+    // that has to place it sees it: the loop, the block its body starts at
+    // (whose arguments are the loop's index first and then the values the
+    // body reads from outside -- the closure, which the SSA form has already
+    // computed), and three things the lowering of the enclosing function
+    // lends it. `operand` reads an SSA value of the enclosing function as an
+    // expression of whatever already holds it; `bind` names a value for the
+    // body's blocks; `emit_body` emits the body's blocks into the current
+    // function starting at the given block, with a `Yield` in them branching
+    // to the second block, or returning when it is null. Everything the body
+    // needs from the parent must be bound before emit_body is called.
+    struct BoundLoop {
+        const ir::ssa::Function &func;
+        const ir::ssa::Terminator::ParFor &loop;
+        const ir::ssa::Block &body_head;
+        std::function<ir::Expr(const std::shared_ptr<ir::ssa::Value> &)> operand;
+        std::function<void(const std::string &, llvm::Value *)> bind;
+        std::function<void(llvm::BasicBlock *, llvm::BasicBlock *)> emit_body;
+    };
 
     // Creates a target machine and updates the module's backend and data
     // layout. The machine `options` name, or the host's when they name none;
@@ -106,6 +133,11 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     virtual void optimize_module(llvm::TargetMachine &tm,
                                  const CompilerOptions &options);
+    // Called by compile_program once every function is generated and before
+    // the module is optimized: where a subclass finishes whatever it built
+    // alongside the functions. The GPU host finishes its device module here
+    // and embeds the PTX the launches refer to.
+    virtual void end_functions() {}
 
     llvm::Function *declare_function(const ir::Function &func);
     void compile_function(const ir::Function &func, llvm::Function *function);
@@ -122,6 +154,47 @@ struct CodeGen_LLVM : public ir::Visitor {
                           llvm::Function *function);
     struct SSALowering;
     friend struct SSALowering;
+
+    // The body of `loop`, a parfor of `func`, as the whole of `kernel`: the
+    // blocks the body reaches become the kernel's blocks, with `prologue`
+    // called first to bind the body's arguments -- its index, from wherever
+    // the kernel gets one, and its captures, from wherever the kernel was
+    // handed them. This is how a parfor bound to threads becomes a function
+    // the thread runtime calls, and how one bound to the GPU becomes a
+    // kernel in the device module (CodeGen_PTX::add_kernel).
+    void compile_kernel_body(const ir::ssa::Function &func,
+                             const ir::ssa::Terminator::ParFor &loop,
+                             llvm::Function *kernel,
+                             const std::function<void(BoundLoop &)> &prologue);
+
+    // What a parfor the schedule bound to hardware becomes here. A parfor
+    // bound to CPUThread is the body as a function and one call into the
+    // parallel runtime (runtime/bonsai_parallel.h), on every CPU host alike;
+    // any other binding is an error, since this generator has no such
+    // hardware. CodeGen_GPU_Host overrides this for the GPU bindings with a
+    // kernel and its launch, and CodeGen_PTX, being the device, with what a
+    // bound loop is inside a kernel.
+    virtual void emit_bound_parfor(BoundLoop &loop);
+    void emit_cpu_parfor(BoundLoop &loop);
+    // How many iterations a loop has, `(end - begin + stride - 1) / stride`,
+    // in the loop's own index type.
+    static ir::Expr trip_count(const ir::Expr &begin, const ir::Expr &end,
+                               const ir::Expr &stride);
+
+    // The condition under which this thread performs a side effect -- a
+    // store, an accumulate, a print -- or null when every thread does. Null
+    // everywhere but inside a GPU kernel at the block level: the body of a
+    // loop bound to GPUBlock is run by every thread of the block, since a
+    // block is only its threads, and an effect outside the thread loop is
+    // meant once per block, so one thread makes it (see CodeGen_PTX).
+    virtual llvm::Value *effects_once_guard() { return nullptr; }
+    // Whether effects_once_guard would answer with a guard, without
+    // emitting one: for refusing what cannot go under a guard.
+    virtual bool effects_run_once() const { return false; }
+    // A call made where effects_once_guard applies: its callee must have no
+    // effects, or its result would exist in one thread only. Checked by the
+    // device; nothing to check on a host.
+    virtual void check_block_level_call(const std::string &callee) {}
     llvm::Value *codegen_expr(const ir::Expr &expr);
     std::vector<llvm::Value *> codegen_exprs(const std::vector<ir::Expr> exprs);
     void codegen_stmt(const ir::Stmt &stmt);
@@ -653,6 +726,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     // type `value_t` is, or an error for one there is no such instruction for.
     llvm::AtomicRMWInst::BinOp atomic_rmw_op(ir::Accumulate::OpType op,
                                              const ir::Type &value_t);
+    // Who an atomic has to be indivisible with respect to: every agent in the
+    // system, on a CPU, where the threads that share the memory are all
+    // there is. A device says the device (see CodeGen_PTX): the host reads
+    // what a kernel wrote only after the launch has completed, which is a
+    // fence of its own, and a system-scope atomic on the GPU is the slower
+    // instruction for a guarantee nothing there needs.
+    virtual llvm::SyncScope::ID atomic_scope() { return llvm::SyncScope::System; }
     // One indivisible read-modify-write per lane that is on: lane k's value
     // into lane k's place. `ptrs` is one address per lane (a scatter) or the
     // one address of memory laid out per lane, in which case lane k's place

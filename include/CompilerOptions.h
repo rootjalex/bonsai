@@ -12,6 +12,11 @@ enum class BackendTarget {
     CPP = 3,  // Generate C++ header with respective .o file.
     CPPX = 4, // Generate C++ header and source file.
     CUDA = 5, // Generate CUDA code.
+    // The device side of a program whose loops a schedule bound to the GPU:
+    // the LLVM IR of the kernels and the functions they reach, then the PTX
+    // LLVM makes of it. The host side of the same program is what `-b llvm`
+    // prints, with the PTX embedded and a launch where each bound loop was.
+    PTX = 6,
 };
 
 enum class BackendOptimizationLevel {
@@ -57,6 +62,15 @@ struct CompilerOptions {
     // choices per host.
     std::string target_triple;
     std::string target_cpu;
+
+    // The GPU the device code is generated for, as NVPTX names it: `sm_120`
+    // for Blackwell, `sm_90` for Hopper. Empty means the GPU in this
+    // machine, asked of the driver (see runtime/bonsai_cuda.h), which is
+    // what a normal compile wants; a test that diffs generated PTX names
+    // one so that its output does not depend on the machine it runs on.
+    // Only read when some loop is bound to the GPU.
+    std::string gpu_arch;
+
     // Reject a program that would allocate on the heap.
     //
     // Nothing frees a heap allocation -- see the "support deallocation" TODO

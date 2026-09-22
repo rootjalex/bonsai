@@ -1,0 +1,274 @@
+#include "CodeGen/CodeGen_GPU_Host.h"
+
+#include "CodeGen/CodeGen_X86.h"
+#include "IR/Operators.h"
+#include "IR/Printer.h"
+
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/GlobalVariable.h>
+
+namespace bonsai {
+
+using namespace ir;
+using ir::ssa::Block;
+using ir::ssa::Terminator;
+using ir::ssa::Value;
+
+template <typename CodeGen_CPU>
+std::unique_ptr<llvm::Module>
+CodeGen_GPU_Host<CodeGen_CPU>::compile_program(const Program &program,
+                                               const CompilerOptions &options) {
+    this->program = &program;
+    this->options = &options;
+    return CodeGen_CPU::compile_program(program, options);
+}
+
+template <typename CodeGen_CPU>
+void CodeGen_GPU_Host<CodeGen_CPU>::emit_bound_parfor(
+    CodeGen_LLVM::BoundLoop &loop) {
+    switch (*loop.loop.binding) {
+    case Resource::GPUBlock:
+    case Resource::GPUThread:
+        emit_gpu_launch(loop);
+        return;
+    default:
+        CodeGen_CPU::emit_bound_parfor(loop);
+        return;
+    }
+}
+
+namespace {
+
+// Whether a value of `type` holds an address: what a kernel cannot be handed
+// a copy of, since the memory behind the address is not copied with it.
+bool holds_pointers(const Type &type) {
+    if (type.is<Array_t, Ptr_t, Ref_t, ElementRef_t, DynArray_t, Function_t>()) {
+        return true;
+    }
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        for (const auto &field : s->fields) {
+            if (holds_pointers(field.type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        return holds_pointers(v->etype);
+    }
+    return false;
+}
+
+} // namespace
+
+template <typename CodeGen_CPU>
+llvm::Value *
+CodeGen_GPU_Host<CodeGen_CPU>::capture_bytes(const Type &type,
+                                             const std::string &name) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    Type pointee;
+    llvm::Value *count = nullptr;
+    if (const Array_t *a = type.as<Array_t>()) {
+        pointee = a->etype;
+        count = builder->CreateIntCast(codegen_expr(a->size), i64_t,
+                                       a->size.type().is_int());
+    } else if (const Ptr_t *p = type.as<Ptr_t>()) {
+        pointee = p->etype;
+        count = llvm::ConstantInt::get(i64_t, 1);
+    } else {
+        internal_error << "`" << name << "` of type " << type
+                       << " is not something a kernel is handed by address";
+    }
+    // A pointee with addresses in it -- a tree's layout, whose node arrays
+    // its struct points at; a queue's arrays -- is a structure the layout
+    // language owns, and moving it to the device means moving what it points
+    // at too. That placement is the layout's to make (see apps/pbrt/PLAN.md,
+    // "Where the data lives"); a copy of the top-level struct would be a
+    // device pointer to host memory.
+    internal_assert(!holds_pointers(pointee))
+        << "[unimplemented] the loop bound to the GPU reads `" << name
+        << "` of type " << type << ", whose elements hold pointers of their "
+        << "own. Only the top level of it would reach the device; placing "
+        << "what it points at is the layout's job and is not built yet.";
+    const uint64_t element_bytes = dl.getTypeAllocSize(codegen_type(pointee));
+    return builder->CreateMul(count,
+                              llvm::ConstantInt::get(i64_t, element_bytes),
+                              name + "_bytes");
+}
+
+template <typename CodeGen_CPU>
+void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
+    CodeGen_LLVM::BoundLoop &loop) {
+    internal_assert(program && options) << "a GPU launch outside compile_program";
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    if (!device) {
+        device = std::make_unique<CodeGen_PTX>();
+        device->begin(*program, *options);
+        ptx_source = new llvm::GlobalVariable(
+            *module, ptr_t, /*isConstant=*/true,
+            llvm::GlobalValue::InternalLinkage,
+            llvm::ConstantPointerNull::get(ptr_t), "_bonsai_ptx");
+    }
+    const CodeGen_PTX::Kernel kernel = device->add_kernel(loop.func, loop.loop);
+
+    const Terminator::ParFor &p = loop.loop;
+    const Block &body_head = loop.body_head;
+    const Expr begin_e = loop.operand(p.start), end_e = loop.operand(p.end),
+               stride_e = loop.operand(p.stride);
+
+    // The arguments: begin, stride, then the captures, in the order the
+    // kernel takes them.
+    std::vector<Expr> arg_exprs{begin_e, stride_e};
+    std::vector<Type> arg_types{begin_e.type(), stride_e.type()};
+    std::vector<std::string> arg_names{"_begin", "_stride"};
+    for (size_t i = 1; i < body_head.args.size(); i++) {
+        arg_exprs.push_back(loop.operand(p.body.args[i - 1]));
+        arg_types.push_back(body_head.args[i].type);
+        arg_names.push_back(body_head.args[i].name);
+    }
+    const size_t n = arg_exprs.size();
+    std::vector<llvm::Type *> slot_types(n);
+    for (size_t i = 0; i < n; i++) {
+        slot_types[i] = codegen_type(arg_types[i]);
+    }
+    // Each argument's bytes have to mean the same thing on both sides: the
+    // driver copies each slot as the device declared its parameter, so a
+    // struct laid out differently by the two machines would be read wrong.
+    // Both layouts are at hand, so this is checked rather than assumed.
+    const llvm::DataLayout &dl = module->getDataLayout();
+    internal_assert(kernel.param_bytes.size() == n);
+    for (size_t i = 0; i < n; i++) {
+        internal_assert(dl.getTypeAllocSize(slot_types[i]) ==
+                        kernel.param_bytes[i])
+            << "kernel argument `" << arg_names[i] << "` of type "
+            << arg_types[i] << " occupies " << dl.getTypeAllocSize(slot_types[i])
+            << " bytes on the host and " << kernel.param_bytes[i]
+            << " on the device";
+    }
+    auto *args_ty = llvm::StructType::get(*context, slot_types);
+    llvm::Value *args = create_alloca_at_entry(args_ty, "_launch_args");
+    auto *params_ty = llvm::ArrayType::get(ptr_t, n);
+    llvm::Value *params = create_alloca_at_entry(params_ty, "_launch_params");
+
+    // The buffers: the captures that are addresses, with how many bytes lie
+    // behind each. `bonsai_cuda_buffer { host, bytes, param }`, see
+    // runtime/bonsai_cuda.h.
+    auto *buffer_ty = llvm::StructType::get(*context, {ptr_t, i64_t, i64_t});
+    std::vector<size_t> buffer_params;
+    for (size_t i = 2; i < n; i++) {
+        if (arg_types[i].template is<Array_t, Ptr_t>()) {
+            buffer_params.push_back(i);
+        }
+    }
+    auto *buffers_ty = llvm::ArrayType::get(buffer_ty, buffer_params.size());
+    llvm::Value *buffers =
+        buffer_params.empty()
+            ? static_cast<llvm::Value *>(llvm::ConstantPointerNull::get(ptr_t))
+            : create_alloca_at_entry(buffers_ty, "_launch_buffers");
+
+    for (size_t i = 0; i < n; i++) {
+        llvm::Value *slot = builder->CreateStructGEP(args_ty, args, i);
+        builder->CreateStore(codegen_expr(arg_exprs[i]), slot);
+        builder->CreateStore(
+            slot, builder->CreateConstInBoundsGEP2_64(params_ty, params, 0, i));
+    }
+    for (size_t b = 0; b < buffer_params.size(); b++) {
+        const size_t i = buffer_params[b];
+        llvm::Value *entry =
+            builder->CreateConstInBoundsGEP2_64(buffers_ty, buffers, 0, b);
+        builder->CreateStore(codegen_expr(arg_exprs[i]),
+                             builder->CreateStructGEP(buffer_ty, entry, 0));
+        builder->CreateStore(capture_bytes(arg_types[i], arg_names[i]),
+                             builder->CreateStructGEP(buffer_ty, entry, 1));
+        builder->CreateStore(llvm::ConstantInt::get(i64_t, i),
+                             builder->CreateStructGEP(buffer_ty, entry, 2));
+    }
+
+    // The grid and the block: as many blocks as the block loop has
+    // iterations, as many threads as the thread loop has, and one of either
+    // that there is no loop for. Exact, so the kernel needs no guard. The
+    // thread loop's bounds are values of the block loop's body, so they are
+    // read here only if they came into that body from outside it -- as
+    // captures, or constants -- which is what makes them the same for every
+    // block, as one block size has to be.
+    const auto host_value = [&](const std::shared_ptr<Value> &v,
+                                const char *what) -> Expr {
+        if (std::holds_alternative<ir::ssa::Constant>(v->data)) {
+            return loop.operand(v);
+        }
+        if (const auto *a = std::get_if<ir::ssa::Argument>(&v->data)) {
+            for (size_t i = 1; i < body_head.args.size(); i++) {
+                if (body_head.args[i].name == a->name) {
+                    return loop.operand(p.body.args[i - 1]);
+                }
+            }
+        }
+        internal_error
+            << "the " << what << " of the thread loop over "
+            << kernel.thread_loop->index << " is computed inside the body of "
+            << "the block loop over " << p.index
+            << ". A launch has one block size, so the thread loop's bounds "
+            << "have to be known before the block loop starts: compute them "
+            << "outside it.";
+        return Expr();
+    };
+    const Expr count_e = trip_count(begin_e, end_e, stride_e);
+    llvm::Value *count = builder->CreateIntCast(codegen_expr(count_e), i64_t,
+                                                begin_e.type().is_int());
+    llvm::Value *one = llvm::ConstantInt::get(i64_t, 1);
+    llvm::Value *grid = one, *block = one;
+    if (*p.binding == Resource::GPUThread) {
+        block = count;
+    } else {
+        grid = count;
+        if (kernel.thread_loop != nullptr) {
+            const Terminator::ParFor &t = *kernel.thread_loop;
+            const Expr t_begin = host_value(t.start, "start"),
+                       t_end = host_value(t.end, "end"),
+                       t_stride = host_value(t.stride, "stride");
+            block = builder->CreateIntCast(
+                codegen_expr(trip_count(t_begin, t_end, t_stride)), i64_t,
+                t_begin.type().is_int());
+        }
+    }
+
+    // void bonsai_cuda_launch(const char *ptx, const char *kernel,
+    //                         int64_t grid_x, int64_t block_x, void **params,
+    //                         int64_t nparams, bonsai_cuda_buffer *buffers,
+    //                         int64_t nbuffers);
+    llvm::FunctionType *launch_ty = llvm::FunctionType::get(
+        void_t, {ptr_t, ptr_t, i64_t, i64_t, ptr_t, i64_t, ptr_t, i64_t},
+        false);
+    llvm::FunctionCallee launch =
+        module->getOrInsertFunction("bonsai_cuda_launch", launch_ty);
+    llvm::Value *ptx = builder->CreateLoad(ptr_t, ptx_source, "_ptx");
+    llvm::Value *name = builder->CreateGlobalString(kernel.name, "_kernel_name");
+    builder->CreateCall(launch, {ptx, name, grid, block, params,
+                                 llvm::ConstantInt::get(i64_t, n), buffers,
+                                 llvm::ConstantInt::get(i64_t,
+                                                        buffer_params.size())});
+}
+
+template <typename CodeGen_CPU>
+void CodeGen_GPU_Host<CodeGen_CPU>::end_functions() {
+    CodeGen_CPU::end_functions();
+    if (!device) {
+        return;
+    }
+    device->finish();
+    llvm::Constant *text = llvm::ConstantDataArray::getString(
+        *context, device->ptx(), /*AddNull=*/true);
+    auto *holder = new llvm::GlobalVariable(
+        *module, text->getType(), /*isConstant=*/true,
+        llvm::GlobalValue::PrivateLinkage, text, "_bonsai_ptx_text");
+    holder->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+    ptx_source->setInitializer(holder);
+}
+
+// The hosts there are: the x86-64 generator, and the target-agnostic one for
+// any other CPU.
+template struct CodeGen_GPU_Host<CodeGen_X86>;
+template struct CodeGen_GPU_Host<CodeGen_LLVM>;
+
+} // namespace bonsai

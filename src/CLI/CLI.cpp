@@ -26,6 +26,8 @@ std::string command_help() {
       << "     | --triple <target triple>    | e.g., "
          "`--triple x86_64-unknown-linux-gnu`\n"
       << "     | --mcpu <target cpu>         | e.g., `--mcpu generic`\n"
+      << "     | --gpu-arch <sm>             | the GPU device code is for, "
+         "e.g. `--gpu-arch sm_120`; the machine's own if not given\n"
       << "     | --no-heap                   | reject heap allocation\n"
       << "     | --ffp-contract              | fuse `a * b + c` into one fma\n"
       << "     | --dump-ssa-preschedule      | print the SSA a schedule acts "
@@ -77,6 +79,10 @@ int execute(const ir::Program &program, const CompilerOptions &options) {
     }
     case BackendTarget::CUDA: {
         codegen::to_cuda(program, options);
+        return EXIT_SUCCESS;
+    }
+    case BackendTarget::PTX: {
+        codegen::to_ptx(program, options);
         return EXIT_SUCCESS;
     }
     }
@@ -167,6 +173,12 @@ Flags parse(const std::vector<std::string> &args) {
         if (arg == "--mcpu") {
             internal_assert(i + 1 < args.size());
             options.target_cpu = args[i + 1];
+            ++i;
+            continue;
+        }
+        if (arg == "--gpu-arch") {
+            internal_assert(i + 1 < args.size());
+            options.gpu_arch = args[i + 1];
             ++i;
             continue;
         }

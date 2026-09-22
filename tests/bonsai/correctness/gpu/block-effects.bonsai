@@ -1,0 +1,35 @@
+//! flags: -p ssa -b llvm -e
+
+// Side effects in a block loop's body outside its thread loop: what a
+// render's pixel loop does when it clears the pixel before its samples add
+// into it. Every thread of the block runs the block body, so the stores
+// before the thread loop and the read-modify-write after it are made by
+// thread zero alone, with a barrier on either side of the thread loop so
+// that the clear is seen by every thread's accumulate and every accumulate
+// by the final store.
+func run(out : mut array[i32, 4], hits : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        out[p] = 1000 * p;
+        hits[p] = 0;
+        parfor s in 0:8 {
+            atomic out[p] += s;
+            atomic hits[p] += 1;
+        }
+        hits[p] = hits[p] * 2;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    hits : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out, hits);
+    print(out);
+    print(hits);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

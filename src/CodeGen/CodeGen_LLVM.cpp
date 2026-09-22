@@ -1,6 +1,8 @@
 #include "CodeGen/CodeGen_LLVM.h"
 
+#include "CodeGen/CodeGen_GPU_Host.h"
 #include "CodeGen/CodeGen_X86.h"
+#include "SSA/Analysis.h"
 
 #include <llvm/MC/MCSubtargetInfo.h>
 
@@ -63,7 +65,7 @@
 namespace bonsai {
 namespace codegen {
 void to_llvm(const ir::Program &program, const CompilerOptions &options) {
-    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(program, options);
     std::unique_ptr<llvm::Module> module =
         codegen->compile_program(program, options);
     // Without the triple and data layout the module was generated against,
@@ -80,14 +82,29 @@ void to_llvm(const ir::Program &program, const CompilerOptions &options) {
 }
 } // namespace codegen
 
-std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const CompilerOptions &options) {
+std::unique_ptr<CodeGen_LLVM> make_llvm_codegen(const ir::Program &program,
+                                                const CompilerOptions &options) {
     // The same choice make_target_machine makes of the triple: the one
     // named, or the host's.
     const std::string triple = options.target_triple.empty()
                                    ? llvm::sys::getDefaultTargetTriple()
                                    : options.target_triple;
-    if (llvm::Triple(triple).getArch() == llvm::Triple::x86_64) {
+    const bool x86 = llvm::Triple(triple).getArch() == llvm::Triple::x86_64;
+    // A program with a loop on the GPU is compiled by the GPU host over the
+    // machine's own generator -- Halide's choice for a target with a GPU
+    // feature, made here by the schedule rather than a target string, since
+    // the binds are where a bonsai program says what hardware it runs on.
+    const bool gpu = std::any_of(
+        program.ssa_funcs.begin(), program.ssa_funcs.end(),
+        [](const auto &f) { return ir::ssa::binds_to_gpu(*f.second); });
+    if (x86) {
+        if (gpu) {
+            return std::make_unique<CodeGen_GPU_Host<CodeGen_X86>>();
+        }
         return std::make_unique<CodeGen_X86>();
+    }
+    if (gpu) {
+        return std::make_unique<CodeGen_GPU_Host<CodeGen_LLVM>>();
     }
     return std::make_unique<CodeGen_LLVM>();
 }
@@ -620,6 +637,8 @@ CodeGen_LLVM::compile_program(const Program &program,
         }
     }
     frames.pop_frame();
+
+    end_functions();
 
     llvm::TargetMachine *tm = target_machine.get();
 
@@ -3535,10 +3554,9 @@ void CodeGen_LLVM::visit(const AtomicAdd *node) {
     // LLVM rmw add, returns *old* value at ptr
     llvm::AtomicOrdering ordering = llvm::AtomicOrdering::Monotonic;
     llvm::MaybeAlign alignment; // chooses alignment if necessary
-    // TODO: does this always need to be System scope?
     llvm::Value *old =
         builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, acc, alignment,
-                                 ordering, llvm::SyncScope::System);
+                                 ordering, atomic_scope());
 
     value = old;
 }
@@ -4694,7 +4712,7 @@ void CodeGen_LLVM::visit(const Append *node) {
     llvm::Value *one = builder->getInt32(1);
     llvm::Value *index = builder->CreateAtomicRMW(
         llvm::AtomicRMWInst::Add, size_ptr, one, llvm::MaybeAlign(),
-        llvm::AtomicOrdering::AcquireRelease, llvm::SyncScope::System);
+        llvm::AtomicOrdering::AcquireRelease, atomic_scope());
     // Pointer to the capacity of the array.
     int32_t capacity_idx = find_struct_index("capacity", struct_t->fields);
     llvm::Value *capacity_ptr =
@@ -4799,13 +4817,14 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
                 llvm::Value *component =
                     builder->CreateExtractElement(update, uint64_t(k));
                 builder->CreateAtomicRMW(rmw, ptr, component, llvm::MaybeAlign(),
-                                         llvm::AtomicOrdering::Monotonic);
+                                         llvm::AtomicOrdering::Monotonic,
+                                         atomic_scope());
             }
             return;
         }
         builder->CreateAtomicRMW(atomic_rmw_op(node->op, value_t), loc, update,
                                  llvm::MaybeAlign(),
-                                 llvm::AtomicOrdering::Monotonic);
+                                 llvm::AtomicOrdering::Monotonic, atomic_scope());
         return;
     }
 
@@ -5338,7 +5357,8 @@ void CodeGen_LLVM::emit_atomic_lanes(Accumulate::OpType op, const Type &value_t,
                            llvm::ConstantInt::get(i32_t, k)});
             llvm::Value *v = builder->CreateExtractElement(values, uint64_t(k));
             builder->CreateAtomicRMW(rmw, ptr, v, llvm::MaybeAlign(),
-                                     llvm::AtomicOrdering::Monotonic);
+                                     llvm::AtomicOrdering::Monotonic,
+                                     atomic_scope());
         });
     }
 }

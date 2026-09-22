@@ -1,0 +1,20 @@
+//! flags: -p ssa -b ptx
+
+// A print inside a kernel: the device's `vprintf`, which takes its
+// arguments packed in memory rather than as C's variadic call. One block of
+// one thread, so the output is one line in one order.
+func run(x : f32) -> void {
+    parfor i in 0:1 {
+        print(i, x, i + 7);
+    }
+    return;
+}
+
+func main() -> i32 {
+    run(2.5);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUBlock);
+}

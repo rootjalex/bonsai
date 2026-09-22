@@ -1,0 +1,27 @@
+//! flags: -p ssa -b llvm -e
+
+// A struct captured by a kernel: passed by value as one kernel parameter,
+// laid out as the device lays it out, which the host checks against its own
+// layout before handing the driver the bytes.
+element Affine {
+    scale : f32;
+    offset : i32;
+}
+
+func run(out : mut array[i32, 8], a : Affine) -> void {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](a.scale * cast[[f32]](i)) + a.offset;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(out, Affine{3.0, 10});
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

@@ -1,0 +1,22 @@
+//! flags: -p ssa -b llvm -e
+
+// A loop bound to GPUBlock with no thread loop inside it: as many blocks as
+// iterations, one thread each. With one thread there is nothing for the
+// block-level effects to be guarded against, so the store is made outright.
+func offset(out : mut array[i32, 6], base : i32) -> void {
+    parfor i in 0:6 {
+        out[i] = i + base;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 6] = {0, 0, 0, 0, 0, 0};
+    offset(out, 100);
+    print(out);
+    return 0;
+}
+
+schedule {
+    offset.bind(i, GPUBlock);
+}

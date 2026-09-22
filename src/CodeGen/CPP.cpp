@@ -1302,7 +1302,7 @@ class BonsaiToCpp : ir::Printer {
 
 void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     // Compile the program to LLVM.
-    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(options);
+    std::unique_ptr<CodeGen_LLVM> codegen = make_llvm_codegen(program, options);
     std::unique_ptr<llvm::Module> module =
         codegen->compile_program(program, options);
 

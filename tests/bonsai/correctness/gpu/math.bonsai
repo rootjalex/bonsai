@@ -1,0 +1,24 @@
+//! flags: -p ssa -b llvm -e
+
+// Transcendental maths in a kernel: NVPTX has no lowering of `llvm.sin.f32`
+// of its own, so these are CUDA's libdevice functions -- `__nv_sinf`,
+// `__nv_expf`, `__nv_powf` -- what CUDA's `sinf` compiles to, linked into
+// the module and inlined.
+func run(out : mut array[f32, 4], x : f32) -> void {
+    parfor i in 0:4 {
+        t = x * cast[[f32]](i);
+        out[i] = sin(t) + exp(t) * 0.5 + pow(t, 2.0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[f32, 4] = {0.0, 0.0, 0.0, 0.0};
+    run(out, 0.25);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

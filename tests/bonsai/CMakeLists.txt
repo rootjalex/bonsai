@@ -5,6 +5,10 @@
 # flags the test file itself declares. Use them for settings a whole directory
 # shares -- notably pinning the LLVM target for tests that diff generated
 # code, so their output does not depend on the machine running them.
+#
+# DISABLED registers the tests but marks them disabled: for a directory whose
+# tests need something this machine lacks (a GPU, the CUDA toolkit), so that
+# they show in the test list as not run rather than vanish.
 
 # A handful of the backends goldens record what LLVM's optimizer produced, and
 # that legitimately differs between target architectures: LLVM 19 SLP
@@ -16,7 +20,7 @@
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" BONSAI_TEST_ARCH)
 
 function(add_bonsai_tests)
-    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "" "FILES;LABELS;FLAGS")
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "DISABLED" "" "FILES;LABELS;FLAGS")
     foreach (file IN LISTS ARG_FILES)
         cmake_path(SET input "${file}")
         cmake_path(REPLACE_EXTENSION input "expect" OUTPUT_VARIABLE expect)
@@ -65,6 +69,11 @@ function(add_bonsai_tests)
         set_tests_properties(
             "${run_test}" "${check_test}" PROPERTIES LABELS "${ARG_LABELS}"
         )
+        if (ARG_DISABLED)
+            set_tests_properties(
+                "${run_test}" "${check_test}" PROPERTIES DISABLED TRUE
+            )
+        endif ()
     endforeach ()
 endfunction()
 

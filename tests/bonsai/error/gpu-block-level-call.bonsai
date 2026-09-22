@@ -1,0 +1,33 @@
+//! flags: -p ssa -b llvm --gpu-arch sm_90
+
+// A call with side effects in the block loop's body, outside its thread
+// loop. Every thread of the block runs that body, so a pure call is made by
+// each thread alike and costs nothing but time; one with effects would have
+// to be made by one thread and its result handed to the rest through shared
+// memory, which the PTX backend does not do yet.
+func [[noinline]] clear(out : mut array[i32, 4], p : i32) -> i32 {
+    out[p] = 0;
+    return p;
+}
+
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        q = clear(out, p);
+        parfor s in 0:8 {
+            atomic out[q] += s;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

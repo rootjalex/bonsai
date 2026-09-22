@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_PTX.cpp:462
+[unimplemented] `clear` is called in the body of a loop bound to GPUBlock, outside its thread loop, and has side effects. Every thread of the block runs that body, so a call there is made once per thread unless it is pure; a call with effects would have to be made by one thread and its result shared through shared memory, which the PTX backend does not do yet. Move the call into the thread loop, or out of the block loop.

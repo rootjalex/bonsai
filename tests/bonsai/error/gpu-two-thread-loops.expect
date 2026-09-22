@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_PTX.cpp:191
+
+--> found == nullptr
+[unimplemented] the loop over p, bound to GPUBlock, holds two loops bound to GPUThread (s and t). A launch has one block size, so two thread loops would have to be fused into one, which is not built yet.

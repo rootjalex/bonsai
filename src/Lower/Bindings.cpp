@@ -414,11 +414,20 @@ struct LowerBindingsImpl : public Mutator {
         }
         case Resource::GPUThread:
         case Resource::GPUBlock:
+            // Left as the loop it is, binding and all. A program with a loop
+            // on the GPU is generated from its SSA form, where the bound
+            // loop's body is cut out as a kernel and the loop becomes its
+            // launch (see CodeGen_LLVM::emit_bound_parfor and CodeGen_PTX);
+            // the statement form of such a program is only ever printed, and
+            // CodeGen_LLVM::visit(const ParFor *) refuses to generate code
+            // from a bound loop, so nothing can run it sequentially by
+            // mistake.
+            return loop;
         case Resource::RTCore:
         case Resource::OptixThread:
             internal_error
                 << "bind(" << node->index << ", " << to_string(*node->binding)
-                << ") is not lowered yet. Only CPUThread is, so far.";
+                << ") is not lowered yet: the OptiX backend is not built.";
             return loop;
         }
         return loop;

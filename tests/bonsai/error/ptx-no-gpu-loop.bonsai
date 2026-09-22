@@ -1,0 +1,17 @@
+//! flags: -p ssa -b ptx --gpu-arch sm_90
+
+// `-b ptx` prints the device side of a program; a program no loop of which
+// is bound to the GPU has none.
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        out[p] = p;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}

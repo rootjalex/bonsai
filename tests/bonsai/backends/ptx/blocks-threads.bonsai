@@ -1,0 +1,27 @@
+//! flags: -p ssa -b ptx
+
+// A loop bound to GPUBlock with a loop bound to GPUThread inside it: the
+// shape of a render's pixel loop with its samples. One block per iteration
+// of `p`, one thread per iteration of `s`, so the kernel reads its indices
+// off `ctaid.x` and `tid.x` and needs no guard, and the sum into `out[p]`,
+// which the block's threads share, is an atomic the schedule keeps.
+func run(out : mut array[i32, 8], scale : f32) -> void {
+    parfor p in 0:8 {
+        parfor s in 0:4 {
+            atomic out[p] += cast[[i32]](cast[[f32]](p * 4 + s) * scale);
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(out, 2.0);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

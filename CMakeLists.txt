@@ -67,6 +67,8 @@ find_package(
     NVPTXCodeGen
     NVPTXDesc
     NVPTXInfo
+    # The PTX backend links CUDA's libdevice bitcode into its module.
+    linker
     AArch64CodeGen
     AArch64AsmParser
     AArch64Desc
@@ -111,15 +113,28 @@ target_compile_definitions(
 
 target_link_libraries(bonsai_library PUBLIC ModernLLVM::LLVM)
 
+# The runtime's headers, for the parts of the compiler that call into the
+# runtime linked into it (the JIT, and the PTX backend asking which GPU the
+# machine has). Private: nothing that includes the compiler's headers needs
+# them.
+target_include_directories(bonsai_library PRIVATE runtime)
+
 target_sources(
     bonsai_library
     PRIVATE
     src/CLI/CLI.cpp
     src/CodeGen/ASM.cpp
     src/CodeGen/CodeGen_CUDA.cpp
+    src/CodeGen/CodeGen_GPU_Host.cpp
     src/CodeGen/CodeGen_LLVM.cpp
     src/CodeGen/CodeGen_LLVM_SSA.cpp
+    src/CodeGen/CodeGen_PTX.cpp
     src/CodeGen/CodeGen_X86.cpp
+    # The CUDA runtime, in the compiler too: the JIT runs programs whose
+    # bound loops launch through it, and the PTX backend asks it which GPU
+    # this machine has. It loads the driver with dlopen, so this depends on
+    # no CUDA library at build time.
+    runtime/bonsai_cuda.cpp
     src/CodeGen/ExpandVectorMulHigh.cpp
     src/CodeGen/VectorMath.cpp
     src/CodeGen/CPP.cpp
@@ -229,7 +244,9 @@ target_sources(
     include/CLI/CLI.h
     include/CodeGen/ASM.h
     include/CodeGen/CodeGen_CUDA.h
+    include/CodeGen/CodeGen_GPU_Host.h
     include/CodeGen/CodeGen_LLVM.h
+    include/CodeGen/CodeGen_PTX.h
     include/CodeGen/CodeGen_X86.h
     include/CodeGen/ExpandVectorMulHigh.h
     include/CodeGen/VectorMath.h

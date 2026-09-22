@@ -1,5 +1,6 @@
 #include "SSA/Convert.h"
 
+#include "SSA/Analysis.h"
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
 #include "SSA/Defer.h"
@@ -1888,6 +1889,18 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
 
     ir::FuncMap new_funcs;
 
+    // A program with a loop bound to the GPU is generated from its SSA in
+    // full. The loop's body is cut out of the block graph as a kernel, and
+    // the kernel is a device module of its own into which every function it
+    // reaches is compiled -- from the same SSA, by the same lowering, on the
+    // device's code generator (see CodeGen_PTX). Generating the host side
+    // from statements and the device side from blocks would be two readings
+    // of one program; one reading is what makes the two sides agree.
+    const bool gpu_program =
+        std::any_of(fmap.begin(), fmap.end(), [](const auto &entry) {
+            return binds_to_gpu(*entry.second);
+        });
+
     for (const auto &[fname, f] : fmap) {
         // The relooper runs for every function regardless of what generates
         // code for it: reading a schedule's work as ordinary statements is
@@ -1899,9 +1912,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         // linearization leaves behind fits structured statements worst.
         // Asked of the SSA function, which is where vectorize() recorded it.
         const bool direct =
+            gpu_program ||
             std::find(f->attributes.begin(), f->attributes.end(),
                       ir::Function::Attribute::vectorized) !=
-            f->attributes.end();
+                f->attributes.end();
         if (keep_ssa != nullptr && direct) {
             keep_ssa->ssa_funcs[fname] = f;
             if (options.is_verbose) {
