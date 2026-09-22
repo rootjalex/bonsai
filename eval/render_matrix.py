@@ -827,6 +827,10 @@ def main(argv):
     # What the table and the figures have a column for: the schedules, and
     # pbrt on the GPU when asked. The schedules alone are what is built.
     args.renderers = [*args.schedules, *(["pbrt-gpu"] if args.pbrt_gpu else [])]
+    for renderer in args.rerun or []:
+        if renderer not in ["pbrt", *args.renderers]:
+            raise SystemExit(f"--rerun {renderer}: not pbrt or a renderer "
+                             f"of this run ({args.renderers})")
 
     scenes = [os.path.abspath(s) for s in args.scene]
     for scene in scenes:
@@ -884,10 +888,6 @@ def measure_scene(args, scene, shared, images, compiled):
         # cached in the cell are stale too; they are kept, since a run that
         # does not name them does not print them, and their speedup is
         # recomputed from the new time where it is.
-        for renderer in args.rerun:
-            if renderer not in ["pbrt", *args.renderers]:
-                raise SystemExit(f"--rerun {renderer}: not pbrt or a renderer "
-                                 f"of this run ({args.renderers})")
         for d in args.depths:
             for p in args.spps:
                 cell = results.get("cells", {}).get(f"d{d}-s{p}")
