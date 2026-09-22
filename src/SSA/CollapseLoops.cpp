@@ -292,9 +292,28 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
     body->terminator.data =
         Terminator::Jump{inner_loop.body.name, std::move(to_inner)};
 
+    // What the outer loop handed its body besides the index -- its captures
+    // -- it now hands the step, which passes each on. The step is a block of
+    // its own between the header and the body, so a value of the header's
+    // reaches the body through an argument of the step, not by name: a body
+    // that read its captures from the enclosing scope would be a loop whose
+    // body cannot be compiled apart from its function, and a loop bound to
+    // the GPU is exactly that -- the kernel has the step's arguments and
+    // nothing else. As with the trip count, the step's argument is made
+    // here and the header's value for it is supplied by the loop edge below.
+    const auto through_step = [&](const shared_ptr<Value> &v) {
+        return std::visit(
+            overloads{
+                [&](const Constant &) { return v; },
+                [&](const Argument &a) { return step->get_value(a.name, a.type); },
+                [&](const shared_ptr<Instruction> &i) {
+                    return step->get_value(i->name, i->type);
+                }},
+            v->data);
+    };
     std::vector<shared_ptr<Value>> to_body = {outer_val, inner_val};
     for (const auto &arg : outer_loop.body.args) {
-        to_body.push_back(arg);
+        to_body.push_back(through_step(arg));
     }
     Terminator::Jump enter{body->name, std::move(to_body)};
 
