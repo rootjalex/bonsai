@@ -49,6 +49,7 @@ add_bonsai_tests(
     vectorize-soa.bonsai
     vectorize-sorted-traversal.bonsai
     vectorize-switch-constant-merge.bonsai
+    vectorize-uniform-division.bonsai
     vectorize-union.bonsai
     vectorize-varying-memory.bonsai
     vectorize-vector-index.bonsai

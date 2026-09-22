@@ -1,0 +1,83 @@
+//! flags: -p ssa -b llvm -e
+
+// A gang dividing by a divisor the lanes agree on, done once as a scalar
+// multiplier and a vector multiply-high (see divide_by_uniform_divisors in
+// SSA/InvariantDivision.h), run. Every lane's quotient and remainder, for
+// dividends across the whole 64-bit and 32-bit ranges and divisors of one,
+// of a power of two, above 2^63 (2^31), and of all ones; and the signed
+// form with both signs on both sides. Every value in the golden was computed
+// by Python with C's truncation toward zero, not by running this.
+
+element Wides = array[u64, 8];
+element Words = array[u32, 8];
+element Ints = array[i32, 8];
+
+func [[noinline]] divide_u64(a : Wides, d : u64, q : mut Wides,
+                             r : mut Wides) -> void {
+    parfor i in 0:8 {
+        q[i] = a[i] / d;
+        r[i] = a[i] % d;
+    }
+    return;
+}
+
+func [[noinline]] divide_u32(a : Words, d : u32, q : mut Words,
+                             r : mut Words) -> void {
+    parfor i in 0:8 {
+        q[i] = a[i] / d;
+        r[i] = a[i] % d;
+    }
+    return;
+}
+
+func [[noinline]] divide_i32(a : Ints, d : i32, q : mut Ints,
+                             r : mut Ints) -> void {
+    parfor i in 0:8 {
+        q[i] = a[i] / d;
+        r[i] = a[i] % d;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : Wides = {0u, 1u, 7u, 1000003u, 4294967295u, 4294967296u,
+                 9223372036854775807u, 18446744073709551615u};
+    q : mut Wides = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    r : mut Wides = q;
+    ds : array[u64, 9] = {1u, 2u, 3u, 7u, 641u, 4294967295u, 4294967297u,
+                          9223372036854775808u, 18446744073709551615u};
+    for k in 0:9 {
+        divide_u64(a, ds[k], q, r);
+        print(q);
+        print(r);
+    }
+
+    b : Words = {0u, 1u, 7u, 65536u, 1000003u, 2147483647u, 2147483648u,
+                 4294967295u};
+    s : mut Words = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    t : mut Words = s;
+    es : array[u32, 8] = {1u, 2u, 3u, 7u, 641u, 65537u, 2147483648u,
+                          4294967295u};
+    for k in 0:8 {
+        divide_u32(b, es[k], s, t);
+        print(s);
+        print(t);
+    }
+
+    c : Ints = {0, 1, -1, 7, -7, 1000003, 2147483647, -2147483647};
+    u : mut Ints = {0, 0, 0, 0, 0, 0, 0, 0};
+    v : mut Ints = u;
+    fs : array[i32, 10] = {1, -1, 2, -2, 3, -3, 7, -641, 65537, -2147483648};
+    for k in 0:10 {
+        divide_i32(c, fs[k], u, v);
+        print(u);
+        print(v);
+    }
+    return 0;
+}
+
+schedule {
+    divide_u64.vectorize(i);
+    divide_u32.vectorize(i);
+    divide_i32.vectorize(i);
+}

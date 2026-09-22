@@ -1,0 +1,46 @@
+//! flags: -p ssa
+
+// Golden for a gang dividing by a divisor the lanes agree on (see
+// divide_by_uniform_divisors in SSA/InvariantDivision.h): apps/pbrt's Halton
+// index, one per lane, over the sampler's base scale, one for all.
+//
+// What to read for in the golden:
+//
+//   * In `scale$gang8_p0` the divisor `d` is a scalar `u64` throughout: the
+//     multiplier `div_multiplier(d)` -- the one 128-bit division -- its
+//     `clz` and the two shifts are computed once, on scalars, and the lanes
+//     divide by `mulhi` of the broadcast multiplier, a subtraction, two
+//     shifts and an addition, all on `u64x8`. No `/` on a vector remains.
+//   * `parts$gang8_p0` is the same for `%`: the quotient as above, then
+//     `n - q * d`.
+//   * `small$gang8_p0` divides by a `u32`, whose multiplier is two scalar
+//     double divisions (its type bounds it, see bounded_multiplier), and the
+//     lanes' `mulhi` is on `u32x8`.
+//   * The scalar `scale` keeps its `/`: one lane, one divide.
+
+func scale(a : array[u64, 8], d : u64, out : mut array[u64, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = a[i] / d;
+    }
+    return;
+}
+
+func parts(a : array[u64, 8], d : u64, out : mut array[u64, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = a[i] % d;
+    }
+    return;
+}
+
+func small(a : array[u32, 8], d : u32, out : mut array[u32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = a[i] / d;
+    }
+    return;
+}
+
+schedule {
+    scale.vectorize(i);
+    parts.vectorize(i);
+    small.vectorize(i);
+}

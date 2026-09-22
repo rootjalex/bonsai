@@ -55,8 +55,15 @@ struct Definition {
 // definition of its own, at the block that receives it.
 class Tracer {
   public:
-    Tracer(const Function &func, const Cfg &cfg)
-        : entry(func.blocks.front()->name), cfg(cfg) {}
+    // `boundary`, when given, is a block the trace does not look behind: the
+    // entry of a region being vectorized, whose arguments are the values it
+    // receives from outside. A divisor defined beyond it is then "the
+    // region's argument", and its multiplier is computed at the region's
+    // top -- once per gang -- rather than threaded in from outside, which
+    // the edge into a parfor's body does not carry.
+    Tracer(const Function &func, const Cfg &cfg, const string *boundary)
+        : entry(func.blocks.front()->name),
+          boundary(boundary != nullptr ? *boundary : ""), cfg(cfg) {}
 
     optional<Definition> trace(const ValuePtr &v, const string &in_block) {
         if (const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data)) {
@@ -78,6 +85,7 @@ class Tracer {
 
   private:
     const string entry;
+    const string boundary;
     const Cfg &cfg;
 
     // What the argument `name` of `block` stands for: the one definition
@@ -99,7 +107,7 @@ class Tracer {
                 break;
             }
         }
-        if (k == b->args.size() || block == entry) {
+        if (k == b->args.size() || block == entry || block == boundary) {
             // A parameter of the function, or a name this cannot see
             // through.
             return here;
@@ -211,6 +219,84 @@ struct Multiplier {
     string negative;
 };
 
+optional<uint64_t> upper_bound(const ValuePtr &v, unsigned depth);
+
+// What a divisor is known to be at most: what upper_bound proves, or for an
+// unsigned type of 32 bits or fewer, what the type says.
+optional<uint64_t> divisor_bound(const ValuePtr &d, const Type &type) {
+    if (const optional<uint64_t> b = upper_bound(d, 0)) {
+        return b;
+    }
+    if (type.is_uint() && type.bits() <= 32) {
+        return (uint64_t(1) << type.bits()) - 1;
+    }
+    return std::nullopt;
+}
+
+// The multiplier `numerator_high * 2^N / ad + 1` (mod 2^N) by two exact
+// double divisions, when `ad` is known small enough for them to be exact;
+// or nothing, and the intrinsic does it with a division twice the width.
+//
+// `numerator_high` is the multiple of 2^N being divided -- 2^l - d for the
+// unsigned round-up method, 2^(l-1) for the signed one -- and is below
+// `ad`. Long division in base 2^(N/2): with H = N/2, the quotient is
+// q1 2^H + q2 where q1 = floor(numerator_high 2^H / ad), r1 its remainder,
+// and q2 = floor(r1 2^H / ad); q1 < 2^H since numerator_high < ad, and
+// q2 < 2^H since r1 < ad, so the two assemble without a carry, and the
+// whole is below 2^N as Granlund & Montgomery's multiplier is. Each step
+// is a correctly rounded double quotient truncated toward zero, which is
+// the integer quotient whenever numerator plus divisor is below 2^53 (see
+// CodeGen_LLVM::vector_int_division for the argument): step one needs
+// numerator_high 2^H + ad < 2^53 and step two r1 2^H + ad < 2^53, and both
+// hold when ad (2^H + 1) < 2^53 -- below 2^21 for 64-bit words. The two
+// numerators are below ad 2^H and have to fit the word they are computed
+// in: for a 64-bit word that is ad < 2^32, which the bound above implies;
+// a word of 32 bits or fewer is computed in 64 bits, where any divisor of
+// its width fits. A vector of divisors then costs two vector double
+// divisions where the wide integer division costs one scalar divide, or a
+// library call, per lane. Why a divisor that small is common: apps/pbrt
+// divides a 64-bit Halton index by a prime from a u16 table.
+optional<ValuePtr> bounded_multiplier(Emitter &e, const ValuePtr &ad,
+                                      const ValuePtr &numerator_high,
+                                      const Type &type,
+                                      const optional<uint64_t> &bound) {
+    const uint64_t bits = type.bits();
+    if (!bound || bits > 64 || bits < 8 || bits % 2 != 0) {
+        return std::nullopt;
+    }
+    const uint64_t half = bits / 2;
+    // ad (2^H + 1) < 2^53, with ad <= bound.
+    if (*bound >= (uint64_t(1) << 53) / ((uint64_t(1) << half) + 1)) {
+        return std::nullopt;
+    }
+    // The word the two numerators are computed in: 64 bits, so that
+    // ad 2^H fits it -- for a 64-bit word the bound (below 2^21) already says
+    // so; for a narrower word every divisor of its width does.
+    const bool widen_it = bits < 64;
+    const Type work = widen_it ? UInt_t::make(64) : type;
+    const auto up = [&](const ValuePtr &v) {
+        return widen_it ? e.emit(Instruction::Op::Cast, work, {v}) : v;
+    };
+    const Type f64 = Float_t::make_f64();
+    ValuePtr d = up(ad);
+    ValuePtr shift = e.constant(work, half);
+    ValuePtr fd = e.emit(Instruction::Op::Cast, f64, {d});
+    ValuePtr n1 = e.emit(Instruction::Op::Shl, work, {up(numerator_high), shift});
+    ValuePtr q1 = e.emit(Instruction::Op::Cast, work,
+                         {e.emit(Instruction::Op::Div, f64,
+                                 {e.emit(Instruction::Op::Cast, f64, {n1}), fd})});
+    ValuePtr r1 = e.emit(Instruction::Op::Sub, work,
+                         {n1, e.emit(Instruction::Op::Mul, work, {q1, d})});
+    ValuePtr n2 = e.emit(Instruction::Op::Shl, work, {r1, shift});
+    ValuePtr q2 = e.emit(Instruction::Op::Cast, work,
+                         {e.emit(Instruction::Op::Div, f64,
+                                 {e.emit(Instruction::Op::Cast, f64, {n2}), fd})});
+    ValuePtr high = e.emit(Instruction::Op::Shl, work, {q1, shift});
+    ValuePtr sum = e.emit(Instruction::Op::Add, work, {high, q2});
+    ValuePtr m = e.emit(Instruction::Op::Add, work, {sum, e.constant(work, 1)});
+    return widen_it ? e.emit(Instruction::Op::Cast, type, {m}) : m;
+}
+
 // Emits the multiplier of `d` into `e`, which is positioned right after the
 // divisor's definition. `d` is the divisor as an operand valid there.
 Multiplier emit_multiplier(Emitter &e, const ValuePtr &d, const Type &type) {
@@ -220,37 +306,78 @@ Multiplier emit_multiplier(Emitter &e, const ValuePtr &d, const Type &type) {
     auto name_of = [](const ValuePtr &v) {
         return std::get<shared_ptr<Instruction>>(v->data)->name;
     };
+    const optional<uint64_t> bound = divisor_bound(d, type);
+    ValuePtr zero = e.constant(type, 0);
+    ValuePtr one = e.constant(type, 1);
 
-    ValuePtr m = e.intrinsic(ir::Intrinsic::div_multiplier, type, {d});
-    out.m = name_of(m);
     if (type.is_uint()) {
         // l = ceil(log2 d) = N - clz(d - 1); sh1 = min(l, 1), sh2 = max(l, 1)
         // - 1 (Granlund & Montgomery, figure 4.2). With sh1 = 0 for d = 1
         // the quotient below comes out as n itself, so d = 1 needs no case
         // of its own.
-        ValuePtr dm1 = e.emit(Instruction::Op::Sub, type, {d, e.constant(type, 1)});
+        ValuePtr dm1 = e.emit(Instruction::Op::Sub, type, {d, one});
         ValuePtr clz = e.intrinsic(ir::Intrinsic::clz, type, {dm1});
         ValuePtr l = e.emit(Instruction::Op::Sub, type, {e.constant(type, bits), clz});
-        ValuePtr sh1 = e.emit(Instruction::Op::Min, type, {l, e.constant(type, 1)});
-        ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, e.constant(type, 1)});
-        ValuePtr sh2 = e.emit(Instruction::Op::Sub, type, {l1, e.constant(type, 1)});
+        ValuePtr sh1 = e.emit(Instruction::Op::Min, type, {l, one});
+        ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, one});
+        ValuePtr sh2 = e.emit(Instruction::Op::Sub, type, {l1, one});
         out.sh1 = name_of(sh1);
         out.sh2 = name_of(sh2);
+        // m' = floor(2^N (2^l - d) / d) + 1. A zero divisor divides by one
+        // instead: its multiplier is never used, but this is computed where
+        // the divisor is defined, for lanes that never divide too. 2^l as
+        // an N-bit number is zero when l = N, and a shift by N is not.
+        ValuePtr m;
+        if (bound) {
+            ValuePtr ds = e.emit(Instruction::Op::Select, type,
+                                 {e.emit(Instruction::Op::Eq, Bool_t::make(), {d, zero}),
+                                  one, d});
+            ValuePtr two_l = e.emit(
+                Instruction::Op::Select, type,
+                {e.emit(Instruction::Op::Eq, Bool_t::make(), {l, e.constant(type, bits)}),
+                 zero, e.emit(Instruction::Op::Shl, type, {one, l})});
+            ValuePtr a = e.emit(Instruction::Op::Sub, type, {two_l, ds});
+            if (const optional<ValuePtr> two_step =
+                    bounded_multiplier(e, ds, a, type, bound)) {
+                m = *two_step;
+            }
+        }
+        if (!m) {
+            m = e.intrinsic(ir::Intrinsic::div_multiplier, type, {d});
+        }
+        out.m = name_of(m);
         return out;
     }
     // Signed: l = max(ceil(log2 |d|), 1), the shift is l - 1, and the sign of
     // d is applied to the quotient at the end (figure 5.2).
-    ValuePtr zero = e.constant(type, 0);
     ValuePtr negative = e.emit(Instruction::Op::Lt, Bool_t::make(), {d, zero});
     ValuePtr negated = e.emit(Instruction::Op::Sub, type, {zero, d});
     ValuePtr ad = e.emit(Instruction::Op::Select, type, {negative, negated, d});
-    ValuePtr adm1 = e.emit(Instruction::Op::Sub, type, {ad, e.constant(type, 1)});
+    ValuePtr adm1 = e.emit(Instruction::Op::Sub, type, {ad, one});
     ValuePtr clz = e.intrinsic(ir::Intrinsic::clz, type, {adm1});
     ValuePtr l = e.emit(Instruction::Op::Sub, type, {e.constant(type, bits), clz});
-    ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, e.constant(type, 1)});
-    ValuePtr sh = e.emit(Instruction::Op::Sub, type, {l1, e.constant(type, 1)});
+    ValuePtr l1 = e.emit(Instruction::Op::Max, type, {l, one});
+    ValuePtr sh = e.emit(Instruction::Op::Sub, type, {l1, one});
     out.sh1 = name_of(sh);
     out.negative = name_of(negative);
+    // m = floor(2^(N + l - 1) / |d|) + 1, taken modulo 2^N: the multiple of
+    // 2^N divided is 2^(l - 1). A bound on d is a bound on |d| here, since
+    // upper_bound only bounds a value it knows non-negative.
+    ValuePtr m;
+    if (bound) {
+        ValuePtr ads = e.emit(Instruction::Op::Select, type,
+                              {e.emit(Instruction::Op::Eq, Bool_t::make(), {ad, zero}),
+                               one, ad});
+        ValuePtr half_pow = e.emit(Instruction::Op::Shl, type, {one, sh});
+        if (const optional<ValuePtr> two_step =
+                bounded_multiplier(e, ads, half_pow, type, bound)) {
+            m = *two_step;
+        }
+    }
+    if (!m) {
+        m = e.intrinsic(ir::Intrinsic::div_multiplier, type, {d});
+    }
+    out.m = name_of(m);
     return out;
 }
 
@@ -910,7 +1037,16 @@ size_t divide_bounded_by_floats(Function &func, const Divergence &divergence) {
     return rewritten;
 }
 
-size_t divide_by_invariants(Function &func) {
+namespace {
+
+// The rewrite behind both entry points. A division is worth a multiplier
+// when its divisor is invariant in one of two senses: across a loop the
+// division is in (its definition lies outside), or -- with `divergence` in
+// hand, inside a gang -- across the lanes, the divisor uniform while the
+// dividend varies, so that the one multiplier serves sixteen divisions the
+// machine would otherwise do one lane at a time.
+size_t divide_by_definitions(Function &func, const Divergence *divergence,
+                             const string *region_entry) {
     if (func.blocks.empty()) {
         return 0;
     }
@@ -918,13 +1054,12 @@ size_t divide_by_invariants(Function &func) {
     const Cfg cfg(func);
     const DomTree dom = compute_dominator_tree(cfg);
     const LoopForest loops = compute_loop_forest(cfg, dom);
-    if (loops.empty()) {
+    if (loops.empty() && divergence == nullptr) {
         return constants;
     }
-    Tracer tracer(func, cfg);
+    Tracer tracer(func, cfg, region_entry);
 
-    // The divisions worth the multiplier: one whose divisor is defined
-    // outside a loop the division is in. A scalar integer, not a constant.
+    // The divisions worth the multiplier. A scalar integer, not a constant.
     struct Site {
         string block;
         shared_ptr<Instruction> instr;
@@ -947,9 +1082,14 @@ size_t divide_by_invariants(Function &func) {
             if (!def.has_value()) {
                 continue; // a constant divisor: zero, the one kind left
             }
-            const bool invariant =
+            const bool loop_invariant =
                 loop != nullptr && !loop->blocks.contains(cfg.id(def->block));
-            (invariant ? worth : others)[*def].push_back(Site{name, instr});
+            const bool lane_invariant =
+                divergence != nullptr &&
+                !divergence->is_varying(name, *instr->operands[1]) &&
+                divergence->is_varying(name, *instr->operands[0]);
+            (loop_invariant || lane_invariant ? worth : others)[*def].push_back(
+                Site{name, instr});
         }
     }
     if (worth.empty()) {
@@ -1006,6 +1146,17 @@ size_t divide_by_invariants(Function &func) {
         }
     }
     return rewritten;
+}
+
+} // namespace
+
+size_t divide_by_invariants(Function &func) {
+    return divide_by_definitions(func, nullptr, nullptr);
+}
+
+size_t divide_by_uniform_divisors(Function &func, const Divergence &divergence,
+                                  const string &region_entry) {
+    return divide_by_definitions(func, &divergence, &region_entry);
 }
 
 } // namespace ssa

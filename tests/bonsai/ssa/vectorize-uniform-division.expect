@@ -1,0 +1,95 @@
+func parts(a : u64[8], d : u64, out : mut u64[8]) -> void {
+  let @4 = d - 1u in
+  let @5 = clz(@4) in
+  let @6 = 64u - @5 in
+  let @7 = min(@6, 1u) in
+  let @8 = max(@6, 1u) in
+  let @9 = @8 - 1u in
+  let @10 = div_multiplier(d) in
+  let @0 = a[ramp(0, 1, 8)] in
+  let @17 = u64x8(@10) in
+  let @11 = mulhi(@17, @0) in
+  let @12 = @0 - @11 in
+  let @18 = u64x8(@7) in
+  let @13 = @12 >> @18 in
+  let @14 = @11 + @13 in
+  let @19 = u64x8(@9) in
+  let @15 = @14 >> @19 in
+  let @20 = u64x8(d) in
+  let @16 = @15 * @20 in
+  let @1 = @0 - @16 in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func scale(a : u64[8], d : u64, out : mut u64[8]) -> void {
+  let @4 = d - 1u in
+  let @5 = clz(@4) in
+  let @6 = 64u - @5 in
+  let @7 = min(@6, 1u) in
+  let @8 = max(@6, 1u) in
+  let @9 = @8 - 1u in
+  let @10 = div_multiplier(d) in
+  let @0 = a[ramp(0, 1, 8)] in
+  let @15 = u64x8(@10) in
+  let @11 = mulhi(@15, @0) in
+  let @12 = @0 - @11 in
+  let @16 = u64x8(@7) in
+  let @13 = @12 >> @16 in
+  let @14 = @11 + @13 in
+  let @17 = u64x8(@9) in
+  let @1 = @14 >> @17 in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func small(a : u32[8], d : u32, out : mut u32[8]) -> void {
+  let @4 = d - 1u in
+  let @5 = clz(@4) in
+  let @6 = 32u - @5 in
+  let @7 = min(@6, 1u) in
+  let @8 = max(@6, 1u) in
+  let @9 = @8 - 1u in
+  let @10 = d == 0u in
+  let @11 = select(@10, 1u, d) in
+  let @12 = @6 == 32u in
+  let @13 = 1u << @6 in
+  let @14 = select(@12, 0u, @13) in
+  let @15 = @14 - @11 in
+  let @16 = cast<u64>(@11) in
+  let @17 = cast<f64>(@16) in
+  let @18 = cast<u64>(@15) in
+  let @19 = @18 << 16u in
+  let @20 = cast<f64>(@19) in
+  let @21 = @20 / @17 in
+  let @22 = cast<u64>(@21) in
+  let @23 = @22 * @16 in
+  let @24 = @19 - @23 in
+  let @25 = @24 << 16u in
+  let @26 = cast<f64>(@25) in
+  let @27 = @26 / @17 in
+  let @28 = cast<u64>(@27) in
+  let @29 = @22 << 16u in
+  let @30 = @29 + @28 in
+  let @31 = @30 + 1u in
+  let @32 = cast<u32>(@31) in
+  let @0 = a[ramp(0, 1, 8)] in
+  let @37 = u32x8(@32) in
+  let @33 = mulhi(@37, @0) in
+  let @34 = @0 - @33 in
+  let @38 = u32x8(@7) in
+  let @35 = @34 >> @38 in
+  let @36 = @33 + @35 in
+  let @39 = u32x8(@9) in
+  let @1 = @36 >> @39 in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+
+schedule host {
+    parts.vectorize(i)
+    scale.vectorize(i)
+    small.vectorize(i)
+
+}

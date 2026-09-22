@@ -68,6 +68,25 @@ size_t divide_by_invariants(Function &func);
 // (CodeGen_LLVM::vector_int_division). Returns how many were rewritten.
 size_t divide_bounded_by_floats(Function &func, const Divergence &divergence);
 
+// Division by a divisor the lanes of a gang agree on.
+//
+// The second kind of invariance. `divide_by_invariants` finds a divisor a
+// loop does not change; inside a gang the divergence analysis knows a
+// divisor the lanes do not change -- a uniform value dividing a varying one,
+// apps/pbrt's Halton index over the sampler's base scale -- and no machine
+// divides a vector of integers, so the lanes were divided one at a time.
+// The same rewrite, with that criterion: the multiplier is computed once,
+// on the scalar divisor where it is defined (a 128-bit division for a
+// 64-bit divisor, one, rather than one per lane), and every lane's division
+// is a multiply-high by its broadcast. Run by the vectorizer before it
+// widens, after divide_bounded_by_floats, which is cheaper where it
+// applies. `region_entry` names the block the vectorized region begins at:
+// a divisor defined beyond it reaches the region as that block's argument,
+// and its multiplier is computed there, at the region's top. Returns how
+// many divisions were rewritten.
+size_t divide_by_uniform_divisors(Function &func, const Divergence &divergence,
+                                  const std::string &region_entry);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

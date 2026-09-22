@@ -1631,6 +1631,10 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // analysis below, which then sees the conversions and the float division
     // as the varying values they are.
     divide_bounded_by_floats(*variant, analyze(varying_args, masked_blocks));
+    // And a division by a divisor the lanes agree on gets one multiplier,
+    // computed on the scalar (see SSA/InvariantDivision.h).
+    divide_by_uniform_divisors(*variant, analyze(varying_args, masked_blocks),
+                               entry);
 
     const Divergence div = analyze(varying_args, masked_blocks);
     if (!div.branches.empty()) {
@@ -1828,6 +1832,11 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     divide_bounded_by_floats(
         *f, analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
                                nullptr, masked_blocks));
+    divide_by_uniform_divisors(
+        *f,
+        analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
+                           nullptr, masked_blocks),
+        entry);
 
     // Re-run the analysis now that the region is linearized and the index is
     // the ramp: the masks and blends linearization introduced have to be

@@ -7,6 +7,7 @@ add_bonsai_tests(
     atanh-cosh.bonsai
     atomic-accumulate.bonsai
     bitwise.bonsai
+    bounded-multiplier.bonsai
     bsdf-f.bonsai
     cast-bool.bonsai
     coated-diffuse.bonsai
@@ -25,6 +26,7 @@ add_bonsai_tests(
     vectorize-division.bonsai
     vectorize-masked-math-call.bonsai
     vectorize-uniform-around-return.bonsai
+    vectorize-uniform-division.bonsai
     vectorize-vector-index.bonsai
     defer-mut-local.bonsai
     defer-off-chain.bonsai

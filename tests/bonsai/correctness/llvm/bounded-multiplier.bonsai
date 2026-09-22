@@ -1,0 +1,115 @@
+//! flags: -p ssa -b llvm -e
+
+// The multiplier of a divisor known to be small, computed by two exact
+// double divisions instead of a division twice the word's width (see
+// bounded_multiplier in SSA/InvariantDivision.cpp), run.
+//
+// Each function reverses the digits of `n` in base `b` -- the Halton loop's
+// shape, a division by `b` per digit in a loop `b` does not change -- so a
+// multiplier one off would show as a wrong digit somewhere in the tables
+// below, which reach the corners: bases of 2 and of 65535, dividends of
+// 2^64 - 1 and of every sign. The reversal wraps modulo the word, as the
+// integer arithmetic does. Every value in the golden was computed by Python
+// with C's truncation toward zero and the same wrapping, not by running
+// this.
+//
+//   * `reversed_u64` divides by a base from a `u16` table: a divisor below
+//     2^16, so the two double divisions are exact.
+//   * `reversed_i64` is the signed form, over dividends of both signs.
+//   * `reversed_u32` has a `u32` divisor bounded by its type alone.
+//   * `gang` is `reversed_u64` across sixteen lanes, each with its own base:
+//     the multiplier is two vector double divisions.
+
+element Bases = array[u16, 8];
+
+func [[noinline]] reversed_u64(n : u64, bases : Bases, i : i32) -> u64 {
+    b : u64 = cast[[u64]](bases[i]);
+    v : mut u64 = n;
+    r : mut u64 = 0u;
+    while v != 0u {
+        next = v / b;
+        r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func [[noinline]] reversed_i64(n : i64, bases : Bases, i : i32) -> i64 {
+    b : i64 = cast[[i64]](bases[i]);
+    v : mut i64 = n;
+    r : mut i64 = 0;
+    while v != 0 {
+        next = v / b;
+        r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func [[noinline]] reversed_u32(n : u32, b : u32) -> u32 {
+    v : mut u32 = n;
+    r : mut u32 = 0u;
+    while v != 0u {
+        next = v / b;
+        r = r * b + (v - next * b);
+        v = next;
+    }
+    return r;
+}
+
+func [[noinline]] gang(ns : array[u64, 16], bases : array[u16, 16],
+                       out : mut array[u64, 16]) -> void {
+    parfor i in 0:16 {
+        b : u64 = cast[[u64]](bases[i]);
+        v : mut u64 = ns[i];
+        r : mut u64 = 0u;
+        while v != 0u {
+            next = v / b;
+            r = r * b + (v - next * b);
+            v = next;
+        }
+        out[i] = r;
+    }
+    return;
+}
+
+func main() -> i32 {
+    bases : Bases = {2u, 3u, 7u, 641u, 7919u, 65535u, 4u, 10u};
+    ns : array[u64, 8] = {0u, 1u, 7u, 1000003u, 4294967295u, 4294967296u,
+                          9223372036854775807u, 18446744073709551615u};
+    for k in 0:8 {
+        for i in 0:8 {
+            print(reversed_u64(ns[k], bases, i));
+        }
+    }
+    is : array[i64, 10] = {0, 1, -1, 7, -7, 1000003, -1000003, 2147483647,
+                           9223372036854775807, -9223372036854775807};
+    for k in 0:10 {
+        for i in 0:8 {
+            print(reversed_i64(is[k], bases, i));
+        }
+    }
+    ns32 : array[u32, 8] = {0u, 1u, 7u, 65536u, 1000003u, 2147483647u,
+                            2147483648u, 4294967295u};
+    bs32 : array[u32, 7] = {2u, 3u, 7u, 641u, 65537u, 2147483648u,
+                            4294967295u};
+    for k in 0:8 {
+        for j in 0:7 {
+            print(reversed_u32(ns32[k], bs32[j]));
+        }
+    }
+    ns16 : array[u64, 16] = {0u, 1u, 7u, 1000003u, 4294967295u, 4294967296u,
+                             9223372036854775807u, 18446744073709551615u, 2u,
+                             3u, 99999u, 123456789012u, 5u, 6u, 7919u, 65536u};
+    bases16 : array[u16, 16] = {2u, 3u, 7u, 641u, 7919u, 65535u, 4u, 10u, 2u,
+                                3u, 5u, 6u, 65535u, 7919u, 7919u, 65535u};
+    out : mut array[u64, 16] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+                                0u, 0u, 0u, 0u, 0u};
+    gang(ns16, bases16, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    gang.vectorize(i);
+}
