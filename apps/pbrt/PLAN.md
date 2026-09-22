@@ -4301,6 +4301,198 @@ runs after it so nothing exposes this, but it would if promotion moved
 earlier; the exported function's `bonsai_buffer_require` calls cost it
 LLVM's inferred memory attributes, which its internal twin keeps.
 
+## The megakernel's register pressure (2026-09-22)
+
+What `ptxas -v` and the driver's occupancy query say about `_kernel_p_0` as
+`schedules/gpu.bonsai` compiles it for `sm_120` (RTX 5090: 170 SMs, 64K
+registers and 48 warps per SM, 24 blocks per SM):
+
+| | registers | stack frame | spills (stores / loads) |
+|---|---|---|---|
+| `_kernel_p_0` | 255 (the cap) | 3216 B | 68 B / 204 B |
+| `full_path_step` (a `.func`, not inlined) | -- | 0 | 1404 B / 4516 B |
+| `path_step` | -- | 0 | 1204 B / 2856 B |
+| `walk_step` | -- | 0 | 360 B / 576 B |
+| `coated_f`, `bxdf_rho`, `dielectric_pdf`, `light_sample_li`, `material_bxdf`, ... | -- | 0 | tens of bytes each |
+
+Twenty-three functions survive as separate `.func`s after LLVM's inliner,
+the three integrator steps -- the loopified tail recursions, one call per
+sample -- with kilobytes of spill traffic each. At 255 registers the SM
+holds 8 warps whatever the block size (16 spp is 8 blocks of half a warp,
+256 spp is one block of 8 warps): **16.7% occupancy**, and at 16 spp half
+of every warp's lanes are idle on top of that. Capping the registers buys
+warps at the price of spills: `-maxrregcount=128` doubles the warps to 16
+and takes `full_path_step` to 1892 / 4852 B of spills, `96` to 2392 /
+5952 B, `64` (32 warps) to 3522 / 7016 B -- a trade to measure, not to
+assume, since a spill is a local-memory access per iteration of the loop
+that spilled it and the traversal stacks are already 2 KB of local per
+thread.
+
+What this says about the kernel, in order of what to try:
+
+1. **The block is the wrong shape.** `bind(p, GPUBlock); bind(s, GPUThread)`
+   makes a block of one pixel's samples: 16 threads at 16 spp. pbrt's
+   megakernel-era renderers and every GPU path tracer put many pixels in a
+   block. The schedule can say so without touching the program:
+   `render.collapse(p, s, ps).split(ps, 128, blk, thr).bind(blk,
+   GPUBlock).bind(thr, GPUThread)` -- 128 samples per block from
+   consecutive pixels, and coherent ones, since `s` is the inner index.
+   That is the first thing to measure against the current schedule.
+2. **Inline the steps, or give them a frame.** A `.func` call on NVPTX has
+   the ABI's cost and, more, the callee's spills are its own: the three
+   step functions spill because they are called from a kernel already at
+   255 registers. Marking the loopified step `alwaysinline` (the schedule
+   made it a loop the kernel runs once per sample; there is no second
+   caller) lets ptxas allocate the whole path as one function. Whether
+   that lowers or raises the peak is the measurement.
+3. **Launch bounds.** `maxntid` and `minnctapersm` on the kernel let ptxas
+   target an occupancy rather than the register cap; NVPTX takes them as
+   function metadata. Sweep 128 and 96 registers against the images'
+   timings.
+4. **The local stacks.** 64 entries of `u32` for the top-level traversal
+   and 64 for an instance's, per thread, in local memory: the same
+   depth-first megakernel as pbrt's own CPU integrator, and half the
+   3216-byte frame. A shallower stack (the trees are not 64 deep) is a
+   schedule parameter already (`trace.loopify(64)`); shared memory for the
+   stack is what the PTX backend does not allocate yet.
+
+None of this changes what the kernel computes, which is why it comes after
+the measurement and not before it.
+
+## volpath, because `pbrt --gpu` is only volpath (planned 2026-09-22)
+
+pbrt's GPU renderer runs one integrator, the wavefront volpath, whatever the
+scene's `Integrator` directive says (`wavefront/integrator.cpp` warns and
+goes on). So every apps/pbrt number against `pbrt --gpu` is a number against
+volpath, and by the rule that a comparison runs both renderers on the same
+integrator, this renderer needs volpath before such a number means anything
+-- and needs it as pbrt has it, media and all, not as "path with the
+volpath estimator", which on a scene without media would give the same
+image and hide that half the integrator is missing. The user's direction:
+"we then need to work on getting volpath going in the renderer, because the
+PBRT GPU is only volpath. And we'll need to see about representing the same
+type of wavefront as them, for expressibility purposes."
+
+**What `VolPathIntegrator::Li` is, read from `cpu/integrators.cpp:953`.**
+The path integrator's loop with four additions. (1) The MIS weights are
+carried as *rescaled path probabilities* `r_u` and `r_l` (SampledSpectrum,
+one per wavelength) rather than a scalar `p_b`: emission is weighed by
+`beta * Le / (r_u + r_l).Average()`, a BSDF sample sets `r_l = r_u /
+bs->pdf` (or `/ bsdf.PDF(wo, wi)` when the density was only proportional),
+and roulette reads `beta * etaScale / r_u.Average()`. On a surface-only path
+this equals the path integrator's power heuristic, computed differently; the
+random draws are the same, so the two images agree the way `path` and
+`simplepath` do, sample for sample, and that is the test. (2) A ray inside a
+medium samples it before anything else: `SampleT_maj` walks the majorant
+segments (one, for a homogeneous medium; the DDA over a majorant grid for a
+grid medium) drawing exponential steps with an RNG seeded from two
+`sampler.Get1D()` hashes and stepping with `rng.Uniform()`, and at each
+tentative collision the callback chooses absorb / real scatter / null
+scatter by `sigma_a[0] : sigma_s[0] : rest` of `sigma_maj[0]`; a real
+scatter samples the phase function (Henyey-Greenstein, `sample_hg` exists in
+bxdf.bonsai for the layered BSDF) and direct light from the medium point; a
+null scatter rescales `beta`, `r_u`, `r_l` and continues; and a survivor
+scales by `T_maj / T_maj[0]`. (3) A surface with no BSDF -- the `interface`
+material, which is what a medium boundary is -- is skipped:
+`SkipIntersection` respawns the ray in the same direction with the new
+medium and moves the differentials' origins, and the depth does not count
+it. (4) `SampleLd` traces the shadow ray with the closest-hit `Intersect`,
+not `IntersectP`: an opaque hit is occlusion, an interface hit is a medium
+change to continue through, and each segment inside a medium multiplies in a
+ratio-tracking transmittance estimate with its own `r_u`/`r_l` and a
+roulette at `Tr < 0.05`. The medium a ray carries comes from
+`Interaction::GetMedium(w)`: at a surface whose primitive has a medium
+transition, `dot(w, n) > 0 ? outside : inside`; otherwise the ray keeps its
+medium. Camera rays start in `CameraMedium`. BSSRDF (subsurface) is in the
+same loop and is a later phase.
+
+**What this renderer lacks for it.** Everything about media: the scene
+format and converter refuse `MakeNamedMedium` and any `MediumInterface`
+naming a medium (scene_dump.cpp, on purpose, so that a scene with fog did not
+convert with the fog missing); `Ray` has no medium; a `Geometric` has
+material, light and alpha but no interface; the material ADT has no
+`Interface` arm; and the integrator ADT has no `VolPath`. The nine scenes
+that need media (PLAN.md, "What the scenes need") are four kinds:
+`homogeneous` (crown, dambreak, kroken, watercolor -- glass, liquid, gems),
+`uniformgrid`/`rgbgrid` (explosion, smoke-plume), `nanovdb` (bunny-cloud,
+clouds, disney-cloud), and `cloud` (a procedural one).
+
+**The plan, in phases that each render something pbrt renders.**
+
+*Phase V1 -- volpath with homogeneous media and interfaces.* The scene
+format gains a `media` list (`Medium { tag, spectra_base, g, emissive }`
+with the three spectra -- `sigma_a`, `sigma_s`, `Le` scaled by `scale` and
+`Lescale / SpectrumToPhotometric(Le)` as `HomogeneousMedium::Create` does --
+tabulated at the 471 integer nanometres a `DenselySampledSpectrum` holds, so
+the renderer's `spectrum_at_dense` reproduces pbrt's rounding), a
+`camera_medium`, `medium_inside`/`medium_outside` per shape (the converter
+resolves the names through the builder's media map; a shape whose two sides
+name the same medium is not a transition, as `MediumInterface::
+IsMediumTransition` says), an `Interface` material tag, and a `VolPath`
+integrator tag with the same parameters as `path`. The renderer gains
+`media.bonsai`: `element Medium`, `MediumProperties`, `medium_sample_point`,
+the homogeneous majorant segment; `Geometric` gains the two medium fields
+(the layout changes; the driver's `Geometric{...}` constructor call and the
+`_tree_layout0` twin follow); `Material` gains `Interface`; `Integrator`
+gains `VolPath`; `Ray` stays as it is and the medium travels beside it as
+`ray_diff` does, an `i32` index or -1, because `stdlib/ray.bonsai`'s `Ray` is
+every test's ray. `vol_path_step` is the tail recursion `full_path_step` is,
+with `r_u`, `r_l` and `medium` carried; the majorant walk is its own tail
+recursion (`t_maj_step`), the medium event it returns a struct the step
+matches on, so that `loopify` can make loops of both as it does of the
+traversal; `vol_sample_ld` is `path_sample_ld` with a context that may be a
+medium point (no normal, phase function for `f_hat`), and its shadow ray a
+tail recursion over closest hits through interfaces with the ratio-tracking
+segments. `full_path_step`, `path_step` and `walk_step` gain the
+interface skip too (pbrt's `path`, `simplepath` and `randomwalk` all have
+`if (!bsdf) { SkipIntersection; continue; }`), since a `path` scene with an
+interface material is legal. `render` takes `media`, `medium_spectra` and
+`camera_medium`. Tests: the existing scenes under `volpath` must match
+`path` sample for sample (no media; the check is the images agreeing as
+`path` and `simplepath` do), a `scenes/` scene with a homogeneous slab and
+one with an interface-only boundary checked against pbrt, and the crown
+scene through `compare.sh`. The GPU schedule then renders volpath, which is
+what `pbrt --gpu` is compared against.
+
+*Phase V2 -- grid media.* `uniformgrid` and `rgbgrid`: the density grid
+(`SampledGrid<Float>` with its trilinear `Lookup`), the majorant grid (16^3
+maxima over the density, `GridMedium`'s constructor), the DDA majorant
+iterator as a second majorant segment source (a tail recursion over voxels
+with the segment as its yield), the medium's `renderFromMedium` and bounds,
+and the RGB grids' `RGBUnboundedSpectrum` per voxel for `rgbgrid`. The
+converter reads the grid parameters and writes the arrays. Scenes:
+explosion, smoke-plume.
+
+*Phase V3 -- NanoVDB and the procedural cloud.* pbrt reads `.nvdb` files
+through NanoVDB's header-only reader and samples the tree per lookup; the
+converter can do the same read (scene_dump links pbrt) and dump the tree's
+leaf nodes and its majorant grid as arrays, with a faithful NanoVDB tree
+lookup in the renderer, or, since a `nanovdb` medium's `SamplePoint` is a
+trilinear lookup on a sparse grid, dump it as the sparse structure it is.
+Which is decided when V3 starts. `cloud` is pbrt's procedural Perlin-noise
+density, a translation. Scenes: bunny-cloud, clouds, disney-cloud.
+
+*Phase V4 -- subsurface.* `GetBSSRDF`, the probe-segment intersection with
+`Intersect(r, 1)` collecting hits of the same material into a reservoir, and
+`TabulatedBSSRDF`. Scene: sssdragon. Independent of media.
+
+**The wavefront question.** pbrt's GPU renderer is a wavefront: per bounce,
+a ray queue is traced (`IntersectClosest`) into queues by outcome -- escaped
+rays, hits of area lights, hits to evaluate by material class (basic and
+universal), medium samples -- each drained by its own kernel, with shadow
+rays batched in a queue of their own (`IntersectShadow`, or `IntersectShadowTr`
+through media) and the film written from a queue. The schedule language has
+one queue directive today, `defer()`, which queues the *continuation* of a
+deferred call and drains it by round -- the compact packet's queue of paths
+between bounces. What pbrt's shape needs beyond it is a queue *per stage of
+one bounce*, keyed by an outcome the program computes (which material class
+the hit has), and a shadow ray as a deferred `unoccluded` whose result is
+consumed after the batch. Whether that is `defer()` applied at several call
+sites of `vol_path_step` with a key, or a directive of its own, is the
+expressibility question the user posed; it is answered by writing pbrt's
+wavefront down as a schedule of `vol_path_step` and seeing what is missing,
+after V1 gives the program the same stages pbrt's has.
+
 ## Known-open, smaller
 
 - `cie_tables.h` and `rgb2spec_tables.h` are generated by
