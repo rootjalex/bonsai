@@ -351,9 +351,10 @@ def convert_scene(args, out, scene, shared):
     repeated per cell. Nor per run, when nothing it depends on has changed:
     the dump is kept if it is newer than every file under the scene's own
     directory (its `Include`s and meshes live there), newer than the
-    converter's sources (apps/pbrt's C++, which is what the converter's
-    behaviour is a function of; its binary is rebuilt every run), and was
-    made with the same tree flag. Anything newer, or any doubt, converts
+    converter's sources (scene_dump.cpp, what it includes from apps/pbrt,
+    and the script that builds it -- its binary is rebuilt every run, so it
+    says nothing) and than the pbrt binary (whose BVH the dump takes), and
+    was made with the same tree flag. Anything newer, or any doubt, converts
     again. The dumps an earlier version of this tool made per cell are
     removed, being the same scene thirty-five times over."""
     for stale in os.listdir(out):
@@ -365,9 +366,11 @@ def convert_scene(args, out, scene, shared):
     if os.path.isfile(path) and os.path.isfile(stamp) and \
             open(stamp).read().strip() == " ".join(flags):
         made = os.path.getmtime(path)
+        converter = ["scene_dump.cpp", "scene_io.h", "cie_tables.h",
+                     "measured_io.h", "build_scene_dump.sh"]
         inputs = max(newest_under(os.path.dirname(scene)),
-                     newest_under(PREFIX, (".cpp", ".h")),
-                     os.path.getmtime(args.pbrt))  # the BVH is pbrt's
+                     *(os.path.getmtime(f"{ROOT}/{PREFIX}/{f}") for f in converter),
+                     os.path.getmtime(args.pbrt))
         if inputs < made:
             say("the scene is converted already (nothing it depends on has "
                 "changed since; remove scene.txt to convert again)")
