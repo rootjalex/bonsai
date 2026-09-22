@@ -77,6 +77,14 @@ void replace_uses(Function &func, const Instruction *of,
 // value a terminator reads or passes?
 bool has_uses(const Function &func, const Instruction *of);
 
+// Every place `func` holds a value: the operands of its instructions, what
+// its terminators read or pass (a dispatch's condition, a return's value, a
+// parfor's bounds, every jump's arguments, a run's per-call values and
+// keys), and the values its blocks look names up to. `fn` may replace the
+// value it is handed, which is what replace_uses does with this.
+void for_each_value(Function &func,
+                    const std::function<void(std::shared_ptr<Value> &)> &fn);
+
 //===--------------------------------------------------------------------===//
 // Control flow graph
 //===--------------------------------------------------------------------===//

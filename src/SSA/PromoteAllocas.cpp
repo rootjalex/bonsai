@@ -2,6 +2,8 @@
 
 #include "SSA/Analysis.h"
 
+#include "IR/Mutator.h"
+
 #include "Utils.h"
 
 #include <algorithm>
@@ -134,6 +136,96 @@ std::optional<Instruction::Op> accumulate_binop(Instruction::Op op) {
     default:
         return std::nullopt;
     }
+}
+
+// A value's name may be in a *type*: an array whose length is not a constant
+// is `f32[n]` for the value `n` -- a queue's storage sized by the sample
+// count, say (SSA/Defer.cpp) -- and the code generator finds `n` by that
+// name when it allocates or indexes the array. So a load this pass deletes,
+// whose uses it points at the value reaching it, has to be renamed inside
+// the types too, or the types keep naming a value that no longer exists.
+// This rewrites the sizes: the base mutator leaves them alone.
+struct RenameInTypes : ir::Mutator {
+    const map<string, ir::Expr> &renames;
+    explicit RenameInTypes(const map<string, ir::Expr> &renames)
+        : renames(renames) {}
+
+    ir::Expr visit(const ir::Var *node) override {
+        const auto it = renames.find(node->name);
+        return it == renames.end() ? ir::Expr(node) : it->second;
+    }
+    Type visit(const ir::Array_t *node) override {
+        Type etype = mutate(node->etype);
+        ir::Expr size = node->size.defined() ? mutate(node->size) : node->size;
+        if (etype.same_as(node->etype) && size.same_as(node->size)) {
+            return node;
+        }
+        return ir::Array_t::make(std::move(etype), std::move(size));
+    }
+    Type visit(const ir::DynArray_t *node) override {
+        Type etype = mutate(node->etype);
+        ir::Expr capacity =
+            node->capacity.defined() ? mutate(node->capacity) : node->capacity;
+        if (etype.same_as(node->etype) && capacity.same_as(node->capacity)) {
+            return node;
+        }
+        return ir::DynArray_t::make(std::move(etype), std::move(capacity));
+    }
+};
+
+// The expression that stands for `v` in a type: the value by name, or the
+// constant itself.
+ir::Expr expr_of(const Value &v) {
+    return std::visit(
+        overloads{
+            [](const Argument &a) { return ir::Var::make(a.type, a.name); },
+            [](const shared_ptr<Instruction> &i) {
+                return ir::Var::make(i->type, i->name);
+            },
+            [](const Constant &c) {
+                return std::visit(
+                    overloads{
+                        [](const bool &b) { return ir::BoolImm::make(b); },
+                        [&](const int64_t &i) {
+                            return ir::IntImm::make(c.type, i);
+                        },
+                        [&](const uint64_t &u) {
+                            return ir::UIntImm::make(c.type, u);
+                        },
+                        [&](const double &d) {
+                            return ir::FloatImm::make(c.type, d);
+                        },
+                        [&](const std::string &s) {
+                            return ir::StringImm::make(s);
+                        },
+                        [&](const Undefined &) { return ir::Undef::make(c.type); },
+                    },
+                    c.data);
+            }},
+        v.data);
+}
+
+// Renames the deleted loads in every type the function holds: the types of
+// its instructions and of what they ask the size of, its blocks' parameters,
+// and the copies of a parameter that its values carry.
+void rename_in_types(Function &func, const map<string, ir::Expr> &renames) {
+    RenameInTypes renamer(renames);
+    for (const auto &block : func.blocks) {
+        for (Argument &arg : block->args) {
+            arg.type = renamer.mutate(arg.type);
+        }
+        for (const auto &instr : block->instrs) {
+            instr->type = renamer.mutate(instr->type);
+            if (instr->queried_type.defined()) {
+                instr->queried_type = renamer.mutate(instr->queried_type);
+            }
+        }
+    }
+    for_each_value(func, [&](shared_ptr<Value> &v) {
+        if (auto *a = std::get_if<Argument>(&v->data)) {
+            a->type = renamer.mutate(a->type);
+        }
+    });
 }
 
 // A promotable stack allocation.
@@ -569,6 +661,18 @@ size_t promote_allocas(Function &func, const string &entry) {
                     substitute(k);
                 }
             }
+        }
+
+        // And the loads' names inside the types (see RenameInTypes). Per
+        // candidate rather than once at the end: a load of this candidate may
+        // be what reaches a load of the next, and the next candidate's pass
+        // then renames what this one wrote.
+        map<string, ir::Expr> renames;
+        for (const auto &[load, reaching] : replacements) {
+            renames.emplace(load->name, expr_of(*reaching));
+        }
+        if (!renames.empty()) {
+            rename_in_types(func, renames);
         }
     }
 

@@ -319,67 +319,75 @@ bool is_recursive(const Function &func) {
     return false;
 }
 
-void replace_uses(Function &func, const Instruction *of,
-                  const shared_ptr<Value> &with) {
-    const auto replace = [&](shared_ptr<Value> &v) {
-        if (v == nullptr) {
-            return;
-        }
-        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
-        if (held != nullptr && held->get() == of) {
-            v = with;
+void for_each_value(Function &func,
+                    const std::function<void(shared_ptr<Value> &)> &fn) {
+    const auto each = [&](shared_ptr<Value> &v) {
+        if (v != nullptr) {
+            fn(v);
         }
     };
-    const auto replace_jump = [&](Terminator::Jump &jump) {
+    const auto each_jump = [&](Terminator::Jump &jump) {
         for (auto &arg : jump.args) {
-            replace(arg);
+            each(arg);
         }
     };
     for (const auto &block : func.blocks) {
         for (const auto &instr : block->instrs) {
             for (auto &operand : instr->operands) {
-                replace(operand);
+                each(operand);
             }
         }
         std::visit(overloads{
                        [](std::monostate &) {},
-                       [&](Terminator::Jump &j) { replace_jump(j); },
+                       [&](Terminator::Jump &j) { each_jump(j); },
                        [&](Terminator::Dispatch &d) {
-                           replace(d.cond);
+                           each(d.cond);
                            for (auto &t : d.targets) {
-                               replace_jump(t);
+                               each_jump(t);
                            }
                        },
-                       [&](Terminator::Return &r) { replace(r.value); },
+                       [&](Terminator::Return &r) { each(r.value); },
                        [&](Terminator::ParFor &p) {
-                           replace(p.start);
-                           replace(p.end);
-                           replace(p.stride);
-                           replace_jump(p.body);
-                           replace_jump(p.cont);
+                           each(p.start);
+                           each(p.end);
+                           each(p.stride);
+                           each_jump(p.body);
+                           each_jump(p.cont);
                        },
                        [](Terminator::Yield &) {},
                        [&](Terminator::Call &c) {
-                           replace_jump(c.call);
-                           replace_jump(c.cont);
+                           each_jump(c.call);
+                           each_jump(c.cont);
                        },
                        [&](Terminator::MultiCall &c) {
-                           replace_jump(c.call);
-                           replace_jump(c.cont);
+                           each_jump(c.call);
+                           each_jump(c.cont);
                            for (auto &vs : c.varying) {
                                for (auto &v : vs) {
-                                   replace(v);
+                                   each(v);
                                }
                            }
                            for (auto &k : c.keys) {
-                               replace(k);
+                               each(k);
                            }
                        },
                    },
                    block->terminator.data);
         for (auto &[_, value] : block->lookups) {
-            replace(value);
+            each(value);
         }
+    }
+}
+
+void replace_uses(Function &func, const Instruction *of,
+                  const shared_ptr<Value> &with) {
+    for_each_value(func, [&](shared_ptr<Value> &v) {
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (held != nullptr && held->get() == of) {
+            v = with;
+        }
+    });
+    for (const auto &block : func.blocks) {
         std::erase_if(block->instrs, [&](const shared_ptr<Instruction> &in) {
             return in.get() == of;
         });
