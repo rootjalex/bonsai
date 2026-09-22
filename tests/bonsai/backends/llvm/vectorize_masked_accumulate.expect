@@ -1,9 +1,11 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
-define void @sum_some(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef captures(none) %sums) local_unnamed_addr #0 {
+define void @sum_some(ptr noundef %a_buffer, ptr noundef %sums_buffer) local_unnamed_addr {
 sum_some:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %sums = tail call ptr @bonsai_buffer_require(ptr %sums_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %sums_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
   %1 = bitcast <8 x i1> %0 to i8
@@ -37,8 +39,11 @@ sum_some:
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fadd.v8f32(float, <8 x float>) #1
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
-attributes #0 = { mustprogress norecurse nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.vector.reduce.fadd.v8f32(float, <8 x float>) #0
+
+attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

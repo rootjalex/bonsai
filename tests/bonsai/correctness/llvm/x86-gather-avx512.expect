@@ -1,9 +1,12 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @read_fields(ptr noundef %samples, ptr nofree noundef readonly captures(none) %which, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @read_fields(ptr noundef %samples_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 read_fields:
+  %samples = tail call ptr @bonsai_buffer_require(ptr %samples_buffer, i32 1)
+  %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = shl <8 x i32> %extract, splat (i32 3)
   %extract_x = tail call <8 x float> @llvm.x86.avx512.mask.gather3siv8.sf(<8 x float> zeroinitializer, ptr %samples, <8 x i32> %extract_off, <8 x i1> splat (i1 true), i32 1)
@@ -15,9 +18,12 @@ read_fields:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @read_flags(ptr noundef %flags, ptr nofree noundef readonly captures(none) %which, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @read_flags(ptr noundef %flags_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 read_flags:
+  %flags = tail call ptr @bonsai_buffer_require(ptr %flags_buffer, i32 1)
+  %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = shl <8 x i32> %extract, splat (i32 3)
   %extract_kind_word_base = getelementptr inbounds nuw i8, ptr %flags, i64 4
@@ -27,11 +33,14 @@ read_flags:
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.x86.avx512.mask.gather3siv8.sf(<8 x float>, ptr, <8 x i32>, <8 x i1>, i32 immarg) #1
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x i32> @llvm.x86.avx512.mask.gather3siv8.si(<8 x i32>, ptr, <8 x i32>, <8 x i1>, i32 immarg) #1
+declare <8 x float> @llvm.x86.avx512.mask.gather3siv8.sf(<8 x float>, ptr, <8 x i32>, <8 x i1>, i32 immarg) #0
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x i32> @llvm.x86.avx512.mask.gather3siv8.si(<8 x i32>, ptr, <8 x i32>, <8 x i1>, i32 immarg) #0
+
+attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

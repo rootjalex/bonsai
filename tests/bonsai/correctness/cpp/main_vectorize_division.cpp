@@ -45,7 +45,9 @@ int main() {
         18446744073709551615u};
     std::array<uint64_t, 8> u64_out{};
     const bool u64_same =
-        same_as_scalar(u64_ns, u64_bs, reverse_all_u64, u64_out);
+        same_as_scalar(u64_ns, u64_bs, [](auto &ns, auto &bs, auto &out) {
+            reverse_all_u64(ns, bs, out);
+        }, u64_out);
     for (size_t i = 0; i < u64_out.size(); i++) {
         if (i != 0) {
             std::cout << ' ';
@@ -62,7 +64,9 @@ int main() {
         1};
     std::array<int64_t, 8> i64_out{};
     const bool i64_same =
-        same_as_scalar(i64_ns, i64_bs, reverse_all_i64, i64_out);
+        same_as_scalar(i64_ns, i64_bs, [](auto &ns, auto &bs, auto &out) {
+            reverse_all_i64(ns, bs, out);
+        }, i64_out);
 
     const std::array<uint32_t, 8> u32_ns = {0u,          1000003u, 65535u,
                                             65536u,      2147483647u,
@@ -72,7 +76,9 @@ int main() {
                                             2147483649u, 4294967295u};
     std::array<uint32_t, 8> u32_out{};
     const bool u32_same =
-        same_as_scalar(u32_ns, u32_bs, reverse_all_u32, u32_out);
+        same_as_scalar(u32_ns, u32_bs, [](auto &ns, auto &bs, auto &out) {
+            reverse_all_u32(ns, bs, out);
+        }, u32_out);
 
     const std::array<int32_t, 8> i32_ns = {0,          -1000003, 65535,
                                            -65536,     2147483647,
@@ -81,7 +87,9 @@ int main() {
         3, -1, 2, -7, 641, -65537, std::numeric_limits<int32_t>::min(), 1};
     std::array<int32_t, 8> i32_out{};
     const bool i32_same =
-        same_as_scalar(i32_ns, i32_bs, reverse_all_i32, i32_out);
+        same_as_scalar(i32_ns, i32_bs, [](auto &ns, auto &bs, auto &out) {
+            reverse_all_i32(ns, bs, out);
+        }, i32_out);
 
     std::cout << (u64_same ? "u64 same as scalar" : "u64 DIFFERS from scalar")
               << '\n'

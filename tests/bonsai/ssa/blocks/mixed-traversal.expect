@@ -778,71 +778,6 @@ func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Pr
   store _match0$r10 @22
   jmp !merge_3(prims, _best0, _match0$r10, _best0_result)
 
-; --- _unexported_trace ---
-func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
-  _traverse_tree0$r33 = alloca<(_option0*)>()
-  _best0$i33 = alloca<(__tuple_2*)>()
-  @0 = inf()
-  @1 = make_struct<__tuple_1>()
-  @2 = make_struct<__tuple_2>(@0, @1)
-  store _best0$i33 @2
-  call _recloop_func0((u32)0, prims, r, _best0$i33, Prim_Solo_pool, Prim_Inst_pool) !_recloop_func0_call_cont_0(_best0$i33, Prim_Solo_pool, prims, _traverse_tree0$r33)
-
-!_recloop_func0_call_cont_0(_best0$i33 : (__tuple_2*), Prim_Solo_pool : Solo[], prims : _tree_layout0, _traverse_tree0$r33 : (_option0*)): // preds: _unexported_trace
-  _best0_result$i33 = alloca<(_option0*)>()
-  @3 = make_struct<_option0>()
-  store _best0_result$i33 @3
-  @4 = load(_best0$i33)
-  @5 = load_field(@4, (u32)0)
-  @6 = inf()
-  @7 = ne(@5, @6)
-  dispatch @7 [!merge_2(_best0_result$i33, _traverse_tree0$r33), !then_1(_best0$i33, Prim_Solo_pool, prims, _best0_result$i33, _traverse_tree0$r33)]
-
-!then_1(_best0$i33 : (__tuple_2*), Prim_Solo_pool : Solo[], prims : _tree_layout0, _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // preds: !_recloop_func0_call_cont_0
-  @8 = load(_best0$i33)
-  @9 = load_field(@8, (u32)1)
-  _t1451 = load_field(@9, (u32)1)
-  _match0$r47 = alloca<(Triangle*)>()
-  @11 = load_field(_t1451, (u32)0)
-  dispatch @11 [!case_4(Prim_Solo_pool, prims, _t1451, _match0$r47, _best0$i33, _best0_result$i33, _traverse_tree0$r33), !case_5(prims, _t1451, _match0$r47, _best0$i33, _best0_result$i33, _traverse_tree0$r33)]
-
-!merge_2(_best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // preds: !merge_3, !_recloop_func0_call_cont_0
-  @31 = load(_best0_result$i33)
-  store _traverse_tree0$r33 @31
-  @32 = load(_traverse_tree0$r33)
-  ret @32
-
-!merge_3(prims : _tree_layout0, _best0$i33 : (__tuple_2*), _match0$r47 : (Triangle*), _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // preds: !case_4, !case_5
-  @23 = load_field(prims, (u32)5)
-  @24 = load(_best0$i33)
-  @25 = load_field(@24, (u32)1)
-  @26 = load_field(@25, (u32)0)
-  @27 = extract_idx(@23, @26)
-  @28 = load(_match0$r47)
-  @29 = make_struct<__tuple_0>(@27, @28)
-  @30 = make_struct<_option0>(@29, (bool)1)
-  store _best0_result$i33 @30
-  jmp !merge_2(_best0_result$i33, _traverse_tree0$r33)
-
-!case_4(Prim_Solo_pool : Solo[], prims : _tree_layout0, _t1451 : _ref0, _match0$r47 : (Triangle*), _best0$i33 : (__tuple_2*), _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // _ref0._ref0_0 of _match0; preds: !then_1
-  @12 = load_field(prims, (u32)5)
-  @13 = load_field(_t1451, (u32)2)
-  @14 = extract_idx(@13, (u32)0)
-  @15 = extract_idx(@12, @14)
-  @16 = bwand(@15, (u64)72057594037927935)
-  @17 = extract_idx(Prim_Solo_pool, @16)
-  @18 = load_field(@17, (u32)0)
-  store _match0$r47 @18
-  jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33)
-
-!case_5(prims : _tree_layout0, _t1451 : _ref0, _match0$r47 : (Triangle*), _best0$i33 : (__tuple_2*), _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // _ref0._ref0_1 of _match0; preds: !then_1
-  @19 = load_field(prims, (u32)1)
-  @20 = load_field(_t1451, (u32)2)
-  @21 = extract_idx(@20, (u32)0)
-  @22 = extract_idx(@19, @21)
-  store _match0$r47 @22
-  jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33)
-
 ; --- apply ---
 func apply(t : Transform, p : f32x3): 
   @0 = load_field(t, (u32)0)
@@ -2329,71 +2264,6 @@ func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Pr
   store _match0$r10 @22
   jmp !merge_3(prims, _best0, _match0$r10, _best0_result)
 
-; --- _unexported_trace ---
-func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]): 
-  _traverse_tree0$r33 = alloca<(_option0*)>()
-  _best0$i33 = alloca<(__tuple_2*)>()
-  @0 = inf()
-  @1 = make_struct<__tuple_1>()
-  @2 = make_struct<__tuple_2>(@0, @1)
-  store _best0$i33 @2
-  call _recloop_func0((u32)0, prims, r, _best0$i33, Prim_Solo_pool, Prim_Inst_pool) !_recloop_func0_call_cont_0(_best0$i33, Prim_Solo_pool, prims, _traverse_tree0$r33)
-
-!_recloop_func0_call_cont_0(_best0$i33 : (__tuple_2*), Prim_Solo_pool : Solo[], prims : _tree_layout0, _traverse_tree0$r33 : (_option0*)): // preds: _unexported_trace
-  _best0_result$i33 = alloca<(_option0*)>()
-  @3 = make_struct<_option0>()
-  store _best0_result$i33 @3
-  @4 = load(_best0$i33)
-  @5 = load_field(@4, (u32)0)
-  @6 = inf()
-  @7 = ne(@5, @6)
-  dispatch @7 [!merge_2(_best0_result$i33, _traverse_tree0$r33), !then_1(_best0$i33, Prim_Solo_pool, prims, _best0_result$i33, _traverse_tree0$r33)]
-
-!then_1(_best0$i33 : (__tuple_2*), Prim_Solo_pool : Solo[], prims : _tree_layout0, _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // preds: !_recloop_func0_call_cont_0
-  @8 = load(_best0$i33)
-  @9 = load_field(@8, (u32)1)
-  _t1451 = load_field(@9, (u32)1)
-  _match0$r47 = alloca<(Triangle*)>()
-  @11 = load_field(_t1451, (u32)0)
-  dispatch @11 [!case_4(Prim_Solo_pool, prims, _t1451, _match0$r47, _best0$i33, _best0_result$i33, _traverse_tree0$r33), !case_5(prims, _t1451, _match0$r47, _best0$i33, _best0_result$i33, _traverse_tree0$r33)]
-
-!merge_2(_best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // preds: !merge_3, !_recloop_func0_call_cont_0
-  @31 = load(_best0_result$i33)
-  store _traverse_tree0$r33 @31
-  @32 = load(_traverse_tree0$r33)
-  ret @32
-
-!merge_3(prims : _tree_layout0, _best0$i33 : (__tuple_2*), _match0$r47 : (Triangle*), _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // preds: !case_4, !case_5
-  @23 = load_field(prims, (u32)5)
-  @24 = load(_best0$i33)
-  @25 = load_field(@24, (u32)1)
-  @26 = load_field(@25, (u32)0)
-  @27 = extract_idx(@23, @26)
-  @28 = load(_match0$r47)
-  @29 = make_struct<__tuple_0>(@27, @28)
-  @30 = make_struct<_option0>(@29, (bool)1)
-  store _best0_result$i33 @30
-  jmp !merge_2(_best0_result$i33, _traverse_tree0$r33)
-
-!case_4(Prim_Solo_pool : Solo[], prims : _tree_layout0, _t1451 : _ref0, _match0$r47 : (Triangle*), _best0$i33 : (__tuple_2*), _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // _ref0._ref0_0 of _match0; preds: !then_1
-  @12 = load_field(prims, (u32)5)
-  @13 = load_field(_t1451, (u32)2)
-  @14 = extract_idx(@13, (u32)0)
-  @15 = extract_idx(@12, @14)
-  @16 = bwand(@15, (u64)72057594037927935)
-  @17 = extract_idx(Prim_Solo_pool, @16)
-  @18 = load_field(@17, (u32)0)
-  store _match0$r47 @18
-  jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33)
-
-!case_5(prims : _tree_layout0, _t1451 : _ref0, _match0$r47 : (Triangle*), _best0$i33 : (__tuple_2*), _best0_result$i33 : (_option0*), _traverse_tree0$r33 : (_option0*)): // _ref0._ref0_1 of _match0; preds: !then_1
-  @19 = load_field(prims, (u32)1)
-  @20 = load_field(_t1451, (u32)2)
-  @21 = extract_idx(@20, (u32)0)
-  @22 = extract_idx(@19, @21)
-  store _match0$r47 @22
-  jmp !merge_3(prims, _best0$i33, _match0$r47, _best0_result$i33, _traverse_tree0$r33)
-
 ; --- apply ---
 func apply(t : Transform, p : f32x3): 
   @0 = load_field(t, (u32)0)
@@ -3745,62 +3615,6 @@ func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Pr
   }
   let @31 = (*_best0_result) in
   return @31
-}
-
-func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> _option0 {
-  _traverse_tree0$r33 : mut _option0
-  _best0$i33 : mut __tuple_2
-  let @0 = (f32)inf in
-  let @1 = build<__tuple_1>() in
-  let @2 = build<__tuple_2>(@0, @1) in
-  _best0$i33 = @2
-  _recloop_func0(0u, prims, r, _best0$i33, Prim_Solo_pool, Prim_Inst_pool)
-  _best0_result$i33 : mut _option0
-  let @3 = build<_option0>() in
-  _best0_result$i33 = @3
-  let @4 = (*_best0$i33) in
-  let @5 = @4._field0 in
-  let @6 = (f32)inf in
-  let @7 = @5 != @6 in
-  if (@7) {
-    let @8 = (*_best0$i33) in
-    let @9 = @8._field1 in
-    let _t1451 = @9._field1 in
-    _match0$r47 : mut Triangle
-    let @11 = _t1451.tag in
-    switch (@11) {
-    case 0: { // _ref0._ref0_0 of _match0
-      let @12 = prims.elems in
-      let @13 = _t1451.payload in
-      let @14 = @13[0u] in
-      let @15 = @12[@14] in
-      let @16 = @15 & 72057594037927935u in
-      let @17 = Prim_Solo_pool[@16] in
-      let @18 = @17.tri in
-      _match0$r47 = @18
-    } break;
-    default: { // _ref0._ref0_1 of _match0
-      let @19 = prims.tris in
-      let @20 = _t1451.payload in
-      let @21 = @20[0u] in
-      let @22 = @19[@21] in
-      _match0$r47 = @22
-    }
-    }
-    let @23 = prims.elems in
-    let @24 = (*_best0$i33) in
-    let @25 = @24._field1 in
-    let @26 = @25._field0 in
-    let @27 = @23[@26] in
-    let @28 = (*_match0$r47) in
-    let @29 = build<__tuple_0>(@27, @28) in
-    let @30 = build<_option0>(@29, true) in
-    _best0_result$i33 = @30
-  }
-  let @31 = (*_best0_result$i33) in
-  _traverse_tree0$r33 = @31
-  let @32 = (*_traverse_tree0$r33) in
-  return @32
 }
 
 func apply(t : Transform, p : f32x3) -> f32x3 {

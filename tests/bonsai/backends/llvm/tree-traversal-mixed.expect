@@ -14,9 +14,12 @@ source_filename = "bonsai_module"
 %struct._option0 = type { %struct.__tuple_0, i1 }
 %struct.__tuple_0 = type { i64, %struct.Triangle }
 
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
-define range(i64 72057594037927936, 0) i64 @Prim_Inst(ptr noundef nonnull readonly captures(none) %render_from_instance, i32 noundef %blas, ptr nofree noundef writeonly captures(none) %Prim_Inst_pool, ptr nofree noundef captures(none) %Prim_Inst_fill) local_unnamed_addr #0 {
+define range(i64 72057594037927936, 0) i64 @Prim_Inst(ptr noundef nonnull readonly captures(none) %render_from_instance, i32 noundef %blas, ptr noundef %Prim_Inst_pool_buffer, ptr noundef %Prim_Inst_fill_buffer) local_unnamed_addr {
 Prim_Inst:
+  %Prim_Inst_pool = tail call ptr @bonsai_buffer_require(ptr %Prim_Inst_pool_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Inst_pool_buffer, i32 1)
+  %Prim_Inst_fill = tail call ptr @bonsai_buffer_require(ptr %Prim_Inst_fill_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Inst_fill_buffer, i32 1)
   %deref_temp.unpack = load <3 x float>, ptr %render_from_instance, align 16
   %0 = insertvalue %struct.Transform poison, <3 x float> %deref_temp.unpack, 0
   %deref_temp.elt1 = getelementptr inbounds nuw i8, ptr %render_from_instance, i64 16
@@ -49,9 +52,12 @@ Prim_Inst:
   ret i64 %10
 }
 
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
-define i64 @Prim_Solo(ptr noundef nonnull readonly captures(none) %tri, ptr nofree noundef writeonly captures(none) %Prim_Solo_pool, ptr nofree noundef captures(none) %Prim_Solo_fill) local_unnamed_addr #0 {
+define i64 @Prim_Solo(ptr noundef nonnull readonly captures(none) %tri, ptr noundef %Prim_Solo_pool_buffer, ptr noundef %Prim_Solo_fill_buffer) local_unnamed_addr {
 Prim_Solo:
+  %Prim_Solo_pool = tail call ptr @bonsai_buffer_require(ptr %Prim_Solo_pool_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Solo_pool_buffer, i32 1)
+  %Prim_Solo_fill = tail call ptr @bonsai_buffer_require(ptr %Prim_Solo_fill_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Solo_fill_buffer, i32 1)
   %deref_temp.unpack = load <3 x float>, ptr %tri, align 16
   %deref_temp.elt1 = getelementptr inbounds nuw i8, ptr %tri, i64 16
   %deref_temp.unpack2 = load <3 x float>, ptr %deref_temp.elt1, align 16
@@ -68,7 +74,7 @@ Prim_Solo:
 }
 
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
-define internal fastcc void @_recloop_func0(i32 noundef %prims_index, %struct._tree_layout0 noundef %prims, %struct.Ray noundef %r, ptr nofree noundef nonnull captures(none) %_best0, ptr nofree noundef readonly captures(none) %Prim_Solo_pool, ptr nofree noundef readonly captures(none) %Prim_Inst_pool) unnamed_addr #1 {
+define internal fastcc void @_recloop_func0(i32 noundef %prims_index, %struct._tree_layout0 noundef %prims, %struct.Ray noundef %r, ptr nofree noundef nonnull captures(none) %_best0, ptr nofree noundef readonly captures(none) %Prim_Solo_pool, ptr nofree noundef readonly captures(none) %Prim_Inst_pool) unnamed_addr #0 {
 _recloop_func0:
   %_ret = alloca %struct._option2, align 8
   %prims.group1_index = extractvalue %struct._tree_layout0 %prims, 7
@@ -249,7 +255,7 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
 }
 
 ; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
-define internal fastcc void @_recloop_func1(i32 noundef %_subtree0_bnode, %struct._tree_layout0 noundef %prims, %struct.Ray noundef %_pulled1, ptr nofree noundef nonnull captures(none) %_best0, i32 noundef %prims_index, i32 noundef range(i32 0, 65535) %_idx0) unnamed_addr #1 {
+define internal fastcc void @_recloop_func1(i32 noundef %_subtree0_bnode, %struct._tree_layout0 noundef %prims, %struct.Ray noundef %_pulled1, ptr nofree noundef nonnull captures(none) %_best0, i32 noundef %prims_index, i32 noundef range(i32 0, 65535) %_idx0) unnamed_addr #0 {
 _recloop_func1:
   %_ret = alloca %struct._option2, align 8
   %prims.group0_bnode = extractvalue %struct._tree_layout0 %prims, 3
@@ -396,7 +402,7 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define internal fastcc void @intersectsp_ray_tri(ptr noalias nofree noundef nonnull writeonly align 4 captures(none) initializes((0, 20)) %_sret, %struct.Ray noundef %ray, %struct.Triangle noundef %tri) unnamed_addr #2 {
+define internal fastcc void @intersectsp_ray_tri(ptr noalias nofree noundef nonnull writeonly align 4 captures(none) initializes((0, 20)) %_sret, %struct.Ray noundef %ray, %struct.Triangle noundef %tri) unnamed_addr #1 {
 intersectsp_ray_tri:
   %tri.p2 = extractvalue %struct.Triangle %tri, 2
   %tri.p0 = extractvalue %struct.Triangle %tri, 0
@@ -682,10 +688,11 @@ common.ret:                                       ; preds = %"!merge_14", %"!the
   br label %common.ret
 }
 
-; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
-define void @trace(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 80)) %_ret0, ptr noundef nonnull readonly captures(none) %r, ptr noundef nonnull readonly captures(none) %prims, ptr nofree noundef readonly captures(none) %Prim_Solo_pool, ptr nofree noundef readonly captures(none) %Prim_Inst_pool) local_unnamed_addr #1 {
+define void @trace(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 80)) %_ret0, ptr noundef nonnull readonly captures(none) %r, ptr noundef nonnull readonly captures(none) %prims, ptr noundef %Prim_Solo_pool_buffer, ptr noundef %Prim_Inst_pool_buffer) local_unnamed_addr {
 trace:
   %"_best0$i3332" = alloca %struct.__tuple_2, align 16
+  %Prim_Solo_pool = tail call ptr @bonsai_buffer_require(ptr %Prim_Solo_pool_buffer, i32 1)
+  %Prim_Inst_pool = tail call ptr @bonsai_buffer_require(ptr %Prim_Inst_pool_buffer, i32 1)
   store float +inf, ptr %"_best0$i3332", align 16
   %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best0$i3332", i64 4
   call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(12) %.fca.1.0.gep, i8 0, i64 12, i1 false)
@@ -765,30 +772,33 @@ trace:
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #3
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fma.f32(float, float, float) #3
+declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #3
+declare float @llvm.fma.f32(float, float, float) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fmax.v3f32(<3 x float>) #3
+declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fabs.f32(float) #3
+declare float @llvm.vector.reduce.fmax.v3f32(<3 x float>) #2
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.fabs.f32(float) #2
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #4
+declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #3
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #5
+declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #4
 
-attributes #0 = { mustprogress norecurse nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-attributes #3 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #4 = { nocallback nofree nosync nounwind willreturn memory(argmem: write) }
-attributes #5 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #4 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

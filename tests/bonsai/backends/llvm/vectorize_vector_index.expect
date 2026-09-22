@@ -1,18 +1,21 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read)
-define <4 x float> @at(ptr noundef %table, <4 x i32> noundef %o) local_unnamed_addr #0 {
+define <4 x float> @at(ptr noundef %table_buffer, <4 x i32> noundef %o) local_unnamed_addr {
 at:
+  %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
   %0 = sext <4 x i32> %o to <4 x i64>
   %extract_ptrs = getelementptr inbounds [4 x i8], ptr %table, <4 x i64> %0
   %extract = tail call <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr> align 4 %extract_ptrs, <4 x i1> splat (i1 true), <4 x float> poison)
   ret <4 x float> %extract
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @guarded(ptr noundef %table, ptr nofree noundef readonly captures(none) %first, ptr nofree noundef writeonly captures(none) %out) local_unnamed_addr #1 {
+define void @guarded(ptr noundef %table_buffer, ptr noundef %first_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 guarded:
+  %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
+  %first = tail call ptr @bonsai_buffer_require(ptr %first_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %first, align 4
   %0 = icmp sgt <8 x i32> %extract, splat (i32 -1)
   %not. = xor <8 x i1> %0, splat (i1 true)
@@ -55,9 +58,12 @@ guarded:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @lookup(ptr noundef %table, ptr nofree noundef readonly captures(none) %first, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #1 {
+define void @lookup(ptr noundef %table_buffer, ptr noundef %first_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 lookup:
+  %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
+  %first = tail call ptr @bonsai_buffer_require(ptr %first_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %first, align 4
   %0 = add <8 x i32> %extract, splat (i32 1)
   %1 = add <8 x i32> %extract, splat (i32 2)
@@ -81,16 +87,18 @@ lookup:
   ret void
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr>, <4 x i1>, <4 x float>) #2
+declare <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr>, <4 x i1>, <4 x float>) #0
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #3
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #2
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #0
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }

@@ -1,9 +1,12 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @read_bytes(i32 noundef %n, ptr noundef %table, ptr nofree noundef readonly captures(none) %which, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @read_bytes(i32 noundef %n, ptr noundef %table_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 read_bytes:
+  %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
+  %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %0 = icmp ugt i32 %n, 3
   br i1 %0, label %extract_words, label %extract_lanes
@@ -36,9 +39,12 @@ extract_after:                                    ; preds = %extract_lanes, %ext
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @read_halfwords(ptr noundef %table, ptr nofree noundef readonly captures(none) %which, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @read_halfwords(ptr noundef %table_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 read_halfwords:
+  %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
+  %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = shl <8 x i32> %extract, splat (i32 1)
   %extract_aligned = and <8 x i32> %extract_off, splat (i32 -4)
@@ -54,9 +60,12 @@ read_halfwords:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @read_nodes(ptr noundef %nodes, ptr nofree noundef readonly captures(none) %which, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @read_nodes(ptr noundef %nodes_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 read_nodes:
+  %nodes = tail call ptr @bonsai_buffer_require(ptr %nodes_buffer, i32 1)
+  %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = mul <8 x i32> %extract, splat (i32 12)
   %0 = sext <8 x i32> %extract_off to <8 x i64>
@@ -77,9 +86,12 @@ read_nodes:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @read_tails(ptr noundef %tails, ptr nofree noundef readonly captures(none) %which, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @read_tails(ptr noundef %tails_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 read_tails:
+  %tails = tail call ptr @bonsai_buffer_require(ptr %tails_buffer, i32 1)
+  %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = mul <8 x i32> %extract, splat (i32 5)
   %extract_tag_word_base = getelementptr inbounds nuw i8, ptr %tails, i64 1
@@ -91,15 +103,18 @@ read_tails:
   ret void
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x i32> @llvm.umin.v8i32(<8 x i32>, <8 x i32>) #1
+declare <8 x i32> @llvm.umin.v8i32(<8 x i32>, <8 x i32>) #0
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, <8 x i1>, <8 x i32>) #2
+declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, <8 x i1>, <8 x i32>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr>, <8 x i1>, <8 x i8>) #2
+declare <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr>, <8 x i1>, <8 x i8>) #1
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

@@ -1,9 +1,11 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite, errnomem: write)
-define void @angles(ptr nofree noundef readonly captures(none) %x, ptr nofree noundef writeonly captures(none) %out) local_unnamed_addr #0 {
+define void @angles(ptr noundef %x_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 angles:
+  %x = tail call ptr @bonsai_buffer_require(ptr %x_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %x, align 4
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
   %not. = xor <8 x i1> %0, splat (i1 true)
@@ -146,9 +148,11 @@ sin_join:                                         ; preds = %sin_rare, %"!then_2
   br label %"!else_3!any"
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite, errnomem: write)
-define void @unmasked(ptr nofree noundef readonly captures(none) %x, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @unmasked(ptr noundef %x_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 unmasked:
+  %x = tail call ptr @bonsai_buffer_require(ptr %x_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %x, align 4
   %0 = tail call <8 x float> @llvm.fabs.v8f32(<8 x float> %extract)
   %1 = fcmp ole <8 x float> %0, splat (float 1.000000e+06)
@@ -217,33 +221,36 @@ cos_join:                                         ; preds = %cos_rare, %unmasked
   ret void
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #0
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #2
+declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.roundeven.v8f32(<8 x float>) #2
+declare <8 x float> @llvm.roundeven.v8f32(<8 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #2
+declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
-declare float @sinf(float) local_unnamed_addr #3
+declare float @sinf(float) local_unnamed_addr #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.copysign.v8f32(<8 x float>, <8 x float>) #2
+declare <8 x float> @llvm.copysign.v8f32(<8 x float>, <8 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #2
+declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
-declare float @cosf(float) local_unnamed_addr #3
+declare float @cosf(float) local_unnamed_addr #2
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite, errnomem: write) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
-attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write) }
+attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write) }
 
 !0 = !{!"branch_weights", i32 1048576, i32 1}

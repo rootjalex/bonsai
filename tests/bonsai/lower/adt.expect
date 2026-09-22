@@ -18,18 +18,6 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), p0 : f32x3, p1 : f32x3, p2 : f32
   return
 }
 
-func _unexported_Shape_Sph(center : f32x3, radius : f32) -> Shape {
-  return build<Shape>(0u, ([[packed]] u8x15)[0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u], build<[[packed]] u32x12>(reinterpret_cast<u32>(center[0u]), reinterpret_cast<u32>(center[1u]), reinterpret_cast<u32>(center[2u]), 0u, reinterpret_cast<u32>(radius), 0u, 0u, 0u, 0u, 0u, 0u, 0u))
-}
-
-func _unexported_Shape_Tri(p0 : f32x3, p1 : f32x3, p2 : f32x3) -> Shape {
-  return build<Shape>(1u, ([[packed]] u8x15)[0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u], build<[[packed]] u32x12>(reinterpret_cast<u32>(p0[0u]), reinterpret_cast<u32>(p0[1u]), reinterpret_cast<u32>(p0[2u]), 0u, reinterpret_cast<u32>(p1[0u]), reinterpret_cast<u32>(p1[1u]), reinterpret_cast<u32>(p1[2u]), 0u, reinterpret_cast<u32>(p2[0u]), reinterpret_cast<u32>(p2[1u]), reinterpret_cast<u32>(p2[2u]), 0u))
-}
-
-func _unexported_unit_sphere() -> Shape {
-  return build<Shape>(0u, ([[packed]] u8x15)[0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u], build<[[packed]] u32x12>(reinterpret_cast<u32>(0f), reinterpret_cast<u32>(0f), reinterpret_cast<u32>(0f), 0u, reinterpret_cast<u32>(1f), 0u, 0u, 0u, 0u, 0u, 0u, 0u))
-}
-
 func [[export]] area(s : (Shape*)) -> f32 {
   switch ((*s).tag) {
   case 0: { // Shape.Sph of area

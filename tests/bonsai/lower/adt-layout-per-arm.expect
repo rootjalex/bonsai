@@ -28,22 +28,6 @@ func [[export]] Item_Small(_ret1 : mut (Item*), x : f32) -> void {
   return
 }
 
-func _unexported_Item_Large(big : Big, Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> Item {
-  return build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new(big, Item_Large_pool, Item_Large_fill)))
-}
-
-func _unexported_Item_Small(x : f32) -> Item {
-  return build<Item>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(x)))
-}
-
-func _unexported_large(big : Big, Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> Item {
-  return build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new(big, Item_Large_pool, Item_Large_fill)))
-}
-
-func _unexported_small(x : f32) -> Item {
-  return build<Item>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(x)))
-}
-
 func [[export]] large(_ret2 : mut (Item*), big : (Big*), Item_Large_pool : mut Large[], Item_Large_fill : mut u64[]) -> void {
   _ret2 = build<Item>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(Item_Large_new((*big), Item_Large_pool, Item_Large_fill)))
   return

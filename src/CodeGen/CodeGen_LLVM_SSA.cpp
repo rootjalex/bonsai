@@ -996,6 +996,121 @@ struct CodeGen_LLVM::SSALowering {
         cg.frames.pop_frame();
     }
 
+    // Where the function's parameters are used: on the host -- in any block
+    // that is not inside a loop bound to the GPU -- or on the device, as a
+    // capture of such a loop's body. By name: a parameter threaded onwards
+    // as a block argument keeps its name, so the name is the value. A
+    // parameter may be in both sets; one in neither is unused.
+    struct Uses {
+        std::set<std::string> host;
+        std::set<std::string> device;
+    };
+    Uses classify_uses() {
+        Uses uses;
+        const auto note_host = [&](const std::shared_ptr<Value> &v) {
+            if (const auto *a = std::get_if<Argument>(&v->data)) {
+                uses.host.insert(a->name);
+            }
+        };
+        std::set<std::string> seen;
+        std::vector<std::string> work{entry()};
+        while (!work.empty()) {
+            const std::string name = work.back();
+            work.pop_back();
+            if (!seen.insert(name).second) {
+                continue;
+            }
+            const auto found = by_name.find(name);
+            if (found == by_name.end()) {
+                continue;
+            }
+            const Block &block = *found->second;
+            for (const auto &instr : block.instrs) {
+                for (const auto &operand : instr->operands) {
+                    note_host(operand);
+                }
+            }
+            std::visit(
+                ir::ssa::overloads{
+                    [](const std::monostate &) {},
+                    [&](const Terminator::Jump &j) {
+                        for (const auto &a : j.args) {
+                            note_host(a);
+                        }
+                        work.push_back(j.name);
+                    },
+                    [&](const Terminator::Dispatch &d) {
+                        note_host(d.cond);
+                        for (const auto &t : d.targets) {
+                            for (const auto &a : t.args) {
+                                note_host(a);
+                            }
+                            work.push_back(t.name);
+                        }
+                    },
+                    [&](const Terminator::Return &r) {
+                        if (r.value) {
+                            note_host(r.value);
+                        }
+                    },
+                    [&](const Terminator::Call &c) {
+                        for (const auto &a : c.call.args) {
+                            note_host(a);
+                        }
+                        for (const auto &a : c.cont.args) {
+                            note_host(a);
+                        }
+                        work.push_back(c.cont.name);
+                    },
+                    [&](const Terminator::MultiCall &c) {
+                        for (const auto &a : c.call.args) {
+                            note_host(a);
+                        }
+                        for (const auto &one : c.varying) {
+                            for (const auto &a : one) {
+                                note_host(a);
+                            }
+                        }
+                        for (const auto &a : c.cont.args) {
+                            note_host(a);
+                        }
+                        work.push_back(c.cont.name);
+                    },
+                    [&](const Terminator::ParFor &p) {
+                        note_host(p.start);
+                        note_host(p.end);
+                        note_host(p.stride);
+                        for (const auto &a : p.cont.args) {
+                            note_host(a);
+                        }
+                        work.push_back(p.cont.name);
+                        const bool gpu =
+                            p.binding.has_value() &&
+                            (*p.binding == Resource::GPUBlock ||
+                             *p.binding == Resource::GPUThread);
+                        if (gpu) {
+                            // The body is a kernel; what it is handed is
+                            // read on the device, by the launch.
+                            for (const auto &a : p.body.args) {
+                                if (const auto *arg =
+                                        std::get_if<Argument>(&a->data)) {
+                                    uses.device.insert(arg->name);
+                                }
+                            }
+                            return;
+                        }
+                        for (const auto &a : p.body.args) {
+                            note_host(a);
+                        }
+                        work.push_back(p.body.name);
+                    },
+                    [](const Terminator::Yield &) {},
+                },
+                block.terminator.data);
+        }
+        return uses;
+    }
+
     void run() {
         // Only what the entry can reach, in dominance order: a definition
         // dominates its uses, so reverse postorder binds a value before it is
@@ -1020,6 +1135,20 @@ struct CodeGen_LLVM::SSALowering {
             cg.current_sret->setName("_sret");
         }
         const Block &head = *func.blocks.front();
+        // An exported function's arrays come in as buffer descriptors (see
+        // CodeGen_LLVM::ExportedBuffer): the prologue asks for each one the
+        // host-side code uses on the host, and binds the parameter's name
+        // to the pointer it gets back. One only a kernel reads is left to
+        // the launch, which asks for it on the device; its name is bound to
+        // poison, so that a host use the analysis missed is a visible fault
+        // in the IR rather than a read of the descriptor as data.
+        const bool exported =
+            std::find(func.attributes.begin(), func.attributes.end(),
+                      ir::Function::Attribute::exported) !=
+            func.attributes.end();
+        const Uses uses = exported ? classify_uses() : Uses{};
+        std::vector<uint8_t> sides;
+        cg.exported_buffers.clear();
         uint32_t i = 0;
         for (auto &arg : function->args()) {
             if (&arg == cg.current_sret) {
@@ -1028,9 +1157,38 @@ struct CodeGen_LLVM::SSALowering {
             internal_assert(i < head.args.size())
                 << function->getName().str() << " takes more arguments "
                 << "than its entry block declares";
-            arg.setName(head.args[i].name);
-            bind(head.args[i].name, &arg);
+            const Argument &declared = head.args[i];
             i++;
+            if (!exported || !declared.type.is<Array_t>()) {
+                arg.setName(declared.name);
+                bind(declared.name, &arg);
+                continue;
+            }
+            arg.setName(declared.name + "_buffer");
+            CodeGen_LLVM::ExportedBuffer buffer;
+            buffer.descriptor = &arg;
+            buffer.type = declared.type;
+            buffer.mutating = declared.mutating;
+            buffer.host_used = uses.host.count(declared.name) != 0;
+            const bool device_used = uses.device.count(declared.name) != 0;
+            sides.push_back((buffer.host_used ? 1 : 0) | (device_used ? 2 : 0));
+            llvm::Value *bound = nullptr;
+            if (buffer.host_used) {
+                bound = cg.buffer_require(&arg, /*device=*/false);
+                bound->setName(declared.name);
+                if (buffer.mutating) {
+                    // The host may write it from here on; a device copy, if
+                    // one exists, is stale until the next require there.
+                    cg.buffer_mark_dirty(&arg, /*device=*/false);
+                }
+            } else {
+                bound = llvm::PoisonValue::get(arg.getType());
+            }
+            bind(declared.name, bound);
+            cg.exported_buffers[declared.name] = buffer;
+        }
+        if (exported) {
+            cg.sides_of_exported[function->getName().str()] = sides;
         }
         // A function that seeds the random generator does so first, as the
         // statement path does: the state is a local the body's `rand` reads.

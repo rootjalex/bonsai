@@ -126,10 +126,6 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
   return (*_best0_result)
 }
 
-func _unexported_trace(ray : Ray, triangles : _tree_layout0) -> _option0 {
-  return _traverse_tree0(ray, triangles)
-}
-
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_layout0*)) -> void {
   _ret0 = _traverse_tree0((*ray), (*triangles))
   return

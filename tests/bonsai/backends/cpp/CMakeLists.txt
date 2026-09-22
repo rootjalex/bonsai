@@ -4,6 +4,7 @@ add_bonsai_tests(
     # host-dependent for the same reasons as the llvm backend tests.
     FLAGS --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
+    buffers.bonsai
     not-exported.bonsai
     simple.bonsai
     struct.bonsai

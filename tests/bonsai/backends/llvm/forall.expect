@@ -1,9 +1,9 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none)
-define noalias noundef ptr @doubled(ptr nofree noundef readonly captures(none) %a) local_unnamed_addr #0 {
+define noalias noundef ptr @doubled(ptr noundef %a_buffer) local_unnamed_addr {
 doubled:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %_alloc0_untyped.i = tail call dereferenceable_or_null(16) ptr @malloc(i64 16)
   %0 = load <4 x i32>, ptr %a, align 4
   %1 = shl <4 x i32> %0, splat (i32 1)
@@ -11,9 +11,9 @@ doubled:
   ret ptr %_alloc0_untyped.i
 }
 
-; Function Attrs: nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none)
-define noalias noundef ptr @scale(i32 noundef %n, ptr nofree noundef readonly captures(none) %a, float noundef %k) local_unnamed_addr #1 {
+define noalias noundef ptr @scale(i32 noundef %n, ptr noundef %a_buffer, float noundef %k) local_unnamed_addr {
 scale:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 2
   %_alloc1_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
@@ -116,11 +116,11 @@ _traverse_array1.exit:                            ; preds = %"!par_body_0.i.prol
 }
 
 ; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
-declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #0
 
-attributes #0 = { mustprogress nofree nounwind willreturn memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none) }
-attributes #1 = { nofree nounwind memory(write, argmem: read, inaccessiblemem: readwrite, target_mem: none) }
-attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}

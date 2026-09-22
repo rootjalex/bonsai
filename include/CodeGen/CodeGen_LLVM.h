@@ -147,6 +147,50 @@ struct CodeGen_LLVM : public ir::Visitor {
     // compiled.
     void emit_rng_setup();
 
+    //===------------------------------------------------------------------===//
+    // Buffers: an exported function's arrays
+    //===------------------------------------------------------------------===//
+    //
+    // An exported function's array parameters arrive as `bonsai_buffer`
+    // descriptors (runtime/bonsai_buffer.h): where the bytes are on each side
+    // and which copy is current. The function's prologue asks for each array
+    // it uses on the host (`bonsai_buffer_require`), which is a flag test
+    // when the array is already there and a copy when it is not, and marks
+    // the ones it may write as dirty on the host; a launch asks for the ones
+    // its kernel reads on the device and marks them dirty there after (see
+    // CodeGen_GPU_Host::emit_gpu_launch). The program's own calls never see a
+    // descriptor: they go to the function's internal twin (see
+    // Lower/ReturnToOutParameter.h).
+
+    // What the prologue learnt about one array parameter of the exported
+    // function being compiled: its descriptor, whether the function may
+    // write it, and whether any host-side code of the function reads or
+    // writes it (as against only a kernel).
+    struct ExportedBuffer {
+        llvm::Value *descriptor = nullptr;
+        ir::Type type;
+        bool mutating = false;
+        bool host_used = false;
+    };
+    // By parameter name, for the function being compiled.
+    std::map<std::string, ExportedBuffer> exported_buffers;
+    // `bonsai_buffer_require(descriptor, side)`: the pointer for that side.
+    llvm::Value *buffer_require(llvm::Value *descriptor, bool device);
+    // `bonsai_buffer_mark_dirty(descriptor, side)`.
+    void buffer_mark_dirty(llvm::Value *descriptor, bool device);
+
+  public:
+    // Per exported function, the side each array parameter is needed on, in
+    // parameter order: BONSAI_HOST (1), BONSAI_DEVICE (2), or both. What the
+    // generated header prints as `<function>_sides`, for a driver that stages
+    // its buffers before a timed call (bonsai_buffer_stage_all).
+    const std::map<std::string, std::vector<uint8_t>> &exported_sides() const {
+        return sides_of_exported;
+    }
+
+  protected:
+    std::map<std::string, std::vector<uint8_t>> sides_of_exported;
+
     // Generate a function straight from its SSA form, instead of from the
     // statements the relooper rebuilds out of it (see ir::Program::ssa_funcs).
     //

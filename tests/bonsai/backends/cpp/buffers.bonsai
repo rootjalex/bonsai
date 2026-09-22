@@ -1,0 +1,23 @@
+//! flags: -b cpp
+
+// An exported function's arrays at the C boundary: each is a `bonsai_buffer *`
+// in the declaration, the function's prologue asks for it on the host and
+// marks the ones it may write, and the header carries a table of the sides
+// each array is needed on and a form of the function taking pointers and
+// std::arrays -- a fixed-size array, one sized by another parameter, one of
+// no stated length -- wrapped for the one call.
+func [[export]] combine(n : u32, weights : array[f32, 4], a : array[f32, n],
+                        out : mut array[f32]) -> void {
+    for i in 0u:n {
+        out[i] = a[i] * weights[i % 4u];
+    }
+    return;
+}
+
+func [[export]] total(n : u32, a : array[f32, n]) -> f32 {
+    acc : mut f32 = 0.0;
+    for i in 0u:n {
+        acc += a[i];
+    }
+    return acc;
+}

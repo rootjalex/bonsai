@@ -8,10 +8,13 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/GlobalVariable.h>
 
+#include <algorithm>
+
 namespace bonsai {
 
 using namespace ir;
 using ir::ssa::Block;
+using ir::ssa::Instruction;
 using ir::ssa::Terminator;
 using ir::ssa::Value;
 
@@ -166,13 +169,58 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     auto *params_ty = llvm::ArrayType::get(ptr_t, n);
     llvm::Value *params = create_alloca_at_entry(params_ty, "_launch_params");
 
-    // The buffers: the captures that are addresses, with how many bytes lie
-    // behind each. `bonsai_cuda_buffer { host, bytes, param }`, see
-    // runtime/bonsai_cuda.h.
+    // The captures that are addresses come in two kinds. One that is an
+    // exported function's array has a descriptor (see
+    // CodeGen_LLVM::ExportedBuffer): the launch asks for it on the device,
+    // which is a flag test when the driver staged it there and a copy when
+    // not, and marks it dirty there after if the kernel may write it. Any
+    // other -- a local of the function, a pointer to a struct -- is a
+    // `bonsai_cuda_buffer { host, bytes, param }` (runtime/bonsai_cuda.h)
+    // the runtime copies over for the launch and back after it, with how
+    // many bytes lie behind it.
+    const auto exported_of =
+        [&](size_t i) -> const CodeGen_LLVM::ExportedBuffer * {
+        if (i < 2) {
+            return nullptr;
+        }
+        const std::shared_ptr<Value> &v = p.body.args[i - 2];
+        if (const auto *a = std::get_if<ir::ssa::Argument>(&v->data)) {
+            const auto found = exported_buffers.find(a->name);
+            if (found != exported_buffers.end()) {
+                return &found->second;
+            }
+        }
+        // Part of such an array -- an address computed from it -- would
+        // reach the device as a pointer into memory that is not there.
+        const std::shared_ptr<Value> *base = &v;
+        while (const auto *instr =
+                   std::get_if<std::shared_ptr<Instruction>>(&(*base)->data)) {
+            const Instruction::Op op = (*instr)->op;
+            if ((op != Instruction::Op::GEP && op != Instruction::Op::FieldPtr &&
+                 op != Instruction::Op::AddressOf) ||
+                (*instr)->operands.empty()) {
+                break;
+            }
+            base = &(*instr)->operands[0];
+        }
+        if (const auto *a = std::get_if<ir::ssa::Argument>(&(*base)->data)) {
+            internal_assert(exported_buffers.find(a->name) ==
+                            exported_buffers.end())
+                << "[unimplemented] the loop bound to the GPU reads `"
+                << arg_names[i] << "`, an address inside the buffer `"
+                << a->name << "`. A kernel takes a buffer whole; index into "
+                << "it inside the loop instead.";
+        }
+        return nullptr;
+    };
     auto *buffer_ty = llvm::StructType::get(*context, {ptr_t, i64_t, i64_t});
     std::vector<size_t> buffer_params;
+    std::vector<std::pair<size_t, const CodeGen_LLVM::ExportedBuffer *>>
+        descriptor_params;
     for (size_t i = 2; i < n; i++) {
-        if (arg_types[i].template is<Array_t, Ptr_t>()) {
+        if (const CodeGen_LLVM::ExportedBuffer *buffer = exported_of(i)) {
+            descriptor_params.emplace_back(i, buffer);
+        } else if (arg_types[i].template is<Array_t, Ptr_t>()) {
             buffer_params.push_back(i);
         }
     }
@@ -184,7 +232,17 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
 
     for (size_t i = 0; i < n; i++) {
         llvm::Value *slot = builder->CreateStructGEP(args_ty, args, i);
-        builder->CreateStore(codegen_expr(arg_exprs[i]), slot);
+        llvm::Value *value = nullptr;
+        const auto described = std::find_if(
+            descriptor_params.begin(), descriptor_params.end(),
+            [&](const auto &entry) { return entry.first == i; });
+        if (described != descriptor_params.end()) {
+            value = buffer_require(described->second->descriptor,
+                                   /*device=*/true);
+        } else {
+            value = codegen_expr(arg_exprs[i]);
+        }
+        builder->CreateStore(value, slot);
         builder->CreateStore(
             slot, builder->CreateConstInBoundsGEP2_64(params_ty, params, 0, i));
     }
@@ -263,6 +321,20 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
                                  llvm::ConstantInt::get(i64_t, n), buffers,
                                  llvm::ConstantInt::get(i64_t,
                                                         buffer_params.size())});
+
+    // What the kernel may have written is current on the device now; and a
+    // buffer the rest of this function reads on the host is brought back
+    // here, since the host pointer it was bound to at entry names the same
+    // memory. A buffer the host never touches is left where it is, for the
+    // driver to ask for when it wants it (outside its timer).
+    for (const auto &[i, buffer] : descriptor_params) {
+        if (buffer->mutating) {
+            buffer_mark_dirty(buffer->descriptor, /*device=*/true);
+        }
+        if (buffer->host_used) {
+            buffer_require(buffer->descriptor, /*device=*/false);
+        }
+    }
 }
 
 template <typename CodeGen_CPU>

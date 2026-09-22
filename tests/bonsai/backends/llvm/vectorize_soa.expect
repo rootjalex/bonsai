@@ -1,9 +1,11 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @sum_components(ptr noundef %inp, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @sum_components(ptr noundef %inp_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 sum_components:
+  %inp = tail call ptr @bonsai_buffer_require(ptr %inp_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract_ptrs = getelementptr inbounds nuw [4 x i8], ptr %inp, <8 x i64> <i64 0, i64 4, i64 8, i64 12, i64 16, i64 20, i64 24, i64 28>
   %extract = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %extract_ptrs3 = getelementptr inbounds nuw [4 x i8], ptr %inp, <8 x i64> <i64 1, i64 5, i64 9, i64 13, i64 17, i64 21, i64 25, i64 29>
@@ -16,8 +18,11 @@ sum_components:
   ret void
 }
 
-; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #1
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #0
+
+attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

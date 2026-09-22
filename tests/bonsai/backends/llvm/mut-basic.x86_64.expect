@@ -3,9 +3,10 @@ source_filename = "bonsai_module"
 
 %struct.Example = type { i32, ptr }
 
-; Function Attrs: mustprogress nofree nounwind willreturn memory(write, inaccessiblemem: readwrite, target_mem: none)
-define void @write_w(ptr nofree noundef writeonly captures(none) initializes((0, 16)) %e) local_unnamed_addr #0 {
+define void @write_w(ptr noundef %e_buffer) local_unnamed_addr {
 write_w_entry:
+  %e = tail call ptr @bonsai_buffer_require(ptr %e_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %e_buffer, i32 1)
   %_untyped = tail call dereferenceable_or_null(8) ptr @malloc(i64 8)
   store i32 2, ptr %_untyped, align 4
   %build_ptr1 = getelementptr inbounds nuw i8, ptr %_untyped, i64 4
@@ -16,14 +17,14 @@ write_w_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @write_x(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 4)) %e) local_unnamed_addr #1 {
+define void @write_x(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 4)) %e) local_unnamed_addr #0 {
 write_x_entry:
   store i32 3, ptr %e, align 4, !tbaa !0
   ret void
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
-define void @write_y(ptr nofree noundef nonnull readonly captures(none) %e) local_unnamed_addr #2 {
+define void @write_y(ptr nofree noundef nonnull readonly captures(none) %e) local_unnamed_addr #1 {
 write_y_entry:
   %e_y = getelementptr inbounds nuw i8, ptr %e, i64 8
   %e_y_ld = load ptr, ptr %e_y, align 8
@@ -31,21 +32,25 @@ write_y_entry:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
-define void @write_z(ptr nofree noundef writeonly captures(none) initializes((4, 8)) %z) local_unnamed_addr #1 {
+define void @write_z(ptr noundef %z_buffer) local_unnamed_addr {
 write_z_entry:
+  %z = tail call ptr @bonsai_buffer_require(ptr %z_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %z_buffer, i32 1)
   %z1 = getelementptr inbounds nuw i8, ptr %z, i64 4
   store i32 3, ptr %z1, align 4, !tbaa !0
   ret void
 }
 
-; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
-declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #3
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
-attributes #0 = { mustprogress nofree nounwind willreturn memory(write, inaccessiblemem: readwrite, target_mem: none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #3 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}

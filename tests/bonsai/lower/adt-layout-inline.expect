@@ -18,14 +18,6 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), a : f32x3, b : f32x3) -> void {
   return
 }
 
-func _unexported_Shape_Sph(centre : f32x3, radius : f32) -> Shape {
-  return build<Shape>(0u, ([[packed]] u8x15)[0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u], build<[[packed]] u32x8>(reinterpret_cast<u32>(centre[0u]), reinterpret_cast<u32>(centre[1u]), reinterpret_cast<u32>(centre[2u]), 0u, reinterpret_cast<u32>(radius), 0u, 0u, 0u))
-}
-
-func _unexported_Shape_Tri(a : f32x3, b : f32x3) -> Shape {
-  return build<Shape>(1u, ([[packed]] u8x15)[0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u], build<[[packed]] u32x8>(reinterpret_cast<u32>(a[0u]), reinterpret_cast<u32>(a[1u]), reinterpret_cast<u32>(a[2u]), 0u, reinterpret_cast<u32>(b[0u]), reinterpret_cast<u32>(b[1u]), reinterpret_cast<u32>(b[2u]), 0u))
-}
-
 func [[export]] size(s : (Shape*)) -> f32 {
   switch ((*s).tag) {
   case 0: { // Shape.Sph of size

@@ -271,42 +271,6 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0):
   @14 = load(_best0_result)
   ret @14
 
-; --- _unexported_trace ---
-func _unexported_trace(ray : Ray, triangles : _tree_layout0): 
-  _traverse_tree0$r25 = alloca<(_option0*)>()
-  _best0$i25 = alloca<(__tuple_1*)>()
-  @0 = inf()
-  @1 = make_struct<__tuple_0>()
-  @2 = make_struct<__tuple_1>(@0, @1)
-  store _best0$i25 @2
-  call _recloop_func0((u32)0, triangles, ray, _best0$i25) !_recloop_func0_call_cont_0(_best0$i25, triangles, _traverse_tree0$r25)
-
-!_recloop_func0_call_cont_0(_best0$i25 : (__tuple_1*), triangles : _tree_layout0, _traverse_tree0$r25 : (_option0*)): // preds: _unexported_trace
-  _best0_result$i25 = alloca<(_option0*)>()
-  @3 = make_struct<_option0>()
-  store _best0_result$i25 @3
-  @4 = load(_best0$i25)
-  @5 = load_field(@4, (u32)0)
-  @6 = inf()
-  @7 = ne(@5, @6)
-  dispatch @7 [!merge_2(_best0_result$i25, _traverse_tree0$r25), !then_1(triangles, _best0$i25, _best0_result$i25, _traverse_tree0$r25)]
-
-!then_1(triangles : _tree_layout0, _best0$i25 : (__tuple_1*), _best0_result$i25 : (_option0*), _traverse_tree0$r25 : (_option0*)): // preds: !_recloop_func0_call_cont_0
-  @8 = load_field(triangles, (u32)1)
-  @9 = load(_best0$i25)
-  @10 = load_field(@9, (u32)1)
-  @11 = load_field(@10, (u32)0)
-  @12 = extract_idx(@8, @11)
-  @13 = make_struct<_option0>(@12, (bool)1)
-  store _best0_result$i25 @13
-  jmp !merge_2(_best0_result$i25, _traverse_tree0$r25)
-
-!merge_2(_best0_result$i25 : (_option0*), _traverse_tree0$r25 : (_option0*)): // preds: !then_1, !_recloop_func0_call_cont_0
-  @14 = load(_best0_result$i25)
-  store _traverse_tree0$r25 @14
-  @15 = load(_traverse_tree0$r25)
-  ret @15
-
 ; --- trace ---
 func trace(_ret0 : (_option0*), ray : (Ray*), triangles : (_tree_layout0*)): 
   _traverse_tree0$r25 = alloca<(_option0*)>()
@@ -621,42 +585,6 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0):
   @14 = load(_best0_result)
   ret @14
 
-; --- _unexported_trace ---
-func _unexported_trace(ray : Ray, triangles : _tree_layout0): 
-  _traverse_tree0$r25 = alloca<(_option0*)>()
-  _best0$i25 = alloca<(__tuple_1*)>()
-  @0 = inf()
-  @1 = make_struct<__tuple_0>()
-  @2 = make_struct<__tuple_1>(@0, @1)
-  store _best0$i25 @2
-  call _recloop_func0((u32)0, triangles, ray, _best0$i25) !_recloop_func0_call_cont_0(_best0$i25, triangles, _traverse_tree0$r25)
-
-!_recloop_func0_call_cont_0(_best0$i25 : (__tuple_1*), triangles : _tree_layout0, _traverse_tree0$r25 : (_option0*)): // preds: _unexported_trace
-  _best0_result$i25 = alloca<(_option0*)>()
-  @3 = make_struct<_option0>()
-  store _best0_result$i25 @3
-  @4 = load(_best0$i25)
-  @5 = load_field(@4, (u32)0)
-  @6 = inf()
-  @7 = ne(@5, @6)
-  dispatch @7 [!merge_2(_best0_result$i25, _traverse_tree0$r25), !then_1(triangles, _best0$i25, _best0_result$i25, _traverse_tree0$r25)]
-
-!then_1(triangles : _tree_layout0, _best0$i25 : (__tuple_1*), _best0_result$i25 : (_option0*), _traverse_tree0$r25 : (_option0*)): // preds: !_recloop_func0_call_cont_0
-  @8 = load_field(triangles, (u32)1)
-  @9 = load(_best0$i25)
-  @10 = load_field(@9, (u32)1)
-  @11 = load_field(@10, (u32)0)
-  @12 = extract_idx(@8, @11)
-  @13 = make_struct<_option0>(@12, (bool)1)
-  store _best0_result$i25 @13
-  jmp !merge_2(_best0_result$i25, _traverse_tree0$r25)
-
-!merge_2(_best0_result$i25 : (_option0*), _traverse_tree0$r25 : (_option0*)): // preds: !then_1, !_recloop_func0_call_cont_0
-  @14 = load(_best0_result$i25)
-  store _traverse_tree0$r25 @14
-  @15 = load(_traverse_tree0$r25)
-  ret @15
-
 ; --- trace ---
 func trace(_ret0 : (_option0*), ray : (Ray*), triangles : (_tree_layout0*)): 
   _traverse_tree0$r25 = alloca<(_option0*)>()
@@ -935,36 +863,6 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
   }
   let @14 = (*_best0_result) in
   return @14
-}
-
-func _unexported_trace(ray : Ray, triangles : _tree_layout0) -> _option0 {
-  _traverse_tree0$r25 : mut _option0
-  _best0$i25 : mut __tuple_1
-  let @0 = (f32)inf in
-  let @1 = build<__tuple_0>() in
-  let @2 = build<__tuple_1>(@0, @1) in
-  _best0$i25 = @2
-  _recloop_func0(0u, triangles, ray, _best0$i25)
-  _best0_result$i25 : mut _option0
-  let @3 = build<_option0>() in
-  _best0_result$i25 = @3
-  let @4 = (*_best0$i25) in
-  let @5 = @4._field0 in
-  let @6 = (f32)inf in
-  let @7 = @5 != @6 in
-  if (@7) {
-    let @8 = triangles.prims in
-    let @9 = (*_best0$i25) in
-    let @10 = @9._field1 in
-    let @11 = @10._field0 in
-    let @12 = @8[@11] in
-    let @13 = build<_option0>(@12, true) in
-    _best0_result$i25 = @13
-  }
-  let @14 = (*_best0_result$i25) in
-  _traverse_tree0$r25 = @14
-  let @15 = (*_traverse_tree0$r25) in
-  return @15
 }
 
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_layout0*)) -> void {

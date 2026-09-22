@@ -16,10 +16,12 @@ define internal fastcc void @"bump$gang8_p0_v1$masked"(ptr nofree noundef nonnul
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @tally_some(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #1 {
+define void @tally_some(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 tally_some:
   %t = alloca %"struct.Tally$v8", align 32
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store <8 x float> splat (float 1.000000e+00), ptr %t, align 32
   %.fca.1.gep = getelementptr inbounds nuw i8, ptr %t, i64 32
   store <8 x i32> zeroinitializer, ptr %.fca.1.gep, align 32
@@ -45,11 +47,14 @@ tally_some:
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr captures(none), <8 x i1>) #2
+declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr captures(none), <8 x i1>) #1
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }

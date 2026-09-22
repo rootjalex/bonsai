@@ -1,0 +1,23 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/buffers
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_buffers.cpp -I. -o $<>/main_buffers.o, clang++ $<>/main_buffers.o $<>/buffers.o -o $<>/buffers, ./$<>/buffers, rm $<>/buffers, rm $<>/main_buffers.o, rm $<>/buffers.h, rm $<>/buffers.o
+
+// The buffer descriptors an exported function's arrays arrive as, driven
+// both ways: through descriptors the driver wraps, stages and keeps between
+// calls, and through the header's pointer form that wraps for one call.
+// With no loop on the GPU nothing is ever copied, and the driver says so
+// by forbidding implicit copies before its calls.
+func [[export]] combine(n : u32, weights : array[f32, 4], a : array[f32, n],
+                        out : mut array[f32]) -> void {
+    for i in 0u:n {
+        out[i] = a[i] * weights[i % 4u];
+    }
+    return;
+}
+
+func [[export]] total(n : u32, a : array[f32, n]) -> f32 {
+    acc : mut f32 = 0.0;
+    for i in 0u:n {
+        acc += a[i];
+    }
+    return acc;
+}

@@ -3,6 +3,7 @@
 #include "CodeGen/CodeGen_LLVM.h"
 #include "Error.h"
 
+#include "bonsai_buffer.h"
 #include "bonsai_cuda.h"
 
 #include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
@@ -44,10 +45,17 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
     // not, so they are defined here by address.
     {
         llvm::orc::SymbolMap runtime;
-        runtime[JIT->mangleAndIntern("bonsai_cuda_launch")] =
-            llvm::orc::ExecutorSymbolDef(
-                llvm::orc::ExecutorAddr::fromPtr(&bonsai_cuda_launch),
+        const auto define = [&](const char *name, auto *fn) {
+            runtime[JIT->mangleAndIntern(name)] = llvm::orc::ExecutorSymbolDef(
+                llvm::orc::ExecutorAddr::fromPtr(fn),
                 llvm::JITSymbolFlags::Exported);
+        };
+        define("bonsai_cuda_launch", &bonsai_cuda_launch);
+        // An exported function's prologue calls these; under the JIT nothing
+        // calls the exported entry (main calls its internal twin), but the
+        // entry is in the module and has to link.
+        define("bonsai_buffer_require", &bonsai_buffer_require);
+        define("bonsai_buffer_mark_dirty", &bonsai_buffer_mark_dirty);
         llvm::cantFail(JIT->getMainJITDylib().define(
             llvm::orc::absoluteSymbols(std::move(runtime))));
     }

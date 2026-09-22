@@ -1,0 +1,8 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_buffers.cpp -I. -o tests/bonsai/correctness/cpp/main_buffers.o
+[test] clang++ tests/bonsai/correctness/cpp/main_buffers.o tests/bonsai/correctness/cpp/buffers.o -o tests/bonsai/correctness/cpp/buffers
+[test] ./tests/bonsai/correctness/cpp/buffers
+1 4 9 16 5 12 21 32
+out dirty on host: 1
+total: 36
+1 4 9 16 5 12 21 32
+total: 36

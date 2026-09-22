@@ -31,6 +31,7 @@ add_bonsai_tests(
     block-effects.bonsai
     blocks.bonsai
     blocks-threads.bonsai
+    buffers-cpp.bonsai
     device-function.bonsai
     dynamic-size.bonsai
     math.bonsai

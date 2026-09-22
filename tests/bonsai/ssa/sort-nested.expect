@@ -473,42 +473,6 @@ func _traverse_tree0(ray : Ray, instances : _tree_layout0) -> _option0 {
   return @20
 }
 
-func _unexported_trace(ray : Ray, instances : _tree_layout0) -> _option0 {
-  _traverse_tree0$r27 : mut _option0
-  _best0$i27 : mut __tuple_2
-  let @0 = (f32)inf in
-  let @1 = build<__tuple_1>() in
-  let @2 = build<__tuple_2>(@0, @1) in
-  _best0$i27 = @2
-  _recloop_func0(0u, instances, ray, _best0$i27)
-  _best0_result$i27 : mut _option0
-  let @3 = build<_option0>() in
-  _best0_result$i27 = @3
-  let @4 = (*_best0$i27) in
-  let @5 = @4._field0 in
-  let @6 = (f32)inf in
-  let @7 = @5 != @6 in
-  if (@7) {
-    let @8 = instances.insts in
-    let @9 = (*_best0$i27) in
-    let @10 = @9._field1 in
-    let @11 = @10._field0 in
-    let @12 = @8[@11] in
-    let @13 = instances.prims in
-    let @14 = (*_best0$i27) in
-    let @15 = @14._field1 in
-    let @16 = @15._field1 in
-    let @17 = @13[@16] in
-    let @18 = build<__tuple_0>(@12, @17) in
-    let @19 = build<_option0>(@18, true) in
-    _best0_result$i27 = @19
-  }
-  let @20 = (*_best0_result$i27) in
-  _traverse_tree0$r27 = @20
-  let @21 = (*_traverse_tree0$r27) in
-  return @21
-}
-
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), instances : (_tree_layout0*)) -> void {
   _traverse_tree0$r27 : mut _option0
   _best0$i27 : mut __tuple_2

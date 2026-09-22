@@ -1,9 +1,12 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @bounded(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef readonly captures(none) %b, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %q) local_unnamed_addr #0 {
+define void @bounded(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer) local_unnamed_addr {
 bounded:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
+  %q = tail call ptr @bonsai_buffer_require(ptr %q_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %q_buffer, i32 1)
   %extract = load <8 x i32>, ptr %a, align 4
   %0 = and <8 x i32> %extract, splat (i32 65535)
   %extract5 = load <8 x i32>, ptr %b, align 4
@@ -17,9 +20,14 @@ bounded:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @divide(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef readonly captures(none) %b, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %q, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %r) local_unnamed_addr #0 {
+define void @divide(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer, ptr noundef %r_buffer) local_unnamed_addr {
 divide:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
+  %q = tail call ptr @bonsai_buffer_require(ptr %q_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %q_buffer, i32 1)
+  %r = tail call ptr @bonsai_buffer_require(ptr %r_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %r_buffer, i32 1)
   %extract = load <8 x i32>, ptr %a, align 4
   %extract6 = load <8 x i32>, ptr %b, align 4
   %0 = uitofp <8 x i32> %extract to <8 x double>
@@ -33,9 +41,12 @@ divide:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @divide_signed(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef readonly captures(none) %b, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %q) local_unnamed_addr #0 {
+define void @divide_signed(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer) local_unnamed_addr {
 divide_signed:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
+  %q = tail call ptr @bonsai_buffer_require(ptr %q_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %q_buffer, i32 1)
   %extract = load <8 x i32>, ptr %a, align 4
   %extract5 = load <8 x i32>, ptr %b, align 4
   %0 = sitofp <8 x i32> %extract to <8 x double>
@@ -47,11 +58,14 @@ divide_signed:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @scalar(i32 noundef %a, i32 noundef %b) local_unnamed_addr #1 {
+define noundef i32 @scalar(i32 noundef %a, i32 noundef %b) local_unnamed_addr #0 {
 scalar:
   %0 = udiv i32 %a, %b
   ret i32 %0
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

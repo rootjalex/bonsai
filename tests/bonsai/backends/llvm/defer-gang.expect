@@ -3,8 +3,7 @@ source_filename = "bonsai_module"
 
 %struct.Queue_sums = type { i32, ptr, ptr, ptr }
 
-; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: write, target_mem: write)
-define void @run(ptr noundef %out) local_unnamed_addr #0 {
+define void @run(ptr noundef %out_buffer) local_unnamed_addr {
 run:
   %sums_queue1134 = alloca [2 x %struct.Queue_sums], align 16
   %sums_i_135 = alloca [40 x i32], align 4
@@ -13,6 +12,8 @@ run:
   %sums_i_038 = alloca [40 x i32], align 4
   %sums_acc_039 = alloca [40 x i32], align 4
   %sums_n_040 = alloca [40 x i32], align 4
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store i32 0, ptr %sums_queue1134, align 16
   %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1134, i64 8
   store ptr %sums_n_040, ptr %.fca.1.gep, align 8
@@ -111,7 +112,7 @@ sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sum
 }
 
 ; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
-define internal fastcc void @walk(i32 noundef %n, ptr nofree noundef writeonly captures(none) %out, i32 noundef range(i32 -2147483648, 40) %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #1 {
+define internal fastcc void @walk(i32 noundef %n, ptr nofree noundef writeonly captures(none) %out, i32 noundef range(i32 -2147483648, 40) %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #0 {
 walk:
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %"!merge_1", label %"!then_0"
@@ -145,7 +146,7 @@ common.ret:                                       ; preds = %"!merge_1", %"!then
 }
 
 ; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite)
-define internal fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> noundef %n, <16 x i32> noundef %acc, ptr noundef %out, <16 x i32> noundef %i, ptr nofree noundef nonnull captures(none) %_queue_sums, <16 x i1> noundef %"!mask") unnamed_addr #2 {
+define internal fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> noundef %n, <16 x i32> noundef %acc, ptr noundef %out, <16 x i32> noundef %i, ptr nofree noundef nonnull captures(none) %_queue_sums, <16 x i1> noundef %"!mask") unnamed_addr #1 {
 "walk$gang16_v0_v1_v3$masked":
   %0 = icmp slt <16 x i32> %n, splat (i32 1)
   %not. = xor <16 x i1> %0, splat (i1 true)
@@ -191,25 +192,28 @@ define internal fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> noundef %n
   ret void
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read)
-declare <16 x i32> @llvm.masked.load.v16i32.p0(ptr captures(none), <16 x i1>, <16 x i32>) #3
+declare <16 x i32> @llvm.masked.load.v16i32.p0(ptr captures(none), <16 x i1>, <16 x i32>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.compressstore.v16i32.p0(<16 x i32>, ptr captures(none), <16 x i1>) #4
+declare void @llvm.masked.compressstore.v16i32.p0(<16 x i32>, ptr captures(none), <16 x i1>) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
-declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, <16 x i1>) #5
+declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, <16 x i1>) #4
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare i16 @llvm.ctpop.i16(i16) #6
+declare i16 @llvm.ctpop.i16(i16) #5
 
-attributes #0 = { norecurse nounwind memory(readwrite, inaccessiblemem: write, target_mem: write) }
-attributes #1 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #2 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read) }
-attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
-attributes #5 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
-attributes #6 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #5 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"u32", !2, i64 0}

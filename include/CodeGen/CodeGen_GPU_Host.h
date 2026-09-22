@@ -56,11 +56,14 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     void end_functions() override;
 
   private:
+    using CodeGen_CPU::buffer_mark_dirty;
+    using CodeGen_CPU::buffer_require;
     using CodeGen_CPU::builder;
     using CodeGen_CPU::codegen_expr;
     using CodeGen_CPU::codegen_type;
     using CodeGen_CPU::context;
     using CodeGen_CPU::create_alloca_at_entry;
+    using CodeGen_CPU::exported_buffers;
     using CodeGen_CPU::i64_t;
     using CodeGen_CPU::module;
     using CodeGen_CPU::trip_count;

@@ -43,37 +43,6 @@ func [[export]] Blob_Wide(_ret2 : mut (Blob*), v : f32x3, neg : bool) -> void {
   return
 }
 
-func _unexported_Blob_Split(lo : i32, hi : i32) -> Blob {
-  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
-  let @1 = reinterpret_cast<u32>(lo) in
-  let @2 = reinterpret_cast<u32>(hi) in
-  let @3 = build<[[packed]] u32x8>(@1, @2, 0u, 0u, 0u, 0u, 0u, 0u) in
-  let @4 = build<Blob>(1u, @0, @3) in
-  return @4
-}
-
-func _unexported_Blob_Whole(x : f32) -> Blob {
-  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
-  let @1 = reinterpret_cast<u32>(x) in
-  let @2 = build<[[packed]] u32x8>(@1, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
-  let @3 = build<Blob>(0u, @0, @2) in
-  return @3
-}
-
-func _unexported_Blob_Wide(v : f32x3, neg : bool) -> Blob {
-  let @0 = build<[[packed]] u8x15>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u) in
-  let @1 = v[0u] in
-  let @2 = reinterpret_cast<u32>(@1) in
-  let @3 = v[1u] in
-  let @4 = reinterpret_cast<u32>(@3) in
-  let @5 = v[2u] in
-  let @6 = reinterpret_cast<u32>(@5) in
-  let @7 = cast<u32>(neg) in
-  let @8 = build<[[packed]] u32x8>(@2, @4, @6, 0u, @7, 0u, 0u, 0u) in
-  let @9 = build<Blob>(2u, @0, @8) in
-  return @9
-}
-
 func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   acc : mut f32
   acc = k

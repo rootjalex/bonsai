@@ -146,10 +146,6 @@ func _traverse_tree0(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Pr
   return (*_best0_result)
 }
 
-func _unexported_trace(r : Ray, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[]) -> _option0 {
-  return _traverse_tree0(r, prims, Prim_Solo_pool, Prim_Inst_pool)
-}
-
 func apply(t : Transform, p : f32x3) -> f32x3 {
   return (((t.m0 * f32x3(p[0u])) + (t.m1 * f32x3(p[1u]))) + (t.m2 * f32x3(p[2u]))) + t.m3
 }

@@ -1,7 +1,0 @@
----CODE---
-1
----STDERR---
-[internal] Error: src/CodeGen/CodeGen_GPU_Host.cpp:81
-
---> a->size.defined()
-[unimplemented] the loop bound to the GPU reads `out` of type i32[], an array of no stated length, so the launch cannot know how many bytes to move to the device. An exported function's arrays have to come in as buffers that know their size and residency (apps/pbrt/PLAN.md, phase A0), which is not built yet.

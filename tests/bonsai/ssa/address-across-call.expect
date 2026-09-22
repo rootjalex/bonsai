@@ -25,23 +25,6 @@ func [[export]] Blob_B(_ret1 : mut (Blob*), y : f32, z : f32) -> void {
   return
 }
 
-func _unexported_Blob_A(x : f32) -> Blob {
-  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-  let @1 = reinterpret_cast<u32>(x) in
-  let @2 = build<[[packed]] u32x2>(@1, 0u) in
-  let @3 = build<Blob>(0u, @0, @2) in
-  return @3
-}
-
-func _unexported_Blob_B(y : f32, z : f32) -> Blob {
-  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-  let @1 = reinterpret_cast<u32>(y) in
-  let @2 = reinterpret_cast<u32>(z) in
-  let @3 = build<[[packed]] u32x2>(@1, @2) in
-  let @4 = build<Blob>(1u, @0, @3) in
-  return @4
-}
-
 func doubled(v : f32, n : i32) -> f32 {
   let @0 = n <= 0 in
   if (@0) {

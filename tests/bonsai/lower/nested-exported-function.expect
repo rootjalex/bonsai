@@ -25,17 +25,8 @@ func _unexported_A(x : X) -> X {
   return x
 }
 
-func _unexported_B(x : X) -> X {
-  return _unexported_A(x)
-}
-
 func _unexported_C(x : X) -> X {
   return x
-}
-
-func _unexported_D(x : X) -> X {
-  let y = _unexported_C(x) in
-  return y
 }
 
 

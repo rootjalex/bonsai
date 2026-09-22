@@ -1,0 +1,20 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/buffers-cpp
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_buffers_cpp.cpp -I. -o $<>/main_buffers_cpp.o, clang++ $<>/main_buffers_cpp.o $<>/buffers-cpp.o -o $<>/buffers-cpp, ./$<>/buffers-cpp, rm $<>/buffers-cpp, rm $<>/main_buffers_cpp.o, rm $<>/buffers-cpp.h, rm $<>/buffers-cpp.o
+
+// An exported function with its loop on the GPU, driven from C++ through
+// buffer descriptors: the driver stages the arrays on the device once, per
+// the header's `_sides` table, forbids implicit copies, calls twice -- the
+// second call moves nothing -- and fetches the result itself, after. What a
+// render's driver does around its timed region.
+func [[export]] run(n : i32, a : array[i32, n], out : mut array[i32],
+                    scale : array[i32, 4]) -> void {
+    s = scale[1];
+    parfor i in 0:n {
+        out[i] = a[i] * s;
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

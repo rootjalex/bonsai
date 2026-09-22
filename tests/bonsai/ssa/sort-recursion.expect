@@ -262,36 +262,6 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
   return @14
 }
 
-func _unexported_trace(ray : Ray, triangles : _tree_layout0) -> _option0 {
-  _traverse_tree0$r25 : mut _option0
-  _best0$i25 : mut __tuple_1
-  let @0 = (f32)inf in
-  let @1 = build<__tuple_0>() in
-  let @2 = build<__tuple_1>(@0, @1) in
-  _best0$i25 = @2
-  _recloop_func0(0u, triangles, ray, _best0$i25)
-  _best0_result$i25 : mut _option0
-  let @3 = build<_option0>() in
-  _best0_result$i25 = @3
-  let @4 = (*_best0$i25) in
-  let @5 = @4._field0 in
-  let @6 = (f32)inf in
-  let @7 = @5 != @6 in
-  if (@7) {
-    let @8 = triangles.prims in
-    let @9 = (*_best0$i25) in
-    let @10 = @9._field1 in
-    let @11 = @10._field0 in
-    let @12 = @8[@11] in
-    let @13 = build<_option0>(@12, true) in
-    _best0_result$i25 = @13
-  }
-  let @14 = (*_best0_result$i25) in
-  _traverse_tree0$r25 = @14
-  let @15 = (*_traverse_tree0$r25) in
-  return @15
-}
-
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), triangles : (_tree_layout0*)) -> void {
   _traverse_tree0$r25 : mut _option0
   _best0$i25 : mut __tuple_1

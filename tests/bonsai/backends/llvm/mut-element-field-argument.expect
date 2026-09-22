@@ -1,9 +1,10 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @deeper(ptr nofree noundef captures(none) %vs, i32 noundef %i) local_unnamed_addr #0 {
+define void @deeper(ptr noundef %vs_buffer, i32 noundef %i) local_unnamed_addr {
 deeper:
+  %vs = tail call ptr @bonsai_buffer_require(ptr %vs_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %vs_buffer, i32 1)
   %0 = sext i32 %i to i64
   %ptr_array_deref = getelementptr inbounds [32 x i8], ptr %vs, i64 %0
   %c_gep = getelementptr inbounds nuw i8, ptr %ptr_array_deref, i64 20
@@ -13,9 +14,10 @@ deeper:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @touch(ptr nofree noundef captures(none) %vs, i32 noundef %i) local_unnamed_addr #0 {
+define void @touch(ptr noundef %vs_buffer, i32 noundef %i) local_unnamed_addr {
 touch:
+  %vs = tail call ptr @bonsai_buffer_require(ptr %vs_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %vs_buffer, i32 1)
   %0 = sext i32 %i to i64
   %ptr_array_deref = getelementptr inbounds [32 x i8], ptr %vs, i64 %0
   %w_gep = getelementptr inbounds nuw i8, ptr %ptr_array_deref, i64 16
@@ -25,7 +27,9 @@ touch:
   ret void
 }
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"f32", !2, i64 0}

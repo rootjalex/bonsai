@@ -16,6 +16,7 @@ add_bonsai_tests(
     ffp-contract.bonsai
     float.bonsai
     forall.bonsai
+    gpu-launch-buffers.bonsai
     index.bonsai
     isel.bonsai
     ivector.bonsai

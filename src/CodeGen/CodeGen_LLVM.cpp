@@ -503,6 +503,8 @@ void CodeGen_LLVM::compile_function(const Function &func,
     }
 
     uint32_t arg_idx = 0;
+    std::vector<uint8_t> sides;
+    exported_buffers.clear();
     for (auto &arg : function->args()) {
         if (&arg == current_sret) {
             continue;
@@ -520,8 +522,32 @@ void CodeGen_LLVM::compile_function(const Function &func,
         // copy at every call site, and with it the ability to recognise two
         // calls to the same pure function on the same value as one.
 
+        // An exported function's array is a buffer descriptor (see
+        // ExportedBuffer): the parameter's name is bound to its host pointer.
+        // Statements never hold a loop bound to the GPU -- a bind needs the
+        // SSA pipeline -- so every array is used on the host and nowhere
+        // else.
+        if (func.is_exported() && arg_info.type.is<Array_t>()) {
+            arg.setName(name + "_buffer");
+            ExportedBuffer buffer;
+            buffer.descriptor = &arg;
+            buffer.type = arg_info.type;
+            buffer.mutating = arg_info.mutating;
+            buffer.host_used = true;
+            arg_value = buffer_require(&arg, /*device=*/false);
+            arg_value->setName(name);
+            if (arg_info.mutating) {
+                buffer_mark_dirty(&arg, /*device=*/false);
+            }
+            exported_buffers[name] = buffer;
+            sides.push_back(1);
+        }
+
         frames.add_to_frame(arg_info.name, arg_value);
         arg_idx++;
+    }
+    if (func.is_exported()) {
+        sides_of_exported[func.name] = sides;
     }
 
     if (func.must_setup_rng()) {
@@ -563,6 +589,28 @@ void CodeGen_LLVM::compile_function(const Function &func,
     current_sret = nullptr;
 
     // function->dump();
+}
+
+llvm::Value *CodeGen_LLVM::buffer_require(llvm::Value *descriptor,
+                                          bool device) {
+    // void *bonsai_buffer_require(bonsai_buffer *b, int side);
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::FunctionCallee require = module->getOrInsertFunction(
+        "bonsai_buffer_require",
+        llvm::FunctionType::get(ptr_t, {ptr_t, i32_t}, /*isVarArg=*/false));
+    return builder->CreateCall(
+        require, {descriptor, llvm::ConstantInt::get(i32_t, device ? 2 : 1)},
+        device ? "device" : "host");
+}
+
+void CodeGen_LLVM::buffer_mark_dirty(llvm::Value *descriptor, bool device) {
+    // void bonsai_buffer_mark_dirty(bonsai_buffer *b, int side);
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::FunctionCallee mark = module->getOrInsertFunction(
+        "bonsai_buffer_mark_dirty",
+        llvm::FunctionType::get(void_t, {ptr_t, i32_t}, /*isVarArg=*/false));
+    builder->CreateCall(mark,
+                        {descriptor, llvm::ConstantInt::get(i32_t, device ? 2 : 1)});
 }
 
 void CodeGen_LLVM::emit_rng_setup() {

@@ -63,6 +63,19 @@ struct ReplaceExportedCalls : public ir::Mutator {
     }
 };
 
+// The functions the program's own code refers to as functions: what a call
+// names. A twin is made only for these, since an exported function nothing
+// calls -- a renderer's entry point -- would otherwise be generated twice,
+// once under each ABI, with the second copy dead.
+struct CalledFunctions : public ir::Visitor {
+    std::set<std::string> called;
+    void visit(const ir::Var *node) override {
+        if (node->type.is_func()) {
+            called.insert(node->name);
+        }
+    }
+};
+
 } // namespace
 
 ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
@@ -70,6 +83,11 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
     ir::FuncMap new_functions;
 
     std::set<std::string> exported_funcs;
+
+    CalledFunctions callers;
+    for (const auto &[name, function] : functions) {
+        function->body.accept(&callers);
+    }
 
     // First, update function argument and type signatures.
     for (const auto &[name, function] : functions) {
@@ -79,12 +97,38 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
         }
         ir::Type return_type = function->ret_type;
         const auto *struct_type = return_type.as<ir::Struct_t>();
-        if (struct_type == nullptr) {
+        // An exported function's arrays arrive as buffer descriptors
+        // (runtime/bonsai_buffer.h) rather than as the pointers the
+        // program's own calls pass, so such a function, like one returning
+        // a struct, has a C-ABI entry and an internal twin, and the program's
+        // calls go to the twin. The entry's prologue unwraps the descriptors
+        // (see CodeGen_LLVM::SSALowering::run).
+        const bool has_arrays =
+            std::any_of(function->args.begin(), function->args.end(),
+                        [](const ir::Function::Argument &arg) {
+                            return arg.type.is<ir::Array_t>();
+                        });
+        if (struct_type == nullptr && !has_arrays) {
             new_functions[name] = std::move(function);
             continue;
         }
 
-        exported_funcs.insert(name);
+        const bool called = callers.called.contains(name);
+        std::string unexported = get_unexported_name(name);
+        if (called) {
+            exported_funcs.insert(name);
+        }
+        if (struct_type == nullptr) {
+            // The entry as written, and the twin for the program's calls.
+            new_functions[name] = function;
+            if (called) {
+                new_functions[unexported] = std::make_shared<ir::Function>(
+                    unexported, function->args, function->ret_type,
+                    function->body, function->interfaces,
+                    std::vector<ir::Function::Attribute>{});
+            }
+            continue;
+        }
 
         // Update function arguments with additional mutable argument that
         // signifies the returned value.
@@ -104,10 +148,12 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
             name, arguments, ir::Void_t::make(), function->body,
             function->interfaces, function->attributes);
         // Keep the original function around for other functions that call it.
-        std::string unexported = get_unexported_name(name);
-        new_functions[unexported] = std::make_shared<ir::Function>(
-            unexported, function->args, function->ret_type, function->body,
-            function->interfaces, std::vector<ir::Function::Attribute>{});
+        if (called) {
+            new_functions[unexported] = std::make_shared<ir::Function>(
+                unexported, function->args, function->ret_type,
+                function->body, function->interfaces,
+                std::vector<ir::Function::Attribute>{});
+        }
     }
 
     // Next, update function bodies.

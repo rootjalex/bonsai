@@ -33,7 +33,6 @@ add_bonsai_tests(
     gpu-block-level-local.bonsai
     gpu-thread-bounds-in-block.bonsai
     gpu-two-thread-loops.bonsai
-    gpu-unsized-array.bonsai
     ptx-no-gpu-loop.bonsai
     bad_layout_split.bonsai
     bad_path_layout.bonsai

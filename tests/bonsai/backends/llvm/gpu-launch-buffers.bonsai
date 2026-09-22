@@ -1,0 +1,23 @@
+//! flags: -p ssa -b llvm --gpu-arch sm_90
+
+// An exported function whose loop runs on the GPU: its arrays arrive as
+// buffer descriptors (runtime/bonsai_buffer.h), and the launch asks for the
+// ones the kernel reads on the device rather than copying them -- a flag
+// test when the driver staged them there. `scale` is read on the host, so
+// the prologue asks for it there; `a` and `out` reach only the kernel, so
+// the host never asks for them at all and `out`, which the kernel writes,
+// is marked dirty on the device after the launch, for the driver to fetch
+// when it wants it. `out` has no stated length, which the descriptor
+// supplies and a bare pointer could not.
+func [[export]] run(n : i32, a : array[i32, n], out : mut array[i32],
+                    scale : array[i32, 4]) -> void {
+    s = scale[1];
+    parfor i in 0:n {
+        out[i] = a[i] * s;
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

@@ -1,9 +1,11 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-define void @double_evens(ptr noundef %a, ptr noundef %out) local_unnamed_addr #0 {
+define void @double_evens(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 double_evens:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract_ptrs = getelementptr inbounds nuw [4 x i8], ptr %a, <8 x i64> <i64 0, i64 2, i64 4, i64 6, i64 8, i64 10, i64 12, i64 14>
   %extract = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %0 = fmul <8 x float> %extract, splat (float 2.000000e+00)
@@ -12,9 +14,12 @@ double_evens:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite)
-define void @reorder(ptr noundef %a, ptr nofree noundef readonly captures(none) %idx, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #1 {
+define void @reorder(ptr noundef %a_buffer, ptr noundef %idx_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 reorder:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %idx = tail call ptr @bonsai_buffer_require(ptr %idx_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %idx, align 4
   %0 = sext <8 x i32> %extract to <8 x i64>
   %extract_ptrs = getelementptr inbounds [4 x i8], ptr %a, <8 x i64> %0
@@ -23,13 +28,15 @@ reorder:
   ret void
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #2
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #0
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
-declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #3
+declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #1
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: readwrite) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }

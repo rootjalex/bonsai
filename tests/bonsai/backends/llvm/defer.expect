@@ -38,8 +38,7 @@ common.ret:                                       ; preds = %"!merge_1", %"!then
   br label %common.ret
 }
 
-; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
-define void @run(ptr nofree noundef writeonly captures(none) %out) local_unnamed_addr #1 {
+define void @run(ptr noundef %out_buffer) local_unnamed_addr {
 run:
   %sums_queue1129 = alloca [2 x %struct.Queue_sums], align 16
   %sums_i_130 = alloca [8 x i32], align 4
@@ -48,6 +47,8 @@ run:
   %sums_i_033 = alloca [8 x i32], align 4
   %sums_acc_034 = alloca [8 x i32], align 4
   %sums_n_035 = alloca [8 x i32], align 4
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store i32 0, ptr %sums_queue1129, align 16
   %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 8
   store ptr %sums_n_035, ptr %.fca.1.gep, align 8
@@ -119,8 +120,11 @@ sums1_pf_exit:                                    ; preds = %"sums!run"
   br i1 %9, label %"!par_cont_1", label %"sums!batch"
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
 attributes #0 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #1 = { norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}

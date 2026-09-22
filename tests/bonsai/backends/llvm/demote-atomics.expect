@@ -5,36 +5,43 @@ source_filename = "bonsai_module"
 %struct._pfctx2 = type { ptr }
 %struct._pfctx4 = type { ptr }
 
-define void @derived_bound(i32 noundef %n, ptr noundef %out) local_unnamed_addr {
+define void @derived_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
 derived_bound:
   %_pfctx = alloca %struct._pfctx0, align 16
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store ptr %out, ptr %_pfctx, align 16
   %0 = zext i32 %n to i64
   call void @bonsai_parallel_for(i64 %0, ptr nonnull %_pfctx, ptr nonnull @_pfkernel1)
   ret void
 }
 
-define void @per_lane_bound(i32 noundef %n, ptr noundef %out) local_unnamed_addr {
+define void @per_lane_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
 per_lane_bound:
   %_pfctx = alloca %struct._pfctx2, align 16
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store ptr %out, ptr %_pfctx, align 16
   %0 = zext i32 %n to i64
   call void @bonsai_parallel_for(i64 %0, ptr nonnull %_pfctx, ptr nonnull @_pfkernel3)
   ret void
 }
 
-define void @shared_bound(i32 noundef %n, ptr noundef %out) local_unnamed_addr {
+define void @shared_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
 shared_bound:
   %_pfctx = alloca %struct._pfctx4, align 16
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store ptr %out, ptr %_pfctx, align 16
   %0 = zext i32 %n to i64
   call void @bonsai_parallel_for(i64 %0, ptr nonnull %_pfctx, ptr nonnull @_pfkernel5)
   ret void
 }
 
-; Function Attrs: nofree norecurse nosync nounwind memory(argmem: readwrite)
-define void @shared_unbound(i32 noundef %n, ptr nofree noundef captures(none) %out) local_unnamed_addr #0 {
+define void @shared_unbound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
 shared_unbound:
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %.not = icmp eq i32 %n, 0
   br i1 %.not, label %i6_pf_exit, label %"!par_body_0.lr.ph", !prof !0
 
@@ -90,8 +97,12 @@ i6_pf_exit:                                       ; preds = %i6_pf_head.i6_pf_ex
   ret void
 }
 
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
 ; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1) #1 {
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1) #0 {
 "!par_body_0":
   %2 = load ptr, ptr %0, align 8
   %3 = lshr i64 %1, 1
@@ -104,7 +115,7 @@ define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1) 
 declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1) #2 {
+define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1) #1 {
 "!par_body_0":
   %2 = load ptr, ptr %0, align 8
   %sext = shl i64 %1, 32
@@ -117,7 +128,7 @@ define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1) 
 }
 
 ; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1) #1 {
+define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1) #0 {
 "!par_body_0":
   %2 = load ptr, ptr %0, align 8
   %3 = atomicrmw fadd ptr %2, float 1.000000e+00 monotonic, align 4
@@ -125,12 +136,11 @@ define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1) 
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
-declare void @llvm.assume(i1 noundef) #3
+declare void @llvm.assume(i1 noundef) #2
 
-attributes #0 = { nofree norecurse nosync nounwind memory(argmem: readwrite) }
-attributes #1 = { mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
-attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
-attributes #3 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+attributes #0 = { mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #2 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
 !0 = !{!"branch_weights", i32 0, i32 1}
 !1 = !{!"branch_weights", i32 0, i32 -2147483648}

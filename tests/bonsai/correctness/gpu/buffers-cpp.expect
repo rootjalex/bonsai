@@ -1,0 +1,7 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/gpu/main_buffers_cpp.cpp -I. -o tests/bonsai/correctness/gpu/main_buffers_cpp.o
+[test] clang++ tests/bonsai/correctness/gpu/main_buffers_cpp.o tests/bonsai/correctness/gpu/buffers-cpp.o -o tests/bonsai/correctness/gpu/buffers-cpp
+[test] ./tests/bonsai/correctness/gpu/buffers-cpp
+sides: 2 2 1
+out dirty on device: 1
+host before fetch: -1
+10 20 30 40 50 60 70 80

@@ -118,18 +118,6 @@ func _traverse_tree0(ray : Ray, ts : _tree_layout0) -> _option0 {
   return (*_best0_result)
 }
 
-func _unexported_trace(ray : Ray, ts : _tree_layout0) -> _option0 {
-  _traverse_tree0$r21 : mut _option0
-  _best0$i21 : mut __tuple_1 := build<__tuple_1>((f32)inf, build<__tuple_0>())
-  _recloop_func0(0u, 0u, ts, ray, _best0$i21)
-  _best0_result$i21 : mut _option0 := build<_option0>()
-  if ((*_best0$i21)._field0 != (f32)inf) {
-    _best0_result$i21 = build<_option0>(ts.prims[(*_best0$i21)._field1._field0], true)
-  }
-  _traverse_tree0$r21 = (*_best0_result$i21)
-  return (*_traverse_tree0$r21)
-}
-
 func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), ts : (_tree_layout0*)) -> void {
   _traverse_tree0$r21 : mut _option0
   _best0$i21 : mut __tuple_1 := build<__tuple_1>((f32)inf, build<__tuple_0>())

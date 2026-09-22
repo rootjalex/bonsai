@@ -347,10 +347,20 @@ class BonsaiToCpp : ir::Printer {
 
     // Creates the bonsai header with external functions and their respective
     // struct definitions.
-    std::string create_header(const Program &program, bool allow_mangling) {
+    // The header a driver compiles against. `sides` is, per exported
+    // function, where each of its array parameters is needed -- BONSAI_HOST,
+    // BONSAI_DEVICE or both -- as the code generator found out (see
+    // CodeGen_LLVM::exported_sides); a function it says nothing about is
+    // taken to need its arrays on the host.
+    std::string
+    create_header(const Program &program, bool allow_mangling,
+                  const std::map<std::string, std::vector<uint8_t>> &sides =
+                      {}) {
+        sides_of_exported = sides;
         emit_prologue(allow_mangling);
         emit_program(program);
         emit_epilogue(allow_mangling);
+        emit_buffer_helpers(program);
         return ss.str();
     }
 
@@ -367,9 +377,18 @@ class BonsaiToCpp : ir::Printer {
 
   private:
     std::stringstream ss;
+    std::map<std::string, std::vector<uint8_t>> sides_of_exported;
 
+    // `descriptor`: the parameter is an exported function's array, which
+    // arrives as a buffer descriptor (runtime/bonsai_buffer.h) rather than
+    // as the pointer or std::array the type would otherwise print as.
     void emit_signature_type(const Type &type, bool is_mutating = false,
-                             bool is_return_type = false) {
+                             bool is_return_type = false,
+                             bool descriptor = false) {
+        if (descriptor && type.is<Array_t>()) {
+            ss << "bonsai_buffer *";
+            return;
+        }
         // TODO: understand why this was here.
         // internal_assert(!type.is<Struct_t>()) << type;
         const bool is_const = !is_mutating && !is_return_type;
@@ -433,21 +452,165 @@ class BonsaiToCpp : ir::Printer {
         ss << ";\n";
     }
 
-    void emit_func_header(const Function &func) {
+    // An exported function's arrays are buffer descriptors at the C
+    // boundary. In a definition (the C++ source backend) the descriptor
+    // parameter is `<name>_buffer`, and the body's `<name>` is what
+    // emit_buffer_unwrap makes of it.
+    void emit_func_header(const Function &func, bool definition = false) {
         emit_signature_type(func.ret_type, /*is_mutating=*/false,
                             /*is_return_type=*/true);
         ss << ' ' << func.name;
         ss << '(';
         for (int i = 0, e = func.args.size(); i < e; ++i) {
             const Function::Argument &arg = func.args[i];
-            emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
+            const bool descriptor =
+                func.is_exported() && arg.type.is<Array_t>();
+            emit_signature_type(arg.type, /*is_mutating=*/arg.mutating,
+                                /*is_return_type=*/false, descriptor);
             ss << ' ' << arg.name;
+            if (descriptor && definition) {
+                ss << "_buffer";
+            }
             if (i + 1 == e) {
                 continue;
             }
             ss << ',' << ' ';
         }
         ss << ")";
+    }
+
+    // The prologue of an exported function's definition: each array
+    // parameter's pointer, asked for on the host, under the name the body
+    // uses; the ones the function may write marked dirty there.
+    void emit_buffer_unwrap(const Function &func) {
+        for (const Function::Argument &arg : func.args) {
+            const Array_t *array_t = arg.type.as<Array_t>();
+            if (array_t == nullptr) {
+                continue;
+            }
+            const char *qualifier = arg.mutating ? "" : "const ";
+            ss << get_indent() << qualifier;
+            emit_type(ss, arg.type);
+            if (is_dynamic_array(arg.type)) {
+                // Already a `T*`.
+                ss << ' ' << arg.name << " = static_cast<" << qualifier;
+                emit_type(ss, arg.type);
+                ss << ">(bonsai_buffer_require(" << arg.name
+                   << "_buffer, BONSAI_HOST));\n";
+            } else {
+                // A `std::array<T, N>`, referred to in place.
+                ss << " &" << arg.name << " = *static_cast<" << qualifier;
+                emit_type(ss, arg.type);
+                ss << " *>(bonsai_buffer_require(" << arg.name
+                   << "_buffer, BONSAI_HOST));\n";
+            }
+            if (arg.mutating) {
+                ss << get_indent() << "bonsai_buffer_mark_dirty(" << arg.name
+                   << "_buffer, BONSAI_HOST);\n";
+            }
+        }
+    }
+
+    // After the declarations, for each exported function with arrays: the
+    // table of sides its arrays are needed on, and a version of the function
+    // taking the arrays as a driver has them -- pointers and std::arrays --
+    // wrapped in descriptors for the one call. The latter is for a driver
+    // that does not stage: each call wraps afresh, so a buffer is never
+    // resident anywhere between calls, and one whose length the type does
+    // not say (an `array[T]`) is wrapped unsized, which is enough for a
+    // host-only schedule and an error the moment a kernel needs it moved.
+    void emit_buffer_helpers(const Program &program) {
+        for (const auto &[_, func] : program.funcs) {
+            if (!func->is_exported()) {
+                continue;
+            }
+            std::vector<const Function::Argument *> arrays;
+            for (const Function::Argument &arg : func->args) {
+                if (arg.type.is<Array_t>()) {
+                    arrays.push_back(&arg);
+                }
+            }
+            if (arrays.empty()) {
+                continue;
+            }
+            ss << '\n';
+
+            // The sides.
+            std::vector<uint8_t> sides(arrays.size(), 1);
+            if (const auto found = sides_of_exported.find(func->name);
+                found != sides_of_exported.end() &&
+                found->second.size() == arrays.size()) {
+                sides = found->second;
+            }
+            ss << "// Where " << func->name
+               << " needs each of its arrays, in parameter order (";
+            for (size_t i = 0; i < arrays.size(); i++) {
+                ss << (i ? ", " : "") << arrays[i]->name;
+            }
+            ss << "): BONSAI_HOST, BONSAI_DEVICE, or both. For\n"
+               << "// bonsai_buffer_stage_all, ahead of a timed call.\n";
+            ss << "static const uint8_t " << func->name << "_sides["
+               << arrays.size() << "] = {";
+            for (size_t i = 0; i < sides.size(); i++) {
+                ss << (i ? ", " : "") << unsigned(sides[i]);
+            }
+            ss << "};\n\n";
+
+            // The convenience form.
+            ss << "// " << func->name
+               << ", with its arrays as pointers and std::arrays: each is\n"
+               << "// wrapped in a bonsai_buffer for this call alone.\n";
+            ss << "static inline ";
+            emit_signature_type(func->ret_type, /*is_mutating=*/false,
+                                /*is_return_type=*/true);
+            ss << ' ' << func->name << '(';
+            for (int i = 0, e = func->args.size(); i < e; ++i) {
+                const Function::Argument &arg = func->args[i];
+                emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
+                ss << ' ' << arg.name;
+                if (i + 1 != e) {
+                    ss << ", ";
+                }
+            }
+            ss << ") {\n";
+            for (const Function::Argument *arg : arrays) {
+                const Array_t *array_t = arg->type.as<Array_t>();
+                ss << "    bonsai_buffer " << arg->name
+                   << "_buffer = bonsai_buffer_wrap(const_cast<void *>("
+                   << "static_cast<const void *>(" << arg->name
+                   << (is_dynamic_array(arg->type) ? "" : ".data()") << ")), ";
+                if (!is_dynamic_array(arg->type)) {
+                    ss << "sizeof(" << arg->name << ")";
+                } else if (array_t->size.defined()) {
+                    std::stringstream size;
+                    ir::Printer printer(size);
+                    printer.print_no_parens(array_t->size);
+                    ss << "uint64_t(" << size.str() << ") * sizeof(";
+                    emit_type(ss, array_t->etype);
+                    ss << ")";
+                } else {
+                    ss << "BONSAI_BUFFER_UNSIZED";
+                }
+                ss << ");\n";
+            }
+            ss << "    ";
+            if (!func->ret_type.is<Void_t>()) {
+                ss << "return ";
+            }
+            ss << func->name << '(';
+            for (int i = 0, e = func->args.size(); i < e; ++i) {
+                const Function::Argument &arg = func->args[i];
+                if (arg.type.is<Array_t>()) {
+                    ss << '&' << arg.name << "_buffer";
+                } else {
+                    ss << arg.name;
+                }
+                if (i + 1 != e) {
+                    ss << ", ";
+                }
+            }
+            ss << ");\n}\n";
+        }
     }
 
     // Recursively acquire all *unique* types and inserted them into `types`.
@@ -601,9 +764,12 @@ class BonsaiToCpp : ir::Printer {
             if (func->is_inlined()) {
                 ss << "inline ";
             }
-            emit_func_header(*func);
+            emit_func_header(*func, /*definition=*/true);
             ss << " {\n";
             increment();
+            if (func->is_exported()) {
+                emit_buffer_unwrap(*func);
+            }
             func->body.accept(this);
             decrement();
             ss << "}\n";
@@ -1316,7 +1482,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         // Mostly for dry-run / testing purposes.
         llvm::outs() << "// Bonsai Header" << '\n';
         llvm::outs() << BonsaiToCpp().create_header(program,
-                                                    /*allow_mangling=*/false)
+                                                    /*allow_mangling=*/false,
+                                                    codegen->exported_sides())
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -1348,7 +1515,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     std::ofstream file;
     file.open(options.output_file + ".h");
     file << BonsaiToCpp().create_header(program,
-                                        /*allow_mangling=*/false);
+                                        /*allow_mangling=*/false,
+                                        codegen->exported_sides());
     file.close();
 }
 

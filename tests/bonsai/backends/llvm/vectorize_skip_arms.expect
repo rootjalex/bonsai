@@ -5,9 +5,11 @@ source_filename = "bonsai_module"
 %"struct.Shape$v8" = type { <8 x i8>, %"struct.[[packed]] u8x3$v8", %"struct.[[packed]] u32x2$v8" }
 %"struct.[[packed]] u8x3$v8" = type { <8 x i8>, <8 x i8>, <8 x i8> }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define void @weigh_all(ptr nofree noundef readonly captures(none) %a, ptr nofree noundef writeonly captures(none) initializes((0, 32)) %out) local_unnamed_addr #0 {
+define void @weigh_all(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 weigh_all:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp ogt <8 x float> %extract, splat (float 2.000000e+00)
   %not..i = xor <8 x i1> %0, splat (i1 true)
@@ -229,7 +231,7 @@ weigh_all:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define float @weigh_one(float noundef %x) local_unnamed_addr #1 {
+define float @weigh_one(float noundef %x) local_unnamed_addr #0 {
 weigh_one:
   %0 = fcmp ogt float %x, 2.000000e+00
   br i1 %0, label %"!then_0.i", label %"!else_1.i"
@@ -303,11 +305,14 @@ weigh.exit:                                       ; preds = %"!then_0.i", %"!mer
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.sqrt.f32(float) #2
+declare float @llvm.sqrt.f32(float) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #2
+declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #1
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

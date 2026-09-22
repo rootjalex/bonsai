@@ -1,0 +1,189 @@
+// Bonsai Header
+#pragma once
+
+#include <cstdint>
+#include "runtime/bonsai_cpp.h"
+
+
+extern "C" {
+
+void combine(const uint32_t n, bonsai_buffer * weights, bonsai_buffer * a, bonsai_buffer * out);
+float total(const uint32_t n, bonsai_buffer * a);
+}
+
+// Where combine needs each of its arrays, in parameter order (weights, a, out): BONSAI_HOST, BONSAI_DEVICE, or both. For
+// bonsai_buffer_stage_all, ahead of a timed call.
+static const uint8_t combine_sides[3] = {1, 1, 1};
+
+// combine, with its arrays as pointers and std::arrays: each is
+// wrapped in a bonsai_buffer for this call alone.
+static inline void combine(const uint32_t n, const std::array<float, 4>& weights, const float* a, float* out) {
+    bonsai_buffer weights_buffer = bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(weights.data())), sizeof(weights));
+    bonsai_buffer a_buffer = bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(a)), uint64_t(n) * sizeof(float));
+    bonsai_buffer out_buffer = bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(out)), BONSAI_BUFFER_UNSIZED);
+    combine(n, &weights_buffer, &a_buffer, &out_buffer);
+}
+
+// Where total needs each of its arrays, in parameter order (a): BONSAI_HOST, BONSAI_DEVICE, or both. For
+// bonsai_buffer_stage_all, ahead of a timed call.
+static const uint8_t total_sides[1] = {1};
+
+// total, with its arrays as pointers and std::arrays: each is
+// wrapped in a bonsai_buffer for this call alone.
+static inline float total(const uint32_t n, const float* a) {
+    bonsai_buffer a_buffer = bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(a)), uint64_t(n) * sizeof(float));
+    return total(n, &a_buffer);
+}
+
+------------------------------------------
+
+; LLVM Module
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+define void @combine(i32 noundef %n, ptr noundef %weights_buffer, ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+combine_entry:
+  %weights = tail call ptr @bonsai_buffer_require(ptr %weights_buffer, i32 1)
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %.not = icmp eq i32 %n, 0
+  br i1 %.not, label %i0_for_end, label %i0_for.preheader14, !prof !0
+
+i0_for.preheader14:                               ; preds = %combine_entry
+  %xtraiter = and i32 %n, 1
+  %lcmp.mod.not = icmp eq i32 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %i0_for.prol.loopexit, label %i0_for.prol
+
+i0_for.prol:                                      ; preds = %i0_for.preheader14
+  %extract.prol = load float, ptr %a, align 4
+  %extract2.prol = load float, ptr %weights, align 4
+  %0 = fmul float %extract.prol, %extract2.prol
+  store float %0, ptr %out, align 4, !tbaa !1
+  br label %i0_for.prol.loopexit
+
+i0_for.prol.loopexit:                             ; preds = %i0_for.prol, %i0_for.preheader14
+  %.unr = phi i32 [ 0, %i0_for.preheader14 ], [ 1, %i0_for.prol ]
+  %1 = icmp eq i32 %n, 1
+  br i1 %1, label %i0_for_end, label %i0_for
+
+i0_for:                                           ; preds = %i0_for.prol.loopexit, %i0_for
+  %2 = phi i32 [ %12, %i0_for ], [ %.unr, %i0_for.prol.loopexit ]
+  %3 = sext i32 %2 to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %a, i64 %3
+  %extract = load float, ptr %extract_ptr, align 4
+  %4 = and i32 %2, 3
+  %5 = zext nneg i32 %4 to i64
+  %extract_ptr1 = getelementptr inbounds nuw [4 x i8], ptr %weights, i64 %5
+  %extract2 = load float, ptr %extract_ptr1, align 4
+  %6 = fmul float %extract, %extract2
+  %out3 = getelementptr inbounds [4 x i8], ptr %out, i64 %3
+  store float %6, ptr %out3, align 4, !tbaa !1
+  %7 = add nuw i32 %2, 1
+  %8 = sext i32 %7 to i64
+  %extract_ptr.1 = getelementptr inbounds [4 x i8], ptr %a, i64 %8
+  %extract.1 = load float, ptr %extract_ptr.1, align 4
+  %9 = and i32 %7, 3
+  %10 = zext nneg i32 %9 to i64
+  %extract_ptr1.1 = getelementptr inbounds nuw [4 x i8], ptr %weights, i64 %10
+  %extract2.1 = load float, ptr %extract_ptr1.1, align 4
+  %11 = fmul float %extract.1, %extract2.1
+  %out3.1 = getelementptr inbounds [4 x i8], ptr %out, i64 %8
+  store float %11, ptr %out3.1, align 4, !tbaa !1
+  %12 = add nuw i32 %2, 2
+  %exitcond.not.1 = icmp eq i32 %12, %n
+  br i1 %exitcond.not.1, label %i0_for_end, label %i0_for, !llvm.loop !4
+
+i0_for_end:                                       ; preds = %i0_for.prol.loopexit, %i0_for, %combine_entry
+  ret void
+}
+
+define float @total(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr {
+total_entry:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %.not = icmp eq i32 %n, 0
+  br i1 %.not, label %i1_for_end, label %i1_for.preheader, !prof !0
+
+i1_for.preheader:                                 ; preds = %total_entry
+  %xtraiter = and i32 %n, 3
+  %0 = icmp ult i32 %n, 4
+  br i1 %0, label %i1_for.epil.preheader, label %i1_for.preheader.new
+
+i1_for.preheader.new:                             ; preds = %i1_for.preheader
+  %unroll_iter = and i32 %n, -4
+  br label %i1_for
+
+i1_for:                                           ; preds = %i1_for, %i1_for.preheader.new
+  %acc.0 = phi float [ 0.000000e+00, %i1_for.preheader.new ], [ %12, %i1_for ]
+  %1 = phi i32 [ 0, %i1_for.preheader.new ], [ %13, %i1_for ]
+  %niter = phi i32 [ 0, %i1_for.preheader.new ], [ %niter.next.3, %i1_for ]
+  %2 = sext i32 %1 to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %a, i64 %2
+  %extract = load float, ptr %extract_ptr, align 4
+  %3 = fadd float %acc.0, %extract
+  %4 = sext i32 %1 to i64
+  %5 = getelementptr [4 x i8], ptr %a, i64 %4
+  %extract_ptr.1 = getelementptr i8, ptr %5, i64 4
+  %extract.1 = load float, ptr %extract_ptr.1, align 4
+  %6 = fadd float %3, %extract.1
+  %7 = sext i32 %1 to i64
+  %8 = getelementptr [4 x i8], ptr %a, i64 %7
+  %extract_ptr.2 = getelementptr i8, ptr %8, i64 8
+  %extract.2 = load float, ptr %extract_ptr.2, align 4
+  %9 = fadd float %6, %extract.2
+  %10 = sext i32 %1 to i64
+  %11 = getelementptr [4 x i8], ptr %a, i64 %10
+  %extract_ptr.3 = getelementptr i8, ptr %11, i64 12
+  %extract.3 = load float, ptr %extract_ptr.3, align 4
+  %12 = fadd float %9, %extract.3
+  %13 = add nuw i32 %1, 4
+  %niter.next.3 = add i32 %niter, 4
+  %niter.ncmp.3 = icmp eq i32 %niter.next.3, %unroll_iter
+  br i1 %niter.ncmp.3, label %i1_for_end.loopexit.unr-lcssa, label %i1_for
+
+i1_for_end.loopexit.unr-lcssa:                    ; preds = %i1_for
+  %lcmp.mod.not = icmp eq i32 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %i1_for_end, label %i1_for.epil.preheader
+
+i1_for.epil.preheader:                            ; preds = %i1_for_end.loopexit.unr-lcssa, %i1_for.preheader
+  %acc.0.epil.init = phi float [ 0.000000e+00, %i1_for.preheader ], [ %12, %i1_for_end.loopexit.unr-lcssa ]
+  %.epil.init = phi i32 [ 0, %i1_for.preheader ], [ %13, %i1_for_end.loopexit.unr-lcssa ]
+  %lcmp.mod3 = icmp ne i32 %xtraiter, 0
+  tail call void @llvm.assume(i1 %lcmp.mod3)
+  br label %i1_for.epil
+
+i1_for.epil:                                      ; preds = %i1_for.epil, %i1_for.epil.preheader
+  %acc.0.epil = phi float [ %16, %i1_for.epil ], [ %acc.0.epil.init, %i1_for.epil.preheader ]
+  %14 = phi i32 [ %17, %i1_for.epil ], [ %.epil.init, %i1_for.epil.preheader ]
+  %epil.iter = phi i32 [ %epil.iter.next, %i1_for.epil ], [ 0, %i1_for.epil.preheader ]
+  %15 = sext i32 %14 to i64
+  %extract_ptr.epil = getelementptr inbounds [4 x i8], ptr %a, i64 %15
+  %extract.epil = load float, ptr %extract_ptr.epil, align 4
+  %16 = fadd float %acc.0.epil, %extract.epil
+  %17 = add nuw i32 %14, 1
+  %epil.iter.next = add i32 %epil.iter, 1
+  %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter
+  br i1 %epil.iter.cmp.not, label %i1_for_end, label %i1_for.epil, !llvm.loop !6
+
+i1_for_end:                                       ; preds = %i1_for_end.loopexit.unr-lcssa, %i1_for.epil, %total_entry
+  %acc.1 = phi float [ 0.000000e+00, %total_entry ], [ %12, %i1_for_end.loopexit.unr-lcssa ], [ %16, %i1_for.epil ]
+  ret float %acc.1
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
+declare void @llvm.assume(i1 noundef) #0
+
+attributes #0 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+
+!0 = !{!"branch_weights", i32 0, i32 1073741824}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"f32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = distinct !{!4, !5}
+!5 = !{!"llvm.loop.isvectorized", i32 1}
+!6 = distinct !{!6, !7}
+!7 = !{!"llvm.loop.unroll.disable"}
