@@ -801,7 +801,11 @@ int main(int argc, char **argv) {
     // one per dimension. Sieved rather than tabulated -- a table of a thousand
     // numbers is a thousand chances to mistype one, and this is checked against
     // pbrt's own table by `scene_dump --print-sampler`.
-    std::array<int32_t, 1000> primes;
+    //
+    // Sixteen bits each: the thousandth prime is 7919, and the narrow type is
+    // what tells the compiler the Halton divisors are small (see the extern
+    // in sampler.bonsai).
+    std::array<uint16_t, 1000> primes;
     {
         size_t found = 0;
         for (int32_t n = 2; found < primes.size(); n++) {
@@ -810,7 +814,7 @@ int main(int argc, char **argv) {
                 prime = n % d != 0;
             }
             if (prime) {
-                primes[found++] = n;
+                primes[found++] = uint16_t(n);
             }
         }
     }
