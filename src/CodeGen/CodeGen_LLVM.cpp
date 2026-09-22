@@ -58,8 +58,6 @@
 
 #include "Utils.h"
 
-#include <dlfcn.h>
-
 #include <sstream>
 
 namespace bonsai {
@@ -203,10 +201,7 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
         }
         target_features = features.getString();
         follows_host = true;
-        if (llvm::Triple(target_triple).isOSLinux() &&
-            llvm::Triple(target_triple).getArch() == llvm::Triple::x86_64) {
-            probe_host_vector_math();
-        }
+        probe_host_libraries();
     }
 
     std::string error_string;
@@ -1011,54 +1006,6 @@ llvm::FunctionType *CodeGen_LLVM::get_function_type(const ir::Type &type) {
                                    /*isVariadic=*/false);
 }
 
-llvm::Type *CodeGen_LLVM::indirect_return_type(const ir::Type &ret_type) {
-    if (!ret_type.defined()) {
-        return nullptr;
-    }
-    llvm::Type *type = codegen_type(ret_type);
-    if (!type->isAggregateType()) {
-        return nullptr;
-    }
-    // The leaves of the aggregate, as the return convention classes them: a
-    // floating-point or vector leaf takes an SSE register, anything else an
-    // integer one. x86-64's RetCC gives two of the first kind and three of
-    // the second before it reaches for the x87 stack.
-    //
-    // That rule is x86-64's, and this is the wrong place for it in the long
-    // run: it belongs with the other target-specific decisions this backend
-    // makes inline -- the native vector width, the host CPU the target
-    // machine is built for, which libm calls exist, how a parallel loop is
-    // launched -- in a per-target subclass behind virtual methods, as Halide
-    // splits its CodeGen_LLVM from CodeGen_X86 and the rest. Until then, a
-    // second target would need its own count here.
-    struct Leaves {
-        unsigned sse = 0;
-        unsigned integer = 0;
-    };
-    const std::function<void(llvm::Type *, Leaves &)> count =
-        [&](llvm::Type *t, Leaves &leaves) {
-            if (auto *st = llvm::dyn_cast<llvm::StructType>(t)) {
-                for (llvm::Type *element : st->elements()) {
-                    count(element, leaves);
-                }
-            } else if (auto *at = llvm::dyn_cast<llvm::ArrayType>(t)) {
-                for (uint64_t i = 0; i < at->getNumElements(); i++) {
-                    count(at->getElementType(), leaves);
-                }
-            } else if (t->isFloatingPointTy() || t->isVectorTy()) {
-                leaves.sse++;
-            } else {
-                leaves.integer++;
-            }
-        };
-    Leaves leaves;
-    count(type, leaves);
-    if (leaves.sse <= 2 && leaves.integer <= 3) {
-        return nullptr;
-    }
-    return type;
-}
-
 llvm::AllocaInst *CodeGen_LLVM::create_entry_alloca(llvm::Type *type,
                                                     const std::string &name) {
     internal_assert(current_function);
@@ -1728,9 +1675,16 @@ void CodeGen_LLVM::visit(const Print *node) {
         print_helper(node->args[i], args, to_print);
     }
 
-    args.front() = builder->CreateGlobalString(to_print + "\n");
+    llvm::Value *format = builder->CreateGlobalString(to_print + "\n");
+    args.erase(args.begin());
+    value = emit_printf(format, args);
+}
 
-    value = builder->CreateCall(retrieve_printf(*module), args);
+llvm::Value *CodeGen_LLVM::emit_printf(llvm::Value *format,
+                                       const std::vector<llvm::Value *> &args) {
+    std::vector<llvm::Value *> all{format};
+    all.insert(all.end(), args.begin(), args.end());
+    return builder->CreateCall(retrieve_printf(*module), all);
 }
 
 void CodeGen_LLVM::visit(const Cast *node) {
@@ -2906,52 +2860,6 @@ const char *math_library_name(Intrinsic::OpType op) {
 
 } // namespace
 
-llvm::Value *CodeGen_LLVM::vector_int_division(llvm::Value *a, llvm::Value *b,
-                                               bool is_signed, bool remainder) {
-    // No machine this compiles for divides a vector of integers: x86 takes an
-    // integer vector division apart into one `div` per lane -- an extract, a
-    // twenty-cycle divide and an insert, sixteen times over for a gang -- and
-    // AArch64 does the same. Every machine divides a vector of doubles in one
-    // instruction, and for lanes of 32 bits or fewer the quotient is exact
-    // that way: for 0 <= a, b < 2^32 the correctly rounded double a/b is
-    // within (a/b) 2^-53 of the truth, which is less than the 1/b that
-    // separates a/b from the next integer on either side unless a/b is that
-    // integer, in which case it is exact; so truncating it toward zero is
-    // the integer quotient. A signed division is the same on magnitudes,
-    // which the conversions carry the signs through. Narrower lanes fit a
-    // float by the same argument. The remainder is a - qb. A zero divisor
-    // makes an infinity the conversion has no value for, as the division it
-    // replaces had none. A divisor known at compile time never gets here:
-    // SSA/InvariantDivision.h has made it multiplies already.
-    //
-    // A division of scalars stays a `div`: one lane, one divide.
-    //
-    // This is what a vector unit has, and it belongs with the x86 code
-    // generator once the backends are split; a GPU lane is a scalar and
-    // never asks.
-    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(a->getType());
-    if (vt == nullptr || llvm::isa<llvm::Constant>(b)) {
-        return nullptr;
-    }
-    const unsigned bits = vt->getScalarSizeInBits();
-    if (bits > 32) {
-        return nullptr;
-    }
-    llvm::Type *ft = llvm::FixedVectorType::get(bits > 16 ? f64_t : f32_t,
-                                                vt->getNumElements());
-    llvm::Value *fa = is_signed ? builder->CreateSIToFP(a, ft)
-                                : builder->CreateUIToFP(a, ft);
-    llvm::Value *fb = is_signed ? builder->CreateSIToFP(b, ft)
-                                : builder->CreateUIToFP(b, ft);
-    llvm::Value *fq = builder->CreateFDiv(fa, fb);
-    llvm::Value *q = is_signed ? builder->CreateFPToSI(fq, vt, "quotient")
-                               : builder->CreateFPToUI(fq, vt, "quotient");
-    if (!remainder) {
-        return q;
-    }
-    return builder->CreateSub(a, builder->CreateMul(q, b), "remainder");
-}
-
 llvm::Value *
 CodeGen_LLVM::scalar_math_call(const std::string &name,
                                llvm::ArrayRef<llvm::Value *> args) {
@@ -2967,6 +2875,15 @@ CodeGen_LLVM::scalar_math_call(const std::string &name,
 }
 
 void CodeGen_LLVM::visit(const Intrinsic *node) {
+    // A target with a maths library of its own answers first (see
+    // codegen_math_call); a CPU host has none and goes on to LLVM's
+    // intrinsics and libm below.
+    if (const char *fn = math_library_name(node->op); fn != nullptr) {
+        if (llvm::Value *v = codegen_math_call(fn, node)) {
+            value = v;
+            return;
+        }
+    }
     // A vector of lanes computes libm's functions inline (see
     // CodeGen/VectorMath.h): a gang's `sin`, and a spectrum's four
     // wavelengths' `atanh`. A scalar keeps calling libm, so that a lane and
@@ -4569,114 +4486,14 @@ llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
     return result;
 }
 
-namespace {
-
-// The Vector Function ABI name glibc gives a vector entry point of libm:
-// `_ZGV`, the ISA level (`b` SSE4, `c` AVX, `d` AVX2, `e` AVX-512), `N` for
-// no mask, the lane count, a `v` per vector argument, and the scalar
-// function's name.
-std::string vector_abi_name(char isa, uint32_t lanes, unsigned arity,
-                            const std::string &name, bool single) {
-    return "_ZGV" + std::string(1, isa) + "N" + std::to_string(lanes) +
-           std::string(arity, 'v') + "_" + name + (single ? "f" : "");
-}
-
-} // namespace
-
-// Asked of the host's libmvec rather than assumed: which functions it has
-// depends on the glibc -- 2.22 shipped sin, cos, exp, log and pow, 2.35 the
-// rest of libm -- and which ISA levels run depends on the machine. Only a
-// symbol present in this machine's libmvec, at a level this machine runs, is
-// ever emitted, so nothing here can fail to link or to run where it was
-// compiled; following the host means the code runs on the host.
-void CodeGen_LLVM::probe_host_vector_math() {
-    // Global, and left loaded: the JIT resolves what the code it runs calls
-    // against this process's symbols, and libmvec is not otherwise among
-    // them -- the compiler links libm, whose linker script pulls libmvec in
-    // only for a program that references it.
-    void *lib = dlopen("libmvec.so.1", RTLD_LAZY | RTLD_GLOBAL);
-    if (lib == nullptr) {
-        return;
-    }
-    const llvm::StringMap<bool> features = llvm::sys::getHostCPUFeatures();
-    const auto has = [&](const char *feature) {
-        const auto it = features.find(feature);
-        return it != features.end() && it->second;
-    };
-    struct Isa {
-        char letter;
-        uint32_t f32_lanes, f64_lanes;
-        bool runs;
-    };
-    const Isa isas[] = {{'b', 4, 2, has("sse4.1")},
-                        {'d', 8, 4, has("avx2")},
-                        {'e', 16, 8, has("avx512f")}};
-    struct Fn {
-        const char *name;
-        unsigned arity;
-    };
-    static const Fn fns[] = {
-        {"sin", 1},   {"cos", 1},   {"tan", 1},   {"asin", 1},  {"acos", 1},
-        {"atan", 1},  {"atan2", 2}, {"sinh", 1},  {"cosh", 1},  {"tanh", 1},
-        {"asinh", 1}, {"acosh", 1}, {"atanh", 1}, {"exp", 1},   {"exp2", 1},
-        {"exp10", 1}, {"expm1", 1}, {"log", 1},   {"log2", 1},  {"log10", 1},
-        {"log1p", 1}, {"pow", 2},   {"hypot", 2}, {"cbrt", 1},  {"erf", 1},
-        {"erfc", 1}};
-    for (const Isa &isa : isas) {
-        if (!isa.runs) {
-            continue;
-        }
-        for (const Fn &fn : fns) {
-            for (const bool single : {true, false}) {
-                const std::string symbol =
-                    vector_abi_name(isa.letter,
-                                    single ? isa.f32_lanes : isa.f64_lanes,
-                                    fn.arity, fn.name, single);
-                if (dlsym(lib, symbol.c_str()) != nullptr) {
-                    host_vector_math.insert(symbol);
-                }
-            }
-        }
-    }
-}
-
-std::optional<std::string>
-CodeGen_LLVM::vector_math_symbol(const std::string &name, uint32_t lanes,
-                                 unsigned bits, unsigned arity) const {
-    char isa = 0;
-    const uint32_t f32_lanes = bits == 32 ? lanes : lanes * 2;
-    switch (f32_lanes) {
-    case 4:
-        isa = 'b';
-        break;
-    case 8:
-        isa = 'd';
-        break;
-    case 16:
-        isa = 'e';
-        break;
-    default:
-        return std::nullopt;
-    }
-    if (bits != 32 && bits != 64) {
-        return std::nullopt;
-    }
-    const std::string symbol =
-        vector_abi_name(isa, lanes, arity, name, bits == 32);
-    if (host_vector_math.count(symbol) == 0) {
-        return std::nullopt;
-    }
-    return symbol;
-}
-
 llvm::TargetLibraryInfoImpl
 CodeGen_LLVM::target_library_info(const llvm::Triple &triple) {
     llvm::TargetLibraryInfoImpl info(triple);
     // The intrinsics LLVM has for libm's functions, each mapped onto the
-    // host's libmvec entry point of the same width where the host has one.
-    // LLVM's own table for libmvec (VecFuncs.def) stops at sin, cos, tan,
-    // exp, log and pow -- what glibc 2.22 shipped -- so the table is built
-    // here from what the probe found instead.
+    // target's vector maths entry point of the same width where it has one
+    // (see vector_math_symbol). LLVM's own table for libmvec (VecFuncs.def)
+    // stops at sin, cos, tan, exp, log and pow -- what glibc 2.22 shipped --
+    // so the table is built here from what the target found instead.
     struct Fn {
         const char *intrinsic;
         const char *libm;

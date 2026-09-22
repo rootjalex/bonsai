@@ -2,8 +2,30 @@
 
 /** \file
  *
- * Defines the base-class for all architecture-specific code
- * generators that use llvm.
+ * Defines the base class for every code generator that goes through LLVM.
+ *
+ * The division follows Halide's CodeGen_LLVM and its per-target subclasses.
+ * CodeGen_LLVM holds the lowering that is the same on every machine: what a
+ * type, an expression, a block graph and a statement become in LLVM IR, how a
+ * gather is spelled in LLVM's generic form, how an aggregate is read at
+ * another type, how a division by an invariant becomes multiplies. Anything
+ * that is a fact about one machine is a virtual method with a target-agnostic
+ * default, and the subclass for that machine overrides it:
+ *
+ *   - CodeGen_X86 (the host): the return-register budget that decides which
+ *     aggregates come back through a hidden pointer, the register width a
+ *     gang fills and a stack slot is aligned to, the machine's own gather
+ *     instructions, a vector of integers divided through doubles, and glibc's
+ *     libmvec for a vector's transcendental functions.
+ *   - CodeGen_PTX (the device): a kernel's entry and its thread indices,
+ *     libdevice for maths, vprintf for print, and no thread runtime at all.
+ *
+ * The base class also plays the *host* role: a parfor a schedule bound to
+ * CPU threads is a call into the parallel runtime, and one bound to the GPU
+ * is a device module compiled by CodeGen_PTX and a launch through the CUDA
+ * runtime. Those are calls against a C ABI that any CPU host has, so they
+ * are not a fact about the x86; CodeGen_PTX, being the device, overrides
+ * them with what a bound loop is inside a kernel.
  */
 
 #include "CompilerOptions.h"
@@ -54,8 +76,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     }
 
     // Creates a target machine and updates the module's backend and data
-    // layout.
-    std::unique_ptr<llvm::TargetMachine>
+    // layout. The machine `options` name, or the host's when they name none;
+    // a device code generator overrides this with its own machine.
+    virtual std::unique_ptr<llvm::TargetMachine>
     make_target_machine(llvm::Module &module, const CompilerOptions &options);
 
     // Print the LLVM module. If `redacted` is true, we don't print the target
@@ -237,18 +260,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     // The aggregate a function returns through a hidden pointer argument
     // instead of in registers, or null when it returns directly.
     //
-    // A first-class aggregate return is legalised by handing each leaf its own
-    // register: on x86-64 that is XMM0 and XMM1 for floating-point and vector
-    // leaves and EAX, EDX and ECX for integer ones, and the third
-    // floating-point leaf goes on the *x87 stack* -- an `fstps` on the way out
-    // and an `flds` on the way in, four billion of them in a render of the
-    // pavilion, and the FP scheduler stalling around them. C++ never sees
-    // this because its ABI returns anything over two eightbytes through a
-    // pointer the caller provides. So does this, for exactly the aggregates
-    // the return registers cannot hold; the ones they can -- `option[i32]`, a
-    // pair of floats -- keep the register return, which is cheaper than a
-    // store and a load.
-    llvm::Type *indirect_return_type(const ir::Type &ret_type);
+    // Which aggregates a target can return in registers is that target's
+    // fact -- x86-64 has a budget of return registers and puts anything over
+    // it on the x87 stack (see CodeGen_X86) -- so the target-agnostic answer
+    // is that every value is returned directly, which is what LLVM's own
+    // legalisation makes correct on every target, and a target whose
+    // legalisation is *slow* for some aggregates says which.
+    virtual llvm::Type *indirect_return_type(const ir::Type &ret_type) {
+        return nullptr;
+    }
 
     // Between a vector's packed storage (an array aggregate) and the vector
     // the program computes with; see ir::Vector_t::packed.
@@ -333,12 +353,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     // or a vector of divisors. Defined for every `d`, zero included.
     llvm::Value *division_multiplier(llvm::Value *d, bool is_signed,
                                      const std::string &name);
-    // A vector of integer lanes divided by another, as a vector division of
-    // doubles (or floats, for narrow lanes) truncated back, which is exact;
-    // or nothing, for scalars, constant divisors and lanes wider than 32
-    // bits, which stay an integer division.
-    llvm::Value *vector_int_division(llvm::Value *a, llvm::Value *b,
-                                     bool is_signed, bool remainder);
+    // A vector of integer lanes divided by another, in whatever form the
+    // target divides a vector fastest, or nothing to leave it the integer
+    // division LLVM legalises. Nothing here: a machine that divides a vector
+    // of integers slowly says so itself (see CodeGen_X86, which divides
+    // through doubles), and a GPU lane is a scalar and never asks.
+    virtual llvm::Value *vector_int_division(llvm::Value *a, llvm::Value *b,
+                                             bool is_signed, bool remainder) {
+        return nullptr;
+    }
 
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).
@@ -442,14 +465,33 @@ struct CodeGen_LLVM : public ir::Visitor {
                          llvm::Value *capacity_ptr, llvm::Value *mutex,
                          llvm::Type *elt_ty, const std::string &base_n);
 
-    llvm::FunctionCallee get_pthread_lock();
-    llvm::FunctionCallee get_pthread_unlock();
-    llvm::FunctionCallee get_pthread_init();
+    // The mutex a dynamic array grows under: pthread's, on a host with a C
+    // runtime. A device has no threads to lock against in this sense, and
+    // its code generator says so where these are reached.
+    virtual llvm::FunctionCallee get_pthread_lock();
+    virtual llvm::FunctionCallee get_pthread_unlock();
+    virtual llvm::FunctionCallee get_pthread_init();
+
+    // The C runtime's printf, called with `format` and `args` as C's variadic
+    // call passes them (the promotions already applied by print_helper). A
+    // device has vprintf, which takes the arguments packed in memory, and
+    // overrides this.
+    virtual llvm::Value *emit_printf(llvm::Value *format,
+                                     const std::vector<llvm::Value *> &args);
+
+    // A libm-family intrinsic -- sin, exp, pow, atan2 -- for a target with a
+    // maths library of its own, or nothing to leave it to LLVM's intrinsics
+    // and libm, which is what a CPU host has. CodeGen_PTX answers with
+    // libdevice, since NVPTX cannot lower `llvm.sin.f32` by itself.
+    virtual llvm::Value *codegen_math_call(const std::string &name,
+                                           const ir::Intrinsic *node) {
+        return nullptr;
+    }
 
     // A call to the libm function `name`, for the maths LLVM has no intrinsic
     // for. Single-precision goes to the `f`-suffixed entry point, as C's
     // overloads do. A vector argument goes to the host libmvec's vector
-    // entry point when it has one (see probe_host_vector_math), and a lane
+    // entry point when it has one (see vector_math_symbol), and a lane
     // at a time otherwise, because libm is scalar.
     llvm::Value *codegen_libm_call(const std::string &name,
                                    const ir::Intrinsic *node);
@@ -459,17 +501,20 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *scalar_math_call(const std::string &name,
                                   llvm::ArrayRef<llvm::Value *> args);
 
-    // What the host's libmvec provides, found by asking it. Every symbol
-    // here exists in this machine's libmvec and is of an ISA level this
-    // machine runs.
-    std::set<std::string> host_vector_math;
-    void probe_host_vector_math();
-    // The libmvec entry point for `name` on `lanes` lanes of `bits`-bit
-    // floats with `arity` vector arguments, if the host has one: the Vector
-    // Function ABI name, `_ZGVdN8v_sinf` for sinf on eight lanes for AVX2.
-    std::optional<std::string> vector_math_symbol(const std::string &name,
-                                                  uint32_t lanes, unsigned bits,
-                                                  unsigned arity) const;
+    // Whatever a target has to find out about the machine it is following
+    // before code is generated for it; called by make_target_machine when
+    // the target is the host's own. CodeGen_X86 asks glibc's libmvec what
+    // it provides; nothing is known to be true of every host.
+    virtual void probe_host_libraries() {}
+    // The vector maths library's entry point for `name` on `lanes` lanes of
+    // `bits`-bit floats with `arity` vector arguments, if the target has
+    // one. Nothing, on a target without such a library; see CodeGen_X86 for
+    // libmvec's `_ZGVdN8v_sinf`.
+    virtual std::optional<std::string>
+    vector_math_symbol(const std::string &name, uint32_t lanes, unsigned bits,
+                       unsigned arity) const {
+        return std::nullopt;
+    }
     // The strings a TargetLibraryInfoImpl's vector descriptions refer to,
     // which have to outlive it (they are StringRefs there).
     std::list<std::string> vector_math_names;
