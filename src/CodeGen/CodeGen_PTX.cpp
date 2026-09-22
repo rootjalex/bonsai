@@ -398,6 +398,39 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
             << "of a block, so it sits inside the block loop, once; it cannot "
             << "be nested in another thread loop or reached from a function "
             << "a kernel calls.";
+        // What the thread loop reads from the block body: values every
+        // thread computed alike, or the kernel's own arguments -- never a
+        // local of the block body, which each thread has a copy of its own
+        // of and which the threads would have to share.
+        for (const auto &capture : p.body.args) {
+            const std::shared_ptr<Value> *base = &capture;
+            while (true) {
+                const auto *instr =
+                    std::get_if<std::shared_ptr<Instruction>>(&(*base)->data);
+                if (instr == nullptr) {
+                    break;
+                }
+                const Instruction::Op op = (*instr)->op;
+                if ((op == Instruction::Op::GEP ||
+                     op == Instruction::Op::FieldPtr ||
+                     op == Instruction::Op::AddressOf) &&
+                    !(*instr)->operands.empty()) {
+                    base = &(*instr)->operands[0];
+                    continue;
+                }
+                internal_assert(op != Instruction::Op::Alloca &&
+                                op != Instruction::Op::Alloc)
+                    << "[unimplemented] the thread loop over " << p.index
+                    << " reads `" << (*instr)->name << "`, a local of the "
+                    << "block loop's body. A block's threads each have a "
+                    << "copy of such a local, so one the thread loop reads "
+                    << "or writes has to be one thing the block shares -- "
+                    << "shared memory, which the PTX backend does not "
+                    << "allocate yet. Move it into the thread loop, or out "
+                    << "of the block loop.";
+                break;
+            }
+        }
         barrier();
         const Expr begin_e = loop.operand(p.start),
                    stride_e = loop.operand(p.stride);

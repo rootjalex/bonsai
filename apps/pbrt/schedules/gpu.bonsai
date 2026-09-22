@@ -1,0 +1,26 @@
+// The GPU schedule, first form: the scalar schedule's loops, with the pixels
+// on the GPU's blocks and each pixel's samples on the block's threads. No
+// gang is made -- the warp is the gang -- and the traversals are the loops
+// over a stack that scalar.bonsai makes of them, in each thread's local
+// memory, as pbrt's own megakernel keeps its stack. This is the software
+// path (phase A of apps/pbrt/PLAN.md, "NVIDIA GPU support"); the RT cores
+// come with `bind(trace, RTCore)`, which is not built yet.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    render.bind(p, GPUBlock);
+    render.bind(s, GPUThread);
+}

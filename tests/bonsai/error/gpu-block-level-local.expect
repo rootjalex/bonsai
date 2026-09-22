@@ -1,5 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/CodeGen/CodeGen_LLVM_SSA.cpp:450
-[unimplemented] alloca `acc` in the body of a loop bound to GPUBlock, outside its thread loop. A block's threads all run this code, and what is made here has to be one thing the block shares -- shared memory, which the PTX backend does not allocate yet. Move it into the thread loop, or out of the block loop.
+[internal] Error: src/CodeGen/CodeGen_PTX.cpp:421
+
+--> op != Instruction::Op::Alloca && op != Instruction::Op::Alloc
+[unimplemented] the thread loop over s reads `acc`, a local of the block loop's body. A block's threads each have a copy of such a local, so one the thread loop reads or writes has to be one thing the block shares -- shared memory, which the PTX backend does not allocate yet. Move it into the thread loop, or out of the block loop.

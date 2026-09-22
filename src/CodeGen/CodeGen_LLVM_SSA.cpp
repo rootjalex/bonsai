@@ -417,14 +417,46 @@ struct CodeGen_LLVM::SSALowering {
         }
     }
 
+    // The value a chain of addresses -- GEPs, field pointers, an address-of
+    // -- bottoms out at: what a store through it writes into.
+    static const Value &base_of(const std::shared_ptr<Value> &v) {
+        const auto *instr = std::get_if<std::shared_ptr<Instruction>>(&v->data);
+        if (instr != nullptr && !(*instr)->operands.empty() &&
+            ((*instr)->op == Instruction::Op::GEP ||
+             (*instr)->op == Instruction::Op::FieldPtr ||
+             (*instr)->op == Instruction::Op::AddressOf)) {
+            return base_of((*instr)->operands[0]);
+        }
+        return *v;
+    }
+
+    // The locals made where every thread of a block runs the same code (see
+    // CodeGen_LLVM::effects_run_once): one per thread, as a thread's locals
+    // are, so a store into one is that thread's own and is not an effect
+    // made once for the block. A thread loop that reads one is refused (see
+    // CodeGen_PTX::emit_bound_parfor), since that would be memory the block
+    // shares.
+    std::set<std::string> thread_private;
+
     void emit_instruction(const std::shared_ptr<Instruction> &instr) {
         // Where one thread of many makes the effects, an effect goes under
         // that thread's guard; everything else is a value every thread
-        // computes for itself.
+        // computes for itself, a store into a thread's own local included.
         if (is_effect(instr->op)) {
-            if (llvm::Value *guard = cg.effects_once_guard()) {
-                cg.emit_if(guard, [&] { emit_instruction_unguarded(instr); });
-                return;
+            bool own_memory = false;
+            if (instr->op != Instruction::Op::Print) {
+                const Value &base = base_of(instr->operands[0]);
+                const auto *base_instr =
+                    std::get_if<std::shared_ptr<Instruction>>(&base.data);
+                own_memory = base_instr != nullptr &&
+                             thread_private.count((*base_instr)->name) != 0;
+            }
+            if (!own_memory) {
+                if (llvm::Value *guard = cg.effects_once_guard()) {
+                    cg.emit_if(guard,
+                               [&] { emit_instruction_unguarded(instr); });
+                    return;
+                }
             }
         }
         emit_instruction_unguarded(instr);
@@ -438,23 +470,24 @@ struct CodeGen_LLVM::SSALowering {
             instr->op == Instruction::Op::Ramp) {
             return;
         }
-        if (cg.effects_run_once() &&
-            (instr->op == Instruction::Op::Alloca ||
-             instr->op == Instruction::Op::Alloc ||
-             instr->op == Instruction::Op::AtomicAdd ||
-             instr->op == Instruction::Op::Append)) {
-            // A local made here would be one per thread where the program
-            // means one per block, and a value fetched here would exist in
-            // the thread that fetched it only. Both want shared memory, which
-            // is how a block's threads hold one thing between them.
-            internal_error
-                << "[unimplemented] " << op_name(instr->op) << " `"
-                << instr->name << "` in the body of a loop bound to GPUBlock, "
-                << "outside its thread loop. A block's threads all run this "
-                << "code, and what is made here has to be one thing the "
-                << "block shares -- shared memory, which the PTX backend "
-                << "does not allocate yet. Move it into the thread loop, or "
-                << "out of the block loop.";
+        if (cg.effects_run_once()) {
+            if (instr->op == Instruction::Op::Alloca ||
+                instr->op == Instruction::Op::Alloc) {
+                thread_private.insert(instr->name);
+            } else if (instr->op == Instruction::Op::AtomicAdd ||
+                       instr->op == Instruction::Op::Append) {
+                // A value fetched here would exist in the thread that fetched
+                // it only; handing it to the rest is shared memory, which is
+                // how a block's threads hold one thing between them.
+                internal_error
+                    << "[unimplemented] " << op_name(instr->op) << " `"
+                    << instr->name << "` in the body of a loop bound to "
+                    << "GPUBlock, outside its thread loop. A block's threads "
+                    << "all run this code, and what this fetches has to be one "
+                    << "thing the block shares -- shared memory, which the PTX "
+                    << "backend does not allocate yet. Move it into the thread "
+                    << "loop, or out of the block loop.";
+            }
         }
         if (instr->op == Instruction::Op::Print) {
             cg.codegen_stmt(Print::make(operands(*instr)));

@@ -70,6 +70,21 @@ CodeGen_GPU_Host<CodeGen_CPU>::capture_bytes(const Type &type,
     Type pointee;
     llvm::Value *count = nullptr;
     if (const Array_t *a = type.as<Array_t>()) {
+        // An array of no stated length -- `array[T]`, an exported function's
+        // parameter whose length is the driver's business -- is a pointer
+        // and nothing more here, and a pointer says nothing about how much
+        // lies behind it. What such a parameter needs is to arrive as a
+        // buffer that knows its own size and where it is resident, so that
+        // the launch asks for it on the device rather than copying it: the
+        // buffer descriptors of apps/pbrt/PLAN.md, "Where the data lives",
+        // phase A0.
+        internal_assert(a->size.defined())
+            << "[unimplemented] the loop bound to the GPU reads `" << name
+            << "` of type " << type << ", an array of no stated length, so "
+            << "the launch cannot know how many bytes to move to the device. "
+            << "An exported function's arrays have to come in as buffers "
+            << "that know their size and residency (apps/pbrt/PLAN.md, phase "
+            << "A0), which is not built yet.";
         pointee = a->etype;
         count = builder->CreateIntCast(codegen_expr(a->size), i64_t,
                                        a->size.type().is_int());
