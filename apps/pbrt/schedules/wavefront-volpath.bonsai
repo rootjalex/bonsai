@@ -22,8 +22,13 @@ schedule {
     vol_shadow_step.loopify();
     vol_shadow_track.loopify();
 
-    rays = render.queue(p);
-    hits = render.queue(p);
+    // First: a copy of the render per integrator, so that the queues below
+    // are the volpath copy's alone -- the other integrators run as written
+    // in their own copies, and the chain from render to vol_path_step is
+    // one integrator's (pbrt --gpu is volpath and nothing else).
+    render.specialize(integrator);
+    rays = render[VolPath].queue(p);
+    hits = render[VolPath].queue(p);
     li_vol_path.defer(vol_path_step, rays);
     vol_path_step.defer(vol_path_step, rays);
     vol_path_step.stage(trace, hits);

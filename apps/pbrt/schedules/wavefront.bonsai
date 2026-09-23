@@ -34,13 +34,19 @@ schedule {
     vol_shadow_step.loopify();
     vol_shadow_track.loopify();
 
-    paths = render.queue(p);
+    // A copy of the render per integrator first, so that each queue below
+    // is one integrator's: the path integrator's steps on `paths`, the
+    // volpath integrator's on `vol_paths`, each reached from its own copy
+    // through its own integrator_li -- where before both deferrals met in
+    // the one shared integrator_li and a volpath scene could not compile.
+    render.specialize(integrator);
+    paths = render[Path].queue(p);
     full_path_step.defer(full_path_step, paths);
     render.split(paths, paths_gang, paths_lane, 16, true)
           .vectorize(paths_lane);
     // volpath's step on a queue of its own, drained the same way. A scene
     // runs one integrator, so one of the two queues is never pushed to.
-    vol_paths = render.queue(p);
+    vol_paths = render[VolPath].queue(p);
     vol_path_step.defer(vol_path_step, vol_paths);
     render.split(vol_paths, vol_paths_gang, vol_paths_lane, 16, true)
           .vectorize(vol_paths_lane);

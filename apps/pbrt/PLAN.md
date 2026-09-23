@@ -5295,7 +5295,7 @@ interface skip one of them), the path radiance as a reducer. Remaining, in
 the order to take them: (1) specialize first -- a scope per integrator
 variant, `render[VolPath].queue(p)`, callees cloned with the tag fixed, so
 the wavefront is one integrator's program as pbrt's GPU build is, and the
-compact wavefront's two-deferral failure goes (in progress). (2) Shadow
+compact wavefront's two-deferral failure goes (done, next paragraph). (2) Shadow
 rays as their own queue: `vol_sample_ld` split at the trace into the light
 sample and `shadow_contribution(ray, tmax, Ld, r_u, r_l, lambda)` --
 pbrt's ShadowRayWorkItem -- with `spawn l += shadow_contribution(...)`;
@@ -5326,6 +5326,54 @@ blocked by the vectorizer's per-lane pointer gap. (9) To fix, recorded
 under Known-open: a split of a self-feeding queue; the lambda key. (10) Not
 applicable: the BSSRDF and subsurface queues, the renderer having no
 subsurface material.
+
+**Specialize first (built 2026-09-23, at the user's direction).**
+`specialize` goes first among a function's directives, as Halide's does:
+the copies it makes are what the directives after it schedule. A copy's
+loops are the variant's -- `p!VolPath` -- and a directive names one
+variant's loop with the variant in brackets after the function,
+`render[VolPath].queue(p)`, `render[VolPath].bind(p, GPUBlock)`, or every
+variant's without them: `render.bind(p, GPUBlock)` finds `p!Path`,
+`p!VolPath` and the rest (resolve_loops in SSA/Convert.cpp). A directive
+written before the `specialize` is refused (tests/bonsai/error/
+specialize-late), since it would have scheduled the loop every copy is then
+made from, and no variant could be scheduled differently from another. The
+value follows into the callees it is passed to (specialize_callees):
+`integrator_li!VolPath` is `integrator_li` with the integrator's tag fixed,
+called from the VolPath copy, and so on down as far as the value goes. The
+match on a fixed tag now folds in the copies themselves rather than in
+LLVM: the simplifier's field-of-a-struct-just-made rule has to see the
+struct, so a copy's uses read the built struct in place of its name, and
+where the variant arrived by pointer (Lower/Mutability.cpp hands variants
+that way) the copy's whole reads of its slot are forwarded from the one
+store -- the allocas are otherwise promoted only after the last simplify.
+tests/bonsai/ssa/specialize shows the Sum copy as `values[i!Sum] * scale`,
+no switch, no slot; before, every copy still carried the match. Names with
+`!` reach LLVM and PTX with the character mapped to `$`
+(CodeGen_LLVM::symbol_name, the PTX backend's override; the GPU compile
+aborted on `integrator_li!VolPath` before). The schedules: `gpu.bonsai`
+specializes before it binds; `wavefront-volpath.bonsai` owns its queues
+under `render[VolPath]`; `wavefront.bonsai` gives each integrator its
+queues, `render[Path].queue(p)` and `render[VolPath].queue(p)`. Left as it
+was, and listed under Known-open: a copy's arm blocks keep a block
+argument for the value that nothing reads any more, which keeps the built
+struct alive in the SSA print (`let @52 = build<Mode>(...)` with no
+reader). LLVM drops both. Checked (scratch `cmp-sf-*`): under `gpu`,
+killeroo-simple's gbuffer and albedo are the scalar schedule's bit for
+bit and its radiance matches pbrt as before (mean 0.99999x, 33.2% of
+pixels within 1e-3); under `wavefront-volpath`, camera-medium's gbuffer
+and albedo are the scalar's bit for bit and its radiance within 4e-6, at
+the scalar's pbrt figures, and killeroo-simple's likewise, its radiance
+within 2e-3 on 0.01% of pixels (the bounce-order reassociation), 33.2%
+at pbrt as the scalar. The compact `wavefront.bonsai` now gets past
+`integrator_li` and fails one step later, in the Path half:
+`integrator_li!Path` accumulates `li_path`'s value into the reducer `l`
+after the call, so the chain link to `full_path_step` is not a tail
+call. That is the shape the shadow ray's spawn deferral (next) gives a
+chain link -- a call whose continuation is one accumulate into a reducer
+-- and either that mechanism or writing `li_path`/`full_path_step` with
+`l : reduce(+)` as volpath is written removes it; it is the CPU packet
+wavefront's problem, not the GPU's.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
@@ -5367,6 +5415,16 @@ choice here, measured.
   subexpression rule), the variants `hits[false]` and `hits[true]`. None of
   the scenes measured against `pbrt --gpu` has a medium, so it changes
   nothing for them yet.
+- **To fix: a specialized copy's dead block argument** (noted 2026-09-23).
+  A copy's arm blocks receive the specialized value as a block argument,
+  renamed with the value; once the copy's uses read the built struct
+  directly (specialize first, above) nothing reads the argument, but the
+  jump still passes the struct, so the SSA print keeps `let @52 =
+  build<Mode>(...)` with no reader. LLVM drops both. The fix is a
+  jump-threading step in SSA/Simplify.cpp: a block with one predecessor
+  whose terminator is an unconditional jump is merged into it, its
+  arguments replaced by what the jump passes -- which also removes the
+  empty blocks a folded dispatch leaves.
 
 - `cie_tables.h` and `rgb2spec_tables.h` are generated by
   `make_spectrum_tables.py` and are both committed, which is against the rule
