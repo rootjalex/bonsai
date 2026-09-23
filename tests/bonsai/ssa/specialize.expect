@@ -32,15 +32,15 @@ func apply(mode : Mode, x : f32) -> f32 {
   case 0: { // Mode.Sum of apply
     let @1 = mode.payload in
     let @2 = @1[0u] in
-    let @3 = reinterpret_cast<f32>(@2) in
-    let @4 = x * @3 in
+    let scale = reinterpret_cast<f32>(@2) in
+    let @4 = x * scale in
     return @4
   } break;
   default: { // Mode.Clamp of apply
     let @5 = mode.payload in
     let @6 = @5[0u] in
-    let @7 = reinterpret_cast<f32>(@6) in
-    let @8 = max(x, @7) in
+    let floor = reinterpret_cast<f32>(@6) in
+    let @8 = max(x, floor) in
     return @8
   }
   }

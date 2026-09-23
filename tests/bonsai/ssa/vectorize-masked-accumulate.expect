@@ -6,17 +6,17 @@ type vec3h = f16x3
 type vec4f = f32x4
 
 func [[export]] sum_some(a : f32[8], sums : mut f32x3[2]) -> void {
-  let _t24 = a[ramp(0, 1, 8)] in
+  let _t22 = a[ramp(0, 1, 8)] in
   let @12 = f32x8(2f) in
-  let @1 = @12 * _t24 in
+  let @1 = @12 * _t22 in
   let @13 = f32x8(3f) in
-  let @2 = @13 * _t24 in
+  let @2 = @13 * _t22 in
   let @14 = f32x8(0f) in
-  let @4 = @14 < _t24 in
+  let @4 = @14 < _t22 in
   let @8 = reduce<any>(@4) in
   if (@8) {
     let @18 = f32x8(0f) in
-    let @19 = select(@4, _t24, @18) in
+    let @19 = select(@4, _t22, @18) in
     let @20 = reduce<+>(@19) in
     let @22 = f32x8(0f) in
     let @23 = select(@4, @1, @22) in
@@ -30,7 +30,7 @@ func [[export]] sum_some(a : f32[8], sums : mut f32x3[2]) -> void {
       atomic sums[0] += @29
     }
     let @32 = f32x8(0f) in
-    let @33 = select(@4, _t24, @32) in
+    let @33 = select(@4, _t22, @32) in
     let @34 = reduce<+>(@33) in
     let @36 = f32x8(0f) in
     let @37 = select(@4, @1, @36) in

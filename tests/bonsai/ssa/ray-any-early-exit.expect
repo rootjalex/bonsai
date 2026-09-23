@@ -44,31 +44,31 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
     let @1 = !@0 in
     if (@1) {
       let @2 = tris.group0_index in
-      let _t944 = @2[(*tris_index!top)] in
-      let _t58 = _t944.nPrims in
+      let _t57 = @2[(*tris_index!top)] in
+      let _t58 = _t57.nPrims in
       let @5 = _t58 == 0u in
       if (@5) {
-        let @6 = _t944.low in
-        let _t156$i66 = cast<f32x3>(@6) in
-        let @8 = _t944.high in
-        let _t155$i66 = cast<f32x3>(@8) in
+        let @6 = _t57.low in
+        let _t140$i66 = cast<f32x3>(@6) in
+        let @8 = _t57.high in
+        let _t139$i66 = cast<f32x3>(@8) in
         let @11 = f32x3(1f) in
         let @12 = r.d in
-        let _t951 = @11 / @12 in
+        let invDir$i66 = @11 / @12 in
         let @14 = f32x3(0f) in
-        let dirIsNeg$i66 = _t951 < @14 in
-        let low_parts$i66 = select(dirIsNeg$i66, _t155$i66, _t156$i66) in
-        let high_parts$i66 = select(dirIsNeg$i66, _t156$i66, _t155$i66) in
-        let _t159$i66 = r.o in
-        let @21 = low_parts$i66 - _t159$i66 in
-        let @22 = @21 * _t951 in
-        let @23 = high_parts$i66 - _t159$i66 in
-        let @24 = @23 * _t951 in
+        let dirIsNeg$i66 = invDir$i66 < @14 in
+        let low_parts$i66 = select(dirIsNeg$i66, _t139$i66, _t140$i66) in
+        let high_parts$i66 = select(dirIsNeg$i66, _t140$i66, _t139$i66) in
+        let _t143$i66 = r.o in
+        let @21 = low_parts$i66 - _t143$i66 in
+        let @22 = @21 * invDir$i66 in
+        let @23 = high_parts$i66 - _t143$i66 in
+        let @24 = @23 * invDir$i66 in
         let @25 = (f32)eps in
         let @26 = 0.5f * @25 in
-        let _t953 = 3f * @26 in
-        let @28 = 1f - _t953 in
-        let @29 = _t953 / @28 in
+        let _t118$i51$i66 = 3f * @26 in
+        let @28 = 1f - _t118$i51$i66 in
+        let @29 = _t118$i51$i66 / @28 in
         let @31 = 2f * @29 in
         let @32 = 1f + @31 in
         let @202 = @24 * f32x3(@32) in
@@ -126,7 +126,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         }
         if ((*intersects_Ray_AABB$r0)) {
           let @88 = (*tris_index!top) + 1u in
-          let @89 = _t944.split0on_nPrims in
+          let @89 = _t57.split0on_nPrims in
           let @90 = reinterpret_cast<_tree_layout2>(@89) in
           let @91 = @90.offset in
           let @92 = (*tris_index!top) + @91 in
@@ -138,27 +138,27 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           continue
         }
       } else {
-        let @93 = _t944.low in
-        let _t156$i67 = cast<f32x3>(@93) in
-        let @95 = _t944.high in
-        let _t155$i67 = cast<f32x3>(@95) in
+        let @93 = _t57.low in
+        let _t140$i67 = cast<f32x3>(@93) in
+        let @95 = _t57.high in
+        let _t139$i67 = cast<f32x3>(@95) in
         let @98 = f32x3(1f) in
         let @99 = r.d in
-        let _t964 = @98 / @99 in
+        let invDir$i67 = @98 / @99 in
         let @101 = f32x3(0f) in
-        let dirIsNeg$i67 = _t964 < @101 in
-        let low_parts$i67 = select(dirIsNeg$i67, _t155$i67, _t156$i67) in
-        let high_parts$i67 = select(dirIsNeg$i67, _t156$i67, _t155$i67) in
-        let _t159$i67 = r.o in
-        let @108 = low_parts$i67 - _t159$i67 in
-        let @109 = @108 * _t964 in
-        let @110 = high_parts$i67 - _t159$i67 in
-        let @111 = @110 * _t964 in
+        let dirIsNeg$i67 = invDir$i67 < @101 in
+        let low_parts$i67 = select(dirIsNeg$i67, _t139$i67, _t140$i67) in
+        let high_parts$i67 = select(dirIsNeg$i67, _t140$i67, _t139$i67) in
+        let _t143$i67 = r.o in
+        let @108 = low_parts$i67 - _t143$i67 in
+        let @109 = @108 * invDir$i67 in
+        let @110 = high_parts$i67 - _t143$i67 in
+        let @111 = @110 * invDir$i67 in
         let @112 = (f32)eps in
         let @113 = 0.5f * @112 in
-        let _t966 = 3f * @113 in
-        let @115 = 1f - _t966 in
-        let @116 = _t966 / @115 in
+        let _t118$i51$i67 = 3f * @113 in
+        let @115 = 1f - _t118$i51$i67 in
+        let @116 = _t118$i51$i67 / @115 in
         let @118 = 2f * @116 in
         let @119 = 1f + @118 in
         let @203 = @111 * f32x3(@119) in

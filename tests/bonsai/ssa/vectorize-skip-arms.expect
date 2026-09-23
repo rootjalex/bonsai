@@ -51,8 +51,7 @@ func weigh(x : f32) -> f32 {
     let t = @2 + 1f in
     let @4 = 7f < t in
     if (@4) {
-      let _t129 = t in
-      return _t129
+      return t
     } else {
       let @5 = t * t in
       let @6 = @5 - x in
@@ -110,10 +109,10 @@ func weigh(x : f32) -> f32 {
     w = @43
   } break;
   case 1: { // Shape.Box of weigh
-    let _t35 = (*classify$r6).payload in
-    let @46 = _t35[0u] in
+    let _t30 = (*classify$r6).payload in
+    let @46 = _t30[0u] in
     let wd = reinterpret_cast<f32>(@46) in
-    let @48 = _t35[1u] in
+    let @48 = _t30[1u] in
     let h = reinterpret_cast<f32>(@48) in
     let @50 = wd * h in
     let @51 = @50 * 2f in
@@ -123,10 +122,10 @@ func weigh(x : f32) -> f32 {
     w = @54
   } break;
   default: { // Shape.Ring of weigh
-    let _t41 = (*classify$r6).payload in
-    let @57 = _t41[0u] in
+    let _t34 = (*classify$r6).payload in
+    let @57 = _t34[0u] in
     let ro = reinterpret_cast<f32>(@57) in
-    let @59 = _t41[1u] in
+    let @59 = _t34[1u] in
     let ri = reinterpret_cast<f32>(@59) in
     let @61 = ro * ro in
     let @62 = ri * ri in
@@ -310,10 +309,10 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   let @88 = @80 && @87 in
   let @100 = reduce<any>(@88) in
   if (@100) {
-    let _t41 = (*classify$r6!skip2).payload in
-    let @57 = _t41.!0 in
+    let _t34 = (*classify$r6!skip2).payload in
+    let @57 = _t34.!0 in
     let ro = reinterpret_cast<f32x8>(@57) in
-    let @59 = _t41.!1 in
+    let @59 = _t34.!1 in
     let ri = reinterpret_cast<f32x8>(@59) in
     let @61 = ro * ro in
     let @62 = ri * ri in
@@ -327,10 +326,10 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   }
   let @99 = reduce<any>(@84) in
   if (@99) {
-    let _t35 = (*classify$r6!skip2).payload in
-    let @46 = _t35.!0 in
+    let _t30 = (*classify$r6!skip2).payload in
+    let @46 = _t30.!0 in
     let wd = reinterpret_cast<f32x8>(@46) in
-    let @48 = _t35.!1 in
+    let @48 = _t30.!1 in
     let h = reinterpret_cast<f32x8>(@48) in
     let @50 = wd * h in
     let @161 = f32x8(2f) in

@@ -25,8 +25,8 @@ func [[export]] size(s : (Shape*)) -> f32 {
     return radius
   } break;
   default: { // Shape.Tri of size
-    let _t13 = (*s).payload in
-    let a = build<f32x3>(reinterpret_cast<f32>(_t13[0u]), reinterpret_cast<f32>(_t13[1u]), reinterpret_cast<f32>(_t13[2u])) in
+    let _t11 = (*s).payload in
+    let a = build<f32x3>(reinterpret_cast<f32>(_t11[0u]), reinterpret_cast<f32>(_t11[1u]), reinterpret_cast<f32>(_t11[2u])) in
     return a[0u]
   }
   }

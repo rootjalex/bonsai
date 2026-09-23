@@ -59,10 +59,10 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   } break;
   case 1: { // Blob.Split of weigh
     let @9 = (*b) in
-    let _t26 = @9.payload in
-    let @11 = _t26[0u] in
+    let _t24 = @9.payload in
+    let @11 = _t24[0u] in
     let lo = reinterpret_cast<i32>(@11) in
-    let @13 = _t26[1u] in
+    let @13 = _t24[1u] in
     let hi = reinterpret_cast<i32>(@13) in
     let @15 = lo + hi in
     let @16 = cast<f32>(@15) in

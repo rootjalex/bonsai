@@ -14,16 +14,16 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
   %i = add i32 %0, %_begin
-  %1 = lshr i32 %i, 31
-  %2 = add i32 %1, %i
-  %3 = and i32 %2, -2
-  %4 = sub i32 %i, %3
-  %5 = sext i32 %4 to i64
-  %extract_ptr = getelementptr inbounds [8 x i8], ptr %handles.generic, i64 %5
+  %1 = sitofp i32 %i to float
+  %2 = fmul nnan float %1, 1.250000e-01
+  %3 = lshr i32 %i, 31
+  %4 = add i32 %3, %i
+  %5 = and i32 %4, -2
+  %6 = sub i32 %i, %5
+  %7 = sext i32 %6 to i64
+  %extract_ptr = getelementptr inbounds [8 x i8], ptr %handles.generic, i64 %7
   %extract = load i64, ptr %extract_ptr, align 8
-  %6 = sitofp i32 %i to float
-  %7 = fmul nnan float %6, 1.250000e-01
-  %tex = tail call { float, float, float, float } @llvm.nvvm.tex.unified.2d.grad.v4f32.f32(i64 %extract, float %7, float 5.000000e-01, float f0x3C23D70A, float 0.000000e+00, float 0.000000e+00, float f0x3C23D70A)
+  %tex = tail call { float, float, float, float } @llvm.nvvm.tex.unified.2d.grad.v4f32.f32(i64 %extract, float %2, float 5.000000e-01, float f0x3C23D70A, float 0.000000e+00, float 0.000000e+00, float f0x3C23D70A)
   %8 = extractvalue { float, float, float, float } %tex, 0
   %9 = extractvalue { float, float, float, float } %tex, 1
   %10 = extractvalue { float, float, float, float } %tex, 2
@@ -82,19 +82,19 @@ attributes #2 = { mustprogress nocallback nofree nounwind willreturn memory(read
 	cvta.to.global.u64 	%rd4, %rd3;
 	mov.u32 	%r3, %tid.x;
 	mad.lo.s32 	%r4, %r2, %r3, %r1;
-	shr.u32 	%r5, %r4, 31;
-	add.s32 	%r6, %r5, %r4;
-	and.b32 	%r7, %r6, -2;
-	sub.s32 	%r8, %r4, %r7;
-	mul.wide.s32 	%rd5, %r8, 8;
+	cvt.rn.f32.s32 	%r5, %r4;
+	mul.rn.f32 	%r6, %r5, 0f3E000000;
+	shr.u32 	%r7, %r4, 31;
+	add.s32 	%r8, %r7, %r4;
+	and.b32 	%r9, %r8, -2;
+	sub.s32 	%r10, %r4, %r9;
+	mul.wide.s32 	%rd5, %r10, 8;
 	add.s64 	%rd6, %rd4, %rd5;
 	ld.global.b64 	%rd7, [%rd6];
-	cvt.rn.f32.s32 	%r9, %r4;
-	mul.rn.f32 	%r10, %r9, 0f3E000000;
 	mov.b32 	%r11, 0f00000000;
 	mov.b32 	%r12, 0f3C23D70A;
 	mov.b32 	%r13, 0f3F000000;
-	tex.grad.2d.v4.f32.f32 	{%r14, %r15, %r16, %r17}, [%rd7, {%r10, %r13}], {%r12, %r11}, {%r11, %r12};
+	tex.grad.2d.v4.f32.f32 	{%r14, %r15, %r16, %r17}, [%rd7, {%r6, %r13}], {%r12, %r11}, {%r11, %r12};
 	cvt.u64.u32 	%rd8, %r14;
 	cvt.u64.u32 	%rd9, %r15;
 	shl.b64 	%rd10, %rd9, 32;

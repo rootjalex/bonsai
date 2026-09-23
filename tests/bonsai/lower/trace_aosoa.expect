@@ -28,22 +28,22 @@ type vec4f = f32x4
 extern ts : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low_32 : [[packed]] f32x3; high_32 : [[packed]] f32x3; group0_bit : [[packed]] struct _tree_layout2{ low_16 : [[packed]] f16x3; high_16 : [[packed]] f16x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[2] }[nCount] }
 
 func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, _best0 : mut (__tuple_1*)) -> void {
-  let _t622 = ts.group0_index[ts_index] in
-  let _t624 = _t622.group0_bit[ts_bit] in
+  let _t11 = ts.group0_index[ts_index] in
+  let _t17 = _t11.group0_bit[ts_bit] in
+  let b$i0 = build<AABB>(cast<f32x3>(_t11.low_32) + cast<f32x3>(cast<f16x3>(_t17.low_16)), cast<f32x3>(_t11.high_32) + cast<f32x3>(cast<f16x3>(_t17.high_16))) in
   intersects_Ray_AABB$r0 : mut bool
-  let _t637 = build<AABB>(cast<f32x3>(_t622.low_32) + cast<f32x3>(cast<f16x3>(_t624.low_16)), cast<f32x3>(_t622.high_32) + cast<f32x3>(cast<f16x3>(_t624.high_16))) in
   intersectsp_ray_aabb$r22 : mut _option1
-  let _t639 = f32x3(1f) / ray.d in
-  let dirIsNeg$i22 = _t639 < f32x3(0f) in
-  let _t263$i22 = _t637.high in
-  let _t264$i22 = _t637.low in
-  let low_parts$i22 = select(dirIsNeg$i22, _t263$i22, _t264$i22) in
-  let high_parts$i22 = select(dirIsNeg$i22, _t264$i22, _t263$i22) in
-  let _t267$i22 = ray.o in
-  tMin$i22 : mut f32x3 := (low_parts$i22 - _t267$i22) * _t639
-  tMax$i22 : mut f32x3 := (high_parts$i22 - _t267$i22) * _t639
-  let _t270$i22 = 3f * (0.5f * (f32)eps) in
-  tMax$i22 *= 1f + (2f * (_t270$i22 / (1f - _t270$i22)))
+  let invDir$i22 = f32x3(1f) / ray.d in
+  let dirIsNeg$i22 = invDir$i22 < f32x3(0f) in
+  let _t230$i22 = b$i0.high in
+  let _t231$i22 = b$i0.low in
+  let low_parts$i22 = select(dirIsNeg$i22, _t230$i22, _t231$i22) in
+  let high_parts$i22 = select(dirIsNeg$i22, _t231$i22, _t230$i22) in
+  let _t234$i22 = ray.o in
+  tMin$i22 : mut f32x3 := (low_parts$i22 - _t234$i22) * invDir$i22
+  tMax$i22 : mut f32x3 := (high_parts$i22 - _t234$i22) * invDir$i22
+  let _t237$i22 = 3f * (0.5f * (f32)eps) in
+  tMax$i22 *= 1f + (2f * (_t237$i22 / (1f - _t237$i22)))
   if (((*tMax$i22)[1u] < (*tMin$i22)[0u]) || ((*tMax$i22)[0u] < (*tMin$i22)[1u])) {
     intersectsp_ray_aabb$r22 = build<_option1>()
   } else {
@@ -57,8 +57,8 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, 
       intersectsp_ray_aabb$r22 = build<_option1>(build<FInterval>((*tmin$i22), (*tmax$i22)), true)
     }
   }
-  let _t484 = (*intersectsp_ray_aabb$r22).set in
-  if (_t484) {
+  let _t434 = (*intersectsp_ray_aabb$r22).set in
+  if (_t434) {
     let extract$i0 = (*intersectsp_ray_aabb$r22).value in
     intersects_Ray_AABB$r0 = (extract$i0.low < ray.tmax) & (0f < extract$i0.high)
   } else {
@@ -66,39 +66,39 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, 
   }
   if ((*intersects_Ray_AABB$r0)) {
     distmin_Ray_AABB$r1 : mut f32
-    if (_t484) {
+    if (_t434) {
       let extract$i1 = (*intersectsp_ray_aabb$r22).value in
       distmin_Ray_AABB$r1 = extract$i1.low
     } else {
       distmin_Ray_AABB$r1 = -(f32)inf
     }
     if ((*distmin_Ray_AABB$r1) < (*_best0)._field0) {
-      let _t121 = _t624.nPrims in
-      if (_t121 == 0u) {
-        let _t66 = reinterpret_cast<_tree_layout3>(_t624.split0on_nPrims).offset in
-        multirecurse _recloop_func0(<0>, <1>, ts, ray, _best0) from { (_t66, 0u), (_t66, 1u) }
+      let _t117 = _t17.nPrims in
+      if (_t117 == 0u) {
+        let _t64 = reinterpret_cast<_tree_layout3>(_t17.split0on_nPrims).offset in
+        multirecurse _recloop_func0(<0>, <1>, ts, ray, _best0) from { (_t64, 0u), (_t64, 1u) }
       } else {
-        forall _idx0 in [0u:cast<u32>(_t121):1u] {
-          let _t649 = reinterpret_cast<_tree_layout4>(_t624.split0on_nPrims).pOffset + _idx0 in
-          let _t652 = intersectsp_ray_tri(ray, ts.prims[_t649]) in
-          if (_t652.set) {
+        forall _idx0 in [0u:cast<u32>(_t117):1u] {
+          let _t106 = reinterpret_cast<_tree_layout4>(_t17.split0on_nPrims).pOffset + _idx0 in
+          let _t443 = intersectsp_ray_tri(ray, ts.prims[_t106]) in
+          if (_t443.set) {
             distmin_Ray_Triangle$r2 : mut f32
-            let _t493 = _t652.set in
-            if (_t493) {
-              let isect_$i2 = _t652.value in
+            let _t441 = _t443.set in
+            if (_t441) {
+              let isect_$i2 = _t443.value in
               distmin_Ray_Triangle$r2 = isect_$i2.t
             } else {
               distmin_Ray_Triangle$r2 = (f32)inf
             }
             if ((*distmin_Ray_Triangle$r2) < (*_best0)._field0) {
               distmin_Ray_Triangle$r3 : mut f32
-              if (_t493) {
-                let isect_$i3 = _t652.value in
+              if (_t441) {
+                let isect_$i3 = _t443.value in
                 distmin_Ray_Triangle$r3 = isect_$i3.t
               } else {
                 distmin_Ray_Triangle$r3 = (f32)inf
               }
-              _best0 = build<__tuple_1>((*distmin_Ray_Triangle$r3), build<__tuple_0>(_t649))
+              _best0 = build<__tuple_1>((*distmin_Ray_Triangle$r3), build<__tuple_0>(_t106))
             }
           }
         }

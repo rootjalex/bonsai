@@ -23,19 +23,19 @@ func area(s : Shape) -> f32 {
     a = @5
   } break;
   case 1: { // Shape.Box of area
-    let _t3 = s.payload in
-    let @7 = _t3[0u] in
-    let @8 = reinterpret_cast<f32>(@7) in
-    let @9 = _t3[1u] in
-    let @10 = reinterpret_cast<f32>(@9) in
-    let @11 = @8 * @10 in
+    let _t2 = s.payload in
+    let @7 = _t2[0u] in
+    let wd = reinterpret_cast<f32>(@7) in
+    let @9 = _t2[1u] in
+    let h = reinterpret_cast<f32>(@9) in
+    let @11 = wd * h in
     a = @11
   } break;
   default: { // Shape.Ring of area
-    let _t9 = s.payload in
-    let @13 = _t9[0u] in
+    let _t6 = s.payload in
+    let @13 = _t6[0u] in
     let ro = reinterpret_cast<f32>(@13) in
-    let @15 = _t9[1u] in
+    let @15 = _t6[1u] in
     let ri = reinterpret_cast<f32>(@15) in
     let @17 = ro * ro in
     let @18 = ri * ri in
@@ -83,28 +83,27 @@ func classify(x : f32) -> Shape {
 
 func intersects_Ray_Shape(r : Ray, s : Shape) -> bool {
   hit : mut bool
-  let _t35 = r.o in
-  let _t36 = _t35[0] in
-  let _t41 = _t35[1] in
-  let @3 = _t36 * _t36 in
-  let @4 = _t41 * _t41 in
+  let _t30 = r.o in
+  let _t31 = _t30[0] in
+  let _t36 = _t30[1] in
+  let @3 = _t31 * _t31 in
+  let @4 = _t36 * _t36 in
   let d2 = @3 + @4 in
   let @6 = s.tag in
   switch (@6) {
   case 0: { // Shape.Disc of intersects_Ray_Shape
-    let _t294 = d2 in
     let @7 = s.payload in
     let @8 = @7[0u] in
     let rad = reinterpret_cast<f32>(@8) in
     let @10 = rad * rad in
-    let @11 = _t294 < @10 in
+    let @11 = d2 < @10 in
     hit = @11
   } break;
   case 1: { // Shape.Box of intersects_Ray_Shape
-    let _t49 = s.payload in
-    let @13 = _t49[0u] in
+    let _t42 = s.payload in
+    let @13 = _t42[0u] in
     let wd = reinterpret_cast<f32>(@13) in
-    let @15 = _t49[1u] in
+    let @15 = _t42[1u] in
     let h = reinterpret_cast<f32>(@15) in
     let @17 = r.o in
     let @18 = @17[0] in
@@ -124,10 +123,10 @@ func intersects_Ray_Shape(r : Ray, s : Shape) -> bool {
     hit = @31
   } break;
   default: { // Shape.Ring of intersects_Ray_Shape
-    let _t55 = s.payload in
-    let @33 = _t55[0u] in
+    let _t46 = s.payload in
+    let @33 = _t46[0u] in
     let ro = reinterpret_cast<f32>(@33) in
-    let @35 = _t55[1u] in
+    let @35 = _t46[1u] in
     let ri = reinterpret_cast<f32>(@35) in
     let @37 = ro * ro in
     let @38 = d2 < @37 in
@@ -173,20 +172,20 @@ func weigh(x : f32) -> f32 {
       classify$r6 = @18
     }
   }
-  let _t126 = (*classify$r6).tag in
-  switch (_t126) {
+  let _t95 = (*classify$r6).tag in
+  switch (_t95) {
   case 0: { // Shape.Disc of weigh
     let @22 = (*classify$r6).payload in
     let @23 = @22[0u] in
-    let @24 = reinterpret_cast<f32>(@23) in
-    let @25 = @24 * 6f in
+    let r = reinterpret_cast<f32>(@23) in
+    let @25 = r * 6f in
     p = @25
   } break;
   case 1: { // Shape.Box of weigh
-    let _t70 = (*classify$r6).payload in
-    let @28 = _t70[0u] in
+    let _t56 = (*classify$r6).payload in
+    let @28 = _t56[0u] in
     let wd = reinterpret_cast<f32>(@28) in
-    let @30 = _t70[1u] in
+    let @30 = _t56[1u] in
     let h = reinterpret_cast<f32>(@30) in
     let @32 = wd * 2f in
     let @33 = h * 2f in
@@ -194,10 +193,10 @@ func weigh(x : f32) -> f32 {
     p = @34
   } break;
   default: { // Shape.Ring of weigh
-    let _t76 = (*classify$r6).payload in
-    let @37 = _t76[0u] in
+    let _t60 = (*classify$r6).payload in
+    let @37 = _t60[0u] in
     let ro = reinterpret_cast<f32>(@37) in
-    let @39 = _t76[1u] in
+    let @39 = _t60[1u] in
     let ri = reinterpret_cast<f32>(@39) in
     let @41 = ro * 6f in
     let @42 = ri * 6f in
@@ -206,30 +205,29 @@ func weigh(x : f32) -> f32 {
   }
   }
   let @44 = x * 0.5f in
-  let _t35$i7 = build<f32x3>(@44, 1f, 0f) in
+  let _t30$i7 = build<f32x3>(@44, 1f, 0f) in
   let @46 = build<f32x3>(0f, 0f, 1f) in
   let @47 = (f32)inf in
-  let probe = build<Ray>(_t35$i7, @46, @47) in
-  let _t36$i7 = _t35$i7[0] in
-  let _t41$i7 = _t35$i7[1] in
-  let @52 = _t36$i7 * _t36$i7 in
-  let @53 = _t41$i7 * _t41$i7 in
+  let probe = build<Ray>(_t30$i7, @46, @47) in
+  let _t31$i7 = _t30$i7[0] in
+  let _t36$i7 = _t30$i7[1] in
+  let @52 = _t31$i7 * _t31$i7 in
+  let @53 = _t36$i7 * _t36$i7 in
   let d2$i7 = @52 + @53 in
-  switch (_t126) {
+  switch (_t95) {
   case 0: { // Shape.Disc of intersects_Ray_Shape
-    let _t320 = d2$i7 in
     let @56 = (*classify$r6).payload in
     let @57 = @56[0u] in
     let rad$i7 = reinterpret_cast<f32>(@57) in
     let @59 = rad$i7 * rad$i7 in
-    let @60 = _t320 < @59 in
+    let @60 = d2$i7 < @59 in
     hit$i7 = @60
   } break;
   case 1: { // Shape.Box of intersects_Ray_Shape
-    let _t49$i7 = (*classify$r6).payload in
-    let @63 = _t49$i7[0u] in
+    let _t42$i7 = (*classify$r6).payload in
+    let @63 = _t42$i7[0u] in
     let wd$i7 = reinterpret_cast<f32>(@63) in
-    let @65 = _t49$i7[1u] in
+    let @65 = _t42$i7[1u] in
     let h$i7 = reinterpret_cast<f32>(@65) in
     let @67 = probe.o in
     let @68 = @67[0] in
@@ -249,10 +247,10 @@ func weigh(x : f32) -> f32 {
     hit$i7 = @81
   } break;
   default: { // Shape.Ring of intersects_Ray_Shape
-    let _t55$i7 = (*classify$r6).payload in
-    let @84 = _t55$i7[0u] in
+    let _t46$i7 = (*classify$r6).payload in
+    let @84 = _t46$i7[0u] in
     let ro$i7 = reinterpret_cast<f32>(@84) in
-    let @86 = _t55$i7[1u] in
+    let @86 = _t46$i7[1u] in
     let ri$i7 = reinterpret_cast<f32>(@86) in
     let @88 = ro$i7 * ro$i7 in
     let @89 = d2$i7 < @88 in
@@ -266,7 +264,7 @@ func weigh(x : f32) -> f32 {
     let @96 = (*p) + 1f in
     p = @96
   }
-  switch (_t126) {
+  switch (_t95) {
   case 0: { // Shape.Disc of area
     let @98 = (*classify$r6).payload in
     let @99 = @98[0u] in
@@ -276,19 +274,19 @@ func weigh(x : f32) -> f32 {
     a$i8 = @102
   } break;
   case 1: { // Shape.Box of area
-    let _t3$i8 = (*classify$r6).payload in
-    let @105 = _t3$i8[0u] in
-    let @106 = reinterpret_cast<f32>(@105) in
-    let @107 = _t3$i8[1u] in
-    let @108 = reinterpret_cast<f32>(@107) in
-    let @109 = @106 * @108 in
+    let _t2$i8 = (*classify$r6).payload in
+    let @105 = _t2$i8[0u] in
+    let wd$i8 = reinterpret_cast<f32>(@105) in
+    let @107 = _t2$i8[1u] in
+    let h$i8 = reinterpret_cast<f32>(@107) in
+    let @109 = wd$i8 * h$i8 in
     a$i8 = @109
   } break;
   default: { // Shape.Ring of area
-    let _t9$i8 = (*classify$r6).payload in
-    let @112 = _t9$i8[0u] in
+    let _t6$i8 = (*classify$r6).payload in
+    let @112 = _t6$i8[0u] in
     let ro$i8 = reinterpret_cast<f32>(@112) in
-    let @114 = _t9$i8[1u] in
+    let @114 = _t6$i8[1u] in
     let ri$i8 = reinterpret_cast<f32>(@114) in
     let @116 = ro$i8 * ro$i8 in
     let @117 = ri$i8 * ri$i8 in
@@ -369,22 +367,22 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @19 = build<Shape$v8>(@195, @202, @167) in
   let @155 = select(@132, @19, @13) in
   let @156 = select(@130, @155, @6) in
-  let _t220 = @156.tag in
+  let _t158 = @156.tag in
   let @203 = u8x8(0u) in
-  let @134 = _t220 == @203 in
+  let @134 = _t158 == @203 in
   let @204 = u8x8(1u) in
-  let @135 = _t220 == @204 in
+  let @135 = _t158 == @204 in
   let @205 = u8x8(0u) in
-  let @136 = _t220 != @205 in
+  let @136 = _t158 != @205 in
   let @206 = u8x8(1u) in
-  let @137 = _t220 != @206 in
+  let @137 = _t158 != @206 in
   let @138 = @136 && @137 in
   let @152 = reduce<any>(@138) in
   if (@152) {
-    let _t76$i9 = @156.payload in
-    let @38 = _t76$i9.!0 in
+    let _t60$i9 = @156.payload in
+    let @38 = _t60$i9.!0 in
     let ro$i9 = reinterpret_cast<f32x8>(@38) in
-    let @40 = _t76$i9.!1 in
+    let @40 = _t60$i9.!1 in
     let ri$i9 = reinterpret_cast<f32x8>(@40) in
     let @207 = f32x8(6f) in
     let @42 = ro$i9 * @207 in
@@ -397,10 +395,10 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   }
   let @151 = reduce<any>(@135) in
   if (@151) {
-    let _t70$i9 = @156.payload in
-    let @29 = _t70$i9.!0 in
+    let _t56$i9 = @156.payload in
+    let @29 = _t56$i9.!0 in
     let wd$i9 = reinterpret_cast<f32x8>(@29) in
-    let @31 = _t70$i9.!1 in
+    let @31 = _t56$i9.!1 in
     let h$i9 = reinterpret_cast<f32x8>(@31) in
     let @209 = f32x8(2f) in
     let @33 = wd$i9 * @209 in
@@ -416,9 +414,9 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   if (@150) {
     let @23 = @156.payload in
     let @24 = @23.!0 in
-    let @25 = reinterpret_cast<f32x8>(@24) in
+    let r$i9 = reinterpret_cast<f32x8>(@24) in
     let @211 = f32x8(6f) in
-    let @26 = @25 * @211 in
+    let @26 = r$i9 * @211 in
     let @158 = select(@134, @26, (*p$i9!skip0)) in
     p$i9!skip1 = @158
   } else {
@@ -432,13 +430,13 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @223 = f32x8(@54) in
   let d2$i12 = @53 + @223 in
   let @224 = u8x8(0u) in
-  let @139 = _t220 == @224 in
+  let @139 = _t158 == @224 in
   let @225 = u8x8(1u) in
-  let @140 = _t220 == @225 in
-  let _t55$i12 = @156.payload in
-  let @85 = _t55$i12.!0 in
+  let @140 = _t158 == @225 in
+  let _t46$i12 = @156.payload in
+  let @85 = _t46$i12.!0 in
   let ro$i12 = reinterpret_cast<f32x8>(@85) in
-  let @87 = _t55$i12.!1 in
+  let @87 = _t46$i12.!1 in
   let ri$i12 = reinterpret_cast<f32x8>(@87) in
   let @89 = ro$i12 * ro$i12 in
   let @90 = d2$i12 < @89 in
@@ -447,10 +445,10 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @93 = @90 && @92 in
   let @153 = reduce<any>(@140) in
   if (@153) {
-    let _t49$i12 = @156.payload in
-    let @64 = _t49$i12.!0 in
+    let _t42$i12 = @156.payload in
+    let @64 = _t42$i12.!0 in
     let wd$i12 = reinterpret_cast<f32x8>(@64) in
-    let @66 = _t49$i12.!1 in
+    let @66 = _t42$i12.!1 in
     let h$i12 = reinterpret_cast<f32x8>(@66) in
     let @72 = @45 * @45 in
     let @73 = wd$i12 * wd$i12 in
@@ -474,20 +472,20 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @97 = (*p$i9!skip1) + @230 in
   let @161 = select(@160, @97, (*p$i9!skip1)) in
   let @231 = u8x8(0u) in
-  let @145 = _t220 == @231 in
+  let @145 = _t158 == @231 in
   let @232 = u8x8(1u) in
-  let @146 = _t220 == @232 in
+  let @146 = _t158 == @232 in
   let @233 = u8x8(0u) in
-  let @147 = _t220 != @233 in
+  let @147 = _t158 != @233 in
   let @234 = u8x8(1u) in
-  let @148 = _t220 != @234 in
+  let @148 = _t158 != @234 in
   let @149 = @147 && @148 in
   let @154 = reduce<any>(@149) in
   if (@154) {
-    let _t9$i13 = @156.payload in
-    let @113 = _t9$i13.!0 in
+    let _t6$i13 = @156.payload in
+    let @113 = _t6$i13.!0 in
     let ro$i13 = reinterpret_cast<f32x8>(@113) in
-    let @115 = _t9$i13.!1 in
+    let @115 = _t6$i13.!1 in
     let ri$i13 = reinterpret_cast<f32x8>(@115) in
     let @117 = ro$i13 * ro$i13 in
     let @118 = ri$i13 * ri$i13 in
@@ -502,12 +500,12 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   } else {
     a$i13!skip = undef
   }
-  let _t3$i13 = @156.payload in
-  let @106 = _t3$i13.!0 in
-  let @107 = reinterpret_cast<f32x8>(@106) in
-  let @108 = _t3$i13.!1 in
-  let @109 = reinterpret_cast<f32x8>(@108) in
-  let @110 = @107 * @109 in
+  let _t2$i13 = @156.payload in
+  let @106 = _t2$i13.!0 in
+  let wd$i13 = reinterpret_cast<f32x8>(@106) in
+  let @108 = _t2$i13.!1 in
+  let h$i13 = reinterpret_cast<f32x8>(@108) in
+  let @110 = wd$i13 * h$i13 in
   let @162 = select(@146, @110, (*a$i13!skip)) in
   let @99 = @156.payload in
   let @100 = @99.!0 in
@@ -554,20 +552,20 @@ func [[export]] weigh_one(x : f32) -> f32 {
       classify$r14 = @18
     }
   }
-  let _t253 = (*classify$r14).tag in
-  switch (_t253) {
+  let _t180 = (*classify$r14).tag in
+  switch (_t180) {
   case 0: { // Shape.Disc of weigh
     let @22 = (*classify$r14).payload in
     let @23 = @22[0u] in
-    let @24 = reinterpret_cast<f32>(@23) in
-    let @25 = @24 * 6f in
+    let r$i10 = reinterpret_cast<f32>(@23) in
+    let @25 = r$i10 * 6f in
     p$i10 = @25
   } break;
   case 1: { // Shape.Box of weigh
-    let _t70$i10 = (*classify$r14).payload in
-    let @28 = _t70$i10[0u] in
+    let _t56$i10 = (*classify$r14).payload in
+    let @28 = _t56$i10[0u] in
     let wd$i10 = reinterpret_cast<f32>(@28) in
-    let @30 = _t70$i10[1u] in
+    let @30 = _t56$i10[1u] in
     let h$i10 = reinterpret_cast<f32>(@30) in
     let @32 = wd$i10 * 2f in
     let @33 = h$i10 * 2f in
@@ -575,10 +573,10 @@ func [[export]] weigh_one(x : f32) -> f32 {
     p$i10 = @34
   } break;
   default: { // Shape.Ring of weigh
-    let _t76$i10 = (*classify$r14).payload in
-    let @37 = _t76$i10[0u] in
+    let _t60$i10 = (*classify$r14).payload in
+    let @37 = _t60$i10[0u] in
     let ro$i10 = reinterpret_cast<f32>(@37) in
-    let @39 = _t76$i10[1u] in
+    let @39 = _t60$i10[1u] in
     let ri$i10 = reinterpret_cast<f32>(@39) in
     let @41 = ro$i10 * 6f in
     let @42 = ri$i10 * 6f in
@@ -587,30 +585,29 @@ func [[export]] weigh_one(x : f32) -> f32 {
   }
   }
   let @44 = x * 0.5f in
-  let _t35$i15 = build<f32x3>(@44, 1f, 0f) in
+  let _t30$i15 = build<f32x3>(@44, 1f, 0f) in
   let @46 = build<f32x3>(0f, 0f, 1f) in
   let @47 = (f32)inf in
-  let probe$i10 = build<Ray>(_t35$i15, @46, @47) in
-  let _t36$i15 = _t35$i15[0] in
-  let _t41$i15 = _t35$i15[1] in
-  let @52 = _t36$i15 * _t36$i15 in
-  let @53 = _t41$i15 * _t41$i15 in
+  let probe$i10 = build<Ray>(_t30$i15, @46, @47) in
+  let _t31$i15 = _t30$i15[0] in
+  let _t36$i15 = _t30$i15[1] in
+  let @52 = _t31$i15 * _t31$i15 in
+  let @53 = _t36$i15 * _t36$i15 in
   let d2$i15 = @52 + @53 in
-  switch (_t253) {
+  switch (_t180) {
   case 0: { // Shape.Disc of intersects_Ray_Shape
-    let _t362 = d2$i15 in
     let @56 = (*classify$r14).payload in
     let @57 = @56[0u] in
     let rad$i15 = reinterpret_cast<f32>(@57) in
     let @59 = rad$i15 * rad$i15 in
-    let @60 = _t362 < @59 in
+    let @60 = d2$i15 < @59 in
     hit$i15 = @60
   } break;
   case 1: { // Shape.Box of intersects_Ray_Shape
-    let _t49$i15 = (*classify$r14).payload in
-    let @63 = _t49$i15[0u] in
+    let _t42$i15 = (*classify$r14).payload in
+    let @63 = _t42$i15[0u] in
     let wd$i15 = reinterpret_cast<f32>(@63) in
-    let @65 = _t49$i15[1u] in
+    let @65 = _t42$i15[1u] in
     let h$i15 = reinterpret_cast<f32>(@65) in
     let @67 = probe$i10.o in
     let @68 = @67[0] in
@@ -630,10 +627,10 @@ func [[export]] weigh_one(x : f32) -> f32 {
     hit$i15 = @81
   } break;
   default: { // Shape.Ring of intersects_Ray_Shape
-    let _t55$i15 = (*classify$r14).payload in
-    let @84 = _t55$i15[0u] in
+    let _t46$i15 = (*classify$r14).payload in
+    let @84 = _t46$i15[0u] in
     let ro$i15 = reinterpret_cast<f32>(@84) in
-    let @86 = _t55$i15[1u] in
+    let @86 = _t46$i15[1u] in
     let ri$i15 = reinterpret_cast<f32>(@86) in
     let @88 = ro$i15 * ro$i15 in
     let @89 = d2$i15 < @88 in
@@ -647,7 +644,7 @@ func [[export]] weigh_one(x : f32) -> f32 {
     let @96 = (*p$i10) + 1f in
     p$i10 = @96
   }
-  switch (_t253) {
+  switch (_t180) {
   case 0: { // Shape.Disc of area
     let @98 = (*classify$r14).payload in
     let @99 = @98[0u] in
@@ -657,19 +654,19 @@ func [[export]] weigh_one(x : f32) -> f32 {
     a$i16 = @102
   } break;
   case 1: { // Shape.Box of area
-    let _t3$i16 = (*classify$r14).payload in
-    let @105 = _t3$i16[0u] in
-    let @106 = reinterpret_cast<f32>(@105) in
-    let @107 = _t3$i16[1u] in
-    let @108 = reinterpret_cast<f32>(@107) in
-    let @109 = @106 * @108 in
+    let _t2$i16 = (*classify$r14).payload in
+    let @105 = _t2$i16[0u] in
+    let wd$i16 = reinterpret_cast<f32>(@105) in
+    let @107 = _t2$i16[1u] in
+    let h$i16 = reinterpret_cast<f32>(@107) in
+    let @109 = wd$i16 * h$i16 in
     a$i16 = @109
   } break;
   default: { // Shape.Ring of area
-    let _t9$i16 = (*classify$r14).payload in
-    let @112 = _t9$i16[0u] in
+    let _t6$i16 = (*classify$r14).payload in
+    let @112 = _t6$i16[0u] in
     let ro$i16 = reinterpret_cast<f32>(@112) in
-    let @114 = _t9$i16[1u] in
+    let @114 = _t6$i16[1u] in
     let ri$i16 = reinterpret_cast<f32>(@114) in
     let @116 = ro$i16 * ro$i16 in
     let @117 = ri$i16 * ri$i16 in

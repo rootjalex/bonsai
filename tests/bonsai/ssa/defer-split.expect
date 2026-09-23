@@ -183,15 +183,15 @@ func [[noinline]] step!after(@0 : Kind, k : f32) -> f32 {
   case 0: { // Kind.Small of step
     let @2 = kind.payload in
     let @3 = @2[0u] in
-    let @4 = reinterpret_cast<f32>(@3) in
-    let @5 = @4 + k in
+    let v = reinterpret_cast<f32>(@3) in
+    let @5 = v + k in
     return @5
   } break;
   default: { // Kind.Large of step
     let @6 = kind.payload in
     let @7 = @6[0u] in
-    let @8 = reinterpret_cast<f32>(@7) in
-    let @9 = @8 * k in
+    let v$1 = reinterpret_cast<f32>(@7) in
+    let @9 = v$1 * k in
     return @9
   }
   }
@@ -204,8 +204,8 @@ func [[noinline]] step!after!Large(@0 : Kind, k : f32) -> f32 {
   let kind!Large = build<Kind>(1u, @10, @11) in
   let @6 = kind.payload in
   let @7 = @6[0u] in
-  let @8 = reinterpret_cast<f32>(@7) in
-  let @9 = @8 * k in
+  let v$1 = reinterpret_cast<f32>(@7) in
+  let @9 = v$1 * k in
   return @9
 }
 
@@ -216,8 +216,8 @@ func [[noinline]] step!after!Small(@0 : Kind, k : f32) -> f32 {
   let kind!Small = build<Kind>(0u, @10, @11) in
   let @2 = kind.payload in
   let @3 = @2[0u] in
-  let @4 = reinterpret_cast<f32>(@3) in
-  let @5 = @4 + k in
+  let v = reinterpret_cast<f32>(@3) in
+  let @5 = v + k in
   return @5
 }
 

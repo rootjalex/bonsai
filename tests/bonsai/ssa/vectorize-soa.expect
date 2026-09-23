@@ -32,13 +32,13 @@ func components(inp : f32x3[8], out : mut f32[8]) -> void {
 }
 
 func length_squared(v : f32x3) -> f32 {
-  let _t2 = v[0u] in
-  let _t4 = v[1u] in
-  let _t6 = v[2u] in
-  let @3 = _t2 * _t2 in
-  let @4 = _t4 * _t4 in
+  let _t1 = v[0u] in
+  let _t3 = v[1u] in
+  let _t5 = v[2u] in
+  let @3 = _t1 * _t1 in
+  let @4 = _t3 * _t3 in
   let @5 = @3 + @4 in
-  let @6 = _t6 * _t6 in
+  let @6 = _t5 * _t5 in
   let @7 = @5 + @6 in
   return @7
 }

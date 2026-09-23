@@ -440,7 +440,18 @@ struct Rename : public ir::Mutator {
             // Non-compounding statements can just use the O.G. variable name.
             return node;
         }
-        return make(ir::LetStmt::make(node->loc, mutate(node->value)));
+        // The let is where its value is bound: the value keeps the program's
+        // name for it, and only what it is made of is renamed. Bound to a
+        // temporary instead -- which a value used twice through the let's
+        // variable would be, since the counting sees through the variable --
+        // the let became an alias of `_tN` and the name was gone, and a
+        // schedule points at a value by that name (`hits.specialize(
+        // material)`). Value numbering below still merges the value with an
+        // equal one elsewhere.
+        keep_top = node->value.get();
+        ir::Expr value = mutate(node->value);
+        keep_top = nullptr;
+        return make(ir::LetStmt::make(node->loc, std::move(value)));
     }
     ir::Stmt visit(const ir::Allocate *node) override {
         return make(
@@ -728,10 +739,13 @@ struct Rename : public ir::Mutator {
     }
     // Whether we should give this sub-expression its own variable.
     bool should_rename(const ir::Expr &e) {
-        return !e.is<ir::Var>() && to_rename.contains(e) && !is_const(e);
+        return e.get() != keep_top && !e.is<ir::Var>() &&
+               to_rename.contains(e) && !is_const(e);
     }
     // A set of expressions that should be renamed in this pass.
     const ExprSet &to_rename;
+    // The value of the let being visited, which keeps the let's name.
+    const ir::BaseExprNode *keep_top = nullptr;
     // A list of intermediate statements generated for subexpressions.
     std::vector<ir::Stmt> stmts;
 

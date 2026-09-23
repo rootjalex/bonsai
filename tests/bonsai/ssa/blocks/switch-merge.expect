@@ -59,10 +59,10 @@ func weigh(b : (Blob*), k : f32):
 
 !case_2(b : (Blob*)): // Blob.Split of weigh; preds: weigh
   @9 = load(b)
-  _t26 = load_field(@9, (u32)2)
-  @11 = extract_idx(_t26, (u32)0)
+  _t24 = load_field(@9, (u32)2)
+  @11 = extract_idx(_t24, (u32)0)
   lo = reinterpret<i32>(@11)
-  @13 = extract_idx(_t26, (u32)1)
+  @13 = extract_idx(_t24, (u32)1)
   hi = reinterpret<i32>(@13)
   @15 = add(lo, hi)
   @16 = cast<f32>(@15)
@@ -129,10 +129,10 @@ func [[export]] weigh(b : (Blob*), k : f32) -> f32 {
   } break;
   case 1: { // Blob.Split of weigh
     let @9 = (*b) in
-    let _t26 = @9.payload in
-    let @11 = _t26[0u] in
+    let _t24 = @9.payload in
+    let @11 = _t24[0u] in
     let lo = reinterpret_cast<i32>(@11) in
-    let @13 = _t26[1u] in
+    let @13 = _t24[1u] in
     let hi = reinterpret_cast<i32>(@13) in
     let @15 = lo + hi in
     let @16 = cast<f32>(@15) in

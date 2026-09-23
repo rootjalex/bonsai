@@ -57,40 +57,40 @@ func weigh(b : Blob) -> f32 {
   case 0: { // Blob.Whole of weigh
     let @1 = b.payload in
     let @2 = @1[0u] in
-    let @3 = reinterpret_cast<f32>(@2) in
-    let @4 = @3 * 2f in
+    let x = reinterpret_cast<f32>(@2) in
+    let @4 = x * 2f in
     return @4
   } break;
   case 1: { // Blob.Split of weigh
-    let _t31 = b.payload in
-    let @6 = _t31[0u] in
+    let _t28 = b.payload in
+    let @6 = _t28[0u] in
     let lo = reinterpret_cast<i32>(@6) in
-    let @8 = _t31[1u] in
+    let @8 = _t28[1u] in
     let hi = reinterpret_cast<i32>(@8) in
     let @10 = lo + hi in
     let @11 = cast<f32>(@10) in
     return @11
   } break;
   default: { // Blob.Wide of weigh
-    let _t35 = b.payload in
-    let @13 = _t35[0u] in
+    let _t32 = b.payload in
+    let @13 = _t32[0u] in
     let @14 = reinterpret_cast<f32>(@13) in
-    let @15 = _t35[1u] in
+    let @15 = _t32[1u] in
     let @16 = reinterpret_cast<f32>(@15) in
-    let @17 = _t35[2u] in
+    let @17 = _t32[2u] in
     let @18 = reinterpret_cast<f32>(@17) in
-    let _t143 = build<f32x3>(@14, @16, @18) in
-    let @20 = _t35[4u] in
+    let v = build<f32x3>(@14, @16, @18) in
+    let @20 = _t32[4u] in
     let @21 = @20 >> 0u in
     let @22 = @21 & 255u in
     let neg = @22 != 0u in
-    let @24 = _t143[0u] in
-    let @25 = _t143[1u] in
+    let @24 = v[0u] in
+    let @25 = v[1u] in
     let @26 = @24 + @25 in
-    let @27 = _t143[2u] in
-    let _t50 = @26 + @27 in
-    let @29 = 0f - _t50 in
-    let @30 = select(neg, @29, _t50) in
+    let @27 = v[2u] in
+    let _t46 = @26 + @27 in
+    let @29 = 0f - _t46 in
+    let @30 = select(neg, @29, _t46) in
     return @30
   }
   }
@@ -271,14 +271,14 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @215 = u8x8(1u) in
   let @75 = @25 != @215 in
   let @76 = @74 && @75 in
-  let _t35$i7 = @78.payload in
-  let @41 = _t35$i7.!0 in
+  let _t32$i7 = @78.payload in
+  let @41 = _t32$i7.!0 in
   let @42 = reinterpret_cast<f32x8>(@41) in
-  let @43 = _t35$i7.!1 in
+  let @43 = _t32$i7.!1 in
   let @44 = reinterpret_cast<f32x8>(@43) in
-  let @45 = _t35$i7.!2 in
+  let @45 = _t32$i7.!2 in
   let @46 = reinterpret_cast<f32x8>(@45) in
-  let @48 = _t35$i7.!4 in
+  let @48 = _t32$i7.!4 in
   let @216 = u32x8(0u) in
   let @49 = @48 >> @216 in
   let @217 = u32x8(255u) in
@@ -286,23 +286,23 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @218 = u32x8(0u) in
   let neg$i7 = @50 != @218 in
   let @54 = @42 + @44 in
-  let _t50$i7 = @54 + @46 in
+  let _t46$i7 = @54 + @46 in
   let @219 = f32x8(0f) in
-  let @57 = @219 - _t50$i7 in
-  let @58 = select(neg$i7, @57, _t50$i7) in
-  let _t31$i7 = @78.payload in
-  let @33 = _t31$i7.!0 in
+  let @57 = @219 - _t46$i7 in
+  let @58 = select(neg$i7, @57, _t46$i7) in
+  let _t28$i7 = @78.payload in
+  let @33 = _t28$i7.!0 in
   let lo$i7 = reinterpret_cast<i32x8>(@33) in
-  let @35 = _t31$i7.!1 in
+  let @35 = _t28$i7.!1 in
   let hi$i7 = reinterpret_cast<i32x8>(@35) in
   let @37 = lo$i7 + hi$i7 in
   let @38 = cast<f32x8>(@37) in
   let @79 = select(@73, @38, @58) in
   let @27 = @78.payload in
   let @28 = @27.!0 in
-  let @29 = reinterpret_cast<f32x8>(@28) in
+  let x$i7 = reinterpret_cast<f32x8>(@28) in
   let @220 = f32x8(2f) in
-  let @30 = @29 * @220 in
+  let @30 = x$i7 * @220 in
   let @80 = select(@72, @30, @79) in
   out[ramp(0, 1, 8)] = @80
   return

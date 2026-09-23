@@ -47,28 +47,28 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
   !count = 0u
   while ((*!live)) {
     let @0 = instances.group1_index in
-    let _t1032 = @0[(*instances_index!top)] in
-    let @2 = _t1032.low in
-    let _t198$i69 = cast<f32x3>(@2) in
-    let @4 = _t1032.high in
-    let _t197$i69 = cast<f32x3>(@4) in
+    let _t32 = @0[(*instances_index!top)] in
+    let @2 = _t32.low in
+    let _t182$i69 = cast<f32x3>(@2) in
+    let @4 = _t32.high in
+    let _t181$i69 = cast<f32x3>(@4) in
     let @7 = f32x3(1f) in
     let @8 = r.d in
-    let _t1039 = @7 / @8 in
+    let invDir$i69 = @7 / @8 in
     let @10 = f32x3(0f) in
-    let dirIsNeg$i69 = _t1039 < @10 in
-    let low_parts$i69 = select(dirIsNeg$i69, _t197$i69, _t198$i69) in
-    let high_parts$i69 = select(dirIsNeg$i69, _t198$i69, _t197$i69) in
-    let _t201$i69 = r.o in
-    let @17 = low_parts$i69 - _t201$i69 in
-    let @18 = @17 * _t1039 in
-    let @19 = high_parts$i69 - _t201$i69 in
-    let @20 = @19 * _t1039 in
+    let dirIsNeg$i69 = invDir$i69 < @10 in
+    let low_parts$i69 = select(dirIsNeg$i69, _t181$i69, _t182$i69) in
+    let high_parts$i69 = select(dirIsNeg$i69, _t182$i69, _t181$i69) in
+    let _t185$i69 = r.o in
+    let @17 = low_parts$i69 - _t185$i69 in
+    let @18 = @17 * invDir$i69 in
+    let @19 = high_parts$i69 - _t185$i69 in
+    let @20 = @19 * invDir$i69 in
     let @21 = (f32)eps in
     let @22 = 0.5f * @21 in
-    let _t1041 = 3f * @22 in
-    let @24 = 1f - _t1041 in
-    let @25 = _t1041 / @24 in
+    let _t160$i54$i69 = 3f * @22 in
+    let @24 = 1f - _t160$i54$i69 in
+    let @25 = _t160$i54$i69 / @24 in
     let @27 = 2f * @25 in
     let @28 = 1f + @27 in
     let @117 = @20 * f32x3(@28) in
@@ -111,8 +111,8 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
         tmax$i69 = @68
       }
     }
-    let _t519 = (*intersectsp_ray_aabb$r69).set in
-    if (_t519) {
+    let _t410 = (*intersectsp_ray_aabb$r69).set in
+    if (_t410) {
       let extract$i0 = (*intersectsp_ray_aabb$r69).value in
       let @77 = extract$i0.low in
       let @78 = r.tmax in
@@ -125,7 +125,7 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
       intersects_Ray_AABB$r0 = false
     }
     if ((*intersects_Ray_AABB$r0)) {
-      if (_t519) {
+      if (_t410) {
         let extract$i1 = (*intersectsp_ray_aabb$r69).value in
         let @86 = extract$i1.low in
         distmin_Ray_AABB$r1 = @86
@@ -138,11 +138,11 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
       let @91 = @90._field0 in
       let @92 = (*distmin_Ray_AABB$r1) < @91 in
       if (@92) {
-        let _t21 = _t1032.nPrims in
+        let _t21 = _t32.nPrims in
         let @94 = _t21 == 0u in
         if (@94) {
           let @95 = (*instances_index!top) + 1u in
-          let @96 = _t1032.split0on_nPrims in
+          let @96 = _t32.split0on_nPrims in
           let @97 = reinterpret_cast<_tree_layout5>(@96) in
           let @98 = @97.offset in
           let @99 = (*instances_index!top) + @98 in
@@ -157,7 +157,7 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
           _idx0 = 0u
           while ((*_idx0) < @100) {
             let @102 = instances.insts in
-            let @103 = _t1032.split0on_nPrims in
+            let @103 = _t32.split0on_nPrims in
             let @104 = reinterpret_cast<_tree_layout6>(@103) in
             let @105 = @104.pOffset in
             let @106 = @105 + (*_idx0) in
@@ -200,28 +200,28 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
   !count = 0u
   while ((*!live)) {
     let @0 = instances.group0_bnode in
-    let _t1048 = @0[(*_subtree0_bnode!top)] in
-    let @2 = _t1048.low in
-    let _t198$i70 = cast<f32x3>(@2) in
-    let @4 = _t1048.high in
-    let _t197$i70 = cast<f32x3>(@4) in
+    let _t91 = @0[(*_subtree0_bnode!top)] in
+    let @2 = _t91.low in
+    let _t182$i70 = cast<f32x3>(@2) in
+    let @4 = _t91.high in
+    let _t181$i70 = cast<f32x3>(@4) in
     let @7 = f32x3(1f) in
     let @8 = r.d in
-    let _t1055 = @7 / @8 in
+    let invDir$i70 = @7 / @8 in
     let @10 = f32x3(0f) in
-    let dirIsNeg$i70 = _t1055 < @10 in
-    let low_parts$i70 = select(dirIsNeg$i70, _t197$i70, _t198$i70) in
-    let high_parts$i70 = select(dirIsNeg$i70, _t198$i70, _t197$i70) in
-    let _t201$i70 = r.o in
-    let @17 = low_parts$i70 - _t201$i70 in
-    let @18 = @17 * _t1055 in
-    let @19 = high_parts$i70 - _t201$i70 in
-    let @20 = @19 * _t1055 in
+    let dirIsNeg$i70 = invDir$i70 < @10 in
+    let low_parts$i70 = select(dirIsNeg$i70, _t181$i70, _t182$i70) in
+    let high_parts$i70 = select(dirIsNeg$i70, _t182$i70, _t181$i70) in
+    let _t185$i70 = r.o in
+    let @17 = low_parts$i70 - _t185$i70 in
+    let @18 = @17 * invDir$i70 in
+    let @19 = high_parts$i70 - _t185$i70 in
+    let @20 = @19 * invDir$i70 in
     let @21 = (f32)eps in
     let @22 = 0.5f * @21 in
-    let _t1057 = 3f * @22 in
-    let @24 = 1f - _t1057 in
-    let @25 = _t1057 / @24 in
+    let _t160$i54$i70 = 3f * @22 in
+    let @24 = 1f - _t160$i54$i70 in
+    let @25 = _t160$i54$i70 / @24 in
     let @27 = 2f * @25 in
     let @28 = 1f + @27 in
     let @133 = @20 * f32x3(@28) in
@@ -264,8 +264,8 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
         tmax$i70 = @68
       }
     }
-    let _t537 = (*intersectsp_ray_aabb$r70).set in
-    if (_t537) {
+    let _t424 = (*intersectsp_ray_aabb$r70).set in
+    if (_t424) {
       let extract$i2 = (*intersectsp_ray_aabb$r70).value in
       let @77 = extract$i2.low in
       let @78 = r.tmax in
@@ -278,7 +278,7 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
       intersects_Ray_AABB$r2 = false
     }
     if ((*intersects_Ray_AABB$r2)) {
-      if (_t537) {
+      if (_t424) {
         let extract$i3 = (*intersectsp_ray_aabb$r70).value in
         let @86 = extract$i3.low in
         distmin_Ray_AABB$r3 = @86
@@ -291,11 +291,11 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
       let @91 = @90._field0 in
       let @92 = (*distmin_Ray_AABB$r3) < @91 in
       if (@92) {
-        let _t80 = _t1048.nPrims in
+        let _t80 = _t91.nPrims in
         let @94 = _t80 == 0u in
         if (@94) {
           let @95 = (*_subtree0_bnode!top) + 1u in
-          let @96 = _t1048.split0on_nPrims in
+          let @96 = _t91.split0on_nPrims in
           let @97 = reinterpret_cast<_tree_layout2>(@96) in
           let @98 = @97.offset in
           let @99 = (*_subtree0_bnode!top) + @98 in
@@ -309,17 +309,17 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
           let @100 = cast<u32>(_t80) in
           _idx1 = 0u
           while ((*_idx1) < @100) {
-            let @102 = _t1048.split0on_nPrims in
+            let @102 = _t91.split0on_nPrims in
             let @103 = reinterpret_cast<_tree_layout3>(@102) in
             let @104 = @103.pOffset in
-            let _t1065 = @104 + (*_idx1) in
+            let _t73 = @104 + (*_idx1) in
             let @106 = instances.tris in
-            let @107 = @106[_t1065] in
+            let @107 = @106[_t73] in
             let @108 = intersectsp_ray_tri(r, @107) in
-            let _t1068 = @108 in
-            let @109 = _t1068.set in
+            let _t251 = @108 in
+            let @109 = _t251.set in
             if (@109) {
-              let isect_$i4 = _t1068.value in
+              let isect_$i4 = _t251.value in
               let @111 = isect_$i4.t in
               let @113 = (*_best0) in
               let @114 = @113._field0 in
@@ -331,7 +331,7 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
                 let @120 = reinterpret_cast<_tree_layout6>(@119) in
                 let @121 = @120.pOffset in
                 let @122 = @121 + _idx0 in
-                let @123 = build<__tuple_1>(@122, _t1065) in
+                let @123 = build<__tuple_1>(@122, _t73) in
                 let @124 = build<__tuple_2>(@111, @123) in
                 _best0 = @124
               }

@@ -104,7 +104,6 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
 }
 
 func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
-  _t3 : mut u64
   v : mut u64
   r : mut u64
   let @0 = bases[i] in
@@ -116,7 +115,6 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
   let @17 = min(@16, 1u) in
   let @18 = max(@16, 1u) in
   let @19 = @18 - 1u in
-  _t3 = b
   v = n
   r = 0u
   while ((*v) != 0u) {

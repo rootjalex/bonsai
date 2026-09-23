@@ -4,12 +4,12 @@ func axes(d : f32x3) -> u32 {
   let @2 = kz + 1u in
   let @8 = @2 < 3u in
   let @9 = @2 - 3u in
-  let _t5 = select(@8, @2, @9) in
-  let @4 = _t5 + 1u in
+  let kx = select(@8, @2, @9) in
+  let @4 = kx + 1u in
   let @10 = @4 < 3u in
   let @11 = @4 - 3u in
   let ky = select(@10, @4, @11) in
-  let @6 = _t5 * 3u in
+  let @6 = kx * 3u in
   let @7 = @6 + ky in
   return @7
 }
