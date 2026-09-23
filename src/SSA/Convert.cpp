@@ -2198,6 +2198,12 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         close_parfor_bodies(*f);
     }
     phase("close parfor bodies");
+    // What the code generators are handed: after the allocas are promoted
+    // and the bodies closed, which is where a name a kernel cannot bind
+    // shows up.
+    if (options.dump_ssa_final) {
+        dump_ssa(std::cout, "final", fmap, options.is_verbose);
+    }
 
     ir::FuncMap new_funcs;
 

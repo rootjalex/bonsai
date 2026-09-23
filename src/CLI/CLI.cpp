@@ -40,6 +40,7 @@ std::string command_help() {
       << "     | --dump-ssa-preschedule      | print the SSA a schedule acts "
          "on\n"
       << "     | --dump-ssa-postschedule     | print the SSA a schedule left\n"
+      << "     | --dump-ssa-final            | print the SSA the backends generate from\n"
       << "-h   | --help";
     return s.str();
 }
@@ -171,6 +172,10 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "--dump-ssa-postschedule") {
             options.dump_ssa_postschedule = true;
+            continue;
+        }
+        if (arg == "--dump-ssa-final") {
+            options.dump_ssa_final = true;
             continue;
         }
         if (arg == "--mcpu") {

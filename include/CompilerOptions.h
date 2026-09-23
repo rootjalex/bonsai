@@ -140,6 +140,9 @@ struct CompilerOptions {
     // ahead of whatever else is printed.
     bool dump_ssa_preschedule = false;
     bool dump_ssa_postschedule = false;
+    // The SSA as the code generators receive it: after the allocas are
+    // promoted and the parfor bodies closed over their captures.
+    bool dump_ssa_final = false;
 
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };

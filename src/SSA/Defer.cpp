@@ -926,8 +926,10 @@ void join_continuations(const shared_ptr<Function> &O, const string &what,
         }
     }
 
-    // One signature: the continuations are copies of one another.
-    const vector<Argument> &sig = entries.front()->args;
+    // One signature: the continuations are copies of one another. A copy of
+    // the arguments, since the first continuation's own are renamed below
+    // and the names are needed as they were.
+    const vector<Argument> sig = entries.front()->args;
     for (const auto &K : entries) {
         internal_assert(K->args.size() == sig.size())
             << what << ": the continuations " << entries.front()->name << " and "
