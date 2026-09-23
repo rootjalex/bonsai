@@ -4547,14 +4547,53 @@ compare-and-swap loop (the first fix of the profile section, which was the
 depth-1 cliff). It stays: one accumulate per block is strictly less work
 than sixty-four, and the pass is general.
 
-**Next, in this order.** `render.specialize(integrator)`: one copy of
-`render` per variant of an algebraic-typed parameter, the tag constant in
-each and the export dispatching once -- Halide's `specialize` from a
-boolean to a variant; ptxas then allocates registers for the integrator the
-scene runs and not for four, and the comparison with pbrt --gpu, a
-volpath-only build, is fair. Then a fresh PTX and Nsight look at the volpath
-kernel, the spills under the cap, the block shape and the stack depth, and
-the wavefront (its section below).
+**`render.specialize(integrator)` (2026-09-23).** The user's question: pbrt
+specializes its GPU integrator, so can a `render.specialize(integrator
+parameter name)` generate a version of the render per variant, and does it
+pay? The directive (ir::Specialize, applied at the SSA level by
+SSA/Specialize.h): the body of each of the function's outermost parallel
+loops is copied once per variant of the parameter's type, the copy's
+`integrator` is the given one with its tag set to that variant's number --
+the given value read whole, its fields rebuilt around the constant, into a
+slot under a name of the copy's own that every use in the copy is renamed
+to -- and the loop's block reads the tag once and dispatches to the copy.
+Each copy is one bound loop, so under `bind(p, GPUBlock)` it is its own
+kernel with the tag a constant in it, and once `li` is inlined LLVM folds
+the integrator's match to the one arm and deletes the rest; ptxas then
+allocates registers for the integrator the scene runs. It is Halide's
+`specialize()` -- a stage's loop nest copied under a condition -- with the
+condition a variant's tag, which makes the copies exhaustive. It copies the
+loop *as scheduled so far*, so it goes last among the function's
+directives; binds are already on the loop, being tags set at conversion.
+Not the function itself copied: a kernel's launch and the export boundary's
+buffer handling live where the loop is, and copying the loop keeps them in
+the one exported function. What the pass needed of the compiler: the ADT
+lowering now records what each variant type is stored as
+(ir::Program::adt_storages -- the variants and their tags, the tag, padding
+and payload field names), and lower::Pass::run carries it (and
+`element_storage`, which it had been dropping) across passes; Defer's
+region cloner is shared (SSA/CloneFunction.h, clone_region). Tests:
+ssa/specialize (the dispatch, two loops, the rebuilt value),
+correctness/llvm/specialize (each variant's answer, over an unbound loop,
+since the JIT has no thread pool), backends/ptx/specialize (two kernels,
+neither comparing the tag: one multiplies, one takes a maximum). On the
+megakernel: four kernels where there was one, the volpath kernel's spills
+7.1 KB of stores and 10.4 KB of loads where the one kernel's were 16.6 KB
+and 22.1 KB, its frame 1992 B; every image matching pbrt; and the time
+unchanged -- killeroo d5-s256 0.852 s, book 3.287 s, pavilion 5.695 s, each
+within noise of the run before (0.881, 3.321, 5.619). So the answer to
+"does it improve runtime" is: not on these scenes. Halving the spills did
+not move the time, which says the kernel is not bound by them; what the
+profile section said it is bound by -- three of every four issue slots
+idle for want of an eligible warp, eleven lanes of thirty-two active -- is
+the wavefront's problem to solve, not the kernel's. The directive stays in
+gpu.bonsai: the kernel per integrator is the fair comparison with pbrt's
+one-integrator build and strictly less work per sample, and it costs
+compile time alone.
+
+**Next, in this order.** A fresh PTX and Nsight look at the volpath kernel
+as specialized, the spills under the cap, the block shape and the stack
+depth, and the wavefront (its section below).
 
 **A compiler bug volpath found.** The medium walk's samples were not
 pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,

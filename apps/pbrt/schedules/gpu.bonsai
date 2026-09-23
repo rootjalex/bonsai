@@ -28,6 +28,13 @@ schedule {
 
     render.bind(p, GPUBlock);
     render.bind(s, GPUThread);
+    // One kernel per integrator, entered by a dispatch on the scene's tag:
+    // in each the tag is a constant, the integrator's match folds to its one
+    // arm, and ptxas allocates registers for the integrator the scene runs
+    // and not for four -- pbrt's GPU build is one integrator by
+    // construction (SSA/Specialize.h). Last among render's directives, since
+    // it copies the loop as scheduled so far.
+    render.specialize(integrator);
 
     // The image textures on the texture units, as pbrt --gpu samples them
     // (GPUSpectrumImageTexture::Evaluate, tex2DGrad on a mipmapped texture
