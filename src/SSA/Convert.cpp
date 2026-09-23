@@ -1816,28 +1816,27 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             }
                             return false;
                         };
-                        if (name != callee) {
+                        if (name != callee && directive_on(callee)) {
                             // Another function's calls to the callee, pushed
-                            // onto the callee's own queue: part of the
-                            // callee's deferral. Without one, this would be a
-                            // deferral of its own, which the chain analysis
-                            // would then meet twice on one queue.
-                            internal_assert(directive_on(callee))
-                                << name << ".defer(" << callee << ", " << d.queue
-                                << "): a call to " << callee << " from " << name
-                                << " is pushed onto " << d.queue
-                                << " only beside `" << callee << ".defer("
-                                << callee << ", " << d.queue
-                                << ")`, which makes the queue; write that too.";
+                            // onto the queue the callee's own deferral makes:
+                            // part of that deferral, which the chain analysis
+                            // would otherwise meet twice on one queue. With
+                            // no such deferral this is one of its own -- a
+                            // call to a function off the chain, queued where
+                            // it is made (test correctness/llvm/defer-off-chain).
                             return;
                         }
                         QueueSpec spec;
                         spec.name = d.queue;
                         spec.owner = q->second.owner;
                         spec.initial_push = directive_on(q->second.owner);
+                        // The other functions' directives on this queue and
+                        // callee: not this one's own, which for a deferral
+                        // off the chain is another function's than the
+                        // callee's.
                         for (const auto &[f, ts] : transforms) {
-                            if (f != callee && f != q->second.owner &&
-                                directive_on(f)) {
+                            if (f != name && f != callee &&
+                                f != q->second.owner && directive_on(f)) {
                                 spec.also_from.push_back(f);
                             }
                         }
