@@ -1,0 +1,54 @@
+% The scheduling language, as the compiler accepts it today (src/Parser/Parser.cpp,
+% parse_schedule / parse_rewrites / parse_queue; the transforms of IR/Schedule.h).
+% Same shape as the query grammar's figure: a tabular grammar with a comment per
+% production. Uses \code, \algcomment and \sys from the paper's preamble.
+\begin{figure*}[b]
+\centering
+\footnotesize
+\begin{minipage}{0.62\linewidth}
+\begin{tabular}{@{}l@{}}
+\hline\\[-0.8em]
+$S$ : Schedule \;::=\; \code{schedule} \code{\{} $D^*$ \code{\}} \hfill \algcomment{a block of directives, applied in order} \\[0.3em]
+$D$ : Directive \;::=\; $f$\code{.}$T$ (\code{.}$T$)$^*$ \code{;} \hfill \algcomment{transforms of function $f$, chained} \\
+\phantom{$D$ : }\;|\; $q$ \code{=} $f$\code{.queue(}$l$ [\code{,} $n$]\code{);} \hfill \algcomment{a queue per iteration of $f$'s loop $l$ (or \code{root})} \\[0.3em]
+$T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill \algcomment{recursion to a loop; a branching one on a stack of $n$} \\
+\phantom{$T$ : }\;|\; \code{split(}$l$, $l_o$, $l_i$, $n$, $b$\code{)} \hfill \algcomment{$l$ into $l_o$ striding by $n$ and $l_i$ over $[0, n)$; $b$: guard the tail} \\
+\phantom{$T$ : }\;|\; \code{collapse(}$l_o$, $l_i$, $l$\code{)} \hfill \algcomment{the inverse: two loops into one} \\
+\phantom{$T$ : }\;|\; \code{vectorize(}$l$\code{)} \hfill \algcomment{the iterations of $l$ are the lanes of one gang} \\
+\phantom{$T$ : }\;|\; \code{bind(}$l$, $R$\code{)} \hfill \algcomment{an iteration of $l$ is one unit of $R$} \\
+\phantom{$T$ : }\;|\; \code{bind(TextureUnit,} $\lambda$\code{)} \hfill \algcomment{the unit computes $f$ as $\lambda$ says} \\
+\phantom{$T$ : }\;|\; \code{sort(}$c$, $\lambda$\code{)} \hfill \algcomment{the children at cursor $c$ in the order $\lambda$ keys} \\
+\phantom{$T$ : }\;|\; \code{defer(}$g$, $q$\code{)} \hfill \algcomment{$f$'s calls to $g$ go on $q$; $q$'s drain makes them} \\
+\phantom{$T$ : }\;|\; \code{stage(}$g$, $q$\code{)} \hfill \algcomment{$g$'s return goes on $q$; $q$'s drain runs the rest of $f$} \\
+\phantom{$T$ : }\;|\; \code{specialize(}$p$\code{)} \hfill \algcomment{$f$'s loops copied per variant of parameter $p$} \\
+\phantom{$T$ : }\;|\; \code{skip(}$c^*$\code{)} \hfill \algcomment{arms a gang first asks whether any lane takes} \\[0.3em]
+$R$ : Resource \;::=\; \code{CPUThread} \;|\; \code{GPUBlock} \;|\; \code{GPUThread} \hfill \algcomment{a thread; a block of threads; a thread of a block} \\
+\phantom{$R$ : }\;|\; \code{TextureUnit} \;|\; \code{RTCore} \;|\; \code{OptixThread} \hfill \algcomment{fixed-function units} \\[0.3em]
+$l$ : Loop \;::=\; $i$ \hfill \algcomment{the index of a \code{parfor} $f$ reaches} \\[0.3em]
+$c$ : Cursor \;::=\; $x$ (\code{.}$x$)$^*$ \hfill \algcomment{a path into $f$: a match arm, a tree's interior} \\[0.3em]
+$\lambda$ : Lambda \;::=\; $|x_1 : T_1, \ldots, x_k : T_k|\ e$ \hfill \algcomment{as in the query language} \\[0.3em]
+\hline
+\end{tabular}
+\caption{Context-free grammar of \sys's scheduling language. $f$ and $g$ name
+functions of the program, $q$ a queue the block declares, $p$ a parameter of $f$
+of variant type, $i$ a loop index, $x$ an identifier, $n$ an integer literal and
+$b \in \{\code{true}, \code{false}\}$. A schedule changes how the program runs
+and never what it computes: every transform is a rewrite of the program's SSA
+with the same meaning. The binds nest as the hardware does -- a \code{GPUThread}
+loop inside a \code{GPUBlock} loop, a gang (\code{vectorize}) inside a
+\code{CPUThread} or a \code{GPUThread} loop -- and \code{bind(TextureUnit,
+$\lambda$)} is the one bind of a function rather than a loop: the lambda takes
+$f$'s parameters and gives $f$'s value, and is what the unit computes in $f$'s
+place. \code{loopify} before \code{vectorize} gives each lane its own stack;
+\code{vectorize} before \code{loopify} gives the gang one stack of nodes and
+one of masks, a packet traversal. \code{defer} and \code{stage} are
+defunctionalized continuations: a queue holds the continuation's varying data by
+value, sized by the producer's trip count, and the drain is a \code{parfor} a
+later directive may split, vectorize or bind. \code{specialize} is Halide's
+\code{specialize} from a boolean to a variant: exhaustive copies of the loop
+nest with the tag a constant in each. \code{skip} is not a transform but a
+policy for a gang's branches (which arms get an any-lane test); the
+\code{tree} declarations a block may carry belong to the layout language.}
+\label{fig:schedule-grammar}
+\end{minipage}
+\end{figure*}

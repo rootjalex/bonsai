@@ -1,0 +1,58 @@
+# Two mesh lights of different colours over a diffuse floor and a coated
+# sphere, for the light-order question (PLAN.md, "Known-open": the driver's
+# light list had pbrt's shape but not, for emissive meshes, pbrt's order
+# within it). pbrt makes one light per emissive triangle, four here, so a
+# light chosen by index has to be the same triangle on both sides for the
+# per-pixel agreement to hold; with two colours the choice is visible in the
+# image. No integrator is named, so both sides take pbrt's default, volpath;
+# `Integrator "path"` in front of this file asks the same of path.
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+Sampler "halton"
+    "integer pixelsamples" [ 16 ]
+Film "gbuffer"
+    "string filename" [ "two-mesh-lights.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+WorldBegin
+# A warm quad to the left and a cool one to the right, both facing down.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 14 9 5 ]
+    Translate -4 7 1
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 0 2 3 ]
+        "point3 P" [ -2 0 -2   2 0 -2   2 0 2   -2 0 2 ]
+AttributeEnd
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 5 9 14 ]
+    Translate 4 7 1
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 0 2 3 ]
+        "point3 P" [ -2 0 -2   2 0 -2   2 0 2   -2 0 2 ]
+AttributeEnd
+# The floor, and a diffuse sphere lit by both (diffuse rather than coated,
+# so that the coated BxDF's hash-seeded estimate, a known per-pixel
+# difference, does not stand in front of the question).
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.7 0.3 0.2 ]
+    Translate 0 1.5 0
+    Shape "sphere"
+        "float radius" [ 1.5 ]
+AttributeEnd

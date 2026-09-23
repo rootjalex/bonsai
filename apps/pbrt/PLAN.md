@@ -4591,9 +4591,46 @@ gpu.bonsai: the kernel per integrator is the fair comparison with pbrt's
 one-integrator build and strictly less work per sample, and it costs
 compile time alone.
 
-**Next, in this order.** A fresh PTX and Nsight look at the volpath kernel
-as specialized, the spills under the cap, the block shape and the stack
-depth, and the wavefront (its section below).
+**The specialized volpath kernel's profile (2026-09-23, killeroo, depth 5,
+64 spp, 490,000 blocks of 64).** Against the morning-of-the-22nd profile of
+the `path` megakernel:
+
+| what | then | now |
+|---|---|---|
+| issue slots busy | 22% | 33% |
+| no eligible warp | 77% of cycles | 67% |
+| warps per scheduler, active / eligible | 1.92 / 0.26 | 3.83 / 0.47 |
+| achieved occupancy | 16.7% (255 registers) | 31.9% (128) |
+| active lanes per warp | 11.4 of 32 | 11.3 |
+| local memory | 37% of L1 sectors, stacks and extract slots | 35%, all spills: 3.9 GB of spill requests |
+| L1 / L2 hit | -- | 79.7% / 97.0% |
+| warp cycles per issued instruction | 8.55 | 11.5 |
+
+Occupancy doubled and the issue rate with it; the lanes per warp did not
+move, since nothing yet changes which threads run together; and the local
+memory that remains is the cap's spills, which Nsight puts at the top of
+its list (an estimated 60% if they were gone -- its estimate, not a
+measurement). Two things follow. The cap is worth sweeping again on this
+kernel (128 was chosen on the `path` kernel before the select chain and
+the specialization); and the spills are the path's state -- beta, the
+rescaled probabilities, the radiance, the wavelengths, the differentials,
+the previous vertex's context, the sampler -- live across the traversal,
+which is exactly what a wavefront takes off the registers and puts in a
+queue. The lanes are the wavefront's too.
+
+**The cap, swept again (2026-09-23)** on the specialized volpath kernel,
+killeroo and book at depths 1 and 5, 64 and 256 spp, best of three, every
+image matching: at depth 5 and 256 spp killeroo 0.857 s at 128, 1.192 s at
+160, 1.175 s at 192, 1.142 s uncapped; book 3.259 s at 128, 5.014 s at 160,
+4.947 s at 192, 4.816 s uncapped. 128 by a wide margin, as before: the
+spills Nsight puts first are the price of the occupancy that the same
+profile shows doubled, and a looser cap buys back the spills at half the
+warps. So the register pressure is not to be traded against occupancy but
+removed, and it is the path's state across the traversal -- the wavefront's
+queue is where that state goes.
+
+**Next.** The wavefront (its section below), which the profile now points
+at twice: the lanes per warp and the state across the traversal.
 
 **A compiler bug volpath found.** The medium walk's samples were not
 pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,
@@ -4954,16 +4991,68 @@ is queues *within* the step:
    pbrt's band of scanlines is the queue-size policy: one sample per pixel
    per pass, `queue.size` a runtime constant.
 
-**Order.** (1) the non-tail deferral of `trace` -- the function split, the
-largest compiler piece and the one the rest stand on; (2) queues keyed by an
-outcome; (3) the shadow ray as a deferred call with a consumed result, which
-brings the saved-state mechanism; (4) device placement of queues and the
-multi-kernel launch sequence; (5) `schedules/gpu-wavefront.bonsai`, measured
-against `pbrt --gpu` on killeroo, book and pavilion with the images checked.
-The escaped and emissive queues are not needed for correctness -- their work
-can stay inline where the trace's outcome is known -- and whether to split
-them off is the register-pressure question pbrt answered one way; it is a
-schedule choice here, measured.
+**The directive for the stage boundary (designed 2026-09-23).** `defer(g,
+q)` defers a call: the call's arguments go on the queue and the drain makes
+the call, and for a tail call that is the whole of what follows. pbrt's
+boundary after `IntersectClosest` is a different point: the trace *has
+run*, and what is queued is its result with the path's state, for the
+material kernel to continue from. So a second directive, `f.stage(g, q)`:
+a stage boundary after the call to `g` in `f` -- the call is made where it
+is, its value and everything live after it are pushed onto `q`, and `q`'s
+drain runs the rest of `f` from there. `vol_path_step.stage(trace, hits)`
+with `vol_path_step.defer(vol_path_step, rays)` is pbrt's bounce: the
+`rays` drain traces and pushes hits, the `hits` drain shades and pushes the
+next rays. Implemented as the compiler's own factoring of `f` at the call,
+the way LLVM's coroutine split factors a function at a suspend point: the
+blocks from the call's continuation on become a function `f!after(result,
+live...)`, its parameters the call's value and the names those blocks use
+but do not define (the closure SSA/CloseBodies.h already computes for a
+parfor body, over a region), and the call site becomes `r = g(...); return
+f!after(r, live...)` -- a tail call, which the existing deferral then puts
+on `q` with no new push or entry machinery. What is live after the trace
+is pbrt's `MaterialEvalWorkItem`: the step's parameters and the hit.
+
+**What the drains then need.** The queue graph gains a cycle: `rays` feeds
+`hits` and `hits` feeds `rays`, where today's graph has each queue feeding
+itself (double-buffered) or the next (one buffer). A cycle of two is a
+round over both -- `while rays or hits are not empty: drain rays; drain
+hits` -- and each queue needs one buffer, since neither drain pushes onto
+the queue it reads; the drain generator's round loop extends from one
+self-feeding queue to a cycle of queues in the graph's order. Queues keyed
+by an outcome (`hits[material.tag]`) and the shadow ray as a deferred call
+with a consumed result are the two further pieces, in that order, and then
+the queues placed in device memory with each drain a kernel and the round
+loop on the host.
+
+**Built (2026-09-23): the split.** `f.stage(g, q)` (SSA/Stage.h): the one
+call to `g` in `f`, not in tail position; the blocks from its continuation
+on copied into `f!after`, whose parameters are the continuation's own and
+the values the rest uses but does not define (names from before the call,
+and instructions referred to by pointer, which become parameters under
+their names); the call's continuation replaced by a block of the call's own
+that tail-calls `f!after` and returns its value; then defer() on that tail
+call. Tests: ssa/stage (the push in `step`, the drain in `run` calling
+`step!after`, `k` invariant and so not stored, the producer's `i` saved with
+the entry) and correctness/llvm/stage. Open: the spelling. The user's
+question was whether `defer` is not expressive enough on its own, and the
+answer is that there is one mechanism, the queued continuation, and two
+places to cut it -- before a call, so the call runs in the drain (pbrt's
+shadow rays), or after it, so the call runs in the producer (pbrt's trace
+to material boundary) -- and pbrt's wavefront uses both. One directive with
+two attachment points, `f.defer(g, q)` and `f.defer(after(g), q)`, is the
+proposal; `stage` is the name in the code until the spelling is settled.
+
+**Order.** (1) `stage(g, q)`: the split at a call and its tests, on a small
+program first -- done; (2) the round loop over a cycle of queues; (3)
+`schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
+drains are threads, checked against pbrt as every schedule is; (4) queues
+keyed by an outcome; (5) the shadow ray deferred with its result consumed;
+(6) device queues and the multi-kernel launch, measured against `pbrt
+--gpu` on killeroo, book and pavilion with the images checked. The escaped
+and emissive queues are not needed for correctness -- their work can stay
+inline where the trace's outcome is known -- and whether to split them off
+is the register-pressure question pbrt answered one way; it is a schedule
+choice here, measured.
 
 ## Known-open, smaller
 
@@ -5024,6 +5113,13 @@ schedule choice here, measured.
   Shape gains its pre-reorder index, or the driver builds the light list before
   handing the primitives to the BVH. It belongs with item 3, which is where
   multiple lights start to matter anyway.
+
+  **Re-checked 2026-09-23**, after the light ordinal became per emissive
+  shape: `scenes/two-mesh-lights.pbrt` -- two two-triangle mesh lights of
+  different colours over a diffuse floor and sphere, four pbrt lights -- agrees
+  with pbrt per pixel at 96.0% under volpath and 95.8% under path, the level a
+  one-light scene gives. The permutation is no longer observable there; the
+  scene stays as the check.
 - pbrt's own reference render for `area-light` moved by 8e-6 in its mean at some
   point during this round — 0.759337 to 0.759329, which shifted about 1,100
   pixels across the comparison's 1e-3 relative tolerance and so read as a
