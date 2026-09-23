@@ -49,17 +49,14 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
       let @5 = _t58 == 0u in
       if (@5) {
         let @6 = _t944.low in
-        let @7 = cast<f32x3>(@6) in
+        let _t156$i66 = cast<f32x3>(@6) in
         let @8 = _t944.high in
-        let @9 = cast<f32x3>(@8) in
-        let _t949 = build<AABB>(@7, @9) in
+        let _t155$i66 = cast<f32x3>(@8) in
         let @11 = f32x3(1f) in
         let @12 = r.d in
         let _t951 = @11 / @12 in
         let @14 = f32x3(0f) in
         let dirIsNeg$i66 = _t951 < @14 in
-        let _t155$i66 = _t949.high in
-        let _t156$i66 = _t949.low in
         let low_parts$i66 = select(dirIsNeg$i66, _t155$i66, _t156$i66) in
         let high_parts$i66 = select(dirIsNeg$i66, _t156$i66, _t155$i66) in
         let _t159$i66 = r.o in
@@ -142,17 +139,14 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         }
       } else {
         let @93 = _t944.low in
-        let @94 = cast<f32x3>(@93) in
+        let _t156$i67 = cast<f32x3>(@93) in
         let @95 = _t944.high in
-        let @96 = cast<f32x3>(@95) in
-        let _t962 = build<AABB>(@94, @96) in
+        let _t155$i67 = cast<f32x3>(@95) in
         let @98 = f32x3(1f) in
         let @99 = r.d in
         let _t964 = @98 / @99 in
         let @101 = f32x3(0f) in
         let dirIsNeg$i67 = _t964 < @101 in
-        let _t155$i67 = _t962.high in
-        let _t156$i67 = _t962.low in
         let low_parts$i67 = select(dirIsNeg$i67, _t155$i67, _t156$i67) in
         let high_parts$i67 = select(dirIsNeg$i67, _t156$i67, _t155$i67) in
         let _t159$i67 = r.o in

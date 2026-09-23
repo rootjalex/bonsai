@@ -64,14 +64,9 @@ func [[noinline]] step$gang8_p0_v1(p : mut (Pair$v8*), x : f32x8) -> f32x8 {
 
 func stepping(a : f32[8], out : mut f32[8]) -> void {
   alloc p : mut Pair$v8
-  let @0 = build<Counter>(0) in
-  let @1 = build<Pair>(@0, 0.5f) in
-  let @11 = @1.c in
-  let @12 = @11.n in
-  let @13 = i32x8(@12) in
+  let @13 = i32x8(0) in
   let @14 = build<Counter$v8>(@13) in
-  let @15 = @1.scale in
-  let @16 = f32x8(@15) in
+  let @16 = f32x8(0.5f) in
   let @17 = build<Pair$v8>(@14, @16) in
   p = @17
   let @2 = a[ramp(0, 1, 8)] in
@@ -88,11 +83,8 @@ func stepping(a : f32[8], out : mut f32[8]) -> void {
 
 func tally(a : f32[8], out : mut f32[8]) -> void {
   alloc t : mut Tally$v8
-  let @0 = build<Tally>(0f, 0) in
-  let @10 = @0.total in
-  let @11 = f32x8(@10) in
-  let @12 = @0.count in
-  let @13 = i32x8(@12) in
+  let @11 = f32x8(0f) in
+  let @13 = i32x8(0) in
   let @14 = build<Tally$v8>(@11, @13) in
   t = @14
   let @1 = a[ramp(0, 1, 8)] in
@@ -110,19 +102,13 @@ func tally(a : f32[8], out : mut f32[8]) -> void {
 
 func tally_some(a : f32[8], out : mut f32[8]) -> void {
   alloc t : mut Tally$v8
-  let @0 = build<Tally>(1f, 0) in
-  let @9 = @0.total in
-  let @10 = f32x8(@9) in
-  let @11 = @0.count in
-  let @12 = i32x8(@11) in
+  let @10 = f32x8(1f) in
+  let @12 = i32x8(0) in
   let @13 = build<Tally$v8>(@10, @12) in
   t = @13
   let _t1 = a[ramp(0, 1, 8)] in
   let @14 = f32x8(0f) in
   let @2 = @14 < _t1 in
-  let @15 = boolx8(false) in
-  let @16 = boolx8(true) in
-  let @6 = select(@2, @15, @16) in
   let @7 = reduce<any>(@2) in
   if (@7) {
     bump$gang8_p0_v1$masked(t, _t1, @2)

@@ -1,6 +1,7 @@
 #include "SSA/Simplify.h"
 
 #include "IR/Equality.h"
+#include "SSA/Analysis.h"
 
 #include "Error.h"
 
@@ -345,6 +346,37 @@ struct Simplifier {
             }
             break;
         }
+        case Instruction::Op::LoadField: {
+            // A field of a struct just made is what it was made from. A
+            // variant given its tag as a constant (a specialized copy, SSA/
+            // Specialize.h) is made this way, and this is what lets the
+            // match on it fold.
+            if (ops.size() != 2) {
+                break;
+            }
+            const Instruction *d = def_of(ops[0]);
+            const Constant *c = constant_of(ops[1]);
+            if (d == nullptr || d->op != Instruction::Op::MakeStruct ||
+                c == nullptr) {
+                break;
+            }
+            const std::optional<uint64_t> index = std::visit(
+                overloads{
+                    [](int64_t i) -> std::optional<uint64_t> {
+                        return i < 0 ? std::nullopt : std::optional<uint64_t>(i);
+                    },
+                    [](uint64_t u) -> std::optional<uint64_t> { return u; },
+                    [](const auto &) -> std::optional<uint64_t> {
+                        return std::nullopt;
+                    },
+                },
+                c->data);
+            if (!index.has_value() || *index >= d->operands.size() ||
+                !equals(d->operands[*index]->get_type(), type)) {
+                break;
+            }
+            return d->operands[*index];
+        }
         case Instruction::Op::Vote: {
             // Every lane holds the same constant, so that is the decision.
             // Anything else stays a vote until a gang is there to hold it
@@ -554,6 +586,44 @@ void remove_dead(Function &func) {
     }
 }
 
+// A dispatch on a constant is a jump to the target it names: what a
+// specialized copy's match on its variant becomes once the tag is read off
+// the struct that fixed it (the LoadField rule). The arms nothing reaches
+// any more are for the caller to remove. Returns whether any folded.
+bool fold_constant_dispatches(Function &func) {
+    bool any = false;
+    for (const auto &block : func.blocks) {
+        auto *d = std::get_if<Terminator::Dispatch>(&block->terminator.data);
+        if (d == nullptr) {
+            continue;
+        }
+        const Constant *c = constant_of(d->cond);
+        if (c == nullptr) {
+            continue;
+        }
+        // Target 0 is taken on false or zero, target k on k.
+        const std::optional<uint64_t> which = std::visit(
+            overloads{
+                [](bool b) -> std::optional<uint64_t> { return b ? 1 : 0; },
+                [](int64_t i) -> std::optional<uint64_t> {
+                    return i < 0 ? std::nullopt : std::optional<uint64_t>(i);
+                },
+                [](uint64_t u) -> std::optional<uint64_t> { return u; },
+                [](const auto &) -> std::optional<uint64_t> {
+                    return std::nullopt;
+                },
+            },
+            c->data);
+        if (!which.has_value() || *which >= d->targets.size()) {
+            continue;
+        }
+        Terminator::Jump taken = d->targets[*which];
+        block->terminator.data = std::move(taken);
+        any = true;
+    }
+    return any;
+}
+
 } // namespace
 
 void simplify(Function &func) {
@@ -575,26 +645,40 @@ void simplify(Function &func) {
             if (v == nullptr) {
                 continue;
             }
+            // The program's name for the value stays on it: a `let`'s name
+            // is how a schedule points at a value (`hits.specialize(kind)`),
+            // and what takes the instruction's place is that value.
+            if (const auto *vi = std::get_if<shared_ptr<Instruction>>(&v->data);
+                vi != nullptr && !instr->name.starts_with("@") &&
+                (*vi)->name.starts_with("@")) {
+                if (const auto owner = (*vi)->owner.lock()) {
+                    owner->lookups.erase((*vi)->name);
+                    owner->lookups[instr->name] = v;
+                }
+                (*vi)->name = instr->name;
+            }
             s.replaced[instr.get()] = v;
         }
     }
-    if (s.replaced.empty()) {
-        return;
-    }
-
-    resolve_uses(func, s);
-    // A name looked up after this should find what took its place.
-    for (const auto &block : func.blocks) {
-        for (auto &[name, value] : block->lookups) {
-            value = s.resolve(value);
+    if (!s.replaced.empty()) {
+        resolve_uses(func, s);
+        // A name looked up after this should find what took its place.
+        for (const auto &block : func.blocks) {
+            for (auto &[name, value] : block->lookups) {
+                value = s.resolve(value);
+            }
         }
+        std::set<const Instruction *> gone;
+        for (const auto &[instr, _] : s.replaced) {
+            gone.insert(instr);
+        }
+        erase(func, gone);
+        remove_dead(func);
     }
-    std::set<const Instruction *> gone;
-    for (const auto &[instr, _] : s.replaced) {
-        gone.insert(instr);
+    if (fold_constant_dispatches(func)) {
+        remove_unreachable_blocks(func);
+        remove_dead(func);
     }
-    erase(func, gone);
-    remove_dead(func);
 }
 
 } // namespace ssa
