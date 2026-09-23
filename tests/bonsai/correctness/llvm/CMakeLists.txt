@@ -37,6 +37,7 @@ add_bonsai_tests(
     defer-reducer.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
+    defer-spawn-two-producers.bonsai
     defer-split.bonsai
     defer-split-nested.bonsai
     defer-sum.bonsai

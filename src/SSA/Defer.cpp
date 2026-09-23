@@ -2459,37 +2459,85 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // is named after its queue): a round's count is known only at
             // run time, but each entry it runs pushes at most one here, so
             // that queue's capacity bounds this one -- pbrt's material queue
-            // sized as its ray queue is.
+            // sized as its ray queue is. Several producers that are all
+            // drains of one family of queues share that bound: their entries
+            // are one queue's, parted by a key, each pushing at most once.
             count = drained->second.size;
             alloc_point = omap.at(drained->second.point);
             producer_is_drain = true;
             after_rounds = drained->second.after;
+            for (const auto &loop : producer_loops) {
+                const auto &q = std::get<Terminator::ParFor>(loop->terminator.data);
+                const auto other = O->queue_sizes.find(q.index);
+                internal_assert(other != O->queue_sizes.end() &&
+                                same_value(*other->second.size, *count))
+                    << "[unimplemented] " << what << ": the producer loop "
+                    << q.index << " is not a drain sized as " << producer_loop->index
+                    << " is; several producers are sized together only when "
+                    << "they are the drains of one queue family.";
+            }
         } else if (producer_loop_block) {
-            const auto &p = *producer_loop;
-            const Type itype = p.start->get_type();
-            const auto start = constant_of(p.start);
-            const auto stride = constant_of(p.stride);
-            if (start.has_value() && *start == 0 && stride.has_value() &&
-                *stride == 1) {
-                count = p.end;
-            } else {
-                // ceil((end - start) / stride)
-                auto diff = insert_instruction(*O, point, at, itype,
+            // The trip count of a loop, computed in `where` from bounds that
+            // reach it: `end` for `0:end:1`, ceil((end - start) / stride)
+            // otherwise.
+            const auto trip_count = [&](const Terminator::ParFor &p,
+                                        const shared_ptr<Block> &where) {
+                const Type itype = p.start->get_type();
+                const auto start = constant_of(p.start);
+                const auto stride = constant_of(p.stride);
+                if (start.has_value() && *start == 0 && stride.has_value() &&
+                    *stride == 1) {
+                    return reach(where, p.end);
+                }
+                auto diff = insert_instruction(*O, where, where->instrs.size(), itype,
                                                Instruction::Op::Sub,
-                                               reach_all(point, {p.end, p.start}));
+                                               reach_all(where, {p.end, p.start}));
                 if (stride.has_value() && *stride == 1) {
-                    count = diff;
-                } else {
-                    auto less = insert_instruction(
-                        *O, point, point->instrs.size(), itype,
-                        Instruction::Op::Sub,
-                        {reach(point, p.stride), index_constant(itype, 1)});
-                    auto sum = insert_instruction(
-                        *O, point, point->instrs.size(), itype,
-                        Instruction::Op::Add, {diff, less});
-                    count = insert_instruction(
-                        *O, point, point->instrs.size(), itype,
-                        Instruction::Op::Div, {sum, reach(point, p.stride)});
+                    return diff;
+                }
+                auto less = insert_instruction(
+                    *O, where, where->instrs.size(), itype, Instruction::Op::Sub,
+                    {reach(where, p.stride), index_constant(itype, 1)});
+                auto sum = insert_instruction(*O, where, where->instrs.size(), itype,
+                                              Instruction::Op::Add, {diff, less});
+                return insert_instruction(*O, where, where->instrs.size(), itype,
+                                          Instruction::Op::Div,
+                                          {sum, reach(where, p.stride)});
+            };
+            if (producers.size() == 1) {
+                count = trip_count(*producer_loop, point);
+            } else {
+                // Every producer loop pushes: the queue holds the sum of
+                // their counts, made -- with the storage -- before the first
+                // of them, where each loop's bounds have to be in reach.
+                alloc_point = init_point;
+                const DomTree idom = compute_dominator_tree(ocfg);
+                const BlockId init_id = ocfg.id(init_point->name);
+                for (const auto &loop : producer_loops) {
+                    const auto &q = std::get<Terminator::ParFor>(loop->terminator.data);
+                    for (const auto &bound : {q.start, q.end, q.stride}) {
+                        const Definition d = odefs.of(loop->name, bound);
+                        const bool in_reach =
+                            d.block.empty() ||
+                            (ocfg.find(d.block) != NO_BLOCK &&
+                             idom.dominates(ocfg.id(d.block), init_id));
+                        internal_assert(in_reach)
+                            << what << ": the loop " << q.index << " of "
+                            << queue.owner << " is bounded by a value computed "
+                            << "after the first loop that pushes onto "
+                            << queue.name << " (" << init_point->name << "), "
+                            << "where the queue, sized by every producer's count, "
+                            << "has to be made. Not supported.";
+                    }
+                }
+                for (const auto &loop : producer_loops) {
+                    const auto &q = std::get<Terminator::ParFor>(loop->terminator.data);
+                    shared_ptr<Value> one = trip_count(q, init_point);
+                    count = count ? insert_instruction(
+                                        *O, init_point, init_point->instrs.size(),
+                                        one->get_type(), Instruction::Op::Add,
+                                        {count, one})
+                                  : one;
                 }
             }
         } else {

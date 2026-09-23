@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm -e
+
+// A spawned call reached from two loops of the owner: both push onto the one
+// queue, so it is emptied before the first loop runs (not before the last,
+// which left the first loop's pushes with a count nothing had set), it holds
+// the sum of the two loops' counts, and its drain runs after the second.
+// pbrt's shadow ray queue is pushed by every material kernel in turn and
+// traced after the last of them. 3 * (sum a + sum b) = 3 * (10 + 26) = 108.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += shade(x);
+    total += x;
+    return;
+}
+
+func run(a : array[Float, 4], b : array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0:4 {
+        step(a[i], total);
+    }
+    parfor j in 0:4 {
+        step(b[j], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[Float, 4] = {1.0, 2.0, 3.0, 4.0};
+    b : array[Float, 4] = {5.0, 6.0, 7.0, 8.0};
+    total : reduce(+) Float = 0.0;
+    run(a, b, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}
