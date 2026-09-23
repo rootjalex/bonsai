@@ -1830,6 +1830,21 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         spec.name = d.queue;
                         spec.owner = q->second.owner;
                         spec.initial_push = directive_on(q->second.owner);
+                        // Whether running an entry can push onto this queue:
+                        // not when a stage on the callee moves every one of
+                        // its recursive calls into the rest, run by the
+                        // stage's own queue's drain -- then one buffer
+                        // serves every round (SSA/Defer.h).
+                        if (name == callee) {
+                            for (const ir::Transform &t : transforms.at(name)) {
+                                const auto *st = std::get_if<ir::Stage>(&t);
+                                if (st != nullptr && !st->callee.names.empty() &&
+                                    calls_after(*fmap.at(name),
+                                                st->callee.names.back(), callee)) {
+                                    spec.drain_pushes_self = false;
+                                }
+                            }
+                        }
                         // The other functions' directives on this queue and
                         // callee: not this one's own, which for a deferral
                         // off the chain is another function's than the

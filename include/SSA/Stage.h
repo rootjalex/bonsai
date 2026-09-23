@@ -44,6 +44,17 @@ namespace ssa {
 std::vector<Type> stage(FuncMap &funcs, const std::string &func,
                         const std::string &callee, const QueueSpec &queue);
 
+// Whether every call to `callee` in `func` lies after `func`'s one call to
+// `staged` -- in the blocks that call's continuation reaches -- so that
+// `func.stage(staged, q)` moves them all into `func!after`. What a deferral
+// of `callee`'s recursion asks before the stage is applied: with the
+// recursive calls in the rest, the drain of the recursion's queue never
+// pushes onto it, and the queue needs one buffer (QueueSpec::
+// drain_pushes_self). False when `func` calls `staged` never or more than
+// once, or `callee` never.
+bool calls_after(const Function &func, const std::string &staged,
+                 const std::string &callee);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

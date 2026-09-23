@@ -37,6 +37,15 @@ struct QueueSpec {
     // returns saved up the chain to the producer, which saves its frame and
     // skips, as it does for a deferred self-call.
     std::vector<std::string> also_from;
+    // Whether running an entry can push onto this queue: a deferred
+    // self-recursion whose recursive calls the drain's callee still makes.
+    // False when a stage on the callee moves every one of them into the
+    // rest, which another queue's drain runs after this one's pass -- the
+    // cycle rays to hits to rays -- so that nothing writes this queue while
+    // it is read, and one buffer, its count read for the pass and reset
+    // before it, serves every round in place of the two a self-feeding
+    // queue has (see the Convert pass, which reads the stage directives).
+    bool drain_pushes_self = true;
 };
 
 // Turns the calls of `callee` inside `func` into entries on a queue, and gives
@@ -75,11 +84,15 @@ struct QueueSpec {
 // running an entry can push onto the queue it came from -- the deferred call
 // is a self-recursion -- there are two, as pbrt's wavefront integrator has
 // two ray queues (`rayQueues[depth & 1]`): round r reads queue r & 1 and its
-// successors go to the other. When the drain's call cannot reach a push
-// onto this queue -- the deferred call is to a function off the chain, or in
-// a pipeline of stages each pushing onto the next -- one queue and one pass
-// over it are all there is. The generated code is meant to read as pbrt's
-// wavefront path tracer does, or to do less.
+// successors go to the other. When the successors are pushed by another
+// queue's drain instead, after this one's pass is over -- the recursion's
+// call is in the staged rest of the callee, so the cycle is rays to hits to
+// rays -- there is one, emptied once its count is read for the pass and
+// filled again by the other drain, round after round. When the drain's call
+// cannot reach a push onto this queue at all -- the deferred call is to a
+// function off the chain, or in a pipeline of stages each pushing onto the
+// next -- one queue and one pass over it are all there is. The generated
+// code is meant to read as pbrt's wavefront path tracer does, or to do less.
 //
 // What an entry holds is the continuation of the deferred call, by value.
 // First the call's arguments -- not every one. An argument that is one value

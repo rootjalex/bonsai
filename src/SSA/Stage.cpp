@@ -359,6 +359,36 @@ vector<Type> stage(FuncMap &funcs, const string &func_name,
     return defer(funcs, func_name, after_name, queue);
 }
 
+bool calls_after(const Function &func, const string &staged,
+                 const string &callee) {
+    const Block *site = nullptr;
+    for (const auto &block : func.blocks) {
+        const auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        if (call != nullptr && call->call.name == staged) {
+            if (site != nullptr) {
+                return false;
+            }
+            site = block.get();
+        }
+    }
+    if (site == nullptr) {
+        return false;
+    }
+    const Cfg rest(func, std::get<Terminator::Call>(site->terminator.data).cont.name);
+    bool any = false;
+    for (const auto &block : func.blocks) {
+        const auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        if (call == nullptr || call->call.name != callee) {
+            continue;
+        }
+        any = true;
+        if (!rest.contains(*block)) {
+            return false;
+        }
+    }
+    return any;
+}
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

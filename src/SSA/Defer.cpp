@@ -1838,16 +1838,24 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // producer runs, and a queue is handed to the callee the way any mutable
     // local is handed to a callee: as its address.
     //
-    // Whether there is one queue or two follows from who pushes onto it. When
-    // the deferred callee is on the chain -- a self-recursion -- running an
-    // entry pushes its successor onto the queue being drained, so there are
-    // two, as pbrt's wavefront integrator has two ray queues: the one being
-    // read this round and the one the round's successors go to, indexed by
-    // the round's parity (pbrt: `rayQueues[depth & 1]`). When the drain's
-    // call cannot reach a push -- the deferred call is to a function off the
-    // chain -- one queue and one pass over it are all there is.
-    const bool self_feeding = callee_in_chain;
-    const int nqueues = self_feeding ? 2 : 1;
+    // Whether the drain goes round follows from the chain: when the deferred
+    // callee is on it -- a self-recursion -- running the entries pushes their
+    // successors, and the drain runs a round per bounce until a round finds
+    // nothing. When the drain's call cannot reach a push -- the deferred call
+    // is to a function off the chain -- one pass over the entries is all
+    // there is. Whether there is one queue or two follows from who pushes
+    // onto it. When running an entry pushes its successor onto the queue
+    // being drained, there are two, as pbrt's wavefront integrator has two
+    // ray queues: the one being read this round and the one the round's
+    // successors go to, indexed by the round's parity (pbrt: `rayQueues[depth
+    // & 1]`). When the successors are pushed by another queue's drain, after
+    // this one's pass is over -- the recursion's call is in the staged rest
+    // of the callee, so the cycle is rays to hits to rays -- one queue serves
+    // every round: its count is read for the pass and reset before it, and
+    // the other drain fills it again (QueueSpec::drain_pushes_self).
+    const bool rounds = callee_in_chain;
+    const bool double_buffered = rounds && queue.drain_pushes_self;
+    const int nqueues = double_buffered ? 2 : 1;
     // stores[i][l]: queue i's array for leaf l, named after both.
     vector<vector<shared_ptr<Value>>> stores(nqueues);
     for (int i = 0; i < nqueues; i++) {
@@ -1855,11 +1863,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             stores[i].push_back(make_alloca(
                 *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
                 queue.name + "_" + leaf.name +
-                    (self_feeding ? "_" + std::to_string(i) : "")));
+                    (double_buffered ? "_" + std::to_string(i) : "")));
         }
     }
     const shared_ptr<Value> queues =
-        self_feeding
+        double_buffered
             ? make_alloca(*O, alloc_point,
                           Array_t::make(queue_t, UIntImm::make(u32(), 2)),
                           queue.name + "_queue")
@@ -1869,7 +1877,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         parts.insert(parts.end(), stores[i].begin(), stores[i].end());
         auto initial = point->make_instruction(queue_t, Instruction::Op::MakeStruct,
                                                std::move(parts));
-        auto slot = self_feeding
+        auto slot = double_buffered
                         ? point->make_instruction(queue_ptr_t, Instruction::Op::GEP,
                                                   {queues, constant_u32(i)})
                         : queues;
@@ -1880,7 +1888,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // this names the queue in place rather than a copy of it.
     const auto queue_at = [&](const shared_ptr<Block> &block,
                               const shared_ptr<Value> &which) {
-        if (!self_feeding) {
+        if (!double_buffered) {
             return reach(block, queues);
         }
         return block->make_instruction(queue_ptr_t, Instruction::Op::GEP,
@@ -1892,7 +1900,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const auto storage_of = [&](const shared_ptr<Block> &block,
                                 const shared_ptr<Value> &which)
         -> std::function<shared_ptr<Value>(size_t)> {
-        if (!self_feeding) {
+        if (!double_buffered) {
             return [&, block](size_t l) { return reach(block, stores[0][l]); };
         }
         // Each handle read through the queue's address, so that an entry of
@@ -2083,7 +2091,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     auto after = fresh_block(prefix + "ran");
     auto exit = fresh_block(prefix + "exit");
     shared_ptr<Block> header, pre, latch;
-    if (self_feeding) {
+    if (rounds) {
         header = fresh_block(prefix + "round");
         pre = fresh_block(prefix + "batch");
         latch = fresh_block(prefix + "next");
@@ -2123,7 +2131,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     }
     shared_ptr<Value> cur, nxt; // which queue is read, and which pushed to
     shared_ptr<Value> next_queue; // the address of the one pushed to
-    if (self_feeding) {
+    if (rounds) {
         drain_entry->terminator.data =
             Terminator::Jump{header->name, {constant_u32(0)}};
 
@@ -2153,23 +2161,34 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
 
         // round: while this round's queue is not empty
-        cur = header->make_instruction(u32(), Instruction::Op::BwAnd,
-                                       {round, constant_u32(1)});
-        auto current = header->make_instruction(
-            queue_t, Instruction::Op::ExtractIdx, {reach(header, queues), cur});
+        shared_ptr<Value> current;
+        if (double_buffered) {
+            cur = header->make_instruction(u32(), Instruction::Op::BwAnd,
+                                           {round, constant_u32(1)});
+            current = header->make_instruction(
+                queue_t, Instruction::Op::ExtractIdx, {reach(header, queues), cur});
+        } else {
+            cur = constant_u32(0);
+            current = header->make_instruction(queue_t, Instruction::Op::Load,
+                                               {reach(header, queues)});
+        }
         auto pending = header->make_instruction(
             u32(), Instruction::Op::LoadField, {current, constant_u32(0)});
         auto empty = header->make_instruction(
             Bool_t::make(), Instruction::Op::Eq, {pending, constant_u32(0)});
         std::get<Terminator::Dispatch>(header->terminator.data).cond = empty;
 
-        // batch: the other queue is emptied and is where this round's
-        // successors go; then every entry of this one is run. Its address is
-        // made here, once per round and before the parfor, so that a later
-        // deferral whose producer is this drain finds the value the drain
-        // passes its callee defined where its own drain can reach it.
-        nxt = pre->make_instruction(u32(), Instruction::Op::Xor,
-                                    {reach(pre, cur), constant_u32(1)});
+        // batch: the queue this round's successors go to is emptied -- the
+        // other one, or this one now that its count has been read for the
+        // pass and nothing the pass runs pushes onto it -- and then every
+        // entry of this round's is run. Its address is made here, once per
+        // round and before the parfor, so that a later deferral whose
+        // producer is this drain finds the value the drain passes its callee
+        // defined where its own drain can reach it.
+        nxt = double_buffered
+                  ? pre->make_instruction(u32(), Instruction::Op::Xor,
+                                          {reach(pre, cur), constant_u32(1)})
+                  : cur;
         next_queue = queue_at(pre, nxt);
         auto count_ptr = pre->make_instruction(
             Ptr_t::make(u32()), Instruction::Op::FieldPtr,
@@ -2360,8 +2379,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     }
 
     // exit: on to whatever followed the producer.
-    exit->preds = {self_feeding ? header : drain_entry};
-    if (!self_feeding) {
+    exit->preds = {rounds ? header : drain_entry};
+    if (!rounds) {
         // Drained, so empty: said, for a queue whose producer runs again --
         // a stage's queue inside another queue's rounds is filled and
         // drained once per round.

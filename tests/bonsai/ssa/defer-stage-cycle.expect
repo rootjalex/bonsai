@@ -1,8 +1,8 @@
-type Entry_hits = struct Entry_hits{ @0 : f32; n : i32; @42 : i32 }
+type Entry_hits = struct Entry_hits{ @0 : f32; n : i32; @24 : i32 }
 type Entry_rays = struct Entry_rays{ x : f32; n : i32; i : i32 }
 type Float = f32
 type Half = f16
-type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; n : i32[]; @42 : i32[] }
+type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; n : i32[]; @24 : i32[] }
 type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; i : i32[] }
 type Saved_step = struct Saved_step{ saved : bool; slot : u32; value : f32 }
 type Saved_step!after = struct Saved_step!after{ saved : bool; slot : u32; value : struct Saved_step{ saved : bool; slot : u32; value : f32 } }
@@ -13,119 +13,104 @@ type vec4f = f32x4
 
 func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   rays!round : mut u32
-  rays_x_0 : mut f32[8]
-  rays_n_0 : mut i32[8]
-  rays_i_0 : mut i32[8]
-  rays_x_1 : mut f32[8]
-  rays_n_1 : mut i32[8]
-  rays_i_1 : mut i32[8]
-  rays_queue : mut Queue_rays[2]
-  let @4 = build<Queue_rays>(0u, rays_x_0, rays_n_0, rays_i_0) in
-  rays_queue[0u] = @4
-  let @6 = build<Queue_rays>(0u, rays_x_1, rays_n_1, rays_i_1) in
-  rays_queue[1u] = @6
+  rays_x : mut f32[8]
+  rays_n : mut i32[8]
+  rays_i : mut i32[8]
+  rays_queue : mut Queue_rays
+  let @4 = build<Queue_rays>(0u, rays_x, rays_n, rays_i) in
+  rays_queue = @4
   hits_@0 : mut f32[8]
   hits_n : mut i32[8]
-  hits_@42 : mut i32[8]
+  hits_@24 : mut i32[8]
   hits_queue : mut Queue_hits
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @69 = i >> 31 in
-    let @70 = reinterpret_cast<u32>(@69) in
-    let @71 = @70 >> 30u in
-    let @72 = reinterpret_cast<i32>(@71) in
-    let @73 = i + @72 in
-    let @74 = @73 >> 2 in
-    let @75 = @74 * 4 in
-    let @1 = i - @75 in
-    let @17 = build<Entry_rays>(@0, @1, undef) in
-    let @77 = atomic_add((&rays_queue[0u].count), 1u) in
-    let @79 = rays_queue[0u].x in
-    @79[@77] = @0
-    let @82 = rays_queue[0u].n in
-    @82[@77] = @1
-    let @20 = build<Saved_step>(true, @77, undef) in
-    let @9 = @20 in
-    let @10 = @9.saved in
-    let @11 = @9.value in
-    if (@10) {
-      let @12 = @9.slot in
-      let @15 = rays_queue[0u].i in
-      @15[@12] = i
+    let @45 = i >> 31 in
+    let @46 = reinterpret_cast<u32>(@45) in
+    let @47 = @46 >> 30u in
+    let @48 = reinterpret_cast<i32>(@47) in
+    let @49 = i + @48 in
+    let @50 = @49 >> 2 in
+    let @51 = @50 * 4 in
+    let @1 = i - @51 in
+    let @10 = build<Entry_rays>(@0, @1, undef) in
+    let @53 = atomic_add((&(*rays_queue).count), 1u) in
+    let @55 = (*rays_queue).x in
+    @55[@53] = @0
+    let @58 = (*rays_queue).n in
+    @58[@53] = @1
+    let @12 = build<Saved_step>(true, @53, undef) in
+    let @5 = @12 in
+    let @6 = @5.saved in
+    let @7 = @5.value in
+    if (@6) {
+      let @8 = @5.slot in
+      rays_i[@8] = i
       continue
     } else {
-      let @2 = @11 in
+      let @2 = @7 in
       out[i] = @2
       continue
     }
   }
   rays!round = 0u
-  while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
-    let @23 = (*rays!round) & 1u in
-    let @25 = rays_queue[(*rays!round) & 1u].count in
-    let @27 = @23 ^ 1u in
-    rays_queue[@27].count = 0u
-    let @48 = build<Queue_hits>(0u, hits_@0, hits_n, hits_@42) in
-    hits_queue = @48
-    parfor rays in [0u:@25:1u] {
-      let @28 = (&rays_queue[@27]) in
-      let @32 = rays_queue[@23].x in
-      let @33 = @32[rays] in
-      let @35 = rays_queue[@23].n in
-      let @36 = @35[rays] in
-      let @41 = rays_queue[@23].i in
-      let @42 = @41[rays] in
-      let @49 = step(@33, @36, k, @28, hits_queue) in
-      let @50 = @49.saved in
-      let @51 = @49.value in
-      if (@50) {
-        let @52 = @49.slot in
-        hits_@42[@52] = @42
+  while (!((*rays_queue).count == 0u)) {
+    let @16 = (*rays_queue).count in
+    rays_queue.count = 0u
+    let @27 = build<Queue_hits>(0u, hits_@0, hits_n, hits_@24) in
+    hits_queue = @27
+    parfor rays in [0u:@16:1u] {
+      let @19 = rays_x[rays] in
+      let @20 = rays_n[rays] in
+      let @24 = rays_i[rays] in
+      let @28 = step(@19, @20, k, rays_queue, hits_queue) in
+      let @29 = @28.saved in
+      let @30 = @28.value in
+      if (@29) {
+        let @31 = @28.slot in
+        hits_@24[@31] = @24
         continue
       } else {
-        let @37 = @51 in
-        let @38 = @37.saved in
-        let @39 = @37.value in
-        if (@38) {
-          let @43 = @37.slot in
-          let @46 = rays_queue[@27].i in
-          @46[@43] = @42
+        let @21 = @30 in
+        let @22 = @21.saved in
+        let @23 = @21.value in
+        if (@22) {
+          let @25 = @21.slot in
+          rays_i[@25] = @24
           continue
         } else {
-          let @2 = @39 in
-          let i = @42 in
+          let @2 = @23 in
+          let i = @24 in
           out[i] = @2
           continue
         }
       }
     }
-    let @28 = (&rays_queue[@27]) in
-    let @62 = (*hits_queue) in
-    let @63 = @62.count in
-    parfor hits in [0u:@63:1u] {
-      let @64 = hits_@0[hits] in
-      let @65 = hits_n[hits] in
-      let @67 = hits_@42[hits] in
-      let @66 = step!after(@64, @65, k, @28) in
-      let @37 = @66 in
-      let @42 = @67 in
-      let @54 = @37.saved in
-      let @55 = @37.value in
-      if (@54) {
-        let @56 = @37.slot in
-        let @59 = rays_queue[@27].i in
-        @59[@56] = @42
+    let @38 = (*hits_queue) in
+    let @39 = @38.count in
+    parfor hits in [0u:@39:1u] {
+      let @40 = hits_@0[hits] in
+      let @41 = hits_n[hits] in
+      let @43 = hits_@24[hits] in
+      let @42 = step!after(@40, @41, k, rays_queue) in
+      let @21 = @42 in
+      let @24 = @43 in
+      let @33 = @21.saved in
+      let @34 = @21.value in
+      if (@33) {
+        let @35 = @21.slot in
+        rays_i[@35] = @24
         continue
       } else {
-        let @2 = @55 in
-        let i = @67 in
+        let @2 = @34 in
+        let i = @43 in
         out[i] = @2
         continue
       }
     }
     hits_queue.count = 0u
-    let @22 = (*rays!round) + 1u in
-    rays!round = @22
+    let @14 = (*rays!round) + 1u in
+    rays!round = @14
   }
   return
 }
