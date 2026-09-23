@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// A variant merged from two arms that both built the same variant -- a
+// BSDF or its regularized copy -- has a known tag though no one instruction
+// defines it: the field of a merge whose every incoming struct was built
+// with the same constant there is that constant (SSA/Simplify.cpp,
+// constant_field_of_merge), so the match on it folds to the one arm the
+// program can take, and the other arms go.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func pick(x : Float, flip : bool) -> Float {
+    m : mut Mode = Sum(x);
+    if flip {
+        m = Sum(-x);
+    }
+    match m {
+        Sum(scale) => return scale * 2.0;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(values : array[Float, 8], flips : array[bool, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = pick(values[i], flips[i]);
+    }
+    return;
+}

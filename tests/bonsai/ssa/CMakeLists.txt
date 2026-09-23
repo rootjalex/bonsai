@@ -12,6 +12,7 @@ add_bonsai_tests(
     defer-reducer.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
+    merge-variant-fold.bonsai
     defer-split.bonsai
     defer-stage-cycle.bonsai
     defer-tail.bonsai

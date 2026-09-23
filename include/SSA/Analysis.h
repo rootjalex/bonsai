@@ -42,6 +42,14 @@ BlockMap make_block_map(const Function &func);
 // successor of the body. A ParFor's successors are its body and continuation.
 std::vector<std::string> successors(const Block &block);
 
+// The value `pred` passes to `block`'s argument `k` along its edge there, or
+// null when the edge defines that argument itself: a parfor's index, a
+// call's kept result (the continuation's first argument, so the call's own
+// arguments are offset by one). What a definition is followed through
+// (SSA/Definitions.h) and a merge's incoming values are read by
+// (SSA/Simplify.cpp).
+std::shared_ptr<Value> passed_to(const Block &pred, const Block &block, size_t k);
+
 // Every jump out of `block`, in terminator order, as mutable references so
 // that an edge can be retargeted or given more arguments in place. A Call's
 // jump to its callee is not one of them: where a call goes is a matter of

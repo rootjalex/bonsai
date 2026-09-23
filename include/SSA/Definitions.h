@@ -56,11 +56,6 @@ class Definitions {
   private:
     Definition of_argument(const std::string &block_name, const Argument &a);
 
-    // The value `pred` passes to `block`'s argument `k` along its edge there,
-    // or null when the edge defines that argument itself.
-    static std::shared_ptr<Value> passed_to(const Block &pred,
-                                            const Block &block, size_t k);
-
     const Function &func;
     const bool lenient;
     BlockMap bmap;

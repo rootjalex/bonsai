@@ -150,59 +150,6 @@ Definition Definitions::of_argument(const string &block_name,
     return answer;
 }
 
-shared_ptr<Value> Definitions::passed_to(const Block &pred, const Block &block,
-                                         size_t k) {
-    shared_ptr<Value> result;
-    std::visit(
-        overloads{
-            [&](const std::monostate &) {},
-            [&](const Terminator::Jump &j) {
-                if (j.name == block.name && k < j.args.size()) {
-                    result = j.args[k];
-                }
-            },
-            [&](const Terminator::Dispatch &d) {
-                for (const auto &t : d.targets) {
-                    if (t.name == block.name && k < t.args.size()) {
-                        result = t.args[k];
-                    }
-                }
-            },
-            [&](const Terminator::Return &) {},
-            [&](const Terminator::ParFor &p) {
-                if (p.body.name == block.name) {
-                    // The body's first argument is the index, which the
-                    // loop defines.
-                    if (k >= 1 && k - 1 < p.body.args.size()) {
-                        result = p.body.args[k - 1];
-                    }
-                } else if (p.cont.name == block.name &&
-                           k < p.cont.args.size()) {
-                    result = p.cont.args[k];
-                }
-            },
-            [&](const Terminator::Yield &) {},
-            [&](const Terminator::Call &c) {
-                if (c.cont.name != block.name) {
-                    return;
-                }
-                // A kept result is the continuation's first argument, and
-                // the call defines it.
-                const size_t offset = c.drop ? 0 : 1;
-                if (k >= offset && k - offset < c.cont.args.size()) {
-                    result = c.cont.args[k - offset];
-                }
-            },
-            [&](const Terminator::MultiCall &c) {
-                if (c.cont.name == block.name && k < c.cont.args.size()) {
-                    result = c.cont.args[k];
-                }
-            },
-        },
-        pred.terminator.data);
-    return result;
-}
-
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

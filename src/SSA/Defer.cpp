@@ -777,36 +777,6 @@ shared_ptr<Value> rebuild(
     return emit(type, Instruction::Op::MakeStruct, std::move(parts));
 }
 
-// The value `pred` passes to `block`'s argument `k` along its edge there, or
-// null when `pred` reaches `block` some other way.
-shared_ptr<Value> passed_along(const Block &pred, const Block &block, size_t k) {
-    shared_ptr<Value> found;
-    const auto take = [&](const Terminator::Jump &j) {
-        if (j.name == block.name && k < j.args.size()) {
-            found = j.args[k];
-        }
-    };
-    std::visit(overloads{
-                   [&](const std::monostate &) {},
-                   [&](const Terminator::Jump &j) { take(j); },
-                   [&](const Terminator::Dispatch &d) {
-                       for (const auto &t : d.targets) {
-                           take(t);
-                       }
-                   },
-                   [&](const Terminator::Return &) {},
-                   [&](const Terminator::ParFor &p) {
-                       take(p.body);
-                       take(p.cont);
-                   },
-                   [&](const Terminator::Yield &) {},
-                   [&](const Terminator::Call &c) { take(c.cont); },
-                   [&](const Terminator::MultiCall &c) { take(c.cont); },
-               },
-               pred.terminator.data);
-    return found;
-}
-
 // Points every edge of `block`'s terminator that goes to `from` at `to`
 // instead, the arguments as they were.
 void retarget(Block &block, const string &from, const string &to) {
@@ -972,7 +942,7 @@ void join_continuations(const shared_ptr<Function> &O, const string &what,
                 if (!P) {
                     continue;
                 }
-                const shared_ptr<Value> v = passed_along(*P, *K, i);
+                const shared_ptr<Value> v = passed_to(*P, *K, i);
                 internal_assert(v) << what << ": " << P->name << " reaches "
                                    << K->name << " without its argument " << i;
                 const Definition d = defs.of(P->name, v);

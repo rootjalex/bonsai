@@ -1,0 +1,64 @@
+type Clamp = struct Clamp{ floor : f32 }
+type Float = f32
+type Half = f16
+type Mode = struct Mode{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type Sum = struct Sum{ scale : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func pick(x : f32, flip : bool) -> f32 {
+  m : mut Mode
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(x) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Mode>(0u, @0, @2) in
+  if (flip) {
+    let @4 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @5 = 0f - x in
+    let @6 = reinterpret_cast<u32>(@5) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Mode>(0u, @4, @7) in
+    m = @8
+  } else {
+    m = @3
+  }
+  let @12 = (*m).payload in
+  let @13 = @12[0u] in
+  let scale = reinterpret_cast<f32>(@13) in
+  let @15 = scale * 2f in
+  return @15
+}
+
+func [[export]] run(values : f32[8], flips : bool[8], out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    m$i6 : mut Mode
+    let x$i6 = values[i] in
+    let flip$i6 = flips[i] in
+    let @2 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @3 = reinterpret_cast<u32>(x$i6) in
+    let @4 = build<[[packed]] u32x1>(@3) in
+    let @5 = build<Mode>(0u, @2, @4) in
+    if (flip$i6) {
+      let @6 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @7 = 0f - x$i6 in
+      let @8 = reinterpret_cast<u32>(@7) in
+      let @9 = build<[[packed]] u32x1>(@8) in
+      let @10 = build<Mode>(0u, @6, @9) in
+      m$i6 = @10
+    } else {
+      m$i6 = @5
+    }
+    let @14 = (*m$i6).payload in
+    let @15 = @14[0u] in
+    let scale$i6 = reinterpret_cast<f32>(@15) in
+    let @17 = scale$i6 * 2f in
+    let pick$r6 = @17 in
+    out[i] = pick$r6
+    continue
+  }
+  return
+}
+
+

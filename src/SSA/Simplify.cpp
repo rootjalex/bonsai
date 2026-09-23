@@ -234,6 +234,73 @@ struct Simplifier {
         return def_of(definitions->of(block->name, v).value);
     }
 
+    // Field `index` of `v` when `v` is a merge of structs every one of which
+    // was built with the same constant in that field: the tag of a variant
+    // that every incoming arm built as that variant -- a BSDF and its
+    // regularized copy, say -- which no one instruction defines. Followed
+    // back through the block arguments to the structs, an edge carried round
+    // a loop unchanged being skipped; null when any edge brings something
+    // else.
+    ValuePtr constant_field_of_merge(const ValuePtr &v, uint64_t index) {
+        const auto *arg = v ? std::get_if<Argument>(&v->data) : nullptr;
+        if (arg == nullptr || !block) {
+            return nullptr;
+        }
+        const BlockMap bmap = make_block_map(func);
+        ValuePtr found;
+        std::set<std::pair<std::string, std::string>> visiting;
+        const std::function<bool(const shared_ptr<Block> &, const Argument &)> walk =
+            [&](const shared_ptr<Block> &at, const Argument &a) -> bool {
+            if (!visiting.insert({at->name, a.name}).second) {
+                return true; // round a loop unchanged: what enters decides
+            }
+            if (at.get() == func.blocks.front().get()) {
+                return false; // a parameter: anything
+            }
+            size_t k = at->args.size();
+            for (size_t i = 0; i < at->args.size(); i++) {
+                if (at->args[i].name == a.name) {
+                    k = i;
+                }
+            }
+            if (k == at->args.size() || at->preds.empty()) {
+                return false;
+            }
+            for (const auto &weak : at->preds) {
+                const shared_ptr<Block> pred = weak.lock();
+                if (!pred) {
+                    return false;
+                }
+                const ValuePtr passed = passed_to(*pred, *at, k);
+                if (!passed) {
+                    return false; // the edge defines it
+                }
+                if (const Instruction *d = def_of(passed)) {
+                    if (d->op != Instruction::Op::MakeStruct ||
+                        index >= d->operands.size() ||
+                        constant_of(d->operands[index]) == nullptr) {
+                        return false;
+                    }
+                    if (found && !same_value(*found, *d->operands[index])) {
+                        return false;
+                    }
+                    found = d->operands[index];
+                    continue;
+                }
+                const auto *pa = std::get_if<Argument>(&passed->data);
+                if (pa == nullptr || !walk(pred, *pa)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        const auto it = bmap.find(block->name);
+        if (it == bmap.end() || !walk(it->second, *arg)) {
+            return nullptr;
+        }
+        return found;
+    }
+
     // What `v` stands for once every replacement is followed.
     ValuePtr resolve(ValuePtr v) const {
         for (auto it = replaced.find(def_of(v)); it != replaced.end();
@@ -382,8 +449,7 @@ struct Simplifier {
             }
             const Instruction *d = defined_by(ops[0]);
             const Constant *c = constant_of(ops[1]);
-            if (d == nullptr || d->op != Instruction::Op::MakeStruct ||
-                c == nullptr) {
+            if (c == nullptr) {
                 break;
             }
             const std::optional<uint64_t> index = std::visit(
@@ -397,7 +463,20 @@ struct Simplifier {
                     },
                 },
                 c->data);
-            if (!index.has_value() || *index >= d->operands.size() ||
+            if (!index.has_value()) {
+                break;
+            }
+            if (d == nullptr) {
+                // Not one struct but a merge of several: the field folds
+                // when every one was built with the same constant there.
+                ValuePtr same = constant_field_of_merge(ops[0], *index);
+                if (same && equals(same->get_type(), type)) {
+                    return same;
+                }
+                break;
+            }
+            if (d->op != Instruction::Op::MakeStruct ||
+                *index >= d->operands.size() ||
                 !equals(d->operands[*index]->get_type(), type)) {
                 break;
             }
