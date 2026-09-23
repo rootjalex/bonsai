@@ -996,9 +996,9 @@ _recloop_func0.exit:                              ; preds = %"!visit.i.outer.bac
   %589 = fmul float %425, %588
   %590 = fadd float %589, %587
   %591 = fmul float %590, 2.000000e+00
-  %.splatinsert123.i = insertelement <3 x float> poison, float %591, i64 0
-  %.splat124.i = shufflevector <3 x float> %.splatinsert123.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %592 = fmul <3 x float> %541, %.splat124.i
+  %.splatinsert122.i = insertelement <3 x float> poison, float %591, i64 0
+  %.splat123.i = shufflevector <3 x float> %.splatinsert122.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %592 = fmul <3 x float> %541, %.splat123.i
   %593 = fsub <3 x float> %.pn262309, %592
   %594 = extractelement <3 x float> %593, i64 0
   %595 = fmul float %594, %594
@@ -1009,11 +1009,11 @@ _recloop_func0.exit:                              ; preds = %"!visit.i.outer.bac
   %600 = fmul float %599, %599
   %601 = fadd float %600, %598
   %602 = tail call float @llvm.sqrt.f32(float %601)
-  %.splatinsert125.i = insertelement <3 x float> poison, float %602, i64 0
-  %.splat126.i = shufflevector <3 x float> %.splatinsert125.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %603 = fdiv <3 x float> %593, %.splat126.i
-  %.splatinsert128.i = insertelement <3 x float> poison, float %521, i64 0
-  %.splat129.i = shufflevector <3 x float> %.splatinsert128.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %.splatinsert124.i = insertelement <3 x float> poison, float %602, i64 0
+  %.splat125.i = shufflevector <3 x float> %.splatinsert124.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %603 = fdiv <3 x float> %593, %.splat125.i
+  %.splatinsert127.i = insertelement <3 x float> poison, float %521, i64 0
+  %.splat128.i = shufflevector <3 x float> %.splatinsert127.i, <3 x float> poison, <3 x i32> zeroinitializer
   %604 = extractelement <4 x i32> %_rng_state1.1307, i64 0
   %605 = mul i32 %604, 609248
   %606 = add i32 %605, 5367177
@@ -1043,7 +1043,7 @@ _recloop_func0.exit:                              ; preds = %"!visit.i.outer.bac
   %630 = insertelement <3 x float> poison, float %628, i64 0
   %631 = insertelement <3 x float> %630, float %628, i64 1
   %632 = insertelement <3 x float> %631, float %629, i64 2
-  %633 = fmul <3 x float> %632, %.splat129.i
+  %633 = fmul <3 x float> %632, %.splat128.i
   %634 = fadd <3 x float> %633, %603
   br label %scatter.exit
 
@@ -1230,11 +1230,11 @@ __nv_powf.exit:                                   ; preds = %"!else_12.i", %__nv
   br label %scatter.exit
 
 scatter.exit:                                     ; preds = %"!then_6.i", %"!then_11.i", %__nv_powf.exit
-  %.pn135.i = phi <3 x float> [ %520, %"!then_6.i" ], [ %520, %"!then_11.i" ], [ splat (float 1.000000e+00), %__nv_powf.exit ]
+  %.pn131.i = phi <3 x float> [ %520, %"!then_6.i" ], [ %520, %"!then_11.i" ], [ splat (float 1.000000e+00), %__nv_powf.exit ]
   %scatter_dir.pn.i = phi <3 x float> [ %scatter_dir.i, %"!then_6.i" ], [ %634, %"!then_11.i" ], [ %776, %__nv_powf.exit ]
   %_rng_state1.2 = add <4 x i32> %_rng_state1.1307, <i32 4, i32 8, i32 12, i32 16>
   %777 = add nsw i32 %"depth!loop.i310", -1
-  %778 = fmul <3 x float> %"mult!loop.i311", %.pn135.i
+  %778 = fmul <3 x float> %"mult!loop.i311", %.pn131.i
   %779 = icmp slt i32 %"depth!loop.i310", 2
   br i1 %779, label %sample.exit, label %"!merge_1.i"
 

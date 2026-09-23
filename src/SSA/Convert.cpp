@@ -2190,6 +2190,16 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         promote_allocas(*f, f->blocks.front()->name);
     }
     phase("promote allocas");
+    // And once more with the slots gone: a value that reached a match only
+    // through a `mut` local -- the BxDF a material's arm builds and hands on
+    // through the inliner's result slot -- is a struct with a constant tag
+    // now, so the match folds and the arms nothing reaches go; each of the
+    // wavefront's per-material copies is then one material's BSDF and not
+    // every one's (SSA/Simplify.h).
+    for (const auto &[name, f] : fmap) {
+        simplify(*f);
+    }
+    phase("simplify after promotion");
     // Every parfor body's arguments are its captures again, whatever the
     // rewrites above and the promotion left of that (see SSA/CloseBodies.h):
     // the code generators make a kernel of a bound loop's body from those

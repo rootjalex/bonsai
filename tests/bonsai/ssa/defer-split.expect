@@ -123,15 +123,13 @@ func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2]) -> Sav
   switch (@11) {
   case 0: {
     let @19 = atomic_add((&_queue_hits[0u].count), 1u) in
-    let @20 = @10.@0 in
-    let @21 = @20.tag in
-    let @22 = @20._pad in
+    let @21 = @0.tag in
+    let @22 = @0._pad in
     let @23 = @22[0u] in
     let @24 = @22[1u] in
     let @25 = @22[2u] in
-    let @26 = @20.payload in
+    let @26 = @0.payload in
     let @27 = @26[0u] in
-    let @28 = @10.i in
     let @30 = _queue_hits[0u].@0_tag in
     @30[@19] = @21
     let @33 = _queue_hits[0u].@0__pad_x in
@@ -143,21 +141,19 @@ func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2]) -> Sav
     let @42 = _queue_hits[0u].@0_payload_x in
     @42[@19] = @27
     let @45 = _queue_hits[0u].i in
-    @45[@19] = @28
+    @45[@19] = undef
     let @14 = build<Saved_step!after>(true, @19, 0u, undef) in
     return @14
   } break;
   default: {
     let @48 = atomic_add((&_queue_hits[1u].count), 1u) in
-    let @49 = @10.@0 in
-    let @50 = @49.tag in
-    let @51 = @49._pad in
+    let @50 = @0.tag in
+    let @51 = @0._pad in
     let @52 = @51[0u] in
     let @53 = @51[1u] in
     let @54 = @51[2u] in
-    let @55 = @49.payload in
+    let @55 = @0.payload in
     let @56 = @55[0u] in
-    let @57 = @10.i in
     let @59 = _queue_hits[1u].@0_tag in
     @59[@48] = @50
     let @62 = _queue_hits[1u].@0__pad_x in
@@ -169,7 +165,7 @@ func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2]) -> Sav
     let @71 = _queue_hits[1u].@0_payload_x in
     @71[@48] = @56
     let @74 = _queue_hits[1u].i in
-    @74[@48] = @57
+    @74[@48] = undef
     let @17 = build<Saved_step!after>(true, @48, 1u, undef) in
     return @17
   }

@@ -5449,11 +5449,20 @@ defer-spawn-two-producers).
 Compile time (BONSAI_TIME_PASSES): the whole compile of the wavefront
 schedule through LLVM is 51 s, from about three minutes; the SSA pass 16
 s (promotion 9, the relooper's statements 4, the directives 1.3), the
-statement-level inliner 19 s, CSE 6 s -- the next two to look at; and the per-material
-copies still carry every BxDF's sampling arm, because the BxDF the
-material arm builds reaches the match through the inliner's result slot,
-promoted only after the last simplify. A simplify after the promotion
-would fold those and cut LLVM's share too.
+statement-level inliner 19 s, CSE 6 s -- the next two to look at. The
+per-material copies still carry every BxDF's sampling arm (4458 lines each;
+the Interface copy folded to 2611 once a simplify was added after alloca
+promotion, which is where a value that reached a match only through a
+`mut` local first shows as a struct with a constant tag). The BxDF's tag
+does not fold because the BxDF reaches its match through a merge -- the
+material arm's BxDF or its regularized copy (pbrt's `bsdf.Regularize()`),
+two builds of the same variant -- and the field rule sees through an
+argument only when every edge passes one instruction. The next step is a
+rule for the field of a merge whose every incoming struct was built with
+the same constant in that field: the tag of a variant merged from arms
+that all built that variant. With it each material copy is one BSDF, which
+is also what pbrt's per-material kernels are, and what the device kernels'
+register pressure will want.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
