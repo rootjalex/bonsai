@@ -2,6 +2,7 @@
 
 #include "IR/Equality.h"
 #include "SSA/Analysis.h"
+#include "SSA/Definitions.h"
 
 #include "Error.h"
 
@@ -211,6 +212,27 @@ struct Simplifier {
     // The instructions the rules made, so that a merge of two equal
     // expressions keeps the one the program had.
     std::set<const Instruction *> made;
+    // Where a value a block refers to by name is defined, for a rule that
+    // needs the defining instruction of an argument (SSA/Definitions.h).
+    // Built on first use: the walk changes operands, not the jumps and
+    // arguments the answers rest on.
+    std::optional<Definitions> definitions;
+
+    // The instruction `v` is defined by, followed through the block
+    // arguments it may have arrived as; null for a constant, a parameter, or
+    // a merge of different values.
+    const Instruction *defined_by(const ValuePtr &v) {
+        if (const Instruction *d = def_of(v)) {
+            return d;
+        }
+        if (v == nullptr || !std::holds_alternative<Argument>(v->data) || !block) {
+            return nullptr;
+        }
+        if (!definitions.has_value()) {
+            definitions.emplace(func, /*lenient=*/true);
+        }
+        return def_of(definitions->of(block->name, v).value);
+    }
 
     // What `v` stands for once every replacement is followed.
     ValuePtr resolve(ValuePtr v) const {
@@ -350,11 +372,15 @@ struct Simplifier {
             // A field of a struct just made is what it was made from. A
             // variant given its tag as a constant (a specialized copy, SSA/
             // Specialize.h) is made this way, and this is what lets the
-            // match on it fold.
+            // match on it fold -- in the block that made it, and in the
+            // blocks below that were handed it as an argument, where the
+            // struct is found through the argument. The field's value is
+            // defined where the struct was, which every block handed the
+            // struct is reached through.
             if (ops.size() != 2) {
                 break;
             }
-            const Instruction *d = def_of(ops[0]);
+            const Instruction *d = defined_by(ops[0]);
             const Constant *c = constant_of(ops[1]);
             if (d == nullptr || d->op != Instruction::Op::MakeStruct ||
                 c == nullptr) {

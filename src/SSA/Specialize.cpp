@@ -464,8 +464,12 @@ void specialize_callees(FuncMap &fmap, const vector<shared_ptr<Block>> &blocks,
             if ((*i)->name == value) {
                 return true;
             }
-            return (*i)->op == Instruction::Op::Load && !(*i)->operands.empty() &&
-                   names((*i)->operands[0]);
+            // Through a load of the pointer, for a callee taking the value;
+            // through the address of the value, for a callee taking a
+            // pointer to it, which is how a variant travels.
+            return ((*i)->op == Instruction::Op::Load ||
+                    (*i)->op == Instruction::Op::AddressOf) &&
+                   !(*i)->operands.empty() && names((*i)->operands[0]);
         }
         return false;
     };
@@ -617,7 +621,9 @@ bool computes_a_key(Instruction::Op op) {
 vector<KeyVariant>
 key_variants(const Type &type,
              const map<string, ir::Program::AdtStorage> &storages) {
-    const auto tag = key_tag_of(type, storages, "key_variants");
+    // Through a pointer: a variant parameter arrives by one.
+    const Type held = type.is<Ptr_t>() ? type.as<Ptr_t>()->etype : type;
+    const auto tag = key_tag_of(held, storages, "key_variants");
     return tag.has_value() ? tag->variants : vector<KeyVariant>{};
 }
 
@@ -668,13 +674,17 @@ specialize_function(const Function &func, const string &name,
     internal_assert(given) << what << ": " << func.blocks.front()->name
                            << " has no value named " << key;
     const Type type = type_of(*given);
-    internal_assert(!type.is<Ptr_t>())
-        << "[unimplemented] " << what << ": " << key << " is handed by pointer";
-    const auto tag = key_tag_of(type, storages, what);
+    // A variant parameter arrives by pointer (Lower/Mutability.cpp): the
+    // value is what it points at, and the copy gives the parameter's name to
+    // a slot of its own holding the specialized value, so that the body's
+    // reads through the pointer read the struct with the tag fixed.
+    const bool by_pointer = type.is<Ptr_t>();
+    const Type held = by_pointer ? type.as<Ptr_t>()->etype : type;
+    const auto tag = key_tag_of(held, storages, what);
     internal_assert(tag.has_value())
-        << what << ": " << key << " is a " << type
+        << what << ": " << key << " is a " << held
         << ", not a variant type or an optional";
-    const Struct_t &s = *type.as<Struct_t>();
+    const Struct_t &s = *held.as<Struct_t>();
 
     // The specialized value is defined right after the key: after its
     // instruction, or first thing in the entry for a parameter. It is the
@@ -695,6 +705,9 @@ specialize_function(const Function &func, const string &name,
     } else {
         at = copy->blocks.front();
     }
+    internal_assert(!by_pointer || instr == nullptr)
+        << "[unimplemented] " << what << ": " << key
+        << " is a pointer computed inside the function";
     vector<shared_ptr<Instruction>> prologue;
     const auto make = [&](const string &iname, const Type &itype,
                           Instruction::Op op,
@@ -706,16 +719,28 @@ specialize_function(const Function &func, const string &name,
         at->lookups[iname] = value;
         return value;
     };
+    const shared_ptr<Value> whole =
+        by_pointer ? make(copy->get_unique_name(), held, Instruction::Op::Load, {given})
+                   : given;
     vector<shared_ptr<Value>> fields;
     for (size_t i = 0; i < s.fields.size(); i++) {
         fields.push_back(i == tag->field
                              ? tag_constant(*tag, v.tag)
                              : make(copy->get_unique_name(), s.fields[i].type,
                                     Instruction::Op::LoadField,
-                                    {given, constant_u32(i)}));
+                                    {whole, constant_u32(i)}));
     }
-    const shared_ptr<Value> spec =
-        make(fresh, type, Instruction::Op::MakeStruct, std::move(fields));
+    shared_ptr<Value> spec;
+    if (by_pointer) {
+        spec = make(copy->get_unique_name(), held, Instruction::Op::MakeStruct,
+                    std::move(fields));
+        const shared_ptr<Value> slot =
+            make(fresh, type, Instruction::Op::Alloca, {});
+        prologue.push_back(std::make_shared<Instruction>(
+            Instruction::Op::Store, vector<shared_ptr<Value>>{slot, spec}, at));
+    } else {
+        spec = make(fresh, type, Instruction::Op::MakeStruct, std::move(fields));
+    }
 
     // Every use of the key reads the specialized value: an instruction's
     // uses by pointer -- the reads of its fields above are not in any block
@@ -731,6 +756,11 @@ specialize_function(const Function &func, const string &name,
             });
         }
         at->lookups[key] = spec;
+        // The blocks below were handed the value under its name; under the
+        // new name now, so that what they pass it on to is seen to be
+        // passed the specialized value (specialize_callees), and the struct
+        // is found through the argument (SSA/Simplify.cpp, defined_by).
+        rename_uses(copy->blocks, *at, key, fresh);
     } else {
         rename_uses(copy->blocks, *at, key, fresh);
         // The uses then read the struct itself rather than its name: a name
@@ -738,13 +768,35 @@ specialize_function(const Function &func, const string &name,
         // cannot see through (SSA/Simplify.h), and the fold -- of the match
         // on the tag, and of the arm's reads of the other fields -- is the
         // point. The entry defines the struct, so every block reaches it.
-        for (const auto &block : copy->blocks) {
-            for_each_value(*block, [&](shared_ptr<Value> &u) {
-                const auto *a = u ? std::get_if<Argument>(&u->data) : nullptr;
-                if (a != nullptr && a->name == fresh) {
-                    u = spec;
+        // By pointer, the whole reads of the slot are the struct: the slot
+        // is written once, in the prologue, and the body never assigns a
+        // parameter that arrived by pointer only because variants travel
+        // that way; its other uses -- a field's address, the pointer handed
+        // on -- keep the slot.
+        if (by_pointer) {
+            vector<shared_ptr<Instruction>> reads;
+            for (const auto &block : copy->blocks) {
+                for (const auto &in : block->instrs) {
+                    const auto *a = in->op == Instruction::Op::Load && in->operands.size() == 1
+                                        ? std::get_if<Argument>(&in->operands[0]->data)
+                                        : nullptr;
+                    if (a != nullptr && a->name == fresh) {
+                        reads.push_back(in);
+                    }
                 }
-            });
+            }
+            for (const auto &read : reads) {
+                replace_uses(*copy, read.get(), spec);
+            }
+        } else {
+            for (const auto &block : copy->blocks) {
+                for_each_value(*block, [&](shared_ptr<Value> &u) {
+                    const auto *a = u ? std::get_if<Argument>(&u->data) : nullptr;
+                    if (a != nullptr && a->name == fresh) {
+                        u = spec;
+                    }
+                });
+            }
         }
     }
     at->instrs.insert(at->instrs.begin() + position, prologue.begin(),

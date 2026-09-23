@@ -202,8 +202,7 @@ func [[noinline]] step!after!Large(@0 : Kind, k : f32) -> f32 {
   let @10 = kind._pad in
   let @11 = kind.payload in
   let kind!Large = build<Kind>(1u, @10, @11) in
-  let @6 = kind.payload in
-  let @7 = @6[0u] in
+  let @7 = @11[0u] in
   let v$1 = reinterpret_cast<f32>(@7) in
   let @9 = v$1 * k in
   return @9
@@ -214,8 +213,7 @@ func [[noinline]] step!after!Small(@0 : Kind, k : f32) -> f32 {
   let @10 = kind._pad in
   let @11 = kind.payload in
   let kind!Small = build<Kind>(0u, @10, @11) in
-  let @2 = kind.payload in
-  let @3 = @2[0u] in
+  let @3 = @11[0u] in
   let v = reinterpret_cast<f32>(@3) in
   let @5 = v + k in
   return @5

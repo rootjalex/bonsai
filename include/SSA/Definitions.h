@@ -37,7 +37,12 @@ bool same_definition(const Definition &a, const Definition &b);
 
 class Definitions {
   public:
-    explicit Definitions(const Function &func);
+    // `lenient` answers "defined here" for a name a block refers to without
+    // taking it as an argument -- a value reached by name from a block above
+    // -- where the strict form, which the rewrites use to check their own
+    // threading, refuses. For a reader that only wants to know whether a
+    // value is a particular instruction (SSA/Simplify.cpp).
+    explicit Definitions(const Function &func, bool lenient = false);
 
     // The definition of `v`, as the block named `block` refers to it.
     Definition of(const std::string &block, const std::shared_ptr<Value> &v);
@@ -57,8 +62,15 @@ class Definitions {
                                             const Block &block, size_t k);
 
     const Function &func;
+    const bool lenient;
     BlockMap bmap;
     std::map<std::pair<std::string, std::string>, Definition> memo;
+    // Answers that name an argument still being resolved -- a block inside
+    // a loop whose every edge leads round to the question's own argument.
+    // Right while that resolution is on the stack and meaningless after, so
+    // kept only until the outermost question is answered; without them a
+    // loop's blocks are walked once per path round the loop.
+    std::map<std::pair<std::string, std::string>, Definition> provisional;
     std::set<std::pair<std::string, std::string>> visiting;
 };
 

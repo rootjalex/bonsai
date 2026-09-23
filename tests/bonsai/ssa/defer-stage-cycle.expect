@@ -41,17 +41,8 @@ func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
     @58[@53] = @1
     let @12 = build<Saved_step>(true, @53, undef) in
     let @5 = @12 in
-    let @6 = @5.saved in
-    let @7 = @5.value in
-    if (@6) {
-      let @8 = @5.slot in
-      rays_i[@8] = i
-      continue
-    } else {
-      let @2 = @7 in
-      out[i] = @2
-      continue
-    }
+    rays_i[@53] = i
+    continue
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
