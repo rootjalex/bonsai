@@ -5042,8 +5042,32 @@ to material boundary) -- and pbrt's wavefront uses both. One directive with
 two attachment points, `f.defer(g, q)` and `f.defer(after(g), q)`, is the
 proposal; `stage` is the name in the code until the spelling is settled.
 
+**What the cycle then needs (found 2026-09-23, scratch `cycle.bonsai`: a
+recursive `step` whose first call `work` is staged, `step.defer(step, rays)`
+then `step.stage(work, hits)`).** The stage's deferral is refused: "run
+calls into the chain from 2 places; one producer call per queue". After
+the first deferral, `run` calls `step` from its producer loop -- the first
+step of every path runs there, and pushes the recursion -- and from the
+`rays` drain, and both push `hits`, whose drain would need a continuation
+per producer. pbrt has one producer for its trace stage because the camera
+rays go through the ray queue too: `GenerateCameraRays` pushes and traces
+nothing. So the generalization is not two producers but one: a deferral
+written on the *owner's* call -- `render.defer(vol_path_step, rays)` beside
+`vol_path_step.defer(vol_path_step, rays)` -- makes the producer's call a
+push of the initial entry rather than a call that runs the first step, and
+the drain is then the one place the chain is entered. With that, `hits` has
+one producer, the `rays` drain, which sits inside the rays round loop; the
+round becomes a round over the cycle -- drain rays into hits, drain hits
+into rays, while either has entries -- with one buffer per queue, since
+neither drain pushes onto the queue it reads. Those two are the compiler
+work: a second deferral onto an existing queue that turns a call into a
+push (the entry and the drain exist), and the round loop over a cycle of
+queues in place of one self-feeding queue's parity loop.
+
 **Order.** (1) `stage(g, q)`: the split at a call and its tests, on a small
-program first -- done; (2) the round loop over a cycle of queues; (3)
+program first -- done; (2) the initial push (a deferral on the owner's call
+onto the queue the step already has) and the round loop over a cycle of
+queues, on `cycle.bonsai` first; (3)
 `schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
 drains are threads, checked against pbrt as every schedule is; (4) queues
 keyed by an outcome; (5) the shadow ray deferred with its result consumed;

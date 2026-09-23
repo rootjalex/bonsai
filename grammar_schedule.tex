@@ -36,8 +36,9 @@ $b \in \{\code{true}, \code{false}\}$. A schedule changes how the program runs
 and never what it computes: every transform is a rewrite of the program's SSA
 with the same meaning. The binds nest as the hardware does -- a \code{GPUThread}
 loop inside a \code{GPUBlock} loop, a gang (\code{vectorize}) inside a
-\code{CPUThread} or a \code{GPUThread} loop -- and \code{bind(TextureUnit,
-$\lambda$)} is the one bind of a function rather than a loop: the lambda takes
+\code{CPUThread} loop, while under a GPU bind the warp is the gang -- and
+\code{bind(TextureUnit, $\lambda$)} is the one bind of a function rather than a
+loop: the lambda takes
 $f$'s parameters and gives $f$'s value, and is what the unit computes in $f$'s
 place. \code{loopify} before \code{vectorize} gives each lane its own stack;
 \code{vectorize} before \code{loopify} gives the gang one stack of nodes and
