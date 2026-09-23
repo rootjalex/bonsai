@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm -e
+
+// A mutable local of the producer's iteration, handed down the cycle and
+// written by the staged rest of a step in the same invocation that ends
+// the recursion -- the renderer's visible surface, set at the first hit
+// and returned from in the same drain when the bounce's BSDF sample
+// fails. The rest's `seen` is a parameter threaded from `step`'s `mut`
+// one, and has to be as writable: taken for read-only, the drain carried
+// the value it stored into its own copy before the call past the rest's
+// store, and every mark came back -1.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, n : i32, k : Float, seen : mut Float) -> Float {
+    r = work(x);
+    if n == 0 {
+        seen = r;
+        return r + k;
+    }
+    return step(r, n - 1, k, seen);
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8], marks : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        seen : mut Float = -1.0;
+        out[i] = step(values[i], i % 4, k, seen);
+        marks[i] = seen;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {8.0, 8.0, 8.0, 8.0, 16.0, 16.0, 16.0, 16.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    marks : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out, marks);
+    // x * 0.5^(n+1) + 1: 5, 3, 2, 1.5, 9, 5, 3, 2.
+    print(out);
+    // `seen` is set at the last step to x * 0.5^(n+1): 4, 2, 1, 0.5, 8, 4,
+    // 2, 1.
+    print(marks);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    hits = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    step.stage(work, hits);
+}

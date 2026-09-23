@@ -1,0 +1,34 @@
+//! flags: -p ssa
+
+// The rest of a staged function takes its parameters from the call's
+// continuation, and one that is an address is as writable as what it is
+// threaded from: `step!after`'s `seen` is `step`'s `mut` parameter, so it
+// is `mut` too, where a backend would otherwise take it for read-only and
+// let a caller carry a value past the store the rest makes through it.
+// `k` is threaded the same way and stays a plain value.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, k : Float, seen : mut Float) -> Float {
+    r = work(x);
+    seen = r;
+    return r + k;
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8], marks : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        seen : mut Float = -1.0;
+        out[i] = step(values[i], k, seen);
+        marks[i] = seen;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.stage(work, q);
+}

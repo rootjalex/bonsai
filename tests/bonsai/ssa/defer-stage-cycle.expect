@@ -142,7 +142,7 @@ func [[noinline]] step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*
   return @18
 }
 
-func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _queue_rays : (Queue_rays*)) -> Saved_step {
+func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*)) -> Saved_step {
   let r = @0 in
   let @15 = n == 0 in
   if (@15) {

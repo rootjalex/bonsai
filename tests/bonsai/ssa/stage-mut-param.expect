@@ -1,0 +1,87 @@
+type Entry_q = struct Entry_q{ @0 : f32; seen : f32; i : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; @0 : f32[]; seen : f32[]; i : i32[] }
+type Saved_step!after = struct Saved_step!after{ saved : bool; slot : u32; value : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void {
+  q_@0 : mut f32[8]
+  q_seen : mut f32[8]
+  q_i : mut i32[8]
+  q_queue : mut Queue_q
+  let @5 = build<Queue_q>(0u, q_@0, q_seen, q_i) in
+  q_queue = @5
+  parfor i in [0:8:1] {
+    seen : mut f32
+    seen = -1f
+    let @0 = values[i] in
+    let @6 = step(@0, k, seen, q_queue) in
+    let @7 = @6.saved in
+    let @8 = @6.value in
+    if (@7) {
+      let @9 = @6.slot in
+      q_i[@9] = i
+      continue
+    } else {
+      let @1 = @8 in
+      out[i] = @1
+      let @3 = (*seen) in
+      marks[i] = @3
+      continue
+    }
+  }
+  let @14 = (*q_queue) in
+  let @15 = @14.count in
+  parfor q in [0u:@15:1u] {
+    @16 : mut f32
+    let @17 = q_seen[q] in
+    @16 = @17
+    let @18 = q_@0[q] in
+    let @20 = q_i[q] in
+    let @19 = step!after(@18, @16, k) in
+    let @1 = @19 in
+    let i = @20 in
+    out[i] = @1
+    let @12 = (*@16) in
+    marks[i] = @12
+    continue
+  }
+  q_queue.count = 0u
+  return
+}
+
+func [[noinline]] step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queue_q*)) -> Saved_step!after {
+  let @0 = work(x) in
+  let @3 = (*seen) in
+  let @4 = build<Entry_q>(@0, @3, undef) in
+  let @8 = atomic_add((&(*_queue_q).count), 1u) in
+  let @10 = (*_queue_q).@0 in
+  @10[@8] = @0
+  let @13 = (*_queue_q).seen in
+  @13[@8] = @3
+  let @6 = build<Saved_step!after>(true, @8, undef) in
+  return @6
+}
+
+func [[noinline]] step!after(@0 : f32, seen : mut (f32*), k : f32) -> f32 {
+  let r = @0 in
+  seen = r
+  let @2 = r + k in
+  return @2
+}
+
+func [[noinline]] work(x : f32) -> f32 {
+  let @0 = x * 2f in
+  return @0
+}
+
+
+schedule host {
+    q = run.queue(root);
+    step.stage(work, q)
+
+}

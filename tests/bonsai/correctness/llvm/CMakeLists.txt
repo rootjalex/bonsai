@@ -23,6 +23,7 @@ add_bonsai_tests(
     defer-loop-owned.bonsai
     defer-stage-cycle.bonsai
     defer-stage-entry.bonsai
+    defer-stage-mut-local.bonsai
     vector-math.bonsai
     vectorize-bounded-division.bonsai
     vectorize-division.bonsai

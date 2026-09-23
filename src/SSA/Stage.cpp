@@ -4,6 +4,7 @@
 #include "IR/Type.h"
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
+#include "SSA/Definitions.h"
 
 #include <map>
 #include <set>
@@ -241,6 +242,59 @@ vector<Type> stage(FuncMap &funcs, const string &func_name,
         entry.args.push_back(a);
         entry.lookups[a.name] = std::make_shared<Value>(a);
         A->reserve_name(a.name);
+    }
+    // A parameter of the rest that is an address is as writable as what the
+    // function hands it. The continuation's arguments say nothing about
+    // that -- Argument::mutating means something on a function's entry
+    // alone, and a value threaded through a block's arguments loses it on
+    // the way -- and a backend takes a pointer parameter without it to be
+    // read-only, so that a store through it in the rest would be undefined:
+    // the caller then carried what it had stored before the call past the
+    // rest's own store (the renderer's visible surface, set by the staged
+    // rest and returned from in the same drain, came back unset). So each
+    // is looked up where the call's continuation gets it: a parameter of the
+    // function, `mut` or not as the program declared it, or an address the
+    // function computed -- one of its own locals, a field of one -- which
+    // the rest may store through as the function could.
+    {
+        Definitions defs(*F);
+        const Block &fentry = *F->blocks.front();
+        const auto is_address = [](const Type &t) {
+            return t.is<Ptr_t>() || t.is_reference();
+        };
+        const auto as_handed = [&](Argument &a, const Argument *param) {
+            if (!is_address(a.type)) {
+                return;
+            }
+            a.mutating = param == nullptr || param->mutating;
+            a.unaliased = param != nullptr && param->unaliased;
+        };
+        const size_t result_args = call.drop ? 0 : 1;
+        internal_assert(cont->args.size() == result_args + call.cont.args.size())
+            << what << ": " << cont->name << " takes " << cont->args.size()
+            << " arguments and the call passes " << call.cont.args.size()
+            << (call.drop ? "" : " plus its result");
+        for (size_t i = 0; i < cont->args.size(); i++) {
+            // The call's own result is no parameter of the function's.
+            const Argument *param =
+                i < result_args
+                    ? nullptr
+                    : defs.parameter(site->name, call.cont.args[i - result_args]);
+            as_handed(entry.args[i], param);
+        }
+        for (size_t i = 0; i < free_names.size(); i++) {
+            const Argument *param = nullptr;
+            for (const Argument &p : fentry.args) {
+                if (p.name == free_names[i].name) {
+                    param = &p;
+                }
+            }
+            as_handed(entry.args[cont->args.size() + i], param);
+        }
+        for (size_t i = 0; i < free_instrs.size(); i++) {
+            as_handed(entry.args[cont->args.size() + free_names.size() + i],
+                      nullptr);
+        }
     }
     // A live instruction is a parameter now: every reference to it by
     // pointer becomes one by name.
