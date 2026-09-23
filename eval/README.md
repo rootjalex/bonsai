@@ -71,10 +71,12 @@ CUDA's libdevice, as `-b ptx` does). Each is compiled beside
 `apps/pbrt/render.bonsai` as a second input; the compile is timed too and
 printed, being part of what a schedule costs. A GPU schedule is compiled
 with the compiler's `--fast-math` (nvcc's `--use_fast_math`: flushed
-denormals, approximate division, square root and transcendentals), because
-that is how pbrt's GPU build is compiled and `pbrt --gpu` is what it is
-measured against; a CPU schedule is compiled exact, as pbrt's CPU build is.
-`--fast-math on|off` overrides that for every schedule, and each schedule's
+denormals, approximate division, square root and transcendentals) and a cap
+of 128 registers per thread, because that is how pbrt's GPU build is
+compiled (`--use_fast_math -maxrregcount 128`) and `pbrt --gpu` is what it
+is measured against; a CPU schedule is compiled exact, as pbrt's CPU build
+is. `--fast-math on|off` overrides the first for every schedule,
+`--gpu-max-registers N` sets the cap (0 for none), and each schedule's
 flags are recorded beside its numbers in `results.json`. The renderers do not depend on
 the scene, so they are built once per run, into `eval/out/_build/`, however
 many scenes the run names (the compact packet's compile is two minutes). The
@@ -147,8 +149,9 @@ did (and `--rerun pbrt` brings a cell measured once up to `--repeats`).
                                 GPU schedules alone, since pbrt's GPU build is
                                 nvcc's --use_fast_math and its CPU build is exact;
                                 recorded per schedule in results.json
-    --gpu-max-registers N       cap a GPU schedule's registers per thread (pbrt's
-                                GPU build uses 128); default 0, ptxas's own choice
+    --gpu-max-registers N       cap a GPU schedule's registers per thread; default
+                                128, as pbrt's GPU build is built; 0 for ptxas's
+                                own choice
     --pbrt-gpu                  render every cell with `pbrt --gpu` too (see above)
     --rerun [RENDERER ...]      render again: every renderer at every cell, or
                                 only the ones named (pbrt, pbrt-gpu, a schedule)

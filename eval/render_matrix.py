@@ -202,8 +202,10 @@ def build(shared, schedules, fast_math, gpu_max_registers):
     none, or (auto) for the GPU schedules alone, since pbrt's GPU build is
     nvcc's --use_fast_math and its CPU build is exact. `gpu_max_registers`,
     when not 0, caps a GPU schedule's registers per thread (the compiler's
-    --gpu-max-registers; pbrt's GPU build uses 128). Returns the compile
-    times and, per schedule, the flags it was compiled with."""
+    --gpu-max-registers; 128 by default, as pbrt's GPU build is
+    -maxrregcount 128, and the best of the sweep in apps/pbrt/PLAN.md).
+    Returns the compile times and, per schedule, the flags it was compiled
+    with."""
     # The compiler's build directory: `build` unless BONSAI_BUILD_DIR names
     # another, as compare.sh reads it too.
     build_dir = os.environ.get("BONSAI_BUILD_DIR", "build")
@@ -820,12 +822,12 @@ def main(argv):
                              "pbrt's GPU build is nvcc's --use_fast_math and "
                              "its CPU build is exact; on gives it to every "
                              "schedule, off to none")
-    parser.add_argument("--gpu-max-registers", type=int, default=0,
+    parser.add_argument("--gpu-max-registers", type=int, default=128,
                         metavar="N",
                         help="cap a GPU schedule's registers per thread "
-                             "(the compiler's --gpu-max-registers; pbrt's "
-                             "GPU build uses 128); 0, the default, leaves "
-                             "ptxas its choice")
+                             "(the compiler's --gpu-max-registers); 128 by "
+                             "default, as pbrt's GPU build is built; 0 "
+                             "leaves ptxas its choice")
     parser.add_argument("--pbrt-gpu", action="store_true",
                         help="render every cell with `pbrt --gpu` too, as a "
                              "second reference column: pbrt's wavefront "

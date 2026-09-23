@@ -134,11 +134,12 @@ if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
   echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
   exit 1
 fi
-# `--fast-math` for a schedule that runs on the GPU, as compare.sh and the
-# eval harness give it: pbrt's GPU build is nvcc's --use_fast_math, its CPU
-# build is exact (see CompilerOptions::fast_math).
+# `--fast-math` and a 128-register cap for a schedule that runs on the GPU,
+# as compare.sh and the eval harness give them: pbrt's GPU build is nvcc's
+# --use_fast_math with -maxrregcount 128, its CPU build is exact (see
+# CompilerOptions::fast_math and gpu_max_registers).
 if grep -q "GPUBlock\|GPUThread" "$PREFIX/schedules/$SCHEDULE.bonsai"; then
-  FLAGS+=(--fast-math)
+  FLAGS+=(--fast-math --gpu-max-registers 128)
 fi
 "./$BONSAI_BUILD_DIR/compiler" -p ssa "${INPUTS[@]}" -o $PREFIX/render.bir
 "./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/render.ll

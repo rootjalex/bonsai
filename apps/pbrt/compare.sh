@@ -402,16 +402,18 @@ if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
   echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
   exit 1
 fi
-# --fast-math for a schedule that runs on the GPU: pbrt's GPU build is nvcc's
-# --use_fast_math, and that is what the device code is compared against
-# (see CompilerOptions::fast_math). A CPU schedule is compared against pbrt's
-# CPU build, which has no such flag, and stays exact.
-FAST_MATH=()
+# --fast-math and a 128-register cap for a schedule that runs on the GPU:
+# pbrt's GPU build is nvcc's --use_fast_math with -maxrregcount 128
+# (pbrt-v4's CMakeLists.txt), and that is what the device code is compared
+# against (see CompilerOptions::fast_math and gpu_max_registers; the cap was
+# the best of the sweep in PLAN.md as well). A CPU schedule is compared
+# against pbrt's CPU build, which has neither flag, and stays exact.
+GPU_FLAGS=()
 if grep -q "GPUBlock\|GPUThread" "$PREFIX/schedules/$SCHEDULE.bonsai"; then
-  FAST_MATH=(--fast-math)
-  echo "a GPU schedule: compiled with --fast-math, as pbrt --gpu is built."
+  GPU_FLAGS=(--fast-math --gpu-max-registers 128)
+  echo "a GPU schedule: compiled with --fast-math and a 128-register cap, as pbrt --gpu is built."
 fi
-"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${FAST_MATH[@]}" \
+"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${GPU_FLAGS[@]}" \
     -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
     -b cpp -o $PREFIX/render
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
