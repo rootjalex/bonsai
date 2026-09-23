@@ -431,6 +431,20 @@ struct Function {
     // `render.vectorize(s)` puts the gang's traversal on a stack.
     std::string specialized_from;
 
+    // The queues this function owns (defer(), SSA/Defer.h), by name: the
+    // value each one's storage was sized by -- the capacity every round of
+    // its drain is bounded by -- and the block the storage was made in. A
+    // later deferral whose producer loop is one of these drains sizes its
+    // own queue by the first (each entry of the drained queue pushes at
+    // most one, so the drain's queue holds no more than the drained one
+    // does, whatever a round's count) and makes its storage in the second
+    // (before the round loop, rather than once per round inside it).
+    struct OwnedQueue {
+        std::shared_ptr<Value> size;
+        std::string point;
+    };
+    std::map<std::string, OwnedQueue> queue_sizes;
+
     void dump(std::ostream &os) const;
 
     std::string get_unique_name() {

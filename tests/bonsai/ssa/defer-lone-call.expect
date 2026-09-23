@@ -27,17 +27,18 @@ func compute(n : i32, a : f32[n], res : mut (f32*)) -> void {
     let @14 = @10 ^ 1u in
     queue_queue[@14].count = 0u
     parfor queue in [0u:@12:1u] {
+      let @15 = (&queue_queue[@14]) in
       let @19 = queue_queue[@10].i in
       let @20 = @19[queue] in
       let @22 = queue_queue[@10].acc in
       let @23 = @22[queue] in
-      let @25 = stupid_sum(@20, n, a, @23, (&queue_queue[@14])) in
-      let @26 = @25.saved in
-      let @27 = @25.value in
-      if (@26) {
+      let @24 = stupid_sum(@20, n, a, @23, @15) in
+      let @25 = @24.saved in
+      let @26 = @24.value in
+      if (@25) {
         continue
       } else {
-        let @0 = @27 in
+        let @0 = @26 in
         res = @0
         continue
       }

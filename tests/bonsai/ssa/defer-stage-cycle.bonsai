@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// pbrt's bounce in miniature, in the SSA: a recursive `step` whose first
+// call `work` is staged. `run.defer(step, rays)` beside `step.defer(step,
+// rays)` makes the producer's call a push of the initial entry, so the rays
+// drain is the one place the chain is entered; `step.stage(work, hits)`
+// factors the step at the work and defers the rest onto hits, whose
+// producer is the rays drain -- inside rays' round loop, so hits' drain
+// follows it in the round, hits is one buffer emptied after each drain, and
+// its size is rays' capacity (the drain's count is a round's). The address
+// of the round's next rays queue is made in the round's block, where the
+// hits drain can reach it, so `step!after` gets it in scope rather than
+// stored (SSA/Defer.h, SSA/Stage.h).
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, n : i32, k : Float) -> Float {
+    r = work(x);
+    if n == 0 {
+        return r + k;
+    }
+    return step(r, n - 1, k);
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], i % 4, k);
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    hits = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    step.stage(work, hits);
+}

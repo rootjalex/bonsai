@@ -37,23 +37,24 @@ func run(out : mut i32[8]) -> void {
     let @21 = @17 ^ 1u in
     sums_queue[@21].count = 0u
     parfor sums in [0u:@19:1u] {
+      let @22 = (&sums_queue[@21]) in
       let @26 = sums_queue[@17].n in
       let @27 = @26[sums] in
       let @29 = sums_queue[@17].acc in
       let @30 = @29[sums] in
-      let @36 = sums_queue[@17].i in
-      let @37 = @36[sums] in
-      let @32 = tally(@27, @30, (&sums_queue[@21])) in
-      let @33 = @32.saved in
-      let @34 = @32.value in
-      if (@33) {
-        let @38 = @32.slot in
-        let @41 = sums_queue[@21].i in
-        @41[@38] = @37
+      let @35 = sums_queue[@17].i in
+      let @36 = @35[sums] in
+      let @31 = tally(@27, @30, @22) in
+      let @32 = @31.saved in
+      let @33 = @31.value in
+      if (@32) {
+        let @37 = @31.slot in
+        let @40 = sums_queue[@21].i in
+        @40[@37] = @36
         continue
       } else {
-        let @0 = @34 in
-        let i = @37 in
+        let @0 = @33 in
+        let i = @36 in
         out[i] = @0
         continue
       }

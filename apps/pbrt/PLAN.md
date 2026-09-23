@@ -5064,10 +5064,33 @@ work: a second deferral onto an existing queue that turns a call into a
 push (the entry and the drain exist), and the round loop over a cycle of
 queues in place of one self-feeding queue's parity loop.
 
-**Order.** (1) `stage(g, q)`: the split at a call and its tests, on a small
-program first -- done; (2) the initial push (a deferral on the owner's call
-onto the queue the step already has) and the round loop over a cycle of
-queues, on `cycle.bonsai` first; (3)
+**Built (2026-09-23): the cycle.** Three changes in SSA/Defer.cpp, and the
+miniature bounce runs (tests ssa/defer-stage-cycle and
+correctness/llvm/defer-stage-cycle: `run.defer(step, rays)`,
+`step.defer(step, rays)`, `step.stage(work, hits)`, paths of four depths
+ending in four rounds, every element the plain recursion's answer). (a)
+The initial push: `owner.defer(callee, q)` beside `callee.defer(callee, q)`
+is folded into the callee's deferral (QueueSpec::initial_push) and makes
+the producer's call a push of the initial entry that always says saved, so
+every step runs from the drain and the drain is the one place the chain is
+entered -- which is what gives a stage's queue one producer. (b) A drain
+passes its callee the next round's queue address made once in the round's
+block rather than in the drain's body, so a later deferral whose producer
+is that drain finds the value defined where its own drain can reach it and
+keeps it in scope rather than storing an address. (c) A queue whose
+producer loop is another queue's drain (a drain's parfor is named after its
+queue) is sized by that queue's capacity (Function::queue_sizes), since a
+round's count is a run-time value and each entry pushes at most one; and a
+one-pass queue's count is reset to zero after its drain, so that a stage's
+queue filled and drained once per round starts each round empty. The round
+loop needed no change: hits is drained inside rays' round, right after
+rays' drain, and pushes onto the round's next rays buffer; rays keeps its
+two buffers, which is one more than the cycle needs and harmless. The
+stage's placement follows from defer's rule that a drain goes right after
+its producer loop.
+
+**Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
+(2) the initial push and the round over the cycle -- done; (3)
 `schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
 drains are threads, checked against pbrt as every schedule is; (4) queues
 keyed by an outcome; (5) the shadow ray deferred with its result consumed;

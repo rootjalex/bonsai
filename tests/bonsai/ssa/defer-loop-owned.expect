@@ -30,14 +30,15 @@ func render(out : mut i32[16]) -> void {
       let @11 = @7 ^ 1u in
       paths_queue[@11].count = 0u
       parfor paths in [0u:@9:1u] {
+        let @12 = (&paths_queue[@11]) in
         let @16 = paths_queue[@7].s in
         let @17 = @16[paths] in
         let @19 = paths_queue[@7].depth in
         let @20 = @19[paths] in
         let @22 = paths_queue[@7].acc in
         let @23 = @22[paths] in
-        let @25 = walk(p, @17, @20, @23, out, (&paths_queue[@11])) in
-        if (@25) {
+        let @24 = walk(p, @17, @20, @23, out, @12) in
+        if (@24) {
           continue
         } else {
           continue

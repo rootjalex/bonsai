@@ -21,6 +21,7 @@ add_bonsai_tests(
     defer-gang-mut-local.bonsai
     defer-gang-runtime-size.bonsai
     defer-loop-owned.bonsai
+    defer-stage-cycle.bonsai
     vector-math.bonsai
     vectorize-bounded-division.bonsai
     vectorize-division.bonsai

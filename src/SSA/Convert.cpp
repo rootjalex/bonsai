@@ -1795,9 +1795,42 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             << ", " << d.queue << ") names a queue no "
                             << "schedule block declares. Declare it: `"
                             << d.queue << " = <func>.queue(<loop>);`";
+                        const std::string &callee = d.callee.names.back();
+                        // The owner deferring its own call onto the queue its
+                        // callee's deferral makes (`render.defer(step, rays)`
+                        // beside `step.defer(step, rays)`) is the initial
+                        // push, applied as part of the callee's deferral:
+                        // skipped here, and looked for there.
+                        const auto directive_on = [&](const std::string &f) {
+                            const auto ts = transforms.find(f);
+                            if (ts == transforms.end()) {
+                                return false;
+                            }
+                            for (const ir::Transform &t : ts->second) {
+                                const auto *other = std::get_if<ir::Defer>(&t);
+                                if (other != nullptr && other->queue == d.queue &&
+                                    !other->callee.names.empty() &&
+                                    other->callee.names.back() == callee) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        };
+                        if (name == q->second.owner && name != callee) {
+                            internal_assert(directive_on(callee))
+                                << name << ".defer(" << callee << ", " << d.queue
+                                << "): the owner's call to " << callee
+                                << " is pushed as the initial entry of "
+                                << d.queue << " only beside `" << callee
+                                << ".defer(" << callee << ", " << d.queue
+                                << ")`, which makes the queue; write that too.";
+                            return;
+                        }
                         QueueSpec spec;
                         spec.name = d.queue;
                         spec.owner = q->second.owner;
+                        spec.initial_push =
+                            name == callee && directive_on(q->second.owner);
                         internal_assert(!q->second.loop.names.empty())
                             << d.queue << " names no loop";
                         spec.loop = q->second.loop.names.back();

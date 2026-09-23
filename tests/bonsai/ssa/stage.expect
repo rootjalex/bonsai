@@ -40,6 +40,7 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
     out[i] = @1
     continue
   }
+  q_queue.count = 0u
   return
 }
 

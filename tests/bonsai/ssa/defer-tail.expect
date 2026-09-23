@@ -49,14 +49,15 @@ func run(out : mut i32[8]) -> void {
     let @11 = @7 ^ 1u in
     sums_queue[@11].count = 0u
     parfor sums in [0u:@9:1u] {
+      let @12 = (&sums_queue[@11]) in
       let @16 = sums_queue[@7].n in
       let @17 = @16[sums] in
       let @19 = sums_queue[@7].acc in
       let @20 = @19[sums] in
       let @22 = sums_queue[@7].i in
       let @23 = @22[sums] in
-      let @25 = fill(@17, @20, out, @23, (&sums_queue[@11])) in
-      if (@25) {
+      let @24 = fill(@17, @20, out, @23, @12) in
+      if (@24) {
         continue
       } else {
         continue

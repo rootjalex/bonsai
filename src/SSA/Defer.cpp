@@ -1688,11 +1688,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // One entry per producer iteration: the producer loop's trip count, or one
     // for a lone call. Computed in the block the loop is in, before it runs.
     shared_ptr<Value> count;
+    // Where the queue's storage is made: before the producer loop, or --
+    // when that loop is another queue's drain, inside its rounds -- where
+    // the drained queue's storage was made, before the rounds.
+    shared_ptr<Block> alloc_point = point;
     {
         const size_t at = point->instrs.size();
-        if (producer_loop_block) {
-            const auto &p =
-                std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
+        const auto *producer_loop =
+            producer_loop_block
+                ? &std::get<Terminator::ParFor>(producer_loop_block->terminator.data)
+                : nullptr;
+        const auto drained =
+            producer_loop ? O->queue_sizes.find(producer_loop->index)
+                          : O->queue_sizes.end();
+        if (drained != O->queue_sizes.end()) {
+            // The producer loop is another queue's drain (a drain's parfor
+            // is named after its queue): a round's count is known only at
+            // run time, but each entry it runs pushes at most one here, so
+            // that queue's capacity bounds this one -- pbrt's material queue
+            // sized as its ray queue is.
+            count = drained->second.size;
+            alloc_point = omap.at(drained->second.point);
+        } else if (producer_loop_block) {
+            const auto &p = *producer_loop;
             const Type itype = p.start->get_type();
             const auto start = constant_of(p.start);
             const auto stride = constant_of(p.stride);
@@ -1742,6 +1760,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << "to hold them all.";
         size = constant_u32(*queue.capacity);
     }
+    O->queue_sizes[queue.name] = Function::OwnedQueue{size, alloc_point->name};
 
     //===----------------------------------------------------------------===//
     // The types
@@ -1961,17 +1980,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (int i = 0; i < nqueues; i++) {
         for (const Leaf &leaf : leaves) {
             stores[i].push_back(make_alloca(
-                *O, point, Array_t::make(leaf.type, as_expr(size)),
+                *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
                 queue.name + "_" + leaf.name +
                     (self_feeding ? "_" + std::to_string(i) : "")));
         }
     }
     const shared_ptr<Value> queues =
         self_feeding
-            ? make_alloca(*O, point,
+            ? make_alloca(*O, alloc_point,
                           Array_t::make(queue_t, UIntImm::make(u32(), 2)),
                           queue.name + "_queue")
-            : make_alloca(*O, point, queue_t, queue.name + "_queue");
+            : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue");
     for (int i = 0; i < nqueues; i++) {
         vector<shared_ptr<Value>> parts = {constant_u32(0)};
         parts.insert(parts.end(), stores[i].begin(), stores[i].end());
@@ -2135,6 +2154,40 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // `skip` ends the iteration: a yield of the producer loop's body, or
         // -- for a lone call -- a jump to the drain, set below once it exists.
         skip->terminator.data = Terminator::Yield{};
+
+        // The initial push: the owner's call itself pushes the first entry
+        // and says saved, so that every step runs from the drain -- pbrt's
+        // camera rays go through the ray queue and are traced by nothing
+        // else. The call's arguments become the entry as a deferred call's
+        // do; the frame's part is written by the save path above, which the
+        // constant flag now always takes.
+        if (queue.initial_push) {
+            const Terminator::Call was = pcall;
+            vector<shared_ptr<Value>> values;
+            for (const Field &f : fields) {
+                if (!f.param.has_value()) {
+                    values.push_back(undef_value(f.type));
+                    continue;
+                }
+                shared_ptr<Value> v = reach(producer.block, was.call.args[*f.param]);
+                if (f.pointee) {
+                    v = producer.block->make_instruction(f.type, Instruction::Op::Load,
+                                                         {v});
+                }
+                values.push_back(std::move(v));
+            }
+            auto entry = producer.block->make_instruction(
+                entry_t, Instruction::Op::MakeStruct, std::move(values));
+            auto slot = producer.block->make_instruction(
+                u32(), Instruction::Op::Push,
+                {queue_at(producer.block, constant_u32(0)), entry});
+            std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
+            auto flag = make_saved(producer.block, true, slot, nullptr);
+            vector<shared_ptr<Value>> onwards{flag};
+            onwards.insert(onwards.end(), was.cont.args.begin(), was.cont.args.end());
+            producer.block->terminator.data =
+                Terminator::Jump{dispatch->name, std::move(onwards)};
+        }
     }
 
     // The rest of the producer's iteration, copied for the drain to run per
@@ -2196,6 +2249,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         drain_entry->preds.push_back(skip);
     }
     shared_ptr<Value> cur, nxt; // which queue is read, and which pushed to
+    shared_ptr<Value> next_queue; // the address of the one pushed to
     if (self_feeding) {
         drain_entry->terminator.data =
             Terminator::Jump{header->name, {constant_u32(0)}};
@@ -2237,12 +2291,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         std::get<Terminator::Dispatch>(header->terminator.data).cond = empty;
 
         // batch: the other queue is emptied and is where this round's
-        // successors go; then every entry of this one is run.
+        // successors go; then every entry of this one is run. Its address is
+        // made here, once per round and before the parfor, so that a later
+        // deferral whose producer is this drain finds the value the drain
+        // passes its callee defined where its own drain can reach it.
         nxt = pre->make_instruction(u32(), Instruction::Op::Xor,
                                     {reach(pre, cur), constant_u32(1)});
+        next_queue = queue_at(pre, nxt);
         auto count_ptr = pre->make_instruction(
             Ptr_t::make(u32()), Instruction::Op::FieldPtr,
-            {queue_at(pre, nxt), constant_u32(0)});
+            {next_queue, constant_u32(0)});
         pre->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
         std::get<Terminator::ParFor>(pre->terminator.data).end =
             reach(pre, pending);
@@ -2344,7 +2402,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
         }
         if (callee_in_chain) {
-            args.push_back(queue_at(body, reach(body, nxt)));
+            args.push_back(reach(body, next_queue));
         }
         body->terminator.data = Terminator::Call{
             Terminator::Jump{callee_name, std::move(args)},
@@ -2430,6 +2488,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
 
     // exit: on to whatever followed the producer.
     exit->preds = {self_feeding ? header : drain_entry};
+    if (!self_feeding) {
+        // Drained, so empty: said, for a queue whose producer runs again --
+        // a stage's queue inside another queue's rounds is filled and
+        // drained once per round.
+        auto count_ptr = exit->make_instruction(
+            Ptr_t::make(u32()), Instruction::Op::FieldPtr,
+            {reach(exit, queues), constant_u32(0)});
+        exit->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
+    }
     if (producer_loop_block) {
         exit->terminator.data =
             Terminator::Jump{exit_target, reach_all(exit, exit_args)};

@@ -22,6 +22,13 @@ struct QueueSpec {
     // A constant capacity the schedule gave, if any. Without one the size is
     // inferred (see below).
     std::optional<uint64_t> capacity;
+    // Whether the owner's own call into the chain -- the producer's -- is a
+    // push of the initial entry rather than a call that runs the first step:
+    // the schedule wrote `owner.defer(callee, q)` beside `callee.defer(callee,
+    // q)`, and every step then runs from the drain, as pbrt's camera rays go
+    // through the ray queue and are traced by nothing else (see the Convert
+    // pass, which folds the two directives into one deferral).
+    bool initial_push = false;
 };
 
 // Turns the calls of `callee` inside `func` into entries on a queue, and gives
