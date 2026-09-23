@@ -26,6 +26,7 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -675,7 +676,23 @@ class BonsaiToCpp : ir::Printer {
             for (size_t i = 0; i < sides.size(); i++) {
                 ss << (i ? ", " : "") << unsigned(sides[i]);
             }
-            ss << "};\n\n";
+            ss << "};\n";
+
+            // Which buffers the function takes, one macro each, for a driver
+            // compiled against more than one schedule's header: a function
+            // takes the extern arrays it reads, and a schedule can change
+            // which those are -- a lookup bound to the texture units leaves
+            // the software filter's tables out of `render`'s parameters --
+            // so the driver lists such a buffer under
+            // `#if BONSAI_<function>_HAS_<buffer>`. A layout field's dot is
+            // an underscore here.
+            for (const std::string &name : buffer_names) {
+                std::string macro = name;
+                std::replace(macro.begin(), macro.end(), '.', '_');
+                ss << "#define BONSAI_" << func->name << "_HAS_" << macro
+                   << " 1\n";
+            }
+            ss << '\n';
             if (arrays.empty()) {
                 // A layout is handed over as the struct of descriptors the
                 // driver built; there is no pointer form to offer.
