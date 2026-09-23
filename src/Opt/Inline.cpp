@@ -437,7 +437,23 @@ class Inliner : public ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override {
         std::vector<ir::Stmt> pre;
         auto [loc, _] = mutate_writeloc(node->loc);
-        ir::Expr value = mutate_hoisting(node->value, pre);
+        ir::Expr value;
+        if (node->spawned) {
+            // `spawn acc += f(...)` is a statement about the call: that its
+            // value goes into the reducer and nothing waits for it, which a
+            // schedule may take up by queueing the call (SSA/Defer.cpp).
+            // Copied into place, there would be no call to queue, so the
+            // call stays; its arguments are inlined as any are.
+            const ir::Call *call = node->value.as<ir::Call>();
+            internal_assert(call != nullptr) << "spawn of " << node->value;
+            std::vector<ir::Expr> args;
+            for (const ir::Expr &arg : call->args) {
+                args.push_back(mutate_hoisting(arg, pre));
+            }
+            value = ir::Call::make(call->func, std::move(args));
+        } else {
+            value = mutate_hoisting(node->value, pre);
+        }
         return with(std::move(pre),
                     ir::Accumulate::make(std::move(loc), node->op, value,
                                          node->atomic, node->spawned));

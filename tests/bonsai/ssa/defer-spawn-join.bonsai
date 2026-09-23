@@ -1,0 +1,35 @@
+//! flags: -p ssa
+
+// The join a spawned call leaves implicit. The producer's continuation,
+// `out[i] = total`, reads the reducer the spawned calls add into, and the
+// drain that runs them comes after the producer loop -- so the continuation
+// cannot run where it was. It becomes a push of what it took (`total`'s
+// address; `out` and `i` are in scope) onto `q_done`, and a pass over
+// `q_done` after the drain runs it, when every add is in
+// (join_continuations in SSA/Defer.cpp). pbrt's per-sample state and its
+// film pass after the last bounce.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += shade(x);
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], total);
+        out[i] = total;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}

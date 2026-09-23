@@ -36,6 +36,7 @@ add_bonsai_tests(
     defer-parfor.bonsai
     defer-reducer.bonsai
     defer-spawn.bonsai
+    defer-spawn-join.bonsai
     defer-split.bonsai
     defer-split-nested.bonsai
     defer-sum.bonsai

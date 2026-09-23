@@ -11,6 +11,7 @@ add_bonsai_tests(
     defer-loop-owned.bonsai
     defer-reducer.bonsai
     defer-spawn.bonsai
+    defer-spawn-join.bonsai
     defer-split.bonsai
     defer-stage-cycle.bonsai
     defer-tail.bonsai

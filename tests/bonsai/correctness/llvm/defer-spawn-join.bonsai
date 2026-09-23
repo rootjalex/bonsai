@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm -e
+
+// The join a spawned call leaves implicit, run: `out[i] = total` reads the
+// reducer after the spawned shade calls have added into it, though those
+// run in a drain after the loop -- the continuation is pushed and run in a
+// pass of its own after the drain. Each out[i] is x + 2x.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += shade(x);
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], total);
+        out[i] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    // 3, 6, 9, 12, 15, 18, 21, 24
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}

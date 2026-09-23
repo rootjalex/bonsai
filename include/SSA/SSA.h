@@ -455,8 +455,22 @@ struct Function {
     struct OwnedQueue {
         std::shared_ptr<Value> size;
         std::string point;
+        // The block that runs once every round of the drain is over, for
+        // what has to wait for all of them: a queue drained in rounds names
+        // its exit; a queue drained inside another's rounds names that
+        // one's; a queue drained in one pass outside any rounds names
+        // nothing, its own exit being that place.
+        std::string after;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
+    // The blocks at which this function runs the rest of a producer's
+    // iteration after a deferred call -- the continuation as the program
+    // wrote it, and the copies the drains run when an entry finishes -- by
+    // name (SSA/Defer.cpp). A spawned deferral whose drain adds into a
+    // reducer they read makes each a push onto a queue of its own, drained
+    // once every add is in, so that the read sees the whole sum: the join
+    // `spawn` leaves implicit, pbrt's film pass after the last bounce.
+    std::set<std::string> continuation_entries;
     // The addresses of the reducer slots deferrals of this function have
     // made (SSA/Defer.cpp): a per-iteration slot in place of a reducer local
     // of the producer's iteration, which outlives every frame and so may be
