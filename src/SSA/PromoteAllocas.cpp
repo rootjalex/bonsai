@@ -7,7 +7,10 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <set>
@@ -392,7 +395,8 @@ vector<Candidate> find_candidates(Function &func, const Cfg &region) {
 // left of `name` is only its allocation, loads and stores.
 void erase_threading(Function &func, const Cfg &region, const string &name) {
     for (const auto &block : func.blocks) {
-        if (!region.contains(*block)) {
+        const BlockId b = region.find(*block);
+        if (b == NO_BLOCK) {
             continue;
         }
         for (size_t j = block->args.size(); j-- > 0;) {
@@ -401,7 +405,12 @@ void erase_threading(Function &func, const Cfg &region, const string &name) {
             }
             block->args.erase(block->args.begin() + j);
 
-            for (const auto &pred : func.blocks) {
+            // The edges in are the graph's predecessors: the whole function
+            // has thousands of blocks and a threaded name reaches hundreds of
+            // them, and a scan of every block for each was most of a large
+            // function's promotion.
+            for (BlockId p : region.preds[b]) {
+                const shared_ptr<Block> &pred = region.block(p);
                 for (auto &[jump, first_arg] : jumps(*pred)) {
                     if (jump->name != block->name || j < first_arg) {
                         continue;
@@ -421,17 +430,40 @@ void erase_threading(Function &func, const Cfg &region, const string &name) {
 } // namespace
 
 size_t promote_allocas(Function &func, const string &entry) {
+    // BONSAI_TIME_PASSES: where a large function's promotion spends its
+    // time, by stage, summed over the candidates.
+    const bool timing = std::getenv("BONSAI_TIME_PASSES") != nullptr;
+    std::map<const char *, double> spent;
+    auto stage_started = std::chrono::steady_clock::now();
+    const auto stage = [&](const char *name) {
+        if (!timing) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        spent[name] += std::chrono::duration<double>(now - stage_started).count();
+        stage_started = now;
+    };
+
     const Cfg region(func, entry);
     const DomTree dom = compute_dominator_tree(region);
     const DominanceFrontier frontier = compute_dominance_frontier(region, dom);
+    stage("graph");
 
     const vector<Candidate> candidates = find_candidates(func, region);
+    stage("candidates");
     if (candidates.empty()) {
         return 0;
     }
 
     size_t promoted = 0;
+    // The deleted loads, by name, and what stands for each in a type: applied
+    // once, after every candidate, since a pass over every type of the
+    // function per candidate was most of a large function's promotion. A load
+    // of one candidate may be what reaches a load of a later one, so the
+    // names are followed through the map when it is applied.
+    map<string, ir::Expr> renames;
     for (const Candidate &c : candidates) {
+        stage_started = std::chrono::steady_clock::now();
         const BlockId allocated_in = region.id(c.block);
         // Where the value is (re)defined, and hence where the joins that need
         // a block argument for it are.
@@ -497,6 +529,7 @@ size_t promote_allocas(Function &func, const string &entry) {
                 }
             }
         }
+        stage("defs, reaching and joins");
         if (!always_assigned) {
             continue;
         }
@@ -516,6 +549,7 @@ size_t promote_allocas(Function &func, const string &entry) {
         }
 
         erase_threading(func, region, c.name);
+        stage("erase threading");
 
         // Loads become references to whatever value reaches them.
         map<const Instruction *, shared_ptr<Value>> replacements;
@@ -594,6 +628,7 @@ size_t promote_allocas(Function &func, const string &entry) {
             reaching.resize(depth);
         };
         rename(region.entry);
+        stage("rename");
 
         // Substitute the loads away. Only the block that held the load can
         // name it directly: references from other blocks go through a block
@@ -667,13 +702,38 @@ size_t promote_allocas(Function &func, const string &entry) {
         // candidate rather than once at the end: a load of this candidate may
         // be what reaches a load of the next, and the next candidate's pass
         // then renames what this one wrote.
-        map<string, ir::Expr> renames;
+        stage("substitute");
         for (const auto &[load, reaching] : replacements) {
             renames.emplace(load->name, expr_of(*reaching));
         }
-        if (!renames.empty()) {
-            rename_in_types(func, renames);
+    }
+    if (!renames.empty()) {
+        // A name that stands for another deleted load stands for what that
+        // one does.
+        for (auto &[name, expr] : renames) {
+            for (size_t hops = 0; hops < renames.size(); hops++) {
+                const auto *var = expr.as<ir::Var>();
+                if (var == nullptr) {
+                    break;
+                }
+                const auto next = renames.find(var->name);
+                if (next == renames.end() || next->first == name) {
+                    break;
+                }
+                expr = next->second;
+            }
         }
+        rename_in_types(func, renames);
+    }
+    stage("rename in types");
+    if (timing) {
+        std::cerr << "[time]     promote " << func.blocks.front()->name << ": "
+                  << region.size() << " blocks, " << candidates.size()
+                  << " candidates, " << promoted << " promoted;";
+        for (const auto &[name, seconds] : spent) {
+            std::cerr << " " << name << " " << seconds << " s;";
+        }
+        std::cerr << "\n";
     }
 
     return promoted;

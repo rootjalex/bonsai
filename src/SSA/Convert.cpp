@@ -1711,11 +1711,29 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
 
     TypeMap func_type_map;
 
+    // See BONSAI_TIME_PASSES in Lower/Lower.cpp: this one pass is most of a
+    // scheduled compile, so its phases are timed one by one -- the graph's
+    // construction, the passes over every function before and after the
+    // directives, each directive (below), and the statements at the end.
+    const bool timing = std::getenv("BONSAI_TIME_PASSES") != nullptr;
+    auto phase_started = std::chrono::steady_clock::now();
+    const auto phase = [&](const char *name) {
+        if (!timing) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        std::cerr << "[time]   ssa " << name << ": "
+                  << std::chrono::duration<double>(now - phase_started).count()
+                  << " s\n";
+        phase_started = now;
+    };
+
     for (const auto &[name, func] : funcs) {
         func_type_map[name] = func->call_type();
         auto f = build(func);
         fmap[name] = std::move(f);
     }
+    phase("build");
 
     check_branch_policies(fmap, policies);
 
@@ -1740,6 +1758,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         // looked at (see SSA/Simplify.h).
         simplify(*f);
     }
+    phase("sort and simplify");
 
     // A division by a value that does not change while its loop runs becomes
     // a multiply, with the multiplier computed where the divisor is (see
@@ -1785,9 +1804,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
     }
 
-    // See BONSAI_TIME_PASSES in Lower/Lower.cpp: the time each transform
-    // takes, since this one pass is most of a vectorized compile.
-    const bool timing = std::getenv("BONSAI_TIME_PASSES") != nullptr;
+    // The time each transform takes (BONSAI_TIME_PASSES, above).
+    phase("before the directives");
     // The functions a directive has been applied to so far: `specialize`
     // goes first among a function's, since its copies are what the
     // directives after it schedule, one variant's loops or all of them
@@ -2090,6 +2108,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         divide_all();
     }
 
+    phase("directives");
+
     // Now that every bind has been applied, it is settled which loops run
     // iterations at the same time -- and so which atomics were asked for
     // against a parallelism the schedule did not take up. Those cost nothing
@@ -2103,6 +2123,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         ReduceBlockAccumulates::run(*f);
     }
 
+    phase("atomics after the binds");
+
     // What the transforms built by rule is looked at once more (see
     // SSA/Simplify.h): a vectorized split loop's index is the outer index
     // broadcast plus the ramp of lanes, which is a ramp, and only as a ramp
@@ -2110,6 +2132,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     for (const auto &[name, f] : fmap) {
         simplify(*f);
     }
+    phase("simplify after the directives");
 
     // Contraction after the schedule as well, and for a related reason: what a
     // transform produces is arithmetic too. A vectorized gang's widened
@@ -2149,9 +2172,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // A queue's push stays one instruction while the schedule is applied,
     // for the vectorizer to recognize; from here on it is the fetch-and-add
     // and the store it stands for (see SSA/Defer.h).
+    phase("contraction, signatures and dumps");
     for (const auto &[name, f] : fmap) {
         lower_pushes(*f);
     }
+    phase("pushes");
     // A `mut` local the builder put in memory that nothing but loads and
     // stores ever touch is a value from here on (SSA/PromoteAllocas.h). After
     // the rewrites rather than before them, because a rewrite may be about
@@ -2164,6 +2189,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     for (const auto &[name, f] : fmap) {
         promote_allocas(*f, f->blocks.front()->name);
     }
+    phase("promote allocas");
     // Every parfor body's arguments are its captures again, whatever the
     // rewrites above and the promotion left of that (see SSA/CloseBodies.h):
     // the code generators make a kernel of a bound loop's body from those
@@ -2171,6 +2197,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     for (const auto &[name, f] : fmap) {
         close_parfor_bodies(*f);
     }
+    phase("close parfor bodies");
 
     ir::FuncMap new_funcs;
 
@@ -2195,6 +2222,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
             keep_ssa->ssa_funcs[fname] = f;
         }
     }
+    phase("statements");
 
     return new_funcs;
 }
