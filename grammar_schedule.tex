@@ -10,7 +10,9 @@
 \hline\\[-0.8em]
 $S$ : Schedule \;::=\; \code{schedule} \code{\{} $D^*$ \code{\}} \hfill \algcomment{a block of directives, applied in order} \\[0.3em]
 $D$ : Directive \;::=\; $f$\code{.}$T$ (\code{.}$T$)$^*$ \code{;} \hfill \algcomment{transforms of function $f$, chained} \\
-\phantom{$D$ : }\;|\; $q$ \code{=} $f$\code{.queue(}$l$ [\code{,} $n$]\code{);} \hfill \algcomment{a queue per iteration of $f$'s loop $l$ (or \code{root})} \\[0.3em]
+\phantom{$D$ : }\;|\; $q$ \code{=} $f$\code{.queue(}$l$ [\code{,} $n$]\code{);} \hfill \algcomment{a queue per iteration of $f$'s loop $l$ (or \code{root})} \\
+\phantom{$D$ : }\;|\; $Q$\code{.specialize(}$x$\code{);} \hfill \algcomment{$Q$ split into a queue per variant of the drained function's $x$} \\[0.3em]
+$Q$ : Queue \;::=\; $q$ (\code{[}$v$\code{]})$^*$ \hfill \algcomment{a queue, or the one its split made for variant $v$} \\[0.3em]
 $T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill \algcomment{recursion to a loop; a branching one on a stack of $n$} \\
 \phantom{$T$ : }\;|\; \code{split(}$l$, $l_o$, $l_i$, $n$, $b$\code{)} \hfill \algcomment{$l$ into $l_o$ striding by $n$ and $l_i$ over $[0, n)$; $b$: guard the tail} \\
 \phantom{$T$ : }\;|\; \code{collapse(}$l_o$, $l_i$, $l$\code{)} \hfill \algcomment{the inverse: two loops into one} \\
@@ -31,7 +33,8 @@ $\lambda$ : Lambda \;::=\; $|x_1 : T_1, \ldots, x_k : T_k|\ e$ \hfill \algcommen
 \end{tabular}
 \caption{Context-free grammar of \sys's scheduling language. $f$ and $g$ name
 functions of the program, $q$ a queue the block declares, $p$ a parameter of $f$
-of variant type, $i$ a loop index, $x$ an identifier, $n$ an integer literal and
+of variant type, $v$ a variant's name, $i$ a loop index, $x$ an identifier, $n$
+an integer literal and
 $b \in \{\code{true}, \code{false}\}$. A schedule changes how the program runs
 and never what it computes: every transform is a rewrite of the program's SSA
 with the same meaning. The binds nest as the hardware does -- a \code{GPUThread}
@@ -47,7 +50,10 @@ defunctionalized continuations: a queue holds the continuation's varying data by
 value, sized by the producer's trip count, and the drain is a \code{parfor} a
 later directive may split, vectorize or bind. \code{specialize} is Halide's
 \code{specialize} from a boolean to a variant: exhaustive copies of the loop
-nest with the tag a constant in each. \code{skip} is not a transform but a
+nest with the tag a constant in each; on a queue, the copies are of the
+drained function, one queue and one drain per variant, and the push reads
+the variant off the entry -- pbrt's queue per material type, as
+\code{hits[Some].specialize(material)}. \code{skip} is not a transform but a
 policy for a gang's branches (which arms get an any-lane test); the
 \code{tree} declarations a block may carry belong to the layout language.}
 \label{fig:schedule-grammar}

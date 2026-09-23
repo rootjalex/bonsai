@@ -2308,8 +2308,11 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
     }
 
     // pbrt: `if (!bsdf) { isect.SkipIntersection(&ray, si->tHit); continue; }`
-    // -- through the boundary, into the medium on its far side.
-    if material_is_interface(materials[prim.material]) {
+    // -- through the boundary, into the medium on its far side. The hit's
+    // material has a name here so that a schedule can split the hits by it
+    // (`hits[Some].specialize(material)`, pbrt's queue per material type).
+    material = materials[prim.material];
+    if material_is_interface(material) {
         skip_ray = spawn_ray(surf, ray.d);
         return vol_path_step(
             skip_ray, get_medium(prim, surf.n, ray.d, medium),
@@ -2324,9 +2327,8 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
     diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
     hit = displaced(surf, material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
-                         hit.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
-                         diffs.dvdy);
+    bsdf = material_bxdf(material, lambda, do_regularize, hit.uv, diffs.dudx,
+                         diffs.dvdx, diffs.dudy, diffs.dvdy);
     flags = bxdf_flags(bsdf);
 
     // pbrt: the visible surface at the first vertex, as in `full_path_step`.

@@ -5171,11 +5171,66 @@ The round is `while rays.count: n = rays.count; rays.count = 0; parfor
 rays; parfor hits; hits.count = 0`. Approved by the user with the cycle
 structure: "We should be able to fill a queue from multiple places."
 
+**Queues keyed by an outcome (built 2026-09-23): `q.specialize(x)`.**
+pbrt's `IntersectClosest` sorts what the trace found into queues -- the
+escaped rays, and for the hits one queue per material type (`MultiWorkQueue`
+over the material types, `EvaluateMaterialAndBSDF<Material>` a kernel per
+type) -- so that each material kernel has one material's code and register
+budget. Here that is a split of the stage's queue by a value of the drained
+function: `hits.specialize(isect)` makes `hits[None]` and `hits[Some]`,
+`hits[Some].specialize(material)` a queue per `Material` variant under it
+(ir::QueueSpecialize, QueueSpec::split). The key names a value of the
+function the drain runs -- an instruction by the program's name for it
+(`material = materials[prim.material]`, named in `vol_path_step` for this;
+the split's copy keeps names, CloneFunction.h `keep_names`) or a parameter
+-- of variant type: an ADT, or an optional (`None`/`Some` by its `set`).
+For every leaf of the tree the drained function is copied with the keys on
+the path given their variants' tags (SSA/Specialize.h: after the key's
+definition the copy reads it with the tag a constant, and two new rules in
+SSA/Simplify.cpp -- a field of a struct just made is what it was made from,
+a dispatch on a constant is a jump -- fold every match on it to the one arm
+and drop the rest, in the SSA rather than leaving it to LLVM, which matters
+for the material match inside `material_bxdf` once it is inlined and for
+reading the output). The push computes each key from the entry's values
+(`key_tag_at`: the key's pure slice -- field reads, an element of an array a
+parameter names, a load through a parameter nothing writes -- copied to the
+push, refused otherwise) and dispatches down the tree, a block per
+variant, a key below a variant computed only under it (the material of a
+miss is undefined; `hits[Some]` is where it is read), to the leaf that
+pushes; the saved flag carries the queue with the slot so the producer's
+frame writes its part into the right one. The queues are one array the
+callee is handed whole, storage per leaf, one pass per leaf in order, each
+drain named by its path (`hits!Some!Diffuse`) for a later split, vectorize
+or bind. Tests: ssa/defer-split (the structure), correctness/llvm/
+defer-split (an ADT key) and defer-split-nested (an optional, then an ADT
+under `Some`, the renderer's shape). In the renderer
+(`schedules/wavefront-volpath.bonsai`, `hits.specialize(isect);
+hits[Some].specialize(material);`): killeroo-simple renders the scalar
+schedule's image to 1.7e-6 relative and matches pbrt at the scalar's 33.2%
+per pixel; 12.9 s against pbrt's 14.0 s on the CPU with no gang, a single
+first look and not a measurement. camera-medium, homogeneous-medium,
+emissive-medium and interface-boundary give the scalar's albedo and
+normals bit for bit (4e-7 at most) and its radiance to 7e-6, and pbrt's
+figures as before (39.8%, 100%, 100%; camera-medium's coated-sphere albedo
+0.98% off as under every schedule). The compile is heavier -- a copy of the
+rest of `vol_path_step` per material variant, each through LLVM -- about
+three minutes for the three backends where it was one. Two things the
+split exposed and fixed on the way: `stage()`'s copy of the rest renamed
+every instruction (clone_region's fresh names, needed where a copy lives
+beside its original, not for a function of its own), and Opt/CSE.cpp
+bound a `let`'s value to a `_tN` temporary and left the `let` an alias,
+so a program's name for a value did not reach the SSA; both keep the name
+now, which is also what makes the SSA readable. Not yet: a split of a self-feeding
+queue (the rays), a key that is a lambda over the parameters (pbrt's medium
+queue, `medium >= 0`), and pbrt's side queues -- the emissive hit and the
+shadow ray -- which are the accumulate-only continuations of item (5).
+
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
 `schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
 drains are threads, checked against pbrt as every schedule is; (4) queues
-keyed by an outcome; (5) the shadow ray deferred with its result consumed;
+keyed by an outcome -- done (above), the CPU wavefront now has pbrt's
+escaped queue and material queues; (5) the shadow ray deferred with its result consumed;
 (6) device queues and the multi-kernel launch, measured against `pbrt
 --gpu` on killeroo, book and pavilion with the images checked. The escaped
 and emissive queues are not needed for correctness -- their work can stay

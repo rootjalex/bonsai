@@ -27,6 +27,15 @@ schedule {
     li_vol_path.defer(vol_path_step, rays);
     vol_path_step.defer(vol_path_step, rays);
     vol_path_step.stage(trace, hits);
+    // pbrt's queues after the trace: the escaped rays (hits[None]) and, for
+    // the hits, one queue per material type -- the interface skips, the
+    // diffuse, the coated, ... -- each drained by a copy of the rest of the
+    // step for that material alone (pbrt's EvaluateMaterialAndBSDF<M>). The
+    // rays that start in a medium do their medium walk at the head of the
+    // hits drain they land in; pbrt sends those to a medium-sample queue
+    // first, which no scene measured against pbrt --gpu has.
+    hits.specialize(isect);
+    hits[Some].specialize(material);
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|
