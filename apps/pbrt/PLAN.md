@@ -5453,16 +5453,49 @@ statement-level inliner 19 s, CSE 6 s -- the next two to look at. The
 per-material copies still carry every BxDF's sampling arm (4458 lines each;
 the Interface copy folded to 2611 once a simplify was added after alloca
 promotion, which is where a value that reached a match only through a
-`mut` local first shows as a struct with a constant tag). The BxDF's tag
-does not fold because the BxDF reaches its match through a merge -- the
-material arm's BxDF or its regularized copy (pbrt's `bsdf.Regularize()`),
-two builds of the same variant -- and the field rule sees through an
-argument only when every edge passes one instruction. The next step is a
-rule for the field of a merge whose every incoming struct was built with
-the same constant in that field: the tag of a variant merged from arms
-that all built that variant. With it each material copy is one BSDF, which
-is also what pbrt's per-material kernels are, and what the device kernels'
-register pressure will want.
+`mut` local first shows as a struct with a constant tag). The field rule
+now also folds the field of a merge whose every incoming struct was built
+with the same constant there (a variant merged from arms that all built
+that variant; tests/bonsai/ssa/merge-variant-fold). What still keeps the
+BxDF's tag from folding in a material copy is a call: the copy calls
+`material_bxdf!Diffuse` -- the clone specialize_callees made, which
+itself folded to the one arm and returns `Lambertian(...)` at every
+return -- and a call's result is opaque to the caller. LLVM inlines the
+clone and folds the dispatch in the machine code, so the cost is compile
+time and what later schedule steps see, not the render. Two ways to close
+it: an SSA-level inline of a small specialized clone into its one caller,
+or a per-function summary of the constant fields its returns agree on,
+read at the call's continuation. Either makes each material copy one
+BSDF at the SSA level, which is what pbrt's per-material kernels are and
+what the device kernels' register pressure will want.
+
+**The emissive-hit queue, designed (2026-09-23).** pbrt's
+HandleEmissiveIntersection: at a hit with an area light, `Le` weighed by
+the two probabilities is added to L in a kernel of its own; the material
+kernels do not compute it. As a program that is `if prim.light >= 0 {
+spawn l += emissive_contribution(lights[prim.light], surf.n, wo, lambda,
+beta, r_u, r_l, depth, specular_bounce, prev_ctx, ray.d, ls,
+prim.light); }` in `vol_path_step` after the trace, the function holding
+`light_l`, the `nonzero` test (pbrt's `if (!Le) return`), and the MIS
+weight (`r_l * pmf * pdf_li`, pbrt's `r_e`). As a schedule it is
+`emissive = render[VolPath].queue(p); vol_path_step.defer(
+emissive_contribution, emissive);`, the drain after the material passes
+like the shadow queue's. What stands in the way is that the site has been
+moved by the stage into `vol_path_step!after` and copied by the split
+into every `vol_path_step!after!Some!<Material>`, while `defer` takes one
+site function: Convert has to follow a directive on `vol_path_step` into
+the functions derived from it that make the call -- as resolve_loops
+follows a loop into a specialized copy's `p!Variant`, and as vectorize's
+copies are found through `specialized_from` -- and a spawned deferral has
+to take sites in several functions (one chain, a Spawn and a reducer
+parameter per site function, the accumulate's field traced per function).
+Writing the site into a small function of its own that every copy calls
+would sidestep that, but only until the inliner copies it back, and a
+`[[noinline]]` written to steer a schedule is the program bending to the
+compiler. Not needed for correctness -- the inline add is right -- and
+pbrt's reason for it (register pressure in the material kernels) is a
+device concern, so it is placed after device execution's first
+measurement.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
