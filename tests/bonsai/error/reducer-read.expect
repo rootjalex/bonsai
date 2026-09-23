@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/reducer-read.bonsai:11:12: [parse error] total is a reducer parameter (`reduce(+)`), which this function may only accumulate into (`total += ...`); it is read where it was declared.
+
+    return total * 2.0;
+           ^^^^^

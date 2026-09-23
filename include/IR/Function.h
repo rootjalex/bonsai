@@ -24,14 +24,24 @@ struct Function {
         // invented (see Allocate::unaliased); a program's own arguments may
         // well be the same object as each other.
         bool unaliased = false;
+        // A reduction variable, `l : reduce(+) vec4f`: mutating, and the
+        // only thing this function may do with it is accumulate into it
+        // (`l += e`); it is neither read nor assigned here, only where it
+        // was declared, after every call that was handed it has returned.
+        // What the program states so that a schedule may run those calls in
+        // any order or on any drain and add their contributions late -- a
+        // deferred shadow ray adding into the path's radiance -- and be
+        // right by construction (Cilk's reducer; pbrt's per-pixel-sample L).
+        bool reducer = false;
 
         Argument() {}
 
         Argument(std::string name, Type type, Expr default_value = Expr(),
-                 bool mutating = false, bool unaliased = false)
+                 bool mutating = false, bool unaliased = false,
+                 bool reducer = false)
             : name(std::move(name)), type(std::move(type)),
               default_value(std::move(default_value)), mutating(mutating),
-              unaliased(unaliased) {}
+              unaliased(unaliased), reducer(reducer) {}
 
         Argument(const Argument &) = default;
         Argument(Argument &&) noexcept = default;

@@ -1,0 +1,50 @@
+//! flags: -p ssa -b llvm -e
+
+// A reduction variable through the cycle: `total` is declared by the
+// producer's iteration and every step of the recursion adds into it, from
+// the rays drain and from the hits drain, and the producer reads it when
+// the path is done. Deferred, a reducer is not carried through the queues
+// by value -- two queues would each hold a copy -- but given a slot per
+// producer iteration beside the queues, whose address the entries carry,
+// so every drain adds into the one place: pbrt's per-pixel-sample L.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    r = work(x);
+    total += r;
+    if n == 0 {
+        return;
+    }
+    step(r, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], i % 4, total);
+        out[i] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {8.0, 8.0, 8.0, 8.0, 16.0, 16.0, 16.0, 16.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    // The sum of x * 0.5^k for k = 1 .. n + 1: 4, 6, 7, 7.5, 8, 12, 14, 15.
+    print(out);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    hits = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    step.stage(work, hits);
+}

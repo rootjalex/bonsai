@@ -1,0 +1,17 @@
+// A reducer parameter takes a reducer. A plain `mut` variable in its place
+// would be accumulated into by a callee whose caller may read it at any
+// time, so nothing would keep the caller's reads after the callee's adds
+// once a schedule moves the adds to another drain.
+
+import stdlib/numerics;
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    total += x;
+    return;
+}
+
+func run(x : Float) -> Float {
+    total : mut Float = 0.0;
+    step(x, total);
+    return total;
+}

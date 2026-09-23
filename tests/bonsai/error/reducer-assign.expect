@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/reducer-assign.bonsai:8:11: [parse error] total is a reducer (`reduce(+)`), which is only accumulated into (`total += ...`), never assigned.
+
+    total = x;
+          ^

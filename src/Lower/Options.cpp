@@ -205,6 +205,7 @@ ir::Program LowerOptions::run(ir::Program program,
                 rewriter.mutate(arg.default_value),
                 arg.mutating,
                 arg.unaliased,
+                arg.reducer,
             };
         }
         ir::Type ret_type = rewriter.mutate(func->ret_type);

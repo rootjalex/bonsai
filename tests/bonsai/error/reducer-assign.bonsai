@@ -1,0 +1,10 @@
+// A reducer is never assigned, only accumulated into: an assignment would
+// discard what the other contributors added, in an order a schedule is free
+// to choose.
+
+import stdlib/numerics;
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    total = x;
+    return;
+}

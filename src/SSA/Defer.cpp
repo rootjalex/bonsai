@@ -640,6 +640,14 @@ struct Field {
     // its contents while the entry waits, and the drain gives the entry a
     // local of its own to run with.
     const Instruction *local = nullptr;
+    // The owner's reducer local this field holds the address of, if any:
+    // given a slot of its own beside the queues once the queue's size is
+    // known, whose address the field then stores (see the hoist below).
+    const Instruction *reducer_local = nullptr;
+    // Whether the field holds a reducer's address at all -- a slot's, or
+    // one handed down -- so that a drain's read of it counts as one too
+    // (Function::reducer_slots) for the deferrals that come after.
+    bool reducer_address = false;
     // The owner's definition of what the field holds, when it is one value
     // throughout -- for an argument and a frame value that are the same value
     // to share the field.
@@ -1411,6 +1419,30 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             params[j] = {Where::Elided, 0};
             continue;
         }
+        if (param.reducer) {
+            // A reducer is storage every continuation of the iteration adds
+            // into, in this queue and any other: its address is stored,
+            // never its contents. A local of the producer's iteration is
+            // given a slot in an array made beside the queues (below, once
+            // the queue's size is known) and the field holds that slot's
+            // address; a reducer the producer was itself handed is the
+            // address it was given. Either outlives every frame, which is
+            // what makes the address safe to store.
+            internal_assert(inv)
+                << what << ": the reducer " << param.name << " of "
+                << callee_name << " is given different storage at different "
+                << "calls; a reducer is one place for the whole iteration";
+            Field f;
+            f.name = field_named(param.name);
+            f.type = param.type;
+            f.param = j;
+            f.origin = org;
+            f.reducer_local = as_local(org);
+            f.reducer_address = true;
+            params[j] = {Where::Stored, fields.size()};
+            fields.push_back(std::move(f));
+            continue;
+        }
         if (const Instruction *local = inv ? as_local(org) : nullptr) {
             Field f;
             f.name = field_named(param.name);
@@ -1464,6 +1496,26 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             carried.push_back({From::Available, 0, d});
             continue;
         }
+        // A reducer's address is stored as the address it is: the slot the
+        // callee's parameter field holds, when the callee is handed the same
+        // local; or a slot an earlier deferral made, which outlives every
+        // frame (Function::reducer_slots).
+        bool reducer_address = false;
+        if (const Instruction *local = as_local(d)) {
+            size_t f = fields.size();
+            for (size_t k = 0; k < fields.size(); k++) {
+                if (fields[k].reducer_local == local) {
+                    f = k;
+                }
+            }
+            if (f != fields.size()) {
+                carried.push_back({From::Field, f, d});
+                continue;
+            }
+        } else if (const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+                   di != nullptr && O->reducer_slots.contains(di->get())) {
+            reducer_address = true;
+        }
         if (const Instruction *local = as_local(d)) {
             size_t f = fields.size();
             for (size_t k = 0; k < fields.size(); k++) {
@@ -1484,7 +1536,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             carried.push_back({From::Relocated, f, d});
             continue;
         }
-        internal_assert(!holds_address(arg.type))
+        internal_assert(!holds_address(arg.type) || reducer_address)
             << what << ": after the call to " << pcall.call.name << " in "
             << producer.block->name << ", " << queue.owner << " goes on to use "
             << arg.name << ", an address (" << arg.type << ") computed inside "
@@ -1503,6 +1555,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             field.type = arg.type;
             field.origin = d;
             field.frame_writes = true;
+            field.reducer_address = reducer_address;
             fields.push_back(std::move(field));
         }
         carried.push_back({From::Field, f, d});
@@ -1642,6 +1695,54 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         size = constant_u32(*queue.capacity);
     }
     O->queue_sizes[queue.name] = Function::OwnedQueue{size, alloc_point->name};
+
+    // A reducer local of the producer's iteration: a slot per iteration in
+    // an array made where the queue's storage is, and the slot's address in
+    // place of the local, so that every continuation of the iteration -- in
+    // this queue and in any other -- adds into the one place (pbrt's
+    // pixelSampleState.L). The local's initializing store becomes the
+    // slot's; the field stores the address.
+    for (Field &f : fields) {
+        if (f.reducer_local == nullptr) {
+            continue;
+        }
+        const Instruction *local = f.reducer_local;
+        const shared_ptr<Block> home = local->owner.lock();
+        internal_assert(home) << what << ": the reducer " << f.name
+                              << " outlived its block";
+        const Type etype = local->type.as<Ptr_t>()->etype;
+        auto slots = make_alloca(*O, alloc_point,
+                                 Array_t::make(etype, as_expr(size)),
+                                 queue.name + "_" + f.name + "_slots");
+        shared_ptr<Value> index = constant_u32(0);
+        if (producer_loop_block) {
+            // The iteration's slot is its index in the producer loop, the
+            // loop body's first argument.
+            const auto &p = std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
+            const shared_ptr<Block> pbody = omap.at(p.body.name);
+            internal_assert(!pbody->args.empty()) << what << ": " << pbody->name
+                                                  << " has no index";
+            index = reach(home, std::make_shared<Value>(pbody->args.front()));
+        }
+        size_t at = home->instrs.size();
+        for (size_t i = 0; i < home->instrs.size(); i++) {
+            if (home->instrs[i].get() == local) {
+                at = i + 1;
+            }
+        }
+        internal_assert(at <= home->instrs.size())
+            << what << ": " << f.name << " is not in " << home->name;
+        auto slot = std::make_shared<Instruction>(
+            O->get_unique_name(), local->type, Instruction::Op::GEP,
+            vector<shared_ptr<Value>>{reach(home, slots), index}, home);
+        home->instrs.insert(home->instrs.begin() + at, slot);
+        auto slot_value = std::make_shared<Value>(slot);
+        home->lookups[slot->name] = slot_value;
+        replace_uses(*O, local, slot_value);
+        O->reducer_slots.insert(slot.get());
+        f.origin = Definition{slot_value, home->name};
+        f.reducer_local = nullptr;
+    }
 
     //===----------------------------------------------------------------===//
     // The types
@@ -2455,6 +2556,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 internal_assert(l == field_leaves[f].second)
                     << what << ": " << fields[f].name << " has fewer scalars "
                     << "than the queue stores for it";
+                if (fields[f].reducer_address) {
+                    // Read back out of the entry, the address is still a
+                    // reducer's: a later deferral may store it too.
+                    if (const auto *vi = std::get_if<shared_ptr<Instruction>>(&value->data)) {
+                        O->reducer_slots.insert(vi->get());
+                    }
+                }
                 it = field_values.emplace(f, std::move(value)).first;
             }
             return reach(block, it->second);

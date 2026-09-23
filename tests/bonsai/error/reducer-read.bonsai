@@ -1,0 +1,12 @@
+// A reducer parameter is only accumulated into. Reading it inside the
+// function it was handed to would make the value depend on which of the
+// calls that share it have run, which is exactly what declaring it a
+// reducer promises nothing does: it is read where it was declared, after
+// they all have.
+
+import stdlib/numerics;
+
+func step(x : Float, total : reduce(+) Float) -> Float {
+    total += x;
+    return total * 2.0;
+}

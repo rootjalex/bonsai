@@ -271,6 +271,7 @@ vector<Type> stage(FuncMap &funcs, const string &func_name,
             }
             a.mutating = param == nullptr || param->mutating;
             a.unaliased = param != nullptr && param->unaliased;
+            a.reducer = param != nullptr && param->reducer;
         };
         const size_t result_args = call.drop ? 0 : 1;
         internal_assert(cont->args.size() == result_args + call.cont.args.size())

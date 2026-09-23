@@ -34,6 +34,7 @@ add_bonsai_tests(
     defer-mut-local.bonsai
     defer-off-chain.bonsai
     defer-parfor.bonsai
+    defer-reducer.bonsai
     defer-split.bonsai
     defer-split-nested.bonsai
     defer-sum.bonsai

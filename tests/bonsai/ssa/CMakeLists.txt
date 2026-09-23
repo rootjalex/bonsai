@@ -9,6 +9,7 @@ add_bonsai_tests(
     defer-gang.bonsai
     defer-lone-call.bonsai
     defer-loop-owned.bonsai
+    defer-reducer.bonsai
     defer-split.bonsai
     defer-stage-cycle.bonsai
     defer-tail.bonsai

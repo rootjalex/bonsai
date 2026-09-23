@@ -812,7 +812,8 @@ ir::Program LowerADTs::run(ir::Program program,
             args[i] =
                 ir::Function::Argument{arg.name, rewriter.mutate(arg.type),
                                        rewriter.mutate(arg.default_value),
-                                       arg.mutating, arg.unaliased};
+                                       arg.mutating, arg.unaliased,
+                                       arg.reducer};
         }
         func = std::make_shared<ir::Function>(
             func->name, std::move(args), rewriter.mutate(func->ret_type),
@@ -841,7 +842,7 @@ ir::Program LowerADTs::run(ir::Program program,
             args[i] = ir::Function::Argument{
                 arg.name, rewriter.mutate(arg.type),
                 rewriter.mutate(arg.default_value), arg.mutating,
-                arg.unaliased};
+                arg.unaliased, arg.reducer};
         }
         program.funcs[fname] = std::make_shared<ir::Function>(
             appender->name, std::move(args),

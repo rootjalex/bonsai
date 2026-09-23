@@ -65,7 +65,8 @@ struct FunctionBuilder : Visitor {
             if (arg.mutating) {
                 mut_names.insert(arg.name);
             }
-            Argument a = {arg.type, arg.name, arg.mutating, arg.unaliased};
+            Argument a = {arg.type, arg.name, arg.mutating, arg.unaliased,
+                          arg.reducer};
             block->args.push_back(a);
             auto [_, inserted] = block->lookups.insert(
                 {arg.name, std::make_shared<Value>(std::move(a))});

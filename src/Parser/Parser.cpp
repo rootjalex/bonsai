@@ -235,6 +235,14 @@ struct Parser {
         bool mutating;
         // Usually the source name; see used_names for when it is not.
         std::string ir_name;
+        // A reduction variable, `reduce(+) T`, and its operation: only ever
+        // accumulated into with that operation, never assigned; read only
+        // where it was declared, so never through a parameter (see
+        // ir::Function::Argument::reducer).
+        bool reducer = false;
+        ir::Accumulate::OpType reducer_op = ir::Accumulate::OpType::Add;
+        // Whether it is a parameter of the function being parsed.
+        bool parameter = false;
     };
     ir::MapStack<std::string, FunctionVariable> frames;
     // Every name already spent in the function being parsed.
@@ -367,21 +375,80 @@ struct Parser {
     // Bring a name into scope under itself. For things whose name is part of
     // an interface -- externs, function arguments, the fields a layout names --
     // where renaming would change what the outside world sees.
-    void add_type_to_frame(const std::string &name, ir::Type type, bool mut) {
+    void add_type_to_frame(const std::string &name, ir::Type type, bool mut,
+                           bool reducer = false,
+                           ir::Accumulate::OpType reducer_op =
+                               ir::Accumulate::OpType::Add,
+                           bool parameter = false) {
         used_names.insert(name);
         frames.add_to_frame(name, FunctionVariable{
                                       .type = type,
                                       .mutating = mut,
                                       .ir_name = name,
+                                      .reducer = reducer,
+                                      .reducer_op = reducer_op,
+                                      .parameter = parameter,
                                   });
+    }
+
+    // Whether the next tokens spell a reduction variable's type, `reduce(+)
+    // T`. `reduce` is the query language's word for it too, and here it is
+    // followed by the operation in parentheses and then the type.
+    bool at_reduce() const {
+        const Token token = peek();
+        return token.type == Token::Type::IDENTIFIER &&
+               std::get<std::string>(token.value) == "reduce";
+    }
+
+    // `(+)` after `reduce`: the operation. Only `+` so far; the others are
+    // refused rather than accepted and mishandled.
+    ir::Accumulate::OpType parse_reducer_op() {
+        expect(Token::Type::LPAREN);
+        ir::Accumulate::OpType op = ir::Accumulate::OpType::Add;
+        if (consume(Token::Type::PLUS)) {
+            op = ir::Accumulate::OpType::Add;
+        } else {
+            report_error() << "[unimplemented] a reduction variable's operation "
+                              "is `+` (`reduce(+) T`); the others are not built.";
+        }
+        expect(Token::Type::RPAREN);
+        return op;
+    }
+
+    // A reducer parameter is only accumulated into here; its value is read
+    // where it was declared, after the calls that were handed it returned.
+    void refuse_reducer_read(const std::string &name) const {
+        const std::optional<FunctionVariable> v = frames.from_frames(name);
+        if (v.has_value() && v->reducer && v->parameter) {
+            report_error() << name << " is a reducer parameter (`reduce(+)`), "
+                           << "which this function may only accumulate into "
+                           << "(`" << name << " += ...`); it is read where it "
+                           << "was declared.";
+        }
+    }
+
+    bool is_reducer_ir_name(const std::string &ir_name) const {
+        const std::optional<FunctionVariable> variable = frames.find_if(
+            [&](const std::string &, const FunctionVariable &v) {
+                return v.ir_name == ir_name;
+            });
+        return variable.has_value() && variable->reducer;
+    }
+
+    bool is_reducer(const ir::Expr &expr) const {
+        const ir::Var *var = expr.as<ir::Var>();
+        return var != nullptr && is_reducer_ir_name(var->name);
     }
 
     // Bring a name into scope under a name no other variable in this function
     // has used, and answer what that is. Callers must put the result in the IR
     // they build; `ir_name_of` resolves later uses to it.
-    std::string declare(const std::string &name, ir::Type type, bool mut) {
+    std::string declare(const std::string &name, ir::Type type, bool mut,
+                        bool reducer = false,
+                        ir::Accumulate::OpType reducer_op =
+                            ir::Accumulate::OpType::Add) {
         if (!renaming_declarations) {
-            add_type_to_frame(name, std::move(type), mut);
+            add_type_to_frame(name, std::move(type), mut, reducer, reducer_op);
             return name;
         }
         std::string ir_name = name;
@@ -392,6 +459,8 @@ struct Parser {
                                       .type = std::move(type),
                                       .mutating = mut,
                                       .ir_name = ir_name,
+                                      .reducer = reducer,
+                                      .reducer_op = reducer_op,
                                   });
         return ir_name;
     }
@@ -415,6 +484,10 @@ struct Parser {
         frames.replace(name, FunctionVariable{
                                  .type = type,
                                  .mutating = variable_type->mutating,
+                                 .ir_name = variable_type->ir_name,
+                                 .reducer = variable_type->reducer,
+                                 .reducer_op = variable_type->reducer_op,
+                                 .parameter = variable_type->parameter,
                              });
     }
 
@@ -828,10 +901,20 @@ struct Parser {
                 // TODO: can we accept multiple args with one type here, as in
                 // element definitions?
                 bool mutating = false;
+                bool reducer = false;
+                ir::Accumulate::OpType reducer_op = ir::Accumulate::OpType::Add;
                 std::string arg_name = get_id();
                 expect(Token::Type::COL);
                 if (consume(Token::Type::MUT)) {
                     mutating = true;
+                } else if (at_reduce()) {
+                    // `l : reduce(+) vec4f` -- a reduction variable, which
+                    // this function only accumulates into (see
+                    // ir::Function::Argument::reducer).
+                    get_id();
+                    reducer_op = parse_reducer_op();
+                    mutating = true;
+                    reducer = true;
                 }
                 ir::Type type = parse_type();
 
@@ -850,12 +933,15 @@ struct Parser {
                     }
                 }
 
-                add_type_to_frame(arg_name, type, mutating);
+                add_type_to_frame(arg_name, type, mutating, reducer, reducer_op,
+                                  /*parameter=*/true);
                 args.push_back(ir::Function::Argument{
                     std::move(arg_name),
                     std::move(type),
                     std::move(default_value),
                     mutating,
+                    /*unaliased=*/false,
+                    reducer,
                 });
             } while (consume(Token::Type::COMMA));
         }
@@ -1318,8 +1404,13 @@ struct Parser {
             if (loc.accesses.empty() && !name_in_scope(loc.base)) {
                 report_error() << "atomic on an undeclared name: " << loc.base;
             }
+            const std::optional<FunctionVariable> variable =
+                frames.from_frames(loc.base);
             loc.base = ir_name_of(loc.base);
-            return parse_accumulate(std::move(loc), /*atomic=*/true);
+            return parse_accumulate(std::move(loc), /*atomic=*/true,
+                                    variable.has_value() && variable->reducer
+                                        ? std::optional(variable->reducer_op)
+                                        : std::nullopt);
         } else if (consume(Token::Type::DO)) {
             // `do body while (cond);` -- a loop whose trip count is not known
             // before it runs. `for` and `parfor` both say their range up front,
@@ -1408,12 +1499,23 @@ struct Parser {
             // Everything below writes to a variable that already exists, so
             // the base is a use and resolves to whatever that declaration was
             // named.
+            const std::optional<FunctionVariable> variable =
+                frames.from_frames(loc.base);
+            const bool reducer = variable.has_value() && variable->reducer;
             loc.base = ir_name_of(loc.base);
             if (consume(Token::Type::ASSIGN)) {
+                if (reducer) {
+                    report_error()
+                        << loc.base << " is a reducer (`reduce(+)`), which is "
+                        << "only accumulated into (`" << loc.base
+                        << " += ...`), never assigned.";
+                }
                 return parse_assign(std::move(loc));
             } else {
                 // Must be an accumulate.
-                return parse_accumulate(std::move(loc));
+                return parse_accumulate(
+                    std::move(loc), /*atomic=*/false,
+                    reducer ? std::optional(variable->reducer_op) : std::nullopt);
             }
         }
         internal_error << "[unimplemented] parse_statement for "
@@ -1525,6 +1627,8 @@ struct Parser {
         internal_assert(!loc.type.defined());
         ir::Type type_label;
         bool _mutable = false;
+        bool reducer = false;
+        ir::Accumulate::OpType reducer_op = ir::Accumulate::OpType::Add;
 
         if (consume(Token::Type::COL)) {
             if (consume(Token::Type::MUT)) {
@@ -1533,6 +1637,15 @@ struct Parser {
                     type_label = parse_type();
                 } // otherwise just a `mut` label.
                 // TODO: should we ever allow "just" a mut label?
+            } else if (at_reduce()) {
+                // `l : reduce(+) vec4f = zero;` -- a reduction variable:
+                // mutable, accumulated into by this function and any it hands
+                // it to, and read here once they are done.
+                get_id();
+                reducer_op = parse_reducer_op();
+                _mutable = true;
+                reducer = true;
+                type_label = parse_type();
             } else {
                 type_label = parse_type();
             }
@@ -1569,7 +1682,8 @@ struct Parser {
         ir::Type write_type = type_label.defined() ? type_label : type;
         // Sequenced, because `declare` reads the type that the WriteLoc below
         // moves from, and argument evaluation order would not be.
-        std::string ir_name = declare(loc.base, write_type, _mutable);
+        std::string ir_name =
+            declare(loc.base, write_type, _mutable, reducer, reducer_op);
         loc = ir::WriteLoc(std::move(ir_name), std::move(write_type));
         if (!_mutable) {
             return ir::LetStmt::make(std::move(loc), std::move(value));
@@ -1620,7 +1734,11 @@ struct Parser {
         }
     }
 
-    ir::Stmt parse_accumulate(ir::WriteLoc loc, bool atomic = false) {
+    // `reducer_op` is the operation of the reduction variable being
+    // accumulated into, when it is one: the only operation it takes.
+    ir::Stmt parse_accumulate(
+        ir::WriteLoc loc, bool atomic = false,
+        std::optional<ir::Accumulate::OpType> reducer_op = std::nullopt) {
         ir::Accumulate::OpType op = ir::Accumulate::OpType::Add;
         // Try to parse an accumulate
         if (consume(Token::Type::PLUS)) {
@@ -1629,6 +1747,10 @@ struct Parser {
             op = ir::Accumulate::OpType::Mul;
         } else {
             report_error() << "Unknown token when parsing Accumulate at line:";
+        }
+        if (reducer_op.has_value() && *reducer_op != op) {
+            report_error() << loc.base << " is a `reduce(+)` variable; only "
+                           << "`+=` accumulates into it.";
         }
         expect(Token::Type::ASSIGN);
         ir::Expr value = parse_expr();
@@ -2188,6 +2310,7 @@ struct Parser {
             if (name_in_scope(name)) {
                 ir::Type var_type =
                     get_type_from_frame(name); // never undefined.
+                refuse_reducer_read(name);
                 ir::Expr expr = ir::Var::make(var_type, ir_name_of(name));
                 return ir::Call::make(std::move(expr), std::move(args));
             }
@@ -2222,6 +2345,7 @@ struct Parser {
         }
 
         ir::Type var_type = get_type_from_frame(name); // never undefined.
+        refuse_reducer_read(name);
         ir::Expr expr = ir::Var::make(var_type, ir_name_of(name));
         return expr;
     }
@@ -2249,7 +2373,21 @@ struct Parser {
 
         std::vector<ir::Expr> args;
         if (consume(Token::Type::LPAREN)) {
-            args = parse_expr_list_until(Token::Type::RPAREN);
+            args = parse_expr_list_until(Token::Type::RPAREN, /*calling=*/true);
+
+            // Only a function's reducer parameter may take a reducer (the
+            // call checks each argument against its parameter below); a
+            // variant built from one or an intrinsic given one would read it.
+            if (!program.funcs.contains(name)) {
+                for (const ir::Expr &arg : args) {
+                    if (is_reducer(arg)) {
+                        report_error()
+                            << arg << " is a reducer (`reduce(+)`), which is "
+                            << "only accumulated into or handed to a reducer "
+                            << "parameter; " << name << " would read it.";
+                    }
+                }
+            }
 
             // Naming a variant builds one. Variant names are unique across the
             // program, so the name alone says which type is meant -- there is
@@ -2445,6 +2583,23 @@ struct Parser {
                     << "Argument " << args[i] << " at position " << i
                     << " of call to function " << name << " must be mutable.";
             }
+            // A reducer parameter takes a reducer and a reducer goes only to
+            // a reducer parameter: what keeps "only accumulated into" true
+            // across calls.
+            const bool passes_reducer = is_reducer(args[i]);
+            if (func->args[i].reducer && !passes_reducer) {
+                report_error()
+                    << "Argument " << args[i] << " at position " << i
+                    << " of call to function " << name
+                    << " must be a reducer (`reduce(+)`), as the parameter is.";
+            }
+            if (!func->args[i].reducer && passes_reducer) {
+                report_error()
+                    << "Argument " << args[i] << " at position " << i
+                    << " of call to function " << name
+                    << " is a reducer, and the parameter is not: the function "
+                    << "could read or assign it.";
+            }
         }
 
         ir::Type ftype;
@@ -2466,12 +2621,27 @@ struct Parser {
         return ir::Call::make(std::move(f), std::move(args));
     }
 
-    std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token) {
+    // `calling`: the list is a call's arguments, where a reducer may stand
+    // on its own as an argument -- handed on to a parameter that is a
+    // reducer too, which the call checks -- though it is never read; any
+    // other expression of it is a read and refused where it is parsed.
+    std::vector<ir::Expr> parse_expr_list_until(const Token::Type &token,
+                                                bool calling = false) {
         std::vector<ir::Expr> exprs;
         if (consume(token)) {
             return exprs;
         }
         do {
+            if (calling && peek(0).type == Token::Type::IDENTIFIER &&
+                (peek(1).type == Token::Type::COMMA || peek(1).type == token)) {
+                const std::string name = std::get<std::string>(peek(0).value);
+                const std::optional<FunctionVariable> v = frames.from_frames(name);
+                if (v.has_value() && v->reducer) {
+                    get_id();
+                    exprs.emplace_back(ir::Var::make(v->type, v->ir_name));
+                    continue;
+                }
+            }
             ir::Expr expr = parse_expr();
             exprs.emplace_back(std::move(expr));
         } while (consume(Token::Type::COMMA));

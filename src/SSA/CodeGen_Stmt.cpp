@@ -2184,7 +2184,8 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
     for (const auto &arg : func.blocks[0]->args) {
         // TODO: default values aren't preserved through SSA.
         args.push_back(ir::Function::Argument(arg.name, arg.type, Expr(),
-                                              arg.mutating, arg.unaliased));
+                                              arg.mutating, arg.unaliased,
+                                              arg.reducer));
     }
 
     Type ret_type = func.ret_type;

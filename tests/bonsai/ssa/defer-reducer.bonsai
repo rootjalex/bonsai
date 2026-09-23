@@ -1,0 +1,33 @@
+//! flags: -p ssa
+
+// A reduction variable through a deferred recursion, in the SSA: `total`,
+// a `reduce(+)` local of the producer's iteration, is given a slot per
+// iteration in `q_total_slots`, made beside the queue's storage, and its
+// address takes the local's place; the entry stores that address, the
+// drain hands it to `step`, whose `total += r` adds into the slot, and the
+// producer's continuation reads the slot when the entry finishes
+// (SSA/Defer.cpp; ir::Function::Argument::reducer).
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x * 0.5, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], i % 4, total);
+        out[i] = total;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(step, q);
+}

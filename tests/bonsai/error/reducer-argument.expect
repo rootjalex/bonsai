@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/reducer-argument.bonsai:15:18: [parse error] Argument total at position 1 of call to function step must be a reducer (`reduce(+)`), as the parameter is.
+
+    step(x, total);
+                 ^

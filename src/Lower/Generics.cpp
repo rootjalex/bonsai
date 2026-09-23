@@ -207,9 +207,9 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
                 ir::Type new_type = replace(_types, func->args[i].type);
                 internal_assert(!contains_generics(new_type));
                 const ir::Function::Argument &before = func->args[i];
-                args[i] =
-                    Function::Argument(before.name, std::move(new_type),
-                                       before.default_value, before.mutating);
+                args[i] = Function::Argument(
+                    before.name, std::move(new_type), before.default_value,
+                    before.mutating, before.unaliased, before.reducer);
             }
 
             Type ret_type = replace(_types, func->ret_type);

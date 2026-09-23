@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -25,6 +27,11 @@ struct Argument {
     // this parameter names survives the trip through this form (see
     // ir::Function::Argument::unaliased).
     bool unaliased = false;
+    // Likewise: a reduction variable, only accumulated into here (see
+    // ir::Function::Argument::reducer). A deferral stores its address in the
+    // entry rather than its contents, since every continuation of the
+    // iteration adds into the one place (SSA/Defer.cpp).
+    bool reducer = false;
 
     void dump(std::ostream &os) const;
 };
@@ -444,6 +451,11 @@ struct Function {
         std::string point;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
+    // The addresses of the reducer slots deferrals of this function have
+    // made (SSA/Defer.cpp): a per-iteration slot in place of a reducer local
+    // of the producer's iteration, which outlives every frame and so may be
+    // stored in a queue entry as the address it is.
+    std::set<const Instruction *> reducer_slots;
 
     void dump(std::ostream &os) const;
 
