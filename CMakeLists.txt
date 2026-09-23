@@ -210,6 +210,7 @@ target_sources(
     src/SSA/AnalyzeDivergence.cpp
     src/SSA/Bind.cpp
     src/SSA/CloneFunction.cpp
+    src/SSA/BlockAccumulates.cpp
     src/SSA/CloseBodies.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
@@ -330,6 +331,7 @@ target_sources(
     include/Parser/Token.h
     include/SSA/Analysis.h
     include/SSA/AnalyzeDivergence.h
+    include/SSA/BlockAccumulates.h
     include/SSA/CloneFunction.h
     include/SSA/CloseBodies.h
     include/SSA/CodeGen_Stmt.h

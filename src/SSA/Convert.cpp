@@ -5,6 +5,7 @@
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
 #include "SSA/Defer.h"
+#include "SSA/BlockAccumulates.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/InvariantDivision.h"
 #include "SSA/PromoteAllocas.h"
@@ -1852,6 +1853,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // and before the graph is turned back into statements.
     for (const auto &[name, f] : fmap) {
         DemoteAtomics::run(*f);
+        // The atomics every thread of a GPU block makes to one word, once
+        // per block instead (SSA/BlockAccumulates.h); before the allocas
+        // are promoted, so the slots it makes become values.
+        ReduceBlockAccumulates::run(*f);
     }
 
     // What the transforms built by rule is looked at once more (see

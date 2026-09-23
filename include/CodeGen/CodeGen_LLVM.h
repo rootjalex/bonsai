@@ -859,6 +859,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) {
         return builder->CreateExtractElement(vec, idx);
     }
+    // A value reduced across the threads of a GPU block -- the fold of
+    // every thread's `v` under `op`, in every thread (the block_reduce_*
+    // intrinsics SSA/BlockAccumulates.h makes). `type` is the program's
+    // type of `v`, for the sign an integer's min and max go by. Only a
+    // device has blocks; CodeGen_PTX lowers it.
+    virtual llvm::Value *block_reduce(ir::Intrinsic::OpType op,
+                                      const ir::Type &type, llvm::Value *v);
     // One indivisible read-modify-write per lane that is on: lane k's value
     // into lane k's place. `ptrs` is one address per lane (a scatter) or the
     // one address of memory laid out per lane, in which case lane k's place

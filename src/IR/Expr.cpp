@@ -1315,6 +1315,22 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type().element_of();
             break;
         }
+        case Intrinsic::block_reduce_add:
+        case Intrinsic::block_reduce_max:
+        case Intrinsic::block_reduce_min:
+        case Intrinsic::block_reduce_mul: {
+            internal_assert(args.size() == 1)
+                << "a block reduction takes one value, not " << args.size();
+            const Type &t = args[0].type();
+            const Type e = t.is<Vector_t>() ? t.element_of() : t;
+            internal_assert(e.is_scalar() && e.bits() == 32 &&
+                            (e.is_float() || e.is_int_or_uint()) &&
+                            (!t.is<Vector_t>() || t.lanes() <= 4))
+                << "a block reduces a 32-bit float or integer, alone or as a "
+                << "short vector's lanes, not " << t;
+            node->type = t;
+            break;
+        }
         case Intrinsic::tex_sample_grad_2d: {
             internal_assert(args.size() == 4)
                 << "tex_sample_grad_2d takes a texture handle, the "

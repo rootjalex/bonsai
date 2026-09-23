@@ -580,6 +580,18 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // unit's (x, y) gradient pairs are what is passed, whatever the
         // caller means by them.
         tex_sample_grad_2d,
+        // A value reduced across the threads of a GPU block -- the fold of
+        // every thread's argument under the operation, in every thread:
+        // `block_reduce_add(v)`, `_mul`, `_min`, `_max`, over a 32-bit float
+        // or integer alone or as the lanes of a short vector. Made by
+        // SSA/BlockAccumulates.h in place of an atomic every thread of a
+        // block made to one word; only the PTX backend lowers it (a warp
+        // shuffle tree, a shared slot per warp, a barrier), and no program
+        // writes one.
+        block_reduce_add,
+        block_reduce_max,
+        block_reduce_min,
+        block_reduce_mul,
         // TODO: more
     };
 

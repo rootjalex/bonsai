@@ -1,0 +1,53 @@
+//! flags: -p ssa -b llvm -e
+
+// Accumulates every thread of a block makes to the block's own word, run on
+// the GPU: SSA/BlockAccumulates.h turns each into a slot per thread, one
+// reduction across the block where the body ends, and one write by the
+// leader (backends/ptx/block-reduce.bonsai shows the shuffles, the shared
+// slots and the barrier). This checks the sums: a scalar, a vector reduced
+// lane by lane, an accumulate under a condition -- whose slot holds the
+// identity where it did not run -- and a word every block writes, which
+// stays an atomic, one per block. The thread count is a parameter, so the
+// second run's blocks end in a partial warp.
+import stdlib/numerics;
+
+func run(out : mut array[Float, 4], rgb : mut array[vec3f, 4],
+         total : mut array[Float, 1], n : i32) -> void {
+    parfor b in 0:4 {
+        parfor t in 0:n {
+            f = cast[[Float]](t) * 0.5;
+            atomic out[b] += f;
+            atomic rgb[b] += vec3f{f, 1.0, cast[[Float]](b)};
+            atomic total[0] += 1.0;
+            if t % 2 == 0 {
+                atomic out[b] += 100.0;
+            }
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[Float, 4] = {0.0, 0.0, 0.0, 0.0};
+    zero = vec3f{0.0, 0.0, 0.0};
+    rgb : mut array[vec3f, 4] = {zero, zero, zero, zero};
+    total : mut array[Float, 1] = {0.0};
+    run(out, rgb, total, 64);
+    // 0.5 * (0 + ... + 63) = 1008, plus 100 for each of the 32 even threads.
+    print(out);
+    // 1008, 64 ones, and the block's index 64 times.
+    print(rgb);
+    // Four blocks of 64.
+    print(total);
+    run(out, rgb, total, 50);
+    // Another 612.5 + 2500 in each block, 200 more threads in total.
+    print(out);
+    print(rgb);
+    print(total);
+    return 0;
+}
+
+schedule {
+    run.bind(b, GPUBlock);
+    run.bind(t, GPUThread);
+}

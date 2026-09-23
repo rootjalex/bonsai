@@ -127,6 +127,13 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // A short vector's lane at a run-time index as a chain of selects on the
     // index, since NVPTX lowers the extractelement through local memory.
     llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) override;
+    // The fold of every thread's value over the block: a warp shuffle tree,
+    // one shared-memory slot per warp, a barrier, the warps' totals folded
+    // by every thread (see the definition).
+    llvm::Value *block_reduce(ir::Intrinsic::OpType op, const ir::Type &type,
+                              llvm::Value *v) override;
+    // The block's thread count, `ntid.x`.
+    llvm::Value *block_size();
     bool effects_run_once() const override { return block_level; }
     void check_block_level_call(const std::string &callee) override;
 

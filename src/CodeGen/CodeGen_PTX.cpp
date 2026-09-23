@@ -685,6 +685,192 @@ llvm::Value *CodeGen_PTX::extract_lane(llvm::Value *vec, llvm::Value *idx) {
     return result;
 }
 
+llvm::Value *CodeGen_PTX::block_size() {
+    return builder->CreateCall(
+        llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), llvm::Intrinsic::nvvm_read_ptx_sreg_ntid_x),
+        {}, "ntid");
+}
+
+llvm::Value *CodeGen_PTX::block_reduce(ir::Intrinsic::OpType op,
+                                       const Type &type, llvm::Value *v) {
+    // The fold of every thread's `v` over the block, in every thread, for
+    // the one accumulate a block makes where each thread made one
+    // (SSA/BlockAccumulates.h). Harris's reduction ("Optimizing Parallel
+    // Reduction in CUDA", NVIDIA, 2007) with the tree's last five levels
+    // as warp shuffles (Luitjens, "Faster Parallel Reductions on Kepler",
+    // NVIDIA Developer Blog, 2014): (1) in each warp a shuffle-down tree of
+    // five steps leaves the warp's total in lane 0 -- the shuffle's member
+    // mask is the lanes the block has in this warp, and a lane whose
+    // partner is past the block's end folds the identity, so a block that
+    // ends in a partial warp reduces right; (2) lane 0 writes the warp's
+    // total to a shared-memory slot of the warp's own; (3) a barrier, which
+    // every thread reaches because the pass put the reduction where every
+    // path of the body ends; (4) every thread folds the slots of the
+    // block's warps. The lanes of a short vector go through the tree side by
+    // side and take a slot each.
+    llvm::Type *t = v->getType();
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t);
+    const unsigned lanes = vt ? unsigned(vt->getNumElements()) : 1;
+    llvm::Type *elem_t = vt ? vt->getElementType() : t;
+    const bool is_float = elem_t->isFloatTy();
+    internal_assert(is_float || elem_t->isIntegerTy(32))
+        << "a block reduces 32-bit words, not " << type;
+    const Type scalar_t = type.is_vector() ? type.element_of() : type;
+    const bool is_signed = scalar_t.is_int();
+
+    // The operation's identity, and the operation.
+    llvm::Value *identity = nullptr;
+    switch (op) {
+    case Intrinsic::block_reduce_add:
+        identity = is_float ? llvm::ConstantFP::get(elem_t, 0.0)
+                            : llvm::ConstantInt::get(elem_t, 0);
+        break;
+    case Intrinsic::block_reduce_mul:
+        identity = is_float ? llvm::ConstantFP::get(elem_t, 1.0)
+                            : llvm::ConstantInt::get(elem_t, 1);
+        break;
+    case Intrinsic::block_reduce_min:
+        identity = is_float ? llvm::ConstantFP::getInfinity(elem_t, false)
+                   : is_signed
+                       ? llvm::ConstantInt::get(elem_t, INT32_MAX, true)
+                       : llvm::ConstantInt::get(elem_t, UINT32_MAX);
+        break;
+    case Intrinsic::block_reduce_max:
+        identity = is_float ? llvm::ConstantFP::getInfinity(elem_t, true)
+                   : is_signed
+                       ? llvm::ConstantInt::get(elem_t, uint64_t(int64_t(INT32_MIN)), true)
+                       : llvm::ConstantInt::get(elem_t, 0);
+        break;
+    default:
+        internal_error << "not a block reduction: " << to_string(op);
+    }
+    const auto combine = [&](llvm::Value *a, llvm::Value *b) -> llvm::Value * {
+        switch (op) {
+        case Intrinsic::block_reduce_add:
+            return is_float ? builder->CreateFAdd(a, b) : builder->CreateAdd(a, b);
+        case Intrinsic::block_reduce_mul:
+            return is_float ? builder->CreateFMul(a, b) : builder->CreateMul(a, b);
+        case Intrinsic::block_reduce_min:
+            return is_float ? builder->CreateMinNum(a, b)
+                            : builder->CreateBinaryIntrinsic(
+                                  is_signed ? llvm::Intrinsic::smin
+                                            : llvm::Intrinsic::umin,
+                                  a, b);
+        default:
+            return is_float ? builder->CreateMaxNum(a, b)
+                            : builder->CreateBinaryIntrinsic(
+                                  is_signed ? llvm::Intrinsic::smax
+                                            : llvm::Intrinsic::umax,
+                                  a, b);
+        }
+    };
+
+    // The thread's place: its lane and warp, how many warps the block has,
+    // and how many lanes of this warp exist -- 32, or the block's tail.
+    llvm::Value *tid = thread_index();
+    llvm::Value *ntid = block_size();
+    llvm::Value *c0 = llvm::ConstantInt::get(i32_t, 0);
+    llvm::Value *c1 = llvm::ConstantInt::get(i32_t, 1);
+    llvm::Value *c32 = llvm::ConstantInt::get(i32_t, 32);
+    llvm::Value *lane = builder->CreateAnd(tid, llvm::ConstantInt::get(i32_t, 31), "lane");
+    llvm::Value *warp = builder->CreateLShr(tid, llvm::ConstantInt::get(i32_t, 5), "warp");
+    llvm::Value *nwarps = builder->CreateLShr(
+        builder->CreateAdd(ntid, llvm::ConstantInt::get(i32_t, 31)),
+        llvm::ConstantInt::get(i32_t, 5), "nwarps");
+    llvm::Value *have = builder->CreateSub(
+        ntid, builder->CreateShl(warp, llvm::ConstantInt::get(i32_t, 5)), "have");
+    llvm::Value *full = builder->CreateICmpUGE(have, c32, "full_warp");
+    llvm::Value *active = builder->CreateSelect(full, c32, have, "active");
+    // The tail's member mask is (1 << have) - 1; the shift is taken only
+    // where have < 32, a full warp's mask being all ones.
+    llvm::Value *tail = builder->CreateSub(
+        builder->CreateShl(c1, builder->CreateSelect(full, c0, have)), c1);
+    llvm::Value *member = builder->CreateSelect(
+        full, llvm::ConstantInt::get(i32_t, -1, true), tail, "member");
+    // shfl.sync's c operand: the clamp, the last lane that exists, in bits
+    // 0-4 and a segment mask of zero; a source lane past it is invalid and
+    // the shuffle says so.
+    llvm::Value *clamp = builder->CreateSub(active, c1, "clamp");
+
+    // The slots: a block has at most 32 warps (1024 threads), one slot per
+    // warp per lane of the value, in shared memory (address space 3).
+    auto *slots_t = llvm::ArrayType::get(elem_t, 32 * lanes);
+    auto *slots = new llvm::GlobalVariable(
+        *module, slots_t, /*isConstant=*/false,
+        llvm::GlobalValue::InternalLinkage, llvm::UndefValue::get(slots_t),
+        "block_reduce_slots", nullptr, llvm::GlobalValue::NotThreadLocal,
+        /*AddressSpace=*/3);
+    slots->setAlignment(llvm::Align(16));
+    const auto slot_ptr = [&](llvm::Value *w, unsigned c) {
+        llvm::Value *index = builder->CreateAdd(
+            builder->CreateMul(w, llvm::ConstantInt::get(i32_t, lanes)),
+            llvm::ConstantInt::get(i32_t, c));
+        return builder->CreateInBoundsGEP(slots_t, slots, {c0, index});
+    };
+
+    // (1) The warp's total, in lane 0.
+    llvm::Function *shfl = llvm::Intrinsic::getOrInsertDeclaration(
+        module.get(), is_float ? llvm::Intrinsic::nvvm_shfl_sync_down_f32p
+                               : llvm::Intrinsic::nvvm_shfl_sync_down_i32p);
+    std::vector<llvm::Value *> parts(lanes);
+    for (unsigned c = 0; c < lanes; c++) {
+        llvm::Value *x = vt ? builder->CreateExtractElement(v, uint64_t(c)) : v;
+        for (unsigned off = 16; off >= 1; off >>= 1) {
+            llvm::Value *r = builder->CreateCall(
+                shfl, {member, x, llvm::ConstantInt::get(i32_t, off), clamp});
+            llvm::Value *other = builder->CreateExtractValue(r, 0);
+            llvm::Value *valid = builder->CreateExtractValue(r, 1);
+            other = builder->CreateSelect(valid, other, identity);
+            x = combine(x, other);
+        }
+        parts[c] = x;
+    }
+    // (2) Lane 0 writes it.
+    emit_if(builder->CreateICmpEQ(lane, c0), [&] {
+        for (unsigned c = 0; c < lanes; c++) {
+            builder->CreateStore(parts[c], slot_ptr(warp, c));
+        }
+    });
+    // (3)
+    barrier();
+    // (4) Every thread folds the warps' totals, a loop over the warps the
+    // block has (at least one).
+    llvm::BasicBlock *entry_bb = builder->GetInsertBlock();
+    llvm::BasicBlock *loop_bb =
+        llvm::BasicBlock::Create(*context, "reduce_warps", current_function);
+    llvm::BasicBlock *after_bb = llvm::BasicBlock::Create(
+        *context, "reduce_warps_after", current_function);
+    builder->CreateBr(loop_bb);
+    builder->SetInsertPoint(loop_bb);
+    llvm::PHINode *w = builder->CreatePHI(i32_t, 2, "w");
+    w->addIncoming(c0, entry_bb);
+    std::vector<llvm::PHINode *> totals(lanes);
+    for (unsigned c = 0; c < lanes; c++) {
+        totals[c] = builder->CreatePHI(elem_t, 2, "total");
+        totals[c]->addIncoming(identity, entry_bb);
+    }
+    std::vector<llvm::Value *> folded(lanes);
+    for (unsigned c = 0; c < lanes; c++) {
+        llvm::Value *loaded = builder->CreateLoad(elem_t, slot_ptr(w, c));
+        folded[c] = combine(totals[c], loaded);
+        totals[c]->addIncoming(folded[c], loop_bb);
+    }
+    llvm::Value *w_next = builder->CreateAdd(w, c1, "w_next");
+    w->addIncoming(w_next, loop_bb);
+    builder->CreateCondBr(builder->CreateICmpULT(w_next, nwarps), loop_bb,
+                          after_bb);
+    builder->SetInsertPoint(after_bb);
+    if (vt == nullptr) {
+        return folded[0];
+    }
+    llvm::Value *result = llvm::UndefValue::get(t);
+    for (unsigned c = 0; c < lanes; c++) {
+        result = builder->CreateInsertElement(result, folded[c], uint64_t(c));
+    }
+    return result;
+}
+
 llvm::Value *CodeGen_PTX::effects_once_guard() {
     if (!block_level) {
         return nullptr;

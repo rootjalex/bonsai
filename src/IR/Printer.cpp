@@ -1163,6 +1163,14 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "sqrt";
     case Intrinsic::tex_sample_grad_2d:
         return "tex_sample_grad_2d";
+    case Intrinsic::block_reduce_add:
+        return "block_reduce_add";
+    case Intrinsic::block_reduce_max:
+        return "block_reduce_max";
+    case Intrinsic::block_reduce_min:
+        return "block_reduce_min";
+    case Intrinsic::block_reduce_mul:
+        return "block_reduce_mul";
     case Intrinsic::tan:
         return "tan";
     }

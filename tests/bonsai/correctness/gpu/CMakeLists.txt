@@ -30,6 +30,7 @@ add_bonsai_tests(
     FILES
     atomic-float.bonsai
     block-effects.bonsai
+    block-reduce.bonsai
     blocks.bonsai
     blocks-threads.bonsai
     buffers-cpp.bonsai

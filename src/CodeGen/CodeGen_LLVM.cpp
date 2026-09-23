@@ -3465,6 +3465,16 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_texture_sample(node);
         return;
     }
+    case Intrinsic::block_reduce_add:
+    case Intrinsic::block_reduce_max:
+    case Intrinsic::block_reduce_min:
+    case Intrinsic::block_reduce_mul: {
+        internal_assert(node->args.size() == 1)
+            << "a block reduction takes one value";
+        value = block_reduce(node->op, node->args[0].type(),
+                             codegen_expr(node->args[0]));
+        return;
+    }
     default: {
         internal_error << "TODO: codegen intrinsic: " << Expr(node);
     }
@@ -5537,6 +5547,15 @@ void CodeGen_LLVM::create_scatter_at(llvm::Value *value, llvm::Value *ptrs,
 void CodeGen_LLVM::emit_if_any_lane(llvm::Value *mask,
                                     const std::function<void()> &body) {
     emit_if(builder->CreateOrReduce(mask), body);
+}
+
+llvm::Value *CodeGen_LLVM::block_reduce(ir::Intrinsic::OpType op,
+                                        const Type &type, llvm::Value *v) {
+    (void)type;
+    (void)v;
+    internal_error << "a block-wide reduction outside a GPU block: "
+                   << to_string(op);
+    return nullptr;
 }
 
 void CodeGen_LLVM::emit_if(llvm::Value *cond,

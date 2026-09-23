@@ -4516,12 +4516,45 @@ branch for volpath as well; the lesson written down is that a per-pixel
 collapse on a scene that used to agree is a bug to find, not a difference
 to record.
 
-**Next, in this order.** The block-level reduction for the film: a warp
-shuffle tree, one shared slot per warp, one add by the leader, and no
-atomic at all when the address depends only on the block-bound index, which
-the contention pass already knows (designed: SSA/BlockAccumulates.h). The
-select chain for the dynamic extract. Then the block shape and the stack
-depth, and the wavefront (its section below).
+**The block-level film reduction (2026-09-23).** SSA/BlockAccumulates.h,
+after the demotion of atomics and before the allocas are promoted: an
+atomic accumulate in a `GPUThread` loop's body whose address is uniform over
+the body -- computed by pure arithmetic and addressing from constants,
+values from before the body and the body's pass-through names (the test
+InsertPreheader makes for a loop's carried names: a name some jump inside
+passes a value other than itself for is a merge, and varying) -- is given a
+slot per thread that starts at the operation's identity; every Yield of the
+body becomes a jump to one block that loads the slots, reduces each across
+the block (`block_reduce_add/mul/min/max`, intrinsics the PTX backend
+lowers: a `shfl.sync.down` tree of five with the member mask and clamp of
+the lanes the block has in the warp, lane 0's write to a `.shared` slot per
+warp, `bar.sync`, every thread's fold of the warps' slots), and dispatches
+the thread with the loop's first index to accumulate each total into the
+program's place -- plain where the contention analysis shows the address is
+the block's own (`film[p]` under `bind(p, GPUBlock)`), atomic where another
+block may write it (`total[0]`). The film's thirteen accumulates per sample
+are thirteen per block. Tests: backends/ptx/block-reduce (the shuffles, the
+slots, one atomic, plain stores), correctness/gpu/block-reduce (exact sums
+over 64 and 50 threads, the second a partial warp; a vector; an accumulate
+under a condition; a word every block writes). The goldens of
+atomic-float, block-effects and blocks-threads moved from atomics to the
+tree. Measured on the GPU, volpath both sides, best of three, every image
+matching pbrt: killeroo at depth 5 and 256 spp 0.881 s against 0.849 to
+0.867 s with the select chain alone, book 3.321 s against 3.294 s -- within
+the run-to-run noise, so neutral. The thirteen atomics per sample were not
+on the critical path once they were the hardware's add rather than a
+compare-and-swap loop (the first fix of the profile section, which was the
+depth-1 cliff). It stays: one accumulate per block is strictly less work
+than sixty-four, and the pass is general.
+
+**Next, in this order.** `render.specialize(integrator)`: one copy of
+`render` per variant of an algebraic-typed parameter, the tag constant in
+each and the export dispatching once -- Halide's `specialize` from a
+boolean to a variant; ptxas then allocates registers for the integrator the
+scene runs and not for four, and the comparison with pbrt --gpu, a
+volpath-only build, is fair. Then a fresh PTX and Nsight look at the volpath
+kernel, the spills under the cap, the block shape and the stack depth, and
+the wavefront (its section below).
 
 **A compiler bug volpath found.** The medium walk's samples were not
 pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,
