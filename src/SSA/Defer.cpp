@@ -1766,6 +1766,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         producer_loop_block = point;
     }
+    // Where the queue is emptied before the producers run: before the first
+    // of their loops -- the one that dominates the others -- since every one
+    // of them pushes. With one producer that is the drain's own point.
+    shared_ptr<Block> init_point = point;
+    if (producers.size() > 1) {
+        for (const auto &loop : producer_loops) {
+            if (odom.dominates(ocfg.id(loop->name), ocfg.id(init_point->name))) {
+                init_point = loop;
+            }
+        }
+    }
     const BlockId point_id = ocfg.id(point->name);
     const auto available = [&](const Definition &d) {
         if (!d.value) {
@@ -3031,12 +3042,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (size_t i = 0; i < nqueues; i++) {
         vector<shared_ptr<Value>> parts = {constant_u32(0)};
         parts.insert(parts.end(), stores[i].begin(), stores[i].end());
-        auto initial = point->make_instruction(queue_t, Instruction::Op::MakeStruct,
-                                               std::move(parts));
-        auto slot = many ? point->make_instruction(queue_addr_t, Instruction::Op::GEP,
-                                                   {queues, constant_u32(i)})
+        auto initial = init_point->make_instruction(
+            queue_t, Instruction::Op::MakeStruct, std::move(parts));
+        auto slot = many ? init_point->make_instruction(queue_addr_t, Instruction::Op::GEP,
+                                                        {queues, constant_u32(i)})
                          : queues;
-        point->make_side_effect(Instruction::Op::Store, {slot, initial});
+        init_point->make_side_effect(Instruction::Op::Store, {slot, initial});
     }
     // The address of queue `which`, for passing to the callee: an address is
     // written where it is used (has_no_binding in SSA/CodeGen_Stmt.cpp), so
