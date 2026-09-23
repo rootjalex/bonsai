@@ -126,6 +126,10 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     llvm::Value *atomic_address(llvm::Value *loc) override;
     // A short vector's lane at a run-time index as a chain of selects on the
     // index, since NVPTX lowers the extractelement through local memory.
+    // PTX identifiers are letters, digits, `_` and `$`: a program name's
+    // other characters (`!`, the mark of a copy) become `$`.
+    std::string symbol_name(const std::string &name) const override;
+
     llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) override;
     // The fold of every thread's value over the block: a warp shuffle tree,
     // one shared-memory slot per warp, a barrier, the warps' totals folded

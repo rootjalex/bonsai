@@ -1371,7 +1371,7 @@ struct CodeGen_LLVM::SSALowering {
                 },
                 [&](const Terminator::Call &c) {
                     llvm::Function *callee =
-                        cg.module->getFunction(c.call.name);
+                        cg.module->getFunction(cg.symbol_name(c.call.name));
                     internal_assert(callee)
                         << "Call to undeclared function " << c.call.name;
                     cg.check_block_level_call(c.call.name);
@@ -1398,7 +1398,7 @@ struct CodeGen_LLVM::SSALowering {
                     // the schedule has already decided the order, and this
                     // just spells it out.
                     llvm::Function *callee =
-                        cg.module->getFunction(c.call.name);
+                        cg.module->getFunction(cg.symbol_name(c.call.name));
                     internal_assert(callee)
                         << "Call to undeclared function " << c.call.name;
                     cg.check_block_level_call(c.call.name);

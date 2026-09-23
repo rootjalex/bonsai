@@ -447,7 +447,7 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
         ftype,
         internal ? llvm::GlobalValue::InternalLinkage
                  : llvm::GlobalValue::ExternalLinkage,
-        func.name, module.get());
+        symbol_name(func.name), module.get());
     // A function asked to be inlined is folded into every caller; internal
     // linkage is what lets the original then be dropped. One asked not to be
     // stays a call, which with internal linkage it would otherwise not: the
@@ -5877,7 +5877,7 @@ void CodeGen_LLVM::visit(const Launch *node) {
     num_iters =
         builder->CreateIntCast(num_iters, i64_t, node->n.type().is_int());
 
-    llvm::Function *launch_func = module->getFunction(node->func);
+    llvm::Function *launch_func = module->getFunction(symbol_name(node->func));
     internal_assert(launch_func)
         << "Launch function " << node->func << " not found";
 
@@ -6135,7 +6135,7 @@ llvm::Type *CodeGen_LLVM::codegen_type(const Type &t) {
 
 llvm::Function *CodeGen_LLVM::codegen_func_ptr(const Expr &expr) {
     if (expr.is<Var>()) {
-        return module->getFunction(expr.as<Var>()->name);
+        return module->getFunction(symbol_name(expr.as<Var>()->name));
     }
     internal_error << "TODO: cannot codegen function pointer from: " << expr;
 }

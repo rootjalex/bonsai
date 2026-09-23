@@ -349,7 +349,8 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
         << "add_kernel of a loop not bound to the GPU";
     const bool blocks = *loop.binding == Resource::GPUBlock;
     Kernel kernel;
-    kernel.name = "_kernel_" + loop.index + "_" + std::to_string(kernel_count++);
+    kernel.name = symbol_name("_kernel_" + loop.index + "_" +
+                              std::to_string(kernel_count++));
     kernel.thread_loop = blocks ? nested_thread_loop(host, loop) : nullptr;
 
     const Block *body_head = nullptr;
@@ -656,6 +657,18 @@ llvm::Value *CodeGen_PTX::atomic_address(llvm::Value *loc) {
     return builder->CreateAddrSpaceCast(
         loc, llvm::PointerType::get(*context, /*AddressSpace=*/1),
         loc->getName() + ".global");
+}
+
+std::string CodeGen_PTX::symbol_name(const std::string &name) const {
+    std::string out = name;
+    for (char &c : out) {
+        const bool legal = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                           (c >= '0' && c <= '9') || c == '_' || c == '$';
+        if (!legal) {
+            c = '$';
+        }
+    }
+    return out;
 }
 
 llvm::Value *CodeGen_PTX::extract_lane(llvm::Value *vec, llvm::Value *idx) {

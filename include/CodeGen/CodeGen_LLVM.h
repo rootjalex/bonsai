@@ -856,6 +856,17 @@ struct CodeGen_LLVM : public ir::Visitor {
     // LLVM's extractelement here, which the CPU has an instruction for; a
     // device generator may spell it another way (CodeGen_PTX, where the
     // instruction goes through local memory).
+    // The symbol a function of the program is defined and called under. The
+    // program's names carry `!` where a copy was made -- a variant's
+    // `integrator_li!VolPath`, a stage's `step!after`, a split queue's
+    // `hits!Some!Diffuse` -- which LLVM's x86 assembler quotes and PTX
+    // cannot spell at all ("Symbol name with unsupported characters"), so a
+    // backend with a narrower alphabet maps them (CodeGen_PTX). Every
+    // definition and every lookup goes through this, so they agree.
+    virtual std::string symbol_name(const std::string &name) const {
+        return name;
+    }
+
     virtual llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) {
         return builder->CreateExtractElement(vec, idx);
     }
