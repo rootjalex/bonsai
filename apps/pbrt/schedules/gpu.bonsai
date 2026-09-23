@@ -23,4 +23,23 @@ schedule {
 
     render.bind(p, GPUBlock);
     render.bind(s, GPUThread);
+
+    // The image textures on the texture units, as pbrt --gpu samples them
+    // (GPUSpectrumImageTexture::Evaluate, tex2DGrad on a mipmapped texture
+    // object): the lookup's level, filter and wrap are the unit's, from the
+    // object the driver made of the same pyramid (texture_handles). The
+    // software filter stays what the program says and what the CPU
+    // schedules run; here it is what the lambda computes instead (see
+    // textures.bonsai, texture_filter_unit).
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
 }

@@ -53,11 +53,18 @@ element ImageTexture {
     wrap : u32;
     first_level : u32;
     n_levels : u32;
+    // Which texture this is, as `texture_handles` is indexed.
+    id : u32;
 }
 
 extern textures : array[ImageTexture];
 extern texture_levels : array[TextureLevel];
 extern texture_texels : array[vec3f];
+// The texture units' object for each texture, made by the driver from the
+// same pyramid (runtime/bonsai_cuda.h, bonsai_cuda_texture_create), for a
+// schedule that binds the lookup to them (schedules/gpu.bonsai); zero, and
+// never read, where the render runs on the CPU.
+extern texture_handles : array[u64];
 // pbrt's RGBToSpectrumTable for sRGB: 64 z nodes then the coefficients.
 extern rgb_table : array[Float];
 
@@ -171,6 +178,40 @@ func texture_filter_float(t : ImageTexture, st : vec2f, dstdx : vec2f,
     // the count -- `((0 + r) + g) + b) / 3`.
     average = ((0.0 + filtered.x) + filtered.y + filtered.z) / 3.0;
     return select(t.average_channels, average, filtered.x);
+}
+
+// pbrt: GPUSpectrumImageTexture::Evaluate -- the texture units' sample in
+// place of `texture_filter`, for the GPU schedule that binds it there
+// (`texture_filter.bind(TextureUnit, ...)` in schedules/gpu.bonsai): pbrt's
+// GPU build samples its image textures with `tex2DGrad<float4>(texObj, s,
+// 1 - t, (dsdx, dsdy), (dtdx, dtdy))`, and the same texture object, made
+// from the same pyramid, is what `texture_handles` holds. The unit picks the
+// level from the gradients and filters within it, so its answer is pbrt
+// --gpu's and not pbrt CPU's bit for bit -- the two part the same way.
+//
+// pbrt hands the unit `(dsdx, dsdy)` as the first gradient and `(dtdx,
+// dtdy)` as the second, which is the transpose of CUDA's convention (a
+// gradient per screen axis); it is what pbrt --gpu computes, so it is what
+// this passes.
+func texture_filter_unit(handle : u64, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f) -> vec3f {
+    s = tex_sample_grad_2d(handle, st, vec2f{dstdx.x, dstdy.x},
+                           vec2f{dstdx.y, dstdy.y});
+    return vec3f{s.x, s.y, s.z};
+}
+
+// pbrt: GPUFloatImageTexture::Evaluate, `tex2DGrad<float>` -- one channel of
+// the same object, which scene_dump made the float texture's value in every
+// channel (see texture_filter_float); the three-channel case averages, as
+// `Bilerp<Float>` does, which over a linear filter is the filter of the
+// average.
+func texture_filter_float_unit(handle : u64, average_channels : bool,
+                               st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f) -> Float {
+    s = tex_sample_grad_2d(handle, st, vec2f{dstdx.x, dstdy.x},
+                           vec2f{dstdx.y, dstdy.y});
+    average = ((0.0 + s.x) + s.y + s.z) / 3.0;
+    return select(average_channels, average, s.x);
 }
 
 // The filtered RGB, before it is made into a spectrum: pbrt's

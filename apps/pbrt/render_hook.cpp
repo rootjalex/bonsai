@@ -958,8 +958,17 @@ int main(int argc, char **argv) {
         tex.wrap = t.wrap;
         tex.first_level = t.first_level;
         tex.n_levels = t.n_levels;
+        tex.id = uint32_t(textures.size());
         textures.push_back(tex);
     }
+    // The software filter's tables -- the levels and the texels they index
+    // -- and the texture units' objects are each made only where this
+    // schedule's `render` takes them: a function's parameters are the extern
+    // arrays it reads, and a schedule that binds the lookup to the units
+    // (schedules/gpu.bonsai) leaves the tables out of them, while one that
+    // does not never reads a handle. The header says which with one macro
+    // per buffer, `BONSAI_render_HAS_<buffer>`.
+#if BONSAI_render_HAS_texture_levels
     std::vector<TextureLevel> texture_levels;
     texture_levels.reserve(loaded.texture_levels.size());
     for (const bonsai_scene::TextureLevel &l : loaded.texture_levels) {
@@ -976,8 +985,60 @@ int main(int argc, char **argv) {
                                         loaded.texture_texels[i + 1],
                                         loaded.texture_texels[i + 2]});
     }
+#endif
+#if BONSAI_render_HAS_texture_handles
+    // The texture units' objects (textures.bonsai, `texture_handles`): one
+    // per image texture, over the same pyramid, RGBA floats since the units
+    // take one, two or four channels and the texels are three -- what pbrt's
+    // GPU build does in GPUSpectrumImageTexture::Create, with pbrt's default
+    // `maxanisotropy` of 8. Built from the scene's own level table and
+    // texels, which are here whatever the schedule.
+    std::vector<uint64_t> texture_handles(textures.size(), 0);
+#ifdef BONSAI_HAS_GPU
+    for (size_t k = 0; k < textures.size(); k++) {
+        const ImageTexture &t = textures[k];
+        std::vector<uint32_t> widths, heights;
+        std::vector<std::vector<float>> rgba(t.n_levels);
+        std::vector<const float *> level_texels;
+        for (uint32_t l = 0; l < t.n_levels; l++) {
+            const bonsai_scene::TextureLevel &level =
+                loaded.texture_levels[t.first_level + l];
+            widths.push_back(level.width);
+            heights.push_back(level.height);
+            std::vector<float> &out = rgba[l];
+            const size_t n = size_t(level.width) * level.height;
+            out.resize(n * 4);
+            for (size_t i = 0; i < n; i++) {
+                const float *texel =
+                    &loaded.texture_texels[3 * (size_t(level.first_texel) + i)];
+                out[4 * i + 0] = texel[0];
+                out[4 * i + 1] = texel[1];
+                out[4 * i + 2] = texel[2];
+                out[4 * i + 3] = 1.f;
+            }
+            level_texels.push_back(out.data());
+        }
+        texture_handles[k] = bonsai_cuda_texture_create(
+            int64_t(t.n_levels), widths.data(), heights.data(),
+            level_texels.data(), int32_t(t.wrap), /*max_anisotropy=*/8);
+    }
+#else
+    // A host schedule that binds the lookup to the units has no units: the
+    // handles are zero, and the lookup traps the first time it runs.
+#endif
+#endif
 
     if (print_differentials) {
+#if !BONSAI_texture_at_HAS_texture_levels
+        // `texture_at` is the software filter read from the host; under a
+        // schedule that binds the lookup to the texture units it would
+        // sample a unit the host does not have.
+        fprintf(stderr,
+                "--print-differentials reads the software texture filter, "
+                "and this schedule binds the lookup to the GPU's texture "
+                "units; use a CPU schedule.\n");
+        return 1;
+#else
         // The same points and footprints `scene_dump --print-differentials`
         // puts through PBRT's texture objects; see the `texf`/`texs` rows
         // there. Both readings are printed for every texture, because the
@@ -1016,6 +1077,7 @@ int main(int argc, char **argv) {
                 }
             }
         }
+#endif
         // An RGB fitted and sampled on its own, for the same colours
         // scene_dump puts through pbrt's RGBAlbedoSpectrum.
         const float3 colours[] = {{0.3f, 0.5f, 0.7f},   {0.7f, 0.5f, 0.3f},
@@ -1847,8 +1909,13 @@ int main(int argc, char **argv) {
     bonsai_buffer b_radiance_out = buffer_of(radiance, npixels);
     bonsai_buffer b_weight_out = buffer_of(weights, npixels);
     bonsai_buffer b_textures = buffer_of(textures);
+#if BONSAI_render_HAS_texture_levels
     bonsai_buffer b_texture_levels = buffer_of(texture_levels);
     bonsai_buffer b_texture_texels = buffer_of(texture_texels);
+#endif
+#if BONSAI_render_HAS_texture_handles
+    bonsai_buffer b_texture_handles = buffer_of(texture_handles);
+#endif
     bonsai_buffer b_rgb_table = buffer_of(loaded.rgb_table);
     bonsai_buffer b_pl2d = buffer_of(pl2d);
     bonsai_buffer b_pl_data = buffer_of(loaded.pl_data);
@@ -1897,7 +1964,13 @@ int main(int argc, char **argv) {
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
     bonsai_buffer *render_buffers[] = {
         &b_normal_out, &b_shading_out, &b_albedo_out, &b_radiance_out,
-        &b_weight_out, &b_textures, &b_texture_levels, &b_texture_texels,
+        &b_weight_out, &b_textures,
+#if BONSAI_render_HAS_texture_levels
+        &b_texture_levels, &b_texture_texels,
+#endif
+#if BONSAI_render_HAS_texture_handles
+        &b_texture_handles,
+#endif
         &b_rgb_table, &b_pl2d, &b_pl_data, &b_pl_marginal, &b_pl_conditional,
         &b_pl_params, &b_measured_brdfs, &b_conductor_eta, &b_conductor_k,
         &b_meshes, &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
@@ -1941,7 +2014,13 @@ int main(int argc, char **argv) {
                loaded.film_visible_surface != 0, loaded.imaging_ratio,
                loaded.max_component_value, &b_normal_out, &b_shading_out,
                &b_albedo_out, &b_radiance_out, &b_weight_out, &b_textures,
-               &b_texture_levels, &b_texture_texels, &b_rgb_table, &b_pl2d,
+#if BONSAI_render_HAS_texture_levels
+               &b_texture_levels, &b_texture_texels,
+#endif
+#if BONSAI_render_HAS_texture_handles
+               &b_texture_handles,
+#endif
+               &b_rgb_table, &b_pl2d,
                &b_pl_data, &b_pl_marginal, &b_pl_conditional, &b_pl_params,
                &b_measured_brdfs, &b_conductor_eta, &b_conductor_k, &b_meshes,
                &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,

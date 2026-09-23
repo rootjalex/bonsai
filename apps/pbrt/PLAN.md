@@ -4451,12 +4451,44 @@ space is what selects `ld.global.nc`, the non-coherent load. The tests'
 kernels went from generic `ld.b8` to `ld.global.nc.b8`; the megakernel's
 counts are below.
 
-**Next, in this order.** The block-level reduction for the film: a warp
-shuffle tree, one shared slot per warp, one add by the leader, and no
-atomic at all when the address depends only on the block-bound index, which
-the contention pass already knows. Then the register sweep (pbrt's own GPU
-build is `-maxrregcount 128`, so pbrt --gpu runs at twice this kernel's
-occupancy), the block shape, and the stack depth.
+**The stacks, the textures and the cap (later the same day).** The two
+traversal stacks needed no pass of ours: LLVM's StackColoring already
+overlaps their lifetimes in the device frame (a coalescing pass written to
+do it changed no byte of the depot, and was removed); what the frame holds
+is the dynamic vector extract's spill slots -- `v[axis]` on the device is a
+store of the vector and a load of one lane through local memory, 318 generic
+loads and 636 stores in the megakernel -- which a PTX-specific select chain
+is for (below). Image textures: a high-level `tex_sample_grad_2d` intrinsic
+and a function-level `bind(TextureUnit, lambda)` (Lower/HardwareBinds)
+that puts the lambda in place of `texture_filter`'s body -- the unit's
+sample of an object the driver made (runtime/bonsai_cuda.h,
+`bonsai_cuda_texture_create`: pbrt's GPUSpectrumImageTexture descriptor,
+linear within a level, the nearest level, normalized coordinates, the
+scene's wrap, anisotropy 8), `tex.grad.2d.v4.f32.f32` in the PTX, 67 of
+them in the megakernel; the software filter's integer remainders went from
+584 to 35 and the SASS from 248K to 222K instructions. A function takes the
+extern arrays it reads, and the bind changes which those are, so the
+generated header now says which buffers each function takes
+(`BONSAI_<function>_HAS_<buffer>`) and the driver lists the filter's tables
+and the units' handles under those. Tests: backends/ptx/texture-sample and
+correctness/gpu/texture-cpp, the units sampled from a C++ driver at points
+whose values are exact (a footprint wide along one axis alone is filtered
+anisotropically, as pbrt's are, and is not pinned). The register cap: pbrt's
+own 128 was the best of the sweep on killeroo at depth 5 and 256 spp --
+uncapped 1.064 s, 96 0.898 s, 128 0.803 s, 64 1.480 s -- so the scripts and
+the harness give it to the GPU schedules as they give `--fast-math`.
+Measured, best of three, every image matching pbrt: killeroo d5-s256 1.630 s
+this morning to 0.801 s against pbrt --gpu's 1.02 s; book (image textures
+on the cover and pages) 8.207 s to 4.856 s against 2.63 s; pavilion 10.647 s
+to 5.803 s against 3.05 s -- pbrt --gpu being volpath and ours `path`, which
+the volpath section below is for.
+
+**Next, in this order.** volpath under the megakernel, so the GPU numbers
+compare like with like (the section below). The block-level reduction for
+the film: a warp shuffle tree, one shared slot per warp, one add by the
+leader, and no atomic at all when the address depends only on the
+block-bound index, which the contention pass already knows. The select
+chain for the dynamic extract. Then the block shape and the stack depth.
 
 **A compiler bug volpath found.** The medium walk's samples were not
 pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,
@@ -4631,6 +4663,101 @@ sites of `vol_path_step` with a key, or a directive of its own, is the
 expressibility question the user posed; it is answered by writing pbrt's
 wavefront down as a schedule of `vol_path_step` and seeing what is missing,
 after V1 gives the program the same stages pbrt's has.
+
+## The warp-packet schedule: `bind(GPUWarp)` (designed 2026-09-22, to implement)
+
+The user's question, after the megakernel's profile: can the scheduling
+language vectorize *via the warp* -- the packet schedule's gang, but with the
+warp's 32 threads as its lanes and the traversal's one uniform stack in
+shared memory? Not today: `CodeGen_PTX` has no gangs, and section 4 of the
+GPU plan above says a `vectorize` under a GPU bind is an error because "the
+warp is the gang". That stays true under `GPUThread`. The design the user
+settled on makes it the point of a new resource:
+
+```
+render.split(s, s_warp, s_lane, 32, true)
+      .vectorize(s_lane)
+      .bind(s_warp, GPUWarp);
+trace.loopify(64, GPUShared);
+```
+
+**Why it is consistent with the language as it stands.** `bind(loop, R)` has
+always meant an iteration of the loop is one unit of R and the body runs on
+that unit; `vectorize(loop)` has always meant the iterations are the lanes
+of a gang in lockstep. What was never said is what a gang's lanes physically
+are; on the CPU the unit executing the gang is the thread, so the gang is a
+SIMD register. `bind(s_warp, GPUWarp)` says the unit executing the gang is a
+warp, so its lanes are the warp's threads, and `vectorize` is unchanged. It
+is the CPU packet schedule with one resource name swapped: there the loop
+around the gang is bound to `CPUThread`, here to `GPUWarp`. The alternative
+of binding the vectorized loop itself (`vectorize(s_lane).bind(s_lane,
+GPUThread)`) puts the gang and the unit on one loop, so nothing says what
+groups the 32 lanes; rejected.
+
+**The only valid `GPUWarp` bind.** A warp with no gang inside is 32 threads
+doing one iteration redundantly; a warp with a thread loop inside is
+`bind(s, GPUThread)` with the warps written out. So the rule: a loop bound to
+`GPUWarp` sits directly inside a loop bound to `GPUBlock`, its body is a
+vectorized loop whose gang width is the warp's 32 (the split's factor, which
+the vectorizer records), with at most uniform code around it that every lane
+runs and whose effects the leader lane makes once -- the block body's rule
+for its thread loop, one level down. `may_nest(GPUBlock, GPUWarp)` is the
+one new true case in SSA/Bind.cpp; nothing binds inside a warp, since the
+gang is `vectorize`'s and not `bind`'s. The `true` tail of the split is the
+gang's partial mask, which the hardware has a word for: lanes off in the
+active mask, and every vote and shuffle taken under it.
+
+**What the lowering has to do**, following from the semantics: the
+vectorizer's output is unchanged and the PTX backend reads it differently
+under a `GPUWarp` bind. A varying value (`<32 x T>` today) is one `T` per
+thread; a uniform value is one `T` in every thread unless a directive puts
+it in shared memory. The lane index is `tid % 32`, the warp index `tid /
+32`; the block is `s_warp`'s extent times 32 threads, so at 64 spp the
+launch shape is the megakernel's. The gang's `any`/`all` are `vote.sync`,
+its reductions shuffle trees, its explicit execution mask a predicate. The
+memory-space argument to `loopify` is new syntax: `GPUShared` gives the
+packet traversal's one uniform stack a home per warp, a `.shared` array of
+warps-per-block by 64, indexed by the warp-in-block. Register pressure is
+the thing to watch: a warp's uniform values are replicated across its
+lanes' registers exactly as the megakernel's per-thread values are, so the
+packet gains nothing on occupancy by itself; what it buys is the coherence
+of Wald's traversal (one node fetch per warp instead of 32) and the lanes
+that a per-thread megakernel leaves idle at a divergent tree.
+
+**`loopify(64)` with no memory space under the warp bind** -- the user's
+question: an error, since there is nowhere for a uniform stack to go, or
+local memory even though it is uniform? The answer: not an error, and the
+stack goes where the executing unit's automatic storage is, which is the
+rule `loopify` already follows -- the thread's frame under `CPUThread`, local
+memory under `GPUThread`, and under `GPUWarp` per-thread local memory,
+replicated, which is where every uniform value lives in SIMT until a
+directive says otherwise (a uniform scalar is already a copy per lane). Three
+reasons. First, the language's guarantee is Halide's: a schedule with fewer
+directives is a valid schedule, and no directive is mandatory anywhere else
+(`bind(GPUBlock)` with no thread loop inside is allowed, `vectorize` with no
+`bind` is allowed); a memory space is a refinement like Halide's `store_in`,
+whose default is `MemoryType::Auto`, not a required argument. Second, the
+same `loopify(64)` written *before* `vectorize` gives each lane its own stack
+-- a varying array, for which local memory is exactly right (the megakernel's
+form) -- so an error would have to fire only when the uniformity analysis
+says the stack is uniform: a legality rule keyed to an analysis result, which
+is the wrong kind of rule. Third, the cost of the default is footprint and L1
+bytes, not instructions: each lane's push is the same one `st.local` the
+megakernel issues, and 32 lanes' identical stores to their own slots
+coalesce into one 128-byte transaction where shared memory moves 4 bytes;
+8 KB per warp for a 64-entry stack against 256 B. Correct, slower, and
+visible in the launch summary's local-memory figure, which is where an
+omitted placement should show, not as a refusal. `GPUShared` is the
+optimization, and the measurement is the usual one: killeroo over depth and
+spp, warp-packet against megakernel against `pbrt --gpu`, images checked.
+
+**To implement, in order.** `Resource::GPUWarp` and `may_nest`; the bind
+check that the body is one gang of width 32; the PTX backend's reading of a
+gang under a warp bind (per-thread varying values, `vote.sync`, shuffle
+reductions, predicate masks, the lane and warp indices) -- the vectorizer
+itself does not change; `loopify`'s memory-space argument and the per-warp
+`.shared` partition; then the schedule in `schedules/gpu-packet.bonsai` and
+the measurement.
 
 ## Known-open, smaller
 
