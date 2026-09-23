@@ -5225,6 +5225,35 @@ queue (the rays), a key that is a lambda over the parameters (pbrt's medium
 queue, `medium >= 0`), and pbrt's side queues -- the emissive hit and the
 shadow ray -- which are the accumulate-only continuations of item (5).
 
+**The shadow ray, and parallelism stated in the program (proposed
+2026-09-23).** The user's direction: the deferral of the shadow ray must
+be safe because the program says so, not because a pass rediscovers that
+`found = found + vol_sample_ld(...)` only ever adds -- "I want the
+frontend language to provide parallel annotations that can be used to
+make sure scheduling transformations are safe." Two annotations, which
+are the two pbrt's wavefront has by construction: a reduction variable
+for the path radiance, `l : reduce(+) vec4f` (Cilk's reducer, pbrt's
+`pixelSampleState.L`), whose only operations are `+=` and one read after
+the parallel region, in the producer before the film write -- every use
+of `l` in `vol_path_step`, the medium walk and the escaped and emissive
+arms is an add already, so `l` leaves the recursion's arguments and every
+queue entry, and lives in a per-sample slot the owner allocates beside the
+queues (storage, not a stack value, so stored by reference); and `spawn l
++= shadow_contribution(ray, t_max, ld, r_u, r_l, ...)` inside
+`vol_sample_ld`, after the light is sampled and `f` evaluated with the
+sampler in hand (pbrt's `ShadowRayWorkItem`: the ray, tMax, the unoccluded
+contribution, the probabilities), saying nothing after the call depends on
+it and its value goes only into a reducer; the join is implicit where the
+reducer is read, which the round structure satisfies by draining the
+shadow queue each round. The compiler checks that the spawned call takes
+no `mut` argument the continuation also touches (the sampler state stays
+in the path's stream; the transmittance walk's RNG is its own, seeded from
+the ray) and that a reducer is never read inside the recursion; a `defer`
+of the spawned call at a non-tail site is then legal. The emissive hit's
+`l += beta * Le / ...` becomes the same kind of update, so pbrt's
+emissive queue is a schedule choice on it. Spelling to be confirmed by the
+user; the checks are the same under any spelling.
+
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
 `schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
