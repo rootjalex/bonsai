@@ -5303,7 +5303,8 @@ the statement's parsing (its marks are committed) and a push-and-continue
 deferral: the producer pushes and goes on, the drain traces and
 accumulates, no saved flag; its producers are all the material drains, so
 its drain sits after them in the round, sized by the ray queue's capacity;
-covers IntersectShadow and the transmittance walk. (3) The emissive-hit
+covers IntersectShadow and the transmittance walk (done, "The shadow ray
+queue" below). (3) The emissive-hit
 queue: `l += beta * Le / ...` at a hit as a spawn onto a queue of its own,
 a schedule choice once spawn exists (pbrt made it for register pressure).
 (4) Medium queues: the medium-sample queue needs the lambda key (`medium
@@ -5374,6 +5375,85 @@ chain link -- a call whose continuation is one accumulate into a reducer
 -- and either that mechanism or writing `li_path`/`full_path_step` with
 `l : reduce(+)` as volpath is written removes it; it is the CPU packet
 wavefront's problem, not the GPU's.
+
+**The shadow ray queue, built (2026-09-23).** The program first.
+`vol_sample_ld` samples the light with the sampler in hand and then
+`spawn l += shadow_contribution(light_ray, medium, p_light, p_light_error,
+n_light, ld, r_u, r_l, lambda)`: pbrt's ShadowRayWorkItem is the ray, its
+end, Ld, r_u, r_l and the wavelengths, and this is that, with the light
+sample's point for the walk to aim at again across a medium boundary (the
+CPU `SpawnRayTo(pLight)`) and the medium the ray leaves into. `ld` is
+`beta * f_hat * L`, `r_l = r_p * p_l`, `r_u = r_p * scatterPDF` -- zero for
+a delta light, as pbrt's wavefront sets `bsdfPDF` (surfscatter.cpp), which
+makes the delta case the general one. `shadow_contribution` is
+TraceTransmittance and RecordShadowRayResult: the walk (`vol_shadow_step`,
+its RNG seeded from the ray), then `ld * T_ray / average(r_l * walk.r_l +
+r_u * walk.r_u)`, zero when blocked. The arithmetic is pbrt's wavefront's
+(`Ld / (r_u + r_l).Average()`) where the CPU integrator writes `beta * f *
+T_ray * L / ...`: a reassociation, and the one difference from before. The
+medium scatter's direct lighting and phase sample moved out of the walk
+into the step (`vol_path_step`'s scatter arm), as pbrt's wavefront has them
+-- SampleMediumScattering is a kernel of its own after
+SampleMediumInteraction -- with `MediumEvent` handing back the point, the
+rescaled path and the phase function's `g` instead of `wi` and the light
+context; the draws from the sampler come in the same order as before (the
+walk draws none). This is what lets the compiler see that a step spawns
+its shadow ray from one of two exclusive places, so that the shadow queue
+holds one entry per ray entry per round.
+
+The compiler: `spawn` (a call whose value only a reducer takes; the
+inliner leaves it a call); its deferral pushes at the site and goes on --
+the chain keeps its return types, its links need not be tail calls, the
+owner may call into it from several loops and the drain goes after the
+last of them (`hits[Some][Interface]`'s pass here), the entry carries the
+reducer's address beside the arguments, and one entry per run is checked
+(no loop round the site, no second call into the chain on a path after
+one); and the join: the film write, which reads the radiance, ran in the
+material drain that ended the path, before that round's shadow drain, so
+every continuation that reads a reducer becomes a push onto `shadow_done`
+and one pass after the last round runs it -- pbrt's pixelSampleState and
+UpdateFilm (SSA/Defer.cpp, join_continuations; Function::
+continuation_entries and OwnedQueue::after). Along the way: the field-of-
+a-struct fold sees through block arguments, so a specialized copy's match
+folds below the block that built the struct (the escaped copy of the
+staged step is a fifth of what it was); the split's per-material copies
+follow the material into their callees and a variant handed by pointer is
+specialized through a slot; Definitions resolves a value carried round a
+loop unchanged (the round loop's threading had made `textures` look like
+a different value at every drain); and alloca promotion renames the types
+once per function rather than once per candidate, which took the volpath
+wavefront's SSA pass from 81 s to 16 s.
+
+The schedule (`wavefront-volpath.bonsai`): `shadow =
+render[VolPath].queue(p); vol_sample_ld.defer(shadow_contribution,
+shadow);` after the hits split. A round is now rays, then `hits[None]`,
+`hits[Some][<Material>]` in turn, then `shadow`; after the rounds,
+`shadow_done` writes the film. The entry: light_ray, medium, the light
+point, ld, r_u, r_l, lambda, and the radiance address; every scene array
+is in scope at the drain and left out. Checked (scratch `cmp-sf-*`):
+the scalar schedule with the restructured program renders camera-medium,
+homogeneous-medium and killeroo-simple bit for bit on gbuffer and albedo
+against the previous program and within 2e-6 on radiance, at the same
+pbrt figures; the wavefront with the shadow queue renders all three bit
+for bit on gbuffer and albedo against that scalar, radiance within 7e-6
+on the media scenes and within 2e-3 on 0.01% of killeroo's pixels (the
+bounce-order reassociation, as before), killeroo 33.2% at pbrt. Two bugs
+on the way: the film pass loaded the sample iteration's `visible` local
+(the join renamed the continuation's argument from a name it was itself
+changing), and a queue with several producers was emptied before the
+last of their loops rather than the first (a segfault in the push on the
+first round); a queue whose producers are ordinary loops is now sized by
+the sum of their counts (tests/bonsai/correctness/llvm/
+defer-spawn-two-producers).
+
+Compile time (BONSAI_TIME_PASSES): the whole compile of the wavefront
+schedule through LLVM is 51 s, from about three minutes; the SSA pass 16
+s (promotion 9, the relooper's statements 4, the directives 1.3), the
+statement-level inliner 19 s, CSE 6 s -- the next two to look at; and the per-material
+copies still carry every BxDF's sampling arm, because the BxDF the
+material arm builds reaches the match through the inliner's result slot,
+promoted only after the last simplify. A simplify after the promotion
+would fold those and cut LLVM's share too.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)

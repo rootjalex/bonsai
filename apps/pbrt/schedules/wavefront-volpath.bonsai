@@ -41,6 +41,17 @@ schedule {
     // first, which no scene measured against pbrt --gpu has.
     hits.specialize(isect);
     hits[Some].specialize(material);
+    // pbrt's shadow ray queue. The shadow ray is spawned in vol_sample_ld
+    // once the light is sampled -- `spawn l += shadow_contribution(...)`, its
+    // value going into the path's radiance and nowhere else -- so its trace
+    // is pushed by the material drains (and by the medium scatter in the
+    // rays drain) and run after the last of them each round, as pbrt's
+    // TraceShadowRays follows its material kernels. The film write, which
+    // reads the radiance, then waits for every round, as pbrt's UpdateFilm
+    // does: the compiler moves it onto a queue of its own, drained after
+    // the rounds.
+    shadow = render[VolPath].queue(p);
+    vol_sample_ld.defer(shadow_contribution, shadow);
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|

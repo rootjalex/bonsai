@@ -1945,16 +1945,48 @@ func vol_shadow_step(light_ray : Ray, medium : i32, to_p : vec3f,
                            rng, lambda);
 }
 
+// pbrt: the shadow ray of VolPathIntegrator::SampleLd, from the light sample
+// on. Its transmittance and the two probabilities are walked through the
+// media it crosses (`vol_shadow_step`; pbrt's wavefront TraceTransmittance,
+// with the RNG seeded from the ray), and the tentative contribution is scaled
+// by the transmittance and divided by the average of the rescaled
+// probabilities (pbrt's RecordShadowRayResult: `Ld / (r_u + r_l).Average()`,
+// each probability the light sample's times the walk's). Zero when blocked.
+// `to_*` is the light sample's point, for the walk to aim at again across a
+// medium boundary, as pbrt's `SpawnRayTo(pLight)` does. What pbrt's
+// ShadowRayWorkItem holds is what this takes: the ray, the wavelengths, Ld,
+// r_u, r_l.
+func shadow_contribution(light_ray : Ray, medium : i32, to_p : vec3f,
+                         to_error : vec3f, to_n : vec3f, ld : vec4f,
+                         r_u : vec4f, r_l : vec4f,
+                         lambda : SampledWavelengths) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    rng : mut RNG = set_sequence(hash_vec3(light_ray.o), hash_vec3(light_ray.d));
+    ones = vec4f{1.0, 1.0, 1.0, 1.0};
+    start : Transmittance = {ones, ones, ones};
+    tr = vol_shadow_step(light_ray, medium, to_p, to_error, to_n, start, rng,
+                         lambda);
+    if !nonzero(tr.t_ray) {
+        return zero;
+    }
+    return ld * tr.t_ray / average4(r_l * tr.r_l + r_u * tr.r_u);
+}
+
 // pbrt: VolPathIntegrator::SampleLd -- direct lighting at a surface or a
 // medium point, weighed against the BSDF's or the phase function's own
 // estimator through the rescaled probabilities, with the shadow ray's
-// transmittance folded in. Returns what is added to the radiance: pbrt's
-// `beta * f_hat * T_ray * L / ...`, `beta` included.
+// transmittance folded in. Adds what pbrt adds to the radiance -- `beta *
+// f_hat * T_ray * L / ...`, `beta` included -- into `l`. The light is
+// sampled here, with the sampler in hand; the shadow ray is traced by
+// `shadow_contribution`, spawned: its value goes into `l` and nowhere else,
+// so a schedule may queue the shadow rays and trace them together, as pbrt's
+// wavefront integrator does (its shadowRayQueue, traced after the material
+// kernels).
 func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
                    shading : Frame, wo : vec3f, flags : i32, g : Float,
                    beta : vec4f, r_p : vec4f, lambda : SampledWavelengths,
                    sampler : Sampler, state : mut SamplerState,
-                   ls : LightSampler, seed : i32) -> vec4f {
+                   ls : LightSampler, seed : i32, l : reduce(+) vec4f) -> void {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     // pbrt: the LightSampleContext -- a surface's point nudged to the side
     // its BSDF scatters to, as in `path_sample_ld`; a medium point as it is,
@@ -1977,16 +2009,16 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
     chosen = light_sampler_sample(ls, ctx, u);
     u_light = get_2d(sampler, state);
     if !chosen {
-        return zero;
+        return;
     }
     picked = *chosen;
     sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda, true);
     if !sampled {
-        return zero;
+        return;
     }
     lsample = *sampled;
     if !nonzero(lsample.l) || (lsample.pdf == 0.0) {
-        return zero;
+        return;
     }
     p_l = picked.p * lsample.pdf;
 
@@ -2006,43 +2038,43 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
         scatter_pdf = p;
     }
     if !nonzero(f_hat) {
-        return zero;
+        return;
     }
 
     // pbrt: `intr.SpawnRayTo(ls->pLight)`, both ends pushed off their
     // surfaces (a medium point has no surface to push off, and a zero normal
-    // pushes nothing), in the medium the ray leaves into; and the RNG the
-    // transmittance is estimated with, seeded from that ray.
+    // pushes nothing), in the medium the ray leaves into.
     light_ray = spawn_ray_to(pt.p, pt.p_error, pt.n, lsample.p_light,
                              lsample.p_light_error, lsample.n_light);
     light_medium = scatter_medium(pt, light_ray.d);
-    rng : mut RNG = set_sequence(hash_vec3(light_ray.o), hash_vec3(light_ray.d));
-    ones = vec4f{1.0, 1.0, 1.0, 1.0};
-    start : Transmittance = {ones, ones, ones};
-    tr = vol_shadow_step(light_ray, light_medium, lsample.p_light,
-                         lsample.p_light_error, lsample.n_light, start, rng,
-                         lambda);
-    if !nonzero(tr.t_ray) {
-        return zero;
-    }
 
-    // pbrt: `r_l *= r_p * p_l; r_u *= r_p * scatterPDF`, and the estimate --
-    // a delta light has no other way of being reached.
-    r_l = tr.r_l * r_p * p_l;
-    r_u = tr.r_u * r_p * scatter_pdf;
+    // pbrt: the tentative contribution and the two probabilities the shadow
+    // ray's own multiply into -- `r_l *= r_p * p_l; r_u *= r_p * scatterPDF`
+    // -- as its wavefront's ShadowRayWorkItem carries them. A delta light has
+    // no other way of being reached, so its r_u is zero (pbrt's wavefront:
+    // `bsdfPDF = IsDeltaLight(...) ? 0 : ...`), and the estimate divides by
+    // the average of r_l alone.
+    ld = beta * f_hat * lsample.l;
+    r_l = r_p * p_l;
+    r_u : mut vec4f = r_p * scatter_pdf;
     if light_is_delta(lights[picked.light]) {
-        return beta * f_hat * tr.t_ray * lsample.l / average4(r_l);
+        r_u = zero;
     }
-    return beta * f_hat * tr.t_ray * lsample.l / average4(r_l + r_u);
+    spawn l += shadow_contribution(light_ray, light_medium, lsample.p_light,
+                                   lsample.p_light_error, lsample.n_light, ld,
+                                   r_u, r_l, lambda);
+    return;
 }
 
 // What sampling the medium along a ray came to (pbrt: the `scattered` and
 // `terminated` flags of Li's callback, and the state the callback changed).
 // `kind` is 0 for a ray that reached the far end of its segment -- `t_maj`
 // is then the majorant transmittance of the last stretch, which the caller
-// scales by -- 1 for a real scattering event, which turned the ray, and 2
-// for a path that ended in the medium: absorbed, at its depth limit, or with
-// nothing left to carry.
+// scales by -- 1 for a real scattering event at `p`, with `beta` and `r_u`
+// rescaled by the scattering and `g` the phase function's asymmetry there,
+// for the caller to sample direct lighting and the phase function from; and
+// 2 for a path that ended in the medium: absorbed, at its depth limit, or
+// with nothing left to carry.
 element MediumEvent {
     kind : i32;
     t_maj : vec4f;
@@ -2051,8 +2083,7 @@ element MediumEvent {
     r_l : vec4f;
     depth : i32;
     p : vec3f;
-    wi : vec3f;
-    prev_ctx : ShapeSampleContext;
+    g : Float;
 }
 
 // pbrt: SampleT_maj with VolPathIntegrator::Li's callback, over the one
@@ -2066,13 +2097,9 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
                      t_max : Float, m : Medium, sigma_maj : vec4f, u : Float,
                      rng : mut RNG, t_maj_in : vec4f, beta : vec4f,
                      r_u : vec4f, r_l : vec4f, l : reduce(+) vec4f, depth : i32,
-                     max_depth : i32, medium : i32, medium_inside : i32,
-                     medium_outside : i32, lambda : SampledWavelengths,
-                     sampler : Sampler, state : mut SamplerState,
-                     ls : LightSampler, seed : i32) -> MediumEvent {
+                     max_depth : i32, lambda : SampledWavelengths) -> MediumEvent {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     zero3 = vec3f{0.0, 0.0, 0.0};
-    no_ctx : ShapeSampleContext = {zero3, zero3, zero3, zero3};
     t = t_min + sample_exponential(u, sigma_maj.x);
     u_next = next_float(rng);
     if t >= t_max {
@@ -2080,7 +2107,7 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
         dt_raw = t_max - t_min;
         dt = select(dt_raw == inf, float_max(), dt_raw);
         passed : MediumEvent = {0, t_maj_in * fast_exp4(-dt * sigma_maj), beta,
-                                r_u, r_l, depth, zero3, zero3, no_ctx};
+                                r_u, r_l, depth, zero3, 0.0};
         return passed;
     }
     t_maj = t_maj_in * fast_exp4(-(t - t_min) * sigma_maj);
@@ -2089,8 +2116,7 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
 
     // pbrt: the callback. A path with nothing left is done.
     if !nonzero(beta) {
-        ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, zero3,
-                               no_ctx};
+        ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, 0.0};
         return ended;
     }
     // pbrt: emission at the tentative collision, weighed by the probability
@@ -2112,16 +2138,14 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
     mode = sample_discrete3(p_absorb, p_scatter, p_null, um);
     if mode == 0 {
         // Absorbed.
-        ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, zero3,
-                               no_ctx};
+        ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, 0.0};
         return ended;
     }
     if mode == 1 {
         // pbrt: a real scattering event. `if (depth++ >= maxDepth)` -- the
         // path's depth limit counts it.
         if depth >= max_depth {
-            ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3,
-                                   zero3, no_ctx};
+            ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, 0.0};
             return ended;
         }
         next_depth = depth + 1;
@@ -2132,32 +2156,16 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
             // pbrt: `if (beta && r_u)` fails, the callback returns false, and
             // Li returns L, since `!beta || !r_u`.
             ended : MediumEvent = {2, t_maj, beta_s, r_u_s, r_l, next_depth,
-                                   zero3, zero3, no_ctx};
+                                   zero3, 0.0};
             return ended;
         }
-        // pbrt: `MediumInteraction intr(p, -ray.d, ...)` -- wo normalized by
-        // Interaction's constructor -- and direct lighting from it.
-        wo = unit_vector_(-ray_d);
-        pt : ScatterPoint = {p, zero3, zero3, zero3, medium, medium, medium};
-        none : DiffuseBxDF = {zero};
-        no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
-        l += vol_sample_ld(pt, false, Lambertian(none), no_frame, wo, 0, mp.g,
-                           beta_s, r_u_s, lambda, sampler, state, ls, seed);
-        // pbrt: `intr.phase.Sample_p(-ray.d, u)` -- the phase function
-        // sampled about the ray's own direction, unnormalized as it is.
-        u2 = get_2d(sampler, state);
-        ps = sample_hg(-ray_d, mp.g, u2);
-        if ps.pdf == 0.0 {
-            ended : MediumEvent = {2, t_maj, beta_s, r_u_s, r_l, next_depth,
-                                   zero3, zero3, no_ctx};
-            return ended;
-        }
-        // pbrt: `beta *= ps->p / ps->pdf; r_l = r_u / ps->pdf`, the new ray
-        // from the scattering point, and the light-sampling context of a
-        // medium point -- no normal.
-        ctx : ShapeSampleContext = {p, zero3, zero3, zero3};
-        scattered : MediumEvent = {1, t_maj, beta_s * (ps.p / ps.pdf), r_u_s,
-                                   r_u_s / ps.pdf, next_depth, p, ps.wi, ctx};
+        // The rest of pbrt's callback -- direct lighting from the point and
+        // the phase function's sample -- is the caller's (vol_path_step),
+        // as pbrt's wavefront has it: SampleMediumScattering is a kernel of
+        // its own after the walk's. The walk hands back the point, the
+        // rescaled path and the phase function's asymmetry there.
+        scattered : MediumEvent = {1, t_maj, beta_s, r_u_s, r_l, next_depth, p,
+                                   mp.g};
         return scattered;
     }
     // pbrt: a null collision -- the estimate rescaled by what was not
@@ -2168,14 +2176,12 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
     r_u_n = r_u * t_maj * sigma_n / pdf_n;
     r_l_n = r_l * t_maj * sigma_maj / pdf_n;
     if !nonzero(beta_n) || !nonzero(r_u_n) {
-        ended : MediumEvent = {2, t_maj, beta_n, r_u_n, r_l_n, depth, zero3,
-                               zero3, no_ctx};
+        ended : MediumEvent = {2, t_maj, beta_n, r_u_n, r_l_n, depth, zero3, 0.0};
         return ended;
     }
     return vol_medium_step(ray_o, ray_d, dn, t, t_max, m, sigma_maj, u_next,
                            rng, vec4f{1.0, 1.0, 1.0, 1.0}, beta_n, r_u_n, r_l_n,
-                           l, depth, max_depth, medium, medium_inside,
-                           medium_outside, lambda, sampler, state, ls, seed);
+                           l, depth, max_depth, lambda);
 }
 
 // pbrt: VolPathIntegrator::Li, one vertex of it -- what `full_path_step` is to
@@ -2220,34 +2226,55 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
         sigma_maj = medium_sigma_maj(m, lambda);
         ones = vec4f{1.0, 1.0, 1.0, 1.0};
         zero3 = vec3f{0.0, 0.0, 0.0};
-        no_ctx : ShapeSampleContext = {zero3, zero3, zero3, zero3};
-        event : mut MediumEvent = {0, ones, beta, r_u, r_l, depth, zero3, zero3,
-                                   no_ctx};
+        event : mut MediumEvent = {0, ones, beta, r_u, r_l, depth, zero3, 0.0};
         if sigma_maj.x == 0.0 {
             // pbrt: a zero majorant -- the whole segment transmitted by it.
             dt_raw = t_hit * d_len;
             dt = select(dt_raw == inf, float_max(), dt_raw);
             event = MediumEvent{0, fast_exp4(-dt * sigma_maj), beta, r_u, r_l,
-                                depth, zero3, zero3, no_ctx};
+                                depth, zero3, 0.0};
         } else {
             event = vol_medium_step(ray.o, ray.d, dn, 0.0, t_hit * d_len, m,
                                     sigma_maj, u, rng, ones, beta, r_u, r_l, l,
-                                    depth, max_depth, medium, medium, medium,
-                                    lambda, sampler, state, ls, seed);
+                                    depth, max_depth, lambda);
         }
         if event.kind == 2 {
             return;
         }
         if event.kind == 1 {
-            // pbrt: `if (scattered) continue` -- the ray turned at the
-            // scattering point; its differentials are left as they were,
-            // since pbrt overwrites only `o` and `d`.
-            turned : Ray = {event.p, event.wi, inf};
+            // pbrt: a real scattering event, the rest of the callback.
+            // `MediumInteraction intr(p, -ray.d, ...)` -- wo normalized by
+            // Interaction's constructor -- and direct lighting from it; then
+            // `intr.phase.Sample_p(-ray.d, u)`, the phase function sampled
+            // about the ray's own direction, unnormalized as it is; `beta *=
+            // ps->p / ps->pdf; r_l = r_u / ps->pdf`; the light-sampling
+            // context of a medium point, with no normal; and `if (scattered)
+            // continue` -- the ray turned at the scattering point, its
+            // differentials left as they were, since pbrt overwrites only
+            // `o` and `d`. Here rather than in the walk, as pbrt's wavefront
+            // has it (SampleMediumScattering, a kernel of its own after
+            // SampleMediumInteraction): the walk is a walk, and each step
+            // spawns its shadow ray from one place or the other.
+            wo = unit_vector_(-ray.d);
+            pt : ScatterPoint = {event.p, zero3, zero3, zero3, medium, medium,
+                                 medium};
+            none : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
+            no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
+            vol_sample_ld(pt, false, Lambertian(none), no_frame, wo, 0, event.g,
+                          event.beta, event.r_u, lambda, sampler, state, ls,
+                          seed, l);
+            u2 = get_2d(sampler, state);
+            ps = sample_hg(-ray.d, event.g, u2);
+            if ps.pdf == 0.0 {
+                return;
+            }
+            ctx : ShapeSampleContext = {event.p, zero3, zero3, zero3};
+            turned : Ray = {event.p, ps.wi, inf};
             vol_path_step(turned, medium, ray_diff, camera, spp_scale,
-                          event.beta, event.r_u, event.r_l, event.depth, false,
-                          true, eta_scale, event.prev_ctx, lambda, sampler,
-                          state, ls, set, seed, max_depth, regularize,
-                          want_visible, visible, l);
+                          event.beta * (ps.p / ps.pdf), event.r_u,
+                          event.r_u / ps.pdf, event.depth, false, true,
+                          eta_scale, ctx, lambda, sampler, state, ls, set, seed,
+                          max_depth, regularize, want_visible, visible, l);
             return;
         }
         // pbrt: `beta *= T_maj / T_maj[0]`, and the probabilities with it.
@@ -2349,8 +2376,8 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
     if is_non_specular(flags) {
         pt : ScatterPoint = {surf.p, surf.p_error, surf.n, hit.ns, medium,
                              prim.medium_inside, prim.medium_outside};
-        l += vol_sample_ld(pt, true, bsdf, shading, wo_unit, flags, 0.0, beta,
-                           r_u, lambda, sampler, state, ls, seed);
+        vol_sample_ld(pt, true, bsdf, shading, wo_unit, flags, 0.0, beta, r_u,
+                      lambda, sampler, state, ls, seed, l);
     }
     next_ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
