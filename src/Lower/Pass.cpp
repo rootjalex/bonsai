@@ -18,6 +18,8 @@ ir::Program Pass::run(ir::Program program,
     // functions should not silently drop what else the program is carrying.
     new_program.ssa_funcs = std::move(program.ssa_funcs);
     new_program.extents = std::move(program.extents);
+    new_program.element_storage = std::move(program.element_storage);
+    new_program.adt_storages = std::move(program.adt_storages);
     return new_program;
 }
 

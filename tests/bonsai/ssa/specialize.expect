@@ -1,0 +1,119 @@
+type Clamp = struct Clamp{ floor : f32 }
+type Float = f32
+type Half = f16
+type Mode = struct Mode{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type Sum = struct Sum{ scale : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] Mode_Clamp(_ret0 : mut (Mode*), floor : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(floor) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Mode>(1u, @0, @2) in
+  _ret0 = @3
+  return
+}
+
+func [[export]] Mode_Sum(_ret1 : mut (Mode*), scale : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(scale) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Mode>(0u, @0, @2) in
+  _ret1 = @3
+  return
+}
+
+func apply(mode : Mode, x : f32) -> f32 {
+  let @0 = mode.tag in
+  switch (@0) {
+  case 0: { // Mode.Sum of apply
+    let @1 = mode.payload in
+    let @2 = @1[0u] in
+    let @3 = reinterpret_cast<f32>(@2) in
+    let @4 = x * @3 in
+    return @4
+  } break;
+  default: { // Mode.Clamp of apply
+    let @5 = mode.payload in
+    let @6 = @5[0u] in
+    let @7 = reinterpret_cast<f32>(@6) in
+    let @8 = max(x, @7) in
+    return @8
+  }
+  }
+}
+
+func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
+  let @48 = (*mode).tag in
+  switch (@48) {
+  case 0: {
+    parfor i in [0:8:1] {
+      @28 : mut f32
+      let @49 = (*mode) in
+      let @50 = @49._pad in
+      let @51 = @49.payload in
+      let @52 = build<Mode>(0u, @50, @51) in
+      let @27 = values[i] in
+      let @30 = @52.tag in
+      switch (@30) {
+      case 0: { // Mode.Sum of apply
+        let @16 = @52.payload in
+        let @17 = @16[0u] in
+        let @18 = reinterpret_cast<f32>(@17) in
+        let @19 = @27 * @18 in
+        @28 = @19
+      } break;
+      default: { // Mode.Clamp of apply
+        let @21 = @52.payload in
+        let @22 = @21[0u] in
+        let @23 = reinterpret_cast<f32>(@22) in
+        let @24 = max(@27, @23) in
+        @28 = @24
+      }
+      }
+      out[i] = (*@28)
+      continue
+    }
+  } break;
+  default: {
+    parfor i in [0:8:1] {
+      @44 : mut f32
+      let @53 = (*mode) in
+      let @54 = @53._pad in
+      let @55 = @53.payload in
+      let @56 = build<Mode>(1u, @54, @55) in
+      let @43 = values[i] in
+      let @46 = @56.tag in
+      switch (@46) {
+      case 0: { // Mode.Sum of apply
+        let @32 = @56.payload in
+        let @33 = @32[0u] in
+        let @34 = reinterpret_cast<f32>(@33) in
+        let @35 = @43 * @34 in
+        @44 = @35
+      } break;
+      default: { // Mode.Clamp of apply
+        let @37 = @56.payload in
+        let @38 = @37[0u] in
+        let @39 = reinterpret_cast<f32>(@38) in
+        let @40 = max(@43, @39) in
+        @44 = @40
+      }
+      }
+      out[i] = (*@44)
+      continue
+    }
+  }
+  }
+  return
+}
+
+
+schedule host {
+    run.bind(i, CPUThread)
+       .specialize(mode)
+
+}

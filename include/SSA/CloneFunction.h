@@ -16,6 +16,22 @@ namespace ssa {
 // leaving the original alone for the scalar call sites that still want it.
 std::shared_ptr<Function> clone_function(const Function &func);
 
+// A copy of the blocks `region` of `func`, renamed with `suffix`, keyed by
+// the original block's name. Instructions get fresh names, and so does every
+// argument that carried one of the old names on, so that the copy and the
+// original can live in one function; a name the region refers to but does
+// not define -- a value from before it, threaded in -- keeps its name, since
+// that is what its definition is called. Jumps to blocks outside the region
+// are left pointing where they were, for the caller to redirect; the copies
+// are not added to the function, and predecessors are not set -- the caller
+// does both. Defined in SSA/Defer.cpp, which copies a producer's
+// continuation with it; specialize() copies a loop's body per variant
+// (SSA/Specialize.cpp).
+std::map<std::string, std::shared_ptr<Block>>
+clone_region(Function &func,
+             const std::vector<std::shared_ptr<Block>> &region,
+             const std::string &suffix);
+
 // Rewrites `func` to have a single Return.
 //
 // Each existing Return becomes a jump to one new exit block, which takes the

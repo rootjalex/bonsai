@@ -74,6 +74,7 @@ add_bonsai_tests(
     select-const-arms.bonsai
     shadowed-let.bonsai
     simplify-facts.bonsai
+    specialize.bonsai
     sret.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai

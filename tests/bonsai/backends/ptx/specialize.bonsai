@@ -1,0 +1,33 @@
+//! flags: -p ssa -b ptx
+
+// `run.specialize(mode)` under a GPU bind: one kernel per variant of `mode`,
+// each entered by the host's dispatch on the tag. In each kernel the tag is
+// a constant, so `apply`'s match -- a switch on the tag once inlined -- folds
+// to its one arm: neither kernel compares the tag, the Sum kernel multiplies
+// and the Clamp kernel takes a maximum, and the payload each reads is the
+// caller's (SSA/Specialize.h).
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 64],
+                    out : mut array[Float, 64]) -> void {
+    parfor i in 0:64 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+    run.specialize(mode);
+}

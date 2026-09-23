@@ -47,6 +47,7 @@ add_bonsai_tests(
     print.bonsai
     rand.bonsai
     rtiow-primer.bonsai
+    specialize.bonsai
     struct-capture.bonsai
     texture-sample.bonsai
     threads.bonsai

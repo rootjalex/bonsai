@@ -750,6 +750,21 @@ ir::Program LowerADTs::run(ir::Program program,
         return program;
     }
 
+    // What each variant type is stored as, for the passes that meet the
+    // storage after this one (ir::Program::adt_storages).
+    for (const auto &[name, layout] : layouts) {
+        ir::Program::AdtStorage storage;
+        for (const TypedVar &member : layout.members) {
+            storage.variants.emplace_back(member.name, layout.tag(member.name));
+        }
+        storage.inline_storage = layout.kind == ir::AdtLayout::Inline;
+        storage.tag_field = layout.tag_field;
+        storage.pad_field = layout.pad_field;
+        storage.payload_field = layout.payload_field;
+        storage.tag_type = layout.tag_type;
+        program.adt_storages[name] = std::move(storage);
+    }
+
     // Matches that are values become functions first, so that the rewrite
     // below lowers the match statement inside each exactly as it lowers one
     // the program wrote.

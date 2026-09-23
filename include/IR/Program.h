@@ -72,6 +72,28 @@ struct Program {
     };
     std::map<std::string, ElementStorage> element_storage;
 
+    // What a variant type became once its layout was applied, for a pass
+    // that meets the storage after the fact and has to tell its variants
+    // apart: the schedule's `specialize()` copies a loop per variant of a
+    // parameter and sets the tag in each copy (SSA/Specialize.h). Keyed by
+    // the variant type's name, which is the storage struct's name. An
+    // `Inline` storage is the struct of a tag, padding to the payload's
+    // alignment where the tag is narrower, and the payload's words, named
+    // by the fields here; a `TaggedIndex` storage is one word with the tag
+    // in its top bits and has no fields to name. Recorded by
+    // Lower/ADTs.cpp, which is the one place that knows.
+    struct AdtStorage {
+        // Each variant's name and the number its tag holds, in declaration
+        // order.
+        std::vector<std::pair<std::string, uint64_t>> variants;
+        bool inline_storage = true;
+        std::string tag_field;
+        std::string pad_field; // empty when the storage has no padding
+        std::string payload_field;
+        Type tag_type;
+    };
+    std::map<std::string, AdtStorage> adt_storages;
+
     // The SSA form of whichever functions are to be lowered to the backend
     // straight from it, rather than from the statements the relooper builds.
     // Keyed by the same names as `funcs`, which still holds a statement form

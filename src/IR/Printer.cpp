@@ -390,6 +390,9 @@ void Printer::print(const Schedule &schedule) {
                                       os << "vectorize(";
                                       print(vec.i);
                                       os << ")";
+                                  },
+                                  [&](const Specialize &s) {
+                                      os << "specialize(" << s.param << ")";
                                   }},
                        ts[i]);
         }

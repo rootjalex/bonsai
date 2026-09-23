@@ -29,6 +29,7 @@ add_bonsai_tests(
     ray-any-early-exit.bonsai
     sort-nested.bonsai
     sort-recursion.bonsai
+    specialize.bonsai
     split.bonsai
     split-tail.bonsai
     split-unsigned.bonsai

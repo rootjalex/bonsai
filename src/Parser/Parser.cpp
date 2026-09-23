@@ -3335,6 +3335,13 @@ struct Parser {
                 ir::Location i = parse_location();
                 add(
                     ir::Vectorize{std::move(i)});
+            } else if (rewrite == "specialize") {
+                // The parameter whose variants the function is copied for.
+                ir::Location param = parse_location();
+                internal_assert(param.names.size() == 1)
+                    << "specialize() names one parameter of the function, "
+                       "not a path";
+                add(ir::Specialize{param.names.front()});
             } else if (rewrite == "skip") {
                 // Not a transform: which arms of the function's branches get
                 // a test of whether any lane is in them, when the function

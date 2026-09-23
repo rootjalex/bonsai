@@ -7,6 +7,7 @@
 #include "SSA/Defer.h"
 #include "SSA/BlockAccumulates.h"
 #include "SSA/DemoteAtomics.h"
+#include "SSA/Specialize.h"
 #include "SSA/InvariantDivision.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
@@ -1590,6 +1591,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     const ir::TransformOrder &order,
                     const ir::BranchPolicyMap &policies,
                     const std::map<std::string, ir::Queue> &queues,
+                    const std::map<std::string, ir::Program::AdtStorage>
+                        &adt_storages,
                     const CompilerOptions &options,
                     ir::Program *keep_ssa = nullptr) {
     FuncMap fmap;
@@ -1692,6 +1695,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Loopify &) { return "loopify"; },
                           [](const ir::Split &) { return "split"; },
                           [](const ir::Sort &) { return "sort"; },
+                          [](const ir::Specialize &) { return "specialize"; },
                           [](const ir::Vectorize &) { return "vectorize"; }},
                 t);
             std::cerr << "[time]   " << name << "." << kind << ": "
@@ -1727,6 +1731,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         const LoopSite at = resolve_loop(
                             fmap, name, v.i.names.back(), "vectorize");
                         vectorize(fmap, at.func, at.index, policies);
+                    },
+                    [&](const ir::Specialize &s) {
+                        specialize_loops(fmap, name, s.param, adt_storages);
                     },
                     [&](const ir::Loopify &l) {
                         int size = 0;
@@ -1975,14 +1982,16 @@ ir::Program ConvertToSSA::run(ir::Program program,
     new_program.types = program.types;
     new_program.externs = program.externs;
     new_program.schedules = program.schedules;
-    new_program.funcs = convert(std::move(program.funcs), transforms, order,
-                                policies, queues, options, &new_program);
+    new_program.adt_storages = program.adt_storages;
+    new_program.funcs =
+        convert(std::move(program.funcs), transforms, order, policies, queues,
+                new_program.adt_storages, options, &new_program);
     return new_program;
 }
 
 ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
-    return convert(std::move(funcs), {}, {}, {}, {}, options);
+    return convert(std::move(funcs), {}, {}, {}, {}, {}, options);
 }
 
 } // namespace ssa

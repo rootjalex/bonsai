@@ -557,14 +557,18 @@ bool is_tail_call(const Terminator::Call &call, const BlockMap &bmap) {
 // Copying a continuation
 //===--------------------------------------------------------------------===//
 
+} // namespace
+
 // A copy of the blocks `region` of `func`, renamed with `suffix`, for placing
-// the rest of a producer's iteration inside the drain. Instructions get fresh
-// names, and so does every argument that carried one of the old names on,
-// so that the copy and the original can live in one function; a name the
-// region refers to but does not define -- a value from before the call,
-// threaded in -- keeps its name, since that is what its definition is called.
-// Jumps to blocks outside the region are left pointing where they were, for
-// the caller to redirect. Predecessors are not set; the caller rebuilds them.
+// the rest of a producer's iteration inside the drain -- and, declared in
+// SSA/CloneFunction.h, for specialize()'s copy of a loop body per variant.
+// Instructions get fresh names, and so does every argument that carried one
+// of the old names on, so that the copy and the original can live in one
+// function; a name the region refers to but does not define -- a value from
+// before the call, threaded in -- keeps its name, since that is what its
+// definition is called. Jumps to blocks outside the region are left pointing
+// where they were, for the caller to redirect. Predecessors are not set; the
+// caller rebuilds them.
 map<string, shared_ptr<Block>>
 clone_region(Function &func, const vector<shared_ptr<Block>> &region,
              const string &suffix) {
@@ -721,6 +725,8 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
     }
     return copies;
 }
+
+namespace {
 
 // The blocks reachable from `entry` inside `func` along intraprocedural
 // edges, in block-name order.

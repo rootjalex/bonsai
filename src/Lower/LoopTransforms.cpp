@@ -729,6 +729,9 @@ ir::Program LoopTransforms::run(ir::Program program,
                                   [&](const Vectorize &vec) {
                                       // no-op, applied by ConvertToSSA
                                       // instead (see SSA/Rewrite.h).
+                                  },
+                                  [&](const Specialize &) {
+                                      // Likewise: SSA/Specialize.h.
                                   }},
                        t);
 

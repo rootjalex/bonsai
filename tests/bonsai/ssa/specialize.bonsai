@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// `run.specialize(mode)` in the SSA: the loop's block reads the tag and
+// dispatches to a selector per variant, each the loop as it was over its own
+// copy of the body, whose head takes the given `mode` under another name and
+// defines `mode` as the given value with the variant's tag; the body the
+// loop used to enter is gone (SSA/Specialize.h).
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, CPUThread);
+    run.specialize(mode);
+}

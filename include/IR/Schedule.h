@@ -137,8 +137,23 @@ struct Vectorize {
     Location i;
 };
 
-using Transform =
-    std::variant<Bind, Collapse, Defer, Loopify, Split, Sort, Vectorize>;
+// One copy of the function per variant of a parameter of algebraic type,
+// the parameter's tag a constant in each, and the function itself a
+// dispatcher that reads the tag once and calls the copy -- written
+// `render.specialize(integrator)`. Halide's `specialize` from a boolean
+// condition to a variant: what the scene fixes for a whole render (its
+// integrator, its sampler) is fixed for the compiler too, so every `match`
+// on it folds to one arm in the copy, and under a GPU bind each copy is its
+// own kernel, allocated registers for the arm it runs and not for all of
+// them (pbrt's GPU build is one integrator by construction). The copies
+// are the function as scheduled up to this directive; it goes last among
+// the function's directives. Applied at the SSA level (SSA/Specialize.h).
+struct Specialize {
+    std::string param;
+};
+
+using Transform = std::variant<Bind, Collapse, Defer, Loopify, Split, Sort,
+                               Specialize, Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //

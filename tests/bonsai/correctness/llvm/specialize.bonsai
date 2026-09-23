@@ -1,0 +1,48 @@
+//! flags: -p ssa -b llvm -e
+
+// `run.specialize(mode)`: the bound loop's body copied once per variant of
+// `mode`, each copy's `mode` the given one with its tag set to that variant
+// (SSA/Specialize.h), the loop entered through a dispatch on the tag. What
+// is checked is that each copy computes what the original would have: the
+// tag is a constant in the copy, so `apply`'s match folds to one arm there,
+// and the payload -- read from the given value -- has to be the caller's.
+// Run with each variant in turn; the two answers differ, so a copy entered
+// for the wrong tag, or a payload read at the wrong offset, would show. The
+// loop is left unbound, since this runs in the JIT, which has no thread
+// pool; ssa/specialize shows the same over a bound loop.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(Sum(2.0), values, out);
+    // Doubled.
+    print(out);
+    run(Clamp(3.5), values, out);
+    // The floor where the input is below it.
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.specialize(mode);
+}
