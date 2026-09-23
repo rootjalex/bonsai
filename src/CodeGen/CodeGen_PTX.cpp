@@ -658,6 +658,33 @@ llvm::Value *CodeGen_PTX::atomic_address(llvm::Value *loc) {
         loc->getName() + ".global");
 }
 
+llvm::Value *CodeGen_PTX::extract_lane(llvm::Value *vec, llvm::Value *idx) {
+    // NVPTX has no instruction for a lane at a variable index: it lowers the
+    // extractelement by storing the vector to the thread's local memory and
+    // loading the one lane back (NVPTXISelLowering, EXTRACT_VECTOR_ELT ->
+    // Expand), so every `d[axis]` in a traversal put a frame under the
+    // kernel -- 318 generic loads and 636 stores in the megakernel, and
+    // local memory a third of its L1 traffic. A short vector's lane is
+    // cheaper in registers: the lanes at constant indices, then for each
+    // lane past the first a compare of the index and a `selp`. Long vectors
+    // keep the instruction; the gangs a CPU schedule makes never reach the
+    // device, so what arrives here is a vec2/3/4.
+    const auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(vec->getType());
+    if (llvm::isa<llvm::Constant>(idx) || vt == nullptr ||
+        vt->getNumElements() > 8) {
+        return CodeGen_LLVM::extract_lane(vec, idx);
+    }
+    llvm::Value *result = builder->CreateExtractElement(vec, uint64_t(0));
+    for (unsigned k = 1; k < vt->getNumElements(); k++) {
+        llvm::Value *is_k = builder->CreateICmpEQ(
+            idx, llvm::ConstantInt::get(idx->getType(), k), "lane_is");
+        result = builder->CreateSelect(
+            is_k, builder->CreateExtractElement(vec, uint64_t(k)), result,
+            "lane");
+    }
+    return result;
+}
+
 llvm::Value *CodeGen_PTX::effects_once_guard() {
     if (!block_level) {
         return nullptr;

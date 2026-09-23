@@ -2653,9 +2653,7 @@ void CodeGen_LLVM::visit(const VectorShuffle *node) {
             load_index = builder->CreateZExtOrTrunc(load_index, i32_t);
         }
 
-        // llvm::errs() << *_value << " and " << *load_index << "\n";
-        llvm::Value *element =
-            builder->CreateExtractElement(_value, load_index);
+        llvm::Value *element = extract_lane(_value, load_index);
 
         llvm::Constant *store_idx = llvm::ConstantInt::get(i32_t, i);
         result = builder->CreateInsertElement(result, element, store_idx);
@@ -2766,10 +2764,10 @@ void CodeGen_LLVM::visit(const Extract *node) {
         if (const auto *k = llvm::dyn_cast<llvm::ConstantInt>(idx)) {
             value = builder->CreateExtractValue(vec, unsigned(k->getZExtValue()));
         } else {
-            value = builder->CreateExtractElement(unpack_vector(vec, v), idx);
+            value = extract_lane(unpack_vector(vec, v), idx);
         }
     } else if (vec_expr.type().is<Vector_t>()) {
-        value = builder->CreateExtractElement(vec, idx);
+        value = extract_lane(vec, idx);
     } else if (vec_expr.type().is<Array_t>()) {
         llvm::Type *etype = codegen_type(vec_expr.type().element_of());
         llvm::Value *ptr =

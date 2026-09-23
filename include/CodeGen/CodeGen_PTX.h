@@ -124,6 +124,9 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // kernel argument -- device memory, by construction -- so that a float
     // accumulate is `atom.add.f32` and not a compare-and-swap loop.
     llvm::Value *atomic_address(llvm::Value *loc) override;
+    // A short vector's lane at a run-time index as a chain of selects on the
+    // index, since NVPTX lowers the extractelement through local memory.
+    llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) override;
     bool effects_run_once() const override { return block_level; }
     void check_block_level_call(const std::string &callee) override;
 

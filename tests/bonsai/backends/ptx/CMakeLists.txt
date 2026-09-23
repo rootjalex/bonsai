@@ -37,6 +37,7 @@ add_bonsai_tests(
     blocks.bonsai
     blocks-threads.bonsai
     device-function.bonsai
+    dynamic-extract.bonsai
     dynamic-size.bonsai
     fast-math.bonsai
     map-thread.bonsai

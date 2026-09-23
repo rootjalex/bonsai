@@ -852,6 +852,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     // with the memory it is known to be in (CodeGen_PTX), which is what lets
     // LLVM pick the hardware's atomic over a compare-and-swap loop.
     virtual llvm::Value *atomic_address(llvm::Value *loc) { return loc; }
+    // One lane of a vector at an index computed at run time (`v[axis]`):
+    // LLVM's extractelement here, which the CPU has an instruction for; a
+    // device generator may spell it another way (CodeGen_PTX, where the
+    // instruction goes through local memory).
+    virtual llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) {
+        return builder->CreateExtractElement(vec, idx);
+    }
     // One indivisible read-modify-write per lane that is on: lane k's value
     // into lane k's place. `ptrs` is one address per lane (a scatter) or the
     // one address of memory laid out per lane, in which case lane k's place

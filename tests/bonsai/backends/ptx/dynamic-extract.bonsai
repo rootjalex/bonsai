@@ -1,0 +1,24 @@
+//! flags: -p ssa -b ptx
+
+// A vector's lane at an index computed at run time -- `d[axis]`, the
+// traversal's split-axis test -- on the device. LLVM's extractelement with a
+// variable index is lowered by NVPTX through local memory: the vector stored
+// to the thread's frame and one lane loaded back (`st.local` ×3, `ld.local`),
+// which is what put a frame under every such test in the megakernel. The
+// PTX generator spells a short vector's lane as a chain of selects on the
+// index instead (CodeGen_PTX::extract_lane): the lanes at constant indices,
+// a compare and a `selp` per lane past the first, and no local memory. The
+// index is a parameter here so that nothing can fold it.
+import stdlib/numerics;
+
+func run(out : mut array[Float, 64], axis : u32) -> void {
+    parfor i in 0:64 {
+        d = vec3f{cast[[Float]](i), 2.0 * cast[[Float]](i), 3.0 * cast[[Float]](i)};
+        out[i] = d[axis];
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}
