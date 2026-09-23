@@ -2594,11 +2594,23 @@ struct Parser {
                     << " must be a reducer (`reduce(+)`), as the parameter is.";
             }
             if (!func->args[i].reducer && passes_reducer) {
-                report_error()
-                    << "Argument " << args[i] << " at position " << i
-                    << " of call to function " << name
-                    << " is a reducer, and the parameter is not: the function "
-                    << "could read or assign it.";
+                // A reducer this function declared may be read here, once
+                // the calls handed it are done -- so a by-value parameter may
+                // take its value, as the film's conversion takes the sample's
+                // radiance. A `mut` parameter could assign it, and a reducer
+                // parameter of this function is not to be read at all.
+                const std::optional<FunctionVariable> v = frames.find_if(
+                    [&](const std::string &, const FunctionVariable &fv) {
+                        return fv.ir_name == args[i].as<ir::Var>()->name;
+                    });
+                if (func->args[i].mutating || (v.has_value() && v->parameter)) {
+                    report_error()
+                        << "Argument " << args[i] << " at position " << i
+                        << " of call to function " << name
+                        << " is a reducer, and the parameter is not: the "
+                        << "function could "
+                        << (func->args[i].mutating ? "assign" : "read") << " it.";
+                }
             }
         }
 

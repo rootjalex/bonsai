@@ -5251,8 +5251,81 @@ in the path's stream; the transmittance walk's RNG is its own, seeded from
 the ray) and that a reducer is never read inside the recursion; a `defer`
 of the spawned call at a non-tail site is then legal. The emissive hit's
 `l += beta * Le / ...` becomes the same kind of update, so pbrt's
-emissive queue is a schedule choice on it. Spelling to be confirmed by the
-user; the checks are the same under any spelling.
+emissive queue is a schedule choice on it. The user approved the spelling
+("That works, get going").
+
+*The reducer, built (2026-09-23).* `x : reduce(+) T` declares a reduction
+variable, as a local or a parameter (ir::Function::Argument::reducer,
+ssa::Argument::reducer, carried through every pass that rebuilds an
+argument). The parser enforces the rules, each with an error test
+(tests/bonsai/error/reducer-*): a reducer is never assigned; only its own
+operation accumulates into it (`+` is the one built); a reducer parameter
+is never read -- it may be accumulated into or handed on, as an argument
+on its own, to a parameter that is a reducer -- and a reducer goes only to
+a reducer parameter, so "only accumulated into" holds across calls; the
+declaring function reads it, which is the join. Deferred, a reducer is not
+carried by value (two queues would each hold a copy): the defer pass gives
+a reducer local of the producer's iteration a slot per iteration in an
+array made beside the queue's storage (`rays_l_slots`), puts the slot's
+address in the local's place, and stores the address in the entry -- an
+address that outlives every frame, which is what makes storing it safe
+(Function::reducer_slots records the slots and the drains' reads of them so
+a later deferral, the stage's queue, knows the address it sees is one).
+Tests: correctness/llvm/defer-reducer (the cycle, both drains adding into
+one slot, the producer reading it), ssa/defer-reducer (the slot array and
+the stored address). In the renderer the sample's radiance is the reducer
+`radiance : reduce(+) vec4f` in `render`'s sample body, handed to
+`integrator_li`, `li_vol_path`, `vol_path_step` and `vol_medium_step` as
+`l`; every `found = l + x` became `l += x`, `MediumEvent` lost its `l`
+field, the volpath functions return nothing, and the other integrators'
+values are added in `integrator_li`. The recursion's arguments and every
+queue entry are a `vec4f` smaller.
+
+**Remaining for pbrt's wavefront as pbrt implements it (listed
+2026-09-23 at the user's request).** Against
+`WavefrontPathIntegrator::Render`'s per-depth sequence -- GenerateRaySamples,
+reset, TraceClosest into escaped / hit-area-light / material (basic,
+universal) / medium-sample / next-ray, SampleMediumInteraction,
+HandleEscapedRays, HandleEmissiveIntersection, EvaluateMaterialsAndBSDFs
+(light sample to the shadow queue, BSDF sample to the next ray queue),
+TraceShadowRays, SampleSubsurface, UpdateFilm. Done: the ray queue with
+rounds (one buffer), the trace boundary onto `hits`, the escaped queue and
+one queue per material (`hits[None]`, `hits[Some][<Material>]`, the
+interface skip one of them), the path radiance as a reducer. Remaining, in
+the order to take them: (1) specialize first -- a scope per integrator
+variant, `render[VolPath].queue(p)`, callees cloned with the tag fixed, so
+the wavefront is one integrator's program as pbrt's GPU build is, and the
+compact wavefront's two-deferral failure goes (in progress). (2) Shadow
+rays as their own queue: `vol_sample_ld` split at the trace into the light
+sample and `shadow_contribution(ray, tmax, Ld, r_u, r_l, lambda)` --
+pbrt's ShadowRayWorkItem -- with `spawn l += shadow_contribution(...)`;
+the statement's parsing (its marks are committed) and a push-and-continue
+deferral: the producer pushes and goes on, the drain traces and
+accumulates, no saved flag; its producers are all the material drains, so
+its drain sits after them in the round, sized by the ray queue's capacity;
+covers IntersectShadow and the transmittance walk. (3) The emissive-hit
+queue: `l += beta * Le / ...` at a hit as a spawn onto a queue of its own,
+a schedule choice once spawn exists (pbrt made it for register pressure).
+(4) Medium queues: the medium-sample queue needs the lambda key (`medium
+>= 0`), the medium-scatter queue a stage at the scatter event inside the
+walk; pbrt's medium kernel also pushes survivors onto the material queues,
+a join of two producers into one queue family, not built; no scene measured
+against pbrt --gpu has a medium. (5) Basic versus universal material
+queues: a lambda key on the material's textures, a cost split, optional.
+(6) GenerateRaySamples: pbrt pre-draws each bounce's sampler dimensions
+into the work item, we carry the sampler state and draw inline; correct as
+is, a later stage if entry size or registers ask. (7) Device execution:
+queue storage and reducer slots in device memory, each drain a kernel
+(`bind(rays, GPUThread)`, `bind(hits[Some][Diffuse], ...)` once the parser
+takes the spelling in a cursor), the round loop on the host with a fixed
+number of rounds and device-side counts as pbrt does, the producer loop as
+the camera-ray kernel, the film write as the join; then the measurement on
+killeroo, book and pavilion against `pbrt --gpu`, best of three, images
+checked -- the deliverable. (8) The gang on the CPU drains, MoonRay's side,
+blocked by the vectorizer's per-lane pointer gap. (9) To fix, recorded
+under Known-open: a split of a self-feeding queue; the lambda key. (10) Not
+applicable: the BSSRDF and subsurface queues, the renderer having no
+subsurface material.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
@@ -5268,6 +5341,32 @@ is the register-pressure question pbrt answered one way; it is a schedule
 choice here, measured.
 
 ## Known-open, smaller
+
+- **To fix: a split of a self-feeding queue** (noted 2026-09-23 at the
+  user's request). `rays` feeds itself -- the drains push the next bounce's
+  rays onto `rays`, so it runs in rounds; `hits` does not, it is filled and
+  emptied once per round -- and `q.specialize(x)` was built only for the
+  second kind (SSA/Defer.cpp refuses the first with "[unimplemented]").
+  Splitting `rays` itself, say into the rays in a medium and the rays not in
+  one (pbrt's medium-sample queue is fed from the trace, but a ray *starts*
+  in a medium or not, which is known at the push), needs the round loop to
+  range over the family's queues -- read every count, reset every one, a
+  pass per queue -- and to stop when all of them are empty; the initial
+  push and the pushes from the hits drains would dispatch by the key like
+  any other push.
+- **To fix: a lambda key** (noted 2026-09-23 at the user's request). The key
+  of `q.specialize(x)` must be a named value whose type has variants, an
+  ADT such as `Material` or an optional such as `isect`. pbrt's medium
+  queue is chosen by a boolean, `if (ray.medium)`, which in our program is
+  `medium >= 0` on an integer index; pbrt's basic/universal material split
+  is a predicate on the material's textures. To split on those the
+  schedule would give an expression over the entry's values rather than a
+  name -- `hits.specialize(|medium : i32| medium >= 0)` -- lowered at the
+  push from the callee's parameters and folded in each copy by matching it
+  against the copy's own instructions (SSA/Simplify.cpp's common-
+  subexpression rule), the variants `hits[false]` and `hits[true]`. None of
+  the scenes measured against `pbrt --gpu` has a medium, so it changes
+  nothing for them yet.
 
 - `cie_tables.h` and `rgb2spec_tables.h` are generated by
   `make_spectrum_tables.py` and are both committed, which is against the rule

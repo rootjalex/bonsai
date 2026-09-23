@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/reducer-mut-argument.bonsai:21:16: [parse error] Argument total at position 0 of call to function reset is a reducer, and the parameter is not: the function could assign it.
+
+    reset(total);
+               ^

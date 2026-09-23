@@ -4,6 +4,7 @@ add_bonsai_tests(
     adt-duplicate-variant.bonsai
     reducer-argument.bonsai
     reducer-assign.bonsai
+    reducer-mut-argument.bonsai
     reducer-read.bonsai
     adt-layout-arm-missing.bonsai
     adt-layout-arm-unknown.bonsai

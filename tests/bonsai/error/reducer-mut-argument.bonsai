@@ -1,0 +1,23 @@
+// The function that declares a reducer may read it, so it may pass its
+// value to a by-value parameter (the film's conversion takes the sample's
+// radiance). A `mut` parameter is another matter: the callee could assign
+// it, which a reducer never is.
+
+import stdlib/numerics;
+
+func reset(x : mut Float) -> void {
+    x = 0.0;
+    return;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    total += x;
+    return;
+}
+
+func run(x : Float) -> Float {
+    total : reduce(+) Float = 0.0;
+    step(x, total);
+    reset(total);
+    return total;
+}
