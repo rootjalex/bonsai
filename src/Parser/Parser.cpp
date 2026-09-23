@@ -3298,6 +3298,20 @@ struct Parser {
                     }
                 }
                 add(ir::Defer{std::move(callee), std::move(queue)});
+            } else if (rewrite == "stage") {
+                // `f.stage(callee, queue)`: as defer, about a call, so the
+                // two functions survive as functions.
+                ir::Location callee = parse_location();
+                expect(Token::Type::COMMA);
+                std::string queue = get_id();
+                for (const std::string &kept : {func, callee.names.back()}) {
+                    if (const auto f = program.funcs.find(kept);
+                        f != program.funcs.end() && !f->second->is_noinline()) {
+                        f->second->attributes.push_back(
+                            ir::Function::Attribute::noinline);
+                    }
+                }
+                add(ir::Stage{std::move(callee), std::move(queue)});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
                 if (peek().type != Token::Type::RPAREN) {

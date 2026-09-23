@@ -65,6 +65,22 @@ struct Defer {
     std::string queue;
 };
 
+// A stage boundary after a call: `f.stage(g, q)`. The call to `g` in `f`
+// is made where it is; its value and everything `f` still needs after it
+// are pushed onto `q`, and `q`'s drain runs the rest of `f` from there.
+// Where `defer` queues a call to be made later, this queues the *return*
+// of one -- pbrt's boundary after `IntersectClosest`, where the trace has
+// run and the material kernel continues from its result:
+// `vol_path_step.stage(trace, hits)` beside `vol_path_step.defer(
+// vol_path_step, rays)` is pbrt's bounce. Applied at the SSA level
+// (SSA/Stage.h) as the compiler's factoring of `f` at the call -- the rest
+// becomes a function of the call's value and what is live, and the call
+// site tail-calls it -- followed by the deferral of that tail call.
+struct Stage {
+    Location callee;
+    std::string queue;
+};
+
 // Turn recursion into iteration.
 // For tail-call recursion, generates a DoWhile loop over the recursion
 // condition.
@@ -153,7 +169,7 @@ struct Specialize {
 };
 
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, Split, Sort,
-                               Specialize, Vectorize>;
+                               Specialize, Stage, Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //

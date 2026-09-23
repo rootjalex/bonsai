@@ -78,6 +78,7 @@ add_bonsai_tests(
     sret.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
+    stage.bonsai
     alias-edges.bonsai
     map-func.bonsai
     match-expr.bonsai

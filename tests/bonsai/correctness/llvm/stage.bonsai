@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm -e
+
+// `step.stage(work, q)`: a stage boundary after the call to `work` inside
+// `step`. The call is made where it is; its value and what `step` still
+// needs after it -- here `k`, which is one value for the whole run and so is
+// not stored -- go on the queue, and the queue's drain runs the rest of
+// `step` from there (SSA/Stage.h: the rest becomes a function of the call's
+// value and the live values, and the call site tail-calls it, which defer()
+// then queues). What is checked is that every element gets the answer the
+// unstaged program gives: doubled and then offset.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = work(x);
+    return r + k;
+}
+
+// Not exported: an exported function called from `main` gets an unexported
+// copy for that call, and the chain a deferral runs may be entered from one
+// owner only (the same rule the defer tests follow).
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    // 2x + 1.
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.stage(work, q);
+}

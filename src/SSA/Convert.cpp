@@ -8,6 +8,7 @@
 #include "SSA/BlockAccumulates.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/Specialize.h"
+#include "SSA/Stage.h"
 #include "SSA/InvariantDivision.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
@@ -1696,6 +1697,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Split &) { return "split"; },
                           [](const ir::Sort &) { return "sort"; },
                           [](const ir::Specialize &) { return "specialize"; },
+                          [](const ir::Stage &) { return "stage"; },
                           [](const ir::Vectorize &) { return "vectorize"; }},
                 t);
             std::cerr << "[time]   " << name << "." << kind << ": "
@@ -1734,6 +1736,39 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     },
                     [&](const ir::Specialize &s) {
                         specialize_loops(fmap, name, s.param, adt_storages);
+                    },
+                    [&](const ir::Stage &s) {
+                        internal_assert(!s.callee.names.empty())
+                            << "stage() requires a callee for: " << name;
+                        const auto q = queues.find(s.queue);
+                        internal_assert(q != queues.end())
+                            << name << ".stage(" << s.callee.names.back()
+                            << ", " << s.queue << ") names a queue no "
+                            << "schedule block declares. Declare it: `"
+                            << s.queue << " = <func>.queue(<loop>);`";
+                        QueueSpec spec;
+                        spec.name = s.queue;
+                        spec.owner = q->second.owner;
+                        internal_assert(!q->second.loop.names.empty())
+                            << s.queue << " names no loop";
+                        spec.loop = q->second.loop.names.back();
+                        if (q->second.capacity.has_value()) {
+                            const auto n = get_constant_value<int64_t>(
+                                *q->second.capacity);
+                            internal_assert(n.has_value() && *n > 0)
+                                << s.queue << " = " << spec.owner << ".queue("
+                                << spec.loop << ", " << *q->second.capacity
+                                << ") needs a constant, positive capacity";
+                            spec.capacity = uint64_t(*n);
+                        }
+                        for (const Type &made :
+                             stage(fmap, name, s.callee.names.back(), spec)) {
+                            const auto *st = made.as<Struct_t>();
+                            internal_assert(st) << made;
+                            if (keep_ssa != nullptr) {
+                                keep_ssa->types[st->name] = made;
+                            }
+                        }
                     },
                     [&](const ir::Loopify &l) {
                         int size = 0;

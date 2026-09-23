@@ -230,6 +230,7 @@ target_sources(
     src/SSA/SortRecursion.cpp
     src/SSA/Specialize.cpp
     src/SSA/SplitAggregates.cpp
+    src/SSA/Stage.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
     src/SSA/UniformizeLoops.cpp
@@ -347,6 +348,7 @@ target_sources(
     include/SSA/Simplify.h
     include/SSA/Specialize.h
     include/SSA/SplitAggregates.h
+    include/SSA/Stage.h
     include/SSA/Rewrite.h
     include/SSA/SSA.h
     include/SSA/UniformizeLoops.h

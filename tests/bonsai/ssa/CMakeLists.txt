@@ -33,6 +33,7 @@ add_bonsai_tests(
     split.bonsai
     split-tail.bonsai
     split-unsigned.bonsai
+    stage.bonsai
     switch-merge.bonsai
     traverse.bonsai
     vectorize-call-guard.bonsai

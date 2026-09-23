@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// `step.stage(work, q)` in the SSA: `step` is factored at its call to `work`
+// -- the rest of it becomes `step!after`, a function of `work`'s value and of
+// `k`, and the call's continuation tail-calls it -- and that tail call is
+// deferred onto `q` as defer() does it: the push in `step`, the drain in
+// `run` after the producer loop, the entry holding `work`'s value and the
+// rest of the producer's iteration (SSA/Stage.h).
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = work(x);
+    return r + k;
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.stage(work, q);
+}

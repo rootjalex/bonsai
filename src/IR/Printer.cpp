@@ -393,6 +393,11 @@ void Printer::print(const Schedule &schedule) {
                                   },
                                   [&](const Specialize &s) {
                                       os << "specialize(" << s.param << ")";
+                                  },
+                                  [&](const Stage &s) {
+                                      os << "stage(";
+                                      print(s.callee);
+                                      os << ", " << s.queue << ")";
                                   }},
                        ts[i]);
         }

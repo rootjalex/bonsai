@@ -732,6 +732,9 @@ ir::Program LoopTransforms::run(ir::Program program,
                                   },
                                   [&](const Specialize &) {
                                       // Likewise: SSA/Specialize.h.
+                                  },
+                                  [&](const Stage &) {
+                                      // Likewise: SSA/Stage.h.
                                   }},
                        t);
 
