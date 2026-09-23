@@ -1,0 +1,51 @@
+//! flags: -p ssa -b llvm -e
+
+// The bounce entered through a chain function, as `render` reaches
+// `vol_path_step` through `integrator_li` and `li_vol_path`: the owner calls
+// `enter`, which makes the recursion's first call. `enter.defer(step, rays)`
+// beside `step.defer(step, rays)` pushes that first call onto rays (the
+// saved flag returns up the chain to the producer, which saves its frame
+// and skips), so the rays drain is the one place the chain is entered and
+// the staged `hits` has one producer (SSA/Defer.h, QueueSpec::also_from).
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, n : i32, k : Float) -> Float {
+    r = work(x);
+    if n == 0 {
+        return r + k;
+    }
+    return step(r, n - 1, k);
+}
+
+func enter(x : Float, n : i32, k : Float) -> Float {
+    return step(x + 0.0, n, k);
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = enter(values[i], i % 4, k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {8.0, 8.0, 8.0, 8.0, 16.0, 16.0, 16.0, 16.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    // x * 0.5^(n+1) + 1 with n = i % 4: 5, 3, 2, 1.5, 9, 5, 3, 2.
+    print(out);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    hits = run.queue(root);
+    enter.defer(step, rays);
+    step.defer(step, rays);
+    step.stage(work, hits);
+}

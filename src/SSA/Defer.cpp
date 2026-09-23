@@ -990,8 +990,42 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                   "depth first or breadth first, not both."
                 : ".");
 
+    // The calls to the callee from the other functions the schedule named,
+    // pushes too (QueueSpec::also_from): the recursion's first call, made by
+    // a chain function between the owner and the callee.
+    vector<string> site_function(sites.size(), func_name);
+    for (const string &g : queue.also_from) {
+        internal_assert(funcs.contains(g))
+            << what << ": " << g << " is not a function of the program";
+        internal_assert(g != func_name && g != callee_name)
+            << what << ": " << g << " is the deferred callee";
+        const BlockMap gmap = make_block_map(funcs.at(g));
+        size_t found = 0;
+        for (const auto &block : funcs.at(g)->blocks) {
+            const auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+            if (call == nullptr || call->call.name != callee_name) {
+                continue;
+            }
+            internal_assert(is_tail_call(*call, gmap))
+                << what << ": the call to " << callee_name << " in "
+                << block->name << " of " << g << " is not in tail position; "
+                << "a call pushed onto a queue has to be the last thing its "
+                << "function does.";
+            sites.push_back(block);
+            site_function.push_back(g);
+            found++;
+        }
+        internal_assert(found > 0)
+            << g << ".defer(" << callee_name << ", " << queue.name << "): "
+            << g << " makes no call to " << callee_name;
+    }
+
     const BlockMap fmap = make_block_map(F);
-    for (const auto &site : sites) {
+    for (size_t s = 0; s < sites.size(); s++) {
+        if (site_function[s] != func_name) {
+            continue;
+        }
+        const auto &site = sites[s];
         const auto &call = std::get<Terminator::Call>(site->terminator.data);
         internal_assert(is_tail_call(call, fmap))
             << what << ": the call to " << callee_name << " in " << site->name
@@ -1930,7 +1964,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // The deferred calls: push the entry, return saved. The callee writes
     // the fields that are its arguments -- a pointer argument's pointee --
     // and leaves the frame's to the frame.
-    for (const auto &site : sites) {
+    for (size_t s = 0; s < sites.size(); s++) {
+        const auto &site = sites[s];
         const auto call = std::get<Terminator::Call>(site->terminator.data);
         vector<shared_ptr<Value>> values;
         for (const Field &f : fields) {
@@ -1946,14 +1981,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         auto entry = site->make_instruction(entry_t, Instruction::Op::MakeStruct,
                                             std::move(values));
-        auto slot = site->make_instruction(u32(), Instruction::Op::Push,
-                                           {reach(site, queue_of.at(func_name)),
-                                            entry});
+        auto slot = site->make_instruction(
+            u32(), Instruction::Op::Push,
+            {reach(site, queue_of.at(site_function[s])), entry});
         std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
         site->terminator.data =
             Terminator::Return{make_saved(site, true, slot, nullptr)};
     }
     remove_unreachable_blocks(*F);
+    for (const string &g : queue.also_from) {
+        remove_unreachable_blocks(*funcs.at(g));
+    }
 
     //===----------------------------------------------------------------===//
     // The owner: the queue, the flag at the producer, and the drain

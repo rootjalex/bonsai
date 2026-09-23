@@ -1816,21 +1816,31 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             }
                             return false;
                         };
-                        if (name == q->second.owner && name != callee) {
+                        if (name != callee) {
+                            // Another function's calls to the callee, pushed
+                            // onto the callee's own queue: part of the
+                            // callee's deferral. Without one, this would be a
+                            // deferral of its own, which the chain analysis
+                            // would then meet twice on one queue.
                             internal_assert(directive_on(callee))
                                 << name << ".defer(" << callee << ", " << d.queue
-                                << "): the owner's call to " << callee
-                                << " is pushed as the initial entry of "
-                                << d.queue << " only beside `" << callee
-                                << ".defer(" << callee << ", " << d.queue
+                                << "): a call to " << callee << " from " << name
+                                << " is pushed onto " << d.queue
+                                << " only beside `" << callee << ".defer("
+                                << callee << ", " << d.queue
                                 << ")`, which makes the queue; write that too.";
                             return;
                         }
                         QueueSpec spec;
                         spec.name = d.queue;
                         spec.owner = q->second.owner;
-                        spec.initial_push =
-                            name == callee && directive_on(q->second.owner);
+                        spec.initial_push = directive_on(q->second.owner);
+                        for (const auto &[f, ts] : transforms) {
+                            if (f != callee && f != q->second.owner &&
+                                directive_on(f)) {
+                                spec.also_from.push_back(f);
+                            }
+                        }
                         internal_assert(!q->second.loop.names.empty())
                             << d.queue << " names no loop";
                         spec.loop = q->second.loop.names.back();

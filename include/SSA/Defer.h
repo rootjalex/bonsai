@@ -29,6 +29,14 @@ struct QueueSpec {
     // through the ray queue and are traced by nothing else (see the Convert
     // pass, which folds the two directives into one deferral).
     bool initial_push = false;
+    // Chain functions other than the callee whose calls to the callee are
+    // pushes too: `f.defer(callee, q)` beside `callee.defer(callee, q)`, for
+    // the function that makes the recursion's first call when that is not
+    // the owner -- `li_vol_path.defer(vol_path_step, rays)`, where the owner
+    // `render` reaches the step through `li` and `li_vol_path`. A push there
+    // returns saved up the chain to the producer, which saves its frame and
+    // skips, as it does for a deferred self-call.
+    std::vector<std::string> also_from;
 };
 
 // Turns the calls of `callee` inside `func` into entries on a queue, and gives
