@@ -1,0 +1,43 @@
+// pbrt's wavefront for volpath, on the CPU: a queue per stage of a bounce,
+// as pbrt's GPU renderer has them (apps/pbrt/PLAN.md, "pbrt's GPU
+// wavefront, written as a schedule of vol_path_step").
+//
+// Two queues per pixel. `rays` holds the paths between bounces: the
+// integrator's first call pushes the camera ray's step (li_vol_path's call
+// deferred, so nothing traces in the producer -- pbrt's GenerateCameraRays),
+// and each step's tail call pushes the next. `hits` holds the return of the
+// trace inside the step with the path's state (pbrt's MaterialEvalWorkItem):
+// the rays drain traces and pushes hits, the hits drain shades and pushes
+// the next round's rays, a round per bounce while any ray is left. No gang
+// here: the drains are the plain loops, so that this is the structure
+// checked against pbrt on its own before it is vectorized or put on the
+// device. Every scene runs volpath under this schedule as under pbrt --gpu;
+// a scene that names another integrator runs it un-deferred.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    // volpath's inner walks are loops within a step (see wavefront.bonsai).
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+
+    rays = render.queue(p);
+    hits = render.queue(p);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_path_step.defer(vol_path_step, rays);
+    vol_path_step.stage(trace, hits);
+
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    render.bind(p, CPUThread);
+}

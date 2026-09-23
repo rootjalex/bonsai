@@ -4784,10 +4784,14 @@ did), and the random walk stops at an interface rather than skipping it.
 Open: the packet schedule stops in the vectorizer at "a per-lane pointer
 into per-lane memory, which vectorization does not lay out yet"
 (Vectorize.cpp) -- the next compiler gap to close, since every real scene
-now resolves to volpath; the wavefront schedules' second queue is untested;
-and the camera-medium scene's albedo differs on the coated sphere alone
-(804 pixels by 0.007), being checked against the same scene without its
-medium.
+now resolves to volpath. The camera-medium scene's albedo differs from
+pbrt's on the coated sphere alone (804 pixels by 0.007, mean 2.7e-4): the
+same scene without its medium differs the same way (1279 pixels, mean
+4.3e-4), so it is the coated BSDF's sixteen-sample `rho` -- a stochastic
+estimate seeded per hit -- and not the medium; the radiance there agrees.
+The volpath wavefront schedule's much larger difference on that sphere
+(3294 pixels, 26% low) was a compiler bug in `stage`, fixed 2026-09-23
+(below).
 
 **The wavefront question.** pbrt's GPU renderer is a wavefront: per bounce,
 a ray queue is traced (`IntersectClosest`) into queues by outcome -- escaped
@@ -5033,14 +5037,16 @@ their names); the call's continuation replaced by a block of the call's own
 that tail-calls `f!after` and returns its value; then defer() on that tail
 call. Tests: ssa/stage (the push in `step`, the drain in `run` calling
 `step!after`, `k` invariant and so not stored, the producer's `i` saved with
-the entry) and correctness/llvm/stage. Open: the spelling. The user's
-question was whether `defer` is not expressive enough on its own, and the
-answer is that there is one mechanism, the queued continuation, and two
-places to cut it -- before a call, so the call runs in the drain (pbrt's
-shadow rays), or after it, so the call runs in the producer (pbrt's trace
-to material boundary) -- and pbrt's wavefront uses both. One directive with
-two attachment points, `f.defer(g, q)` and `f.defer(after(g), q)`, is the
-proposal; `stage` is the name in the code until the spelling is settled.
+the entry) and correctness/llvm/stage. The spelling, settled 2026-09-23:
+the user's question was whether `defer` is not expressive enough on its
+own, and the answer is that there is one mechanism, the queued
+continuation, and two places to cut it -- before a call, so the call runs
+in the drain (pbrt's shadow rays), or after it, so the call runs in the
+producer (pbrt's trace to material boundary) -- and pbrt's wavefront uses
+both. The user's decision: "keeping defer and stage as separate is fine;
+the paper will just introduce this as a single primitive." So the language
+keeps `f.defer(g, q)` and `f.stage(g, q)` as two directives
+(grammar_schedule.tex has both), and the paper presents the one primitive.
 
 **What the cycle then needs (found 2026-09-23, scratch `cycle.bonsai`: a
 recursive `step` whose first call `work` is staged, `step.defer(step, rays)`
@@ -5088,6 +5094,82 @@ rays' drain, and pushes onto the round's next rays buffer; rays keeps its
 two buffers, which is one more than the cycle needs and harmless. The
 stage's placement follows from defer's rule that a drain goes right after
 its producer loop.
+
+**Found on the way (2026-09-23): the compact wavefront cannot defer both
+integrators.** `wavefront.bonsai` defers `full_path_step` onto `paths` and
+`vol_path_step` onto `vol_paths`; the two chains share `integrator_li`,
+whose returns the first deferral wraps in its saved flag, so the second
+finds the volpath arm doing "more with the result than return it" and
+refuses. Since volpath became the default integrator this makes the compact
+wavefront schedules fail on every scene that names none. Two deferrals
+through one chain function need a return that carries either queue's flag
+-- not built; the volpath wavefront below defers volpath alone, which is
+pbrt --gpu's case, and `wavefront.bonsai` is to be made volpath-only too
+(the packet gang cannot vectorize volpath yet in any case). The initial
+push generalizes to a chain function's call (QueueSpec::also_from,
+`li_vol_path.defer(vol_path_step, rays)`): the owner `render` reaches the
+step through `integrator_li` and `li_vol_path`, so the recursion's first
+call is `li_vol_path`'s, and that is where it is pushed (test
+correctness/llvm/defer-stage-entry).
+
+**The volpath wavefront on the CPU (2026-09-23).**
+`schedules/wavefront-volpath.bonsai`: `rays = render.queue(p)`, `hits =
+render.queue(p)`, `li_vol_path.defer(vol_path_step, rays)`,
+`vol_path_step.defer(vol_path_step, rays)`, `vol_path_step.stage(trace,
+hits)`, the traversals on their stacks, no gang, `bind(p, CPUThread)`. It
+compiles against the renderer as written. The structure pbrt has is the
+structure here: the camera ray's step pushed and traced by nothing in the
+producer, a round per bounce draining rays into hits and hits into rays,
+one buffer per queue (below). 0.575 s against the scalar schedule's
+0.468 s on homogeneous-medium, which is the cost of the queues with
+nothing yet gained from them -- the gang and the device are what the
+stages are for.
+
+*Checked (2026-09-23).* Against the scalar schedule's own images the
+wavefront's are the same to float reassociation on every media scene:
+albedo and normals bit for bit (max 5e-7; emissive-medium and
+interface-boundary exactly), radiance to 6e-6. Against pbrt it gives the
+scalar's figures: homogeneous-medium mean 1.00008x, 39.8% per pixel;
+emissive-medium 100%; interface-boundary 100%; camera-medium 2.3% per
+pixel (the shadow-ray transmittance RNG seeded from a hash of the ray, as
+noted above) with the coated sphere's albedo 0.98% off as under scalar;
+killeroo-simple at the compare script's default options 33.2% per pixel
+and mean 0.99999x, the scalar schedule's own 33.2% and mean, the two
+radiance images agreeing to 1.3e-6 relative. (Two earlier killeroo
+compares said 48.6%; they were run with other options, since pbrt's own
+lit-pixel count differs between them and these, and are not like for
+like.)
+
+*The bug it found (fixed 2026-09-23).* The first run had camera-medium's
+albedo 26% low on the coated sphere alone, radiance identical. Bisected
+to a miniature (test correctness/llvm/defer-stage-mut-local: a `mut`
+local of the producer's iteration written by the staged rest in the same
+invocation that ends the recursion) and then to the LLVM IR: `stage()`
+built `f!after`'s parameters from the call's continuation block, whose
+arguments carry no `mutating` (the flag means something on a function's
+entry alone), so the pointer to the relocated `visible` came out
+read-only, the backend marked it `readonly`, and the caller forwarded the
+value it had stored into its own copy before the call past the rest's
+store. Only paths that both wrote `visible` and returned from the same
+drain lost it -- the coated sphere's failed BSDF samples at the first
+bounce, 26% of them -- which is why diffuse surfaces were right. The rest's
+address parameters are now looked up where the call's continuation gets
+them (SSA/Definitions.h, the defer pass's tracer, now shared): a
+parameter of the function, `mut` or not as declared, or an address the
+function computed, writable. A lesson for the harness: the same schedule
+under `scalar` is the right first reference for a schedule difference,
+before pbrt, since it isolates the compiler from the translation.
+
+*One buffer per queue (2026-09-23).* The user's rule from the defer
+review -- double buffering only where the drain's own continuation can
+write the queue it reads -- applied to the cycle: `rays`'s successors are
+pushed by the `hits` drain after the `rays` pass is over, so `rays` has
+one buffer, its count read for the pass and reset before it
+(QueueSpec::drain_pushes_self; Convert reads the stage directive on the
+callee, `ssa::calls_after`, since the deferral runs before the split).
+The round is `while rays.count: n = rays.count; rays.count = 0; parfor
+rays; parfor hits; hits.count = 0`. Approved by the user with the cycle
+structure: "We should be able to fill a queue from multiple places."
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
