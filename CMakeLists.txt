@@ -217,6 +217,7 @@ target_sources(
     src/SSA/Contention.cpp
     src/SSA/Contract.cpp
     src/SSA/Defer.cpp
+    src/SSA/Definitions.cpp
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp
@@ -339,6 +340,7 @@ target_sources(
     include/SSA/CodeGen_Stmt.h
     include/SSA/Convert.h
     include/SSA/Defer.h
+    include/SSA/Definitions.h
     include/SSA/DumpAnalysis.h
     include/SSA/InsertPreheader.h
     include/SSA/InvariantDivision.h

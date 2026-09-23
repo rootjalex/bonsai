@@ -1,0 +1,170 @@
+#include "SSA/Definitions.h"
+
+#include "Error.h"
+#include "Utils.h"
+
+#include <optional>
+
+namespace bonsai {
+namespace ir {
+namespace ssa {
+
+using std::optional;
+using std::shared_ptr;
+using std::string;
+
+bool same_definition(const Definition &a, const Definition &b) {
+    return a.value && b.value && same_value(*a.value, *b.value) &&
+           a.block == b.block;
+}
+
+Definitions::Definitions(const Function &func)
+    : func(func), bmap(make_block_map(func)) {}
+
+Definition Definitions::of(const string &block, const shared_ptr<Value> &v) {
+    return std::visit(
+        overloads{
+            [&](const Constant &) { return Definition{v, ""}; },
+            [&](const shared_ptr<Instruction> &i) {
+                const auto owner = i->owner.lock();
+                internal_assert(owner) << "instruction " << i->name
+                                       << " outlived its block";
+                return Definition{v, owner->name};
+            },
+            [&](const Argument &a) { return of_argument(block, a); },
+        },
+        v->data);
+}
+
+const Argument *Definitions::parameter(const string &block,
+                                       const shared_ptr<Value> &v) {
+    const Definition d = of(block, v);
+    const auto *a = std::get_if<Argument>(&d.value->data);
+    if (a == nullptr || d.block != func.blocks.front()->name) {
+        return nullptr;
+    }
+    for (const Argument &param : func.blocks.front()->args) {
+        if (param.name == a->name) {
+            return &param;
+        }
+    }
+    return nullptr;
+}
+
+Definition Definitions::of_argument(const string &block_name,
+                                    const Argument &a) {
+    const auto key = std::make_pair(block_name, a.name);
+    if (const auto it = memo.find(key); it != memo.end()) {
+        return it->second;
+    }
+    const auto biter = bmap.find(block_name);
+    internal_assert(biter != bmap.end())
+        << block_name << " is not a block of " << func.blocks[0]->name;
+    const shared_ptr<Block> &block = biter->second;
+    const auto self = std::make_shared<Value>(a);
+    const Definition here{self, block_name};
+
+    // The function's parameters are the entry block's arguments.
+    if (block.get() == func.blocks.front().get()) {
+        return memo[key] = here;
+    }
+    size_t k = block->args.size();
+    for (size_t i = 0; i < block->args.size(); i++) {
+        if (block->args[i].name == a.name) {
+            k = i;
+            break;
+        }
+    }
+    internal_assert(k < block->args.size())
+        << a.name << " is referred to in " << block_name
+        << " but is neither one of its arguments nor a parameter";
+
+    // While this argument is being resolved it is on the stack, so a
+    // predecessor that leads back here is a loop: the argument is
+    // carried around the loop and defined by the header, which is here.
+    if (!visiting.insert(key).second) {
+        return here;
+    }
+
+    optional<Definition> found;
+    bool merge = false;
+    for (const auto &weak : block->preds) {
+        const auto pred = weak.lock();
+        internal_assert(pred) << "predecessor of " << block_name << " died";
+        const shared_ptr<Value> passed = passed_to(*pred, *block, k);
+        if (!passed) {
+            // Defined by the edge itself: a loop index, a call's result.
+            merge = true;
+            break;
+        }
+        const Definition d = of(pred->name, passed);
+        if (found.has_value() && !same_definition(*found, d)) {
+            merge = true;
+            break;
+        }
+        found = d;
+    }
+    visiting.erase(key);
+
+    if (merge || !found.has_value()) {
+        return memo[key] = here;
+    }
+    return memo[key] = *found;
+}
+
+shared_ptr<Value> Definitions::passed_to(const Block &pred, const Block &block,
+                                         size_t k) {
+    shared_ptr<Value> result;
+    std::visit(
+        overloads{
+            [&](const std::monostate &) {},
+            [&](const Terminator::Jump &j) {
+                if (j.name == block.name && k < j.args.size()) {
+                    result = j.args[k];
+                }
+            },
+            [&](const Terminator::Dispatch &d) {
+                for (const auto &t : d.targets) {
+                    if (t.name == block.name && k < t.args.size()) {
+                        result = t.args[k];
+                    }
+                }
+            },
+            [&](const Terminator::Return &) {},
+            [&](const Terminator::ParFor &p) {
+                if (p.body.name == block.name) {
+                    // The body's first argument is the index, which the
+                    // loop defines.
+                    if (k >= 1 && k - 1 < p.body.args.size()) {
+                        result = p.body.args[k - 1];
+                    }
+                } else if (p.cont.name == block.name &&
+                           k < p.cont.args.size()) {
+                    result = p.cont.args[k];
+                }
+            },
+            [&](const Terminator::Yield &) {},
+            [&](const Terminator::Call &c) {
+                if (c.cont.name != block.name) {
+                    return;
+                }
+                // A kept result is the continuation's first argument, and
+                // the call defines it.
+                const size_t offset = c.drop ? 0 : 1;
+                if (k >= offset && k - offset < c.cont.args.size()) {
+                    result = c.cont.args[k - offset];
+                }
+            },
+            [&](const Terminator::MultiCall &c) {
+                if (c.cont.name == block.name && k < c.cont.args.size()) {
+                    result = c.cont.args[k];
+                }
+            },
+        },
+        pred.terminator.data);
+    return result;
+}
+
+} // namespace ssa
+} // namespace ir
+} // namespace bonsai
