@@ -374,6 +374,19 @@ void CodeGen_LLVM::init_module() {
     module = std::make_unique<llvm::Module>("bonsai_module", *context);
 }
 
+llvm::Value *CodeGen_LLVM::codegen_texture_sample(const Intrinsic *node) {
+    // No texture units here. The host module compiles every function of
+    // the program, the ones only a kernel calls included -- a lookup bound
+    // to TextureUnit is one of those, and the host's copy of it is dead
+    // code the module's own dead-function removal drops. So a trap, which
+    // is what sampling a texture unit on a CPU would be, and never runs.
+    for (const Expr &arg : node->args) {
+        codegen_expr(arg);
+    }
+    builder->CreateIntrinsic(llvm::Intrinsic::trap, {});
+    return llvm::UndefValue::get(codegen_type(node->type));
+}
+
 llvm::FastMathFlags CodeGen_LLVM::fast_math_flags() {
     // Every flag: no NaNs or infinities, no signed zeros, reassociation,
     // reciprocals, contraction, approximate functions -- what clang's
@@ -3449,6 +3462,10 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     case Intrinsic::tan: {
         intrin = llvm::Intrinsic::tan;
         break;
+    }
+    case Intrinsic::tex_sample_grad_2d: {
+        value = codegen_texture_sample(node);
+        return;
     }
     default: {
         internal_error << "TODO: codegen intrinsic: " << Expr(node);

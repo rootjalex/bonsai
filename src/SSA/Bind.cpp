@@ -37,6 +37,7 @@ bool may_nest(Resource outer, Resource inner) {
         return inner == Resource::CPUThread;
     case Resource::RTCore:
     case Resource::OptixThread:
+    case Resource::TextureUnit:
         return false;
     }
     return false;

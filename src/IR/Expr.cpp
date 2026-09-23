@@ -1315,6 +1315,25 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type().element_of();
             break;
         }
+        case Intrinsic::tex_sample_grad_2d: {
+            internal_assert(args.size() == 4)
+                << "tex_sample_grad_2d takes a texture handle, the "
+                << "coordinates and their two derivatives, not "
+                << args.size() << " arguments";
+            internal_assert(args[0].type().is<UInt_t>() &&
+                            args[0].type().bits() == 64)
+                << "tex_sample_grad_2d takes the texture as a u64 handle, not "
+                << args[0].type();
+            for (size_t k = 1; k < 4; k++) {
+                const Type &t = args[k].type();
+                internal_assert(t.is<Vector_t>() && t.lanes() == 2 &&
+                                t.element_of().is_float())
+                    << "tex_sample_grad_2d takes vec2f coordinates and "
+                    << "derivatives, not " << t;
+            }
+            node->type = Vector_t::make(Float_t::make_f32(), 4);
+            break;
+        }
         case Intrinsic::rand: {
             internal_assert(args.size() <= 1);
             if (args.size() == 0) {

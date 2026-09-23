@@ -108,6 +108,8 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // None: nvcc's --use_fast_math is not LLVM's flags (set_device_arithmetic
     // in CodeGen_PTX.cpp says what it is instead).
     llvm::FastMathFlags fast_math_flags() override;
+    // `tex_sample_grad_2d` as `tex.grad.2d.v4.f32.f32` on a texture object.
+    llvm::Value *codegen_texture_sample(const ir::Intrinsic *node) override;
 
     // A loop bound to GPUThread met inside a block loop's kernel: the
     // thread's iteration, between two barriers. Anything else bound is an

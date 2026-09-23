@@ -125,6 +125,7 @@ struct Parser {
             "sqr",
             "sqrt",
             "tan",
+            "tex_sample_grad_2d",
             // Set operations
             "argmax",
             "argmin",
@@ -2000,6 +2001,7 @@ struct Parser {
             {"sqr", 1, ir::Intrinsic::sqr},
             {"sqrt", 1, ir::Intrinsic::sqrt},
             {"tan", 1, ir::Intrinsic::tan},
+            {"tex_sample_grad_2d", 4, ir::Intrinsic::tex_sample_grad_2d},
         });
 
         if (auto op = try_match_pattern<ir::Intrinsic::OpType>(
@@ -3126,10 +3128,12 @@ struct Parser {
             return ir::Resource::RTCore;
         } else if (name == "OptixThread") {
             return ir::Resource::OptixThread;
+        } else if (name == "TextureUnit") {
+            return ir::Resource::TextureUnit;
         }
         report_error() << "Unknown hardware resource: " << name
                        << ". bind() takes one of CPUThread, GPUThread, "
-                          "GPUBlock, RTCore or OptixThread.";
+                          "GPUBlock, RTCore, OptixThread or TextureUnit.";
         return ir::Resource::CPUThread;
     }
 
@@ -3259,9 +3263,21 @@ struct Parser {
             } else if (rewrite == "bind") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
-                const std::string resource = get_id();
-                add(
-                    ir::Bind{std::move(i), parse_resource(resource)});
+                if (i.names.size() == 1 && i.names[0] == "TextureUnit") {
+                    // `f.bind(TextureUnit, |...| ...)`: the function itself,
+                    // not a loop of it, on the texture units, computing what
+                    // the lambda says (see ir::Bind::lambda).
+                    ir::Expr lambda = parse_base_expr();
+                    internal_assert(lambda.is<ir::Lambda>())
+                        << func << ".bind(TextureUnit, ...) expects a lambda "
+                        << "as the second argument, received: " << lambda;
+                    add(ir::Bind{ir::Location{}, ir::Resource::TextureUnit,
+                                 std::move(lambda)});
+                } else {
+                    const std::string resource = get_id();
+                    add(ir::Bind{std::move(i), parse_resource(resource),
+                                 ir::Expr()});
+                }
             } else if (rewrite == "defer") {
                 // `f.defer(callee, queue)`: the queue is one this or an
                 // earlier schedule block declared. Checked when the schedule

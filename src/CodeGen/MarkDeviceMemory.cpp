@@ -116,10 +116,35 @@ MarkDeviceMemory::run(llvm::Function &function,
     // itself: after the casts below it bottoms out at the same root through
     // two addrspacecasts, which getUnderlyingObjects sees through as well,
     // but there is no reason to make it.
+    // A load whose value is a texture unit's handle -- the operand a
+    // `llvm.nvvm.tex.*` intrinsic samples through -- stays a plain load.
+    // NVPTX's ReplaceImageHandles pass looks at what defines a handle and
+    // accepts a load, a parameter, a global or a copy of one; the
+    // non-coherent load the tag below would make of it is another
+    // instruction, and the pass asserts on any it does not know
+    // (NVPTXReplaceImageHandles.cpp, replaceImageHandle). The handle is
+    // one word read once per lookup, so nothing is lost. The same limit
+    // means a handle chosen by a select or a phi would assert too; the
+    // program reads its handles from a table, one load each.
+    const auto is_texture_handle = [](const llvm::LoadInst &load) {
+        for (const llvm::User *user : load.users()) {
+            const auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+            if (call == nullptr || call->getCalledFunction() == nullptr) {
+                continue;
+            }
+            if (call->getCalledFunction()->getName().starts_with(
+                    "llvm.nvvm.tex") &&
+                call->arg_size() > 0 && call->getArgOperand(0) == &load) {
+                return true;
+            }
+        }
+        return false;
+    };
     llvm::MDNode *invariant = llvm::MDNode::get(context, {});
     for (llvm::Instruction &instr : llvm::instructions(function)) {
         auto *load = llvm::dyn_cast<llvm::LoadInst>(&instr);
-        if (load == nullptr || load->isVolatile() || load->isAtomic()) {
+        if (load == nullptr || load->isVolatile() || load->isAtomic() ||
+            is_texture_handle(*load)) {
             continue;
         }
         const auto objects = roots_of(load->getPointerOperand(), function);

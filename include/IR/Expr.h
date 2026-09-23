@@ -566,6 +566,20 @@ struct Intrinsic : ExprNode<Intrinsic> {
         sqr,
         sqrt,
         tan,
+        // A 2D texture sampled by the GPU's texture units, with gradients:
+        // `tex_sample_grad_2d(texture : u64, st : vec2f, dstdx : vec2f,
+        // dstdy : vec2f) -> vec4f`, CUDA's `tex2DGrad` on a texture object
+        // -- the unit picks the mipmap level from the gradients, filters
+        // within it and wraps at the edges as the object was created to
+        // (runtime/bonsai_cuda.h, bonsai_cuda_texture_create). Only the PTX
+        // backend lowers it (`tex.grad.2d.v4.f32.f32`); a program reaches
+        // it only through a function a schedule bound to TextureUnit (see
+        // ir::Bind::lambda), so the same program is exact software on the
+        // CPU. `dstdx` and `dstdy` are the texture coordinate's derivatives
+        // along the two screen axes, in the unit's convention: the texture
+        // unit's (x, y) gradient pairs are what is passed, whatever the
+        // caller means by them.
+        tex_sample_grad_2d,
         // TODO: more
     };
 

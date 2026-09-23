@@ -1508,6 +1508,10 @@ void CodeGen_LLVM::emit_bound_parfor(BoundLoop &loop) {
         internal_error << "bind(" << loop.loop.index << ", "
                        << to_string(*loop.loop.binding)
                        << "): the OptiX backend is not built yet.";
+    case Resource::TextureUnit:
+        internal_error << "bind(" << loop.loop.index << ", TextureUnit): a "
+                       << "texture unit runs a function, not a loop (see "
+                       << "ir::Bind::lambda).";
     }
 }
 

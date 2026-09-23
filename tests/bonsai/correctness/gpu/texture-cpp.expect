@@ -1,0 +1,11 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/gpu/main_texture_cpp.cpp -I. -o tests/bonsai/correctness/gpu/main_texture_cpp.o
+[test] clang++ tests/bonsai/correctness/gpu/main_texture_cpp.o tests/bonsai/correctness/gpu/texture-cpp.o -o tests/bonsai/correctness/gpu/texture-cpp
+[test] ./tests/bonsai/correctness/gpu/texture-cpp
+0: 1.000 0.000 0.000 1.000
+1: 1.000 1.000 1.000 1.000
+2: 0.500 0.500 0.000 1.000
+3: 0.500 0.500 0.500 1.000
+4: 0.000 1.000 0.000 1.000
+5: 0.000 0.000 0.000 0.000
+6: 0.500 0.500 0.500 1.000
+7: 0.000 1.000 0.000 1.000

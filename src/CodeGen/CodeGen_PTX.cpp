@@ -573,7 +573,40 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
     case Resource::OptixThread:
         internal_error << "bind(" << p.index << ", " << to_string(*p.binding)
                        << "): the OptiX backend is not built yet.";
+    case Resource::TextureUnit:
+        internal_error << "bind(" << p.index << ", TextureUnit): a texture "
+                       << "unit runs a function, not a loop (see "
+                       << "ir::Bind::lambda).";
     }
+}
+
+llvm::Value *CodeGen_PTX::codegen_texture_sample(const Intrinsic *node) {
+    // `tex.grad.2d.v4.f32.f32`: CUDA's tex2DGrad on a texture object, which
+    // is what pbrt's GPU build samples its image textures with
+    // (GPUSpectrumImageTexture::Evaluate). The unit takes the level from
+    // the two gradients, filters within it, wraps at the edges, and clamps
+    // the level, as the object was created to (bonsai_cuda_texture_create);
+    // the four floats come back as a struct, gathered into the vec4f.
+    llvm::Value *handle = codegen_expr(node->args[0]);
+    llvm::Value *st = codegen_expr(node->args[1]);
+    llvm::Value *dx = codegen_expr(node->args[2]);
+    llvm::Value *dy = codegen_expr(node->args[3]);
+    const auto lane = [&](llvm::Value *v, uint64_t k) {
+        return builder->CreateExtractElement(v, k);
+    };
+    llvm::Function *tex = llvm::Intrinsic::getOrInsertDeclaration(
+        module.get(), llvm::Intrinsic::nvvm_tex_unified_2d_grad_v4f32_f32);
+    llvm::Value *fetched = builder->CreateCall(
+        tex,
+        {handle, lane(st, 0), lane(st, 1), lane(dx, 0), lane(dx, 1),
+         lane(dy, 0), lane(dy, 1)},
+        "tex");
+    llvm::Value *result = llvm::UndefValue::get(codegen_type(node->type));
+    for (uint64_t k = 0; k < 4; k++) {
+        result = builder->CreateInsertElement(
+            result, builder->CreateExtractValue(fetched, unsigned(k)), k);
+    }
+    return result;
 }
 
 llvm::SyncScope::ID CodeGen_PTX::atomic_scope() {

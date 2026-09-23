@@ -668,6 +668,12 @@ struct CodeGen_LLVM : public ir::Visitor {
                                            const ir::Intrinsic *node) {
         return nullptr;
     }
+    // `tex_sample_grad_2d`: the texture units' sample, which only a device
+    // generator has (CodeGen_PTX). Here an error: the program reaches the
+    // intrinsic through a function a schedule bound to TextureUnit, and a
+    // schedule that does so for code this generator runs has bound it to
+    // hardware this machine lacks.
+    virtual llvm::Value *codegen_texture_sample(const ir::Intrinsic *node);
 
     // A call to the libm function `name`, for the maths LLVM has no intrinsic
     // for. Single-precision goes to the `f`-suffixed entry point, as C's

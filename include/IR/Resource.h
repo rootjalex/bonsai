@@ -19,6 +19,10 @@ enum class Resource {
     GPUBlock,
     RTCore,
     OptixThread,
+    // The GPU's texture units: what a function bound to it runs on, as the
+    // lambda the bind gives says (see Bind::lambda in IR/Schedule.h) --
+    // `texture_filter.bind(TextureUnit, |t, st, dstdx, dstdy| ...)`.
+    TextureUnit,
 };
 
 inline const char *to_string(Resource resource) {
@@ -33,6 +37,8 @@ inline const char *to_string(Resource resource) {
         return "RTCore";
     case Resource::OptixThread:
         return "OptixThread";
+    case Resource::TextureUnit:
+        return "TextureUnit";
     }
     return "<unknown resource>";
 }

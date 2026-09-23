@@ -157,6 +157,7 @@ target_sources(
     src/IR/Visitor.cpp
     src/IR/WriteLoc.cpp
     src/Lower/Canonicalize.cpp
+    src/Lower/HardwareBinds.cpp
     src/Lower/CompilerOptions.cpp
     src/Lower/DynamicArrays.cpp
     src/Lower/DynamicSets.cpp
@@ -281,6 +282,7 @@ target_sources(
     include/IntrusivePtr.h
     include/LLVMIncl.h
     include/Lower/Canonicalize.h
+    include/Lower/HardwareBinds.h
     include/Lower/DynamicArrays.h
     include/Lower/DynamicSets.h
     include/Lower/ElementReferences.h

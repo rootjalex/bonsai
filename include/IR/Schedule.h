@@ -89,6 +89,18 @@ struct Loopify {
 struct Bind {
     Location i;
     Resource resource;
+    // A function bound to a hardware unit that computes it in place of its
+    // body -- `texture_filter.bind(TextureUnit, |t : ImageTexture, st :
+    // vec2f, dstdx : vec2f, dstdy : vec2f| ...)` -- says what the unit
+    // computes as a lambda: its parameters the function's, in order and
+    // type, its value the function's result, and inside it the intrinsic
+    // that unit is reached by (`tex_sample_grad_2d`). The program keeps the
+    // function as the algorithm, exact and runnable anywhere; the schedule
+    // says that on this hardware it is this instead. Undefined for a loop's
+    // bind, where `i` names the loop. Applied by lower::LowerHardwareBinds,
+    // first, so that everything after sees the function as the unit runs
+    // it.
+    Expr lambda;
 };
 
 // Sort the children of `loc` via a lambda applied to each index.

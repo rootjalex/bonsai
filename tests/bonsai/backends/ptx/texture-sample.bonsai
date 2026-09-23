@@ -1,0 +1,39 @@
+//! flags: -p ssa -b ptx
+
+// `tex_sample_grad_2d` on the GPU's texture units: CUDA's tex2DGrad on a
+// texture object the driver made (runtime/bonsai_cuda.h,
+// bonsai_cuda_texture_create), `tex.grad.2d.v4.f32.f32` in the PTX -- the
+// coordinates, then the two gradients the unit picks the level from. The
+// program reaches it through a function a schedule bound to TextureUnit,
+// whose body the lambda replaces (lower::LowerHardwareBinds): here `lookup`
+// is a software filter that the schedule says is the unit's sample instead.
+import stdlib/numerics;
+
+extern handles : array[u64, 2];
+
+// The program's filter: nothing in particular, since what is tested is that
+// the bind replaces it.
+func lookup(texture : u32, st : vec2f, dstdx : vec2f, dstdy : vec2f) -> vec3f {
+    return vec3f{st.x, st.y, cast[[Float]](texture)};
+}
+
+// The unit's, which the schedule puts in its place.
+func lookup_unit(handle : u64, st : vec2f, dstdx : vec2f, dstdy : vec2f) -> vec3f {
+    s = tex_sample_grad_2d(handle, st, dstdx, dstdy);
+    return vec3f{s.x, s.y, s.z};
+}
+
+func run(out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        st = vec2f{cast[[Float]](i) / 8.0, 0.5};
+        out[i] = lookup(cast[[u32]](i % 2), st, vec2f{0.01, 0.0}, vec2f{0.0, 0.01});
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+    lookup.bind(TextureUnit,
+                |texture : u32, st : vec2f, dstdx : vec2f, dstdy : vec2f|
+                lookup_unit(handles[texture], st, dstdx, dstdy));
+}

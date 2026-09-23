@@ -86,6 +86,25 @@ void *bonsai_cuda_malloc(uint64_t bytes);
 void bonsai_cuda_free(void *device);
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
 void bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes);
+
+// A 2D image texture as the GPU's texture units sample it, for a program
+// whose schedule bound a texture lookup to `TextureUnit`
+// (`tex_sample_grad_2d` in the compiler): a mipmapped CUDA array of `levels`
+// levels, level `l` being `widths[l]` by `heights[l]` texels of four floats
+// (RGBA, rows tightly packed) at `texels[l]`, and a texture object over it
+// -- linear filtering within a level, the nearest level for the gradients
+// given (point mipmap filtering, which is what pbrt's GPU build sets for its
+// default `bilinear` filter), normalized coordinates, `wrap` 0 repeating, 1
+// clamping, 2 a black border, and `max_anisotropy` as pbrt's `maxanisotropy`
+// (8 by default). This is pbrt's GPUSpectrumImageTexture::Create, driver
+// API for runtime API. Returns the object's handle, which the kernel
+// samples with; `bonsai_cuda_texture_destroy` releases it and its array.
+// Aborts with the driver's reason on failure.
+uint64_t bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
+                                    const uint32_t *heights,
+                                    const float *const *texels, int32_t wrap,
+                                    int32_t max_anisotropy);
+void bonsai_cuda_texture_destroy(uint64_t texture);
 }
 
 // The few entry points of the CUDA driver API this uses, declared here
@@ -104,6 +123,89 @@ using CUmodule = struct CUmod_st *;
 using CUfunction = struct CUfunc_st *;
 using CUstream = struct CUstream_st *;
 using CUdeviceptr = unsigned long long;
+using CUarray = struct CUarray_st *;
+using CUmipmappedArray = struct CUmipmappedArray_st *;
+using CUtexObject = unsigned long long;
+
+// The texture objects' descriptors, laid out as cuda.h lays them out
+// (CUDA_ARRAY3D_DESCRIPTOR_v2, CUDA_MEMCPY2D_v2, CUDA_RESOURCE_DESC_v1,
+// CUDA_TEXTURE_DESC_v1): the driver reads these by offset, so every field
+// and its padding is the header's. The enums are ints of the header's
+// values.
+constexpr int CU_AD_FORMAT_FLOAT = 0x20;
+constexpr int CU_MEMORYTYPE_HOST = 1;
+constexpr int CU_MEMORYTYPE_ARRAY = 3;
+constexpr int CU_RESOURCE_TYPE_MIPMAPPED_ARRAY = 1;
+constexpr int CU_TR_ADDRESS_MODE_WRAP = 0;
+constexpr int CU_TR_ADDRESS_MODE_CLAMP = 1;
+constexpr int CU_TR_ADDRESS_MODE_BORDER = 3;
+constexpr int CU_TR_FILTER_MODE_POINT = 0;
+constexpr int CU_TR_FILTER_MODE_LINEAR = 1;
+constexpr unsigned CU_TRSF_NORMALIZED_COORDINATES = 0x02;
+
+struct CUDA_ARRAY3D_DESCRIPTOR {
+    size_t Width;
+    size_t Height;
+    size_t Depth;
+    int Format;
+    unsigned int NumChannels;
+    unsigned int Flags;
+};
+
+struct CUDA_MEMCPY2D {
+    size_t srcXInBytes;
+    size_t srcY;
+    int srcMemoryType;
+    const void *srcHost;
+    CUdeviceptr srcDevice;
+    CUarray srcArray;
+    size_t srcPitch;
+    size_t dstXInBytes;
+    size_t dstY;
+    int dstMemoryType;
+    void *dstHost;
+    CUdeviceptr dstDevice;
+    CUarray dstArray;
+    size_t dstPitch;
+    size_t WidthInBytes;
+    size_t Height;
+};
+
+struct CUDA_RESOURCE_DESC {
+    int resType;
+    union {
+        struct {
+            CUarray hArray;
+        } array;
+        struct {
+            CUmipmappedArray hMipmappedArray;
+        } mipmap;
+        // The header's largest member is its `pitch2D` at 40 bytes; the
+        // reserve is what fixes the union's size at 128.
+        struct {
+            CUdeviceptr devPtr;
+            int reserved[30];
+        } reserved;
+    } res;
+    unsigned int flags;
+};
+
+struct CUDA_TEXTURE_DESC {
+    int addressMode[3];
+    int filterMode;
+    unsigned int flags;
+    unsigned int maxAnisotropy;
+    int mipmapFilterMode;
+    float mipmapLevelBias;
+    float minMipmapLevelClamp;
+    float maxMipmapLevelClamp;
+    float borderColor[4];
+    int reserved[12];
+};
+static_assert(sizeof(CUDA_ARRAY3D_DESCRIPTOR) == 40, "cuda.h's layout");
+static_assert(sizeof(CUDA_MEMCPY2D) == 128, "cuda.h's layout");
+static_assert(sizeof(CUDA_RESOURCE_DESC) == 144, "cuda.h's layout");
+static_assert(sizeof(CUDA_TEXTURE_DESC) == 104, "cuda.h's layout");
 
 constexpr CUresult CUDA_SUCCESS = 0;
 constexpr int CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1;
@@ -129,6 +231,19 @@ struct Driver {
     CUresult (*cuCtxSynchronize)(void);
     CUresult (*cuGetErrorName)(CUresult, const char **);
     CUresult (*cuGetErrorString)(CUresult, const char **);
+    // The texture objects (bonsai_cuda_texture_create).
+    CUresult (*cuMipmappedArrayCreate)(CUmipmappedArray *,
+                                       const CUDA_ARRAY3D_DESCRIPTOR *,
+                                       unsigned int);
+    CUresult (*cuMipmappedArrayGetLevel)(CUarray *, CUmipmappedArray,
+                                         unsigned int);
+    CUresult (*cuMipmappedArrayDestroy)(CUmipmappedArray);
+    CUresult (*cuMemcpy2D)(const CUDA_MEMCPY2D *);
+    CUresult (*cuTexObjectCreate)(CUtexObject *, const CUDA_RESOURCE_DESC *,
+                                  const CUDA_TEXTURE_DESC *, const void *);
+    CUresult (*cuTexObjectDestroy)(CUtexObject);
+    // Each texture object's array, to release with it.
+    std::unordered_map<CUtexObject, CUmipmappedArray> texture_arrays;
 
     // Loaded once. `ok` says whether every symbol was found and a device
     // exists; `why` is the reason when not.
@@ -175,6 +290,12 @@ inline Driver &driver() {
         load(d.cuCtxSynchronize, "cuCtxSynchronize");
         load(d.cuGetErrorName, "cuGetErrorName");
         load(d.cuGetErrorString, "cuGetErrorString");
+        load(d.cuMipmappedArrayCreate, "cuMipmappedArrayCreate");
+        load(d.cuMipmappedArrayGetLevel, "cuMipmappedArrayGetLevel");
+        load(d.cuMipmappedArrayDestroy, "cuMipmappedArrayDestroy");
+        load(d.cuMemcpy2D, "cuMemcpy2D_v2");
+        load(d.cuTexObjectCreate, "cuTexObjectCreate");
+        load(d.cuTexObjectDestroy, "cuTexObjectDestroy");
         if (!d.why.empty()) {
             return;
         }
@@ -326,6 +447,90 @@ bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes) {
           d.cuMemcpyDtoH(host, reinterpret_cast<CUdeviceptr>(device),
                          size_t(bytes)),
           "cuMemcpyDtoH(" + std::to_string(bytes) + ")");
+}
+
+__attribute__((used)) inline uint64_t
+bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
+                           const uint32_t *heights, const float *const *texels,
+                           int32_t wrap, int32_t max_anisotropy) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("create a texture object");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    if (levels < 1) {
+        fail("a texture needs at least one level");
+    }
+
+    // The pyramid: one mipmapped array of `levels` levels, each filled from
+    // its rows of RGBA floats.
+    CUDA_ARRAY3D_DESCRIPTOR shape = {};
+    shape.Width = widths[0];
+    shape.Height = heights[0];
+    shape.Depth = 0;
+    shape.Format = CU_AD_FORMAT_FLOAT;
+    shape.NumChannels = 4;
+    shape.Flags = 0;
+    CUmipmappedArray pyramid = nullptr;
+    check(d, d.cuMipmappedArrayCreate(&pyramid, &shape, unsigned(levels)),
+          "cuMipmappedArrayCreate(" + std::to_string(widths[0]) + "x" +
+              std::to_string(heights[0]) + ", " + std::to_string(levels) +
+              " levels)");
+    for (int64_t l = 0; l < levels; l++) {
+        CUarray level = nullptr;
+        check(d, d.cuMipmappedArrayGetLevel(&level, pyramid, unsigned(l)),
+              "cuMipmappedArrayGetLevel(" + std::to_string(l) + ")");
+        CUDA_MEMCPY2D copy = {};
+        copy.srcMemoryType = CU_MEMORYTYPE_HOST;
+        copy.srcHost = texels[l];
+        copy.srcPitch = size_t(widths[l]) * 4 * sizeof(float);
+        copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
+        copy.dstArray = level;
+        copy.WidthInBytes = copy.srcPitch;
+        copy.Height = heights[l];
+        check(d, d.cuMemcpy2D(&copy),
+              "cuMemcpy2D(texture level " + std::to_string(l) + ")");
+    }
+
+    // The object over it: pbrt's texture descriptor for an image texture
+    // (textures.cpp, GPUSpectrumImageTexture::Create) -- linear within a
+    // level, the nearest level (its default `bilinear` filter), the levels
+    // clamped to the pyramid, the wrap mode the scene named, a black border
+    // for `black`, normalized coordinates.
+    CUDA_RESOURCE_DESC resource = {};
+    resource.resType = CU_RESOURCE_TYPE_MIPMAPPED_ARRAY;
+    resource.res.mipmap.hMipmappedArray = pyramid;
+    CUDA_TEXTURE_DESC texture = {};
+    const int address = wrap == 0   ? CU_TR_ADDRESS_MODE_WRAP
+                        : wrap == 1 ? CU_TR_ADDRESS_MODE_CLAMP
+                                    : CU_TR_ADDRESS_MODE_BORDER;
+    texture.addressMode[0] = address;
+    texture.addressMode[1] = address;
+    texture.addressMode[2] = address;
+    texture.filterMode = CU_TR_FILTER_MODE_LINEAR;
+    texture.flags = CU_TRSF_NORMALIZED_COORDINATES;
+    texture.maxAnisotropy =
+        unsigned(max_anisotropy < 1 ? 1 : max_anisotropy > 16 ? 16 : max_anisotropy);
+    texture.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
+    texture.mipmapLevelBias = 0.f;
+    texture.minMipmapLevelClamp = 0.f;
+    texture.maxMipmapLevelClamp = float(levels - 1);
+    CUtexObject object = 0;
+    check(d, d.cuTexObjectCreate(&object, &resource, &texture, nullptr),
+          "cuTexObjectCreate");
+    d.texture_arrays[object] = pyramid;
+    return uint64_t(object);
+}
+
+__attribute__((used)) inline void bonsai_cuda_texture_destroy(uint64_t texture) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("destroy a texture object");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    const auto it = d.texture_arrays.find(CUtexObject(texture));
+    if (it == d.texture_arrays.end()) {
+        fail("bonsai_cuda_texture_destroy: not a texture this runtime made");
+    }
+    check(d, d.cuTexObjectDestroy(CUtexObject(texture)), "cuTexObjectDestroy");
+    check(d, d.cuMipmappedArrayDestroy(it->second), "cuMipmappedArrayDestroy");
+    d.texture_arrays.erase(it);
 }
 
 __attribute__((used)) inline void

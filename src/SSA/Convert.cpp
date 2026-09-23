@@ -1816,6 +1816,12 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                  c.i.names.back());
                     },
                     [&](const ir::Bind &b) {
+                        if (b.lambda.defined()) {
+                            // A function's bind to a hardware unit, applied
+                            // by lower::LowerHardwareBinds before this; the
+                            // function's body is the unit's already.
+                            return;
+                        }
                         internal_assert(!b.i.names.empty())
                             << "bind() requires a cursor for: " << name;
                         // Not finished, and a bind that silently did

@@ -1,0 +1,44 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/texture-cpp
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_texture_cpp.cpp -I. -o $<>/main_texture_cpp.o, clang++ $<>/main_texture_cpp.o $<>/texture-cpp.o -o $<>/texture-cpp, ./$<>/texture-cpp, rm $<>/texture-cpp, rm $<>/main_texture_cpp.o, rm $<>/texture-cpp.h, rm $<>/texture-cpp.o
+
+// A lookup bound to the GPU's texture units, run on them: the driver makes
+// two texture objects through the runtime (bonsai_cuda_texture_create) --
+// a two-level RGBA pyramid each, one clamping at its edge and one with a
+// black border -- and the program samples them through `lookup`, whose
+// body the schedule replaces with the unit's sample
+// (`tex_sample_grad_2d`, tex.grad.2d in the PTX; see backends/ptx/
+// texture-sample). The coordinates are texel centres, exact midpoints and
+// points past the edge, and one lookup carries a gradient wide enough to
+// pick the pyramid's top, so every expected value is exact whatever the
+// unit's filtering precision. The driver prints what came back.
+import stdlib/numerics;
+
+// The units' objects, one per texture, as the driver made them.
+extern handles : array[u64, 2];
+
+// The program's filter: what a CPU schedule would run. Nothing in
+// particular, since what is tested is the unit the bind puts in its place.
+func lookup(texture : u32, st : vec2f, dstdx : vec2f, dstdy : vec2f) -> vec4f {
+    return vec4f{st.x, st.y, cast[[Float]](texture), 0.0};
+}
+
+// The unit's.
+func lookup_unit(handle : u64, st : vec2f, dstdx : vec2f, dstdy : vec2f) -> vec4f {
+    return tex_sample_grad_2d(handle, st, dstdx, dstdy);
+}
+
+func [[export]] run(n : i32, texture : array[u32, n], st : array[vec2f, n],
+                    dstdx : array[vec2f, n], dstdy : array[vec2f, n],
+                    out : mut array[vec4f, n]) -> void {
+    parfor i in 0:n {
+        out[i] = lookup(texture[i], st[i], dstdx[i], dstdy[i]);
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+    lookup.bind(TextureUnit,
+                |texture : u32, st : vec2f, dstdx : vec2f, dstdy : vec2f|
+                lookup_unit(handles[texture], st, dstdx, dstdy));
+}

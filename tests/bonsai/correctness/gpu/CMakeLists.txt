@@ -40,5 +40,6 @@ add_bonsai_tests(
     print.bonsai
     rand.bonsai
     struct-capture.bonsai
+    texture-cpp.bonsai
     threads.bonsai
 )

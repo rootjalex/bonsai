@@ -4,6 +4,7 @@
 #include "IR/Printer.h"
 #include "Lower/ADTs.h"
 #include "Lower/Canonicalize.h"
+#include "Lower/HardwareBinds.h"
 #include "Lower/DynamicArrays.h"
 #include "Lower/DynamicSets.h"
 #include "Lower/Externs.h"
@@ -143,6 +144,7 @@ PassManager register_passes(const CompilerOptions &options) {
     PassManager manager;
     // Lowering pass registration.
     manager.register_pass<Canonicalize>();
+    manager.register_pass<LowerHardwareBinds>();
     manager.register_pass<LowerSetFunctions>();
     manager.register_pass<LowerLambdas>();
     manager.register_pass<LowerOptions>();
@@ -185,6 +187,7 @@ PassManager register_passes(const CompilerOptions &options) {
     // (this should *not* include optimizations).
     std::vector<std::unique_ptr<Pass>> core;
     core.push_back(std::make_unique<Canonicalize>());
+    core.push_back(std::make_unique<LowerHardwareBinds>());
     // Before anything reads a set expression; see Lower/SetFunctions.h.
     core.push_back(std::make_unique<LowerSetFunctions>());
     core.push_back(std::make_unique<VerifyOptions>());
@@ -250,6 +253,9 @@ PassManager register_passes(const CompilerOptions &options) {
     // Program's schedule.
     std::vector<std::unique_ptr<Pass>> ssa;
     ssa.push_back(std::make_unique<Canonicalize>());
+    // A function bound to a hardware unit becomes what the unit computes
+    // before anything else looks at it (see Lower/HardwareBinds.h).
+    ssa.push_back(std::make_unique<LowerHardwareBinds>());
     ssa.push_back(std::make_unique<LowerSetFunctions>());
     ssa.push_back(std::make_unique<VerifyOptions>());
     ssa.push_back(std::make_unique<VerifyLayouts>());
