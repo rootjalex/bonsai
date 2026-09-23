@@ -1847,13 +1847,11 @@ int main(int argc, char **argv) {
             break;
         }
         default: {
-            // pbrt's `path` defaults to its BVH light sampler. scene_dump
-            // serializes pbrt's own tree and sets `light_sampler` to 1 when a
-            // scene has two or more bounded lights, where the BVH and uniform
-            // samplers genuinely differ; below that the two are the same
-            // function and the cheaper uniform arm stands (see the note in
-            // scene_dump.cpp). `num_bounded` is the area lights, which sit at
-            // `[0, first_infinite)`.
+            // pbrt's `path` and `volpath` default to its BVH light sampler.
+            // scene_dump serializes pbrt's own tree and sets `light_sampler`
+            // to 1 when the scene names `bvh` and has any light to sample
+            // (see the note in scene_dump.cpp); `num_bounded` is the area
+            // lights, which sit at `[0, first_infinite)`.
             LightSampler light_sampler;
             if (loaded.light_sampler == 1) {
                 LightSampler_BVHLights(light_sampler, first_infinite,

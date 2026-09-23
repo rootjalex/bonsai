@@ -4483,12 +4483,45 @@ on the cover and pages) 8.207 s to 4.856 s against 2.63 s; pavilion 10.647 s
 to 5.803 s against 3.05 s -- pbrt --gpu being volpath and ours `path`, which
 the volpath section below is for.
 
-**Next, in this order.** volpath under the megakernel, so the GPU numbers
-compare like with like (the section below). The block-level reduction for
-the film: a warp shuffle tree, one shared slot per warp, one add by the
-leader, and no atomic at all when the address depends only on the
-block-bound index, which the contention pass already knows. The select
-chain for the dynamic extract. Then the block shape and the stack depth.
+**volpath under the megakernel, like for like (the same evening).** With
+volpath landed and the default integrator both sides take, the matrix was
+rerun on the GPU schedule against pbrt's CPU volpath and the cached `pbrt
+--gpu` cells, best of three, every image matching pbrt. Depth 5, 256 spp,
+first run: killeroo 0.978 s against pbrt --gpu's 1.02 s (14.4x over pbrt
+CPU); book 5.021 s against 2.63 s (17.6x); pavilion 6.414 s against 3.05 s
+(13.0x). volpath cost the megakernel 3% (book) to 22% (killeroo) over
+`path` on the same scenes. After the light-sampler fix below and the select
+chain for dynamic extracts (the profile section's next steps): killeroo
+0.867 s, book 3.294 s (26.8x over pbrt CPU), pavilion 5.619 s -- pbrt --gpu
+behind on killeroo, 1.25x ahead on book and 1.8x ahead on pavilion at depth
+5. Book's gain is the light sampler's as much as the codegen's: pbrt's BVH
+sampler declines a light no energy from which can reach the point, where
+the uniform sampler traced the shadow ray regardless.
+One thing did not hold: book's per-pixel agreement with pbrt fell from 76%
+under `path` to 0.1% under volpath while killeroo's and pavilion's held and
+every mean agreed to 0.01% -- on the CPU scalar schedule too (0.0% against
+82% under `path` at 16 spp), so a translation difference and not fast math.
+The user's direction on seeing it: "The volpath needs to be correct before
+making codegen improvements. Correctness is the primary priority right now.
+Then performance." Bisected on the scene: with the two sphere lights given
+the same colour, still 0.0%; with one light removed, 82%. So the *choice*
+of light differed, which any valid distribution keeps unbiased -- the mean
+cannot see it, and only the per-pixel figure can. The cause was in
+scene_dump.cpp: pbrt's light BVH was dumped and the BVH sampler selected
+only for `path`, so a volpath scene sampled its lights uniformly where
+pbrt's VolPathIntegrator, whose Create reads `lightsampler` with the same
+"bvh" default, walked the tree. Over one light the two samplers agree;
+over two they assign every random number differently. Fixed by taking the
+branch for volpath as well; the lesson written down is that a per-pixel
+collapse on a scene that used to agree is a bug to find, not a difference
+to record.
+
+**Next, in this order.** The block-level reduction for the film: a warp
+shuffle tree, one shared slot per warp, one add by the leader, and no
+atomic at all when the address depends only on the block-bound index, which
+the contention pass already knows (designed: SSA/BlockAccumulates.h). The
+select chain for the dynamic extract. Then the block shape and the stack
+depth, and the wavefront (its section below).
 
 **A compiler bug volpath found.** The medium walk's samples were not
 pbrt's: `hash_float1(get_1d(sampler, state))` twice in a row became one,
@@ -4758,6 +4791,107 @@ reductions, predicate masks, the lane and warp indices) -- the vectorizer
 itself does not change; `loopify`'s memory-space argument and the per-warp
 `.shared` partition; then the schedule in `schedules/gpu-packet.bonsai` and
 the measurement.
+
+## pbrt's GPU wavefront, written as a schedule of `vol_path_step` (drafted 2026-09-22)
+
+The user's direction, once volpath runs under the megakernel: "we will start
+trying to implement the same GPU wavefront schedule as PBRT". This is pbrt's
+wavefront read stage by stage from `src/pbrt/wavefront/` and set beside
+`vol_path_step`, to see what the scheduling language has and what it lacks.
+
+**What pbrt does per bounce** (`WavefrontPathIntegrator::Render`,
+integrator.cpp). A pass is one sample of every pixel in a band of
+`scanlinesPerPass` rows, so every queue is sized by `maxQueueSize`, the
+band's pixel count, and holds at most one entry per pixel sample. Per pass:
+`GenerateCameraRays` (a parfor over the band's pixels: the camera ray and
+`PixelSampleState` -- L, lambda, filter weight, camera weight, the visible
+surface -- pushed on `rayQueues[0]`); then for `wavefrontDepth` from 0: reset
+the next ray queue and every stage queue; `GenerateRaySamples` (per queued
+ray, the sampler's draws for this bounce -- direct uc/u, indirect uc/u/rr --
+into the pixel's state, dimension `6 + 7 * depth`, so the sampler is not
+carried on the queue); `IntersectClosest` over the current ray queue, whose
+epilogue (intersect.h, `EnqueueWorkAfterIntersection`) routes each ray by
+outcome: a ray in a medium to `mediumSampleQueue` with the hit's data and
+tMax, a miss to `escapedRayQueue`, a hit on `Material "interface"` straight
+onto the *next* ray queue (spawned through, no depth counted), an area light's
+hit to `hitAreaLightQueue`, and every material hit to one of two
+`MaterialEvalQueue`s (basic textures or universal), each a `MultiWorkQueue`
+with one queue per concrete material type; `SampleMediumInteraction` over
+the medium queue (the majorant walk; a real scatter to `mediumScatterQueue`,
+per phase function type, the rest routed as the hit would have been);
+`HandleEscapedRays` and `HandleEmissiveIntersection` (Le with MIS, into
+`PixelSampleState::L`); at `maxDepth` stop; `EvaluateMaterialsAndBSDFs`, one
+kernel per material type (GetBSDF, regularize, the visible surface at depth
+0, `SampleLd` pushing a `ShadowRayWorkItem{ray, tMax, lambda, Ld, r_u, r_l,
+pixelIndex}`, `Sample_f` pushing the next ray); `TraceShadowRays`
+(`IntersectShadow`, or `IntersectShadowTr` through media, whose result is
+`L += Ld / avg(r_u + r_l)` on the unoccluded ones, intersect.h
+`RecordShadowRayResult`); `SampleSubsurface`. After the depth loop,
+`UpdateFilm` adds each pixel sample's L. The ray queues are two, indexed by
+the depth's parity; every other queue is one buffer, since no drain pushes
+onto its own queue.
+
+**What that is in `vol_path_step`'s terms.** The `RayWorkItem` -- ray,
+depth, lambda, pixelIndex, beta, r_u, r_l, prevIntrCtx, etaScale,
+specularBounce, anyNonSpecularBounces -- is `vol_path_step`'s parameter list
+almost name for name, which is to say pbrt's queue entry is exactly the
+continuation of our tail call: the `defer()` we have (`vol_paths =
+render.queue(p); vol_path_step.defer(vol_path_step, vol_paths)`, with the
+double buffer the self-recursion needs) is pbrt's ray queue. What pbrt adds
+is queues *within* the step:
+
+1. **The trace is a stage.** `IntersectClosest` is `trace(ray)` at the top
+   of `vol_path_step`, and the material kernel is the rest of the step. So
+   `trace`'s call site is deferred -- a *non-tail* deferral: the function is
+   split at the call, the values live across it saved with the entry (the
+   coroutine split LLVM does; PLAN's "next scheduling commands", item 2).
+   pbrt's `MaterialEvalWorkItem` says what is live: the ray item plus the
+   hit (pi, n, dpdu, dpdv, shading frame, uv, faceIndex, wo, the medium
+   interface) -- small, and by value.
+2. **A queue keyed by an outcome.** After the trace, the entry goes to a
+   queue chosen by what was hit: `defer(..., queues[key])` where `key` is
+   an expression over the result -- the material's variant tag (pbrt's
+   `MultiWorkQueue`, one queue per material type, so each drain's
+   `material_bxdf` match is uniform), a medium, a miss, an interface (which
+   pbrt pushes back onto the ray queue at once, the depth unchanged).
+   Sharding by variant is item 3 of the scheduling commands.
+3. **A deferred call whose result is consumed.** `vol_sample_ld` computes
+   Ld and then calls `vol_shadow_step`, whose transmittance multiplies into
+   the step's L. pbrt defers the shadow trace and records its result into
+   the pixel's L after the batch. In our terms the continuation after the
+   shadow call is "L += Ld * tr" -- live state (Ld, r_u, r_l, the pixel)
+   saved with the entry and a reduction into per-pixel-sample state; the
+   "saved-flag return" mechanism the defer design left for later, and a
+   store the drains read and write.
+4. **The pixel sample's state** -- L, lambda, the filter weight, the visible
+   surface -- is what the render loop uses after the integrator returns; the
+   same additional-call-stack state, one record per pixel sample per pass,
+   rather than carried on every queue.
+5. **The sampler.** pbrt draws a bounce's dimensions ahead of the bounce into
+   the pixel state (`GenerateRaySamples`), so the sampler state is not on
+   the queue and the drains are pure. Our step threads `state : mut
+   SamplerState`; the equivalent is a stage that draws the step's samples
+   into the entry before the material drain, or the sampler state saved as
+   part of the continuation. Either converges to the same image; only the
+   first reproduces pbrt --gpu's per-pixel stream (dimension `6 + 7 *
+   depth`), and the standard so far is agreement with pbrt's CPU volpath.
+6. **On the GPU**: the queues in device memory, each drain a kernel
+   (`bind(drain, GPUBlock)`/`GPUThread`), the round loop on the host -- our
+   launch today is one kernel; a wavefront is a launch sequence per pass
+   with the queue counts read back or the launches sized by the maximum. And
+   pbrt's band of scanlines is the queue-size policy: one sample per pixel
+   per pass, `queue.size` a runtime constant.
+
+**Order.** (1) the non-tail deferral of `trace` -- the function split, the
+largest compiler piece and the one the rest stand on; (2) queues keyed by an
+outcome; (3) the shadow ray as a deferred call with a consumed result, which
+brings the saved-state mechanism; (4) device placement of queues and the
+multi-kernel launch sequence; (5) `schedules/gpu-wavefront.bonsai`, measured
+against `pbrt --gpu` on killeroo, book and pavilion with the images checked.
+The escaped and emissive queues are not needed for correctness -- their work
+can stay inline where the trace's outcome is known -- and whether to split
+them off is the register-pressure question pbrt answered one way; it is a
+schedule choice here, measured.
 
 ## Known-open, smaller
 

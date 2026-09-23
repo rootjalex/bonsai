@@ -4342,11 +4342,19 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // energy can reach the point (the root-leaf importance test in
     // `bvh_descend`); that contributes nothing either way, and the sampler
     // stream does not move, but the arm is PBRT's, so it is taken.
-    if (out.integrator == bonsai_scene::IntegratorTag::Path) {
+    //
+    // `volpath` too: VolPathIntegrator::Create reads `lightsampler` with the
+    // same "bvh" default as PathIntegrator::Create. Until 2026-09-22 only
+    // `path` took this branch, so a volpath scene sampled its lights
+    // uniformly where pbrt walked the tree -- the same PMF over one light,
+    // a different draw over two, and book (two sphere lights) rendered the
+    // right mean with not a pixel agreeing.
+    if (out.integrator == bonsai_scene::IntegratorTag::Path ||
+        out.integrator == bonsai_scene::IntegratorTag::VolPath) {
         if (builder.light_sampler_name != "uniform" &&
             builder.light_sampler_name != "bvh") {
-            fail("this renderer's `path` implements the `uniform` and `bvh` "
-                 "light samplers, and the scene asks for `" +
+            fail("this renderer's `path` and `volpath` implement the `uniform` "
+                 "and `bvh` light samplers, and the scene asks for `" +
                  builder.light_sampler_name + "`");
         }
         if (builder.light_sampler_name == "bvh" &&
