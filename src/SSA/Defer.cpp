@@ -1067,10 +1067,24 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 region_entry = p->body.name;
             }
         }
+        string variants;
+        for (const auto &block : O->blocks) {
+            const auto *p =
+                std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p != nullptr && p->index.rfind(queue.loop + "!", 0) == 0) {
+                variants += (variants.empty() ? "" : ", ") + p->index;
+            }
+        }
         internal_assert(owner_loop_block)
             << what << ": " << queue.owner << " has no parfor named "
             << queue.loop << " to own the queue " << queue.name
-            << ". A queue is owned by a parfor of its function, or by `root`.";
+            << ". A queue is owned by a parfor of its function, or by `root`."
+            << (variants.empty()
+                    ? ""
+                    : " " + queue.owner + " is specialized, and its loops are "
+                          "the variants' (" + variants + "): a queue is one "
+                          "variant's, `" + queue.owner + "[<Variant>].queue(" +
+                          queue.loop + ")`.");
     }
     const Cfg region(*O, region_entry);
     internal_assert(region.contains(producer.block->name))

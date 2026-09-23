@@ -102,6 +102,19 @@ key_tag_at(Block &block, const Function &func, const std::string &key,
            const std::map<std::string, std::shared_ptr<Value>> &params,
            const std::map<std::string, ir::Program::AdtStorage> &storages);
 
+// Follows a specialized value into the callees `blocks` pass it to: a call
+// whose argument is the value named `value`, to a parameter of variant type,
+// is redirected to a copy of the callee (`callee!Variant`) in which that
+// parameter has `v`'s tag (specialize_function), and the copy is searched
+// the same way for where it passes the parameter on. What makes a
+// specialization reach the matches below the loop it was written on --
+// `integrator_li`'s, once `render` is specialized on the integrator -- so
+// that later directives, and the compiled code, see one variant's program.
+void specialize_callees(FuncMap &fmap,
+                        const std::vector<std::shared_ptr<Block>> &blocks,
+                        const std::string &value, const KeyVariant &v,
+                        const std::map<std::string, ir::Program::AdtStorage> &storages);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

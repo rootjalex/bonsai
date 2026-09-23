@@ -1457,23 +1457,64 @@ parfors_reachable_from(const FuncMap &fmap, const std::string &start) {
     return found;
 }
 
-// The loop a schedule means. A loop the program wrote is called what the
-// program called it; one lowering generated is called `_` followed by that,
-// because lowering labels what it invents, while a schedule names it without
-// the underscore either way.
-LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
-                      const std::string &wanted, const std::string &transform) {
+// Whether `loop` is the loop `candidate` names, or one of its variants: a
+// specialized function's loops are the variants' (`p!VolPath`, SSA/
+// Specialize.cpp), a split queue's drains the sub-queues' (`hits!Some!
+// Diffuse`, SSA/Defer.cpp), and a schedule that names `p` or `hits` means
+// all of them.
+bool loop_matches(const std::string &loop, const std::string &candidate) {
+    return loop == candidate ||
+           (loop.size() > candidate.size() &&
+            loop.compare(0, candidate.size(), candidate) == 0 &&
+            loop[candidate.size()] == '!');
+}
+
+// The part of a loop's name past the name the schedule wrote: `!VolPath` of
+// `p!VolPath` named as `p`. What a directive's products take too, so that a
+// split of every variant's `s` makes each variant its own `s_gang!VolPath`.
+std::string variant_suffix(const std::string &wanted, const std::string &index) {
+    for (const std::string &candidate : {wanted, "_" + wanted}) {
+        if (loop_matches(index, candidate)) {
+            return index.substr(candidate.size());
+        }
+    }
+    return "";
+}
+
+// The loops a schedule means by a name. A loop the program wrote is called
+// what the program called it; one lowering generated is called `_` followed
+// by that, because lowering labels what it invents, while a schedule names it
+// without the underscore either way. A name matches a loop exactly or a
+// variant of it (loop_matches): `render[VolPath].bind(p, ...)` is written
+// by the parser as the loop `p!VolPath`, which is one loop; `render.bind(p,
+// ...)` on a specialized `render` is every variant's `p`.
+std::vector<LoopSite> resolve_loops(const FuncMap &fmap, const std::string &start,
+                                    const std::string &wanted,
+                                    const std::string &transform) {
     const auto found = parfors_reachable_from(fmap, start);
     for (const std::string &candidate : {wanted, "_" + wanted}) {
+        std::vector<LoopSite> sites;
         // The function the schedule named wins over one it merely reaches.
         const auto here = found.find(start);
-        if (here != found.end() && here->second.count(candidate)) {
-            return {start, candidate};
+        if (here != found.end()) {
+            for (const std::string &loop : here->second) {
+                if (loop_matches(loop, candidate)) {
+                    sites.push_back({start, loop});
+                }
+            }
+        }
+        if (!sites.empty()) {
+            return sites;
         }
         for (const auto &[fname, loops] : found) {
-            if (loops.count(candidate)) {
-                return {fname, candidate};
+            for (const std::string &loop : loops) {
+                if (loop_matches(loop, candidate)) {
+                    sites.push_back({fname, loop});
+                }
             }
+        }
+        if (!sites.empty()) {
+            return sites;
         }
     }
 
@@ -1490,7 +1531,19 @@ LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
                              "parfor can be transformed, since a sequential "
                              "loop has an order to keep."
                            : "The parfor loops it reaches are: " + all);
-    return {start, wanted};
+    return {};
+}
+
+// The one loop a schedule means, where a directive takes exactly one.
+LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
+                      const std::string &wanted, const std::string &transform) {
+    const std::vector<LoopSite> sites = resolve_loops(fmap, start, wanted, transform);
+    internal_assert(sites.size() == 1)
+        << transform << "() on " << start << ": " << wanted << " names "
+        << sites.size() << " loops, the variants of a specialized function or "
+        << "the queues of a split; this directive takes one. Name it: `" << start
+        << "[<Variant>]." << transform << "(" << wanted << ", ...)`.";
+    return sites.front();
 }
 
 // The block graph itself, which nothing downstream can be asked about: the
@@ -1735,11 +1788,31 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // See BONSAI_TIME_PASSES in Lower/Lower.cpp: the time each transform
     // takes, since this one pass is most of a vectorized compile.
     const bool timing = std::getenv("BONSAI_TIME_PASSES") != nullptr;
+    // The functions a directive has been applied to so far: `specialize`
+    // goes first among a function's, since its copies are what the
+    // directives after it schedule, one variant's loops or all of them
+    // (SSA/Specialize.h).
+    std::set<std::string> scheduled;
     for (const auto &[name, index] : ordered) {
         if (!fmap.contains(name)) {
             continue;
         }
         const ir::Transform &t = transforms.at(name).at(index);
+        if (std::holds_alternative<ir::Specialize>(t)) {
+            internal_assert(!scheduled.contains(name))
+                << name << ".specialize(" << std::get<ir::Specialize>(t).param
+                << ") comes after another directive on " << name
+                << ". specialize goes first: the copies it makes, one per "
+                << "variant, are what the directives after it schedule -- "
+                << "one variant's (`" << name << "[<Variant>].bind(...)`) or "
+                << "every variant's (`" << name << ".bind(...)`).";
+        }
+        const bool counts = !std::holds_alternative<ir::Sort>(t) &&
+                            !(std::holds_alternative<ir::Bind>(t) &&
+                              std::get<ir::Bind>(t).lambda.defined());
+        if (counts) {
+            scheduled.insert(name);
+        }
         const auto started = std::chrono::steady_clock::now();
         const auto report = [&] {
             if (!timing) {
@@ -1788,9 +1861,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             divide_all();
                             divided = true;
                         }
-                        const LoopSite at = resolve_loop(
-                            fmap, name, v.i.names.back(), "vectorize");
-                        vectorize(fmap, at.func, at.index, policies);
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, v.i.names.back(), "vectorize")) {
+                            vectorize(fmap, at.func, at.index, policies);
+                        }
                     },
                     [&](const ir::Specialize &s) {
                         specialize_loops(fmap, name, s.param, adt_storages);
@@ -1951,29 +2025,39 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         internal_assert(factor.has_value() && *factor > 0)
                             << "split(" << s.factor << ") on " << name
                             << " needs a constant, positive factor";
-                        const LoopSite at =
-                            resolve_loop(fmap, name, s.i.names.back(), "split");
-                        split(fmap, at.func, at.index, int(*factor),
-                              s.io.names.back(), s.ii.names.back(),
-                              !s.generate_tail);
+                        // Every variant's loop, each split into pieces named
+                        // for that variant (`s_gang!VolPath`), so that a
+                        // later directive naming `s_gang` finds them all.
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, s.i.names.back(), "split")) {
+                            const std::string suffix =
+                                variant_suffix(s.i.names.back(), at.index);
+                            split(fmap, at.func, at.index, int(*factor),
+                                  s.io.names.back() + suffix,
+                                  s.ii.names.back() + suffix, !s.generate_tail);
+                        }
                     },
                     [&](const ir::Collapse &c) {
                         internal_assert(!c.io.names.empty() &&
                                         !c.ii.names.empty() &&
                                         !c.i.names.empty())
                             << "collapse() requires loop names for: " << name;
-                        const LoopSite at = resolve_loop(
-                            fmap, name, c.io.names.back(), "collapse");
-                        const LoopSite in = resolve_loop(
-                            fmap, at.func, c.ii.names.back(), "collapse");
-                        internal_assert(in.func == at.func)
-                            << "collapse(" << c.io.names.back() << ", "
-                            << c.ii.names.back() << ") on " << name
-                            << ": those loops are in different "
-                            << "functions (" << at.func << " and " << in.func
-                            << "), so they are not nested";
-                        collapse(fmap, at.func, at.index, in.index,
-                                 c.i.names.back());
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, c.io.names.back(), "collapse")) {
+                            const std::string suffix =
+                                variant_suffix(c.io.names.back(), at.index);
+                            const LoopSite in = resolve_loop(
+                                fmap, at.func, c.ii.names.back() + suffix,
+                                "collapse");
+                            internal_assert(in.func == at.func)
+                                << "collapse(" << c.io.names.back() << ", "
+                                << c.ii.names.back() << ") on " << name
+                                << ": those loops are in different "
+                                << "functions (" << at.func << " and "
+                                << in.func << "), so they are not nested";
+                            collapse(fmap, at.func, at.index, in.index,
+                                     c.i.names.back() + suffix);
+                        }
                     },
                     [&](const ir::Bind &b) {
                         if (b.lambda.defined()) {
@@ -1992,9 +2076,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             << "bind(" << b.i.names.back() << ", "
                             << to_string(b.resource) << ") on " << name
                             << ": that backend is not built yet.";
-                        const LoopSite at =
-                            resolve_loop(fmap, name, b.i.names.back(), "bind");
-                        bind(fmap, at.func, at.index, b.resource);
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, b.i.names.back(), "bind")) {
+                            bind(fmap, at.func, at.index, b.resource);
+                        }
                     },
                 },
                 t);

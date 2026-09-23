@@ -1,0 +1,36 @@
+//! flags: -p ssa
+
+// `run.specialize(mode)` written first, and a directive after it on one
+// variant alone. The copies' loops are the variants': `i!Sum` and
+// `i!Clamp`, so `run[Sum].bind(i, CPUThread)` binds the first and leaves
+// the second a sequential loop. And the specialized value is followed into
+// the callee it is handed to: `apply`, given `mode`, is copied per variant
+// with the parameter's tag fixed -- `apply!Sum` is the `Sum` arm alone,
+// `apply!Clamp` the other -- and each copy of the body calls its own
+// (SSA/Specialize.h, specialize_callees). Halide's specialize: a scope per
+// variant that the directives after it schedule.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func [[noinline]] apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].bind(i, CPUThread);
+}

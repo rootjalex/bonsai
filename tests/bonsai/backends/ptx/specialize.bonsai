@@ -28,6 +28,6 @@ func [[export]] run(mode : Mode, values : array[Float, 64],
 }
 
 schedule {
-    run.bind(i, GPUThread);
     run.specialize(mode);
+    run.bind(i, GPUThread);
 }

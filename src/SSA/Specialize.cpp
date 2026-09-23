@@ -352,29 +352,154 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                                       Instruction::Op::LoadField,
                                       {whole, constant_u32(i)}));
             }
+            shared_ptr<Value> spec;
             if (pointer != nullptr) {
                 // Stored where the body can point at it: a slot under the
                 // copy's name, holding the specialized value.
-                shared_ptr<Value> spec =
-                    make(f.get_unique_name(), struct_type,
-                         Instruction::Op::MakeStruct, std::move(fields));
+                spec = make(f.get_unique_name(), struct_type,
+                            Instruction::Op::MakeStruct, std::move(fields));
                 shared_ptr<Value> slot =
                     make(fresh, parameter->type, Instruction::Op::Alloca, {});
                 prologue.push_back(std::make_shared<Instruction>(
                     Instruction::Op::Store, vector<shared_ptr<Value>>{slot, spec},
                     head.shared_from_this()));
             } else {
-                make(fresh, parameter->type, Instruction::Op::MakeStruct,
-                     std::move(fields));
+                spec = make(fresh, parameter->type, Instruction::Op::MakeStruct,
+                            std::move(fields));
             }
             head.instrs.insert(head.instrs.begin(), prologue.begin(),
                                prologue.end());
+
+            // The copy's loops are the variant's: `p` becomes `p!VolPath`,
+            // so that a directive written after this one can name the loop
+            // of one variant (`render[VolPath].bind(p, GPUBlock)`) or every
+            // variant's (`render.bind(p, GPUBlock)`, which finds them all;
+            // see resolve_loops in SSA/Convert.cpp). The index is the body's
+            // first argument and is threaded through the body under its
+            // name, so the name changes wherever the copy carries it.
+            const auto rename_loop = [&](Terminator::ParFor &p) {
+                const string was = p.index;
+                p.index = was + "!" + copy.variant;
+                rename_uses(copied, *copy.selector, was, p.index);
+            };
+            rename_loop(entered);
+            for (const auto &block : copied) {
+                if (auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+                    rename_loop(*p);
+                }
+            }
+
+            // The value is followed into the callees it is passed to: a
+            // callee given the specialized value is copied with that
+            // parameter's tag fixed, and the copy called instead, so that
+            // its match folds too -- `integrator_li!VolPath` has the volpath
+            // arm alone. Recursively, as far as the value is passed on.
+            specialize_callees(fmap, copied, fresh, KeyVariant{copy.variant, copy.tag},
+                               storages);
+
+            // The uses then read the struct itself. By value, in place of
+            // its name, which the simplifier's field rule cannot see through
+            // (SSA/Simplify.h). By pointer, in place of each whole read of
+            // the slot: the slot is written above and nowhere else -- the
+            // body never assigns a parameter that arrived by pointer only
+            // because variants travel that way (Lower/Mutability.cpp) -- and
+            // would otherwise be promoted at the end (SSA/PromoteAllocas.h),
+            // after the last simplify. Either way the match's read of the
+            // tag sees the struct, and folds. After the callees, which found
+            // the value by its name.
+            const auto is_fresh = [&](const shared_ptr<Value> &u) {
+                const auto *a = u ? std::get_if<Argument>(&u->data) : nullptr;
+                return a != nullptr && a->name == fresh;
+            };
+            if (pointer != nullptr) {
+                vector<shared_ptr<Instruction>> reads;
+                for (const auto &block : copied) {
+                    for (const auto &instr : block->instrs) {
+                        if (instr->op == Instruction::Op::Load &&
+                            instr->operands.size() == 1 && is_fresh(instr->operands[0])) {
+                            reads.push_back(instr);
+                        }
+                    }
+                }
+                for (const auto &read : reads) {
+                    replace_uses(f, read.get(), spec);
+                }
+            } else {
+                for (const auto &block : copied) {
+                    for_each_value(*block, [&](shared_ptr<Value> &u) {
+                        if (is_fresh(u)) {
+                            u = spec;
+                        }
+                    });
+                }
+            }
         }
         refresh_preds(f);
     }
 
     // The bodies the loops no longer enter.
     remove_unreachable_blocks(f);
+    // The tag is a constant in every copy: the matches on it fold to their
+    // arms now, so that what the directives after this one schedule is the
+    // variant's code alone (SSA/Simplify.h).
+    simplify(f);
+}
+
+void specialize_callees(FuncMap &fmap, const vector<shared_ptr<Block>> &blocks,
+                        const string &value, const KeyVariant &v,
+                        const map<string, ir::Program::AdtStorage> &storages) {
+    // Whether `arg` is the value: named so, or a load through the pointer
+    // named so -- a variant parameter arrives by pointer (Lower/Mutability
+    // .cpp), and a callee taking it by value is handed what the pointer
+    // holds.
+    const std::function<bool(const shared_ptr<Value> &)> names =
+        [&](const shared_ptr<Value> &arg) -> bool {
+        if (!arg) {
+            return false;
+        }
+        if (const auto *a = std::get_if<Argument>(&arg->data)) {
+            return a->name == value;
+        }
+        if (const auto *i = std::get_if<shared_ptr<Instruction>>(&arg->data)) {
+            if ((*i)->name == value) {
+                return true;
+            }
+            return (*i)->op == Instruction::Op::Load && !(*i)->operands.empty() &&
+                   names((*i)->operands[0]);
+        }
+        return false;
+    };
+    for (const auto &block : blocks) {
+        auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        if (call == nullptr) {
+            continue;
+        }
+        const auto callee = fmap.find(call->call.name);
+        if (callee == fmap.end()) {
+            continue;
+        }
+        const vector<Argument> &params = callee->second->blocks.front()->args;
+        for (size_t j = 0; j < call->call.args.size() && j < params.size(); j++) {
+            if (!names(call->call.args[j]) ||
+                key_variants(params[j].type, storages).empty()) {
+                continue;
+            }
+            const string clone_name = call->call.name + "!" + v.label;
+            const bool fresh_clone = !fmap.contains(clone_name);
+            if (fresh_clone) {
+                fmap[clone_name] = specialize_function(
+                    *callee->second, clone_name, params[j].name, v, storages);
+            }
+            call->call.name = clone_name;
+            if (fresh_clone) {
+                // Inside the copy the parameter is the specialized value,
+                // under the name specialize_function gave it.
+                specialize_callees(fmap, fmap.at(clone_name)->blocks,
+                                   params[j].name + "!" + v.label, v, storages);
+            }
+            break; // one specialized value per call
+        }
+    }
 }
 
 //===----------------------------------------------------------------------===//
@@ -608,6 +733,19 @@ specialize_function(const Function &func, const string &name,
         at->lookups[key] = spec;
     } else {
         rename_uses(copy->blocks, *at, key, fresh);
+        // The uses then read the struct itself rather than its name: a name
+        // is what a block below receives, which the simplifier's field rule
+        // cannot see through (SSA/Simplify.h), and the fold -- of the match
+        // on the tag, and of the arm's reads of the other fields -- is the
+        // point. The entry defines the struct, so every block reaches it.
+        for (const auto &block : copy->blocks) {
+            for_each_value(*block, [&](shared_ptr<Value> &u) {
+                const auto *a = u ? std::get_if<Argument>(&u->data) : nullptr;
+                if (a != nullptr && a->name == fresh) {
+                    u = spec;
+                }
+            });
+        }
     }
     at->instrs.insert(at->instrs.begin() + position, prologue.begin(),
                       prologue.end());

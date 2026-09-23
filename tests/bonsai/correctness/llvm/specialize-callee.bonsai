@@ -1,0 +1,46 @@
+//! flags: -p ssa -b llvm -e
+
+// A specialized value followed into a callee. `run.specialize(mode)` copies
+// the loop per variant of `mode`; `apply`, which the body hands `mode`, is
+// copied too with its parameter's tag fixed, so its match is one arm in
+// each copy and each copy of the body calls its own. What is checked is
+// that the copies compute what the original would have with that variant:
+// run with each variant in turn, the two answers differ, and a copy that
+// called the wrong `apply` or read the payload at the wrong offset would
+// show. Unbound, since this runs in the JIT.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func [[noinline]] apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func run(mode : Mode, values : array[Float, 8],
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(Sum(2.0), values, out);
+    // Doubled.
+    print(out);
+    run(Clamp(3.5), values, out);
+    // The floor where the input is below it.
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.specialize(mode);
+}

@@ -7,7 +7,7 @@ target triple = "nvptx64-nvidia-cuda"
 %struct.Mode = type { i8, [3 x i8], [1 x i32] }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %values, %struct.Mode %mode_value, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
+define ptx_kernel void @"_kernel_i$Clamp_0"(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %values, %struct.Mode %mode_value, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0!Clamp":
   %out.global = addrspacecast ptr %out to ptr addrspace(1)
   %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
@@ -15,17 +15,17 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %values.generic = addrspacecast ptr addrspace(1) %values.global to ptr
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
-  %i = add i32 %0, %_begin
-  %1 = sext i32 %i to i64
+  %"i!Clamp" = add i32 %0, %_begin
+  %"@53.payload" = extractvalue %struct.Mode %mode_value, 2
+  %1 = sext i32 %"i!Clamp" to i64
   %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %1
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !1
-  %"@53.payload" = extractvalue %struct.Mode %mode_value, 2
   %2 = extractvalue [1 x i32] %"@53.payload", 0
   %3 = bitcast i32 %2 to float
   %max_lt = fcmp olt float %extract, %3
   %max = select i1 %max_lt, float %3, float %extract
-  %out9 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
-  store float %max, ptr %out9, align 4, !tbaa !2
+  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
+  store float %max, ptr %out5, align 4, !tbaa !2
   ret void
 }
 
@@ -33,7 +33,7 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
-define ptx_kernel void @_kernel_i_1(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %values, %struct.Mode %mode_value, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
+define ptx_kernel void @"_kernel_i$Sum_1"(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %values, %struct.Mode %mode_value, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0!Sum":
   %out.global = addrspacecast ptr %out to ptr addrspace(1)
   %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
@@ -41,16 +41,16 @@ define ptx_kernel void @_kernel_i_1(i32 %_begin, i32 %_stride, ptr nofree readon
   %values.generic = addrspacecast ptr addrspace(1) %values.global to ptr
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
-  %i = add i32 %0, %_begin
-  %1 = sext i32 %i to i64
+  %"i!Sum" = add i32 %0, %_begin
+  %"@49.payload" = extractvalue %struct.Mode %mode_value, 2
+  %1 = sext i32 %"i!Sum" to i64
   %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %1
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !1
-  %"@49.payload" = extractvalue %struct.Mode %mode_value, 2
   %2 = extractvalue [1 x i32] %"@49.payload", 0
   %3 = bitcast i32 %2 to float
   %4 = fmul float %extract, %3
-  %out9 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
-  store float %4, ptr %out9, align 4, !tbaa !2
+  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
+  store float %4, ptr %out5, align 4, !tbaa !2
   ret void
 }
 
@@ -74,32 +74,32 @@ attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable wi
 .target sm_90
 .address_size 64
 
-	// .globl	_kernel_i_0
+	// .globl	_kernel_i$Clamp_0
 
-.visible .entry _kernel_i_0(
-	.param .u32 _kernel_i_0_param_0,
-	.param .u32 _kernel_i_0_param_1,
-	.param .u64 .ptr .align 1 _kernel_i_0_param_2,
-	.param .align 4 .b8 _kernel_i_0_param_3[8],
-	.param .u64 .ptr .align 1 _kernel_i_0_param_4
+.visible .entry _kernel_i$Clamp_0(
+	.param .u32 _kernel_i$Clamp_0_param_0,
+	.param .u32 _kernel_i$Clamp_0_param_1,
+	.param .u64 .ptr .align 1 _kernel_i$Clamp_0_param_2,
+	.param .align 4 .b8 _kernel_i$Clamp_0_param_3[8],
+	.param .u64 .ptr .align 1 _kernel_i$Clamp_0_param_4
 )
 {
 	.reg .pred 	%p<2>;
 	.reg .b32 	%r<8>;
 	.reg .b64 	%rd<8>;
 
-	ld.param.b32 	%r1, [_kernel_i_0_param_0];
-	ld.param.b64 	%rd1, [_kernel_i_0_param_4];
+	ld.param.b32 	%r1, [_kernel_i$Clamp_0_param_0];
+	ld.param.b64 	%rd1, [_kernel_i$Clamp_0_param_4];
 	cvta.to.global.u64 	%rd2, %rd1;
-	ld.param.b32 	%r2, [_kernel_i_0_param_1];
-	ld.param.b64 	%rd3, [_kernel_i_0_param_2];
+	ld.param.b32 	%r2, [_kernel_i$Clamp_0_param_1];
+	ld.param.b64 	%rd3, [_kernel_i$Clamp_0_param_2];
 	cvta.to.global.u64 	%rd4, %rd3;
 	mov.u32 	%r3, %tid.x;
 	mad.lo.s32 	%r4, %r2, %r3, %r1;
 	mul.wide.s32 	%rd5, %r4, 4;
 	add.s64 	%rd6, %rd4, %rd5;
 	ld.global.nc.b32 	%r5, [%rd6];
-	ld.param.b32 	%r6, [_kernel_i_0_param_3+4];
+	ld.param.b32 	%r6, [_kernel_i$Clamp_0_param_3+4];
 	setp.lt.f32 	%p1, %r5, %r6;
 	selp.f32 	%r7, %r6, %r5, %p1;
 	add.s64 	%rd7, %rd2, %rd5;
@@ -107,30 +107,30 @@ attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable wi
 	ret;
 
 }
-	// .globl	_kernel_i_1
-.visible .entry _kernel_i_1(
-	.param .u32 _kernel_i_1_param_0,
-	.param .u32 _kernel_i_1_param_1,
-	.param .u64 .ptr .align 1 _kernel_i_1_param_2,
-	.param .align 4 .b8 _kernel_i_1_param_3[8],
-	.param .u64 .ptr .align 1 _kernel_i_1_param_4
+	// .globl	_kernel_i$Sum_1
+.visible .entry _kernel_i$Sum_1(
+	.param .u32 _kernel_i$Sum_1_param_0,
+	.param .u32 _kernel_i$Sum_1_param_1,
+	.param .u64 .ptr .align 1 _kernel_i$Sum_1_param_2,
+	.param .align 4 .b8 _kernel_i$Sum_1_param_3[8],
+	.param .u64 .ptr .align 1 _kernel_i$Sum_1_param_4
 )
 {
 	.reg .b32 	%r<8>;
 	.reg .b64 	%rd<8>;
 
-	ld.param.b32 	%r1, [_kernel_i_1_param_0];
-	ld.param.b64 	%rd1, [_kernel_i_1_param_4];
+	ld.param.b32 	%r1, [_kernel_i$Sum_1_param_0];
+	ld.param.b64 	%rd1, [_kernel_i$Sum_1_param_4];
 	cvta.to.global.u64 	%rd2, %rd1;
-	ld.param.b32 	%r2, [_kernel_i_1_param_1];
-	ld.param.b64 	%rd3, [_kernel_i_1_param_2];
+	ld.param.b32 	%r2, [_kernel_i$Sum_1_param_1];
+	ld.param.b64 	%rd3, [_kernel_i$Sum_1_param_2];
 	cvta.to.global.u64 	%rd4, %rd3;
 	mov.u32 	%r3, %tid.x;
 	mad.lo.s32 	%r4, %r2, %r3, %r1;
 	mul.wide.s32 	%rd5, %r4, 4;
 	add.s64 	%rd6, %rd4, %rd5;
 	ld.global.nc.b32 	%r5, [%rd6];
-	ld.param.b32 	%r6, [_kernel_i_1_param_3+4];
+	ld.param.b32 	%r6, [_kernel_i$Sum_1_param_3+4];
 	mul.rn.f32 	%r7, %r5, %r6;
 	add.s64 	%rd7, %rd2, %rd5;
 	st.global.b32 	[%rd7], %r7;

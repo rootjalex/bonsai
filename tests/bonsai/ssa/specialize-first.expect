@@ -26,7 +26,7 @@ func [[export]] Mode_Sum(_ret1 : mut (Mode*), scale : f32) -> void {
   return
 }
 
-func apply(mode : Mode, x : f32) -> f32 {
+func [[noinline]] apply(mode : Mode, x : f32) -> f32 {
   let @0 = mode.tag in
   switch (@0) {
   case 0: { // Mode.Sum of apply
@@ -46,34 +46,50 @@ func apply(mode : Mode, x : f32) -> f32 {
   }
 }
 
+func [[noinline]] apply!Clamp(mode : Mode, x : f32) -> f32 {
+  let @9 = mode._pad in
+  let @10 = mode.payload in
+  let mode!Clamp = build<Mode>(1u, @9, @10) in
+  let @6 = @10[0u] in
+  let floor = reinterpret_cast<f32>(@6) in
+  let @8 = max(x, floor) in
+  return @8
+}
+
+func [[noinline]] apply!Sum(mode : Mode, x : f32) -> f32 {
+  let @9 = mode._pad in
+  let @10 = mode.payload in
+  let mode!Sum = build<Mode>(0u, @9, @10) in
+  let @2 = @10[0u] in
+  let scale = reinterpret_cast<f32>(@2) in
+  let @4 = x * scale in
+  return @4
+}
+
 func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
-  let @48 = (*mode).tag in
-  switch (@48) {
+  let @11 = (*mode).tag in
+  switch (@11) {
   case 0: {
     parfor i!Sum in [0:8:1] {
-      let @49 = (*mode) in
-      let @50 = @49._pad in
-      let @51 = @49.payload in
-      let @52 = build<Mode>(0u, @50, @51) in
-      let @27 = values[i!Sum] in
-      let @17 = @51[0u] in
-      let @18 = reinterpret_cast<f32>(@17) in
-      let @19 = @27 * @18 in
-      out[i!Sum] = @19
+      let @12 = (*mode) in
+      let @13 = @12._pad in
+      let @14 = @12.payload in
+      let @15 = build<Mode>(0u, @13, @14) in
+      let @6 = values[i!Sum] in
+      let @2 = apply!Sum(@15, @6) in
+      out[i!Sum] = @2
       continue
     }
   } break;
   default: {
     parfor i!Clamp in [0:8:1] {
-      let @53 = (*mode) in
-      let @54 = @53._pad in
-      let @55 = @53.payload in
-      let @56 = build<Mode>(1u, @54, @55) in
-      let @43 = values[i!Clamp] in
-      let @38 = @55[0u] in
-      let @39 = reinterpret_cast<f32>(@38) in
-      let @40 = max(@43, @39) in
-      out[i!Clamp] = @40
+      let @16 = (*mode) in
+      let @17 = @16._pad in
+      let @18 = @16.payload in
+      let @19 = build<Mode>(1u, @17, @18) in
+      let @9 = values[i!Clamp] in
+      let @2 = apply!Clamp(@19, @9) in
+      out[i!Clamp] = @2
       continue
     }
   }
@@ -84,6 +100,6 @@ func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
 
 schedule host {
     run.specialize(mode)
-       .bind(i, CPUThread)
+       .bind(i!Sum, CPUThread)
 
 }

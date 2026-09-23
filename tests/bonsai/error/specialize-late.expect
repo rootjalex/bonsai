@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Convert.cpp:1802
+
+--> !scheduled.contains(name)
+run.specialize(mode) comes after another directive on run. specialize goes first: the copies it makes, one per variant, are what the directives after it schedule -- one variant's (`run[<Variant>].bind(...)`) or every variant's (`run.bind(...)`).

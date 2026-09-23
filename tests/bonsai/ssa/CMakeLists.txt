@@ -33,6 +33,7 @@ add_bonsai_tests(
     sort-nested.bonsai
     sort-recursion.bonsai
     specialize.bonsai
+    specialize-first.bonsai
     split.bonsai
     split-tail.bonsai
     split-unsigned.bonsai

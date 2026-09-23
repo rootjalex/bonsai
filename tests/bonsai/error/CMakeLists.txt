@@ -5,6 +5,7 @@ add_bonsai_tests(
     reducer-argument.bonsai
     reducer-assign.bonsai
     reducer-mut-argument.bonsai
+    specialize-late.bonsai
     reducer-read.bonsai
     adt-layout-arm-missing.bonsai
     adt-layout-arm-unknown.bonsai

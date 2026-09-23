@@ -3025,9 +3025,20 @@ struct Parser {
                 // If it's a func, must be scheduling. A geometric intrinsic
                 // is named the way the program names it, `intersects`, and
                 // stands for its overloads (see cursor_targets).
+                // `render[VolPath].bind(p, GPUBlock)`: the directive is on
+                // one variant of a specialized function, whose loops are the
+                // variants' (`p!VolPath`, SSA/Specialize.cpp); the loop
+                // cursors it names get the variant's suffix here, and the
+                // pass finds the one loop. Without the brackets a cursor
+                // names every variant's loop.
                 if (program.funcs.contains(name) ||
                     (is_geometric_intrinsic(name) && has_overloads(name))) {
-                    parse_rewrites(schedule, name);
+                    std::string variant;
+                    while (consume(Token::Type::LBRACKET)) {
+                        variant += "!" + get_id();
+                        expect(Token::Type::RBRACKET);
+                    }
+                    parse_rewrites(schedule, name, variant);
                     break;
                 }
 
@@ -3422,6 +3433,14 @@ struct Parser {
             report_error() << "Queue " << name << " is owned by " << owner
                            << ", which is not a function of the program.";
         }
+        // `render[VolPath].queue(p)`: the queue is one variant's, owned by
+        // that variant's loop (`p!VolPath`); a specialized owner's loops are
+        // all variants', so a queue there names its variant.
+        std::string variant;
+        while (consume(Token::Type::LBRACKET)) {
+            variant += "!" + get_id();
+            expect(Token::Type::RBRACKET);
+        }
         expect(Token::Type::PERIOD);
         const std::string what = get_id();
         if (what != "queue") {
@@ -3431,6 +3450,9 @@ struct Parser {
         }
         expect(Token::Type::LPAREN);
         ir::Location loop = parse_location();
+        if (!variant.empty() && !loop.names.empty() && loop.names.back() != "root") {
+            loop.names.back() += variant;
+        }
         std::optional<ir::Expr> capacity;
         if (consume(Token::Type::COMMA)) {
             capacity = parse_expr();
@@ -3450,7 +3472,18 @@ struct Parser {
         }
     }
 
-    void parse_rewrites(ir::Schedule &schedule, std::string func) {
+    // `variant` is the suffix of the variant the directive is on (`!VolPath`
+    // for `render[VolPath].bind(...)`), given to every loop cursor it names;
+    // empty for a directive on the function as a whole.
+    void parse_rewrites(ir::Schedule &schedule, std::string func,
+                        const std::string &variant = "") {
+        const auto loop_cursor = [&]() {
+            ir::Location loc = parse_location();
+            if (!variant.empty() && !loc.names.empty()) {
+                loc.names.back() += variant;
+            }
+            return loc;
+        };
         // Recorded under the function and in the schedule's one sequence,
         // since the order between functions' directives is part of what the
         // schedule says (see ir::TransformOrder).
@@ -3469,11 +3502,11 @@ struct Parser {
             // Seems annoying tbh...
 
             if (rewrite == "collapse") {
-                ir::Location io = parse_location();
+                ir::Location io = loop_cursor();
                 expect(Token::Type::COMMA);
-                ir::Location ii = parse_location();
+                ir::Location ii = loop_cursor();
                 expect(Token::Type::COMMA);
-                ir::Location i = parse_location();
+                ir::Location i = loop_cursor();
                 add(ir::Collapse{
                     .io = std::move(io),
                     .ii = std::move(ii),
@@ -3482,6 +3515,10 @@ struct Parser {
             } else if (rewrite == "bind") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);
+                if (!variant.empty() &&
+                    !(i.names.size() == 1 && i.names[0] == "TextureUnit")) {
+                    i.names.back() += variant;
+                }
                 if (i.names.size() == 1 && i.names[0] == "TextureUnit") {
                     // `f.bind(TextureUnit, |...| ...)`: the function itself,
                     // not a loop of it, on the texture units, computing what
@@ -3549,11 +3586,11 @@ struct Parser {
                 add(
                     ir::Sort{std::move(loc), std::move(lambda)});
             } else if (rewrite == "split") {
-                ir::Location i = parse_location();
+                ir::Location i = loop_cursor();
                 expect(Token::Type::COMMA);
-                ir::Location io = parse_location();
+                ir::Location io = loop_cursor();
                 expect(Token::Type::COMMA);
-                ir::Location ii = parse_location();
+                ir::Location ii = loop_cursor();
                 expect(Token::Type::COMMA);
                 ir::Expr factor = parse_expr();
                 expect(Token::Type::COMMA);
@@ -3565,7 +3602,7 @@ struct Parser {
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail});
             } else if (rewrite == "vectorize") {
-                ir::Location i = parse_location();
+                ir::Location i = loop_cursor();
                 add(
                     ir::Vectorize{std::move(i)});
             } else if (rewrite == "specialize") {
