@@ -1,0 +1,15 @@
+// `spawn` accumulates into a reducer only: the call's value is added in by
+// whoever runs the call, in an order the schedule chooses, and a plain
+// mutable variable makes no such promise.
+
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float) -> Float {
+    total : mut Float = x;
+    spawn total += shade(x);
+    return total;
+}

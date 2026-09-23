@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm -e
+
+// A spawned call deferred, run: every step adds x into the reducer itself
+// and spawns shade(x), which adds 2x. Deferred, the shade calls are pushed
+// onto `q` by the steps and run by the drain after the loop, each adding
+// into the reducer whose address its entry holds; the reducer is read by
+// main once `run` has returned, after the drain. The total is 3 * sum(x)
+// whichever order the adds come in.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += shade(x);
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    total : reduce(+) Float = 0.0;
+    run(values, total);
+    // 3 * 36
+    print(total);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}

@@ -1,0 +1,10 @@
+// What `spawn` spawns is a call: the statement's promise is about the call's
+// value, which someone else may compute later. An expression that is not a
+// call has nothing to run later.
+
+import stdlib/numerics;
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += x * 2.0;
+    return;
+}

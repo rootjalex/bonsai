@@ -1,0 +1,55 @@
+type Entry_q = struct Entry_q{ x : f32; total : (f32*) }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; x : f32[]; total : (f32*)[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func run(values : f32[8], total : mut (f32*)) -> void {
+  q_x : mut f32[8]
+  q_total : mut (f32*)[8]
+  q_queue : mut Queue_q
+  let @1 = build<Queue_q>(0u, q_x, q_total) in
+  q_queue = @1
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    step(@0, total, q_queue)
+    continue
+  }
+  let @2 = (*q_queue) in
+  let @3 = @2.count in
+  parfor q in [0u:@3:1u] {
+    let @4 = q_x[q] in
+    let @6 = q_total[q] in
+    let @5 = shade(@4) in
+    @6 += @5
+    continue
+  }
+  q_queue.count = 0u
+  return
+}
+
+func [[noinline]] shade(x : f32) -> f32 {
+  let @0 = x * 2f in
+  return @0
+}
+
+func [[noinline]] step(x : f32, total : mut (f32*), _queue_q : mut (Queue_q*)) -> void {
+  let @1 = build<Entry_q>(x, total) in
+  let @4 = atomic_add((&(*_queue_q).count), 1u) in
+  let @6 = (*_queue_q).x in
+  @6[@4] = x
+  let @9 = (*_queue_q).total in
+  @9[@4] = total
+  total += x
+  return
+}
+
+
+schedule host {
+    q = run.queue(root);
+    step.defer(shade, q)
+
+}

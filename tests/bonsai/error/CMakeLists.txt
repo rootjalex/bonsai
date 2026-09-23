@@ -6,6 +6,9 @@ add_bonsai_tests(
     reducer-assign.bonsai
     reducer-mut-argument.bonsai
     specialize-late.bonsai
+    spawn-not-call.bonsai
+    spawn-not-reducer.bonsai
+    defer-spawn-loop.bonsai
     reducer-read.bonsai
     adt-layout-arm-missing.bonsai
     adt-layout-arm-unknown.bonsai

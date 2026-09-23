@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/spawn-not-reducer.bonsai:13:11: [parse error] spawn accumulates into a reducer: `total` is not declared `reduce(+)`. The spawned call's value is added in by whoever runs the call, in an order the schedule chooses, which only a reducer allows.
+
+    spawn total += shade(x);
+          ^^^^^

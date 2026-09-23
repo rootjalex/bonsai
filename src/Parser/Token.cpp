@@ -124,6 +124,8 @@ uint64_t Token::size() const {
     case Token::Type::PARFOR:
     case Token::Type::ATOMIC:
         return 6;
+    case Token::Type::SPAWN:
+        return 5;
     case Token::Type::ELEMENT:
         return 7;
     case Token::Type::SCHEDULE:
@@ -206,6 +208,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "parfor";
     case Token::Type::ATOMIC:
         return "atomic";
+    case Token::Type::SPAWN:
+        return "spawn";
     case Token::Type::DO:
         return "do";
     case Token::Type::WHILE:

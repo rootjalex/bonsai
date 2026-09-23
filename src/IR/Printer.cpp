@@ -1585,6 +1585,9 @@ void Printer::visit(const Accumulate *node) {
     if (node->atomic) {
         os << "atomic ";
     }
+    if (node->spawned) {
+        os << "spawn ";
+    }
     print(node->loc);
     switch (node->op) {
     case Accumulate::OpType::Add: {

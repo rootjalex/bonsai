@@ -440,7 +440,7 @@ class Inliner : public ir::Mutator {
         ir::Expr value = mutate_hoisting(node->value, pre);
         return with(std::move(pre),
                     ir::Accumulate::make(std::move(loc), node->op, value,
-                                         node->atomic));
+                                         node->atomic, node->spawned));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {

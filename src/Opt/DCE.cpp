@@ -80,7 +80,8 @@ struct NameHygiene : ir::Mutator {
         }
         ir::WriteLoc location(it->second, node->loc.type);
         return ir::Accumulate::make(std::move(location), node->op,
-                                    mutate(node->value));
+                                    mutate(node->value), node->atomic,
+                                    node->spawned);
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
@@ -179,7 +180,8 @@ struct UnnameHygiene : ir::Mutator {
         }
         ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
         return ir::Accumulate::make(std::move(loc), node->op,
-                                    mutate(node->value));
+                                    mutate(node->value), node->atomic,
+                                    node->spawned);
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {

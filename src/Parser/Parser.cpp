@@ -1411,6 +1411,34 @@ struct Parser {
                                     variable.has_value() && variable->reducer
                                         ? std::optional(variable->reducer_op)
                                         : std::nullopt);
+        } else if (consume(Token::Type::SPAWN)) {
+            // `spawn x += f(args);` -- the call's value goes into `x`, a
+            // reducer, and nothing after the statement depends on it, so a
+            // schedule may defer the call and go on without waiting for it:
+            // whoever runs the call adds its value in (SSA/Defer.cpp,
+            // ir::Accumulate::spawned). The program states the independence;
+            // no pass has to find it out. Only a reducer takes the value,
+            // since only a reducer's order of addition is free.
+            ir::WriteLoc loc = parse_write_loc(get_id());
+            if (loc.accesses.empty() && !name_in_scope(loc.base)) {
+                report_error() << "spawn on an undeclared name: " << loc.base;
+            }
+            const std::optional<FunctionVariable> variable =
+                frames.from_frames(loc.base);
+            if (!loc.accesses.empty() || !variable.has_value() ||
+                !variable->reducer) {
+                report_error()
+                    << "spawn accumulates into a reducer: `" << loc.base
+                    << "` is not declared `reduce(+)`. The spawned call's value "
+                    << "is added in by whoever runs the call, in an order the "
+                    << "schedule chooses, which only a reducer allows.";
+            }
+            loc.base = ir_name_of(loc.base);
+            return parse_accumulate(std::move(loc), /*atomic=*/false,
+                                    variable.has_value() && variable->reducer
+                                        ? std::optional(variable->reducer_op)
+                                        : std::nullopt,
+                                    /*spawned=*/true);
         } else if (consume(Token::Type::DO)) {
             // `do body while (cond);` -- a loop whose trip count is not known
             // before it runs. `for` and `parfor` both say their range up front,
@@ -1736,9 +1764,11 @@ struct Parser {
 
     // `reducer_op` is the operation of the reduction variable being
     // accumulated into, when it is one: the only operation it takes.
+    // `spawned` is the `spawn` form, whose value has to be a call.
     ir::Stmt parse_accumulate(
         ir::WriteLoc loc, bool atomic = false,
-        std::optional<ir::Accumulate::OpType> reducer_op = std::nullopt) {
+        std::optional<ir::Accumulate::OpType> reducer_op = std::nullopt,
+        bool spawned = false) {
         ir::Accumulate::OpType op = ir::Accumulate::OpType::Add;
         // Try to parse an accumulate
         if (consume(Token::Type::PLUS)) {
@@ -1754,9 +1784,15 @@ struct Parser {
         }
         expect(Token::Type::ASSIGN);
         ir::Expr value = parse_expr();
+        if (spawned && value.as<ir::Call>() == nullptr) {
+            report_error() << "spawn takes a call: `spawn " << loc.base
+                           << " += f(...)`. What is spawned is the call, whose "
+                           << "value is added into " << loc.base
+                           << " by whoever runs it; " << value << " is not one.";
+        }
         expect(Token::Type::SEMICOL);
         return ir::Accumulate::make(std::move(loc), op, std::move(value),
-                                    atomic);
+                                    atomic, spawned);
     }
 
     ir::Expr parse_unary() {

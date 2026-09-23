@@ -714,7 +714,7 @@ Stmt Mutator::visit(const Accumulate *node) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value),
-                            node->atomic);
+                            node->atomic, node->spawned);
 }
 
 Stmt Mutator::visit(const Label *node) {

@@ -845,6 +845,39 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                   "depth first or breadth first, not both."
                 : ".");
 
+    // A spawned call -- `spawn acc += callee(...)`, Terminator::Call::spawned
+    // -- is deferred without waiting: the program has said that nothing
+    // after the call depends on its value but the accumulate into the
+    // reducer, so the call site pushes and goes on, the chain returns what
+    // it always returned, and the drain makes the call and the accumulate.
+    // pbrt's shadow ray, traced by its own kernel and added to the pixel's
+    // L when it is. The other pushers a schedule may name are for a
+    // recursion's first call, which a spawned call is not.
+    size_t spawned_sites = 0;
+    for (const auto &site : sites) {
+        if (std::get<Terminator::Call>(site->terminator.data).spawned) {
+            spawned_sites++;
+        }
+    }
+    internal_assert(spawned_sites == 0 || spawned_sites == sites.size())
+        << what << ": " << func_name << " calls " << callee_name << " "
+        << sites.size() << " times, of which " << spawned_sites
+        << " are spawned (`spawn acc += " << callee_name
+        << "(...)`); a deferral is of all the calls or of none";
+    const bool spawned = spawned_sites > 0;
+    internal_assert(!spawned || (queue.also_from.empty() && !queue.initial_push))
+        << what << ": the calls to " << callee_name << " are spawned, and "
+        << "another function's `.defer(" << callee_name << ", " << queue.name
+        << ")` names it as a pusher too. The other pushers of a queue are "
+        << "for a recursion's first call; a spawned call's pushers are the "
+        << "spawned calls.";
+    internal_assert(!spawned || !queue.split.has_value())
+        << "[unimplemented] " << what << ": " << queue.name
+        << " is split (`" << queue.name << ".specialize(...)`) and its "
+        << "entries are spawned calls; a split is built for a staged call's "
+        << "queue and a spawned call's queue is drained in one pass, so the "
+        << "two would fit -- not built.";
+
     // The calls to the callee from the other functions the schedule named,
     // pushes too (QueueSpec::also_from): the recursion's first call, made by
     // a chain function between the owner and the callee.
@@ -882,7 +915,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         const auto &site = sites[s];
         const auto &call = std::get<Terminator::Call>(site->terminator.data);
-        internal_assert(is_tail_call(call, fmap))
+        internal_assert(spawned || is_tail_call(call, fmap))
             << what << ": the call to " << callee_name << " in " << site->name
             << " is not in tail position -- " << func_name << " does more "
             << (call.drop ? "after the call" : "with its result")
@@ -898,6 +931,99 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                           "runs without recursing. Only a linear deferral is "
                           "supported.)"
                     : "");
+    }
+
+    // A spawned call's continuation: the accumulate of the call's value into
+    // a reducer parameter of the function, first, and then whatever the
+    // function goes on to do, which does not read the value (the parser
+    // writes the statement so; checked here rather than trusted). The
+    // accumulate moves to the drain, so the entry holds the reducer's
+    // address beside the call's arguments -- which is safe to store because
+    // a reducer parameter is storage of the queue's owner, handed down, and
+    // outlives every frame; a reducer local of this function would not.
+    struct Spawn {
+        Instruction::Op op = Instruction::Op::AccAdd;
+        bool atomic = false;
+        shared_ptr<Value> target; // the reducer's address, as the site has it
+        const Argument *reducer = nullptr; // the parameter it is
+    };
+    vector<Spawn> spawns(sites.size());
+    if (spawned) {
+        Definitions fdefs(*F);
+        const Cfg fcfg(*F);
+        const LoopForest floops =
+            compute_loop_forest(fcfg, compute_dominator_tree(fcfg));
+        for (size_t s = 0; s < sites.size(); s++) {
+            const auto &site = sites[s];
+            const auto &call = std::get<Terminator::Call>(site->terminator.data);
+            const shared_ptr<Block> cont = fmap.at(call.cont.name);
+            internal_assert(!call.drop && cont->preds.size() == 1 &&
+                            !cont->args.empty() && !cont->instrs.empty())
+                << what << ": the spawned call in " << site->name
+                << " has no value, or a continuation that is not its own";
+            const Argument &result = cont->args.front();
+            const shared_ptr<Instruction> &acc = cont->instrs.front();
+            const bool accumulates =
+                acc->op == Instruction::Op::AccAdd || acc->op == Instruction::Op::AccMul ||
+                acc->op == Instruction::Op::AccSub || acc->op == Instruction::Op::AccMin ||
+                acc->op == Instruction::Op::AccMax;
+            const auto *added = acc->operands.size() == 2
+                                    ? std::get_if<Argument>(&acc->operands[1]->data)
+                                    : nullptr;
+            internal_assert(accumulates && added != nullptr && added->name == result.name)
+                << what << ": the spawned call in " << site->name
+                << " is not followed by the accumulate of its value that "
+                << "`spawn` writes";
+            // Once per run of the function, since the queue holds one entry
+            // per run of the entry that reaches it: the call is in no loop
+            // of the function, and the function does not call itself after
+            // it (checked with the chain, below).
+            internal_assert(floops.innermost(fcfg.id(site->name)) == nullptr)
+                << what << ": the spawned call in " << site->name
+                << " is inside a loop of " << func_name << ", and would push "
+                << "once per iteration; the queue holds one entry per run of "
+                << "the function, as every entry that runs it pushes at most "
+                << "one.";
+            const Argument *reducer = fdefs.parameter(cont->name, acc->operands[0]);
+            internal_assert(reducer != nullptr && reducer->reducer)
+                << what << ": the `spawn` in " << func_name
+                << " accumulates into something that is not a reducer "
+                << "parameter of " << func_name << ". The drain adds the "
+                << "call's value where the reducer is, once this function's "
+                << "frame is gone: a reducer parameter is the queue owner's "
+                << "storage, handed down, and outlives the frame; a local of "
+                << "this function does not.";
+            // Nothing else reads the value: no operand or terminator of the
+            // function's but the accumulate names it (edit_argument visits
+            // those, and a block's own parameter list and lookup, which are
+            // taken off the count), and no block below takes it as a
+            // parameter, which is how a value is threaded on to a reader.
+            size_t readers = 0;
+            for (const auto &block : F->blocks) {
+                size_t visits = 0;
+                edit_argument(*block, result.name, [&](Argument &) { visits++; });
+                for (const Argument &a : block->args) {
+                    if (a.name == result.name) {
+                        internal_assert(block == cont)
+                            << what << ": the value of the spawned call in "
+                            << site->name << " is threaded on to " << block->name
+                            << ", so something below reads it; `spawn` promises "
+                            << "the accumulate is its only reader";
+                        visits--;
+                    }
+                }
+                if (block->lookups.contains(result.name)) {
+                    visits--;
+                }
+                readers += visits;
+            }
+            internal_assert(readers == 1)
+                << what << ": the value of the spawned call in " << site->name
+                << " is read " << readers - 1 << " time(s) beyond its "
+                << "accumulate; `spawn` promises the accumulate is its only "
+                << "reader";
+            spawns[s] = Spawn{acc->op, acc->atomic, acc->operands[0], reducer};
+        }
     }
 
     // The chain: every function on a call path from the owner to `func`.
@@ -1000,35 +1126,93 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
 
     // A chain function's call into the chain is in tail position: the value
     // comes straight back up, with nothing of the frame kept. The producer's
-    // own call, in the owner, is the one frame allowed to go on.
-    for (const auto &[callee, calls] : calls_into) {
-        for (const CallSite &cs : calls) {
-            if (cs.caller == queue.owner) {
-                continue;
+    // own call, in the owner, is the one frame allowed to go on. Not for a
+    // spawned call: nothing comes back up -- the chain only hands the queue
+    // down -- so a chain function may do what it likes after its call. What
+    // it may not do is reach the chain twice in one run: the queue holds
+    // one entry per run of each entry that reaches it, so a call into the
+    // chain is in no loop of its function, and no path from its continuation
+    // reaches another such call, the function's call of itself included.
+    if (!spawned) {
+        for (const auto &[callee, calls] : calls_into) {
+            for (const CallSite &cs : calls) {
+                if (cs.caller == queue.owner) {
+                    continue;
+                }
+                if (cs.caller == func_name && callee == callee_name) {
+                    continue; // a deferred call, checked above
+                }
+                const BlockMap cmap = make_block_map(funcs.at(cs.caller));
+                internal_assert(is_tail_call(*cs.call(), cmap))
+                    << what << ": " << cs.caller << " calls " << callee << " in "
+                    << cs.block->name << " and does more with the result than "
+                    << "return it. That is state on the call stack between the "
+                    << "deferred call and the queue's owner, which the entry does "
+                    << "not carry. Not supported yet.";
             }
-            if (cs.caller == func_name && callee == callee_name) {
-                continue; // a deferred call, checked above
+        }
+    } else {
+        for (const string &g : chain) {
+            const shared_ptr<Function> gf = funcs.at(g);
+            const BlockMap gmap = make_block_map(gf);
+            const Cfg gcfg(*gf);
+            const LoopForest gloops =
+                compute_loop_forest(gcfg, compute_dominator_tree(gcfg));
+            const auto into_chain = [&](const Block &block) {
+                const auto *callee = block.terminator.callee();
+                return callee != nullptr &&
+                       (chain.contains(callee->name) || callee->name == callee_name);
+            };
+            for (const auto &block : gf->blocks) {
+                if (!into_chain(*block) || gcfg.find(block->name) == NO_BLOCK) {
+                    continue;
+                }
+                internal_assert(gloops.innermost(gcfg.id(block->name)) == nullptr)
+                    << what << ": " << g << " calls into the chain in "
+                    << block->name << ", inside one of its loops, and so "
+                    << "could push more than one entry per run; the queue "
+                    << "holds one per run of the entry that reaches it.";
+                // Every block a path from the continuation reaches.
+                vector<string> pending = successors(*block);
+                set<string> seen;
+                while (!pending.empty()) {
+                    const string next = pending.back();
+                    pending.pop_back();
+                    if (!seen.insert(next).second) {
+                        continue;
+                    }
+                    const Block &there = *gmap.at(next);
+                    internal_assert(!into_chain(there))
+                        << what << ": " << g << " calls into the chain in "
+                        << block->name << " and again in " << there.name
+                        << " on a path after it, and so could push two entries "
+                        << "per run; the queue holds one per run of the entry "
+                        << "that reaches it.";
+                    for (const string &succ : successors(there)) {
+                        pending.push_back(succ);
+                    }
+                }
             }
-            const BlockMap cmap = make_block_map(funcs.at(cs.caller));
-            internal_assert(is_tail_call(*cs.call(), cmap))
-                << what << ": " << cs.caller << " calls " << callee << " in "
-                << cs.block->name << " and does more with the result than "
-                << "return it. That is state on the call stack between the "
-                << "deferred call and the queue's owner, which the entry does "
-                << "not carry. Not supported yet.";
         }
     }
 
     // What flows back up the chain is one type: the callee's return type.
+    // For a spawned call nothing flows up; the value is accumulated by the
+    // drain, so there has to be one.
     const Type ret_type = C->ret_type;
-    for (const string &g : chain) {
-        internal_assert(equals(funcs.at(g)->ret_type, ret_type))
-            << what << ": " << g << " returns " << funcs.at(g)->ret_type
-            << " where " << callee_name << " returns " << ret_type
-            << ", yet its call down the chain is a tail call. This should "
-            << "not typecheck.";
+    if (!spawned) {
+        for (const string &g : chain) {
+            internal_assert(equals(funcs.at(g)->ret_type, ret_type))
+                << what << ": " << g << " returns " << funcs.at(g)->ret_type
+                << " where " << callee_name << " returns " << ret_type
+                << ", yet its call down the chain is a tail call. This should "
+                << "not typecheck.";
+        }
     }
     const bool returns_value = !ret_type.is<Void_t>();
+    internal_assert(!spawned || returns_value)
+        << what << ": the spawned " << callee_name << " returns nothing to "
+        << "accumulate";
 
     //===----------------------------------------------------------------===//
     // The producer: the owner's call into the chain, and the loop around it
@@ -1042,7 +1226,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
         }
     }
-    internal_assert(producers.size() == 1)
+    internal_assert(!producers.empty())
+        << what << ": " << queue.owner << " never calls into the chain";
+    // Several producers only for a spawned call: the drain runs no
+    // continuation of theirs, so each is only a call that hands the queue
+    // down, and the drain goes after the last of them.
+    internal_assert(spawned || producers.size() == 1)
         << what << ": " << queue.owner << " calls into the chain from "
         << producers.size() << " places; one producer call per queue is what "
         << "is supported. Each would need its own continuation in the drain.";
@@ -1087,11 +1276,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                           queue.loop + ")`.");
     }
     const Cfg region(*O, region_entry);
-    internal_assert(region.contains(producer.block->name))
-        << what << ": the call to " << pcall.call.name << " in "
-        << producer.block->name << " of " << queue.owner << " is not inside "
-        << (root ? "the function" : "the loop " + queue.loop)
-        << " that owns " << queue.name;
+    for (const CallSite &pc : producers) {
+        internal_assert(region.contains(pc.block->name))
+            << what << ": the call to " << pc.call()->call.name << " in "
+            << pc.block->name << " of " << queue.owner << " is not inside "
+            << (root ? "the function" : "the loop " + queue.loop)
+            << " that owns " << queue.name;
+    }
 
     // A sequential loop between the owner and the producer would have its
     // iterations reordered: an iteration's deferred work runs after the
@@ -1101,40 +1292,77 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     {
         const DomTree rdom = compute_dominator_tree(region);
         const LoopForest rloops = compute_loop_forest(region, rdom);
-        internal_assert(rloops.innermost(region.id(producer.block->name)) ==
-                        nullptr)
-            << what << ": the call to " << pcall.call.name << " in "
-            << producer.block->name << " is inside a sequential loop of "
-            << queue.owner << ". Deferring it would run the loop's iterations "
-            << "out of order, which a `for` does not permit; a `parfor` would.";
+        for (const CallSite &pc : producers) {
+            internal_assert(rloops.innermost(region.id(pc.block->name)) == nullptr)
+                << what << ": the call to " << pc.call()->call.name << " in "
+                << pc.block->name << " is inside a sequential loop of "
+                << queue.owner << ". Deferring it would run the loop's "
+                << "iterations out of order, which a `for` does not permit; a "
+                << "`parfor` would.";
+        }
     }
 
     // The producer loop: the one parfor of the region whose body holds the
-    // call, if any. Nested parfors would multiply the count; not yet.
-    shared_ptr<Block> producer_loop_block;
-    for (BlockId b : region.rpo) {
-        const shared_ptr<Block> &block = region.block(b);
-        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
-        if (p == nullptr) {
-            continue;
+    // call, if any. Nested parfors would multiply the count; not yet. One
+    // per producer.
+    vector<shared_ptr<Block>> producer_loops;
+    for (const CallSite &pc : producers) {
+        shared_ptr<Block> loop;
+        for (BlockId b : region.rpo) {
+            const shared_ptr<Block> &block = region.block(b);
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p == nullptr) {
+                continue;
+            }
+            const Cfg body(*O, p->body.name);
+            if (!body.contains(pc.block->name)) {
+                continue;
+            }
+            internal_assert(!loop)
+                << what << ": the call to " << pc.call()->call.name << " in "
+                << pc.block->name << " is inside two nested parfors of "
+                << queue.owner << " (" << loop->name << " and " << block->name
+                << "). The queue's size would be the product of their counts; "
+                << "only one producer loop is supported yet.";
+            loop = block;
         }
-        const Cfg body(*O, p->body.name);
-        if (!body.contains(producer.block->name)) {
-            continue;
-        }
-        internal_assert(!producer_loop_block)
-            << what << ": the call to " << pcall.call.name << " in "
-            << producer.block->name << " is inside two nested parfors of "
-            << queue.owner << " (" << producer_loop_block->name << " and "
-            << block->name << "). The queue's size would be the product of "
-            << "their counts; only one producer loop is supported yet.";
-        producer_loop_block = block;
+        producer_loops.push_back(loop);
     }
+    shared_ptr<Block> producer_loop_block = producer_loops.front();
 
     // Where the drain goes, and what has to dominate it: the block whose
     // parfor produces the entries, or the block that makes the one call.
-    const shared_ptr<Block> point =
+    // With several producers, the last of their loops: the one every other
+    // dominates, so that every push has been made by the time the drain
+    // runs -- pbrt's shadow rays, pushed by the material kernels in turn
+    // and traced after the last of them.
+    shared_ptr<Block> point =
         producer_loop_block ? producer_loop_block : producer.block;
+    if (producers.size() > 1) {
+        string named;
+        for (size_t i = 0; i < producers.size(); i++) {
+            internal_assert(producer_loops[i])
+                << what << ": the call to " << producers[i].call()->call.name
+                << " in " << producers[i].block->name << " is not inside a "
+                << "parfor of " << queue.owner << ", while another call into "
+                << "the chain is; with several producers the drain goes after "
+                << "the last of their loops, so each has to be in one.";
+            named += (named.empty() ? "" : ", ") + producer_loops[i]->name;
+        }
+        for (const auto &loop : producer_loops) {
+            if (odom.dominates(ocfg.id(point->name), ocfg.id(loop->name))) {
+                point = loop;
+            }
+        }
+        for (const auto &loop : producer_loops) {
+            internal_assert(odom.dominates(ocfg.id(loop->name), ocfg.id(point->name)))
+                << what << ": the loops of " << queue.owner << " that call into "
+                << "the chain (" << named << ") do not run one after another: "
+                << "none comes after all the others, so there is no one place "
+                << "for the drain to run once every push has been made.";
+        }
+        producer_loop_block = point;
+    }
     const BlockId point_id = ocfg.id(point->name);
     const auto available = [&](const Definition &d) {
         if (!d.value) {
@@ -1148,25 +1376,32 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     };
 
     // The continuation of the producer's call: the rest of its iteration.
+    // A spawned call's drain runs none of it, so it is looked at only for
+    // a lone producer, whose iteration's end is where the drain goes.
     Definitions odefs(*O);
-    const shared_ptr<Block> k0_entry = omap.at(pcall.cont.name);
-    internal_assert(k0_entry->preds.size() == 1)
-        << what << ": the continuation " << k0_entry->name << " of the call in "
-        << producer.block->name << " has " << k0_entry->preds.size()
-        << " predecessors";
+    shared_ptr<Block> k0_entry;
+    vector<shared_ptr<Block>> k0;
     const size_t result_args = pcall.drop ? 0 : 1;
-    internal_assert(k0_entry->args.size() == pcall.cont.args.size() + result_args)
-        << k0_entry->name << " takes " << k0_entry->args.size()
-        << " arguments but its call passes " << pcall.cont.args.size();
-    const vector<shared_ptr<Block>> k0 = region_from(*O, k0_entry->name);
+    if (!spawned || !producer_loop_block) {
+        k0_entry = omap.at(pcall.cont.name);
+        internal_assert(k0_entry->preds.size() == 1)
+            << what << ": the continuation " << k0_entry->name << " of the call in "
+            << producer.block->name << " has " << k0_entry->preds.size()
+            << " predecessors";
+        internal_assert(k0_entry->args.size() == pcall.cont.args.size() + result_args)
+            << k0_entry->name << " takes " << k0_entry->args.size()
+            << " arguments but its call passes " << pcall.cont.args.size();
+        k0 = region_from(*O, k0_entry->name);
+    }
     for (const auto &block : k0) {
         const auto *callee = block->terminator.callee();
-        internal_assert(callee == nullptr || !chain.contains(callee->name))
+        internal_assert(spawned || callee == nullptr || !chain.contains(callee->name))
             << what << ": after the call to " << pcall.call.name << " in "
             << producer.block->name << ", " << queue.owner << " calls "
             << callee->name << " again, in " << block->name
             << ". Two producer calls per iteration are not supported.";
         internal_assert(
+            spawned ||
             !std::holds_alternative<Terminator::ParFor>(block->terminator.data))
             << what << ": the continuation of the call to " << pcall.call.name
             << " runs a parfor (" << block->name << "), which the drain would "
@@ -1457,6 +1692,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             fields.push_back(std::move(f));
             continue;
         }
+        // A spawned call's continuation goes on at once, so nothing the
+        // callee could write is the caller's any more: a spawned call takes
+        // values, and reducers.
+        internal_assert(!spawned || !param.mutating)
+            << what << ": the spawned " << callee_name << " takes " << param.name
+            << " as `mut`; the call runs later, and what it wrote would reach "
+            << "no one.";
         if (const Instruction *local = inv ? as_local(org) : nullptr) {
             Field f;
             f.name = field_named(param.name);
@@ -1487,6 +1729,92 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         fields.push_back(std::move(f));
     }
 
+    // A spawned call's accumulate: the reducer's address goes in the entry
+    // beside the arguments, for the drain to add the value into. A reducer
+    // is one place for the whole iteration, so the address is one of: a
+    // local of the owner's iteration, given a slot beside the queues like
+    // any reducer local (the hoist below); a slot an earlier deferral made,
+    // read out of its entry (Function::reducer_slots); or a reducer the
+    // owner was itself handed. The first is found when every call down the
+    // chain hands the same local on; when the calls disagree -- the spawned
+    // function is reached from two drains, each handing on what its entry
+    // held -- each route is followed up to the owner to see that it starts
+    // from storage that outlives the frames.
+    optional<size_t> acc_field;
+    if (spawned) {
+        const Argument *reducer = spawns.front().reducer;
+        for (const Spawn &sp : spawns) {
+            internal_assert(sp.reducer->name == reducer->name)
+                << "[unimplemented] " << what << ": the spawned calls to "
+                << callee_name << " accumulate into different reducers ("
+                << reducer->name << ", " << sp.reducer->name << ")";
+        }
+        const Block &fentry = *F->blocks.front();
+        size_t k = fentry.args.size();
+        for (size_t i = 0; i < fentry.args.size(); i++) {
+            if (fentry.args[i].name == reducer->name) {
+                k = i;
+            }
+        }
+        internal_assert(k < fentry.args.size()) << what << ": " << reducer->name;
+        Field f;
+        f.name = field_named(reducer->name);
+        f.type = reducer->type;
+        f.reducer_address = true;
+        const bool inv = invariant.at(func_name)[k] &&
+                         origin.at(func_name)[k].value != nullptr;
+        if (inv) {
+            f.origin = settle(origin.at(func_name)[k]);
+            f.reducer_local = as_local(f.origin);
+        } else {
+            // Every route from the owner: what it hands the parameter.
+            set<std::pair<string, size_t>> seen;
+            const std::function<void(const string &, size_t)> check =
+                [&](const string &g, size_t j) {
+                    if (!seen.insert({g, j}).second) {
+                        return;
+                    }
+                    for (const CallSite &cs : calls_into[g]) {
+                        const shared_ptr<Value> &arg = cs.call()->call.args[j];
+                        if (cs.caller == queue.owner) {
+                            const Definition d = odefs.of(cs.block->name, arg);
+                            const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+                            const auto *da = std::get_if<Argument>(&d.value->data);
+                            const bool slot = di != nullptr && O->reducer_slots.contains(di->get());
+                            const bool handed = da != nullptr && d.block == oentry;
+                            internal_assert(slot || handed)
+                                << what << ": the reducer " << reducer->name
+                                << " of " << func_name << " is given different "
+                                << "storage by different calls, and the call in "
+                                << cs.block->name << " of " << queue.owner
+                                << " hands the chain storage that is not a "
+                                << "reducer slot's or the owner's own parameter; "
+                                << "the address would be stored in the queue and "
+                                << "might not outlive the frame.";
+                            continue;
+                        }
+                        const Argument *up = defs.at(cs.caller).parameter(cs.block->name, arg);
+                        internal_assert(up != nullptr)
+                            << what << ": " << cs.caller << " hands " << g
+                            << " a reducer that is not one of its parameters, in "
+                            << cs.block->name;
+                        const Block &uentry = *funcs.at(cs.caller)->blocks.front();
+                        size_t uk = uentry.args.size();
+                        for (size_t i = 0; i < uentry.args.size(); i++) {
+                            if (uentry.args[i].name == up->name) {
+                                uk = i;
+                            }
+                        }
+                        internal_assert(uk < uentry.args.size()) << up->name;
+                        check(cs.caller, uk);
+                    }
+                };
+            check(func_name, k);
+        }
+        acc_field = fields.size();
+        fields.push_back(std::move(f));
+    }
+
     // Then what the rest of the producer's iteration -- its continuation,
     // which the drain runs for every entry that finishes -- needs of the
     // iteration: each value the continuation takes from before the call is
@@ -1502,7 +1830,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         Definition def;
     };
     vector<CarriedPlan> carried;
-    for (size_t i = 0; i < pcall.cont.args.size(); i++) {
+    for (size_t i = 0; !spawned && i < pcall.cont.args.size(); i++) {
         const Definition d =
             settle(odefs.of(producer.block->name, pcall.cont.args[i]));
         const Argument &arg = k0_entry->args[i + result_args];
@@ -1897,7 +2225,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const Type saved_t = saved_is_struct
                              ? Struct_t::make("Saved_" + callee_name, saved_fields)
                              : Bool_t::make();
-    if (saved_is_struct) {
+    if (saved_is_struct && !spawned) {
         made.push_back(saved_t);
     }
     const auto make_saved = [&](const shared_ptr<Block> &block, bool saved,
@@ -1965,7 +2293,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         queue_of[g] = entry.add_argument(
             Argument{queue_ptr_t, qparam, /*mutating=*/true});
-        gf.ret_type = saved_t;
+        if (!spawned) {
+            gf.ret_type = saved_t;
+        }
     }
 
     // Every call from one chain function to another passes the queue on, and
@@ -1984,6 +2314,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const BlockMap gmap = make_block_map(gf);
             const shared_ptr<Block> cont = gmap.at(call.cont.name);
             call.call.args.push_back(reach(cs.block, queue_of.at(cs.caller)));
+            if (spawned) {
+                continue; // the queue goes down; nothing comes up
+            }
             if (call.drop) {
                 // `g(); return;` becomes `s = g(); return s;`
                 call.drop = false;
@@ -2001,6 +2334,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
 
     // Every other return of a chain function says it did not save.
     for (const string &g : chain) {
+        if (spawned) {
+            break; // the chain returns what it returned
+        }
         for (const auto &block : funcs.at(g)->blocks) {
             auto *ret = std::get_if<Terminator::Return>(&block->terminator.data);
             if (ret == nullptr || passthrough_returns.contains(block.get())) {
@@ -2118,24 +2454,45 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         const auto &site = sites[s];
         const auto call = std::get<Terminator::Call>(site->terminator.data);
         vector<shared_ptr<Value>> values;
-        for (const Field &f : fields) {
-            if (!f.param.has_value()) {
-                values.push_back(undef_value(f.type));
+        for (size_t f = 0; f < fields.size(); f++) {
+            const Field &field = fields[f];
+            if (acc_field.has_value() && f == *acc_field) {
+                values.push_back(reach(site, spawns[s].target));
                 continue;
             }
-            shared_ptr<Value> v = reach(site, call.call.args[*f.param]);
-            if (f.pointee) {
-                v = site->make_instruction(f.type, Instruction::Op::Load, {v});
+            if (!field.param.has_value()) {
+                values.push_back(undef_value(field.type));
+                continue;
+            }
+            shared_ptr<Value> v = reach(site, call.call.args[*field.param]);
+            if (field.pointee) {
+                v = site->make_instruction(field.type, Instruction::Op::Load, {v});
             }
             values.push_back(std::move(v));
         }
         auto entry = site->make_instruction(entry_t, Instruction::Op::MakeStruct,
                                             std::move(values));
+        // A spawned call's site goes on: to its continuation, less the
+        // accumulate the drain now makes and the value it took.
+        shared_ptr<Block> spawn_cont;
+        if (spawned) {
+            spawn_cont = fmap.at(call.cont.name);
+            spawn_cont->instrs.erase(spawn_cont->instrs.begin());
+            const string result = spawn_cont->args.front().name;
+            spawn_cont->args.erase(spawn_cont->args.begin());
+            spawn_cont->lookups.erase(result);
+        }
         push_entry(funcs.at(site_function[s]), site,
                    queue_of.at(site_function[s]), entry,
                    params_at(site, call.call.args),
                    [&](const shared_ptr<Block> &at, const shared_ptr<Value> &slot,
                        const shared_ptr<Value> &which) {
+                       if (spawned) {
+                           at->terminator.data = Terminator::Jump{
+                               spawn_cont->name, reach_all(at, call.cont.args)};
+                           spawn_cont->preds = {at};
+                           return;
+                       }
                        at->terminator.data = Terminator::Return{
                            make_saved(at, true, slot, nullptr, which)};
                    });
@@ -2289,7 +2646,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // skips the rest of the iteration, which the drain runs later, after
     // the frame has put its own state into the entry.
     shared_ptr<Block> skip;
-    {
+    if (spawned) {
+        // Each producer hands the queue down and goes on; nothing comes back
+        // for it to act on.
+        for (const CallSite &pc : producers) {
+            pc.call()->call.args.push_back(queue_at(pc.block, constant_u32(0)));
+        }
+    } else {
         pcall.call.args.push_back(split ? reach(producer.block, queues)
                                         : queue_at(producer.block, constant_u32(0)));
         const bool dropped = pcall.drop;
@@ -2409,6 +2772,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // and no more.
     vector<map<string, shared_ptr<Block>>> copies_of;
     for (const SubQueue &sq : subqueues) {
+        if (spawned) {
+            break; // the drain runs no continuation
+        }
         copies_of.push_back(clone_region(*O, k0, "!" + sq.path));
     }
 
@@ -2460,8 +2826,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             block->terminator.data = Terminator::Jump{drain_entry->name};
             drain_entry->preds.push_back(block);
         }
-        skip->terminator.data = Terminator::Jump{drain_entry->name};
-        drain_entry->preds.push_back(skip);
+        if (skip) {
+            skip->terminator.data = Terminator::Jump{drain_entry->name};
+            drain_entry->preds.push_back(skip);
+        }
     }
     shared_ptr<Value> cur, nxt; // which queue is read, and which pushed to
     shared_ptr<Value> next_queue; // the address of the one pushed to
@@ -2539,8 +2907,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const auto build_pass = [&](size_t q, const shared_ptr<Block> &body,
                                 const shared_ptr<Block> &after) {
         const string &qpath = subqueues[q].path;
-        const map<string, shared_ptr<Block>> &copies = copies_of[q];
-        const shared_ptr<Block> k_entry = copies.at(k0_entry->name);
+        // The producer's continuation, copied for this drain: none for a
+        // spawned call, whose drain only accumulates.
+        const map<string, shared_ptr<Block>> *copies =
+            spawned ? nullptr : &copies_of[q];
+        const shared_ptr<Block> k_entry =
+            spawned ? nullptr : copies->at(k0_entry->name);
 
         // run(i): the entry, and the call it stands for. The entry's fields
         // are read as they are asked for, each put back together from its
@@ -2601,10 +2973,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // written once and read after into a value -- finds the pointer's
         // loads by that name; so the copy's parameter is renamed after the
         // drain's storage, throughout the copy.
-        internal_assert(k_entry->args.size() == result_args + carried.size())
-            << what << ": the continuation " << k_entry->name << " takes "
-            << k_entry->args.size() << " arguments, not " << result_args
-            << " + " << carried.size();
+        if (!spawned) {
+            internal_assert(k_entry->args.size() == result_args + carried.size())
+                << what << ": the continuation " << k_entry->name << " takes "
+                << k_entry->args.size() << " arguments, not " << result_args
+                << " + " << carried.size();
+        }
         for (size_t i = 0; i < carried.size(); i++) {
             if (carried[i].from != From::Relocated) {
                 continue;
@@ -2613,7 +2987,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const string to = std::get<shared_ptr<Instruction>>(
                                   locals.at(carried[i].field)->data)
                                   ->name;
-            for (const auto &[name, copy] : copies) {
+            for (const auto &[name, copy] : *copies) {
                 rename_argument(*copy, from, to);
             }
         }
@@ -2645,7 +3019,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // frame's part written; any other is the rest of the producer's
         // iteration, copied here.
         after->preds = {body};
-        {
+        if (spawned) {
+            // The accumulate the call site gave up: the value, into the
+            // reducer whose address the entry carries. Plain, as the
+            // program's was: one entry per run of the producer's entry, and
+            // each of those has a reducer of its own.
+            auto value = after->add_argument(Argument{ret_type, O->get_unique_name()});
+            after->make_side_effect(spawns.front().op,
+                                    {entry_field(after, *acc_field), value},
+                                    spawns.front().atomic);
+            after->terminator.data = Terminator::Yield{};
+        } else {
             // The value goes to the copy only where the producer kept it.
             vector<shared_ptr<Value>> onwards;
             shared_ptr<Value> flag;
@@ -2713,11 +3097,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // The copy ends the drain's iteration where the original ended the
         // producer's; a return of the function's becomes a yield of the
         // loop's.
-        for (const auto &[name, copy] : copies) {
-            if (std::holds_alternative<Terminator::Return>(copy->terminator.data)) {
-                copy->terminator.data = Terminator::Yield{};
+        if (copies != nullptr) {
+            for (const auto &[name, copy] : *copies) {
+                if (std::holds_alternative<Terminator::Return>(copy->terminator.data)) {
+                    copy->terminator.data = Terminator::Yield{};
+                }
+                O->blocks.push_back(copy);
             }
-            O->blocks.push_back(copy);
         }
     };
 

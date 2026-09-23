@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Defer.cpp:981
+
+--> floops.innermost(fcfg.id(site->name)) == nullptr
+step.defer(shade, q): the spawned call in !for_k_body_1 is inside a loop of step, and would push once per iteration; the queue holds one entry per run of the function, as every entry that runs it pushes at most one.

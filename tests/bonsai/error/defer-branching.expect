@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Defer.cpp:852
+[internal] Error: src/SSA/Defer.cpp:918
 
---> is_tail_call(call, fmap)
+--> spawned || is_tail_call(call, fmap)
 visit.defer(visit, nodes): the call to visit in !merge_1 is not in tail position -- visit does more after the call than return. The work after the call is state on the call stack that the entry would have to carry, and an entry carries only the call's arguments. Not supported yet. (visit makes 2 calls to visit; a step that makes one after another is a branching recursion, a tree traversal, which only a stack -- loopify(N) -- runs without recursing. Only a linear deferral is supported.)

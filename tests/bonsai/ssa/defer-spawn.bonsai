@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// A spawned call deferred: `spawn total += shade(x)` says the call's value
+// goes into the reducer and nowhere else, so `step.defer(shade, q)` may push
+// the call and go on -- the site becomes a push and a jump to its
+// continuation less the accumulate, `step` returns what it returned, and the
+// drain makes the call and adds its value where the entry's stored address
+// says (SSA/Defer.cpp, Terminator::Call::spawned). pbrt's shadow ray: traced
+// by its own kernel, added to the pixel's L when it is.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += shade(x);
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], total);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}

@@ -1,0 +1,30 @@
+//! flags: -p ssa
+
+// A spawned call inside a loop of its function would push once per
+// iteration, and the queue holds one entry per run of the entry that
+// reaches it -- sized by the producer count, as every queue is -- so the
+// deferral is refused rather than sized wrong.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    for k in 0:n {
+        spawn total += shade(x);
+    }
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], i, total);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}
