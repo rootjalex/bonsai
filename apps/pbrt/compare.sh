@@ -244,22 +244,19 @@ INTEGRATOR=$(sed -n 's/^[[:space:]]*Integrator[[:space:]]*"\([a-z]*\)".*/\1/p' \
 # running two different integrators measures the integrators, not the
 # renderers: the numbers mean nothing.
 #
-# A scene that names none is where the two would otherwise part. pbrt's
-# default is `volpath`, and scene_dump resolves the same scene to `path` (see
-# scene_dump.cpp: a scene with no media asks `path` for the answer volpath
-# would give the same way, but volpath gets there by tracing every shadow ray
-# as a closest-hit transmittance loop where `path` asks an any-hit question,
-# and that is a different amount of work). So pbrt is told `path` too. There
-# is no flag for it; the directive is put in front of the scene, and pbrt
-# reads the result on standard input -- which it does when given no scene
-# file at all -- from the scene's own directory so that its `Include`s still
-# resolve. A scene that names its integrator is rendered as written, and one
-# that names an integrator this renderer lacks is refused by scene_dump
-# above, before pbrt is asked anything.
-PBRT_INTEGRATOR="${INTEGRATOR:-path}"
+# A scene that names none is where the two could otherwise part. pbrt's
+# default is `volpath`, and scene_dump resolves the same scene to `volpath`
+# too (scene_dump.cpp); pbrt is told so explicitly all the same, so that the
+# `maxdepth` below has a directive to attach to. There is no flag for it; the
+# directive is put in front of the scene, and pbrt reads the result on
+# standard input -- which it does when given no scene file at all -- from the
+# scene's own directory so that its `Include`s still resolve. A scene that
+# names its integrator is rendered as written, and one that names an
+# integrator this renderer lacks is refused by scene_dump above, before pbrt
+# is asked anything.
+PBRT_INTEGRATOR="${INTEGRATOR:-volpath}"
 if [[ -z "$INTEGRATOR" ]]; then
-  echo "the scene names no integrator; pbrt would take \`volpath\` and this"
-  echo "renderer takes \`path\`, so pbrt is told \`path\` as well."
+  echo "the scene names no integrator; both sides take pbrt's default, \`volpath\`."
 fi
 GBUFFER=0
 if [[ "$FILM" == "gbuffer" ]]; then

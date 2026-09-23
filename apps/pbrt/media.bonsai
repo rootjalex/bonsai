@@ -1,0 +1,132 @@
+// pbrt: participating media (media.h), as the volpath integrator samples them.
+//
+// Only HomogeneousMedium so far: one set of coefficients everywhere, so its
+// majorant is exact and a ray through it has a single majorant segment. The
+// grid media (a DDA over a majorant grid) and NanoVDB are the next phases of
+// volpath -- see apps/pbrt/PLAN.md, "volpath" -- and arrive as arms of
+// `Medium` and segment sources for the same sampling loop.
+//
+// A medium is named by index, -1 for none, and travels beside a ray rather
+// than inside it: stdlib's `Ray` is every test's ray, and the integrator
+// already carries a ray's differentials the same way.
+import stdlib/numerics;
+import apps/pbrt/bxdf;
+import apps/pbrt/interval;
+import apps/pbrt/rng;
+import apps/pbrt/sampling;
+import apps/pbrt/spectrum;
+
+// pbrt: HomogeneousMedium -- its three DenselySampledSpectra, kept as runs of
+// `medium_spectrum_samples()` floats in `medium_spectra` starting at
+// `spectra`: sigma_a, then sigma_s, then Le, each already scaled the way
+// HomogeneousMedium::Create scales it (scene_dump.cpp). `g` is the
+// Henyey-Greenstein phase function's asymmetry; `emissive` is
+// Medium::IsEmissive, `Le_spec.MaxValue() > 0`.
+element Medium =
+    | Homogeneous(spectra : u32, g : Float, emissive : bool);
+
+extern media : array[Medium];
+extern medium_spectra : array[Float];
+
+// 360 to 830 nm at one nanometre, which is what a DenselySampledSpectrum holds.
+func medium_spectrum_samples() -> u32 = 471u;
+
+// pbrt: DenselySampledSpectrum::Sample, which rounds each wavelength to the
+// nearest nanometre -- the same lookup as colour.bonsai's spectrum_at_dense,
+// on a run of the shared table rather than a table of its own.
+func medium_spectrum_at(base : u32, w : SampledWavelengths) -> vec4f {
+    o = base + cast[[vector[u32, 4]]](round(w.lambda) - 360.0);
+    return medium_spectra[o];
+}
+
+// pbrt: MediumProperties -- what a medium is at a point: its absorption and
+// scattering coefficients, its phase function (the asymmetry, the function
+// being Henyey-Greenstein for every medium pbrt has), and its emission.
+element MediumProperties {
+    sigma_a : vec4f;
+    sigma_s : vec4f;
+    g : Float;
+    le : vec4f;
+}
+
+// pbrt: HomogeneousMedium::SamplePoint -- the same everywhere, so the point
+// is not even an argument. `Le_spec.Sample(lambda)` is taken whether or not
+// the medium emits, as pbrt takes it: the table holds zeros where it does not.
+func medium_sample_point(m : Medium, lambda : SampledWavelengths)
+    -> MediumProperties {
+    match m {
+        Homogeneous(spectra, g, emissive) => {
+            mp : MediumProperties = {
+                medium_spectrum_at(spectra, lambda),
+                medium_spectrum_at(spectra + medium_spectrum_samples(), lambda),
+                g,
+                medium_spectrum_at(spectra + 2u * medium_spectrum_samples(),
+                                   lambda)};
+            return mp;
+        }
+    }
+}
+
+// pbrt: HomogeneousMedium::SampleRay, whose one majorant segment covers the
+// whole ray with `sigma_a + sigma_s` as the majorant. Exact for a homogeneous
+// medium, which is why every sampled collision in it is real or null by the
+// medium's own coefficients and none is wasted on a bound.
+func medium_sigma_maj(m : Medium, lambda : SampledWavelengths) -> vec4f {
+    match m {
+        Homogeneous(spectra, g, emissive) =>
+            return medium_spectrum_at(spectra, lambda) +
+                   medium_spectrum_at(spectra + medium_spectrum_samples(),
+                                      lambda);
+    }
+}
+
+// pbrt: FastExp over a SampledSpectrum, one lane at a time -- the transmittance
+// `T_maj *= FastExp(-dt * sigma_maj)` is taken with pbrt's fast exponential,
+// not the library's, and the difference is visible in the last bits of every
+// medium sample.
+func fast_exp4(x : vec4f) -> vec4f =
+    vec4f{fast_exp(x.x), fast_exp(x.y), fast_exp(x.z), fast_exp(x.w)};
+
+// pbrt: SampledSpectrum::Average, the four samples summed in order and divided
+// by their count. In order because pbrt's is, and a rescaled path probability
+// is divided by this at every vertex.
+func average4(v : vec4f) -> Float = (((v.x + v.y) + v.z) + v.w) / 4.0;
+
+// pbrt: `std::numeric_limits<Float>::max()`, which stands in for an infinite
+// segment length so that `dt * sigma_maj` is a large number rather than a NaN
+// where sigma_maj is zero.
+func float_max() -> Float = 3.4028234663852886e38;
+
+// pbrt: SampleDiscrete over three weights -- the absorb / scatter / null choice
+// at a tentative collision. `up` is nudged below the total so that a `u` of
+// nearly one lands in the last bucket rather than past it, and the walk is
+// pbrt's: advance while the running sum and the next weight stay at or below
+// the sample.
+func sample_discrete3(w0 : Float, w1 : Float, w2 : Float, u : Float) -> i32 {
+    total = (w0 + w1) + w2;
+    up_raw = u * total;
+    up = select(up_raw == total, next_float_down(up_raw), up_raw);
+    if w0 <= up {
+        if w0 + w1 <= up {
+            return 2;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+// pbrt: Hash(Float), which is MurmurHash64A over the four bytes the number
+// occupies: no eight-byte block, so only the tail -- the bytes exclusive-ored
+// into `seed ^ (len * m)`, one more multiply, the avalanche. The volpath
+// integrator seeds the majorant sampler's RNG from two of these.
+func hash_float1(a : Float) -> u64 {
+    h = 4u * murmur_m();
+    return murmur_finish((h ^ cast[[u64]](reinterpret[[u32]](a))) * murmur_m());
+}
+
+// pbrt: Hash(Point3f) and Hash(Vector3f) -- twelve bytes, which is `hash3`
+// over the three floats' bits. The shadow ray's transmittance RNG is seeded
+// from the ray's origin and direction this way.
+func hash_vec3(v : vec3f) -> u64 =
+    hash3(reinterpret[[i32]](v.x), reinterpret[[i32]](v.y),
+          reinterpret[[i32]](v.z));

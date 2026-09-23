@@ -1,0 +1,63 @@
+# A surface with no BSDF, under the path integrator.
+#
+# `Material "interface"` is a boundary between media and nothing else: pbrt's
+# `Material::Create` returns no material for it, and every integrator that
+# lands on one steps straight through -- `SkipIntersection`, the ray continued
+# from the hit in the same direction at the same depth -- without a BSDF and
+# without counting a bounce. This scene puts such a sphere, with no medium on
+# either side, in front of a diffuse one under `path`, so that the skip is
+# tested on its own: the image has to be the one without the boundary, and
+# pbrt's is.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "interface-boundary.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 1.5 1.2 -3
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# The boundary, with nothing inside it: invisible, and its shadow too.
+AttributeBegin
+    Material "interface"
+    Translate -1 2 1
+    Shape "sphere"
+        "float radius" [ 2 ]
+AttributeEnd

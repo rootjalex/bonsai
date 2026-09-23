@@ -57,6 +57,42 @@ enum MaterialTag : uint32_t {
     // (`conductor_spectra` or `reflectance`), plus the metal's own roughness
     // below.
     CoatedConductor = 6,
+    // PBRT's `Material "interface"` (and its deprecated spellings `""` and
+    // `"none"`), for which `Material::Create` returns no material at all: a
+    // surface that scatters nothing and exists only to bound a participating
+    // medium. An integrator that hits one steps through it, keeping its
+    // direction and taking the medium on the other side
+    // (SurfaceInteraction::SkipIntersection), and the depth does not count
+    // it. No field below applies.
+    Interface = 7,
+};
+
+// A participating medium, of the kinds PBRT has. Only `homogeneous` so far;
+// `uniformgrid`, `rgbgrid`, `nanovdb` and `cloud` are refused by name where
+// the scene is read (see PLAN.md, "volpath").
+enum MediumTag : uint32_t {
+    Homogeneous = 0,
+};
+
+// The three spectra a medium is made of, each tabulated at the 471 integer
+// nanometres from 360 to 830 that PBRT's DenselySampledSpectrum holds -- which
+// is how HomogeneousMedium keeps them, so a lookup that rounds to the
+// nearest nanometre (the renderer's `spectrum_at_dense`) reproduces PBRT's
+// exactly. Laid end to end in `Scene::medium_spectra`, three runs per medium:
+// sigma_a, sigma_s, Le, in that order, each already scaled the way
+// HomogeneousMedium::Create scales it (`scale` on the two coefficients,
+// `Lescale / SpectrumToPhotometric(Le)` on the emission).
+inline constexpr int kMediumSpectrumSamples = 471;
+
+struct Medium {
+    uint32_t tag = MediumTag::Homogeneous;
+    // Where this medium's three spectra begin in `medium_spectra`, in floats.
+    uint32_t spectra = 0;
+    // PBRT: the Henyey-Greenstein asymmetry of the phase function.
+    float g = 0.f;
+    // PBRT: Medium::IsEmissive, which is `Le_spec.MaxValue() > 0` -- decided
+    // here so that the renderer need not scan the table.
+    uint32_t emissive = 0;
 };
 
 // One of PBRT's PiecewiseLinear2D interpolants, as the renderer reads it.
@@ -117,6 +153,10 @@ enum IntegratorTag : uint32_t {
     RandomWalk = 0,
     SimplePath = 1,
     Path = 2,
+    // PBRT's VolPathIntegrator: `path` with participating media, and the one
+    // integrator PBRT's GPU renderer runs. PBRT's own default when a scene
+    // names none.
+    VolPath = 3,
 };
 
 // One material, with every texture already evaluated to a constant.
@@ -397,6 +437,15 @@ struct Shape {
     // A cutout: the texture says how much of the surface is really there, which
     // is what makes a tree leaf leaf-shaped rather than a quad.
     int32_t alpha = -1;
+    // PBRT's MediumInterface on the shape: which of the scene's media is on
+    // the side its normal points away from and which on the side it points to,
+    // or -1 for none. A shape whose two sides name the same medium (both
+    // none, usually) is not a medium transition -- `MediumInterface::
+    // IsMediumTransition` -- and a ray crossing it keeps the medium it had; one
+    // whose sides differ hands a ray leaving it the medium on the side it
+    // leaves towards (`Interaction::GetMedium`).
+    int32_t medium_inside = -1;
+    int32_t medium_outside = -1;
 };
 
 // One node of PBRT's BVHLightSampler tree, dequantized.
@@ -614,6 +663,13 @@ struct Scene {
     // scene names one.
     float max_component_value = std::numeric_limits<float>::infinity();
     std::vector<Material> materials;
+    // The participating media, and their spectra (see Medium). Only the media
+    // some shape's interface or the camera names are written.
+    std::vector<Medium> media;
+    std::vector<float> medium_spectra;
+    // PBRT's `CameraMedium`: the medium the camera sits in, which every camera
+    // ray starts in, or -1 for none.
+    int32_t camera_medium = -1;
     // The meshes, and the pools their runs live in. Three floats per position
     // and normal, two per texture coordinate.
     std::vector<Mesh> meshes;
@@ -829,12 +885,12 @@ inline bool write(const char *path, const Scene &scene) {
     }
     out << "seed " << scene.seed << '\n';
     out << "integrator "
-        << (scene.integrator == IntegratorTag::Path
-                ? "path"
-                : (scene.integrator == IntegratorTag::SimplePath ? "simplepath"
-                                                                 : "randomwalk"))
+        << (scene.integrator == IntegratorTag::VolPath      ? "volpath"
+            : scene.integrator == IntegratorTag::Path       ? "path"
+            : scene.integrator == IntegratorTag::SimplePath ? "simplepath"
+                                                            : "randomwalk")
         << " maxdepth " << scene.max_depth << " regularize "
-        << scene.regularize << '\n';
+        << scene.regularize << " cameramedium " << scene.camera_medium << '\n';
     out << "filter gaussian " << scene.filter_radius[0] << ' '
         << scene.filter_radius[1] << ' ' << scene.filter_sigma << " jitter "
         << (scene.disable_pixel_jitter ? 0 : 1) << " gbuffer "
@@ -960,6 +1016,9 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::CoatedConductor:
             out << "  coatedconductor";
             break;
+        case MaterialTag::Interface:
+            out << "  interface";
+            break;
         default:
             return false;
         }
@@ -1023,6 +1082,29 @@ inline bool write(const char *path, const Scene &scene) {
             out << " fromreflectance " << m.conductor_from_reflectance;
         }
         out << '\n';
+    }
+
+    // The media, and then their spectra as one table -- three runs of
+    // kMediumSpectrumSamples per medium (see Medium).
+    out << "media " << scene.media.size() << '\n';
+    for (const Medium &m : scene.media) {
+        switch (m.tag) {
+        case MediumTag::Homogeneous:
+            out << "  homogeneous";
+            break;
+        default:
+            return false;
+        }
+        out << " spectra " << m.spectra << " g";
+        detail::put(out, &m.g, 1);
+        out << " emissive " << m.emissive << '\n';
+    }
+    out << "mediumspectra " << scene.medium_spectra.size() << '\n';
+    for (size_t i = 0; i < scene.medium_spectra.size(); i++) {
+        detail::put(out, &scene.medium_spectra[i], 1);
+        if (i % 8 == 7 || i + 1 == scene.medium_spectra.size()) {
+            out << '\n';
+        }
     }
 
     out << "meshes " << scene.meshes.size() << '\n';
@@ -1112,7 +1194,8 @@ inline bool write(const char *path, const Scene &scene) {
             }
             out << " material " << s.material << " light " << s.light
                 << " ordinal " << s.light_ordinal << " alpha " << s.alpha
-                << '\n';
+                << " inside " << s.medium_inside << " outside "
+                << s.medium_outside << '\n';
         }
     };
     const auto put_nodes = [&](const char *name,
@@ -1237,6 +1320,8 @@ inline bool read(const char *path, Scene &scene) {
         scene.integrator = IntegratorTag::SimplePath;
     } else if (word == "path") {
         scene.integrator = IntegratorTag::Path;
+    } else if (word == "volpath") {
+        scene.integrator = IntegratorTag::VolPath;
     } else {
         return false;
     }
@@ -1248,6 +1333,10 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     in >> scene.regularize;
+    if (!(in >> word) || word != "cameramedium") {
+        return false;
+    }
+    in >> scene.camera_medium;
 
     if (!(in >> word) || word != "filter") {
         return false;
@@ -1519,6 +1608,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::DiffuseTransmission;
         } else if (word == "coatedconductor") {
             m.tag = MaterialTag::CoatedConductor;
+        } else if (word == "interface") {
+            m.tag = MaterialTag::Interface;
         } else {
             return false;
         }
@@ -1680,6 +1771,49 @@ inline bool read(const char *path, Scene &scene) {
             in >> m.conductor_from_reflectance;
         }
         scene.materials.push_back(m);
+    }
+
+    if (!(in >> word) || word != "media") {
+        return false;
+    }
+    in >> count;
+    scene.media.clear();
+    for (size_t i = 0; i < count; i++) {
+        if (!(in >> word)) {
+            return false;
+        }
+        Medium m;
+        if (word == "homogeneous") {
+            m.tag = MediumTag::Homogeneous;
+        } else {
+            return false;
+        }
+        if (!tagged("spectra")) {
+            return false;
+        }
+        in >> m.spectra;
+        if (!tagged("g")) {
+            return false;
+        }
+        floats(&m.g, 1);
+        if (!tagged("emissive")) {
+            return false;
+        }
+        in >> m.emissive;
+        scene.media.push_back(m);
+    }
+    if (!(in >> word) || word != "mediumspectra") {
+        return false;
+    }
+    in >> count;
+    scene.medium_spectra.assign(count, 0.f);
+    for (size_t i = 0; i < count; i++) {
+        floats(&scene.medium_spectra[i], 1);
+    }
+    for (const Medium &m : scene.media) {
+        if (size_t(m.spectra) + 3 * kMediumSpectrumSamples > count) {
+            return false;
+        }
     }
 
     if (!(in >> word) || word != "meshes") {
@@ -1930,6 +2064,18 @@ inline bool read(const char *path, Scene &scene) {
             }
             in >> s.alpha;
             if (s.alpha >= int32_t(scene.textures.size())) {
+                return false;
+            }
+            if (!tagged("inside")) {
+                return false;
+            }
+            in >> s.medium_inside;
+            if (!tagged("outside")) {
+                return false;
+            }
+            in >> s.medium_outside;
+            if (s.medium_inside >= int32_t(scene.media.size()) ||
+                s.medium_outside >= int32_t(scene.media.size())) {
                 return false;
             }
             shapes.push_back(s);

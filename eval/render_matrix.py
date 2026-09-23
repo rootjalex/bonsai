@@ -61,12 +61,13 @@ import compare_gbuffer  # noqa: E402  the tolerances, so there is one set
 #
 # "pbrt-gpu" is `pbrt --gpu`, which is not a schedule but a second reference:
 # pbrt's wavefront renderer on the GPU. It runs pbrt's *volpath* integrator
-# whatever the scene names -- pbrt has no other GPU integrator -- so on a
-# scene without media it converges to the same image as pbrt's path
-# integrator and is checked against it like the schedules are, but its time
-# is the time of a different integrator until this renderer has volpath too.
-# The label says so.
-RENDERER_LABELS = {"pbrt": "pbrt", "pbrt-gpu": "pbrt --gpu (volpath)",
+# whatever the scene names -- pbrt has no other GPU integrator -- which is
+# also pbrt's default for a scene that names none, and what this renderer
+# and pbrt's CPU build run for such a scene (scene_dump.cpp); so on the
+# scenes measured, every column is volpath. A scene that names `path` is
+# still a different integrator from pbrt --gpu's, and the plan says so where
+# it happens.
+RENDERER_LABELS = {"pbrt": "pbrt", "pbrt-gpu": "pbrt --gpu",
                    "scalar": "scalar",
                    "perlane": "per-lane", "packet": "packet",
                    "wavefront-perlane": "compact (wf) per-lane",
@@ -267,8 +268,9 @@ def scene_film_and_integrator(scene):
 def pbrt_scene_text(scene, depth):
     """The scene as pbrt is to read it, at `depth`: its Integrator directive
     rewritten with the maxdepth, or one put in front of a scene that names
-    none -- `path`, which is what scene_dump resolves such a scene to. pbrt
-    has no flag for the depth; see compare.sh."""
+    none -- `volpath`, which is pbrt's own default and what scene_dump
+    resolves such a scene to. pbrt has no flag for the depth; see
+    compare.sh."""
     lines = open(scene).read().split("\n")
     out = []
     in_integrator = False
@@ -290,7 +292,7 @@ def pbrt_scene_text(scene, depth):
         out.append(line)
     text = "\n".join(out)
     if not named:
-        text = f'Integrator "path" "integer maxdepth" [ {depth} ]\n' + text
+        text = f'Integrator "volpath" "integer maxdepth" [ {depth} ]\n' + text
     return text
 
 

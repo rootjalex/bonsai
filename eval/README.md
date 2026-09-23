@@ -92,12 +92,13 @@ on the GPU, rendered at every cell the same way (one process per render,
 best of the repeats, timed by pbrt's render timer, which starts after the
 scene is on the device) and carried in the table and the heatmaps as a
 column with its speedup over pbrt's CPU render. It is pbrt's *volpath*
-integrator whatever the scene names, since pbrt has no other GPU integrator:
-on a scene without media that converges to the same image as `path`, so it
-is checked against pbrt's CPU image like the schedules are, but its time is
-the time of a different integrator, and a comparison of the `gpu` schedule
-against it means something only once this renderer has volpath too. The
-column's label says so.
+integrator whatever the scene names, since pbrt has no other GPU integrator.
+volpath is also pbrt's default for a scene that names none, and what this
+renderer and pbrt's CPU build run for such a scene (scene_dump.cpp), so on
+the scenes measured every column is the same integrator and the `gpu`
+schedule's time against `pbrt --gpu`'s is like against like. A scene that
+names `path` is the exception: pbrt --gpu still runs volpath there,
+converging to the same image, and its time is a different integrator's.
 
 Run it with nothing else on the machine. Every source of noise adds time, and
 the minimum of three runs removes only some of it.

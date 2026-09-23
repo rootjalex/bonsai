@@ -1,0 +1,76 @@
+# The camera inside a medium.
+#
+# pbrt takes the camera's medium from the `MediumInterface` in force when the
+# camera is declared, and every camera ray starts in it; a shape declared under
+# the same interface hands a ray leaving it the medium on the side it leaves
+# towards. So a thin haze everywhere: camera rays sample it before their first
+# hit, rays that leave the scene are attenuated by it on their way to the
+# infinite lights (of which there are none here, so they go dark), and every
+# shadow ray carries a transmittance. The one thing `homogeneous-medium.pbrt`
+# does not test.
+#
+# Absorbing more than scattering, so that the picture is the surfaces seen
+# through a veil rather than a glow.
+
+Integrator "volpath"
+    "integer maxdepth" [ 5 ]
+
+MakeNamedMedium "haze"
+    "string type" [ "homogeneous" ]
+    "rgb sigma_a" [ 0.03 0.03 0.035 ]
+    "rgb sigma_s" [ 0.02 0.02 0.02 ]
+
+MediumInterface "" "haze"
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "camera-medium.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+MediumInterface "" "haze"
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.5 0.15 0.15 ]
+    Translate -2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2 1.2 0
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

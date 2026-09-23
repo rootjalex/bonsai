@@ -9,6 +9,11 @@ schedule {
     walk_step.loopify();
     path_step.loopify();
     full_path_step.loopify();
+    // volpath's walks too (see scalar.bonsai).
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|

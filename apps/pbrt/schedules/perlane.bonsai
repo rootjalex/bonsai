@@ -11,6 +11,11 @@ schedule {
     walk_step.loopify();
     path_step.loopify();
     full_path_step.loopify();
+    // volpath's walks too (see scalar.bonsai).
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
 
     // First: each traversal becomes a loop over a stack while it is still one
     // ray's, and the near-child order is each ray's own.

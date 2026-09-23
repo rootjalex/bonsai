@@ -1209,10 +1209,23 @@ int main(int argc, char **argv) {
             leaf.transmittance.texture = m.transmittance_texture;
             leaf.scale = m.scale;
             Material_DiffuseTransmission(material, leaf);
+        } else if (m.tag == bonsai_scene::MaterialTag::Interface) {
+            Material_Interface(material);
         } else {
             Material_Diffuse(material, reflectance);
         }
         materials.push_back(material);
+    }
+
+    // The participating media, and the one table their spectra live in (see
+    // Medium in scene_io.h). Through the generated constructor, as the
+    // materials are.
+    std::vector<Medium> media;
+    media.reserve(loaded.media.size());
+    for (const bonsai_scene::Medium &m : loaded.media) {
+        Medium medium;
+        Medium_Homogeneous(medium, m.spectra, m.g, m.emissive != 0);
+        media.push_back(medium);
     }
 
     // The meshes and the pools they index into, exactly as the scene wrote
@@ -1321,8 +1334,8 @@ int main(int argc, char **argv) {
             // when every emitter has its own emission; a mesh's triangles share
             // one, so they differ, and it is the ordinal the renderer needs (its
             // `lights[]` index and its bit-trail index are both the ordinal).
-            out.push_back(
-                Geometric{shape, s.light_ordinal, s.material, s.alpha});
+            out.push_back(Geometric{shape, s.light_ordinal, s.material, s.alpha,
+                                    s.medium_inside, s.medium_outside});
         }
         return out;
     };
@@ -1812,7 +1825,8 @@ int main(int argc, char **argv) {
     // the cells below.
     if (loaded.integrator != bonsai_scene::IntegratorTag::RandomWalk &&
         loaded.integrator != bonsai_scene::IntegratorTag::SimplePath &&
-        loaded.integrator != bonsai_scene::IntegratorTag::Path) {
+        loaded.integrator != bonsai_scene::IntegratorTag::Path &&
+        loaded.integrator != bonsai_scene::IntegratorTag::VolPath) {
         fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
         return 1;
     }
@@ -1848,8 +1862,15 @@ int main(int argc, char **argv) {
                 LightSampler_UniformLights(light_sampler,
                                            int32_t(lights.size()));
             }
-            Integrator_Path(integrator, max_depth, light_sampler, light_set,
-                            loaded.regularize != 0);
+            // `volpath` takes the same three parameters as `path`, and pbrt's
+            // VolPathIntegrator::Create reads them the same way.
+            if (loaded.integrator == bonsai_scene::IntegratorTag::VolPath) {
+                Integrator_VolPath(integrator, max_depth, light_sampler,
+                                   light_set, loaded.regularize != 0);
+            } else {
+                Integrator_Path(integrator, max_depth, light_sampler,
+                                light_set, loaded.regularize != 0);
+            }
             break;
         }
         }
@@ -1955,6 +1976,8 @@ int main(int argc, char **argv) {
     bonsai_buffer b_light_bit_trails = buffer_of(loaded.light_bit_trails);
     bonsai_buffer b_materials = buffer_of(materials);
     bonsai_buffer b_material_displacement = buffer_of(material_displacement);
+    bonsai_buffer b_media = buffer_of(media);
+    bonsai_buffer b_medium_spectra = buffer_of(loaded.medium_spectra);
     bonsai_buffer b_rho_uc = buffer_of(rho_uc);
     bonsai_buffer b_rho_ux = buffer_of(rho_ux);
     bonsai_buffer b_rho_uy = buffer_of(rho_uy);
@@ -1977,7 +2000,12 @@ int main(int argc, char **argv) {
         &b_mesh_uvs, &b_cie_x, &b_cie_y, &b_cie_z, &b_illuminant_d65,
         &b_sensor_r, &b_sensor_g, &b_sensor_b, &b_output_rgb_from_sensor,
         &b_filter_f, &b_filter_cond_cdf, &b_filter_marg_func,
-        &b_filter_marg_cdf, &b_primes, &b_digit_permutations,
+        &b_filter_marg_cdf,
+        // The media's, between the filter's and the sampler's: the externs
+        // come in the order the compiler met their declarations, which is
+        // render.bonsai's import order, and media.bonsai is imported between
+        // those two.
+        &b_media, &b_medium_spectra, &b_primes, &b_digit_permutations,
         &b_digit_permutation_offsets, &b_env_texels, &b_env_dist_values,
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
         &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
@@ -2012,7 +2040,8 @@ int main(int argc, char **argv) {
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
                loaded.film_visible_surface != 0, loaded.imaging_ratio,
-               loaded.max_component_value, &b_normal_out, &b_shading_out,
+               loaded.max_component_value, loaded.camera_medium,
+               &b_normal_out, &b_shading_out,
                &b_albedo_out, &b_radiance_out, &b_weight_out, &b_textures,
 #if BONSAI_render_HAS_texture_levels
                &b_texture_levels, &b_texture_texels,
@@ -2027,7 +2056,8 @@ int main(int argc, char **argv) {
                &b_mesh_uvs, &b_cie_x, &b_cie_y, &b_cie_z, &b_illuminant_d65,
                &b_sensor_r, &b_sensor_g, &b_sensor_b,
                &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
-               &b_filter_marg_func, &b_filter_marg_cdf, &b_primes,
+               &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
+               &b_medium_spectra, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,
                &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,
                &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_lights,

@@ -1,0 +1,78 @@
+# A participating medium, and the integrator that samples it.
+#
+# The other scenes here are surfaces in vacuum. This one puts a sphere of
+# scattering fog -- a `homogeneous` medium behind an `interface` boundary, a
+# surface with no BSDF that exists only to say where the medium starts -- in
+# front of a diffuse sphere and over a floor, lit by an area light above. What
+# it exercises is the whole of volpath that `path` does not have: a camera ray
+# enters the medium through the boundary (a skip, with a change of medium),
+# takes exponential steps against the majorant, scatters or passes through,
+# samples direct light from inside the fog with a shadow ray that has to cross
+# the boundary and estimate transmittance on the way, and leaves through the
+# far side. pbrt's `volpath` is the reference, as it is for every scene here.
+#
+# The fog is dense enough to be seen and thin enough that light gets through:
+# a mean free path of a few units against a sphere of radius two.
+
+Integrator "volpath"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "homogeneous-medium.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+MakeNamedMedium "fog"
+    "string type" [ "homogeneous" ]
+    "rgb sigma_a" [ 0.02 0.02 0.02 ]
+    "rgb sigma_s" [ 0.30 0.30 0.30 ]
+    "float g" [ 0.3 ]
+
+WorldBegin
+
+# The emitter.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A diffuse sphere behind the fog, seen through it.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 1.5 1.2 -3
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
+
+# The fog: a boundary with the medium inside and nothing outside.
+AttributeBegin
+    Material "interface"
+    MediumInterface "fog" ""
+    Translate -1 2 1
+    Shape "sphere"
+        "float radius" [ 2 ]
+AttributeEnd

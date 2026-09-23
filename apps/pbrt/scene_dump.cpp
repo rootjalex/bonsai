@@ -54,6 +54,7 @@
 #include <pbrt/cpu/integrators.h>
 #include <pbrt/cpu/primitive.h>
 #include <pbrt/lights.h>
+#include <pbrt/media.h>
 #include <pbrt/options.h>
 #include <pbrt/parser.h>
 #include <pbrt/samplers.h>
@@ -136,6 +137,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         // the CTM at this directive being cameraFromWorld.
         named_systems["camera"] = pbrt::Inverse(ctm);
         camera_name = name;
+        // PBRT: `CameraSceneEntity(..., graphicsState.currentOutsideMedium)`
+        // -- the camera sits in whatever medium is current when it is
+        // declared, which is what `CameraMedium` sets.
+        camera_medium_name = current_outside_medium;
         // The vector holds pointers, so a copy still refers to the parameters
         // the base is about to take; reading them here does not consume them.
         camera_params = pbrt::ParameterDictionary(
@@ -290,12 +295,17 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     }
     void AttributeBegin(pbrt::FileLoc loc) override {
         ctm_stack.push_back(ctm);
+        medium_stack.push_back(current_outside_medium);
         pbrt::BasicSceneBuilder::AttributeBegin(loc);
     }
     void AttributeEnd(pbrt::FileLoc loc) override {
         if (!ctm_stack.empty()) {
             ctm = ctm_stack.back();
             ctm_stack.pop_back();
+        }
+        if (!medium_stack.empty()) {
+            current_outside_medium = medium_stack.back();
+            medium_stack.pop_back();
         }
         pbrt::BasicSceneBuilder::AttributeEnd(loc);
     }
@@ -366,13 +376,14 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         pbrt::BasicSceneBuilder::CoordSysTransform(n, loc);
     }
 
-    // Participating media. Neither directive is implemented, and until these
-    // were here neither was refused: the base records a named medium and a
-    // shape's interface without complaint, so a scene with fog in it or a
-    // glass with an interior converted with both silently missing -- and a
-    // render that quietly leaves out a medium looks like a renderer that
-    // works. Refused on the spot, naming the kind of medium, which is what
-    // decides which one to implement first (PLAN.md, "What the scenes need").
+    // Participating media. A `homogeneous` medium is recorded here -- its
+    // parameters, for the conversion to read the way HomogeneousMedium::
+    // Create does -- and the base is told too, so that PBRT's own checks run
+    // (a name defined twice is PBRT's error). The other kinds are refused by
+    // name, which is what decides which to implement next (PLAN.md,
+    // "volpath"): a scene with fog in it must not convert with the fog
+    // silently missing, since a render that quietly leaves out a medium
+    // looks like a renderer that works.
     void MakeNamedMedium(const std::string &name,
                          pbrt::ParsedParameterVector params,
                          pbrt::FileLoc loc) override {
@@ -382,21 +393,31 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
                 kind = p->strings[0];
             }
         }
-        fail(where(loc) + "MakeNamedMedium \"" + name + "\" of type \"" + kind +
-             "\": participating media are not supported -- the `volpath` "
-             "integrator, and every medium, is not implemented");
+        if (kind != "homogeneous") {
+            fail(where(loc) + "MakeNamedMedium \"" + name + "\" of type \"" +
+                 kind + "\": only `homogeneous` media are implemented -- "
+                 "`uniformgrid`, `rgbgrid`, `nanovdb` and `cloud` are the "
+                 "next phases of volpath (PLAN.md)");
+        }
+        MediumInfo info;
+        info.name = name;
+        // The vector holds pointers, so a copy still refers to the parameters
+        // the base is about to take; reading them here does not consume them.
+        info.params = pbrt::ParameterDictionary(
+            pbrt::ParsedParameterVector(params), pbrt::RGBColorSpace::sRGB);
+        media.push_back(std::move(info));
+        pbrt::BasicSceneBuilder::MakeNamedMedium(name, std::move(params), loc);
     }
+    // PBRT: the two names become the graphics state's current media, which
+    // every shape declared after takes (ShapeSceneEntity::insideMedium and
+    // outsideMedium, which the base fills) and which the camera takes as its
+    // own medium. The base holds that state privately, so the outside name is
+    // mirrored here for the camera's sake, with the same pushing and popping
+    // the CTM gets (AttributeBegin/End below).
     void MediumInterface(const std::string &inside, const std::string &outside,
                          pbrt::FileLoc loc) override {
-        // An interface naming no medium on either side is what a scene writes
-        // to leave a medium, and means what no directive means.
-        if (inside.empty() && outside.empty()) {
-            pbrt::BasicSceneBuilder::MediumInterface(inside, outside, loc);
-            return;
-        }
-        fail(where(loc) + "MediumInterface \"" + inside + "\" \"" + outside +
-             "\": participating media are not supported -- the `volpath` "
-             "integrator, and every medium, is not implemented");
+        current_outside_medium = outside;
+        pbrt::BasicSceneBuilder::MediumInterface(inside, outside, loc);
     }
     static std::string where(const pbrt::FileLoc &loc) {
         return std::string(loc.filename) + ":" + std::to_string(loc.line) +
@@ -445,6 +466,18 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
 
     std::string camera_name;
     pbrt::ParameterDictionary camera_params;
+    // The medium the camera was declared in, by name; empty for none. See
+    // MediumInterface above for how the name is followed.
+    std::string camera_medium_name;
+    std::string current_outside_medium;
+    std::vector<std::string> medium_stack;
+    // `MakeNamedMedium`, recorded for conversion on first use like a material:
+    // only the media a shape's interface or the camera names are written.
+    struct MediumInfo {
+        std::string name;
+        pbrt::ParameterDictionary params;
+    };
+    std::vector<MediumInfo> media;
     // PBRT's default film, from BasicSceneBuilder's own initialization.
     std::string film_type = "rgb";
     pbrt::ParameterDictionary film_params;
@@ -541,13 +574,12 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     // kept as the record a light carries of how it was placed.
     bool ctm_is_tracked = true;
     std::map<std::string, pbrt::Transform> named_systems;
-    // PBRT's RandomWalkIntegrator default. The name is empty when the scene
-    // named no integrator, which is not the same as naming the default: PBRT
-    // would fall back to volpath, and this renderer has only the random walk,
-    // so the two cases are told apart where the scene is converted.
+    // Empty when the scene named no integrator, which PBRT resolves to
+    // `volpath`, and so does the conversion below.
     std::string integrator_name;
     int integrator_max_depth = 5;
-    // PathIntegrator::Create's defaults for the two parameters only it reads.
+    // PathIntegrator::Create's (and VolPathIntegrator::Create's) defaults for
+    // the two parameters only they read.
     std::string light_sampler_name = "bvh";
     bool integrator_regularize = false;
 };
@@ -1401,7 +1433,11 @@ int32_t convert_texture(const std::string &name) {
 bonsai_scene::Material
 convert_material(const CapturingBuilder::MaterialInfo &m) {
     bonsai_scene::Material out;
-    if (m.name.empty() || m.name == "none") {
+    // PBRT: Material::Create returns no material for `interface`, and for
+    // `""` and `none` with a deprecation warning -- a surface with no BSDF,
+    // which an integrator steps through (see MaterialTag::Interface).
+    if (m.name.empty() || m.name == "none" || m.name == "interface") {
+        out.tag = bonsai_scene::MaterialTag::Interface;
         return out;
     }
 
@@ -3307,17 +3343,26 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // and is lit by a sphere of radius 3 seen from four hundred units away, so
     // a walk that finds a light only by scattering into one lit 5,038 of its
     // 490,000 pixels. The same scene through `path` is a photograph.
+    //
+    // With `volpath` here, a scene that names no integrator gets PBRT's own
+    // default, as PBRT gives it (`pbrt::BasicScene`: `"volpath"` when the
+    // directive is absent); the comparison tools render pbrt's side with the
+    // same rewrite. The paragraph above is kept as the record of why the
+    // random walk stopped being the fallback.
     if (builder.integrator_name.empty()) {
-        out.integrator = bonsai_scene::IntegratorTag::Path;
+        out.integrator = bonsai_scene::IntegratorTag::VolPath;
     } else if (builder.integrator_name == "randomwalk") {
         out.integrator = bonsai_scene::IntegratorTag::RandomWalk;
     } else if (builder.integrator_name == "simplepath") {
         out.integrator = bonsai_scene::IntegratorTag::SimplePath;
     } else if (builder.integrator_name == "path") {
         out.integrator = bonsai_scene::IntegratorTag::Path;
+    } else if (builder.integrator_name == "volpath") {
+        out.integrator = bonsai_scene::IntegratorTag::VolPath;
     } else {
-        fail("this renderer implements `randomwalk`, `simplepath` and `path`, "
-             "and the scene asks for `" + builder.integrator_name + "`");
+        fail("this renderer implements `randomwalk`, `simplepath`, `path` and "
+             "`volpath`, and the scene asks for `" + builder.integrator_name +
+             "`");
     }
     out.regularize = builder.integrator_regularize ? 1u : 0u;
 
@@ -3638,6 +3683,95 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
     }
 
+    // A medium a shape's interface or the camera names, converted on first
+    // use as the materials below are. PBRT: HomogeneousMedium::Create -- a
+    // `preset` or the two coefficients (each a constant one when absent),
+    // both scaled by `scale`; `Le` with `Lescale` divided by its photometric
+    // integral, or nothing; and `g`. The spectra are tabulated at the
+    // integer nanometres a DenselySampledSpectrum holds, which is how the
+    // medium keeps them (see Medium in scene_io.h).
+    std::map<std::string, int32_t> medium_index;
+    const auto medium_for = [&](const std::string &name) -> int32_t {
+        if (name.empty()) {
+            return -1;
+        }
+        const auto it = medium_index.find(name);
+        if (it != medium_index.end()) {
+            return it->second;
+        }
+        const CapturingBuilder::MediumInfo *info = nullptr;
+        for (const CapturingBuilder::MediumInfo &m : builder.media) {
+            if (m.name == name) {
+                info = &m;
+            }
+        }
+        if (info == nullptr) {
+            fail("a shape or the camera names the medium \"" + name +
+                 "\", which was never declared");
+        }
+        pbrt::Allocator alloc;
+        const pbrt::ParameterDictionary &params = info->params;
+        pbrt::Spectrum sig_a = nullptr, sig_s = nullptr;
+        const std::string preset = params.GetOneString("preset", "");
+        if (!preset.empty() &&
+            !pbrt::GetMediumScatteringProperties(preset, &sig_a, &sig_s, alloc)) {
+            fail("the medium \"" + name + "\" names the preset \"" + preset +
+                 "\", which PBRT does not have either");
+        }
+        if (!sig_a) {
+            sig_a = params.GetOneSpectrum("sigma_a", nullptr,
+                                          pbrt::SpectrumType::Unbounded, alloc);
+            if (!sig_a) {
+                sig_a = alloc.new_object<pbrt::ConstantSpectrum>(1.f);
+            }
+        }
+        if (!sig_s) {
+            sig_s = params.GetOneSpectrum("sigma_s", nullptr,
+                                          pbrt::SpectrumType::Unbounded, alloc);
+            if (!sig_s) {
+                sig_s = alloc.new_object<pbrt::ConstantSpectrum>(1.f);
+            }
+        }
+        pbrt::Spectrum le = params.GetOneSpectrum(
+            "Le", nullptr, pbrt::SpectrumType::Illuminant, alloc);
+        pbrt::Float le_scale = params.GetOneFloat("Lescale", 1.f);
+        if (!le || le.MaxValue() == 0) {
+            le = alloc.new_object<pbrt::ConstantSpectrum>(0.f);
+        } else {
+            le_scale /= pbrt::SpectrumToPhotometric(le);
+        }
+        const pbrt::Float sigma_scale = params.GetOneFloat("scale", 1.f);
+
+        bonsai_scene::Medium medium;
+        medium.tag = bonsai_scene::MediumTag::Homogeneous;
+        medium.spectra = uint32_t(out.medium_spectra.size());
+        medium.g = params.GetOneFloat("g", 0.f);
+        // PBRT: DenselySampledSpectrum's constructor, `spec(lambda)` at each
+        // integer wavelength from 360 to 830, then Scale.
+        float le_max = 0.f;
+        for (const auto &[spec, scale] :
+             {std::pair<pbrt::Spectrum, pbrt::Float>{sig_a, sigma_scale},
+              std::pair<pbrt::Spectrum, pbrt::Float>{sig_s, sigma_scale},
+              std::pair<pbrt::Spectrum, pbrt::Float>{le, le_scale}}) {
+            for (int lambda = 360; lambda < 360 + bonsai_scene::kMediumSpectrumSamples;
+                 lambda++) {
+                out.medium_spectra.push_back(
+                    float(spec(pbrt::Float(lambda)) * scale));
+            }
+        }
+        for (int i = 0; i < bonsai_scene::kMediumSpectrumSamples; i++) {
+            le_max = std::max(
+                le_max, out.medium_spectra[medium.spectra +
+                                           2 * bonsai_scene::kMediumSpectrumSamples +
+                                           size_t(i)]);
+        }
+        medium.emissive = le_max > 0.f ? 1u : 0u;
+        const int32_t at = int32_t(out.media.size());
+        out.media.push_back(medium);
+        medium_index.emplace(name, at);
+        return at;
+    };
+
     // A shape names its material by index, and several shapes usually name the
     // same one, so the materials are written once and indexed rather than
     // copied per shape. The index a shape carries is this file's, not PBRT's:
@@ -3810,7 +3944,18 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             entity.materialName.empty()
                 ? material_for(entity.materialIndex)
                 : material_for_named(std::string(entity.materialName));
-        const int32_t light = light_for(entity.lightIndex);
+        // PBRT (scene.cpp, CreateLights): "Ignoring area light specification
+        // for shape with "interface" material" -- a boundary emits nothing,
+        // whatever the graphics state said when it was declared.
+        const bool interface_material =
+            out.materials[material].tag == bonsai_scene::MaterialTag::Interface;
+        const int32_t light =
+            interface_material ? -1 : light_for(entity.lightIndex);
+        // PBRT: `MediumInterface mi(findMedium(sh.insideMedium),
+        // findMedium(sh.outsideMedium))`, the two names the graphics state
+        // held when the shape was declared.
+        const int32_t medium_inside = medium_for(entity.insideMedium);
+        const int32_t medium_outside = medium_for(entity.outsideMedium);
 
         // PBRT: the `alpha` a shape may carry, which puts it in a
         // GeometricPrimitive rather than a SimplePrimitive. Ignoring it made a
@@ -3868,6 +4013,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             shape.material = material;
             shape.light = light;
             shape.alpha = alpha;
+            shape.medium_inside = medium_inside;
+            shape.medium_outside = medium_outside;
             if (light >= 0) {
                 shape.light_ordinal = next_light_ordinal++;
                 // The Sphere and its two transforms are read by
@@ -3925,6 +4072,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             shape.material = material;
             shape.light = light;
             shape.alpha = alpha;
+            shape.medium_inside = medium_inside;
+            shape.medium_outside = medium_outside;
             if (light >= 0) {
                 shape.light_ordinal = next_light_ordinal++;
                 pbrt::Transform *r_from_o =
@@ -4020,6 +4169,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 shape.material = material;
                 shape.light = light;
                 shape.alpha = alpha;
+                shape.medium_inside = medium_inside;
+                shape.medium_outside = medium_outside;
                 if (light >= 0) {
                     shape.light_ordinal = next_light_ordinal++;
                     emitter_lights.push_back(make_area_light(
@@ -4036,6 +4187,10 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
         convert_shape(entity, shapes);
     }
+    // PBRT: `CameraSceneEntity::medium`, resolved through the same map as
+    // the shapes' -- a medium only the camera sits in is still a medium the
+    // scene needs.
+    out.camera_medium = medium_for(builder.camera_medium_name);
 
     // PBRT: the second list. `BasicScene::CreateAggregate` (scene.cpp) turns
     // each `instanceDefinitions` entry into one Primitive -- its shapes built

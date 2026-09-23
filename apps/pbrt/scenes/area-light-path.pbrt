@@ -6,11 +6,9 @@
 # that reflects it, and both materials the renderer knows.
 #
 # `Integrator "simplepath"` is named rather than left to the default so that the
-# scene states the algorithm both sides run. PBRT's default is `volpath`, which
-# this renderer does not have; a scene naming it is refused rather than rendered
-# with something else. killeroo-simple names no integrator at all, which is the
-# other legal case: with nothing to disagree about, both sides use the random
-# walk.
+# scene states the algorithm both sides run. A scene that names none, as
+# killeroo-simple does, gets PBRT's default on both sides, which is `volpath`
+# (see homogeneous-medium.pbrt).
 #
 # The geometry is deliberately close and the light deliberately large. A random
 # walk finds a light by scattering into it, so the fraction of paths that find

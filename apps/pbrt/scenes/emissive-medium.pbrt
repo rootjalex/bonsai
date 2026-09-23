@@ -1,0 +1,72 @@
+# An emissive, absorbing medium, and nothing else that is random.
+#
+# The camera sits in a glowing haze that absorbs and does not scatter: every
+# camera ray takes one exponential step against the majorant, adds the
+# medium's emission there, and is absorbed, or reaches a surface first. The
+# surfaces are black, so direct lighting is zero before a shadow ray is ever
+# spawned, and the one emitter is seen directly or not at all. What remains
+# random is the majorant walk alone, whose RNG is seeded from the sampler's
+# own draws -- the same numbers on both sides -- so this is the scene on
+# which pbrt and this renderer must agree pixel for pixel, not only in the
+# mean. homogeneous-medium.pbrt and camera-medium.pbrt cannot promise that:
+# their shadow rays' transmittance RNG is seeded from a hash of the ray's
+# origin and direction, and a last-bit difference in either is a different
+# stream. (pbrt's own GPU and CPU renders part the same way.)
+
+Integrator "volpath"
+    "integer maxdepth" [ 5 ]
+
+MakeNamedMedium "glow"
+    "string type" [ "homogeneous" ]
+    "rgb sigma_a" [ 0.12 0.10 0.08 ]
+    "rgb sigma_s" [ 0 0 0 ]
+    "rgb Le" [ 0.8 0.9 1.0 ]
+    "float Lescale" [ 0.5 ]
+
+MediumInterface "" "glow"
+
+LookAt 0 4 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "emissive-medium.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+MediumInterface "" "glow"
+
+# The emitter, seen through the haze.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# Black surfaces: a floor and a sphere that end a path without a shadow ray.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 1.5 1.2 -3
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd

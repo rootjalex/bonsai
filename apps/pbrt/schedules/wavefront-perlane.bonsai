@@ -13,6 +13,10 @@
 schedule {
     walk_step.loopify();
     path_step.loopify();
+    // volpath's inner walks, as in wavefront.bonsai.
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|
@@ -29,6 +33,11 @@ schedule {
     full_path_step.defer(full_path_step, paths);
     render.split(paths, paths_gang, paths_lane, 16, true)
           .vectorize(paths_lane);
+    // volpath's step on its own queue, as in wavefront.bonsai.
+    vol_paths = render.queue(p);
+    vol_path_step.defer(vol_path_step, vol_paths);
+    render.split(vol_paths, vol_paths_gang, vol_paths_lane, 16, true)
+          .vectorize(vol_paths_lane);
     // The producer too, as wavefront.bonsai does; see there.
     render.split(s, s_gang, s_lane, 16, true)
           .vectorize(s_lane);

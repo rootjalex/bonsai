@@ -23,6 +23,15 @@ schedule {
     walk_step.loopify();
     path_step.loopify();
     full_path_step.loopify();
+    // volpath's walks are tail recursions the same way -- the path's step,
+    // the majorant walk inside a medium, the shadow ray's walk through
+    // interfaces with its ratio-tracking steps -- and become loops the same
+    // way. Left recursive, the gang below would have to be made of a
+    // recursion, which vectorize() does not do.
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
 
     // The samples of a pixel are a gang on the SIMD unit: ISPC-style, one lane
     // per sample, the whole path trace run a register's worth at a time --

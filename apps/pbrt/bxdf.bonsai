@@ -2100,7 +2100,27 @@ element Material =
     | DiffuseTransmission(dt : DiffuseTransmissionMaterial)
     // pbrt: MeasuredMaterial, which is nothing but the index of the table --
     // there is no parameter to it, since the measurement is the material.
-    | Measured(index : u32);
+    | Measured(index : u32)
+    // pbrt: `Material "interface"`, for which Material::Create returns no
+    // material at all -- a surface with no BSDF, there to bound a
+    // participating medium. An integrator that lands on one steps through it
+    // (SurfaceInteraction::SkipIntersection) and never asks for a BSDF, so
+    // `material_is_interface` is the question every integrator puts first.
+    | Interface;
+
+// pbrt: `if (!bsdf)` after GetBSDF -- the one material that returns none.
+func material_is_interface(mat : Material) -> bool {
+    match mat {
+        Interface => return true;
+        Diffuse(albedo) => return false;
+        CoatedDiffuse(m) => return false;
+        CoatedConductor(cc) => return false;
+        Dielectric(g) => return false;
+        Conductor(c) => return false;
+        DiffuseTransmission(dt) => return false;
+        Measured(index) => return false;
+    }
+}
 
 // pbrt: CoatedDiffuseMaterial::GetBxDF, and the `bsdf.Regularize()` the path
 // integrator may apply to what it returns.
@@ -2231,6 +2251,14 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         Diffuse(albedo) => {
             d : DiffuseBxDF =
                 {reflectance_at(albedo, lambda, uv, dudx, dvdx, dudy, dvdy)};
+            return Lambertian(d);
+        }
+        Interface => {
+            // Never asked: every integrator tests `material_is_interface`
+            // before it builds a BSDF, as pbrt tests `!bsdf`, and steps
+            // through the surface instead. A black Lambertian is what stands
+            // here so that the match is total.
+            d : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
             return Lambertian(d);
         }
         DiffuseTransmission(dt) => {
