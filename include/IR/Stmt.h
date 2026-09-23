@@ -323,7 +323,19 @@ struct Accumulate : StmtNode<Accumulate> {
     // is the compiler's job rather than the program's.
     bool atomic = false;
 
-    static Stmt make(WriteLoc loc, OpType op, Expr value, bool atomic = false);
+    // `spawn l += f(args);` -- the value is a call, its result goes into the
+    // reducer `l` and nowhere else, and nothing after this statement depends
+    // on it: the call may run later, elsewhere, in any order with the other
+    // contributions. What the program states so that a schedule may defer
+    // the call at a site that is not in tail position -- pbrt's shadow ray,
+    // traced by its own kernel and added to the pixel's L when it is -- and
+    // the deferral is right by construction. Run as written, it is the
+    // accumulate it looks like. Only a reducer takes a spawn (the parser
+    // checks), so the join is where the reducer is read.
+    bool spawned = false;
+
+    static Stmt make(WriteLoc loc, OpType op, Expr value, bool atomic = false,
+                     bool spawned = false);
 
     static const IRStmtEnum node_type = IRStmtEnum::Accumulate;
 };

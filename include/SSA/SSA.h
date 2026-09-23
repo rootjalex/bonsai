@@ -319,6 +319,12 @@ struct Terminator {
         Jump cont; // continuation to return to. if call returns a value, it is
                    // appended as the first argument to cont
         bool drop = true;
+        // A spawned call (ir::Accumulate::spawned): its value goes into a
+        // reducer by the accumulate that is the continuation's first
+        // instruction, and nothing else of the continuation depends on it.
+        // A deferral may push the call and go on without waiting; the drain
+        // makes the call and the accumulate (SSA/Defer.cpp).
+        bool spawned = false;
     };
     struct MultiCall {
         // A run of calls to one callee, differing only in some arguments, and

@@ -662,6 +662,19 @@ struct FunctionBuilder : Visitor {
     // TODO: dedup with Store visitor
     void visit(const Accumulate *node) override {
         auto v = get_value(node->value);
+        if (node->spawned) {
+            // The value is a call, which ended the block before this one;
+            // the accumulate about to be made is the first instruction of
+            // its continuation (see Terminator::Call::spawned).
+            internal_assert(block->instrs.empty() && block->preds.size() == 1)
+                << "spawn: the call's continuation is not fresh: " << Stmt(node);
+            const auto pred = block->preds.front().lock();
+            auto *call = pred ? std::get_if<Terminator::Call>(&pred->terminator.data)
+                              : nullptr;
+            internal_assert(call != nullptr && !call->drop)
+                << "spawn: the value is not a call with a result: " << Stmt(node);
+            call->spawned = true;
+        }
         auto op = get_acc_op(node->op);
 
         std::shared_ptr<Value> ptr = nullptr;

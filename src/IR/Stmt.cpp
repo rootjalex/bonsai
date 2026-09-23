@@ -309,7 +309,8 @@ Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact) {
     return node;
 }
 
-Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic) {
+Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic,
+                      bool spawned) {
     internal_assert(loc.defined())
         << "Undefined write location in Accumulate::make";
     internal_assert(value.defined()) << "Undefined value in Accumulate::make";
@@ -318,6 +319,7 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic) {
     node->op = op;
     node->value = std::move(value);
     node->atomic = atomic;
+    node->spawned = spawned;
     return node;
 }
 
