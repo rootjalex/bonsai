@@ -50,6 +50,29 @@ struct Queue {
     std::optional<Expr> capacity;
 };
 
+// A queue split by a value, into one queue per variant:
+//
+//     hits.specialize(isect);              // hits[None], hits[Some]
+//     hits[Some].specialize(material);     // hits[Some][Diffuse], ...
+//
+// `key` names a value of variant type -- an ADT, or an optional -- that the
+// function the queue's drain runs computes (or is handed) from an entry:
+// the push computes it too and goes to the variant's queue, and that
+// queue's drain runs a copy of the function in which the value's tag is a
+// constant, so every match on it folds to the one arm. pbrt's wavefront has
+// a queue per material type, filled by its trace kernel by the hit's
+// material and drained by a kernel compiled for that material alone; this
+// is that, as a schedule of the one function. `under` is the path of
+// variant labels from the declared queue to the queue being split, empty
+// for the queue itself. Halide's specialize, on a queue: the copies are
+// exhaustive over the variants, as `Specialize` below is. Applied inside
+// defer() (SSA/Defer.h, QueueSpec::split).
+struct QueueSpecialize {
+    std::string queue;
+    std::vector<std::string> under;
+    std::string key;
+};
+
 // f.defer(callee, queue)
 //
 // Every call of `callee` inside `f` becomes a push of the call's varying
@@ -318,6 +341,8 @@ struct Schedule {
     // rather than a transform: a `defer` names one, and where in the
     // schedule the queue was declared changes nothing.
     std::map<std::string, Queue> queues;
+    // The queues split by a value, in the order written (see QueueSpecialize).
+    std::vector<QueueSpecialize> queue_specializations;
     // Which group backs a tree held in a field, keyed the same way
     // `tree_types` is: `Instance.blas -> BlasNodes`.
     //

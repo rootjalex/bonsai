@@ -46,18 +46,18 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
 
 func [[noinline]] step(x : f32, k : f32, _queue_q : mut (Queue_q*)) -> Saved_step!after {
   let @0 = work(x) in
-  let @3 = build<Entry_q>(@0, undef) in
-  let @7 = atomic_add((&(*_queue_q).count), 1u) in
-  let @9 = (*_queue_q).@0 in
-  @9[@7] = @0
-  let @5 = build<Saved_step!after>(true, @7, undef) in
-  return @5
+  let @2 = build<Entry_q>(@0, undef) in
+  let @6 = atomic_add((&(*_queue_q).count), 1u) in
+  let @8 = (*_queue_q).@0 in
+  @8[@6] = @0
+  let @4 = build<Saved_step!after>(true, @6, undef) in
+  return @4
 }
 
 func [[noinline]] step!after(@0 : f32, k : f32) -> f32 {
   let r = @0 in
-  let @2 = r + k in
-  return @2
+  let @1 = r + k in
+  return @1
 }
 
 func [[noinline]] work(x : f32) -> f32 {

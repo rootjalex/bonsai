@@ -4,8 +4,11 @@
 #include "IR/Type.h"
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
+#include "SSA/Definitions.h"
+#include "SSA/Simplify.h"
 #include "Utils.h"
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -372,6 +375,363 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
 
     // The bodies the loops no longer enter.
     remove_unreachable_blocks(f);
+}
+
+//===----------------------------------------------------------------------===//
+// A queue's specialize: the drained function per variant of a value
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+Type type_of(const Value &v) {
+    return std::visit(
+        overloads{[](const Constant &c) { return c.type; },
+                  [](const Argument &a) { return a.type; },
+                  [](const shared_ptr<Instruction> &i) { return i->type; }},
+        v.data);
+}
+
+// Lower/Options.cpp stores an optional as a struct named `_option<n>` of
+// its `value` and a `set` flag.
+bool is_optional_storage(const Struct_t &s) {
+    return s.fields.size() == 2 && s.name.rfind("_option", 0) == 0 &&
+           s.fields[0].name == "value" && s.fields[1].name == "set";
+}
+
+// Where a value's tag is and what it can be.
+struct KeyTag {
+    size_t field;
+    Type type;
+    vector<KeyVariant> variants;
+};
+
+std::optional<KeyTag>
+key_tag_of(const Type &type,
+           const map<string, ir::Program::AdtStorage> &storages,
+           const string &what) {
+    const Struct_t *s = type.as<Struct_t>();
+    if (s == nullptr) {
+        return std::nullopt;
+    }
+    if (is_optional_storage(*s)) {
+        return KeyTag{1, Bool_t::make(), {{"None", 0}, {"Some", 1}}};
+    }
+    const auto it = storages.find(s->name);
+    if (it == storages.end()) {
+        return std::nullopt;
+    }
+    const ir::Program::AdtStorage &storage = it->second;
+    internal_assert(storage.inline_storage)
+        << "[unimplemented] " << what << ": " << s->name
+        << " is stored as a tagged index, whose tag is the top bits of one "
+        << "word; a queue's specialize handles a tag beside the payload";
+    KeyTag tag{find_struct_index(storage.tag_field, s->fields),
+               storage.tag_type,
+               {}};
+    for (size_t k = 0; k < storage.variants.size(); k++) {
+        internal_assert(storage.variants[k].second == k)
+            << "[unimplemented] " << what << ": variant "
+            << storage.variants[k].first << " has tag "
+            << storage.variants[k].second << ", not its position " << k;
+        tag.variants.push_back(
+            KeyVariant{storage.variants[k].first, storage.variants[k].second});
+    }
+    return tag;
+}
+
+shared_ptr<Value> tag_constant(const KeyTag &tag, uint64_t value) {
+    if (tag.type.is<Bool_t>()) {
+        return std::make_shared<Value>(Constant{tag.type, value != 0});
+    }
+    return std::make_shared<Value>(tag.type.is_uint()
+                                       ? Constant{tag.type, uint64_t(value)}
+                                       : Constant{tag.type, int64_t(value)});
+}
+
+// What a key may be computed by, for the push to compute it too: nothing
+// that traps, allocates or has an effect. A load is allowed and its source
+// checked by the caller.
+bool computes_a_key(Instruction::Op op) {
+    switch (op) {
+    case Instruction::Op::Abs:
+    case Instruction::Op::Add:
+    case Instruction::Op::BwAnd:
+    case Instruction::Op::BwOr:
+    case Instruction::Op::Cast:
+    case Instruction::Op::Eq:
+    case Instruction::Op::ExtractIdx:
+    case Instruction::Op::FieldPtr:
+    case Instruction::Op::GEP:
+    case Instruction::Op::LAnd:
+    case Instruction::Op::LOr:
+    case Instruction::Op::Leq:
+    case Instruction::Op::Load:
+    case Instruction::Op::LoadField:
+    case Instruction::Op::Lt:
+    case Instruction::Op::MakeStruct:
+    case Instruction::Op::Max:
+    case Instruction::Op::Min:
+    case Instruction::Op::Mul:
+    case Instruction::Op::Ne:
+    case Instruction::Op::Not:
+    case Instruction::Op::Reinterpret:
+    case Instruction::Op::Select:
+    case Instruction::Op::Set:
+    case Instruction::Op::Shl:
+    case Instruction::Op::Shr:
+    case Instruction::Op::Sub:
+    case Instruction::Op::Xor:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
+vector<KeyVariant>
+key_variants(const Type &type,
+             const map<string, ir::Program::AdtStorage> &storages) {
+    const auto tag = key_tag_of(type, storages, "key_variants");
+    return tag.has_value() ? tag->variants : vector<KeyVariant>{};
+}
+
+shared_ptr<Value> key_value(const Function &func, const string &key) {
+    for (const auto &block : func.blocks) {
+        for (const auto &in : block->instrs) {
+            if (in->name == key) {
+                return std::make_shared<Value>(in);
+            }
+        }
+    }
+    for (const Argument &a : func.blocks.front()->args) {
+        if (a.name == key) {
+            return std::make_shared<Value>(a);
+        }
+    }
+    return nullptr;
+}
+
+shared_ptr<Function>
+specialize_function(const Function &func, const string &name,
+                    const string &key, const KeyVariant &v,
+                    const map<string, ir::Program::AdtStorage> &storages) {
+    const string what =
+        func.blocks.front()->name + " with " + key + " = " + v.label;
+    shared_ptr<Function> copy = clone_function(func);
+    // A function's entry block carries its name; whatever in the copy names
+    // the original -- a jump to the entry, a call of itself -- follows.
+    const string was = copy->blocks.front()->name;
+    copy->blocks.front()->name = name;
+    for (const auto &block : copy->blocks) {
+        for (Terminator::Jump *jump : jumps_of(*block)) {
+            if (jump->name == was) {
+                jump->name = name;
+            }
+        }
+        if (auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+            call != nullptr && call->call.name == was) {
+            call->call.name = name;
+        }
+        if (auto *call = std::get_if<Terminator::MultiCall>(&block->terminator.data);
+            call != nullptr && call->call.name == was) {
+            call->call.name = name;
+        }
+    }
+
+    const shared_ptr<Value> given = key_value(*copy, key);
+    internal_assert(given) << what << ": " << func.blocks.front()->name
+                           << " has no value named " << key;
+    const Type type = type_of(*given);
+    internal_assert(!type.is<Ptr_t>())
+        << "[unimplemented] " << what << ": " << key << " is handed by pointer";
+    const auto tag = key_tag_of(type, storages, what);
+    internal_assert(tag.has_value())
+        << what << ": " << key << " is a " << type
+        << ", not a variant type or an optional";
+    const Struct_t &s = *type.as<Struct_t>();
+
+    // The specialized value is defined right after the key: after its
+    // instruction, or first thing in the entry for a parameter. It is the
+    // key's fields with the tag replaced.
+    const string fresh = key + "!" + v.label;
+    copy->reserve_name(fresh);
+    shared_ptr<Block> at;
+    size_t position = 0;
+    const auto *instr = std::get_if<shared_ptr<Instruction>>(&given->data);
+    if (instr != nullptr) {
+        at = (*instr)->owner.lock();
+        internal_assert(at) << what << ": " << key << " outlived its block";
+        for (size_t i = 0; i < at->instrs.size(); i++) {
+            if (at->instrs[i].get() == instr->get()) {
+                position = i + 1;
+            }
+        }
+    } else {
+        at = copy->blocks.front();
+    }
+    vector<shared_ptr<Instruction>> prologue;
+    const auto make = [&](const string &iname, const Type &itype,
+                          Instruction::Op op,
+                          vector<shared_ptr<Value>> operands) {
+        auto in = std::make_shared<Instruction>(iname, itype, op,
+                                                std::move(operands), at);
+        prologue.push_back(in);
+        auto value = std::make_shared<Value>(in);
+        at->lookups[iname] = value;
+        return value;
+    };
+    vector<shared_ptr<Value>> fields;
+    for (size_t i = 0; i < s.fields.size(); i++) {
+        fields.push_back(i == tag->field
+                             ? tag_constant(*tag, v.tag)
+                             : make(copy->get_unique_name(), s.fields[i].type,
+                                    Instruction::Op::LoadField,
+                                    {given, constant_u32(i)}));
+    }
+    const shared_ptr<Value> spec =
+        make(fresh, type, Instruction::Op::MakeStruct, std::move(fields));
+
+    // Every use of the key reads the specialized value: an instruction's
+    // uses by pointer -- the reads of its fields above are not in any block
+    // yet, and keep the key -- and a parameter's by name.
+    if (instr != nullptr) {
+        for (const auto &block : copy->blocks) {
+            for_each_value(*block, [&](shared_ptr<Value> &u) {
+                const auto *ui = u ? std::get_if<shared_ptr<Instruction>>(&u->data)
+                                   : nullptr;
+                if (ui != nullptr && ui->get() == instr->get()) {
+                    u = spec;
+                }
+            });
+        }
+        at->lookups[key] = spec;
+    } else {
+        rename_uses(copy->blocks, *at, key, fresh);
+    }
+    at->instrs.insert(at->instrs.begin() + position, prologue.begin(),
+                      prologue.end());
+    // The tag is a constant now: every match on the key folds to its arm.
+    simplify(*copy);
+    return copy;
+}
+
+shared_ptr<Value>
+key_tag_at(Block &block, const Function &func, const string &key,
+           const map<string, shared_ptr<Value>> &params,
+           const map<string, ir::Program::AdtStorage> &storages) {
+    const string what = func.blocks.front()->name + "'s " + key + " at a push";
+    const shared_ptr<Value> given = key_value(func, key);
+    internal_assert(given) << what << ": " << func.blocks.front()->name
+                           << " has no value named " << key;
+    const Type type = type_of(*given);
+    internal_assert(!type.is<Ptr_t>())
+        << "[unimplemented] " << what << ": " << key << " is handed by pointer";
+    const auto tag = key_tag_of(type, storages, what);
+    internal_assert(tag.has_value())
+        << what << ": " << key << " is a " << type
+        << ", not a variant type or an optional";
+
+    Definitions defs(func);
+    const string entry = func.blocks.front()->name;
+    // The parameter a chain of addresses bottoms out in, if it does: what a
+    // load in the key's computation reads through.
+    const std::function<const Argument *(const shared_ptr<Value> &, const string &)>
+        param_behind = [&](const shared_ptr<Value> &v,
+                           const string &in) -> const Argument * {
+        const Definition d = defs.of(in, v);
+        if (const auto *a = std::get_if<Argument>(&d.value->data)) {
+            if (d.block != entry) {
+                return nullptr;
+            }
+            for (const Argument &p : func.blocks.front()->args) {
+                if (p.name == a->name) {
+                    return &p;
+                }
+            }
+            return nullptr;
+        }
+        const auto *i = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+        if (i == nullptr || (*i)->operands.empty()) {
+            return nullptr;
+        }
+        switch ((*i)->op) {
+        case Instruction::Op::GEP:
+        case Instruction::Op::FieldPtr:
+        case Instruction::Op::ExtractIdx:
+        case Instruction::Op::LoadField:
+        case Instruction::Op::Set:
+            return param_behind((*i)->operands[0], (*i)->owner.lock()->name);
+        default:
+            return nullptr;
+        }
+    };
+
+    map<const Instruction *, shared_ptr<Value>> made;
+    std::function<shared_ptr<Value>(const shared_ptr<Value> &, const string &)>
+        copy_of;
+    copy_of = [&](const shared_ptr<Value> &v,
+                  const string &in) -> shared_ptr<Value> {
+        return std::visit(
+            overloads{
+                [&](const Constant &) { return v; },
+                [&](const Argument &a) -> shared_ptr<Value> {
+                    const Definition d = defs.of(in, v);
+                    if (const auto *da = std::get_if<Argument>(&d.value->data)) {
+                        internal_assert(d.block == entry)
+                            << what << ": " << key << " depends on " << a.name
+                            << ", to which " << d.block << " gives different "
+                            << "values on different paths; a key is one "
+                            << "computation of the entry";
+                        const auto it = params.find(da->name);
+                        internal_assert(it != params.end())
+                            << what << ": the push has no value for the "
+                            << "parameter " << da->name;
+                        return it->second;
+                    }
+                    return copy_of(d.value, d.block);
+                },
+                [&](const shared_ptr<Instruction> &i) -> shared_ptr<Value> {
+                    if (const auto it = made.find(i.get()); it != made.end()) {
+                        return it->second;
+                    }
+                    if (i->op == Instruction::Op::Set) {
+                        // A program's name for a value: the value.
+                        return copy_of(i->operands[0], i->owner.lock()->name);
+                    }
+                    internal_assert(computes_a_key(i->op))
+                        << what << ": " << key << " depends on " << i->name
+                        << ", which is not a computation the push can repeat "
+                        << "from the entry";
+                    const string here = i->owner.lock()->name;
+                    if (i->op == Instruction::Op::Load ||
+                        (i->op == Instruction::Op::ExtractIdx &&
+                         (type_of(*i->operands[0]).is<Ptr_t>() ||
+                          type_of(*i->operands[0]).is_reference()))) {
+                        const Argument *through = param_behind(i->operands[0], here);
+                        internal_assert(through != nullptr && !through->mutating)
+                            << what << ": " << key << " depends on " << i->name
+                            << ", a read of memory that is not through a "
+                            << "parameter nothing writes; the push might read "
+                            << "something else than the drain";
+                    }
+                    vector<shared_ptr<Value>> operands;
+                    for (const auto &o : i->operands) {
+                        operands.push_back(copy_of(o, here));
+                    }
+                    auto out = block.make_instruction(i->type, i->op,
+                                                      std::move(operands));
+                    made[i.get()] = out;
+                    return out;
+                },
+            },
+            v->data);
+    };
+    const auto *instr = std::get_if<shared_ptr<Instruction>>(&given->data);
+    const shared_ptr<Value> here =
+        copy_of(given, instr != nullptr ? (*instr)->owner.lock()->name : entry);
+    return block.make_instruction(tag->type, Instruction::Op::LoadField,
+                                  {here, constant_u32(tag->field)});
 }
 
 } // namespace ssa

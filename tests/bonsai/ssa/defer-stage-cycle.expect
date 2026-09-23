@@ -117,33 +117,33 @@ func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
 
 func [[noinline]] step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*), _queue_hits : mut (Queue_hits*)) -> Saved_step!after {
   let @0 = work(x) in
-  let @16 = build<Entry_hits>(@0, n, undef) in
-  let @20 = atomic_add((&(*_queue_hits).count), 1u) in
-  let @22 = (*_queue_hits).@0 in
-  @22[@20] = @0
-  let @25 = (*_queue_hits).n in
-  @25[@20] = n
-  let @18 = build<Saved_step!after>(true, @20, undef) in
-  return @18
+  let @9 = build<Entry_hits>(@0, n, undef) in
+  let @13 = atomic_add((&(*_queue_hits).count), 1u) in
+  let @15 = (*_queue_hits).@0 in
+  @15[@13] = @0
+  let @18 = (*_queue_hits).n in
+  @18[@13] = n
+  let @11 = build<Saved_step!after>(true, @13, undef) in
+  return @11
 }
 
 func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*)) -> Saved_step {
   let r = @0 in
-  let @15 = n == 0 in
-  if (@15) {
-    let @13 = r + k in
-    let @14 = build<Saved_step>(false, undef, @13) in
-    return @14
+  let @1 = n == 0 in
+  if (@1) {
+    let @2 = r + k in
+    let @5 = build<Saved_step>(false, undef, @2) in
+    return @5
   } else {
-    let @9 = n - 1 in
-    let @10 = build<Entry_rays>(r, @9, undef) in
-    let @17 = atomic_add((&(*_queue_rays).count), 1u) in
-    let @19 = (*_queue_rays).x in
-    @19[@17] = r
-    let @22 = (*_queue_rays).n in
-    @22[@17] = @9
-    let @12 = build<Saved_step>(true, @17, undef) in
-    return @12
+    let @3 = n - 1 in
+    let @6 = build<Entry_rays>(r, @3, undef) in
+    let @10 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @12 = (*_queue_rays).x in
+    @12[@10] = r
+    let @15 = (*_queue_rays).n in
+    @15[@10] = @3
+    let @8 = build<Saved_step>(true, @10, undef) in
+    return @8
   }
 }
 

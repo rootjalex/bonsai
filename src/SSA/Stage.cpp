@@ -202,7 +202,10 @@ vector<Type> stage(FuncMap &funcs, const string &func_name,
                   ir::Function::Attribute::noinline) == A->attributes.end()) {
         A->attributes.push_back(ir::Function::Attribute::noinline);
     }
-    const auto copies = clone_region(*F, rest, "!after");
+    // The rest is a function of its own, so its values keep the program's
+    // names for them: a queue's specialize names one (`hits.specialize(
+    // material)`).
+    const auto copies = clone_region(*F, rest, "!after", /*keep_names=*/true);
     // The entry first, then the others, each now the new function's. A
     // function's entry block carries its name, so the continuation's copy is
     // renamed and whatever jumped to it inside the rest follows.

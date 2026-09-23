@@ -53,6 +53,55 @@ void specialize_loops(FuncMap &fmap, const std::string &fname,
                       const std::map<std::string, ir::Program::AdtStorage>
                           &storages);
 
+// A queue's specialize (ir::QueueSpecialize, QueueSpec::split): the drained
+// function copied per variant of a value it computes, and the value's tag
+// computed where the entry is pushed. The same idea as above with the
+// dispatch at the push rather than at the loop, since a queue's entries
+// each have their own variant.
+
+// One variant of the value a queue is split on: its label, which names the
+// sub-queue (`hits[Some]`, `hits[Diffuse]`), and its tag.
+struct KeyVariant {
+    std::string label;
+    uint64_t tag;
+};
+
+// The variants a value of `type` has, for a split on it: an ADT's, by name
+// and tag, or an optional's `None` and `Some` -- its `set` field false and
+// true (Lower/Options.cpp stores an optional as a struct of `value` and
+// `set`). Empty when the type is neither, which a split refuses.
+std::vector<KeyVariant>
+key_variants(const Type &type,
+             const std::map<std::string, ir::Program::AdtStorage> &storages);
+
+// The value named `key` in `func`: an instruction, by the program's name
+// for it (a `let`'s Set keeps its name through every copy), or a parameter.
+// Null when there is none.
+std::shared_ptr<Value> key_value(const Function &func, const std::string &key);
+
+// A copy of `func`, named `name`, in which `key` has the variant `v`: right
+// after the key's definition the copy reads it with its tag set to `v`'s
+// and uses that everywhere the key was used, so every match on it folds to
+// the one arm and the rest goes (SSA/Simplify.h). The copy is what a
+// sub-queue's drain calls.
+std::shared_ptr<Function>
+specialize_function(const Function &func, const std::string &name,
+                    const std::string &key, const KeyVariant &v,
+                    const std::map<std::string, ir::Program::AdtStorage> &storages);
+
+// The tag of `key` as `func` computes it, made in `block` from `params`, the
+// values `block` has for `func`'s parameters by name: the instructions the
+// key is computed by, copied there in order. Only a key computed by pure
+// instructions from the parameters -- arithmetic, a field of a value, an
+// element of an array a parameter names, a load through a parameter nothing
+// writes -- since the push has the entry's values and nothing else; a key
+// depending on more is refused. The tag is `func`'s to read: an ADT's tag
+// field, or an optional's `set`.
+std::shared_ptr<Value>
+key_tag_at(Block &block, const Function &func, const std::string &key,
+           const std::map<std::string, std::shared_ptr<Value>> &params,
+           const std::map<std::string, ir::Program::AdtStorage> &storages);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

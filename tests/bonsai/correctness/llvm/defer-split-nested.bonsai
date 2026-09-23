@@ -1,0 +1,63 @@
+//! flags: -p ssa -b llvm -e
+
+// A split under a split, the renderer's shape: the staged call returns an
+// optional, so `hits` is split into hits[None] and hits[Some] first, and
+// under Some -- where the value is known to be there, so its variant can
+// be read -- by the variant. pbrt's trace kernel sorts rays into the
+// escaped queue and, for the hits, a queue per material; this is that,
+// with the second key computed only for the entries that have one.
+import stdlib/numerics;
+
+element Kind =
+    | Small(x : Float)
+    | Large(x : Float);
+
+func classify(x : Float) -> Kind {
+    if x < 10.0 {
+        return Small(x);
+    }
+    return Large(x);
+}
+
+func find(x : Float) -> option[Kind] {
+    if x < 0.0 {
+        return {};
+    }
+    return classify(x);
+}
+
+func step(x : Float, k : Float) -> Float {
+    found = find(x);
+    if !found {
+        return -1.0;
+    }
+    kind = *found;
+    match kind {
+        Small(v) => return v + k;
+        Large(v) => return v * k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, -1.0, 3.0, 20.0, -30.0, 4.0, 40.0, 5.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 2.0, out);
+    // None: -1; Small: x + 2; Large: x * 2.
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.stage(find, hits);
+    hits.specialize(found);
+    hits[Some].specialize(kind);
+}

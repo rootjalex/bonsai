@@ -56,22 +56,22 @@ func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void
 
 func [[noinline]] step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queue_q*)) -> Saved_step!after {
   let @0 = work(x) in
-  let @3 = (*seen) in
-  let @4 = build<Entry_q>(@0, @3, undef) in
-  let @8 = atomic_add((&(*_queue_q).count), 1u) in
-  let @10 = (*_queue_q).@0 in
-  @10[@8] = @0
-  let @13 = (*_queue_q).seen in
-  @13[@8] = @3
-  let @6 = build<Saved_step!after>(true, @8, undef) in
-  return @6
+  let @2 = (*seen) in
+  let @3 = build<Entry_q>(@0, @2, undef) in
+  let @7 = atomic_add((&(*_queue_q).count), 1u) in
+  let @9 = (*_queue_q).@0 in
+  @9[@7] = @0
+  let @12 = (*_queue_q).seen in
+  @12[@7] = @2
+  let @5 = build<Saved_step!after>(true, @7, undef) in
+  return @5
 }
 
 func [[noinline]] step!after(@0 : f32, seen : mut (f32*), k : f32) -> f32 {
   let r = @0 in
   seen = r
-  let @2 = r + k in
-  return @2
+  let @1 = r + k in
+  return @1
 }
 
 func [[noinline]] work(x : f32) -> f32 {

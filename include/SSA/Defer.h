@@ -1,9 +1,11 @@
 #pragma once
 
+#include "IR/Program.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -46,6 +48,25 @@ struct QueueSpec {
     // before it, serves every round in place of the two a self-feeding
     // queue has (see the Convert pass, which reads the stage directives).
     bool drain_pushes_self = true;
+    // The queue split by a value into one queue per variant, and those
+    // split further: `hits.specialize(isect); hits[Some].specialize(
+    // material);` is a split on `isect` whose `Some` is split on `material`
+    // (ir::QueueSpecialize). `key` names a value of the drained function --
+    // an instruction, by the program's name for it, or a parameter -- of
+    // variant type (an ADT, or an optional with variants None and Some).
+    // The leaves of the tree are the queues: each has storage of its own,
+    // named by its path (`hits!Some!Diffuse`), a drain loop of that name,
+    // and a copy of the drained function in which every key on the path has
+    // its variant's tag (SSA/Specialize.h); a push computes the keys from
+    // the entry and goes to the leaf they select. Only for a queue drained
+    // in one pass so far.
+    struct Split {
+        std::string key;
+        std::map<std::string, Split> under;
+    };
+    std::optional<Split> split;
+    // How the program's variant types are stored, for the split's keys.
+    const std::map<std::string, ir::Program::AdtStorage> *adt_storages = nullptr;
 };
 
 // Turns the calls of `callee` inside `func` into entries on a queue, and gives

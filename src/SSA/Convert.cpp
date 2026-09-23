@@ -1588,10 +1588,54 @@ void check_branch_policies(const FuncMap &fmap,
     }
 }
 
+// The splits the schedule wrote on `spec`'s queue, as its tree: `q.specialize(
+// k)` is the root, `q[A].specialize(k2)` the node under the root's variant
+// `A` (ir::QueueSpecialize, QueueSpec::Split). A node split below is split
+// itself.
+void attach_splits(QueueSpec &spec,
+                   const std::vector<ir::QueueSpecialize> &splits,
+                   const std::map<std::string, ir::Program::AdtStorage>
+                       &adt_storages) {
+    spec.adt_storages = &adt_storages;
+    for (const ir::QueueSpecialize &qs : splits) {
+        if (qs.queue != spec.name) {
+            continue;
+        }
+        if (!spec.split.has_value()) {
+            spec.split = QueueSpec::Split{};
+        }
+        QueueSpec::Split *at = &*spec.split;
+        std::string path = spec.name;
+        for (const std::string &label : qs.under) {
+            at = &at->under[label];
+            path += "[" + label + "]";
+        }
+        internal_assert(at->key.empty())
+            << path << ".specialize(" << qs.key << "): " << path
+            << " is already split on " << at->key;
+        at->key = qs.key;
+    }
+    if (!spec.split.has_value()) {
+        return;
+    }
+    const std::function<void(const QueueSpec::Split &, const std::string &)>
+        check = [&](const QueueSpec::Split &node, const std::string &path) {
+            internal_assert(!node.key.empty())
+                << path << " is split below (`" << path
+                << "[...].specialize(...)`) but not itself: write `" << path
+                << ".specialize(<value>)` too.";
+            for (const auto &[label, under] : node.under) {
+                check(under, path + "[" + label + "]");
+            }
+        };
+    check(*spec.split, spec.name);
+}
+
 ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     const ir::TransformOrder &order,
                     const ir::BranchPolicyMap &policies,
                     const std::map<std::string, ir::Queue> &queues,
+                    const std::vector<ir::QueueSpecialize> &queue_splits,
                     const std::map<std::string, ir::Program::AdtStorage>
                         &adt_storages,
                     const CompilerOptions &options,
@@ -1749,6 +1793,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         QueueSpec spec;
                         spec.name = s.queue;
                         spec.owner = q->second.owner;
+                        attach_splits(spec, queue_splits, adt_storages);
                         internal_assert(!q->second.loop.names.empty())
                             << s.queue << " names no loop";
                         spec.loop = q->second.loop.names.back();
@@ -1829,6 +1874,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         QueueSpec spec;
                         spec.name = d.queue;
                         spec.owner = q->second.owner;
+                        attach_splits(spec, queue_splits, adt_storages);
                         spec.initial_push = directive_on(q->second.owner);
                         // Whether running an entry can push onto this queue:
                         // not when a stage on the callee moves every one of
@@ -2062,12 +2108,14 @@ ir::Program ConvertToSSA::run(ir::Program program,
     ir::TransformOrder order;
     ir::BranchPolicyMap policies;
     std::map<std::string, ir::Queue> queues;
+    std::vector<ir::QueueSpecialize> queue_splits;
     if (const auto it = program.schedules.find(ir::Target::Host);
         it != program.schedules.end()) {
         transforms = it->second.func_transforms;
         order = it->second.transform_order;
         policies = it->second.branch_policies;
         queues = it->second.queues;
+        queue_splits = it->second.queue_specializations;
     }
 
     ir::Program new_program;
@@ -2077,13 +2125,13 @@ ir::Program ConvertToSSA::run(ir::Program program,
     new_program.adt_storages = program.adt_storages;
     new_program.funcs =
         convert(std::move(program.funcs), transforms, order, policies, queues,
-                new_program.adt_storages, options, &new_program);
+                queue_splits, new_program.adt_storages, options, &new_program);
     return new_program;
 }
 
 ir::FuncMap ConvertToSSA::run(ir::FuncMap funcs,
                               const CompilerOptions &options) const {
-    return convert(std::move(funcs), {}, {}, {}, {}, {}, options);
+    return convert(std::move(funcs), {}, {}, {}, {}, {}, {}, options);
 }
 
 } // namespace ssa

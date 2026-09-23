@@ -2787,6 +2787,10 @@ struct Parser {
         once(into.array_layouts, from.array_layouts, "layout");
         once(into.tree_groups, from.tree_groups, "node group");
         once(into.queues, from.queues, "queue");
+        into.queue_specializations.insert(
+            into.queue_specializations.end(),
+            std::move_iterator(from.queue_specializations.begin()),
+            std::move_iterator(from.queue_specializations.end()));
         for (const auto &[name, index] : from.transform_order) {
             into.transform_order.emplace_back(
                 name, into.func_transforms[name].size() + index);
@@ -2845,6 +2849,42 @@ struct Parser {
                     break;
                 }
 
+                // `hits.specialize(isect);` or `hits[Some].specialize(m);`
+                // -- a queue split by a value (see ir::QueueSpecialize).
+                // Whether `hits` is a queue is checked when the schedule is
+                // applied, as a defer's queue is, since a block may declare
+                // its queues after the directives on them.
+                if (peek().type == Token::Type::LBRACKET ||
+                    peek().type == Token::Type::PERIOD) {
+                    std::vector<std::string> under;
+                    while (consume(Token::Type::LBRACKET)) {
+                        under.push_back(get_id());
+                        expect(Token::Type::RBRACKET);
+                    }
+                    expect(Token::Type::PERIOD);
+                    const std::string field = get_id();
+                    if (field == "specialize") {
+                        expect(Token::Type::LPAREN);
+                        ir::Location key = parse_location();
+                        if (key.names.size() != 1) {
+                            report_error()
+                                << name << ".specialize() names one value of "
+                                << "the function the queue's drain runs, not a "
+                                << "path.";
+                        }
+                        expect(Token::Type::RPAREN);
+                        expect(Token::Type::SEMICOL);
+                        schedule.queue_specializations.push_back(
+                            ir::QueueSpecialize{name, std::move(under),
+                                                key.names.front()});
+                        break;
+                    }
+                    if (!under.empty()) {
+                        report_error()
+                            << "`" << name << "[...]." << field
+                            << "`: a queue's variant takes `specialize` alone.";
+                    }
+
                 // A set that is a *field* of an element rather than an extern
                 // of its own: `Instance.blas : BLAS;`.
                 //
@@ -2853,9 +2893,6 @@ struct Parser {
                 // pool behind it, however many values of the element exist.
                 // Keyed the same way in `tree_types`, so the lowering looks a
                 // nested set up exactly as it looks up a top-level one.
-                if (peek().type == Token::Type::PERIOD) {
-                    expect(Token::Type::PERIOD);
-                    const std::string field = get_id();
 
                     const ir::Struct_t *element = element_with_fields(name);
                     if (element == nullptr) {

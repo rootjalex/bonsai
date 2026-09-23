@@ -1,9 +1,11 @@
 #include "SSA/Defer.h"
 
 #include "SSA/Analysis.h"
+#include "SSA/CloneFunction.h"
 #include "SSA/Definitions.h"
 #include "SSA/SSA.h"
 #include "SSA/Simplify.h"
+#include "SSA/Specialize.h"
 
 #include "IR/Expr.h"
 #include "IR/Type.h"
@@ -45,6 +47,14 @@ const Type &u32() {
 
 shared_ptr<Value> constant_u32(uint64_t v) {
     return std::make_shared<Value>(Constant{u32(), v});
+}
+
+Type value_type(const Value &v) {
+    return std::visit(
+        overloads{[](const Constant &c) { return c.type; },
+                  [](const Argument &a) { return a.type; },
+                  [](const shared_ptr<Instruction> &i) { return i->type; }},
+        v.data);
 }
 
 shared_ptr<Value> constant_bool(bool b) {
@@ -406,7 +416,7 @@ bool is_tail_call(const Terminator::Call &call, const BlockMap &bmap) {
 // caller rebuilds them.
 map<string, shared_ptr<Block>>
 clone_region(Function &func, const vector<shared_ptr<Block>> &region,
-             const string &suffix) {
+             const string &suffix, bool keep_names) {
     // The names defined inside the region: instructions, and the arguments
     // that carry them.
     map<string, string> renamed;
@@ -421,9 +431,11 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
         for (const auto &instr : block->instrs) {
             // A Set is a program's name for a value (`let weight = ...`),
             // which the relooper binds under that name; it keeps it, and the
-            // copy's scope keeps it apart from the original's.
-            const bool keeps_name =
-                instr->name.empty() || instr->op == Instruction::Op::Set;
+            // copy's scope keeps it apart from the original's. A copy that
+            // becomes a function of its own keeps every name.
+            const bool keeps_name = instr->name.empty() ||
+                                    instr->op == Instruction::Op::Set ||
+                                    keep_names;
             const string fresh =
                 keeps_name ? instr->name : func.get_unique_name();
             if (!keeps_name) {
@@ -1661,7 +1673,90 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         queue_fields.emplace_back(leaf.name, Array_t::make(leaf.type, Expr()));
     }
     const Type queue_t = Struct_t::make("Queue_" + queue.name, queue_fields);
-    const Type queue_ptr_t = Ptr_t::make(queue_t);
+
+    // The queues a split makes of this one (QueueSpec::split): a leaf of
+    // the split's tree per path of variants, each with a copy of the callee
+    // in which the keys on its path have their variants' tags (SSA/
+    // Specialize.h), named by the path -- `hits!Some!Diffuse`, its drain
+    // loop of the same name. One entry, the queue itself, when there is no
+    // split. The callee the schedule named stays for what else calls it.
+    struct SubQueue {
+        string path;
+        string callee;
+    };
+    vector<SubQueue> subqueues;
+    const bool split = queue.split.has_value();
+    if (split) {
+        internal_assert(!callee_in_chain)
+            << "[unimplemented] " << what << ": " << queue.name
+            << " is split (`" << queue.name << ".specialize(...)`) and is a "
+            << "self-feeding queue; a split is built for a queue drained in "
+            << "one pass -- a stage's";
+        internal_assert(queue.adt_storages != nullptr)
+            << what << ": no variant storages for the split's keys";
+        const std::function<void(const QueueSpec::Split *, const string &,
+                                 const string &)>
+            grow = [&](const QueueSpec::Split *node, const string &path,
+                       const string &callee) {
+                if (node == nullptr || node->key.empty()) {
+                    subqueues.push_back(SubQueue{path, callee});
+                    return;
+                }
+                const shared_ptr<Function> cf = funcs.at(callee);
+                const shared_ptr<Value> kv = key_value(*cf, node->key);
+                internal_assert(kv) << what << ": " << callee
+                                    << " has no value named " << node->key
+                                    << " to split " << path << " on";
+                const vector<KeyVariant> variants =
+                    key_variants(value_type(*kv), *queue.adt_storages);
+                internal_assert(!variants.empty())
+                    << what << ": " << node->key << " in " << callee << " is a "
+                    << value_type(*kv) << ", not a variant type or an optional";
+                for (const auto &[label, _] : node->under) {
+                    internal_assert(std::any_of(variants.begin(), variants.end(),
+                                                [&](const KeyVariant &v) {
+                                                    return v.label == label;
+                                                }))
+                        << what << ": " << path << "[" << label << "]: "
+                        << node->key << " has no variant " << label;
+                }
+                for (const KeyVariant &v : variants) {
+                    const string sub_callee = callee + "!" + v.label;
+                    funcs[sub_callee] = specialize_function(
+                        *cf, sub_callee, node->key, v, *queue.adt_storages);
+                    const auto child = node->under.find(v.label);
+                    grow(child == node->under.end() ? nullptr : &child->second,
+                         path + "!" + v.label, sub_callee);
+                }
+            };
+        grow(&*queue.split, queue.name, callee_name);
+    } else {
+        subqueues.push_back(SubQueue{queue.name, callee_name});
+    }
+    // Which of the split's queues a path names.
+    const auto subqueue_index = [&](const string &path) {
+        for (size_t q = 0; q < subqueues.size(); q++) {
+            if (subqueues[q].path == path) {
+                return q;
+            }
+        }
+        internal_error << what << ": no queue at " << path;
+        return size_t(0);
+    };
+    // Each queue of the split is sized and placed as the queue is, and a
+    // later deferral whose producer is one of their drains finds it by the
+    // drain's name (Function::queue_sizes).
+    for (const SubQueue &sq : subqueues) {
+        O->queue_sizes[sq.path] = O->queue_sizes.at(queue.name);
+    }
+
+    // What the callee is handed to push onto: the queue's address, or the
+    // split's whole family, which the push indexes by the variants it finds.
+    const Type queue_ptr_t =
+        split ? Array_t::make(queue_t, UIntImm::make(u32(), subqueues.size()))
+              : Ptr_t::make(queue_t);
+    // The address of one queue, wherever one is picked out of several.
+    const Type queue_addr_t = Ptr_t::make(queue_t);
     vector<Type> made = {entry_t, queue_t};
 
     // What a chain function returns now: whether it saved its state; which
@@ -1671,6 +1766,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const size_t slot_index = frame_saves ? saved_fields.size() : 0;
     if (frame_saves) {
         saved_fields.emplace_back("slot", u32());
+    }
+    // Which queue of a split the slot is in, for the frame to write its
+    // part there.
+    const bool saved_names_queue = frame_saves && split;
+    const size_t queue_index = saved_names_queue ? saved_fields.size() : 0;
+    if (saved_names_queue) {
+        saved_fields.emplace_back("queue", u32());
     }
     const size_t value_index = returns_value ? saved_fields.size() : 0;
     if (returns_value) {
@@ -1684,14 +1786,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         made.push_back(saved_t);
     }
     const auto make_saved = [&](const shared_ptr<Block> &block, bool saved,
-                                shared_ptr<Value> slot,
-                                shared_ptr<Value> value) -> shared_ptr<Value> {
+                                shared_ptr<Value> slot, shared_ptr<Value> value,
+                                shared_ptr<Value> which = nullptr) -> shared_ptr<Value> {
         if (!saved_is_struct) {
             return constant_bool(saved);
         }
         vector<shared_ptr<Value>> parts = {constant_bool(saved)};
         if (frame_saves) {
             parts.push_back(slot ? std::move(slot) : undef_value(u32()));
+        }
+        if (saved_names_queue) {
+            parts.push_back(which ? std::move(which) : undef_value(u32()));
         }
         if (returns_value) {
             parts.push_back(value ? std::move(value) : undef_value(ret_type));
@@ -1712,6 +1817,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         internal_assert(frame_saves);
         return block->make_instruction(u32(), Instruction::Op::LoadField,
                                        {s, constant_u32(slot_index)});
+    };
+    // The queue the slot is in: the split's, or the one there is.
+    const auto queue_of_saved = [&](const shared_ptr<Block> &block,
+                                    const shared_ptr<Value> &s) -> shared_ptr<Value> {
+        if (!saved_names_queue) {
+            return constant_u32(0);
+        }
+        return block->make_instruction(u32(), Instruction::Op::LoadField,
+                                       {s, constant_u32(queue_index)});
     };
     const auto value_of = [&](const shared_ptr<Block> &block,
                               const shared_ptr<Value> &s) -> shared_ptr<Value> {
@@ -1796,6 +1910,92 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // The push of `entry`, made in `block` of `fn`, onto what `base` names:
+    // the queue, or the split's family, of which the entry's keys select
+    // one -- each split's key computed here from `params`, the values the
+    // callee's parameters have at this push (SSA/Specialize.h, key_tag_at),
+    // and dispatched on, a block per variant, down to the leaf that pushes.
+    // A key below a variant is computed only under it, since it may be
+    // defined only there (the material of a hit, under `Some`). `finish`
+    // ends every block that pushed, given its slot and which queue that is
+    // in.
+    const auto push_entry =
+        [&](const shared_ptr<Function> &fn, const shared_ptr<Block> &block,
+            const shared_ptr<Value> &base, const shared_ptr<Value> &entry,
+            const map<string, shared_ptr<Value>> &params,
+            const std::function<void(const shared_ptr<Block> &,
+                                     const shared_ptr<Value> &,
+                                     const shared_ptr<Value> &)> &finish) {
+            const auto push_onto = [&](const shared_ptr<Block> &at,
+                                       const shared_ptr<Value> &q, size_t which) {
+                auto slot = at->make_instruction(u32(), Instruction::Op::Push,
+                                                 {q, reach(at, entry)});
+                std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
+                finish(at, slot, constant_u32(which));
+            };
+            if (!split) {
+                push_onto(block, reach(block, base), 0);
+                return;
+            }
+            std::function<void(const shared_ptr<Block> &, const QueueSpec::Split *,
+                               const string &, const string &)>
+                descend = [&](const shared_ptr<Block> &at,
+                              const QueueSpec::Split *node, const string &path,
+                              const string &callee) {
+                    if (node == nullptr || node->key.empty()) {
+                        const size_t which = subqueue_index(path);
+                        auto q = at->make_instruction(
+                            queue_addr_t, Instruction::Op::GEP,
+                            {reach(at, base), constant_u32(which)});
+                        push_onto(at, q, which);
+                        return;
+                    }
+                    const Function &cf = *funcs.at(callee);
+                    map<string, shared_ptr<Value>> here;
+                    for (const auto &[pname, pvalue] : params) {
+                        here[pname] = reach(at, pvalue);
+                    }
+                    auto tag = key_tag_at(*at, cf, node->key, here,
+                                          *queue.adt_storages);
+                    const vector<KeyVariant> variants = key_variants(
+                        value_type(*key_value(cf, node->key)), *queue.adt_storages);
+                    // The targets first and the dispatch on them, so that
+                    // what each target then asks for can be threaded in
+                    // through its edge.
+                    Terminator::Dispatch dispatch;
+                    dispatch.cond = tag;
+                    vector<shared_ptr<Block>> targets;
+                    for (const KeyVariant &v : variants) {
+                        auto target = std::make_shared<Block>();
+                        target->name = at->name + "!" + v.label;
+                        target->owner = fn;
+                        target->preds = {at};
+                        fn->blocks.push_back(target);
+                        dispatch.targets.push_back(Terminator::Jump{target->name, {}});
+                        targets.push_back(target);
+                    }
+                    at->terminator.data = std::move(dispatch);
+                    for (size_t k = 0; k < variants.size(); k++) {
+                        const auto child = node->under.find(variants[k].label);
+                        descend(targets[k],
+                                child == node->under.end() ? nullptr : &child->second,
+                                path + "!" + variants[k].label,
+                                callee + "!" + variants[k].label);
+                    }
+                };
+            descend(block, &*queue.split, queue.name, callee_name);
+        };
+    // The values the callee's parameters have at a call of it, by name.
+    const auto params_at = [&](const shared_ptr<Block> &block,
+                               const vector<shared_ptr<Value>> &args) {
+        map<string, shared_ptr<Value>> params;
+        const vector<Argument> &cparams = C->blocks.front()->args;
+        for (size_t j = 0; j < cparams.size() && j < args.size(); j++) {
+            params[cparams[j].name] = reach(block, args[j]);
+        }
+        return params;
+    };
+
     // The deferred calls: push the entry, return saved. The callee writes
     // the fields that are its arguments -- a pointer argument's pointee --
     // and leaves the frame's to the frame.
@@ -1816,12 +2016,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         auto entry = site->make_instruction(entry_t, Instruction::Op::MakeStruct,
                                             std::move(values));
-        auto slot = site->make_instruction(
-            u32(), Instruction::Op::Push,
-            {reach(site, queue_of.at(site_function[s])), entry});
-        std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
-        site->terminator.data =
-            Terminator::Return{make_saved(site, true, slot, nullptr)};
+        push_entry(funcs.at(site_function[s]), site,
+                   queue_of.at(site_function[s]), entry,
+                   params_at(site, call.call.args),
+                   [&](const shared_ptr<Block> &at, const shared_ptr<Value> &slot,
+                       const shared_ptr<Value> &which) {
+                       at->terminator.data = Terminator::Return{
+                           make_saved(at, true, slot, nullptr, which)};
+                   });
     }
     remove_unreachable_blocks(*F);
     for (const string &g : queue.also_from) {
@@ -1855,32 +2057,35 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // the other drain fills it again (QueueSpec::drain_pushes_self).
     const bool rounds = callee_in_chain;
     const bool double_buffered = rounds && queue.drain_pushes_self;
-    const int nqueues = double_buffered ? 2 : 1;
+    // Two for a double buffer, one per queue of a split, one otherwise; the
+    // several are one array, indexed by the round's parity or the split's
+    // leaf.
+    const size_t nqueues = double_buffered ? 2 : subqueues.size();
+    const bool many = nqueues > 1;
     // stores[i][l]: queue i's array for leaf l, named after both.
     vector<vector<shared_ptr<Value>>> stores(nqueues);
-    for (int i = 0; i < nqueues; i++) {
+    for (size_t i = 0; i < nqueues; i++) {
+        const string qname = double_buffered ? queue.name : subqueues[i].path;
         for (const Leaf &leaf : leaves) {
             stores[i].push_back(make_alloca(
                 *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
-                queue.name + "_" + leaf.name +
+                qname + "_" + leaf.name +
                     (double_buffered ? "_" + std::to_string(i) : "")));
         }
     }
     const shared_ptr<Value> queues =
-        double_buffered
-            ? make_alloca(*O, alloc_point,
-                          Array_t::make(queue_t, UIntImm::make(u32(), 2)),
-                          queue.name + "_queue")
-            : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue");
-    for (int i = 0; i < nqueues; i++) {
+        many ? make_alloca(*O, alloc_point,
+                           Array_t::make(queue_t, UIntImm::make(u32(), nqueues)),
+                           queue.name + "_queue")
+             : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue");
+    for (size_t i = 0; i < nqueues; i++) {
         vector<shared_ptr<Value>> parts = {constant_u32(0)};
         parts.insert(parts.end(), stores[i].begin(), stores[i].end());
         auto initial = point->make_instruction(queue_t, Instruction::Op::MakeStruct,
                                                std::move(parts));
-        auto slot = double_buffered
-                        ? point->make_instruction(queue_ptr_t, Instruction::Op::GEP,
-                                                  {queues, constant_u32(i)})
-                        : queues;
+        auto slot = many ? point->make_instruction(queue_addr_t, Instruction::Op::GEP,
+                                                   {queues, constant_u32(i)})
+                         : queues;
         point->make_side_effect(Instruction::Op::Store, {slot, initial});
     }
     // The address of queue `which`, for passing to the callee: an address is
@@ -1888,10 +2093,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // this names the queue in place rather than a copy of it.
     const auto queue_at = [&](const shared_ptr<Block> &block,
                               const shared_ptr<Value> &which) {
-        if (!double_buffered) {
+        if (!many) {
             return reach(block, queues);
         }
-        return block->make_instruction(queue_ptr_t, Instruction::Op::GEP,
+        return block->make_instruction(queue_addr_t, Instruction::Op::GEP,
                                        {reach(block, queues), which});
     };
     // The storage of queue `which`, as the queue records it: a function from
@@ -1900,7 +2105,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const auto storage_of = [&](const shared_ptr<Block> &block,
                                 const shared_ptr<Value> &which)
         -> std::function<shared_ptr<Value>(size_t)> {
-        if (!double_buffered) {
+        if (!many) {
             return [&, block](size_t l) { return reach(block, stores[0][l]); };
         }
         // Each handle read through the queue's address, so that an entry of
@@ -1970,7 +2175,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // the frame has put its own state into the entry.
     shared_ptr<Block> skip;
     {
-        pcall.call.args.push_back(queue_at(producer.block, constant_u32(0)));
+        pcall.call.args.push_back(split ? reach(producer.block, queues)
+                                        : queue_at(producer.block, constant_u32(0)));
         const bool dropped = pcall.drop;
         pcall.drop = false;
 
@@ -2008,7 +2214,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 {Terminator::Jump{k0_entry->name, std::move(onwards)},
                  Terminator::Jump{on_saved->name}}};
             auto slot = slot_of(on_saved, reach(on_saved, flag));
-            write_frame(on_saved, constant_u32(0), slot, [&](const Field &f) -> shared_ptr<Value> {
+            write_frame(on_saved, queue_of_saved(on_saved, reach(on_saved, flag)),
+                        slot, [&](const Field &f) -> shared_ptr<Value> {
                 if (f.local != nullptr) {
                     return on_saved->make_instruction(
                         f.type, Instruction::Op::Load,
@@ -2059,36 +2266,48 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
             auto entry = producer.block->make_instruction(
                 entry_t, Instruction::Op::MakeStruct, std::move(values));
-            auto slot = producer.block->make_instruction(
-                u32(), Instruction::Op::Push,
-                {queue_at(producer.block, constant_u32(0)), entry});
-            std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
-            auto flag = make_saved(producer.block, true, slot, nullptr);
-            vector<shared_ptr<Value>> onwards{flag};
-            onwards.insert(onwards.end(), was.cont.args.begin(), was.cont.args.end());
-            producer.block->terminator.data =
-                Terminator::Jump{dispatch->name, std::move(onwards)};
+            push_entry(O, producer.block,
+                       split ? queues : queue_at(producer.block, constant_u32(0)),
+                       entry, params_at(producer.block, was.call.args),
+                       [&](const shared_ptr<Block> &at, const shared_ptr<Value> &slot,
+                           const shared_ptr<Value> &which) {
+                           auto flag = make_saved(at, true, slot, nullptr, which);
+                           vector<shared_ptr<Value>> onwards{flag};
+                           for (const auto &a : was.cont.args) {
+                               onwards.push_back(reach(at, a));
+                           }
+                           if (at != producer.block) {
+                               dispatch->preds.push_back(at);
+                           }
+                           at->terminator.data =
+                               Terminator::Jump{dispatch->name, std::move(onwards)};
+                       });
         }
     }
 
     // The rest of the producer's iteration, copied for the drain to run per
-    // entry. Copied now, before the drain is built: building it threads
-    // values through the blocks between the producer and the drain, which
-    // for a lone call are these, and the copy is of the continuation as the
-    // program has it -- taking the call's value and what it carried, and no
-    // more.
-    const map<string, shared_ptr<Block>> copies =
-        clone_region(*O, k0, "!" + queue.name);
-    const shared_ptr<Block> k_entry = copies.at(k0_entry->name);
+    // entry -- a copy per queue of a split, since each drain runs it with
+    // its own storage. Copied now, before the drain is built: building it
+    // threads values through the blocks between the producer and the drain,
+    // which for a lone call are these, and the copy is of the continuation
+    // as the program has it -- taking the call's value and what it carried,
+    // and no more.
+    vector<map<string, shared_ptr<Block>>> copies_of;
+    for (const SubQueue &sq : subqueues) {
+        copies_of.push_back(clone_region(*O, k0, "!" + sq.path));
+    }
 
     // The drain. For a self-feeding queue, a round per bounce, as pbrt's
     // wavefront integrator runs one set of kernels per depth: round r reads
     // the queue r & 1 and its successors go to the other, emptied first, and
     // the drain ends when a round finds its queue empty. Otherwise one pass
-    // over the one queue.
+    // over each queue there is -- the one, or the split's in order.
     auto drain_entry = fresh_block(prefix + "drain");
-    auto body = fresh_block(prefix + "run");
-    auto after = fresh_block(prefix + "ran");
+    vector<shared_ptr<Block>> bodies, afters;
+    for (const SubQueue &sq : subqueues) {
+        bodies.push_back(fresh_block(sq.path + "!run"));
+        afters.push_back(fresh_block(sq.path + "!ran"));
+    }
     auto exit = fresh_block(prefix + "exit");
     shared_ptr<Block> header, pre, latch;
     if (rounds) {
@@ -2150,7 +2369,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                                   constant_u32(0),
                                                   /*end=*/nullptr,
                                                   constant_u32(1),
-                                                  Terminator::Jump{body->name},
+                                                  Terminator::Jump{bodies[0]->name},
                                                   Terminator::Jump{latch->name}};
         latch->preds = {pre};
         {
@@ -2196,198 +2415,235 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         pre->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
         std::get<Terminator::ParFor>(pre->terminator.data).end =
             reach(pre, pending);
-        body->preds = {pre};
-    } else {
-        // One pass: every entry there is, and nothing pushes meanwhile.
-        auto whole = drain_entry->make_instruction(
-            queue_t, Instruction::Op::Load, {reach(drain_entry, queues)});
-        auto pending = drain_entry->make_instruction(
-            u32(), Instruction::Op::LoadField, {whole, constant_u32(0)});
-        drain_entry->terminator.data = Terminator::ParFor{queue.name,
-                                                          constant_u32(0),
-                                                          pending,
-                                                          constant_u32(1),
-                                                          Terminator::Jump{body->name},
-                                                          Terminator::Jump{exit->name}};
-        body->preds = {drain_entry};
+        bodies[0]->preds = {pre};
     }
 
-    // run(i): the entry, and the call it stands for. The entry's fields are
-    // read as they are asked for, each put back together from its scalars
-    // read out of their arrays at the entry's index, in `run` whichever block
-    // of the iteration asks: every block of it follows `run`, and a value is
-    // threaded to where it is used.
-    auto index = body->add_argument(Argument{u32(), queue.name});
-    const auto run_storage = storage_of(body, cur ? reach(body, cur) : nullptr);
-    map<size_t, shared_ptr<Value>> field_values;
-    const auto entry_field = [&](const shared_ptr<Block> &block,
-                                 size_t f) -> shared_ptr<Value> {
-        auto it = field_values.find(f);
-        if (it == field_values.end()) {
-            size_t l = field_leaves[f].first;
-            const Emit emit = [&](const Type &t, Instruction::Op op,
-                                  vector<shared_ptr<Value>> ops) {
-                return body->make_instruction(t, op, std::move(ops));
-            };
-            auto value = rebuild(fields[f].type, emit, [&](const Type &t) {
-                internal_assert(l < field_leaves[f].second)
-                    << what << ": " << fields[f].name << " has more scalars "
-                    << "than the queue stores for it";
-                return body->make_instruction(t, Instruction::Op::ExtractIdx,
-                                              {run_storage(l++), index});
-            });
-            internal_assert(l == field_leaves[f].second)
-                << what << ": " << fields[f].name << " has fewer scalars "
-                << "than the queue stores for it";
-            it = field_values.emplace(f, std::move(value)).first;
-        }
-        return reach(block, it->second);
-    };
-    // A relocated local: the entry's copy of its contents, given a local of
-    // the drain's own to be run with.
-    map<size_t, shared_ptr<Value>> locals;
-    for (size_t f = 0; f < fields.size(); f++) {
-        if (fields[f].local == nullptr) {
-            continue;
-        }
-        auto local = make_alloca(*O, body, fields[f].type);
-        body->make_side_effect(Instruction::Op::Store,
-                               {local, entry_field(body, f)});
-        locals[f] = local;
-    }
-    // The copy of the continuation takes a relocated local as a parameter
-    // named after the producer's storage for it, and the drain hands it its
-    // own storage instead. A value threaded through blocks keeps its name in
-    // this form (Block::get_value), and a pass that unwinds the threading --
-    // promote_allocas, which turns a local written once and read after into
-    // a value -- finds the pointer's loads by that name; so the copy's
-    // parameter is renamed after the drain's storage, throughout the copy.
-    internal_assert(k_entry->args.size() == result_args + carried.size())
-        << what << ": the continuation " << k_entry->name << " takes "
-        << k_entry->args.size() << " arguments, not " << result_args << " + "
-        << carried.size();
-    for (size_t i = 0; i < carried.size(); i++) {
-        if (carried[i].from != From::Relocated) {
-            continue;
-        }
-        const string from = k_entry->args[result_args + i].name;
-        const string to = std::get<shared_ptr<Instruction>>(
-                              locals.at(carried[i].field)->data)
-                              ->name;
-        for (const auto &[name, copy] : copies) {
-            rename_argument(*copy, from, to);
-        }
-    }
-    {
-        vector<shared_ptr<Value>> args;
-        for (size_t j = 0; j < nparams; j++) {
-            switch (params[j].where) {
-            case Where::Elided:
-                args.push_back(reach(body, origin.at(callee_name)[j].value));
-                break;
-            case Where::Stored:
-                args.push_back(entry_field(body, params[j].field));
-                break;
-            case Where::Relocated:
-                args.push_back(locals.at(params[j].field));
-                break;
-            }
-        }
-        if (callee_in_chain) {
-            args.push_back(reach(body, next_queue));
-        }
-        body->terminator.data = Terminator::Call{
-            Terminator::Jump{callee_name, std::move(args)},
-            Terminator::Jump{after->name}, /*drop=*/!callee_in_chain && !returns_value};
-    }
+    // A pass of the drain over queue `q`: `body` runs an entry -- the call
+    // it stands for, to the callee that queue has -- and `after` acts on
+    // what came back.
+    const auto build_pass = [&](size_t q, const shared_ptr<Block> &body,
+                                const shared_ptr<Block> &after) {
+        const string &qpath = subqueues[q].path;
+        const map<string, shared_ptr<Block>> &copies = copies_of[q];
+        const shared_ptr<Block> k_entry = copies.at(k0_entry->name);
 
-    // ran(r): a saved return is an entry for the next round, with the frame's
-    // part written; any other is the rest of the producer's iteration,
-    // copied here.
-    after->preds = {body};
-    {
-        // The value goes to the copy only where the producer kept it.
-        vector<shared_ptr<Value>> onwards;
-        shared_ptr<Value> flag;
-        shared_ptr<Value> saved;
-        if (callee_in_chain) {
-            flag = after->add_argument(Argument{saved_t, O->get_unique_name()});
-            saved = saved_of(after, flag);
-            if (result_args == 1) {
-                onwards.push_back(value_of(after, flag));
-            }
-        } else if (returns_value) {
-            auto value =
-                after->add_argument(Argument{ret_type, O->get_unique_name()});
-            if (result_args == 1) {
-                onwards.push_back(value);
-            }
-        }
-        for (const CarriedPlan &c : carried) {
-            switch (c.from) {
-            case From::Available:
-                onwards.push_back(reach(after, c.def.value));
-                break;
-            case From::Field:
-                onwards.push_back(entry_field(after, c.field));
-                break;
-            case From::Relocated:
-                onwards.push_back(reach(after, locals.at(c.field)));
-                break;
-            }
-        }
-        if (saved) {
-            auto done = fresh_block(prefix + "done");
-            done->preds = {after};
-            after->terminator.data = Terminator::Dispatch{
-                saved,
-                {Terminator::Jump{k_entry->name, std::move(onwards)},
-                 Terminator::Jump{done->name}}};
-            if (frame_saves) {
-                auto slot = slot_of(done, reach(done, flag));
-                write_frame(done, reach(done, nxt), slot,
-                            [&](const Field &f) -> shared_ptr<Value> {
-                    for (size_t k = 0; k < fields.size(); k++) {
-                        if (&fields[k] != &f) {
-                            continue;
-                        }
-                        if (f.local != nullptr) {
-                            return done->make_instruction(
-                                f.type, Instruction::Op::Load,
-                                {reach(done, locals.at(k))});
-                        }
-                        // The frame's value is what the entry carried in.
-                        return entry_field(done, k);
-                    }
-                    internal_error << "no value for the frame's field " << f.name;
-                    return nullptr;
+        // run(i): the entry, and the call it stands for. The entry's fields
+        // are read as they are asked for, each put back together from its
+        // scalars read out of their arrays at the entry's index, in `run`
+        // whichever block of the iteration asks: every block of it follows
+        // `run`, and a value is threaded to where it is used.
+        auto index = body->add_argument(Argument{u32(), qpath});
+        const auto run_storage = storage_of(
+            body, double_buffered ? reach(body, cur) : constant_u32(q));
+        map<size_t, shared_ptr<Value>> field_values;
+        const auto entry_field = [&](const shared_ptr<Block> &block,
+                                     size_t f) -> shared_ptr<Value> {
+            auto it = field_values.find(f);
+            if (it == field_values.end()) {
+                size_t l = field_leaves[f].first;
+                const Emit emit = [&](const Type &t, Instruction::Op op,
+                                      vector<shared_ptr<Value>> ops) {
+                    return body->make_instruction(t, op, std::move(ops));
+                };
+                auto value = rebuild(fields[f].type, emit, [&](const Type &t) {
+                    internal_assert(l < field_leaves[f].second)
+                        << what << ": " << fields[f].name << " has more scalars "
+                        << "than the queue stores for it";
+                    return body->make_instruction(t, Instruction::Op::ExtractIdx,
+                                                  {run_storage(l++), index});
                 });
+                internal_assert(l == field_leaves[f].second)
+                    << what << ": " << fields[f].name << " has fewer scalars "
+                    << "than the queue stores for it";
+                it = field_values.emplace(f, std::move(value)).first;
             }
-            done->terminator.data = Terminator::Yield{};
-        } else {
-            after->terminator.data =
-                Terminator::Jump{k_entry->name, std::move(onwards)};
+            return reach(block, it->second);
+        };
+        // A relocated local: the entry's copy of its contents, given a local
+        // of the drain's own to be run with.
+        map<size_t, shared_ptr<Value>> locals;
+        for (size_t f = 0; f < fields.size(); f++) {
+            if (fields[f].local == nullptr) {
+                continue;
+            }
+            auto local = make_alloca(*O, body, fields[f].type);
+            body->make_side_effect(Instruction::Op::Store,
+                                   {local, entry_field(body, f)});
+            locals[f] = local;
         }
-    }
-    // The copy ends the drain's iteration where the original ended the
-    // producer's; a return of the function's becomes a yield of the loop's.
-    for (const auto &[name, copy] : copies) {
-        if (std::holds_alternative<Terminator::Return>(copy->terminator.data)) {
-            copy->terminator.data = Terminator::Yield{};
+        // The copy of the continuation takes a relocated local as a
+        // parameter named after the producer's storage for it, and the drain
+        // hands it its own storage instead. A value threaded through blocks
+        // keeps its name in this form (Block::get_value), and a pass that
+        // unwinds the threading -- promote_allocas, which turns a local
+        // written once and read after into a value -- finds the pointer's
+        // loads by that name; so the copy's parameter is renamed after the
+        // drain's storage, throughout the copy.
+        internal_assert(k_entry->args.size() == result_args + carried.size())
+            << what << ": the continuation " << k_entry->name << " takes "
+            << k_entry->args.size() << " arguments, not " << result_args
+            << " + " << carried.size();
+        for (size_t i = 0; i < carried.size(); i++) {
+            if (carried[i].from != From::Relocated) {
+                continue;
+            }
+            const string from = k_entry->args[result_args + i].name;
+            const string to = std::get<shared_ptr<Instruction>>(
+                                  locals.at(carried[i].field)->data)
+                                  ->name;
+            for (const auto &[name, copy] : copies) {
+                rename_argument(*copy, from, to);
+            }
         }
-        O->blocks.push_back(copy);
+        {
+            vector<shared_ptr<Value>> args;
+            for (size_t j = 0; j < nparams; j++) {
+                switch (params[j].where) {
+                case Where::Elided:
+                    args.push_back(reach(body, origin.at(callee_name)[j].value));
+                    break;
+                case Where::Stored:
+                    args.push_back(entry_field(body, params[j].field));
+                    break;
+                case Where::Relocated:
+                    args.push_back(locals.at(params[j].field));
+                    break;
+                }
+            }
+            if (callee_in_chain) {
+                args.push_back(reach(body, next_queue));
+            }
+            body->terminator.data = Terminator::Call{
+                Terminator::Jump{subqueues[q].callee, std::move(args)},
+                Terminator::Jump{after->name},
+                /*drop=*/!callee_in_chain && !returns_value};
+        }
+
+        // ran(r): a saved return is an entry for the next round, with the
+        // frame's part written; any other is the rest of the producer's
+        // iteration, copied here.
+        after->preds = {body};
+        {
+            // The value goes to the copy only where the producer kept it.
+            vector<shared_ptr<Value>> onwards;
+            shared_ptr<Value> flag;
+            shared_ptr<Value> saved;
+            if (callee_in_chain) {
+                flag = after->add_argument(Argument{saved_t, O->get_unique_name()});
+                saved = saved_of(after, flag);
+                if (result_args == 1) {
+                    onwards.push_back(value_of(after, flag));
+                }
+            } else if (returns_value) {
+                auto value =
+                    after->add_argument(Argument{ret_type, O->get_unique_name()});
+                if (result_args == 1) {
+                    onwards.push_back(value);
+                }
+            }
+            for (const CarriedPlan &c : carried) {
+                switch (c.from) {
+                case From::Available:
+                    onwards.push_back(reach(after, c.def.value));
+                    break;
+                case From::Field:
+                    onwards.push_back(entry_field(after, c.field));
+                    break;
+                case From::Relocated:
+                    onwards.push_back(reach(after, locals.at(c.field)));
+                    break;
+                }
+            }
+            if (saved) {
+                auto done = fresh_block(qpath + "!done");
+                done->preds = {after};
+                after->terminator.data = Terminator::Dispatch{
+                    saved,
+                    {Terminator::Jump{k_entry->name, std::move(onwards)},
+                     Terminator::Jump{done->name}}};
+                if (frame_saves) {
+                    auto slot = slot_of(done, reach(done, flag));
+                    write_frame(done, reach(done, nxt), slot,
+                                [&](const Field &f) -> shared_ptr<Value> {
+                        for (size_t k = 0; k < fields.size(); k++) {
+                            if (&fields[k] != &f) {
+                                continue;
+                            }
+                            if (f.local != nullptr) {
+                                return done->make_instruction(
+                                    f.type, Instruction::Op::Load,
+                                    {reach(done, locals.at(k))});
+                            }
+                            // The frame's value is what the entry carried in.
+                            return entry_field(done, k);
+                        }
+                        internal_error << "no value for the frame's field "
+                                       << f.name;
+                        return nullptr;
+                    });
+                }
+                done->terminator.data = Terminator::Yield{};
+            } else {
+                after->terminator.data =
+                    Terminator::Jump{k_entry->name, std::move(onwards)};
+            }
+        }
+        // The copy ends the drain's iteration where the original ended the
+        // producer's; a return of the function's becomes a yield of the
+        // loop's.
+        for (const auto &[name, copy] : copies) {
+            if (std::holds_alternative<Terminator::Return>(copy->terminator.data)) {
+                copy->terminator.data = Terminator::Yield{};
+            }
+            O->blocks.push_back(copy);
+        }
+    };
+
+    shared_ptr<Block> exit_from = drain_entry; // the block before `exit`
+    if (rounds) {
+        build_pass(0, bodies[0], afters[0]);
+    } else {
+        // One pass over each queue, the split's in order: every entry there
+        // is, and nothing pushes meanwhile.
+        shared_ptr<Block> from = drain_entry;
+        for (size_t q = 0; q < subqueues.size(); q++) {
+            const bool last = q + 1 == subqueues.size();
+            const shared_ptr<Block> to =
+                last ? exit : fresh_block(subqueues[q + 1].path + "!drain");
+            auto whole = from->make_instruction(
+                queue_t, Instruction::Op::Load, {queue_at(from, constant_u32(q))});
+            auto pending = from->make_instruction(
+                u32(), Instruction::Op::LoadField, {whole, constant_u32(0)});
+            from->terminator.data =
+                Terminator::ParFor{subqueues[q].path,
+                                   constant_u32(0),
+                                   pending,
+                                   constant_u32(1),
+                                   Terminator::Jump{bodies[q]->name},
+                                   Terminator::Jump{to->name}};
+            bodies[q]->preds = {from};
+            if (!last) {
+                to->preds = {from};
+            }
+            exit_from = from;
+            build_pass(q, bodies[q], afters[q]);
+            from = to;
+        }
     }
 
     // exit: on to whatever followed the producer.
-    exit->preds = {rounds ? header : drain_entry};
+    exit->preds = {rounds ? header : exit_from};
     if (!rounds) {
         // Drained, so empty: said, for a queue whose producer runs again --
         // a stage's queue inside another queue's rounds is filled and
         // drained once per round.
-        auto count_ptr = exit->make_instruction(
-            Ptr_t::make(u32()), Instruction::Op::FieldPtr,
-            {reach(exit, queues), constant_u32(0)});
-        exit->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
+        for (size_t q = 0; q < subqueues.size(); q++) {
+            auto count_ptr = exit->make_instruction(
+                Ptr_t::make(u32()), Instruction::Op::FieldPtr,
+                {queue_at(exit, constant_u32(q)), constant_u32(0)});
+            exit->make_side_effect(Instruction::Op::Store,
+                                   {count_ptr, constant_u32(0)});
+        }
     }
     if (producer_loop_block) {
         exit->terminator.data =

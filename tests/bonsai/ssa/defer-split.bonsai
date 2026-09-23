@@ -1,0 +1,45 @@
+//! flags: -p ssa
+
+// `hits.specialize(kind)` in the SSA: the queue is two, `hits!Small` and
+// `hits!Large`, one array of queues the callee is handed whole; the push
+// in `step` reads the tag of what `classify` returned and dispatches to a
+// block per variant, each pushing onto its queue and returning saved with
+// the slot and the queue it is in, which is where the producer's frame
+// writes its `i`; the drain is one pass per queue in order, `hits!Small`
+// calling `step!after!Small` -- the rest of `step` with `kind`'s tag set to
+// Small, its match folded to the one arm -- and `hits!Large` its own
+// (SSA/Defer.h, QueueSpec::split; SSA/Specialize.h).
+import stdlib/numerics;
+
+element Kind =
+    | Small(x : Float)
+    | Large(x : Float);
+
+func classify(x : Float) -> Kind {
+    if x < 10.0 {
+        return Small(x);
+    }
+    return Large(x);
+}
+
+func step(x : Float, k : Float) -> Float {
+    kind = classify(x);
+    match kind {
+        Small(v) => return v + k;
+        Large(v) => return v * k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(kind);
+}

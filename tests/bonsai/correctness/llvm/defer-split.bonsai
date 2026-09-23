@@ -1,0 +1,53 @@
+//! flags: -p ssa -b llvm -e
+
+// A stage's queue split by what the staged call returned: `hits` becomes a
+// queue per variant of `kind`, the push reads the tag and goes to the
+// variant's queue, and each queue's drain runs a copy of `step!after` in
+// which the match on `kind` is the one arm. pbrt's wavefront has a queue
+// per material type, filled by the trace by the hit's material and drained
+// by a kernel for that material alone; this is that in miniature. The
+// values are what one queue gives.
+import stdlib/numerics;
+
+element Kind =
+    | Small(x : Float)
+    | Large(x : Float);
+
+func classify(x : Float) -> Kind {
+    if x < 10.0 {
+        return Small(x);
+    }
+    return Large(x);
+}
+
+// Classify, then finish by the kind: the match is what the split folds.
+func step(x : Float, k : Float) -> Float {
+    kind = classify(x);
+    match kind {
+        Small(v) => return v + k;
+        Large(v) => return v * k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 20.0, 30.0, 4.0, 40.0, 5.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 2.0, out);
+    // Small: x + 2; Large: x * 2.
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(kind);
+}
