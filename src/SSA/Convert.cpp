@@ -1983,16 +1983,27 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         attach_splits(spec, queue_splits, adt_storages);
                         spec.initial_push = directive_on(q->second.owner);
                         // Whether running an entry can push onto this queue:
-                        // not when a stage on the callee moves every one of
-                        // its recursive calls into the rest, run by the
-                        // stage's own queue's drain -- then one buffer
-                        // serves every round (SSA/Defer.h).
+                        // not when a stage on the callee, or a deferral of a
+                        // call with its continuation, moves every one of the
+                        // recursive calls into the rest, run by that queue's
+                        // drain -- then one buffer serves every round
+                        // (SSA/Defer.h).
                         if (name == callee) {
                             for (const ir::Transform &t : transforms.at(name)) {
-                                const auto *st = std::get_if<ir::Stage>(&t);
-                                if (st != nullptr && !st->callee.names.empty() &&
-                                    calls_after(*fmap.at(name),
-                                                st->callee.names.back(), callee)) {
+                                std::string boundary;
+                                if (const auto *st = std::get_if<ir::Stage>(&t);
+                                    st != nullptr && !st->callee.names.empty()) {
+                                    boundary = st->callee.names.back();
+                                } else if (const auto *other = std::get_if<ir::Defer>(&t);
+                                           other != nullptr &&
+                                           !other->callee.names.empty() &&
+                                           other->callee.names.back() != callee &&
+                                           has_nontail_call(fmap, name,
+                                                            other->callee.names.back())) {
+                                    boundary = other->callee.names.back();
+                                }
+                                if (!boundary.empty() &&
+                                    calls_after(*fmap.at(name), boundary, callee)) {
                                     spec.drain_pushes_self = false;
                                 }
                             }
@@ -2019,11 +2030,16 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 << ") needs a constant, positive capacity";
                             spec.capacity = uint64_t(*n);
                         }
-                        // The entry, queue and flag types it made are the
-                        // program's now, for the printer and the backends'
-                        // declarations.
+                        // A call that is not in tail position and not
+                        // spawned is deferred with its continuation
+                        // (SSA/Stage.h, defer_continuation); a tail call or
+                        // a spawned one is deferred as it is. The entry,
+                        // queue and flag types made are the program's now,
+                        // for the printer and the backends' declarations.
+                        const bool with_rest = has_nontail_call(fmap, name, callee);
                         for (const Type &made :
-                             defer(fmap, name, d.callee.names.back(), spec)) {
+                             with_rest ? defer_continuation(fmap, name, callee, spec)
+                                       : defer(fmap, name, callee, spec)) {
                             const auto *s = made.as<Struct_t>();
                             internal_assert(s) << made;
                             if (keep_ssa != nullptr) {

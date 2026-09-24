@@ -1,8 +1,11 @@
 //! flags: -p ssa
 
-// defer() refuses a deferred call that is not in tail position: `tally` adds
-// to the result of its recursive call after the call returns, and that
-// addition is state on the call stack an entry does not carry.
+// defer() refuses a *recursive* call that is not in tail position: `tally`
+// adds to the result of its recursive call after the call returns, and that
+// addition is state on the call stack -- one frame per level -- which no
+// entry carries; loopify(N) runs such a recursion on a stack. A call that is
+// not a recursion is deferred with its continuation instead
+// (tests/bonsai/ssa/defer-continuation).
 func tally(n : i32) -> i32 {
   if (n <= 0) {
     return 0;

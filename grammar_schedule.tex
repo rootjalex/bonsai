@@ -20,8 +20,8 @@ $T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill
 \phantom{$T$ : }\;|\; \code{bind(}$l$, $R$\code{)} \hfill \algcomment{an iteration of $l$ is one unit of $R$} \\
 \phantom{$T$ : }\;|\; \code{bind(TextureUnit,} $\lambda$\code{)} \hfill \algcomment{the unit computes $f$ as $\lambda$ says} \\
 \phantom{$T$ : }\;|\; \code{sort(}$c$, $\lambda$\code{)} \hfill \algcomment{the children at cursor $c$ in the order $\lambda$ keys} \\
-\phantom{$T$ : }\;|\; \code{defer(}$g$, $q$\code{)} \hfill \algcomment{$f$'s calls to $g$ go on $q$; $q$'s drain makes them} \\
-\phantom{$T$ : }\;|\; \code{stage(}$g$, $q$\code{)} \hfill \algcomment{$g$'s return goes on $q$; $q$'s drain runs the rest of $f$} \\
+\phantom{$T$ : }\;|\; \code{defer(}$g$, $q$\code{)} \hfill \algcomment{$f$'s calls to $g$, with the rest of $f$ after them, go on $q$; $q$'s drain makes them and runs the rest} \\
+\phantom{$T$ : }\;|\; \code{stage(}$g$, $q$\code{)} \hfill \algcomment{$g$ runs in $f$; its return, with the rest of $f$, goes on $q$; $q$'s drain runs the rest} \\
 \phantom{$T$ : }\;|\; \code{specialize(}$p$\code{)} \hfill \algcomment{$f$'s loops copied per variant of parameter $p$} \\
 \phantom{$T$ : }\;|\; \code{skip(}$c^*$\code{)} \hfill \algcomment{arms a gang first asks whether any lane takes} \\[0.3em]
 $R$ : Resource \;::=\; \code{CPUThread} \;|\; \code{GPUBlock} \;|\; \code{GPUThread} \hfill \algcomment{a thread; a block of threads; a thread of a block} \\
@@ -48,7 +48,12 @@ place. \code{loopify} before \code{vectorize} gives each lane its own stack;
 one of masks, a packet traversal. \code{defer} and \code{stage} are
 defunctionalized continuations: a queue holds the continuation's varying data by
 value, sized by the producer's trip count, and the drain is a \code{parfor} a
-later directive may split, vectorize or bind. \code{specialize} is Halide's
+later directive may split, vectorize or bind. \code{defer} always captures the
+complete continuation of the call -- the rest of $f$, and the queue owner's
+frame; a caller between the two may not go on after its call -- unless the
+call is a \code{spawn}, whose value only a reducer takes and whose
+continuation does not wait. \code{stage} is \code{defer} of the continuation
+alone, for work routed by the call's result. \code{specialize} is Halide's
 \code{specialize} from a boolean to a variant: exhaustive copies of the loop
 nest with the tag a constant in each; on a queue, the copies are of the
 drained function, one queue and one drain per variant, and the push reads

@@ -1,0 +1,70 @@
+type Entry_q = struct Entry_q{ x : f32; i : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; x : f32[]; i : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func run(values : f32[8], out : mut f32[8]) -> void {
+  q_x : mut f32[8]
+  q_i : mut i32[8]
+  q_queue : mut Queue_q
+  let @1 = build<Queue_q>(0u, q_x, q_i) in
+  q_queue = @1
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    let @2 = step(@0, out, i, q_queue) in
+    if (@2) {
+      continue
+    } else {
+      continue
+    }
+  }
+  let @3 = (*q_queue) in
+  let @4 = @3.count in
+  parfor q in [0u:@4:1u] {
+    let @5 = q_x[q] in
+    let @6 = q_i[q] in
+    step!work!k(@5, out, @6)
+    continue
+  }
+  q_queue.count = 0u
+  return
+}
+
+func [[noinline]] step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue_q*)) -> bool {
+  let @3 = build<Entry_q>(x, i) in
+  let @6 = atomic_add((&(*_queue_q).count), 1u) in
+  let @8 = (*_queue_q).x in
+  @8[@6] = x
+  let @11 = (*_queue_q).i in
+  @11[@6] = i
+  return true
+}
+
+func [[noinline]] step!after(@0 : f32, out : mut f32[8], i : i32) -> void {
+  let r = @0 in
+  let @1 = r + 1f in
+  out[i] = @1
+  return
+}
+
+func [[noinline]] step!work!k(x : f32, out : mut f32[8], i : i32) -> void {
+  let $work = work(x) in
+  step!after($work, out, i)
+  return
+}
+
+func [[noinline]] work(x : f32) -> f32 {
+  let @0 = x * 0.5f in
+  return @0
+}
+
+
+schedule host {
+    q = run.queue(root);
+    step.defer(work, q)
+
+}

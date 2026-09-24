@@ -1,0 +1,33 @@
+//! flags: -p ssa
+
+// `f.defer(g, q)` at a call that is not in tail position defers the call
+// *and its continuation*: the queue holds g's arguments with the values of
+// f live after the call, and the drain makes the call and then runs the
+// rest. Beside stage(), which runs the call where it is and queues its
+// value: here `work(x)` runs in the drain, so the entry holds `x` (and `i`;
+// `out` is in scope), not `work`'s result. pbrt's medium-sample queue is
+// this shape -- the walk is the queued work, routed by what is known before
+// it (SSA/Stage.h, defer_continuation).
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, out : mut array[Float, 8], i : i32) -> void {
+    r = work(x);
+    out[i] = r + 1.0;
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        step(values[i], out, i);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

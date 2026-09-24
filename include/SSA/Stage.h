@@ -44,6 +44,36 @@ namespace ssa {
 std::vector<Type> stage(FuncMap &funcs, const std::string &func,
                         const std::string &callee, const QueueSpec &queue);
 
+// `f.defer(g, q)` at a call that is not in tail position and not spawned:
+// the call *and its continuation* are deferred. Where stage() runs the call
+// where it is and queues its value with the rest, this queues the call's
+// arguments with the rest's live values, and the drain makes the call and
+// then runs the rest -- pbrt's medium-sample queue, whose kernel walks the
+// medium the queued ray is in and then goes on to the surface. Built as the
+// tail call it is: the call and the rest become one function,
+// `f!g!k(args..., live...) { r = g(args); return f!after(r, live) }`, the
+// site tail-calls it, and defer() queues that. The complete continuation is
+// captured, as defer() requires -- `f`'s own rest here, and the callers'
+// by the same rule as any deferral: a caller between the site and the
+// queue's owner may not go on after its call into the chain.
+//
+// Both forms are wanted. This one queues work whose routing is known before
+// the call (the medium of the ray); stage() queues work routed by the call's
+// result (the material of the hit), which is pbrt's boundary after the
+// trace. One call to `g` in `f`; the key of a `q.specialize(x)` is a
+// parameter of `f!g!k`.
+std::vector<Type> defer_continuation(FuncMap &funcs, const std::string &func,
+                                     const std::string &callee,
+                                     const QueueSpec &queue);
+
+// Whether `func`'s one call to `callee` is neither in tail position nor
+// spawned, and `callee` is not a recursion back into `func`: what makes
+// `func.defer(callee, q)` a defer_continuation rather than a defer. A
+// recursion that goes on after its call, or several calls, is defer()'s
+// to refuse, in its own words.
+bool has_nontail_call(const FuncMap &funcs, const std::string &func,
+                      const std::string &callee);
+
 // Whether every call to `callee` in `func` lies after `func`'s one call to
 // `staged` -- in the blocks that call's continuation reaches -- so that
 // `func.stage(staged, q)` moves them all into `func!after`. What a deferral
