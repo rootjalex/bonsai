@@ -1,0 +1,50 @@
+//! flags: -p ssa
+
+// A field that is a pure function of other fields of the entry is
+// recomputed at the drain, not stored. `tally` hands its recursion `neg`
+// and `twice`, each arithmetic on the `acc` it hands beside them; the push
+// is the one place the queue is fed from, so the entry holds `n`, `acc` and
+// the record's index, and the drain computes `0 - acc` and `2 * acc` from
+// the `acc` it read before calling (Recipe in SSA/Defer.cpp:
+// rematerialization, Briggs, Cooper and Torczon 1992, with the entry for
+// the register file). `walk` is the same recursion fed from two places:
+// the owner's initial push hands constants where the recursion hands
+// arithmetic, the two computations disagree, and the fields are stored.
+// What to read for: `Entry_sums` without `neg` and `twice`, and
+// `Entry_q` with them.
+
+func tally(n : i32, acc : i32, neg : i32, twice : i32) -> i32 {
+    if (n <= 0) {
+        return acc + neg + twice;
+    }
+    return tally(n - 1, acc + n, 0 - (acc + n), 2 * (acc + n));
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = tally(i, 0, 0, 0);
+    }
+    return;
+}
+
+func walk(n : i32, acc : i32, neg : i32, twice : i32) -> i32 {
+    if (n <= 0) {
+        return acc + neg + twice;
+    }
+    return walk(n - 1, acc + n, 0 - (acc + n), 2 * (acc + n));
+}
+
+func run2(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0, 0, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+    q = run2.queue(root);
+    run2.defer(walk, q);
+    walk.defer(walk, q);
+}

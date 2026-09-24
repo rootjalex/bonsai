@@ -1,0 +1,183 @@
+type Entry_q = struct Entry_q{ n : i32; acc : i32; neg : i32; twice : i32; _slot : i32 }
+type Entry_sums = struct Entry_sums{ n : i32; acc : i32; _slot : i32 }
+type Queue_q = struct Queue_q{ count : u32; n : i32[]; acc : i32[]; neg : i32[]; twice : i32[]; _slot : i32[] }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _slot : i32[] }
+
+func run(out : mut i32[8]) -> void {
+  sums!round : mut u32
+  sums_result : mut i32[8]
+  sums_n_0 : mut i32[8]
+  sums_acc_0 : mut i32[8]
+  sums__slot_0 : mut i32[8]
+  sums_n_1 : mut i32[8]
+  sums_acc_1 : mut i32[8]
+  sums__slot_1 : mut i32[8]
+  sums_queue : mut Queue_sums[2]
+  let @3 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__slot_0) in
+  sums_queue[0u] = @3
+  let @5 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__slot_1) in
+  sums_queue[1u] = @5
+  parfor i in [0:8:1] {
+    tally(i, 0, 0, 0, (&sums_queue[0u]), (&sums_result[i]), i)
+    continue
+  }
+  sums!round = 0u
+  while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+    let @9 = (*sums!round) & 1u in
+    let @11 = sums_queue[(*sums!round) & 1u].count in
+    let @13 = @9 ^ 1u in
+    sums_queue[@13].count = 0u
+    parfor sums in [0u:@11:1u] {
+      let @14 = (&sums_queue[@13]) in
+      let @18 = sums_queue[@9].n in
+      let @19 = @18[sums] in
+      let @21 = sums_queue[@9].acc in
+      let @22 = @21[sums] in
+      let @23 = 0 - @22 in
+      let @24 = @22 << 1 in
+      let @26 = sums_queue[@9]._slot in
+      let @27 = @26[sums] in
+      tally(@19, @22, @23, @24, @14, (&sums_result[@27]), @27)
+      continue
+    }
+    let @8 = (*sums!round) + 1u in
+    sums!round = @8
+  }
+  parfor sums_rest in [0:8:1] {
+    let @30 = sums_result[sums_rest] in
+    let @0 = @30 in
+    let i = sums_rest in
+    out[i] = @0
+    continue
+  }
+  return
+}
+
+func [[noinline]] run2(out : mut i32[8]) -> void {
+  q!round : mut u32
+  q_result : mut i32[8]
+  q_n_0 : mut i32[8]
+  q_acc_0 : mut i32[8]
+  q_neg_0 : mut i32[8]
+  q_twice_0 : mut i32[8]
+  q__slot_0 : mut i32[8]
+  q_n_1 : mut i32[8]
+  q_acc_1 : mut i32[8]
+  q_neg_1 : mut i32[8]
+  q_twice_1 : mut i32[8]
+  q__slot_1 : mut i32[8]
+  q_queue : mut Queue_q[2]
+  let @3 = build<Queue_q>(0u, q_n_0, q_acc_0, q_neg_0, q_twice_0, q__slot_0) in
+  q_queue[0u] = @3
+  let @5 = build<Queue_q>(0u, q_n_1, q_acc_1, q_neg_1, q_twice_1, q__slot_1) in
+  q_queue[1u] = @5
+  parfor i in [0:8:1] {
+    let @8 = build<Entry_q>(i, 0, 0, 0, i) in
+    let @39 = atomic_add((&q_queue[0u].count), 1u) in
+    let @41 = q_queue[0u].n in
+    @41[@39] = i
+    let @44 = q_queue[0u].acc in
+    @44[@39] = 0
+    let @47 = q_queue[0u].neg in
+    @47[@39] = 0
+    let @50 = q_queue[0u].twice in
+    @50[@39] = 0
+    let @53 = q_queue[0u]._slot in
+    @53[@39] = i
+    continue
+  }
+  q!round = 0u
+  while (!(q_queue[(*q!round) & 1u].count == 0u)) {
+    let @12 = (*q!round) & 1u in
+    let @14 = q_queue[(*q!round) & 1u].count in
+    let @16 = @12 ^ 1u in
+    q_queue[@16].count = 0u
+    parfor q in [0u:@14:1u] {
+      let @17 = (&q_queue[@16]) in
+      let @21 = q_queue[@12].n in
+      let @22 = @21[q] in
+      let @24 = q_queue[@12].acc in
+      let @25 = @24[q] in
+      let @27 = q_queue[@12].neg in
+      let @28 = @27[q] in
+      let @30 = q_queue[@12].twice in
+      let @31 = @30[q] in
+      let @33 = q_queue[@12]._slot in
+      let @34 = @33[q] in
+      walk(@22, @25, @28, @31, @17, (&q_result[@34]), @34)
+      continue
+    }
+    let @11 = (*q!round) + 1u in
+    q!round = @11
+  }
+  parfor q_rest in [0:8:1] {
+    let @37 = q_result[q_rest] in
+    let @0 = @37 in
+    let i = q_rest in
+    out[i] = @0
+    continue
+  }
+  return
+}
+
+func [[noinline]] tally(n : i32, acc : i32, neg : i32, twice : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+  let @0 = n <= 0 in
+  if (@0) {
+    let @1 = acc + neg in
+    let @2 = @1 + twice in
+    _result_sums = @2
+    return
+  } else {
+    let _t0 = acc + n in
+    let @4 = n - 1 in
+    let @5 = 0 - _t0 in
+    let @6 = _t0 << 1 in
+    let @8 = build<Entry_sums>(@4, _t0, _slot_sums) in
+    let @11 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @13 = (*_queue_sums).n in
+    @13[@11] = @4
+    let @16 = (*_queue_sums).acc in
+    @16[@11] = _t0
+    let @19 = (*_queue_sums)._slot in
+    @19[@11] = _slot_sums
+    return
+  }
+}
+
+func [[noinline]] walk(n : i32, acc : i32, neg : i32, twice : i32, _queue_q : mut (Queue_q*), _result_q : mut (i32*), _slot_q : i32) -> void {
+  let @0 = n <= 0 in
+  if (@0) {
+    let @1 = acc + neg in
+    let @2 = @1 + twice in
+    _result_q = @2
+    return
+  } else {
+    let _t3 = acc + n in
+    let @4 = n - 1 in
+    let @5 = 0 - _t3 in
+    let @6 = _t3 << 1 in
+    let @8 = build<Entry_q>(@4, _t3, @5, @6, _slot_q) in
+    let @11 = atomic_add((&(*_queue_q).count), 1u) in
+    let @13 = (*_queue_q).n in
+    @13[@11] = @4
+    let @16 = (*_queue_q).acc in
+    @16[@11] = _t3
+    let @19 = (*_queue_q).neg in
+    @19[@11] = @5
+    let @22 = (*_queue_q).twice in
+    @22[@11] = @6
+    let @25 = (*_queue_q)._slot in
+    @25[@11] = _slot_q
+    return
+  }
+}
+
+
+schedule host {
+    q = run2.queue(root);
+    sums = run.queue(root);
+    run2.defer(walk, q)
+    tally.defer(tally, sums)
+    walk.defer(walk, q)
+
+}

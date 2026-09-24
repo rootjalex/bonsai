@@ -12,6 +12,7 @@ add_bonsai_tests(
     defer-lone-call.bonsai
     defer-loop-owned.bonsai
     defer-reducer.bonsai
+    defer-remat.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
     defer-continuation.bonsai

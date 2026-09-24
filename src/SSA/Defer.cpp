@@ -537,6 +537,59 @@ bool holds_address(const Type &type) {
     return false;
 }
 
+// How a field of the entry is computed again at the drain instead of being
+// stored: a tree of pure register operations over other fields of the
+// entry, values in scope at the drain, and constants -- `wo = -ray.d` beside
+// `ray_d`. Rematerialization in the sense of Briggs, Cooper and Torczon
+// ("Rematerialization", PLDI 1992), with the entry for the register file:
+// what is cheaper to recompute than to keep.
+struct Recipe {
+    enum class Kind { Constant, Field, Uniform, Op } kind = Kind::Constant;
+    shared_ptr<Value> constant; // Constant
+    size_t field = 0;           // Field: the entry field whose value this is
+    Definition uniform;         // Uniform: the owner's value, in scope at the drain
+    Instruction::Op op = Instruction::Op::Add; // Op
+    Type type;                                 // Op: the result's type
+    vector<Recipe> operands;                   // Op
+};
+
+bool same_recipe(const Recipe &a, const Recipe &b) {
+    if (a.kind != b.kind) {
+        return false;
+    }
+    switch (a.kind) {
+    case Recipe::Kind::Constant:
+        return same_value(*a.constant, *b.constant);
+    case Recipe::Kind::Field:
+        return a.field == b.field;
+    case Recipe::Kind::Uniform:
+        return same_definition(a.uniform, b.uniform);
+    case Recipe::Kind::Op:
+        if (a.op != b.op || !equals(a.type, b.type) ||
+            a.operands.size() != b.operands.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < a.operands.size(); i++) {
+            if (!same_recipe(a.operands[i], b.operands[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+// The fields a recipe reads, in order of first use.
+void recipe_fields(const Recipe &r, vector<size_t> &out) {
+    if (r.kind == Recipe::Kind::Field &&
+        std::find(out.begin(), out.end(), r.field) == out.end()) {
+        out.push_back(r.field);
+    }
+    for (const Recipe &o : r.operands) {
+        recipe_fields(o, out);
+    }
+}
+
 // One field of an entry: a piece of the continuation, and who writes it.
 struct Field {
     string name;
@@ -566,6 +619,9 @@ struct Field {
     bool in_entry = true;
     shared_ptr<Value> slot_array;
     optional<size_t> index_field;
+    // Or a pure function of other fields, recomputed at the drain (Recipe);
+    // not in the entry struct either.
+    optional<Recipe> recipe;
 };
 
 // One scalar of an entry (see QueueLayout in SSA/Defer.h).
@@ -2793,6 +2849,126 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // A field that is a pure function of other fields of the entry, of
+    // values in scope at the drain and of constants -- `wo = -ray.d` beside
+    // `ray_d`, or the same value as another field -- is recomputed at the
+    // drain and not stored (Recipe): register operations only, no read of
+    // memory and no library call, a few instructions at most, and the same
+    // computation at every push. Greedy, in field order: a field recomputed
+    // from others is no leaf for the fields after it, so no two recompute
+    // each other.
+    {
+        struct PushSite {
+            string function;
+            shared_ptr<Block> block;
+            const vector<shared_ptr<Value>> *args;
+        };
+        vector<PushSite> push_sites;
+        for (size_t s = 0; s < sites.size(); s++) {
+            push_sites.push_back(
+                {site_function[s], sites[s],
+                 &std::get<Terminator::Call>(sites[s]->terminator.data).call.args});
+        }
+        if (queue.initial_push) {
+            push_sites.push_back({queue.owner, producer.block, &pcall.call.args});
+        }
+        // A field the entry holds by value, as the callee's argument.
+        const auto is_leaf = [&](const Field &f) {
+            return f.in_entry && !f.slot_address && f.param.has_value() &&
+                   !f.recipe.has_value();
+        };
+        const size_t budget = 16; // instructions a recipe may take
+        for (size_t f = 0; f < fields.size() && !push_sites.empty(); f++) {
+            if (!is_leaf(fields[f])) {
+                continue;
+            }
+            optional<Recipe> agreed;
+            bool ok = true;
+            for (const PushSite &ps : push_sites) {
+                const auto dit = defs.find(ps.function);
+                if (dit == defs.end() || *fields[f].param >= ps.args->size()) {
+                    ok = false;
+                    break;
+                }
+                Definitions &pdefs = dit->second;
+                size_t left = budget;
+                std::function<optional<Recipe>(const Definition &)> cook =
+                    [&](const Definition &d) -> optional<Recipe> {
+                    if (!d.value) {
+                        return std::nullopt;
+                    }
+                    Recipe r;
+                    if (d.block.empty()) {
+                        r.kind = Recipe::Kind::Constant;
+                        r.constant = d.value;
+                        return r;
+                    }
+                    // Another field's value at this push: that field.
+                    for (size_t h = 0; h < fields.size(); h++) {
+                        if (h == f || !is_leaf(fields[h]) ||
+                            *fields[h].param >= ps.args->size()) {
+                            continue;
+                        }
+                        const Definition hd =
+                            pdefs.of(ps.block->name, (*ps.args)[*fields[h].param]);
+                        if (same_definition(hd, d)) {
+                            r.kind = Recipe::Kind::Field;
+                            r.field = h;
+                            return r;
+                        }
+                    }
+                    // A value the drain has in scope.
+                    if (const auto m = materialize(ps.function, d)) {
+                        r.kind = Recipe::Kind::Uniform;
+                        r.uniform = *m;
+                        return r;
+                    }
+                    const auto *held = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+                    if (held == nullptr) {
+                        return std::nullopt; // a value only the pusher has
+                    }
+                    const Instruction &in = **held;
+                    if (in.op == Instruction::Op::Set) {
+                        return cook(pdefs.of(d.block, in.operands[0]));
+                    }
+                    if (!recomputable(in) || reads_memory(in) ||
+                        in.op == Instruction::Op::Intrinsic ||
+                        in.op == Instruction::Op::Reduce ||
+                        in.op == Instruction::Op::Shuffle || left == 0) {
+                        return std::nullopt;
+                    }
+                    left--;
+                    r.kind = Recipe::Kind::Op;
+                    r.op = in.op;
+                    r.type = in.type;
+                    for (const auto &operand : in.operands) {
+                        const auto o = cook(pdefs.of(d.block, operand));
+                        if (!o.has_value()) {
+                            return std::nullopt;
+                        }
+                        r.operands.push_back(*o);
+                    }
+                    return r;
+                };
+                const auto r = cook(pdefs.of(ps.block->name, (*ps.args)[*fields[f].param]));
+                if (!r.has_value()) {
+                    ok = false;
+                    break;
+                }
+                if (!agreed.has_value()) {
+                    agreed = r;
+                } else if (!same_recipe(*agreed, *r)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok && agreed.has_value()) {
+                fields[f].recipe = agreed;
+                fields[f].in_entry = false;
+            }
+        }
+    }
+
     // BONSAI_EXPLAIN_DEFER=1 prints the entry's plan: which arguments are
     // left out and why, which are stored, and what the record keeps for the
     // continuation -- the question to ask when an entry is bigger than it
@@ -2828,6 +3004,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 } else if (fields[params[j].field].index_field.has_value()) {
                     std::cerr << "the record's index, "
                               << fields[*fields[params[j].field].index_field].name;
+                } else if (const auto &recipe = fields[params[j].field].recipe;
+                           recipe.has_value()) {
+                    vector<size_t> from;
+                    recipe_fields(*recipe, from);
+                    std::cerr << "recomputed at the drain";
+                    if (!from.empty()) {
+                        std::cerr << " from";
+                        for (size_t h : from) {
+                            std::cerr << " " << fields[h].name;
+                        }
+                    }
                 } else if (invariant.at(callee_name)[j]) {
                     std::cerr << "stored: one value down the chain, but computed "
                                  "inside the producer's iteration";
@@ -3101,6 +3288,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     continue; // the reducer, the result slot, an index
                 }
                 dead_field[q][f] = unread.contains(centry.args[*field.param].name);
+            }
+            // What a field is recomputed from is read when the field is.
+            for (size_t f = 0; f < fields.size(); f++) {
+                if (!fields[f].recipe.has_value() || dead_field[q][f]) {
+                    continue;
+                }
+                vector<size_t> from;
+                recipe_fields(*fields[f].recipe, from);
+                for (size_t h : from) {
+                    dead_field[q][h] = false;
+                }
             }
             for (const SlotGroup &group : slot_groups) {
                 bool needed = callee_in_chain;
@@ -3845,6 +4043,28 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 return undef_value(fields[f].type); // the callee never reads it
             }
             auto it = field_values.find(f);
+            if (it == field_values.end() && fields[f].recipe.has_value()) {
+                // Computed again from what the entry holds.
+                std::function<shared_ptr<Value>(const Recipe &)> cook =
+                    [&](const Recipe &r) -> shared_ptr<Value> {
+                    switch (r.kind) {
+                    case Recipe::Kind::Constant:
+                        return r.constant;
+                    case Recipe::Kind::Field:
+                        return entry_field(body, r.field);
+                    case Recipe::Kind::Uniform:
+                        return reach(body, r.uniform.value);
+                    case Recipe::Kind::Op:
+                        break;
+                    }
+                    vector<shared_ptr<Value>> operands;
+                    for (const Recipe &o : r.operands) {
+                        operands.push_back(cook(o));
+                    }
+                    return body->make_instruction(r.type, r.op, std::move(operands));
+                };
+                it = field_values.emplace(f, cook(*fields[f].recipe)).first;
+            }
             if (it == field_values.end() && fields[f].index_field.has_value()) {
                 if (fields[f].slot_array == nullptr) {
                     // The record's index itself.

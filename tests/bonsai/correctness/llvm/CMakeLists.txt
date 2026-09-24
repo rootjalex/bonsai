@@ -40,6 +40,7 @@ add_bonsai_tests(
     defer-off-chain.bonsai
     defer-parfor.bonsai
     defer-reducer.bonsai
+    defer-remat.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
     defer-spawn-two-producers.bonsai
