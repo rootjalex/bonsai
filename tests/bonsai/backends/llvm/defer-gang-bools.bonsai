@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm
+
+// The gang's packed bools, all the way to LLVM (see ssa/defer-gang-bools
+// for the schedule). What to read for: in `walk`'s gang copy, the three
+// flags' `<16 x i1>` zero-extended to `<16 x i8>`, shifted and or'd into
+// one vector, and one `llvm.masked.compressstore.v16i8` for it; in `run`,
+// the drain's one masked load of the byte per gang and the `and` per flag.
+
+func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool,
+          out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        r : mut i32 = acc;
+        if (odd) {
+            r = r + 100;
+        }
+        if (big) {
+            r = r + 1000;
+        }
+        if (neg) {
+            r = 0 - r;
+        }
+        out[i] = r;
+        return;
+    }
+    walk(n - 1, acc + n, odd, big, neg, out, i);
+    return;
+}
+
+func [[export]] run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, 0, i % 2 == 1, i > 20, i % 5 == 0, out, i);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

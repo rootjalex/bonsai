@@ -16,8 +16,10 @@ add_bonsai_tests(
     cse-parfor-bound.bonsai
     dce-effectful-argument.bonsai
     dce.bonsai
+    defer-bools.bonsai
     defer-frame.bonsai
     defer-gang.bonsai
+    defer-gang-bools.bonsai
     defer-gang-frame.bonsai
     defer-gang-mut-local.bonsai
     defer-gang-runtime-size.bonsai

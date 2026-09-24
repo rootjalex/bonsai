@@ -1,0 +1,288 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Queue_sums = type { i32, ptr, ptr, ptr, ptr }
+
+define void @run(ptr noundef %out_buffer) local_unnamed_addr {
+run:
+  %sums_queue1141 = alloca [2 x %struct.Queue_sums], align 16
+  %sums__bits0_142 = alloca [40 x i8], align 1
+  %sums_i_143 = alloca [40 x i32], align 4
+  %sums_acc_144 = alloca [40 x i32], align 4
+  %sums_n_145 = alloca [40 x i32], align 4
+  %sums__bits0_046 = alloca [40 x i8], align 1
+  %sums_i_047 = alloca [40 x i32], align 4
+  %sums_acc_048 = alloca [40 x i32], align 4
+  %sums_n_049 = alloca [40 x i32], align 4
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store i32 0, ptr %sums_queue1141, align 16
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 8
+  store ptr %sums_n_049, ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 16
+  store ptr %sums_acc_048, ptr %.fca.2.gep, align 16
+  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 24
+  store ptr %sums_i_047, ptr %.fca.3.gep, align 8
+  %.fca.4.gep = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 32
+  store ptr %sums__bits0_046, ptr %.fca.4.gep, align 16
+  %sums_queue13 = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 40
+  store i32 0, ptr %sums_queue13, align 8
+  %.fca.1.gep54 = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 48
+  store ptr %sums_n_145, ptr %.fca.1.gep54, align 16
+  %.fca.2.gep56 = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 56
+  store ptr %sums_acc_144, ptr %.fca.2.gep56, align 8
+  %.fca.3.gep58 = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 64
+  store ptr %sums_i_143, ptr %.fca.3.gep58, align 16
+  %.fca.4.gep60 = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 72
+  store ptr %sums__bits0_142, ptr %.fca.4.gep60, align 8
+  br label %"!par_body_0"
+
+"!par_cont_1":                                    ; preds = %sums_gang1_pf_exit, %"sums!round.preheader"
+  ret void
+
+"sums!batch":                                     ; preds = %"sums!round.preheader", %sums_gang1_pf_exit
+  %"@13.count66" = phi i32 [ %"@13.count", %sums_gang1_pf_exit ], [ %"@13.count63", %"sums!round.preheader" ]
+  %extract_ptr65 = phi ptr [ %extract_ptr, %sums_gang1_pf_exit ], [ %sums_queue1141, %"sums!round.preheader" ]
+  %0 = phi i32 [ %17, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
+  %"sums!round264" = phi i32 [ %16, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
+  %1 = xor i32 %0, 1
+  %2 = zext nneg i32 %1 to i64
+  %sums_queue17 = getelementptr inbounds nuw [40 x i8], ptr %sums_queue1141, i64 %2
+  store i32 0, ptr %sums_queue17, align 8, !tbaa !0
+  %.splatinsert = insertelement <16 x i32> poison, i32 %"@13.count66", i64 0
+  %.splat = shufflevector <16 x i32> %.splatinsert, <16 x i32> poison, <16 x i32> zeroinitializer
+  %extract26.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr65, i64 8
+  %extract26.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr65, i64 16
+  %extract26.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr65, i64 24
+  %extract26.fca.4.gep = getelementptr inbounds nuw i8, ptr %extract_ptr65, i64 32
+  br label %"sums!run_step_sums_lane"
+
+"sums!round.preheader":                           ; preds = %"!par_body_0"
+  %"@13.count63" = load i32, ptr %sums_queue1141, align 16
+  %3 = icmp eq i32 %"@13.count63", 0
+  br i1 %3, label %"!par_cont_1", label %"sums!batch"
+
+"!par_body_0":                                    ; preds = %run, %"!par_body_0"
+  %indvars.iv = phi i64 [ 0, %run ], [ %indvars.iv.next, %"!par_body_0" ]
+  %mulhi_wide = mul nsw i64 %indvars.iv, -1840700269
+  %mulhi_high = lshr i64 %mulhi_wide, 32
+  %mulhi = trunc nuw i64 %mulhi_high to i32
+  %4 = trunc nuw nsw i64 %indvars.iv to i32
+  %5 = add i32 %4, %mulhi
+  %6 = ashr i32 %5, 2
+  %7 = lshr i32 %5, 31
+  %8 = add nsw i32 %6, %7
+  %.neg = mul i32 %8, -7
+  %9 = add i32 %.neg, %4
+  %10 = trunc i64 %indvars.iv to i1
+  %11 = icmp samesign ugt i64 %indvars.iv, 20
+  %mulhi_wide14 = mul nuw nsw i64 %indvars.iv, 1717986919
+  %sum.shift = lshr i64 %mulhi_wide14, 33
+  %12 = trunc nuw nsw i64 %sum.shift to i32
+  %.neg50 = mul nsw i32 %12, -5
+  %13 = trunc i64 %indvars.iv to i32
+  %14 = sub i32 0, %13
+  %15 = icmp eq i32 %.neg50, %14
+  call fastcc void @walk(i32 %9, i1 %10, i1 %11, i1 %15, ptr %out, i32 %4, ptr %sums_queue1141)
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, 40
+  br i1 %exitcond.not, label %"sums!round.preheader", label %"!par_body_0", !prof !3
+
+sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sums_gang"
+  %16 = add i32 %"sums!round264", 1
+  %17 = and i32 %16, 1
+  %18 = zext nneg i32 %17 to i64
+  %extract_ptr = getelementptr inbounds nuw [40 x i8], ptr %sums_queue1141, i64 %18
+  %"@13.count" = load i32, ptr %extract_ptr, align 8
+  %19 = icmp eq i32 %"@13.count", 0
+  br i1 %19, label %"!par_cont_1", label %"sums!batch"
+
+"sums!run_step_sums_lane":                        ; preds = %"sums!batch", %"sums!run_yield_sums_gang"
+  %sums_gang62 = phi i32 [ 0, %"sums!batch" ], [ %29, %"sums!run_yield_sums_gang" ]
+  %.splatinsert23 = insertelement <16 x i32> poison, i32 %sums_gang62, i64 0
+  %.splat24 = shufflevector <16 x i32> %.splatinsert23, <16 x i32> poison, <16 x i32> zeroinitializer
+  %20 = or disjoint <16 x i32> %.splat24, <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
+  %21 = icmp ult <16 x i32> %20, %.splat
+  %22 = bitcast <16 x i1> %21 to i16
+  %.not = icmp eq i16 %22, 0
+  br i1 %.not, label %"sums!run_yield_sums_gang", label %"sums!run"
+
+"sums!run":                                       ; preds = %"sums!run_step_sums_lane"
+  %extract26.fca.1.load = load ptr, ptr %extract26.fca.1.gep, align 8
+  %extract26.fca.2.load = load ptr, ptr %extract26.fca.2.gep, align 8
+  %extract26.fca.3.load = load ptr, ptr %extract26.fca.3.gep, align 8
+  %extract26.fca.4.load = load ptr, ptr %extract26.fca.4.gep, align 8
+  %23 = sext i32 %sums_gang62 to i64
+  %extract_base = getelementptr inbounds [4 x i8], ptr %extract26.fca.1.load, i64 %23
+  %extract27 = call <16 x i32> @llvm.masked.load.v16i32.p0(ptr align 4 %extract_base, <16 x i1> %21, <16 x i32> zeroinitializer)
+  %extract_base30 = getelementptr inbounds [4 x i8], ptr %extract26.fca.2.load, i64 %23
+  %extract31 = call <16 x i32> @llvm.masked.load.v16i32.p0(ptr align 4 %extract_base30, <16 x i1> %21, <16 x i32> zeroinitializer)
+  %extract_base34 = getelementptr inbounds i8, ptr %extract26.fca.4.load, i64 %23
+  %extract35 = call <16 x i8> @llvm.masked.load.v16i8.p0(ptr align 1 %extract_base34, <16 x i1> %21, <16 x i8> zeroinitializer)
+  %24 = trunc <16 x i8> %extract35 to <16 x i1>
+  %25 = and <16 x i8> %extract35, splat (i8 2)
+  %26 = icmp ne <16 x i8> %25, zeroinitializer
+  %27 = and <16 x i8> %extract35, splat (i8 4)
+  %28 = icmp ne <16 x i8> %27, zeroinitializer
+  %extract_base39 = getelementptr inbounds [4 x i8], ptr %extract26.fca.3.load, i64 %23
+  %extract40 = call <16 x i32> @llvm.masked.load.v16i32.p0(ptr align 4 %extract_base39, <16 x i1> %21, <16 x i32> zeroinitializer)
+  call fastcc void @"walk$gang16_v0_v1_v2_v3_v4_v6$masked"(<16 x i32> %extract27, <16 x i32> %extract31, <16 x i1> %24, <16 x i1> %26, <16 x i1> %28, ptr %out, <16 x i32> %extract40, ptr %sums_queue17, <16 x i1> %21)
+  br label %"sums!run_yield_sums_gang"
+
+"sums!run_yield_sums_gang":                       ; preds = %"sums!run", %"sums!run_step_sums_lane"
+  %29 = add i32 %sums_gang62, 16
+  %30 = icmp ult i32 %29, %"@13.count66"
+  br i1 %30, label %"sums!run_step_sums_lane", label %sums_gang1_pf_exit, !prof !4
+}
+
+; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+define internal fastcc void @walk(i32 noundef %n, i1 noundef %odd, i1 noundef %big, i1 noundef %neg, ptr nofree noundef writeonly captures(none) %out, i32 noundef range(i32 -2147483648, 40) %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #0 {
+walk:
+  %0 = icmp slt i32 %n, 1
+  br i1 %0, label %"!then_0", label %"!merge_1"
+
+"!then_0":                                        ; preds = %walk
+  %spec.select = select i1 %odd, i32 100, i32 0
+  %1 = add nuw nsw i32 %spec.select, 1000
+  %r21 = select i1 %big, i32 %1, i32 %spec.select
+  %2 = sub nsw i32 0, %r21
+  %r26 = select i1 %neg, i32 %2, i32 %r21
+  %3 = sext i32 %i to i64
+  %out41 = getelementptr inbounds [4 x i8], ptr %out, i64 %3
+  store i32 %r26, ptr %out41, align 4, !tbaa !5
+  br label %common.ret
+
+common.ret:                                       ; preds = %"!merge_1", %"!then_0"
+  ret void
+
+"!merge_1":                                       ; preds = %walk
+  %4 = add nsw i32 %n, -1
+  %5 = atomicrmw add ptr %_queue_sums, i32 1 monotonic, align 4
+  %6 = zext i1 %odd to i8
+  %7 = select i1 %big, i8 2, i8 0
+  %8 = or disjoint i8 %7, %6
+  %9 = select i1 %neg, i8 4, i8 0
+  %10 = or disjoint i8 %8, %9
+  %11 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 8
+  %n35 = load ptr, ptr %11, align 8
+  %12 = sext i32 %5 to i64
+  %"@23" = getelementptr inbounds [4 x i8], ptr %n35, i64 %12
+  store i32 %4, ptr %"@23", align 4, !tbaa !5
+  %13 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 16
+  %acc37 = load ptr, ptr %13, align 8
+  %"@26" = getelementptr inbounds [4 x i8], ptr %acc37, i64 %12
+  store i32 %n, ptr %"@26", align 4, !tbaa !5
+  %14 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 24
+  %i39 = load ptr, ptr %14, align 8
+  %"@29" = getelementptr inbounds [4 x i8], ptr %i39, i64 %12
+  store i32 %i, ptr %"@29", align 4, !tbaa !5
+  %15 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 32
+  %_bits0 = load ptr, ptr %15, align 8
+  %"@32" = getelementptr inbounds i8, ptr %_bits0, i64 %12
+  store i8 %10, ptr %"@32", align 1, !tbaa !7
+  br label %common.ret
+}
+
+; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite)
+define internal fastcc void @"walk$gang16_v0_v1_v2_v3_v4_v6$masked"(<16 x i32> noundef %n, <16 x i32> noundef %acc, <16 x i1> noundef %odd, <16 x i1> noundef %big, <16 x i1> noundef %neg, ptr noundef %out, <16 x i32> noundef %i, ptr nofree noundef nonnull captures(none) %_queue_sums, <16 x i1> noundef %"!mask") unnamed_addr #1 {
+"walk$gang16_v0_v1_v2_v3_v4_v6$masked":
+  %0 = icmp slt <16 x i32> %n, splat (i32 1)
+  %not. = xor <16 x i1> %0, splat (i1 true)
+  %1 = and <16 x i1> %"!mask", %not.
+  %2 = and <16 x i1> %0, %"!mask"
+  %3 = bitcast <16 x i1> %2 to i16
+  %.not = icmp eq i16 %3, 0
+  br i1 %.not, label %"!merge_1!any", label %"!then_0"
+
+"!then_0":                                        ; preds = %"walk$gang16_v0_v1_v2_v3_v4_v6$masked"
+  %4 = and <16 x i1> %odd, %2
+  %5 = add <16 x i32> %acc, splat (i32 100)
+  %6 = select <16 x i1> %4, <16 x i32> %5, <16 x i32> %acc
+  %7 = and <16 x i1> %big, %2
+  %8 = add <16 x i32> %6, splat (i32 1000)
+  %9 = select <16 x i1> %7, <16 x i32> %8, <16 x i32> %6
+  %10 = and <16 x i1> %neg, %2
+  %11 = sub <16 x i32> zeroinitializer, %9
+  %12 = select <16 x i1> %10, <16 x i32> %11, <16 x i32> %9
+  %13 = sext <16 x i32> %i to <16 x i64>
+  %store_ptrs = getelementptr inbounds [4 x i8], ptr %out, <16 x i64> %13
+  tail call void @llvm.masked.scatter.v16i32.v16p0(<16 x i32> %12, <16 x ptr> align 4 %store_ptrs, <16 x i1> %2)
+  br label %"!merge_1!any"
+
+"!merge_1!any":                                   ; preds = %"!then_0", %"walk$gang16_v0_v1_v2_v3_v4_v6$masked"
+  %14 = bitcast <16 x i1> %1 to i16
+  %.not7 = icmp eq i16 %14, 0
+  br i1 %.not7, label %"!return", label %"!merge_1"
+
+"!merge_1":                                       ; preds = %"!merge_1!any"
+  %15 = add <16 x i32> %n, splat (i32 -1)
+  %16 = add <16 x i32> %acc, %n
+  %17 = tail call range(i16 1, 17) i16 @llvm.ctpop.i16(i16 %14)
+  %18 = zext nneg i16 %17 to i32
+  %19 = atomicrmw add ptr %_queue_sums, i32 %18 monotonic, align 4
+  %20 = zext <16 x i1> %odd to <16 x i8>
+  %21 = select <16 x i1> %big, <16 x i8> splat (i8 2), <16 x i8> zeroinitializer
+  %22 = or disjoint <16 x i8> %21, %20
+  %23 = select <16 x i1> %neg, <16 x i8> splat (i8 4), <16 x i8> zeroinitializer
+  %24 = or disjoint <16 x i8> %22, %23
+  %25 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 8
+  %n1 = load ptr, ptr %25, align 8
+  %26 = sext i32 %19 to i64
+  %"@56" = getelementptr inbounds [4 x i8], ptr %n1, i64 %26
+  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %15, ptr align 4 %"@56", <16 x i1> %1)
+  %27 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 16
+  %acc3 = load ptr, ptr %27, align 8
+  %"@59" = getelementptr inbounds [4 x i8], ptr %acc3, i64 %26
+  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %16, ptr align 4 %"@59", <16 x i1> %1)
+  %28 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 24
+  %i5 = load ptr, ptr %28, align 8
+  %"@62" = getelementptr inbounds [4 x i8], ptr %i5, i64 %26
+  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %i, ptr align 4 %"@62", <16 x i1> %1)
+  %29 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 32
+  %_bits0 = load ptr, ptr %29, align 8
+  %"@65" = getelementptr inbounds i8, ptr %_bits0, i64 %26
+  tail call void @llvm.masked.compressstore.v16i8.p0(<16 x i8> %24, ptr align 1 %"@65", <16 x i1> %1)
+  br label %"!return"
+
+"!return":                                        ; preds = %"!merge_1", %"!merge_1!any"
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read)
+declare <16 x i32> @llvm.masked.load.v16i32.p0(ptr captures(none), <16 x i1>, <16 x i32>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read)
+declare <16 x i8> @llvm.masked.load.v16i8.p0(ptr captures(none), <16 x i1>, <16 x i8>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.masked.compressstore.v16i32.p0(<16 x i32>, ptr captures(none), <16 x i1>) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.masked.compressstore.v16i8.p0(<16 x i8>, ptr captures(none), <16 x i1>) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
+declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, <16 x i1>) #4
+
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare i16 @llvm.ctpop.i16(i16) #5
+
+attributes #0 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #5 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"u32", !2, i64 0}
+!2 = !{!"bonsai"}
+!3 = !{!"branch_weights", i32 0, i32 1073741824}
+!4 = !{!"branch_weights", i32 1073741824, i32 0}
+!5 = !{!6, !6, i64 0}
+!6 = !{!"i32", !2, i64 0}
+!7 = !{!8, !8, i64 0}
+!8 = !{!"u8", !2, i64 0}

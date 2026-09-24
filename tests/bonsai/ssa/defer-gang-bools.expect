@@ -1,0 +1,212 @@
+type Entry_sums = struct Entry_sums{ n : i32; acc : i32; odd : bool; big : bool; neg : bool; i : i32 }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; i : i32[]; _bits0 : u8[] }
+
+func run(out : mut i32[40]) -> void {
+  sums!round : mut u32
+  sums_n_0 : mut i32[40]
+  sums_acc_0 : mut i32[40]
+  sums_i_0 : mut i32[40]
+  sums__bits0_0 : mut u8[40]
+  sums_n_1 : mut i32[40]
+  sums_acc_1 : mut i32[40]
+  sums_i_1 : mut i32[40]
+  sums__bits0_1 : mut u8[40]
+  sums_queue : mut Queue_sums[2]
+  let @6 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums_i_0, sums__bits0_0) in
+  sums_queue[0u] = @6
+  let @8 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums_i_1, sums__bits0_1) in
+  sums_queue[1u] = @8
+  parfor i in [0:40:1] {
+    let @41 = mulhi(i, -1840700269) in
+    let @42 = @41 + i in
+    let @43 = @42 >> 2 in
+    let @44 = @43 >> 31 in
+    let @45 = reinterpret_cast<u32>(@44) in
+    let @46 = @45 >> 31u in
+    let @47 = reinterpret_cast<i32>(@46) in
+    let @48 = @43 + @47 in
+    let @49 = @48 * 7 in
+    let @0 = i - @49 in
+    let @50 = i >> 31 in
+    let @51 = reinterpret_cast<u32>(@50) in
+    let @52 = @51 >> 31u in
+    let @53 = reinterpret_cast<i32>(@52) in
+    let @54 = i + @53 in
+    let @55 = @54 >> 1 in
+    let @56 = @55 * 2 in
+    let @1 = i - @56 in
+    let @2 = @1 == 1 in
+    let @3 = 20 < i in
+    let @57 = mulhi(i, 1717986919) in
+    let @58 = @57 >> 1 in
+    let @59 = @58 >> 31 in
+    let @60 = reinterpret_cast<u32>(@59) in
+    let @61 = @60 >> 31u in
+    let @62 = reinterpret_cast<i32>(@61) in
+    let @63 = @58 + @62 in
+    let @64 = @63 * 5 in
+    let @4 = i - @64 in
+    let @5 = @4 == 0 in
+    walk(@0, 0, @2, @3, @5, out, i, (&sums_queue[0u]))
+    continue
+  }
+  sums!round = 0u
+  while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+    let @12 = (*sums!round) & 1u in
+    let @14 = sums_queue[(*sums!round) & 1u].count in
+    let @16 = @12 ^ 1u in
+    sums_queue[@16].count = 0u
+    parfor sums_gang in [0u:@14:16u] {
+      let @17 = (&sums_queue[@16]) in
+      let @38 = sums_queue[(*sums!round) & 1u].count in
+      let @69 = u32x16(@38) in
+      let @40 = ramp(sums_gang, 1u, 16) < @69 in
+      let @66 = reduce<any>(@40) in
+      if (@66) {
+        let @21 = sums_queue[@12].n in
+        let @22 = masked_extract(@21[ramp(sums_gang, 1u, 16)], @40) in
+        let @24 = sums_queue[@12].acc in
+        let @25 = masked_extract(@24[ramp(sums_gang, 1u, 16)], @40) in
+        let @27 = sums_queue[@12]._bits0 in
+        let @28 = masked_extract(@27[ramp(sums_gang, 1u, 16)], @40) in
+        let @72 = u8x16(1u) in
+        let @29 = @28 & @72 in
+        let @73 = u8x16(0u) in
+        let @30 = @29 != @73 in
+        let @74 = u8x16(2u) in
+        let @31 = @28 & @74 in
+        let @75 = u8x16(0u) in
+        let @32 = @31 != @75 in
+        let @76 = u8x16(4u) in
+        let @33 = @28 & @76 in
+        let @77 = u8x16(0u) in
+        let @34 = @33 != @77 in
+        let @36 = sums_queue[@12].i in
+        let @37 = masked_extract(@36[ramp(sums_gang, 1u, 16)], @40) in
+        walk$gang16_v0_v1_v2_v3_v4_v6$masked(@22, @25, @30, @32, @34, out, @37, @17, @40)
+      }
+      continue
+    }
+    let @11 = (*sums!round) + 1u in
+    sums!round = @11
+  }
+  return
+}
+
+func [[noinline]] walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool, out : mut i32[40], i : i32, _queue_sums : mut (Queue_sums*)) -> void {
+  r : mut i32
+  let @0 = n <= 0 in
+  if (@0) {
+    if (odd) {
+      let @2 = acc + 100 in
+      r = @2
+    } else {
+      r = acc
+    }
+    if (big) {
+      let @4 = (*r) + 1000 in
+      r = @4
+    }
+    if (neg) {
+      let @6 = 0 - (*r) in
+      r = @6
+    }
+    out[i] = (*r)
+    return
+  } else {
+    let @9 = n - 1 in
+    let @10 = acc + n in
+    let @11 = build<Entry_sums>(@9, @10, odd, big, neg, i) in
+    let @14 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @15 = cast<u8>(odd) in
+    let @16 = cast<u8>(big) in
+    let @17 = @16 << 1u in
+    let @18 = @15 | @17 in
+    let @19 = cast<u8>(neg) in
+    let @20 = @19 << 2u in
+    let @21 = @18 | @20 in
+    let @23 = (*_queue_sums).n in
+    @23[@14] = @9
+    let @26 = (*_queue_sums).acc in
+    @26[@14] = @10
+    let @29 = (*_queue_sums).i in
+    @29[@14] = i
+    let @32 = (*_queue_sums)._bits0 in
+    @32[@14] = @21
+    return
+  }
+}
+
+func [[noinline]] walk$gang16_v0_v1_v2_v3_v4_v6$masked(n : i32x16, acc : i32x16, odd : boolx16, big : boolx16, neg : boolx16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
+  let @30 = i32x16(0) in
+  let @0 = n <= @30 in
+  let @31 = boolx16(false) in
+  let @32 = boolx16(true) in
+  let @13 = select(@0, @31, @32) in
+  let @14 = !mask && @13 in
+  let @15 = !mask && @0 in
+  let @26 = reduce<any>(@15) in
+  if (@26) {
+    let @33 = boolx16(false) in
+    let @34 = boolx16(true) in
+    let @16 = select(odd, @33, @34) in
+    let @17 = @15 && @16 in
+    let @18 = @15 && odd in
+    let @35 = i32x16(100) in
+    let @2 = acc + @35 in
+    let @27 = select(@18, @2, acc) in
+    let @36 = boolx16(false) in
+    let @37 = boolx16(true) in
+    let @19 = select(big, @36, @37) in
+    let @20 = @15 && @19 in
+    let @21 = @15 && big in
+    let @38 = i32x16(1000) in
+    let @4 = @27 + @38 in
+    let @28 = select(@21, @4, @27) in
+    let @39 = boolx16(false) in
+    let @40 = boolx16(true) in
+    let @22 = select(neg, @39, @40) in
+    let @23 = @15 && @22 in
+    let @24 = @15 && neg in
+    let @41 = i32x16(0) in
+    let @6 = @41 - @28 in
+    let @29 = select(@24, @6, @28) in
+    masked_store(out[i], @29, @15)
+  }
+  let @25 = reduce<any>(@14) in
+  if (@25) {
+    let @42 = i32x16(1) in
+    let @9 = n - @42 in
+    let @10 = acc + n in
+    let @11 = build<Entry_sums$v16>(@9, @10, odd, big, neg, i) in
+    let @44 = reduce<+>(cast<u32x16>(@14)) in
+    let @45 = atomic_add((&(*_queue_sums).count), @44) in
+    let @46 = cast<u8x16>(odd) in
+    let @47 = cast<u8x16>(big) in
+    let @48 = u8x16(1u) in
+    let @49 = @47 << @48 in
+    let @50 = @46 | @49 in
+    let @51 = cast<u8x16>(neg) in
+    let @52 = u8x16(2u) in
+    let @53 = @51 << @52 in
+    let @54 = @50 | @53 in
+    let @56 = (*_queue_sums).n in
+    compress_store(@56[@45], @9, @14)
+    let @59 = (*_queue_sums).acc in
+    compress_store(@59[@45], @10, @14)
+    let @62 = (*_queue_sums).i in
+    compress_store(@62[@45], i, @14)
+    let @65 = (*_queue_sums)._bits0 in
+    compress_store(@65[@45], @54, @14)
+  }
+  return
+}
+
+
+schedule host {
+    sums = run.queue(root);
+    run.split(sums, sums_gang, sums_lane, (i32)16, 1)
+       .vectorize(sums_lane)
+    walk.defer(walk, sums)
+
+}

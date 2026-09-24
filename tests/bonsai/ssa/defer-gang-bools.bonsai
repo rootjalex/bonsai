@@ -1,0 +1,43 @@
+//! flags: -p ssa
+
+// The packed bools of a gang's push: `walk` carries three flags, and the
+// drain runs sixteen entries as a gang (see ssa/defer-gang), so the gang's
+// push casts each flag's gang-wide vector to bytes, shifts by a broadcast
+// count, ors the three into one `u8x16`, and compress-stores that one byte
+// per lane -- one store for the three, where each bool of its own would be
+// a byte in memory and a store of its own. What to read for: in `walk`'s
+// gang copy, one `_bits0` store, and the drain's `_bits0` load taken apart
+// with an and per flag.
+
+func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool,
+          out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        r : mut i32 = acc;
+        if (odd) {
+            r = r + 100;
+        }
+        if (big) {
+            r = r + 1000;
+        }
+        if (neg) {
+            r = 0 - r;
+        }
+        out[i] = r;
+        return;
+    }
+    walk(n - 1, acc + n, odd, big, neg, out, i);
+    return;
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, 0, i % 2 == 1, i > 20, i % 5 == 0, out, i);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

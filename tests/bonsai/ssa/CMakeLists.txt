@@ -5,8 +5,10 @@ add_bonsai_tests(
     alias-edges.bonsai
     calls.bonsai
     collapse.bonsai
+    defer-bools.bonsai
     defer-frame.bonsai
     defer-gang.bonsai
+    defer-gang-bools.bonsai
     defer-lone-call.bonsai
     defer-loop-owned.bonsai
     defer-reducer.bonsai

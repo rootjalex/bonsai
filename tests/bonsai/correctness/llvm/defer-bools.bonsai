@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm -e
+
+// Three flags carried down a deferred recursion, packed into one byte of
+// the queue (tests/bonsai/ssa/defer-bools.bonsai reads the layout), come
+// back out right: the sum of 1..i, plus 100 when i is odd, plus 1000 when
+// i > 4, negated when i is 3.
+
+func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool) -> i32 {
+    if (n <= 0) {
+        r : mut i32 = acc;
+        if (odd) {
+            r = r + 100;
+        }
+        if (big) {
+            r = r + 1000;
+        }
+        if (neg) {
+            r = 0 - r;
+        }
+        return r;
+    }
+    return walk(n - 1, acc + n, odd, big, neg);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0, i % 2 == 1, i > 4, i == 3);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    // {0, 101, 3, -106, 10, 1115, 1021, 1128}
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

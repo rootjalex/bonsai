@@ -1,0 +1,49 @@
+//! flags: -p ssa -b llvm -e
+
+// Three flags through a gang's compacting push, packed into one byte per
+// lane (tests/bonsai/ssa/defer-gang-bools.bonsai reads the schedule): the
+// sum of 1..(i % 7), plus 100 when i is odd, plus 1000 when i > 20, negated
+// when i is a multiple of 5.
+
+func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool,
+          out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        r : mut i32 = acc;
+        if (odd) {
+            r = r + 100;
+        }
+        if (big) {
+            r = r + 1000;
+        }
+        if (neg) {
+            r = 0 - r;
+        }
+        out[i] = r;
+        return;
+    }
+    walk(n - 1, acc + n, odd, big, neg, out, i);
+    return;
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, 0, i % 2 == 1, i > 20, i % 5 == 0, out, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 40] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// The entry's bools are packed eight to a byte. `walk` carries three flags
+// down its recursion, each a value of the producer's iteration; the queue
+// stores one byte `_bits0` for the three, not three arrays of a byte each:
+// the push casts each flag, shifts it to its bit and ors them, and the
+// drain reads the byte once per entry and takes each bit back with an and
+// and a compare (QueueLayout, SSA/Defer.h). What to read for:
+// `Queue_sums` with `_bits0 : u8[]` and no `odd`, `big` or `neg` array.
+
+func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool) -> i32 {
+    if (n <= 0) {
+        r : mut i32 = acc;
+        if (odd) {
+            r = r + 100;
+        }
+        if (big) {
+            r = r + 1000;
+        }
+        if (neg) {
+            r = 0 - r;
+        }
+        return r;
+    }
+    return walk(n - 1, acc + n, odd, big, neg);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0, i % 2 == 1, i > 4, i == 3);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

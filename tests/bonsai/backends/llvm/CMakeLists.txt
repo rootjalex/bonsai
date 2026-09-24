@@ -9,6 +9,7 @@ add_bonsai_tests(
     adt-tagged-index.bonsai
     defer.bonsai
     defer-gang.bonsai
+    defer-gang-bools.bonsai
     demote-atomics.bonsai
     divide_by_constant.bonsai
     dynamic-array.bonsai

@@ -41,6 +41,11 @@ namespace ssa {
 // lower_pushes(), which meets the push after every directive has run. A
 // layout for the queue that a schedule asks for may replace this; nothing
 // here is the layout language's promise.
+// The entry's bools are packed eight to a byte: each bool leaf is bit `bit`
+// of a byte leaf `_bits<k>` that follows the fields' leaves in `leaves`
+// (from `entry_leaves` on), and the byte is what the queue stores -- one
+// array for eight bools, one compress-store for eight in a gang's push,
+// where a bool of its own takes a byte in memory anyway.
 struct QueueLayout {
     struct Leaf {
         std::string name;
@@ -48,12 +53,16 @@ struct QueueLayout {
         enum class Kind {
             Stored, // in the queue's array number `array`
             Pad,    // an ADT's padding: zero, stored nowhere
+            Bit,    // a bool: bit `bit` of the byte leaf `word`
         } kind = Kind::Stored;
         size_t array = 0; // among the queue's arrays, for a stored leaf
+        size_t word = 0;  // the byte leaf's index in `leaves`, for a bit
+        unsigned bit = 0;
     };
     Type entry;
     Type queue;
     std::vector<Leaf> leaves;
+    size_t entry_leaves = 0; // the fields' own leaves; the bytes follow
     // unread[q][l]: leaf l is not stored in queue q of the split (queue 0
     // when there is no split), its callee never reading it. Empty when
     // every leaf is read everywhere.

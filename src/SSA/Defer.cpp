@@ -54,6 +54,11 @@ shared_ptr<Value> constant_u32(uint64_t v) {
     return std::make_shared<Value>(Constant{u32(), v});
 }
 
+const Type &u8() {
+    static const Type t = UInt_t::make(8);
+    return t;
+}
+
 Type value_type(const Value &v) {
     return std::visit(
         overloads{[](const Constant &c) { return c.type; },
@@ -2906,6 +2911,31 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         field_leaves.emplace_back(first, leaves.size());
     }
+    // The bools, eight to a byte: each becomes a bit of a byte leaf
+    // `_bits<k>` appended after the fields' leaves, and the byte is what is
+    // stored (QueueLayout).
+    const size_t entry_leaves = leaves.size();
+    {
+        vector<size_t> bools;
+        for (size_t l = 0; l < leaves.size(); l++) {
+            if (leaves[l].kind == Leaf::Kind::Stored && leaves[l].type.is_bool()) {
+                bools.push_back(l);
+            }
+        }
+        for (size_t k = 0; k * 8 < bools.size(); k++) {
+            Leaf word;
+            word.name = "_bits" + std::to_string(k);
+            word.type = u8();
+            const size_t w = leaves.size();
+            leaves.push_back(std::move(word));
+            for (unsigned b = 0; b < 8 && k * 8 + b < bools.size(); b++) {
+                Leaf &bit = leaves[bools[k * 8 + b]];
+                bit.kind = Leaf::Kind::Bit;
+                bit.word = w;
+                bit.bit = b;
+            }
+        }
+    }
     // The queue's arrays: one per stored leaf, in leaf order.
     Struct_t::Map queue_fields = {TypedVar("count", u32())};
     size_t narrays = 0;
@@ -2929,7 +2959,19 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         layout.entry = entry_t;
         layout.queue = queue_t;
         layout.leaves = leaves;
+        layout.entry_leaves = entry_leaves;
         (*queue.layouts)["Queue_" + queue.name] = std::move(layout);
+    }
+    if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+        for (size_t w = entry_leaves; w < leaves.size(); w++) {
+            std::cerr << ";   " << leaves[w].name << " : u8 packs";
+            for (size_t l = 0; l < entry_leaves; l++) {
+                if (leaves[l].kind == Leaf::Kind::Bit && leaves[l].word == w) {
+                    std::cerr << " " << leaves[l].name;
+                }
+            }
+            std::cerr << "\n";
+        }
     }
 
     // The queues a split makes of this one (QueueSpec::split): a leaf of
@@ -3040,9 +3082,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // field it stands for is, and the callee is not handed it (a chain
     // callee is). The reducer and the result slot are the drain's own.
     vector<vector<bool>> dead_field(subqueues.size(), vector<bool>(fields.size(), false));
+    vector<vector<bool>> unread_leaves(subqueues.size(),
+                                       vector<bool>(leaves.size(), false));
     {
-        vector<vector<bool>> unread_leaves(subqueues.size(),
-                                           vector<bool>(leaves.size(), false));
         bool any = false;
         for (size_t q = 0; q < subqueues.size(); q++) {
             // What the callee reads once it is the code that will run: a
@@ -3076,6 +3118,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
                     unread_leaves[q][l] = true;
                 }
+            }
+            // A byte of bools is unread when every bit of it is.
+            for (size_t w = entry_leaves; w < leaves.size(); w++) {
+                bool all = true;
+                for (size_t l = 0; l < entry_leaves; l++) {
+                    if (leaves[l].kind == Leaf::Kind::Bit && leaves[l].word == w) {
+                        all = all && unread_leaves[q][l];
+                    }
+                }
+                unread_leaves[q][w] = all;
             }
         }
         if (any) {
@@ -3432,6 +3484,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         (double_buffered ? "_" + std::to_string(i) : ""))));
             }
         }
+        // Then the bytes the bools are packed into.
+        for (size_t w = entry_leaves; w < leaves.size(); w++) {
+            const Leaf &leaf = leaves[w];
+            internal_assert(leaf.kind == Leaf::Kind::Stored && leaf.array == stores[i].size())
+                << leaf.name;
+            if (unread_leaves[double_buffered ? 0 : i][w]) {
+                stores[i].push_back(undef_value(Array_t::make(leaf.type, Expr())));
+                continue;
+            }
+            stores[i].push_back(scratch(make_alloca(
+                *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
+                qname + "_" + leaf.name +
+                    (double_buffered ? "_" + std::to_string(i) : ""))));
+        }
     }
     const shared_ptr<Value> queues = scratch(
         many ? make_alloca(*O, alloc_point,
@@ -3772,6 +3838,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         const auto run_storage = storage_of(
             body, double_buffered ? reach(body, cur) : constant_u32(q));
         map<size_t, shared_ptr<Value>> field_values;
+        map<size_t, shared_ptr<Value>> word_values; // the bytes of bools read
         std::function<shared_ptr<Value>(const shared_ptr<Block> &, size_t)> entry_field;
         entry_field = [&](const shared_ptr<Block> &block, size_t f) -> shared_ptr<Value> {
             if (dead_field[q][f]) {
@@ -3809,6 +3876,25 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     switch (leaf.kind) {
                     case Leaf::Kind::Pad:
                         return zero_value(t, *O, body);
+                    case Leaf::Kind::Bit: {
+                        // Its bit of the byte, read once per entry.
+                        auto wv = word_values.find(leaf.word);
+                        if (wv == word_values.end()) {
+                            wv = word_values
+                                     .emplace(leaf.word,
+                                              body->make_instruction(
+                                                  u8(), Instruction::Op::ExtractIdx,
+                                                  {run_storage(leaf.word), index}))
+                                     .first;
+                        }
+                        auto masked = body->make_instruction(
+                            u8(), Instruction::Op::BwAnd,
+                            {wv->second,
+                             std::make_shared<Value>(Constant{u8(), uint64_t(1) << leaf.bit})});
+                        return body->make_instruction(
+                            t, Instruction::Op::Ne,
+                            {masked, std::make_shared<Value>(Constant{u8(), uint64_t(0)})});
+                    }
                     case Leaf::Kind::Stored:
                         break;
                     }
@@ -4257,9 +4343,43 @@ void lower_pushes(Function &func, const QueueLayouts &layouts) {
                                               std::move(ops));
                 };
                 take_apart(entry, leaves, l, lanes, emit, parts);
-                internal_assert(l == leaves.size() && parts.size() == l)
+                const size_t entry_leaves = layout->second.entry_leaves;
+                internal_assert(l == entry_leaves && parts.size() == l)
                     << "an entry of " << parts.size() << " scalars pushed onto "
-                    << queue_t << ", which stores " << leaves.size();
+                    << queue_t << ", which stores " << entry_leaves;
+                // The bools, each a bit of its byte: the byte is the or of
+                // the bools cast to it and shifted to their bits, lane-wise
+                // for a gang. A bit that is undefined or unread is left
+                // zero; a byte with none is not stored.
+                parts.resize(leaves.size());
+                const Type byte_t = gang != nullptr ? Vector_t::make(u8(), lanes) : u8();
+                for (size_t w = entry_leaves; w < leaves.size(); w++) {
+                    shared_ptr<Value> byte;
+                    for (size_t b = 0; b < entry_leaves; b++) {
+                        if (leaves[b].kind != Leaf::Kind::Bit || leaves[b].word != w ||
+                            parts[b] == nullptr || unread(b)) {
+                            continue;
+                        }
+                        auto bit = insert_instruction(func, block, at++, byte_t,
+                                                      Instruction::Op::Cast, {parts[b]});
+                        if (leaves[b].bit != 0) {
+                            shared_ptr<Value> by = std::make_shared<Value>(
+                                Constant{u8(), uint64_t(leaves[b].bit)});
+                            if (gang != nullptr) {
+                                by = insert_instruction(func, block, at++, byte_t,
+                                                        Instruction::Op::Bc,
+                                                        {by, constant_u32(lanes)});
+                            }
+                            bit = insert_instruction(func, block, at++, byte_t,
+                                                     Instruction::Op::Shl, {bit, by});
+                        }
+                        byte = byte == nullptr
+                                   ? bit
+                                   : insert_instruction(func, block, at++, byte_t,
+                                                        Instruction::Op::BwOr, {byte, bit});
+                    }
+                    parts[w] = byte;
+                }
             }
             // Each stored scalar goes to its array, whose handle is read
             // through the queue's address -- the handles the entry needs, not
