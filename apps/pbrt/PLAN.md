@@ -6035,6 +6035,195 @@ band the pass to the cache, which the schedule language can say today
 (`split(p, band, pin, n)`, two `reorder`s, `queue(band)`), pbrt's own knob
 sized for a CPU's L3 rather than a GPU's memory.
 
+**The entries slimmed (2026-09-24, later).** The rule set: an entry holds
+the minimum -- nothing uniform over the owning loop or derivable from
+uniform values, no ADT padding, the record's index rather than the
+addresses of its slots, and (to do) packed bools and nothing a pure
+function of what is stored can recompute -- decided in polynomial time.
+What was found and done, in `SSA/Defer.cpp` unless said otherwise, each a
+commit with the suite green and the three scenes bit for bit against the
+scalar schedule on both wavefront schedules:
+
+- *Uniform payload words.* Every queue stored `max_depth`, `ls`, `set` and
+  `regularize` (25 B) although they are render-wide constants, because
+  `materialize` -- the loop-invariant code motion that copies a chain
+  function's computation before the producer loop -- treated every
+  `extract_idx` as a read of memory whose base must be a read-only
+  parameter, and `li_vol_path` takes them out of the integrator's packed
+  payload word, a *vector value*. `reads_memory` (now next to `pure` in
+  SSA/Simplify.h, shared with reorder) says a lane of a vector reads no
+  memory; the four are "in scope at the drain" in both schedules.
+  `BONSAI_EXPLAIN_DEFER=1` now says why a value that is one down the chain
+  did not move.
+- *Padding.* An ADT's inline storage has pad bytes between the tag and the
+  payload (`via` 7, `ls` 3, the option's 7); they were arrays of the queue.
+  The queue's layout is now recorded where the entry is made
+  (`QueueLayout`, SSA/Defer.h, by the queue type's name) and read by
+  `lower_pushes`; a pad leaf -- found through the program's `AdtStorage`
+  records, never by name -- is stored nowhere and rebuilt as zero, which
+  is what every construction writes.
+- *The record's index.* `state`, `visible`, `l` (and a path's result slot,
+  a spawned reducer) were three 8-byte addresses per entry, all
+  `gep(array, i)` for the one index `i` of the iteration. The entry keeps
+  `i` once (`_slot : u32`, pbrt's `pixelIndex`), handed down the chain as
+  a parameter `_slot_<q>` the way the queue is, and the drain rebuilds each
+  address from the array (the owner's) and the index read back; a by-value
+  field that *is* a record index at every call of the owner into the chain
+  -- the earlier queue's `_slot_rays`, handed on -- aliases the index
+  field. Slots of two records would be two indices; an address that is not
+  one array's slot at every call is stored as it was.
+
+Bytes per entry, before and after (pbrt's work items for scale; ours
+carries 49 B of exact ray differentials pbrt's wavefront does not):
+
+    rays 268 -> 223 (RayWorkItem 184)    hits 464 -> 412 (MaterialEvalWorkItem 252)
+    medium_samples 337 -> 285            medium_scatters 254 -> 209
+    escaped 173 -> 149 (164)             emissive 193 -> 177 (180)     shadow 156 -> 152 (124)
+
+camera-medium, single runs: per-pixel wavefront 0.37 s (pbrt path 0.51
+s), frame 12.5 s (was 15.4; pbrt --wavefront 6.5 s); killeroo frame 200 s
+(was 250).
+
+- *What the callee never reads.* After `hits.specialize(material)` the
+  `vol_surface!<Material>` copies never read `via` (40 B), `r_l` (16),
+  `specular_bounce` (1) or `prev_ctx` (48): they are the interface skip's,
+  which is the Interface copy's arm alone -- and pbrt's
+  MaterialEvalWorkItem does not carry them either. A split's copy is now
+  made the code that will run where it is made (its `mut` locals promoted
+  and the folds that follow, which the pipeline would do later; every
+  directive after must see the function the drain calls), and a parameter
+  the copy never reads (`unread_parameters`, SSA/Analysis.h: liveness over
+  the block arguments, since a value threaded through blocks to nowhere is
+  not a read) has no array in that queue of the split
+  (`QueueLayout::unread`): the push skips it, the drain hands the copy
+  nothing there. The material queues go 412 -> 314 B per entry (pbrt 252,
+  the difference the differentials and the ray); the Interface queue
+  keeps 408, reading everything but the medium.
+
+- *Bools, eight to a byte.* A bool of its own was a byte in memory, an
+  array, a compress-store per gang push and a masked load per drain. Each
+  bool leaf is now a bit of a byte leaf `_bits<k>` after the fields'
+  leaves; the push casts, shifts and ors (one `compressstore.v16i8` for
+  eight in a gang), the drain reads the byte once per entry and takes
+  each bit back with an and. rays and hits: three bools into one byte; the
+  medium samples: four.
+- *Recomputed at the drain.* A field that is a pure function of other
+  fields of the entry, of values in scope at the drain and of constants
+  -- register operations only, no read of memory, no library call, a few
+  instructions, the same computation at every push -- is not stored but
+  computed again from what is read back (`Recipe`; Briggs, Cooper and
+  Torczon's rematerialization with the entry for the register file). In
+  pbrt that is `emissive.wo = -ray.d` beside `ray_d` (12 B); the rest of
+  what the kernels are handed is either what they were handed
+  (parameters, opaque) or comes through calls and memory. A hit's
+  primitive is not a reference the drain could dereference again: the
+  query's argmin returns the `(Primitive, Geometric)` values, which is the
+  program's choice, not the compiler's.
+
+- *Only the fields the callee reads.* `unread_parameters` became
+  `read_paths` (SSA/Analysis.h): what a function reads of each parameter
+  path by path, a `load_field` or a lane at a constant index narrowing
+  the path and any other use being the whole, followed along the edges
+  that pass values on. A leaf with no read above it has no array
+  (`QueueLayout::unread`, per leaf). The material kernels read the ray's
+  direction and never its origin or tmax, of the primitive only the
+  material and the media; the medium scatter kernel reads of its event
+  neither the kind nor the majorant nor `r_l`; `escaped_contribution`
+  never reads lambda's pdfs.
+
+Bytes per entry after all of it, against pbrt's work items
+(wavefront/workitems.h, sizes summed from workitems.soa: one array per
+leaf, `Float` 4, `int` 4, a `TaggedPointer` handle 8, `SampledSpectrum`
+16, `SampledWavelengths` 32, `Ray` 36 with `time` and a medium pointer,
+`LightSampleContext` 48), and what accounts for every byte of difference:
+
+    queue            ours   pbrt   item                       the difference, byte for byte
+    rays             221    184    RayWorkItem                +49 ray differentials (12 f32 + a bit)  +4 ray.tmax (our Ray element carries it; pbrt passes tMax beside)
+                                                              -4 time (no motion blur here)  -4 medium (an index, not a pointer)  -7 two flags in a bit each, not an int each
+    hits (material)  281    252    MaterialEvalWorkItem       +49 differentials  +4 the current medium (pbrt: the interface only)
+                                                              -4 material index vs pointer  -8 medium interface as two indices  -4 no faceIndex  -4 time  -3 flags
+    hits (Interface) 278    --     (pbrt: no queue; the skip is in the intersect kernel and re-pushes the ray)
+    medium_samples   282    364    MediumSampleWorkItem       pbrt carries the whole surface interaction (176 B); ours the hit's (Primitive, Geometric) 61 B and recomputes the geometry -- and +49 differentials
+    medium_scatters  157    120    MediumScatterWorkItem      +49 differentials  -4 phase function g vs pointer  -4 medium  -4 time
+    escaped          133    164    EscapedRayWorkItem         -16 lambda.pdf never read  -8 flags/medium/time
+    emissive         165    192    HitAreaLightWorkItem       -12 p  -8 uv  (ours: the light index, n, ray.d, wo recomputed)
+    shadow           152    124    ShadowRayWorkItem          +36 to_p, to_n, to_error: our transmittance walk re-spawns toward the light from the light sample's point, normal and error, where pbrt's TraceTransmittance re-spawns toward ray(1) with tMax = 1 - eps (wavefront/intersect.h:174, 247) -- a program change, not a compiler one
+                                                              -4 time  -4 medium
+
+So every byte we carry over pbrt is one of three things: the exact ray
+differentials (49 B, in rays, hits, both medium queues), which pbrt's
+wavefront does not have at all and replaces with `Approximate_dp_dxy`
+at every hit (see below); `ray.tmax` in rays (4 B), a field of our `Ray`
+element; and the shadow ray's light-sample geometry (36 B), which is how
+render.bonsai wrote the transmittance walk. Everywhere else we are at or
+under pbrt, by the compiler's own doing (indices for pointers, a bit for
+a flag, the unread left out, the geometry not carried into the medium
+sample). Single runs along the way: the frame schedule on camera-medium
+15.4 -> 11.4 s (pbrt --wavefront 6.5 s), on killeroo 250 -> 171 s (pbrt
+98 s); the per-pixel wavefront 0.38 s and 10.9-11.7 s, unchanged within
+noise. What separates the frame schedule from pbrt's is no longer the
+entries; it is to be measured with perf, not reasoned about.
+
+**Where pbrt's own CPU volpath and its wavefront differ (pbrt-v4 at
+eef3a6e, paths under src/pbrt/).** Read for the question "why does
+`--wavefront` not give the CPU integrator's pixels", which is also why
+this program is checked against the CPU integrator:
+
+1. *Ray differentials.* CPU: `camera.GenerateRayDifferential`
+   (cpu/integrators.cpp:240-241), `ComputeDifferentials` uses the true
+   differentials when `ray.hasDifferentials` (interaction.cpp:48-62) and
+   `Approximate_dp_dxy` otherwise (:63-66); `SurfaceInteraction::SpawnRay`
+   propagates them through specular reflection and transmission only
+   (interaction.cpp:99-157). Wavefront: `camera.GenerateRay`
+   (wavefront/camera.cpp:61-62), a plain `Ray` in every work item, and
+   `Approximate_dp_dxy` unconditionally at every hit
+   (wavefront/surfscatter.cpp:77-80). Also the wavefront never fills
+   `dpdx/dpdy` into its texture contexts (workitems.h:269-304), so 3D
+   texture mappings filter with a zero footprint under `--wavefront`.
+2. *A typo in the light-sampling nudge.* cpu/integrators.cpp:1286 nudges
+   toward `-wo` when `IsTransmissive(flags) && !IsReflective(flags)`;
+   surfscatter.cpp:269 reads `IsTransmissive(flags) && IsReflective(flags)`
+   -- pure transmitters are not nudged, rough dielectrics are nudged to
+   the back.
+3. *Interface crossings cost a bounce.* The wavefront loop is bounded by
+   `wavefrontDepth` (wavefront/integrator.cpp:374, 423-424) while an
+   interface skip re-enqueues the ray at the same `depth`
+   (intersect.h:103-105, media.cpp:196-198); the CPU does not count skips
+   (cpu/integrators.cpp:1116-1119).
+4. *Emission at max depth inside a medium.* media.cpp:163 returns on
+   `w.depth == maxDepth` before the area-light and escaped-ray pushes
+   (:168-178, :202-210); the CPU adds that emission (:1081-1112 before
+   the depth check at :1146).
+5. *Russian roulette after a medium scatter.* media.cpp:330-339 applies
+   it; the CPU `continue`s past it (cpu/integrators.cpp:1072-1073).
+   Subsurface: the wavefront rolls at the entry (surfscatter.cpp:212-222)
+   and again at the exit (subsurface.cpp:104-112, with `> 1` where the
+   entry has `>= 1`); the CPU once (:1257-1268).
+6. *Random streams.* The wavefront restarts the sampler at `6 + 7*depth`
+   dimensions per bounce (wavefront/samples.cpp:39-61); the CPU consumes
+   sequentially -- 4 for a specular bounce (SampleLd skipped, :1157), 8
+   for a medium scatter (:975-980, :1037), 17 for subsurface. Media: the
+   CPU seeds its RNG from three sampler dimensions (:975-980); the
+   wavefront from `Hash(ray.o, tMax), Hash(ray.d)` (media.cpp:44), so with
+   `--disable-pixel-jitter` the same medium uniforms recur every sample.
+   Subsurface exits reuse the entry's `indirect`/`direct` samples
+   (subsurface.cpp:77-78, 107, 153, 159).
+7. *NaN samples.* The CPU zeroes them (cpu/integrators.cpp:263-273); the
+   wavefront's film write has no check (wavefront/film.cpp:13-39).
+8. *Smaller.* Two infinite lights: the CPU accumulates `r_l *= p_l` across
+   the loop (:1091), the wavefront uses a fresh local per light
+   (integrator.cpp:521-522). `time = 0` on the medium-side interface skip
+   (media.cpp:193 via interaction.h:65) and on subsurface exit and probe
+   rays (subsurface.cpp:70, 115, 194; aggregate.cpp:97). The subsurface
+   `Sw` is regularized on the CPU (:1234-1236), never in subsurface.cpp.
+   `forceDiffuse` is refused by the wavefront (integrator.cpp:203-204).
+
+Same on both: wavelengths, camera samples and the camera ray (bitwise),
+the film's accumulation and clamp, the per-event medium arithmetic
+(different streams), the MIS weights (different association), the
+shadow-ray transmittance loop including its 0.05/0.75 roulette and RNG
+seed, `regularize` on surfaces, albedo estimation.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
