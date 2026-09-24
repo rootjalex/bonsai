@@ -18,16 +18,12 @@ func _traverse_array0(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
 
 func _traverse_array1(m : i32, n : i32, a : f32[n][m]) -> f32[n][m] {
   alloc _alloc1 : mut f32[m * n]
-  let @7 = n + 1 in
-  let @8 = @7 - 1 in
-  let @9 = m + 1 in
-  let @10 = @9 - 1 in
-  let @11 = @10 * @8 in
-  parfor i_a in [0:@11:1] {
-    let @12 = i_a / @8 in
-    let @13 = i_a % @8 in
-    let _i0 = @12 in
-    let _i1 = @13 in
+  let @7 = m * n in
+  parfor i_a in [0:@7:1] {
+    let @8 = i_a / n in
+    let @9 = i_a % n in
+    let _i0 = @8 in
+    let _i1 = @9 in
     let @0 = a[_i0] in
     let @1 = @0[_i1] in
     let @2 = sqrt(@1) in
@@ -73,16 +69,12 @@ func _traverse_array2(a : f32[8][32]) -> f32[8][32] {
 
 func _traverse_array3(h : i32, w : i32) -> i32[h][w] {
   alloc _alloc3 : mut i32[w * h]
-  let @6 = h + 1 in
-  let @7 = @6 - 1 in
-  let @8 = w + 1 in
-  let @9 = @8 - 1 in
-  let @10 = @9 * @7 in
-  parfor i_c in [0:@10:1] {
-    let @11 = i_c / @7 in
-    let @12 = i_c % @7 in
-    let _i0 = @11 in
-    let _i1 = @12 in
+  let @6 = w * h in
+  parfor i_c in [0:@6:1] {
+    let @7 = i_c / h in
+    let @8 = i_c % h in
+    let _i0 = @7 in
+    let _i1 = @8 in
     print(_i0, _i1)
     let @0 = _i0 + _i1 in
     let @2 = _i0 * h in

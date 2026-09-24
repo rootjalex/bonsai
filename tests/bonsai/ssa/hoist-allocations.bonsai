@@ -1,0 +1,41 @@
+//! flags: -p ssa
+
+// Storage a pass owns, made once for every pass (SSA/HoistAllocations.h),
+// and on the heap once it is the function's (SSA/HeapArrays.h).
+//
+// `run.queue(r)` is a queue per iteration of the outer, unbound loop `r`:
+// the deferral makes its storage -- the entry arrays, the queue, the record
+// -- at the head of `r`'s body, sized by `n`, the trip count of the producer
+// loop `i`. Nothing in it outlives an iteration of `r` (the queue is emptied
+// before it is filled, the record written before it is read), so the hoist
+// moves every one of those allocations out of `r`, to the function's entry,
+// where `n` is a parameter: made once per call rather than once per pass.
+// Being run-time sized and at the function's top, they then go to the heap,
+// freed before the function returns -- which is what `--no-heap` admits,
+// since nothing is leaked.
+//
+// What to read for: every `alloc <name> : mut T[n]` before `parfor r`, the
+// `free(...)` of each before `return`, and the queue's per-pass
+// initialization still inside `r`.
+
+func tally(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return tally(n - 1, acc + n);
+}
+
+func run(n : i32, out : mut array[i32, n]) -> void {
+    parfor r in 0:2 {
+        parfor i in 0:n {
+            v = tally(i, r);
+            out[i] = out[i] + v;
+        }
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(r);
+    tally.defer(tally, sums);
+}

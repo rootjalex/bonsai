@@ -93,6 +93,15 @@ bool has_uses(const Function &func, const Instruction *of);
 void for_each_value(Function &func,
                     const std::function<void(std::shared_ptr<Value> &)> &fn);
 
+// The same for one block: the operands of its instructions, what its
+// terminator reads or passes, and the values it looks names up to.
+void for_each_value(Block &block,
+                    const std::function<void(std::shared_ptr<Value> &)> &fn);
+
+// And for one terminator alone: what it reads or passes.
+void for_each_value(Terminator &terminator,
+                    const std::function<void(std::shared_ptr<Value> &)> &fn);
+
 //===--------------------------------------------------------------------===//
 // Control flow graph
 //===--------------------------------------------------------------------===//

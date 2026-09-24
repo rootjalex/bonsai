@@ -720,6 +720,19 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       body = collapse_loops(std::move(body), io,
                                                             ii, i, program);
                                   },
+                                  [&](const Reorder &) {
+                                      // As defer: an SSA rewrite (see
+                                      // SSA/ReorderLoops.h) this pipeline
+                                      // does not run, and one a program
+                                      // cannot be compiled without.
+                                      internal_error
+                                          << "reorder() is in the schedule for "
+                                          << name
+                                          << ", but it is an SSA rewrite (see "
+                                             "SSA/ReorderLoops.h) and this "
+                                             "pipeline does not run one. "
+                                             "Compile with `-p ssa`.";
+                                  },
                                   [&](const Bind &bind) {
                                       // no-op, applied by ConvertToSSA
                                       // instead: a bind is a tag on a parfor,

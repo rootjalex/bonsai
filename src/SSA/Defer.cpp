@@ -3,9 +3,12 @@
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
 #include "SSA/Definitions.h"
+#include "SSA/LoopArithmetic.h"
+#include "SSA/Reach.h"
 #include "SSA/SSA.h"
 #include "SSA/Simplify.h"
 #include "SSA/Specialize.h"
+#include "SSA/Storage.h"
 
 #include "IR/Expr.h"
 #include "IR/Type.h"
@@ -58,14 +61,6 @@ Type value_type(const Value &v) {
         v.data);
 }
 
-// A constant of the index type `type` -- an unsigned index makes an unsigned
-// constant, which is the arm its type is read back out of (see split()).
-shared_ptr<Value> index_constant(const Type &type, int64_t v) {
-    return type.is_uint()
-               ? std::make_shared<Value>(Constant{type, uint64_t(v)})
-               : std::make_shared<Value>(Constant{type, v});
-}
-
 optional<uint64_t> constant_of(const shared_ptr<Value> &v) {
     const auto *c = std::get_if<Constant>(&v->data);
     if (c == nullptr) {
@@ -83,42 +78,6 @@ optional<uint64_t> constant_of(const shared_ptr<Value> &v) {
 bool is_undef(const shared_ptr<Value> &v) {
     const auto *c = std::get_if<Constant>(&v->data);
     return c != nullptr && std::holds_alternative<Undefined>(c->data);
-}
-
-// `v` as `block` may refer to it. A block refers only to its own
-// instructions and arguments in this form; a value defined elsewhere is
-// threaded in as an argument along every path from its definition
-// (Block::get_value), and this is where that is asked for.
-shared_ptr<Value> reach(const shared_ptr<Block> &block,
-                        const shared_ptr<Value> &v) {
-    return std::visit(
-        overloads{
-            [&](const Constant &) { return v; },
-            [&](const Argument &a) -> shared_ptr<Value> {
-                if (const auto it = block->lookups.find(a.name);
-                    it != block->lookups.end()) {
-                    return it->second;
-                }
-                return block->get_value(a.name, a.type);
-            },
-            [&](const shared_ptr<Instruction> &i) -> shared_ptr<Value> {
-                if (i->owner.lock().get() == block.get()) {
-                    return v;
-                }
-                return block->get_value(i->name, i->type);
-            },
-        },
-        v->data);
-}
-
-vector<shared_ptr<Value>> reach_all(const shared_ptr<Block> &block,
-                                    const vector<shared_ptr<Value>> &vs) {
-    vector<shared_ptr<Value>> out;
-    out.reserve(vs.size());
-    for (const auto &v : vs) {
-        out.push_back(reach(block, v));
-    }
-    return out;
 }
 
 // An instruction placed at `at` in `block`'s list rather than appended, and
@@ -144,28 +103,14 @@ void insert_side_effect(const shared_ptr<Block> &block, size_t at,
     block->instrs.insert(block->instrs.begin() + at, instr);
 }
 
-// Storage for a value of `type`, appended to `block`: what a `mut` local is
-// in this form -- an Alloca whose value is the pointer to it, or the array
-// itself for an array (see the Allocate visitor in SSA/Convert.cpp). Named
-// `name` when one is given, which has to be a name the function does not
-// use, so that the generated code says what the storage is.
-shared_ptr<Value> make_alloca(Function &func, const shared_ptr<Block> &block,
-                              const Type &type, const string &name = "") {
-    if (!name.empty()) {
-        for (const auto &other : func.blocks) {
-            internal_assert(!other->lookups.contains(name))
-                << func.blocks.front()->name << " already has a value named "
-                << name << ", which a queue's storage would be called";
-        }
-    }
-    auto instr = std::make_shared<Instruction>(
-        name.empty() ? func.get_unique_name() : name,
-        type.is_reference() ? type : Ptr_t::make(type), Instruction::Op::Alloca,
-        vector<shared_ptr<Value>>{}, block);
-    block->instrs.push_back(instr);
-    auto value = std::make_shared<Value>(instr);
-    block->lookups[instr->name] = value;
-    return value;
+// Storage a deferral makes is emptied or written before it is read in every
+// iteration of the owner -- a queue's count is reset before its pushes, a
+// record's slot written by the producer before the pass reads it -- so it
+// may be made once, outside the loops around the owner, and shared by their
+// iterations (Instruction::scratch; SSA/HoistAllocations.h).
+shared_ptr<Value> scratch(shared_ptr<Value> storage) {
+    std::get<shared_ptr<Instruction>>(storage->data)->scratch = true;
+    return storage;
 }
 
 // Applies `edit` to every copy `block` holds of the argument `name`: its
@@ -429,6 +374,8 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
             instr_copy->reduce = instr->reduce;
             instr_copy->shuffle = instr->shuffle;
             instr_copy->atomic = instr->atomic;
+            instr_copy->compact = instr->compact;
+            instr_copy->scratch = instr->scratch;
             instrs[instr.get()] = instr_copy;
             copy->instrs.push_back(instr_copy);
         }
@@ -582,29 +529,6 @@ bool holds_address(const Type &type) {
         return std::any_of(t->etypes.begin(), t->etypes.end(), holds_address);
     }
     return false;
-}
-
-// An SSA value as an expression a type may carry: the size of the entry
-// array is one, and it is a run-time value.
-Expr as_expr(const shared_ptr<Value> &v) {
-    return std::visit(
-        overloads{
-            [&](const Constant &c) -> Expr {
-                if (const auto *u = std::get_if<uint64_t>(&c.data)) {
-                    return UIntImm::make(c.type, *u);
-                }
-                if (const auto *i = std::get_if<int64_t>(&c.data)) {
-                    return IntImm::make(c.type, *i);
-                }
-                internal_error << "a queue's size is not an integer";
-                return Expr();
-            },
-            [&](const Argument &a) -> Expr { return Var::make(a.type, a.name); },
-            [&](const shared_ptr<Instruction> &i) -> Expr {
-                return Var::make(i->type, i->name);
-            },
-        },
-        v->data);
 }
 
 // One field of an entry: a piece of the continuation, and who writes it.
@@ -2120,12 +2044,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // save this data in the queue location, otherwise act as normal." The
     // record saves it for every iteration, once, before the call, so that
     // nothing has to say anything.)
-    enum class From { Available, Slot, Record };
+    enum class From { Available, Slot, Index, Record };
     struct CarriedPlan {
         From from = From::Available;
         const Instruction *local = nullptr; // Slot: the local given the slot
-        size_t record = 0;                  // Record: which record value
+        size_t record = 0; // Record: which record value; Index: which loop
         Definition def;
+    };
+    // The producer loop whose index a definition is, if it is one: the
+    // argument the loop's body takes first, defined by the loop's edge.
+    const auto nest_index_of = [&](const Definition &d) -> optional<size_t> {
+        const auto *a = std::get_if<Argument>(&d.value->data);
+        if (a == nullptr || d.block.empty()) {
+            return std::nullopt;
+        }
+        for (size_t k = 0; k < nest.size(); k++) {
+            const auto &p = std::get<Terminator::ParFor>(nest[k]->terminator.data);
+            const shared_ptr<Block> body = omap.at(p.body.name);
+            if (d.block == body->name && !body->args.empty() &&
+                body->args.front().name == a->name) {
+                return k;
+            }
+        }
+        return std::nullopt;
     };
     // A value of the iteration the record keeps: an array of it, sized as
     // the queue is, written by the producer and read by the pass.
@@ -2147,6 +2088,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         if (const Instruction *local = as_local(d)) {
             carried.push_back({From::Slot, local, 0, d});
+            continue;
+        }
+        // The index of a producer loop is the record's own index, or a part
+        // of it: recomputed in the pass from the pass's index rather than
+        // kept, which is index arithmetic in place of a store and a load per
+        // path -- and the pass's accumulates at the index are then seen to
+        // be disjoint across its iterations (SSA/Contention.h), as pbrt's
+        // film write is plain adds.
+        if (const optional<size_t> k = nest_index_of(d)) {
+            carried.push_back({From::Index, nullptr, *k, d});
             continue;
         }
         // An address is kept only when it outlives the frame: a slot of the
@@ -2232,6 +2183,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             case From::Slot:
                 std::cerr << "a mutable local of the iteration, given a slot "
                              "of the record";
+                break;
+            case From::Index:
+                std::cerr << "the index of a producer loop, recomputed from "
+                             "the pass's index";
                 break;
             case From::Record:
                 std::cerr << "a value of the iteration, kept in the record";
@@ -2556,9 +2511,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         internal_assert(home) << what << ": the local " << named
                               << " outlived its block";
         const Type etype = local->type.as<Ptr_t>()->etype;
-        auto slots = make_alloca(*O, alloc_point,
-                                 Array_t::make(etype, as_expr(size)),
-                                 queue.name + "_" + named + "_slots");
+        auto slots = scratch(make_alloca(*O, alloc_point,
+                                         Array_t::make(etype, as_expr(size)),
+                                         queue.name + "_" + named + "_slots"));
         size_t at = home->instrs.size();
         for (size_t i = 0; i < home->instrs.size(); i++) {
             if (home->instrs[i].get() == local) {
@@ -2594,15 +2549,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
     for (RecordValue &rv : record_values) {
-        rv.array = make_alloca(*O, alloc_point,
-                               Array_t::make(rv.type, as_expr(size)),
-                               queue.name + "_rest_" + rv.name);
+        rv.array = scratch(make_alloca(*O, alloc_point,
+                                       Array_t::make(rv.type, as_expr(size)),
+                                       queue.name + "_rest_" + rv.name));
     }
     shared_ptr<Value> result_array;
     if (keeps_result) {
-        result_array = make_alloca(*O, alloc_point,
-                                   Array_t::make(ret_type, as_expr(size)),
-                                   queue.name + "_result");
+        result_array = scratch(make_alloca(*O, alloc_point,
+                                           Array_t::make(ret_type, as_expr(size)),
+                                           queue.name + "_result"));
     }
     // The address of the path's result slot travels with the path: a chain
     // function takes it as a parameter (below), and an entry carries what
@@ -3021,17 +2976,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (size_t i = 0; i < nqueues; i++) {
         const string qname = double_buffered ? queue.name : subqueues[i].path;
         for (const Leaf &leaf : leaves) {
-            stores[i].push_back(make_alloca(
+            stores[i].push_back(scratch(make_alloca(
                 *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
                 qname + "_" + leaf.name +
-                    (double_buffered ? "_" + std::to_string(i) : "")));
+                    (double_buffered ? "_" + std::to_string(i) : ""))));
         }
     }
-    const shared_ptr<Value> queues =
+    const shared_ptr<Value> queues = scratch(
         many ? make_alloca(*O, alloc_point,
                            Array_t::make(queue_t, UIntImm::make(u32(), nqueues)),
                            queue.name + "_queue")
-             : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue");
+             : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue"));
     for (size_t i = 0; i < nqueues; i++) {
         vector<shared_ptr<Value>> parts = {constant_u32(0)};
         parts.insert(parts.end(), stores[i].begin(), stores[i].end());
@@ -3526,6 +3481,36 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             run->preds = {pass};
             pass_exit->preds = {pass};
             auto i = run->add_argument(Argument{itype, rest_name});
+            // A producer loop's index from the pass's: the inverse of the
+            // linearization slot_index_at makes -- divided by the trip counts
+            // of the loops inside it, the remainder by its own, scaled and
+            // offset by its stride and start.
+            const auto nest_index_at = [&](size_t k) -> shared_ptr<Value> {
+                shared_ptr<Value> own = i;
+                for (size_t j = nest.size(); j-- > k + 1;) {
+                    const auto &q = std::get<Terminator::ParFor>(nest[j]->terminator.data);
+                    size_t at = run->instrs.size();
+                    auto inner = trip_count_at(q, run, at);
+                    own = run->make_instruction(itype, Instruction::Op::Div, {own, inner});
+                }
+                const auto &p = std::get<Terminator::ParFor>(nest[k]->terminator.data);
+                if (k > 0) {
+                    size_t at = run->instrs.size();
+                    auto trip = trip_count_at(p, run, at);
+                    own = run->make_instruction(itype, Instruction::Op::Mod, {own, trip});
+                }
+                const auto stride = constant_of(p.stride);
+                if (!(stride.has_value() && *stride == 1)) {
+                    own = run->make_instruction(itype, Instruction::Op::Mul,
+                                                {own, reach(run, p.stride)});
+                }
+                const auto start = constant_of(p.start);
+                if (!(start.has_value() && *start == 0)) {
+                    own = run->make_instruction(itype, Instruction::Op::Add,
+                                                {own, reach(run, p.start)});
+                }
+                return own;
+            };
             vector<shared_ptr<Value>> onwards;
             if (keeps_result) {
                 auto place = run->make_instruction(
@@ -3548,6 +3533,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     onwards.push_back(slot);
                     break;
                 }
+                case From::Index:
+                    onwards.push_back(nest_index_at(c.record));
+                    break;
                 case From::Record: {
                     const RecordValue &rv = record_values[c.record];
                     auto place = run->make_instruction(

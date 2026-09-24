@@ -133,6 +133,10 @@ struct Instruction {
         // rebuilt differently -- an index access indexes an array, a field
         // access names a member, and a WriteLoc keeps them apart.
         FieldPtr,
+        // Releases the storage an Alloc made: one operand, the array or
+        // pointer, nothing produced. Placed before every return of a function
+        // whose run-time-sized arrays went to the heap (SSA/HeapArrays.h).
+        Free, // side-effect-y
         GEP,
         Inf,
         // Any of the intrinsics this IR has that are not spelled out above,
@@ -264,6 +268,16 @@ struct Instruction {
     // compacting push of a gang writes each field of its entries this way
     // (see lower_pushes in SSA/Defer.cpp).
     bool compact = false;
+
+    // Whether the storage an Alloca makes is dead when an iteration of any
+    // loop around it begins: what it holds then is never read, every read in
+    // an iteration being preceded by a write in the same iteration. Said by
+    // the rewrite that made the storage and knows how it is used -- a queue
+    // is emptied before it is filled, a record slot written by its producer
+    // before its pass reads it, an expansion array written by the loop before
+    // the nest that reads it -- and what lets the storage be made once,
+    // outside the loop (SSA/HoistAllocations.h). Only meaningful for Alloca.
+    bool scratch = false;
 
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;

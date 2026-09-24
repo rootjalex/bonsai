@@ -1,0 +1,19 @@
+//! flags: -p ssa
+
+// A `mut` array local of the outer iteration that the inner loop uses would
+// need one array per outer iteration -- an array of arrays, which the SSA
+// form has no handle for -- and is refused.
+
+func rows(out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        scratch : mut array[i32, 4] = {y, y, y, y};
+        parfor x in 0:4 {
+            out[y * 4 + x] = scratch[x] + x;
+        }
+    }
+    return;
+}
+
+schedule {
+    rows.reorder(y, x);
+}

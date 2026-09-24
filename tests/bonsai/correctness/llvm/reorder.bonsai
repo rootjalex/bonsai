@@ -1,0 +1,82 @@
+//! flags: -p ssa -b llvm -e
+
+// reorder() run: the four shapes of tests/bonsai/ssa/reorder.bonsai, each
+// checked against what the un-reordered nest computes.
+//
+//   grid:    out[4y + x] = 100y + x; sums[y] = 0 + 1 + 2 + 3 = 6.
+//   rows:    out[4y + x] = x + y; total[y] = out[4y] + out[4y + 3] = 2y + 3.
+//   scaled:  out[4y + x] = scale[y] * x with scale = {1, 10, 100}.
+//   counted: out[4y + x] = 2y + x; seen[y] = 2y.
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        row = y * 4;
+        sums[y] = 0;
+        parfor x in 0:4 {
+            out[row + x] = y * 100 + x;
+            atomic sums[y] += x;
+        }
+    }
+    return;
+}
+
+func rows(out : mut array[i32, 12], total : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        parfor x in 0:4 {
+            out[y * 4 + x] = x + y;
+        }
+        total[y] = out[y * 4] + out[y * 4 + 3];
+    }
+    return;
+}
+
+func scaled(scale : array[i32, 3], out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        k = scale[y];
+        parfor x in 0:4 {
+            out[y * 4 + x] = k * x;
+        }
+    }
+    return;
+}
+
+func counted(out : mut array[i32, 12], seen : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        n : mut i32 = y * 2;
+        parfor x in 0:4 {
+            out[y * 4 + x] = n + x;
+        }
+        seen[y] = n;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sums : mut array[i32, 3] = {-1, -1, -1};
+    grid(out, sums);
+    print(out);
+    print(sums);
+
+    total : mut array[i32, 3] = {-1, -1, -1};
+    rows(out, total);
+    print(out);
+    print(total);
+
+    scale : array[i32, 3] = {1, 10, 100};
+    scaled(scale, out);
+    print(out);
+
+    seen : mut array[i32, 3] = {-1, -1, -1};
+    counted(out, seen);
+    print(out);
+    print(seen);
+    return 0;
+}
+
+schedule {
+    grid.reorder(y, x);
+    rows.reorder(y, x);
+    scaled.reorder(y, x);
+    counted.reorder(y, x);
+}

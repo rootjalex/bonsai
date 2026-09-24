@@ -28,7 +28,6 @@ func [[noinline]] classify(x : f32) -> Kind {
 }
 
 func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
-  hits_rest_i : mut i32[8]
   hits_result : mut f32[8]
   hits!Small_@0_tag : mut u8[8]
   hits!Small_@0__pad_x : mut u8[8]
@@ -49,61 +48,59 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   hits_queue[1u] = @5
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    hits_rest_i[i] = i
     step(@0, k, hits_queue, (&hits_result[i]))
     continue
   }
-  let @10 = hits_queue[0u] in
-  let @11 = @10.count in
-  parfor hits!Small in [0u:@11:1u] {
-    let @14 = hits_queue[0u].@0_tag in
-    let @15 = @14[hits!Small] in
-    let @17 = hits_queue[0u].@0__pad_x in
-    let @18 = @17[hits!Small] in
-    let @20 = hits_queue[0u].@0__pad_y in
-    let @21 = @20[hits!Small] in
-    let @23 = hits_queue[0u].@0__pad_z in
-    let @24 = @23[hits!Small] in
-    let @25 = build<[[packed]] u8x3>(@18, @21, @24) in
-    let @27 = hits_queue[0u].@0_payload_x in
-    let @28 = @27[hits!Small] in
-    let @29 = build<[[packed]] u32x1>(@28) in
-    let @30 = build<Kind>(@15, @25, @29) in
-    let @33 = hits_queue[0u]._result in
-    let @34 = @33[hits!Small] in
-    let @31 = step!after!Small(@30, k) in
-    @34 = @31
+  let @9 = hits_queue[0u] in
+  let @10 = @9.count in
+  parfor hits!Small in [0u:@10:1u] {
+    let @13 = hits_queue[0u].@0_tag in
+    let @14 = @13[hits!Small] in
+    let @16 = hits_queue[0u].@0__pad_x in
+    let @17 = @16[hits!Small] in
+    let @19 = hits_queue[0u].@0__pad_y in
+    let @20 = @19[hits!Small] in
+    let @22 = hits_queue[0u].@0__pad_z in
+    let @23 = @22[hits!Small] in
+    let @24 = build<[[packed]] u8x3>(@17, @20, @23) in
+    let @26 = hits_queue[0u].@0_payload_x in
+    let @27 = @26[hits!Small] in
+    let @28 = build<[[packed]] u32x1>(@27) in
+    let @29 = build<Kind>(@14, @24, @28) in
+    let @32 = hits_queue[0u]._result in
+    let @33 = @32[hits!Small] in
+    let @30 = step!after!Small(@29, k) in
+    @33 = @30
     continue
   }
-  let @36 = hits_queue[1u] in
-  let @37 = @36.count in
-  parfor hits!Large in [0u:@37:1u] {
-    let @40 = hits_queue[1u].@0_tag in
-    let @41 = @40[hits!Large] in
-    let @43 = hits_queue[1u].@0__pad_x in
-    let @44 = @43[hits!Large] in
-    let @46 = hits_queue[1u].@0__pad_y in
-    let @47 = @46[hits!Large] in
-    let @49 = hits_queue[1u].@0__pad_z in
-    let @50 = @49[hits!Large] in
-    let @51 = build<[[packed]] u8x3>(@44, @47, @50) in
-    let @53 = hits_queue[1u].@0_payload_x in
-    let @54 = @53[hits!Large] in
-    let @55 = build<[[packed]] u32x1>(@54) in
-    let @56 = build<Kind>(@41, @51, @55) in
-    let @59 = hits_queue[1u]._result in
-    let @60 = @59[hits!Large] in
-    let @57 = step!after!Large(@56, k) in
-    @60 = @57
+  let @35 = hits_queue[1u] in
+  let @36 = @35.count in
+  parfor hits!Large in [0u:@36:1u] {
+    let @39 = hits_queue[1u].@0_tag in
+    let @40 = @39[hits!Large] in
+    let @42 = hits_queue[1u].@0__pad_x in
+    let @43 = @42[hits!Large] in
+    let @45 = hits_queue[1u].@0__pad_y in
+    let @46 = @45[hits!Large] in
+    let @48 = hits_queue[1u].@0__pad_z in
+    let @49 = @48[hits!Large] in
+    let @50 = build<[[packed]] u8x3>(@43, @46, @49) in
+    let @52 = hits_queue[1u].@0_payload_x in
+    let @53 = @52[hits!Large] in
+    let @54 = build<[[packed]] u32x1>(@53) in
+    let @55 = build<Kind>(@40, @50, @54) in
+    let @58 = hits_queue[1u]._result in
+    let @59 = @58[hits!Large] in
+    let @56 = step!after!Large(@55, k) in
+    @59 = @56
     continue
   }
   hits_queue[0u].count = 0u
   hits_queue[1u].count = 0u
   parfor hits_rest in [0:8:1] {
-    let @66 = hits_result[hits_rest] in
-    let @68 = hits_rest_i[hits_rest] in
-    let @1 = @66 in
-    let i = @68 in
+    let @65 = hits_result[hits_rest] in
+    let @1 = @65 in
+    let i = hits_rest in
     out[i] = @1
     continue
   }

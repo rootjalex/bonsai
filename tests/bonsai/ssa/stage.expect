@@ -8,7 +8,6 @@ type vec3h = f16x3
 type vec4f = f32x4
 
 func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
-  q_rest_i : mut i32[8]
   q_result : mut f32[8]
   q_@0 : mut f32[8]
   q__result : mut (f32*)[8]
@@ -17,25 +16,23 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   q_queue = @3
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    q_rest_i[i] = i
     step(@0, k, q_queue, (&q_result[i]))
     continue
   }
-  let @6 = (*q_queue) in
-  let @7 = @6.count in
-  parfor q in [0u:@7:1u] {
-    let @8 = q_@0[q] in
-    let @10 = q__result[q] in
-    let @9 = step!after(@8, k) in
-    @10 = @9
+  let @5 = (*q_queue) in
+  let @6 = @5.count in
+  parfor q in [0u:@6:1u] {
+    let @7 = q_@0[q] in
+    let @9 = q__result[q] in
+    let @8 = step!after(@7, k) in
+    @9 = @8
     continue
   }
   q_queue.count = 0u
   parfor q_rest in [0:8:1] {
-    let @13 = q_result[q_rest] in
-    let @15 = q_rest_i[q_rest] in
-    let @1 = @13 in
-    let i = @15 in
+    let @12 = q_result[q_rest] in
+    let @1 = @12 in
+    let i = q_rest in
     out[i] = @1
     continue
   }

@@ -9,7 +9,6 @@ type vec4f = f32x4
 
 func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void {
   q_seen_slots : mut f32[8]
-  q_rest_i : mut i32[8]
   q_result : mut f32[8]
   q_@0 : mut f32[8]
   q_seen : mut (f32*)[8]
@@ -20,26 +19,24 @@ func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void
   parfor i in [0:8:1] {
     q_seen_slots[i] = -1f
     let @0 = values[i] in
-    q_rest_i[i] = i
     step(@0, k, (&q_seen_slots[i]), q_queue, (&q_result[i]))
     continue
   }
-  let @9 = (*q_queue) in
-  let @10 = @9.count in
-  parfor q in [0u:@10:1u] {
-    let @11 = q_@0[q] in
-    let @12 = q_seen[q] in
-    let @14 = q__result[q] in
-    let @13 = step!after(@11, @12, k) in
-    @14 = @13
+  let @8 = (*q_queue) in
+  let @9 = @8.count in
+  parfor q in [0u:@9:1u] {
+    let @10 = q_@0[q] in
+    let @11 = q_seen[q] in
+    let @13 = q__result[q] in
+    let @12 = step!after(@10, @11, k) in
+    @13 = @12
     continue
   }
   q_queue.count = 0u
   parfor q_rest in [0:8:1] {
-    let @17 = q_result[q_rest] in
-    let @19 = q_rest_i[q_rest] in
-    let @1 = @17 in
-    let i = @19 in
+    let @16 = q_result[q_rest] in
+    let @1 = @16 in
+    let i = q_rest in
     let seen = (&q_seen_slots[q_rest]) in
     out[i] = @1
     let @3 = (*seen) in

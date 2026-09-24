@@ -11,13 +11,12 @@ func [[noinline]] run(out : mut i32[4]) -> void {
   paths!round : mut u32
   let @8 = 4 * 4 in
   paths_total_slots : mut i32[@8]
-  paths_rest_p : mut i32[@8]
-  paths_x_0 : mut i32[@8]
-  paths_depth_0 : mut i32[@8]
-  paths_total_0 : mut (i32*)[@8]
-  paths_x_1 : mut i32[@8]
-  paths_depth_1 : mut i32[@8]
-  paths_total_1 : mut (i32*)[@8]
+  alloc paths_x_0 : mut i32[@8]
+  alloc paths_depth_0 : mut i32[@8]
+  alloc paths_total_0 : mut (i32*)[@8]
+  alloc paths_x_1 : mut i32[@8]
+  alloc paths_depth_1 : mut i32[@8]
+  alloc paths_total_1 : mut (i32*)[@8]
   paths_queue : mut Queue_paths[2]
   let @12 = build<Queue_paths>(0u, paths_x_0, paths_depth_0, paths_total_0) in
   paths_queue[0u] = @12
@@ -33,58 +32,68 @@ func [[noinline]] run(out : mut i32[4]) -> void {
       let @2 = @1 + s in
       let @16 = p * 4 in
       let @17 = @16 + s in
-      paths_rest_p[@17] = p
-      let @20 = build<Entry_paths>(@2, 3, (&paths_total_slots[@10])) in
-      let @50 = atomic_add((&paths_queue[0u].count), 1u) in
-      let @52 = paths_queue[0u].x in
-      @52[@50] = @2
-      let @55 = paths_queue[0u].depth in
-      @55[@50] = 3
-      let @58 = paths_queue[0u].total in
-      @58[@50] = (&paths_total_slots[@10])
+      let @19 = build<Entry_paths>(@2, 3, (&paths_total_slots[@10])) in
+      let @53 = atomic_add((&paths_queue[0u].count), 1u) in
+      let @55 = paths_queue[0u].x in
+      @55[@53] = @2
+      let @58 = paths_queue[0u].depth in
+      @58[@53] = 3
+      let @61 = paths_queue[0u].total in
+      @61[@53] = (&paths_total_slots[@10])
       continue
     }
     continue
   }
   paths!round = 0u
   while (!(paths_queue[(*paths!round) & 1u].count == 0u)) {
-    let @24 = (*paths!round) & 1u in
-    let @26 = paths_queue[(*paths!round) & 1u].count in
-    let @28 = @24 ^ 1u in
-    paths_queue[@28].count = 0u
-    parfor paths in [0u:@26:1u] {
-      let @29 = (&paths_queue[@28]) in
-      let @33 = paths_queue[@24].x in
-      let @34 = @33[paths] in
-      let @36 = paths_queue[@24].depth in
-      let @37 = @36[paths] in
-      let @39 = paths_queue[@24].total in
-      let @40 = @39[paths] in
-      step(@34, @37, @40, @29)
+    let @23 = (*paths!round) & 1u in
+    let @25 = paths_queue[(*paths!round) & 1u].count in
+    let @27 = @23 ^ 1u in
+    paths_queue[@27].count = 0u
+    parfor paths in [0u:@25:1u] {
+      let @28 = (&paths_queue[@27]) in
+      let @32 = paths_queue[@23].x in
+      let @33 = @32[paths] in
+      let @35 = paths_queue[@23].depth in
+      let @36 = @35[paths] in
+      let @38 = paths_queue[@23].total in
+      let @39 = @38[paths] in
+      step(@33, @36, @39, @28)
       continue
     }
-    let @23 = (*paths!round) + 1u in
-    paths!round = @23
+    let @22 = (*paths!round) + 1u in
+    paths!round = @22
   }
   parfor paths_rest in [0:@8:1] {
-    let @43 = paths_rest_p[paths_rest] in
+    let @47 = paths_rest >> 31 in
+    let @48 = reinterpret_cast<u32>(@47) in
+    let @49 = @48 >> 30u in
+    let @50 = reinterpret_cast<i32>(@49) in
+    let @51 = paths_rest + @50 in
+    let @41 = @51 >> 2 in
     let total = (&paths_total_slots[paths_rest]) in
-    let p = @43 in
+    let p = @41 in
     let @3 = (*total) in
     out[p] += @3
     continue
   }
   parfor p$1 in [0:4:1] {
     let @5 = out[p$1] in
-    let @44 = @5 >> 31 in
-    let @45 = reinterpret_cast<u32>(@44) in
-    let @46 = @45 >> 30u in
-    let @47 = reinterpret_cast<i32>(@46) in
-    let @48 = @5 + @47 in
-    let @6 = @48 >> 2 in
+    let @42 = @5 >> 31 in
+    let @43 = reinterpret_cast<u32>(@42) in
+    let @44 = @43 >> 30u in
+    let @45 = reinterpret_cast<i32>(@44) in
+    let @46 = @5 + @45 in
+    let @6 = @46 >> 2 in
     out[p$1] = @6
     continue
   }
+  free(paths_x_0)
+  free(paths_depth_0)
+  free(paths_total_0)
+  free(paths_x_1)
+  free(paths_depth_1)
+  free(paths_total_1)
   return
 }
 

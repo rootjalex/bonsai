@@ -3,7 +3,6 @@ type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _resul
 
 func run(out : mut i32[8]) -> void {
   sums!round : mut u32
-  sums_rest_i : mut i32[8]
   sums_result : mut i32[8]
   sums_n_0 : mut i32[8]
   sums_acc_0 : mut i32[8]
@@ -17,35 +16,33 @@ func run(out : mut i32[8]) -> void {
   let @4 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__result_1) in
   sums_queue[1u] = @4
   parfor i in [0:8:1] {
-    sums_rest_i[i] = i
     tally(i, 0, (&sums_queue[0u]), (&sums_result[i]))
     continue
   }
   sums!round = 0u
   while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-    let @10 = (*sums!round) & 1u in
-    let @12 = sums_queue[(*sums!round) & 1u].count in
-    let @14 = @10 ^ 1u in
-    sums_queue[@14].count = 0u
-    parfor sums in [0u:@12:1u] {
-      let @15 = (&sums_queue[@14]) in
-      let @19 = sums_queue[@10].n in
-      let @20 = @19[sums] in
-      let @22 = sums_queue[@10].acc in
-      let @23 = @22[sums] in
-      let @25 = sums_queue[@10]._result in
-      let @26 = @25[sums] in
-      tally(@20, @23, @15, @26)
+    let @9 = (*sums!round) & 1u in
+    let @11 = sums_queue[(*sums!round) & 1u].count in
+    let @13 = @9 ^ 1u in
+    sums_queue[@13].count = 0u
+    parfor sums in [0u:@11:1u] {
+      let @14 = (&sums_queue[@13]) in
+      let @18 = sums_queue[@9].n in
+      let @19 = @18[sums] in
+      let @21 = sums_queue[@9].acc in
+      let @22 = @21[sums] in
+      let @24 = sums_queue[@9]._result in
+      let @25 = @24[sums] in
+      tally(@19, @22, @14, @25)
       continue
     }
-    let @9 = (*sums!round) + 1u in
-    sums!round = @9
+    let @8 = (*sums!round) + 1u in
+    sums!round = @8
   }
   parfor sums_rest in [0:8:1] {
-    let @28 = sums_result[sums_rest] in
-    let @30 = sums_rest_i[sums_rest] in
-    let @0 = @28 in
-    let i = @30 in
+    let @27 = sums_result[sums_rest] in
+    let @0 = @27 in
+    let i = sums_rest in
     out[i] = @0
     continue
   }

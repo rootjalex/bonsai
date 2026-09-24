@@ -1,4 +1,5 @@
 #include "SSA/Analysis.h"
+#include "SSA/LoopArithmetic.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
 
@@ -14,143 +15,15 @@ namespace bonsai {
 namespace ir {
 namespace ssa {
 
-namespace {
-
 using std::shared_ptr;
 using std::string;
 
-shared_ptr<Value> constant(const Type &type, int64_t n) {
-    return std::make_shared<Value>(Constant{type, n});
-}
-
-// Does `v` change from one step of the loop to the next? An instruction does
-// if it reads the index, or reads anything that does.
-bool varies_with(const shared_ptr<Value> &v, const string &index,
-                 const std::set<string> &region,
-                 std::set<const Instruction *> &seen) {
-    if (std::holds_alternative<Constant>(v->data)) {
-        return false;
-    }
-    if (const auto *a = std::get_if<Argument>(&v->data)) {
-        return a->name == index;
-    }
-    const auto &instr = std::get<shared_ptr<Instruction>>(v->data);
-    const auto owner = instr->owner.lock();
-    if (!owner || region.count(owner->name) == 0) {
-        return false; // worked out before the loop began
-    }
-    if (!seen.insert(instr.get()).second) {
-        return false; // already following this one
-    }
-    for (const auto &operand : instr->operands) {
-        if (varies_with(operand, index, region, seen)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool varies_with(const shared_ptr<Value> &v, const string &index,
-                 const std::set<string> &region) {
-    std::set<const Instruction *> seen;
-    return varies_with(v, index, region, seen);
-}
-
-// Is `v` the same on every step of the loop whose index is `index`?
-//
 // The collapsed loop needs the inner loop's trip count before either loop
 // starts, so the bounds it is worked out from have to be the same on every
-// step of the outer loop. A triangular nest -- `parfor y in 0:n { parfor x in
-// 0:y ... }` -- is the case this rules out: its rectangle has a different
-// width per row, so there is no single count to collapse against.
-//
-// Of the body block's arguments only the index varies. A parfor body has no
-// back edge -- it ends at a yield -- so the header's jump is the only way in,
-// and everything the header passes it was worked out before the loop began.
-// Rejecting all of them would refuse the ordinary nested `map` over
-// `array[array[f32, n], m]`, where the inner bound `n` is a parameter that
-// simply happens to reach the body as an argument.
-bool invariant_in(const shared_ptr<Value> &v, const string &index,
-                  const std::set<string> &region) {
-    if (std::holds_alternative<Constant>(v->data)) {
-        return true;
-    }
-    if (const auto *a = std::get_if<Argument>(&v->data)) {
-        return a->name != index;
-    }
-    const auto &instr = std::get<shared_ptr<Instruction>>(v->data);
-    const auto owner = instr->owner.lock();
-    return !owner || region.count(owner->name) == 0;
-}
-
-std::optional<int64_t> as_int(const shared_ptr<Value> &v) {
-    const auto *c = std::get_if<Constant>(&v->data);
-    if (c == nullptr) {
-        return std::nullopt;
-    }
-    if (const auto *i = std::get_if<int64_t>(&c->data)) {
-        return *i;
-    }
-    return std::nullopt;
-}
-
-// One arithmetic instruction, or the answer if it is already known.
-//
-// The index arithmetic below is mostly identities -- a loop from zero, by one,
-// contributes `- 0`, `* 1` and `/ 1` at every step -- and nothing downstream
-// removes them: opt::Simplify runs before the SSA conversion, so it never sees
-// what a rewrite builds afterwards. Folding here is what keeps a collapsed
-// loop over a plain rectangle down to the two divisions it actually needs.
-shared_ptr<Value> emit(Block &block, const Type &type, Instruction::Op op,
-                       const shared_ptr<Value> &lhs,
-                       const shared_ptr<Value> &rhs) {
-    const auto a = as_int(lhs), b = as_int(rhs);
-    if (a.has_value() && b.has_value()) {
-        switch (op) {
-        case Instruction::Op::Add:
-            return constant(type, *a + *b);
-        case Instruction::Op::Sub:
-            return constant(type, *a - *b);
-        case Instruction::Op::Mul:
-            return constant(type, *a * *b);
-        case Instruction::Op::Div:
-            if (*b != 0) {
-                return constant(type, *a / *b);
-            }
-            break;
-        default:
-            break;
-        }
-    }
-    const auto rhs_is = [&](int64_t n) { return b.has_value() && *b == n; };
-    if ((op == Instruction::Op::Add || op == Instruction::Op::Sub) &&
-        rhs_is(0)) {
-        return lhs;
-    }
-    if ((op == Instruction::Op::Mul || op == Instruction::Op::Div) &&
-        rhs_is(1)) {
-        return lhs;
-    }
-    if (op == Instruction::Op::Add && a.has_value() && *a == 0) {
-        return rhs;
-    }
-    return block.make_instruction(type, op, {lhs, rhs});
-}
-
-// ceil((end - begin) / stride), as instructions in `block`.
-shared_ptr<Value> trip_count(Block &block, const Type &type,
-                             const shared_ptr<Value> &begin,
-                             const shared_ptr<Value> &end,
-                             const shared_ptr<Value> &stride) {
-    auto span = emit(block, type, Instruction::Op::Sub, end, begin);
-    auto bumped = emit(block, type, Instruction::Op::Add, span, stride);
-    auto less_one =
-        emit(block, type, Instruction::Op::Sub, bumped, constant(type, 1));
-    return emit(block, type, Instruction::Op::Div, less_one, stride);
-}
-
-} // namespace
-
+// step of the outer loop (invariant_in, SSA/LoopArithmetic.h). A triangular
+// nest -- `parfor y in 0:n { parfor x in 0:y ... }` -- is the case this rules
+// out: its rectangle has a different width per row, so there is no single
+// count to collapse against.
 void collapse(FuncMap &funcs, string func, string outer, string inner,
               string collapsed) {
     internal_assert(funcs.contains(func))
@@ -179,6 +52,13 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
     internal_assert(blocks.contains(outer_loop.body.name))
         << func << " has no block " << outer_loop.body.name;
     const shared_ptr<Block> body = blocks.at(outer_loop.body.name);
+    // The loop made here is a new loop, and a bind names a loop: bind the
+    // collapsed loop, after collapsing.
+    internal_assert(!outer_loop.binding.has_value())
+        << "collapse(" << outer << ", " << inner << ") on " << func << ": "
+        << outer << " is bound to " << to_string(*outer_loop.binding)
+        << ", and the collapsed loop is a new loop. Bind " << collapsed
+        << " after the collapse instead.";
 
     // Whatever the outer body works out before reaching the inner loop stays
     // where it is, and is worked out once per point of the collapsed loop
@@ -206,15 +86,25 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
         << "collapse(" << outer << ", " << inner << ") on " << func << ": the "
         << "body of " << outer << " is not a parfor named " << inner;
     const Terminator::ParFor inner_loop = *inner_ptr;
+    internal_assert(!inner_loop.binding.has_value())
+        << "collapse(" << outer << ", " << inner << ") on " << func << ": "
+        << inner << " is bound to " << to_string(*inner_loop.binding)
+        << ", and the collapsed loop is a new loop. Bind " << collapsed
+        << " after the collapse instead.";
 
     std::set<string> in_loop;
     const Cfg body_region(*f, body->name);
     for (const auto &block : body_region.blocks()) {
         in_loop.insert(block->name);
     }
+    // The index as the body knows it: the loop's name may carry a variant's
+    // suffix the argument does not (SSA/Specialize.cpp).
+    internal_assert(!body->args.empty()) << func << ": " << body->name
+                                         << " takes no index";
+    const string outer_index = body->args.front().name;
     for (const auto &bound :
          {inner_loop.start, inner_loop.end, inner_loop.stride}) {
-        internal_assert(!varies_with(bound, outer, in_loop))
+        internal_assert(!varies_with(bound, outer_index, in_loop))
             << "collapse(" << outer << ", " << inner << ") on " << func
             << ": the range of " << inner << " depends on " << outer
             << ", so it has no one trip count to collapse against";
@@ -229,10 +119,15 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
         std::vector<shared_ptr<Instruction>> stays;
         for (auto &instr : body->instrs) {
             auto as_value = std::make_shared<Value>(instr);
-            if (varies_with(as_value, outer, in_loop)) {
+            if (varies_with(as_value, outer_index, in_loop)) {
                 stays.push_back(std::move(instr));
                 continue;
             }
+            // Moved whole: the body forgets the name and the header learns
+            // it, so that a block asking for the value by name finds it where
+            // it now is (Block::get_value).
+            body->lookups.erase(instr->name);
+            header->lookups[instr->name] = as_value;
             instr->owner = header;
             header->instrs.push_back(std::move(instr));
         }
@@ -247,7 +142,7 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
                          inner_loop.stride);
     auto co = trip_count(*header, itype, outer_loop.start, outer_loop.end,
                          outer_loop.stride);
-    auto total = emit(*header, itype, Instruction::Op::Mul, co, ci);
+    auto total = arith(*header, itype, Instruction::Op::Mul, co, ci);
 
     auto step = std::make_shared<Block>();
     step->name = body->name + "_collapsed_" + collapsed;
@@ -256,16 +151,16 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
     auto v_step = step->add_argument(step_arg);
 
     // outer = bo + (c / ci) * so, inner = bi + (c % ci) * si
-    auto q = emit(*step, itype, Instruction::Op::Div, v_step, ci);
+    auto q = arith(*step, itype, Instruction::Op::Div, v_step, ci);
     auto q_scaled =
-        emit(*step, itype, Instruction::Op::Mul, q, outer_loop.stride);
+        arith(*step, itype, Instruction::Op::Mul, q, outer_loop.stride);
     auto outer_val =
-        emit(*step, itype, Instruction::Op::Add, outer_loop.start, q_scaled);
-    auto r = emit(*step, itype, Instruction::Op::Mod, v_step, ci);
+        arith(*step, itype, Instruction::Op::Add, outer_loop.start, q_scaled);
+    auto r = arith(*step, itype, Instruction::Op::Mod, v_step, ci);
     auto r_scaled =
-        emit(*step, itype, Instruction::Op::Mul, r, inner_loop.stride);
+        arith(*step, itype, Instruction::Op::Mul, r, inner_loop.stride);
     auto inner_val =
-        emit(*step, itype, Instruction::Op::Add, inner_loop.start, r_scaled);
+        arith(*step, itype, Instruction::Op::Add, inner_loop.start, r_scaled);
 
     // The body keeps its own index, and gains the outer one it used to read
     // from the block above it -- both now handed over as arguments. Whatever
@@ -343,9 +238,9 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
 
     header->terminator.data = Terminator::ParFor{
         collapsed,
-        constant(itype, 0),
+        index_constant(itype, 0),
         total,
-        constant(itype, 1),
+        index_constant(itype, 1),
         Terminator::Jump{step->name, std::move(into_step)},
         outer_loop.cont};
 

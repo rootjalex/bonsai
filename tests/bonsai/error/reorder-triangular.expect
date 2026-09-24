@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/ReorderLoops.cpp:226
+
+--> a == nullptr || a->name != p_arg.name
+reorder(y, x) on lower: the range of x is y's index -- a triangular nest -- and there is no rectangle to interchange without rewriting the bounds, which is not built.

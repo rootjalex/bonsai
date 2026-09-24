@@ -1447,7 +1447,14 @@ class BonsaiToCpp : ir::Printer {
         }
         ss << ";\n";
     }
-    // void visit(const Free *) override;
+    void visit(const Free *node) override {
+        // A heap array the function frees before returning (SSA/HeapArrays.h)
+        // is one this emitter cannot allocate either: it prints stack arrays
+        // of constant size only (see the Allocate visitor above). Refused
+        // rather than dropped, which would print a leak.
+        internal_error << "[unimplemented] the C++ source emitter has no "
+                       << "heap arrays, so nothing to free: " << Stmt(node);
+    }
     // void visit(const Store *) override;
 
     void visit(const Accumulate *node) override {

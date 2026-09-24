@@ -30,6 +30,13 @@ namespace ssa {
 //     one instruction.
 void simplify(Function &func);
 
+// Whether an instruction only computes a value, so that one nothing reads
+// can go. Storage, effects and the fetch-and-add are kept; so is `rand`,
+// which steps the generator's state whether or not its draw is read. A load
+// counts as pure: it makes nothing happen, though where it may be moved to
+// is a question of what is stored in between (see SSA/ReorderLoops.h).
+bool pure(const Instruction &in);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

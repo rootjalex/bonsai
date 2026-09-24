@@ -4,6 +4,7 @@
 #include "Lower/Random.h"
 #include "SSA/Analysis.h"
 #include "SSA/SSA.h"
+#include "SSA/Storage.h"
 
 #include "Error.h"
 #include "Utils.h"
@@ -107,9 +108,27 @@ struct CodeGen_LLVM::SSALowering {
     // parfor's kernel, where the iteration is a function call that returns.
     std::vector<llvm::BasicBlock *> yield_targets;
 
+    // The allocations some Free of the function releases: heap allocations
+    // the function owns for the length of a call (SSA/HeapArrays.h), which
+    // `--no-heap` admits where it refuses every other heap allocation.
+    std::set<const Instruction *> freed;
+
     SSALowering(CodeGen_LLVM &cg, const ir::ssa::Function &func,
                 llvm::Function *function)
-        : cg(cg), func(func), function(function) {}
+        : cg(cg), func(func), function(function) {
+        for (const auto &block : func.blocks) {
+            for (const auto &instr : block->instrs) {
+                if (instr->op != Instruction::Op::Free) {
+                    continue;
+                }
+                internal_assert(instr->operands.size() == 1) << instr->operands.size();
+                if (const auto *held = std::get_if<std::shared_ptr<Instruction>>(
+                        &instr->operands[0]->data)) {
+                    freed.insert(held->get());
+                }
+            }
+        }
+    }
 
     const std::string &entry() const { return func.blocks.front()->name; }
 
@@ -475,6 +494,7 @@ struct CodeGen_LLVM::SSALowering {
         case Instruction::Op::AccArgmax:
         case Instruction::Op::Store:
         case Instruction::Op::Print:
+        case Instruction::Op::Free:
             return true;
         default:
             return false;
@@ -557,6 +577,11 @@ struct CodeGen_LLVM::SSALowering {
             cg.codegen_stmt(Print::make(operands(*instr)));
             return;
         }
+        if (instr->op == Instruction::Op::Free) {
+            internal_assert(instr->operands.size() == 1) << instr->operands.size();
+            cg.codegen_stmt(Free::make(operand(instr->operands[0])));
+            return;
+        }
         if (instr->op == Instruction::Op::Alloca ||
             instr->op == Instruction::Op::Alloc) {
             // A local the promotion pass could not lift to a register -- an
@@ -583,8 +608,14 @@ struct CodeGen_LLVM::SSALowering {
             const bool once = home && once_blocks.contains(home->name);
             const bool was = cg.alloca_where_defined;
             cg.alloca_where_defined = once;
+            // A heap allocation the function frees before it returns is
+            // admitted under --no-heap (see SSA/HeapArrays.h and
+            // CodeGen_LLVM::create_malloc).
+            const bool was_freed = cg.heap_freed_in_call;
+            cg.heap_freed_in_call = freed.contains(instr.get());
             cg.codegen_stmt(
                 Allocate::make(WriteLoc(instr->name, allocated), memory));
+            cg.heap_freed_in_call = was_freed;
             cg.alloca_where_defined = was;
             return;
         }
@@ -1572,11 +1603,20 @@ bool CodeGen_LLVM::seeds_rng(const Block &body_head) {
 }
 
 // A parfor a schedule bound to CPU threads: the body region is compiled as
-// a kernel taking a context pointer and an iteration number, and the parent
-// packs the captures into that context and calls `bonsai_parallel_for`. The
-// captures are the body's uniform arguments, which the SSA already threads
-// for us, plus the loop's begin and stride, which the kernel needs to turn
-// its iteration number into the index.
+// a kernel taking a context pointer and a range of iteration numbers, and
+// the parent packs the captures into that context and calls
+// `bonsai_parallel_for`. The captures are the body's uniform arguments,
+// which the SSA already threads for us, plus the loop's begin and stride,
+// which the kernel needs to turn an iteration number into the index.
+//
+// The kernel loops over its range, the captures read once before it: the
+// runtime hands a thread a range at a time (see runtime/bonsai_parallel.h)
+// and pays one call for it, where a kernel taking one iteration number paid
+// a call -- with every capture loaded from the context again -- per
+// iteration. A wavefront drain over a frame's queue runs a body per entry
+// per round per pass, a hundred million iterations for a small scene, and
+// those calls were most of its time. This is the shape the device kernels
+// have as well (a grid-stride loop, CodeGen_PTX), and pbrt's launches.
 void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
     const Terminator::ParFor &p = loop.loop;
     const Block &body_head = loop.body_head;
@@ -1630,10 +1670,11 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
         codegen_expr(trip_count(begin_e, end_e, stride_e)), i64_t,
         begin_e.type().is_int());
 
-    // The kernel: void(context*, i64 index).
+    // The kernel: void(context*, i64 begin, i64 end), running the iterations
+    // numbered [begin, end).
     llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
     llvm::FunctionType *kern_ty =
-        llvm::FunctionType::get(void_t, {ptr_t, i64_t}, false);
+        llvm::FunctionType::get(void_t, {ptr_t, i64_t, i64_t}, false);
     llvm::Function *kern = llvm::Function::Create(
         kern_ty, llvm::Function::InternalLinkage,
         "_pfkernel" + std::to_string(forall_loop_id++), module.get());
@@ -1656,34 +1697,79 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
         current_sret = nullptr;
         frames.push_frame();
 
-        llvm::BasicBlock *kentry =
+        llvm::BasicBlock *kentry = llvm::BasicBlock::Create(*context, "entry", kern);
+        llvm::BasicBlock *header = llvm::BasicBlock::Create(*context, "range", kern);
+        llvm::BasicBlock *body_bb =
             llvm::BasicBlock::Create(*context, p.body.name, kern);
+        llvm::BasicBlock *latch = llvm::BasicBlock::Create(*context, "next", kern);
+        llvm::BasicBlock *exit = llvm::BasicBlock::Create(*context, "done", kern);
+
+        // Once per range: the captures, and the loop's begin and stride from
+        // the constants or the context.
         builder->SetInsertPoint(kentry);
         llvm::Value *kctx = kern->getArg(0);
         const auto load_field = [&](size_t i, const Type &t) {
             llvm::Value *slot = builder->CreateStructGEP(ctx_ll, kctx, i);
             return builder->CreateLoad(codegen_type(t), slot);
         };
-        // The index: begin + n * stride, from the constants or the context.
         llvm::Value *begin_k = begin_slot ? load_field(*begin_slot, begin_e.type())
                                           : codegen_expr(begin_e);
         llvm::Value *stride_k = stride_slot
                                     ? load_field(*stride_slot, stride_e.type())
                                     : codegen_expr(stride_e);
-        llvm::Value *idx_cast = builder->CreateIntCast(
-            kern->getArg(1), codegen_type(begin_e.type()), false);
-        llvm::Value *index = builder->CreateAdd(
-            begin_k, builder->CreateMul(idx_cast, stride_k),
-            body_head.args[0].name);
-        loop.bind(body_head.args[0].name, index);
         for (size_t k = 0; k < captures.size(); k++) {
             const ir::ssa::Argument &arg = body_head.args[captures[k]];
             loop.bind(arg.name, load_field(first_capture + k, arg.type));
         }
+        builder->CreateBr(header);
+
+        // Per iteration: the index, begin + n * stride, and the body.
+        builder->SetInsertPoint(header);
+        llvm::PHINode *n = builder->CreatePHI(i64_t, 2, "n");
+        n->addIncoming(kern->getArg(1), kentry);
+        llvm::Value *idx_cast =
+            builder->CreateIntCast(n, codegen_type(begin_e.type()), false);
+        llvm::Value *index = builder->CreateAdd(
+            begin_k, builder->CreateMul(idx_cast, stride_k),
+            body_head.args[0].name);
+        loop.bind(body_head.args[0].name, index);
+        builder->CreateCondBr(builder->CreateICmpSLT(n, kern->getArg(2)),
+                              body_bb, exit, very_likely_branch);
+
+        // An iteration that makes a stack allocation of a run-time size in
+        // place (alloca_where_defined: the blocks of the body outside its
+        // loops are once per iteration) has the stack pointer saved before
+        // it and restored after it, as a C compiler does around a variable-
+        // length array in a loop, so that the frame does not grow by an
+        // iteration's allocations every time round the range.
+        bool dynamic_allocas = false;
+        const ir::ssa::Cfg body_cfg(loop.func, p.body.name);
+        for (const auto &block : body_cfg.blocks()) {
+            for (const auto &instr : block->instrs) {
+                if ((instr->op == Instruction::Op::Alloca ||
+                     instr->op == Instruction::Op::Alloc) &&
+                    !ir::ssa::names_in_type(instr->type).empty()) {
+                    dynamic_allocas = true;
+                }
+            }
+        }
+        builder->SetInsertPoint(body_bb);
+        llvm::Value *stack = dynamic_allocas ? builder->CreateStackSave("stack") : nullptr;
         if (seeds_rng(body_head)) {
             emit_rng_setup(index, /*outer_state=*/nullptr);
         }
-        loop.emit_body(kentry, nullptr);
+        loop.emit_body(body_bb, latch);
+
+        builder->SetInsertPoint(latch);
+        if (stack != nullptr) {
+            builder->CreateStackRestore(stack);
+        }
+        n->addIncoming(builder->CreateAdd(n, llvm::ConstantInt::get(i64_t, 1)),
+                       latch);
+        builder->CreateBr(header);
+
+        builder->SetInsertPoint(exit);
+        builder->CreateRetVoid();
 
         frames.pop_frame();
         current_sret = saved_sret;

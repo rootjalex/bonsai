@@ -88,6 +88,8 @@ const char *op_name(Instruction::Op op) {
         return "alloc";
     case Instruction::Op::Alloca:
         return "alloca";
+    case Instruction::Op::Free:
+        return "free";
     case Instruction::Op::Any:
         return "any";
     case Instruction::Op::Append:
@@ -230,9 +232,11 @@ bool is_store_instr(const Instruction::Op &op) {
     // Print has a side effect, but is not a store: it has no address
     // operand, and takes as many operands as it prints. Push has both, but
     // what it writes is a slot the count picks rather than its address
-    // operand, so it is dumped in its own form below.
+    // operand, so it is dumped in its own form below; so is Free, which
+    // writes nothing.
     case Instruction::Op::Print:
     case Instruction::Op::Push:
+    case Instruction::Op::Free:
     case Instruction::Op::Ramp:
     case Instruction::Op::Reduce:
     case Instruction::Op::Reinterpret:
@@ -292,6 +296,12 @@ void Instruction::dump(std::ostream &os) const {
             operands[2]->dump(os);
         }
         return;
+    } else if (op == Instruction::Op::Free) {
+        internal_assert(name.empty()) << "Name must be empty for free: " << name;
+        internal_assert(operands.size() == 1) << operands.size();
+        os << "free ";
+        operands[0]->dump(os);
+        return;
     } else if (op == Instruction::Op::Print) {
         internal_assert(name.empty())
             << "Name must be empty for print: " << name;
@@ -326,6 +336,9 @@ void Instruction::dump(std::ostream &os) const {
         op == Instruction::Op::MakeStruct ||
         op == Instruction::Op::Reinterpret) {
         os << "<" << type << ">";
+    }
+    if (scratch) {
+        os << " scratch";
     }
     if (op == Instruction::Op::Shuffle) {
         os << "<";

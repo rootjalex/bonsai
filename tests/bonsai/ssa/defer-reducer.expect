@@ -10,7 +10,6 @@ type vec4f = f32x4
 func run(values : f32[8], out : mut f32[8]) -> void {
   q!round : mut u32
   q_total_slots : mut f32[8]
-  q_rest_i : mut i32[8]
   q_x_0 : mut f32[8]
   q_n_0 : mut i32[8]
   q_total_0 : mut (f32*)[8]
@@ -25,42 +24,40 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   parfor i in [0:8:1] {
     q_total_slots[i] = 0f
     let @0 = values[i] in
-    let @32 = i >> 31 in
-    let @33 = reinterpret_cast<u32>(@32) in
-    let @34 = @33 >> 30u in
-    let @35 = reinterpret_cast<i32>(@34) in
-    let @36 = i + @35 in
-    let @37 = @36 >> 2 in
-    let @38 = @37 * 4 in
-    let @1 = i - @38 in
-    q_rest_i[i] = i
+    let @29 = i >> 31 in
+    let @30 = reinterpret_cast<u32>(@29) in
+    let @31 = @30 >> 30u in
+    let @32 = reinterpret_cast<i32>(@31) in
+    let @33 = i + @32 in
+    let @34 = @33 >> 2 in
+    let @35 = @34 * 4 in
+    let @1 = i - @35 in
     step(@0, @1, (&q_total_slots[i]), (&q_queue[0u]))
     continue
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @12 = (*q!round) & 1u in
-    let @14 = q_queue[(*q!round) & 1u].count in
-    let @16 = @12 ^ 1u in
-    q_queue[@16].count = 0u
-    parfor q in [0u:@14:1u] {
-      let @17 = (&q_queue[@16]) in
-      let @21 = q_queue[@12].x in
-      let @22 = @21[q] in
-      let @24 = q_queue[@12].n in
-      let @25 = @24[q] in
-      let @27 = q_queue[@12].total in
-      let @28 = @27[q] in
-      step(@22, @25, @28, @17)
+    let @11 = (*q!round) & 1u in
+    let @13 = q_queue[(*q!round) & 1u].count in
+    let @15 = @11 ^ 1u in
+    q_queue[@15].count = 0u
+    parfor q in [0u:@13:1u] {
+      let @16 = (&q_queue[@15]) in
+      let @20 = q_queue[@11].x in
+      let @21 = @20[q] in
+      let @23 = q_queue[@11].n in
+      let @24 = @23[q] in
+      let @26 = q_queue[@11].total in
+      let @27 = @26[q] in
+      step(@21, @24, @27, @16)
       continue
     }
-    let @11 = (*q!round) + 1u in
-    q!round = @11
+    let @10 = (*q!round) + 1u in
+    q!round = @10
   }
   parfor q_rest in [0:8:1] {
-    let @31 = q_rest_i[q_rest] in
     let total = (&q_total_slots[q_rest]) in
-    let i = @31 in
+    let i = q_rest in
     let @2 = (*total) in
     out[i] = @2
     continue

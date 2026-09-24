@@ -1,0 +1,103 @@
+func counted(out : mut i32[12], seen : mut i32[3]) -> void {
+  n!expanded : mut i32[3]
+  parfor y!prologue in [0:3:1] {
+    let @0 = y << 1 in
+    n!expanded[y] = @0
+    continue
+  }
+  parfor x in [0:4:1] {
+    parfor y in [0:3:1] {
+      let n = (&n!expanded[y]) in
+      let @1 = (*n) in
+      let @2 = @1 + x in
+      let @3 = y << 2 in
+      let @4 = @3 + x in
+      out[@4] = @2
+      continue
+    }
+    continue
+  }
+  parfor y!epilogue in [0:3:1] {
+    let n = (&n!expanded[y]) in
+    let y = y in
+    let @6 = (*n) in
+    seen[y] = @6
+    continue
+  }
+  return
+}
+
+func grid(out : mut i32[12], sums : mut i32[3]) -> void {
+  parfor y!prologue in [0:3:1] {
+    sums[y] = 0
+    continue
+  }
+  parfor x in [0:4:1] {
+    parfor y in [0:3:1] {
+      let row = y << 2 in
+      let @2 = y * 100 in
+      let @3 = @2 + x in
+      let @4 = row + x in
+      out[@4] = @3
+      sums[y] += x
+      continue
+    }
+    continue
+  }
+  return
+}
+
+func rows(out : mut i32[12], total : mut i32[3]) -> void {
+  parfor x in [0:4:1] {
+    parfor y in [0:3:1] {
+      let @0 = x + y in
+      let @1 = y << 2 in
+      let @2 = @1 + x in
+      out[@2] = @0
+      continue
+    }
+    continue
+  }
+  parfor y!epilogue in [0:3:1] {
+    let y = y in
+    let _t0 = y << 2 in
+    let @5 = out[_t0] in
+    let @6 = _t0 + 3 in
+    let @7 = out[@6] in
+    let @8 = @5 + @7 in
+    total[y] = @8
+    continue
+  }
+  return
+}
+
+func scaled(scale : i32[3], out : mut i32[12]) -> void {
+  k!expanded : mut i32[3]
+  parfor y!prologue in [0:3:1] {
+    let k = scale[y] in
+    k!expanded[y] = k
+    continue
+  }
+  parfor x in [0:4:1] {
+    parfor y in [0:3:1] {
+      let @7 = k!expanded[y] in
+      let k = @7 in
+      let @1 = k * x in
+      let @2 = y << 2 in
+      let @3 = @2 + x in
+      out[@3] = @1
+      continue
+    }
+    continue
+  }
+  return
+}
+
+
+schedule host {
+    counted.reorder(y, x)
+    grid.reorder(y, x)
+    rows.reorder(y, x)
+    scaled.reorder(y, x)
+
+}

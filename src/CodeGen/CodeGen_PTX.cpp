@@ -164,6 +164,7 @@ bool has_effect(Instruction::Op op) {
     case Instruction::Op::Push:
     case Instruction::Op::AtomicAdd:
     case Instruction::Op::Alloc:
+    case Instruction::Op::Free:
         return true;
     default:
         return false;

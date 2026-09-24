@@ -380,6 +380,13 @@ void Printer::print(const Schedule &schedule) {
                                       print(collapse.i);
                                       os << ")";
                                   },
+                                  [&](const Reorder &reorder) {
+                                      os << "reorder(";
+                                      print(reorder.inner);
+                                      os << ", ";
+                                      print(reorder.outer);
+                                      os << ")";
+                                  },
                                   [&](const Bind &bind) {
                                       os << "bind(";
                                       print(bind.i);

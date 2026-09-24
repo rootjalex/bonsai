@@ -1,0 +1,18 @@
+//! flags: -p ssa
+
+// reorder() names the loops from the innermost out, as Halide does; asking
+// for the order the loops already have is refused rather than ignored, as a
+// schedule that changes nothing is.
+
+func grid(out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        parfor x in 0:4 {
+            out[y * 4 + x] = x;
+        }
+    }
+    return;
+}
+
+schedule {
+    grid.reorder(x, y);
+}

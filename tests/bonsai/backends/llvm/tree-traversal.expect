@@ -519,8 +519,8 @@ trace_all:
 "_recloop_func0!loop.i.lr.ph.i":                  ; preds = %"!visit.i.outer.backedge.i", %"!par_body_0.i"
   %"!count.i.ph52.i" = phi i32 [ 0, %"!par_body_0.i" ], [ %51, %"!visit.i.outer.backedge.i" ]
   %"triangles_index!top.i.ph51.i" = phi i32 [ 0, %"!par_body_0.i" ], [ %extract419.i.i, %"!visit.i.outer.backedge.i" ]
-  %"_best0$i2714.sroa.0.0.ph50.i" = phi float [ +inf, %"!par_body_0.i" ], [ %"_best0$i2714.sroa.0.1.i", %"!visit.i.outer.backedge.i" ]
-  %"_best0$i2714.sroa.5.0.ph49.i" = phi i32 [ 0, %"!par_body_0.i" ], [ %"_best0$i2714.sroa.5.1.i", %"!visit.i.outer.backedge.i" ]
+  %"_best0$i27.sroa.0.0.ph50.i" = phi float [ +inf, %"!par_body_0.i" ], [ %"_best0$i27.sroa.0.1.i", %"!visit.i.outer.backedge.i" ]
+  %"_best0$i27.sroa.5.0.ph49.i" = phi i32 [ 0, %"!par_body_0.i" ], [ %"_best0$i27.sroa.5.1.i", %"!visit.i.outer.backedge.i" ]
   br label %"_recloop_func0!loop.i.i"
 
 "_recloop_func0!loop.i.i":                        ; preds = %"!then_16.i.i", %"_recloop_func0!loop.i.lr.ph.i"
@@ -581,7 +581,7 @@ trace_all:
   %34 = fcmp ogt float %min417.i.i, 0.000000e+00
   %35 = fcmp olt float %max415.i.i, %5
   %36 = and i1 %35, %34
-  %37 = fcmp olt float %max415.i.i, %"_best0$i2714.sroa.0.0.ph50.i"
+  %37 = fcmp olt float %max415.i.i, %"_best0$i27.sroa.0.0.ph50.i"
   %or.cond.i = select i1 %36, i1 %37, i1 false
   br i1 %or.cond.i, label %"!then_14.i.i", label %"!visit_pop.i.i"
 
@@ -606,8 +606,8 @@ trace_all:
 
 "!for__idx0_body_21.i.i":                         ; preds = %"!merge_25.i.i", %"!else_17.i.i"
   %indvars.iv.i = phi i64 [ 0, %"!else_17.i.i" ], [ %indvars.iv.next.i, %"!merge_25.i.i" ]
-  %"_best0$i2714.sroa.0.247.i" = phi float [ %"_best0$i2714.sroa.0.0.ph50.i", %"!else_17.i.i" ], [ %"_best0$i2714.sroa.0.3.i", %"!merge_25.i.i" ]
-  %"_best0$i2714.sroa.5.246.i" = phi i32 [ %"_best0$i2714.sroa.5.0.ph49.i", %"!else_17.i.i" ], [ %"_best0$i2714.sroa.5.3.i", %"!merge_25.i.i" ]
+  %"_best0$i27.sroa.0.247.i" = phi float [ %"_best0$i27.sroa.0.0.ph50.i", %"!else_17.i.i" ], [ %"_best0$i27.sroa.0.3.i", %"!merge_25.i.i" ]
+  %"_best0$i27.sroa.5.246.i" = phi i32 [ %"_best0$i27.sroa.5.0.ph49.i", %"!else_17.i.i" ], [ %"_best0$i27.sroa.5.3.i", %"!merge_25.i.i" ]
   %45 = trunc nuw nsw i64 %indvars.iv.i to i32
   %46 = add i32 %45, %44
   %47 = sext i32 %46 to i64
@@ -626,22 +626,22 @@ trace_all:
 
 "!then_24.i.i":                                   ; preds = %"!for__idx0_body_21.i.i"
   %.fca.0.3.load.i.i = load float, ptr %.fca.0.3.gep.i.i, align 4
-  %50 = fcmp olt float %.fca.0.3.load.i.i, %"_best0$i2714.sroa.0.247.i"
+  %50 = fcmp olt float %.fca.0.3.load.i.i, %"_best0$i27.sroa.0.247.i"
   br i1 %50, label %"!then_26.i.i", label %"!merge_25.i.i"
 
 "!then_26.i.i":                                   ; preds = %"!then_24.i.i"
   br label %"!merge_25.i.i"
 
 "!merge_25.i.i":                                  ; preds = %"!then_26.i.i", %"!then_24.i.i", %"!for__idx0_body_21.i.i"
-  %"_best0$i2714.sroa.5.3.i" = phi i32 [ %46, %"!then_26.i.i" ], [ %"_best0$i2714.sroa.5.246.i", %"!then_24.i.i" ], [ %"_best0$i2714.sroa.5.246.i", %"!for__idx0_body_21.i.i" ]
-  %"_best0$i2714.sroa.0.3.i" = phi float [ %.fca.0.3.load.i.i, %"!then_26.i.i" ], [ %"_best0$i2714.sroa.0.247.i", %"!then_24.i.i" ], [ %"_best0$i2714.sroa.0.247.i", %"!for__idx0_body_21.i.i" ]
+  %"_best0$i27.sroa.5.3.i" = phi i32 [ %46, %"!then_26.i.i" ], [ %"_best0$i27.sroa.5.246.i", %"!then_24.i.i" ], [ %"_best0$i27.sroa.5.246.i", %"!for__idx0_body_21.i.i" ]
+  %"_best0$i27.sroa.0.3.i" = phi float [ %.fca.0.3.load.i.i, %"!then_26.i.i" ], [ %"_best0$i27.sroa.0.247.i", %"!then_24.i.i" ], [ %"_best0$i27.sroa.0.247.i", %"!for__idx0_body_21.i.i" ]
   %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
   %exitcond.not.i = icmp eq i64 %indvars.iv.next.i, %wide.trip.count.i
   br i1 %exitcond.not.i, label %"!visit_pop.i.i", label %"!for__idx0_body_21.i.i"
 
 "!visit_pop.i.i":                                 ; preds = %"!merge_2.i.i", %"!else_1.i.i", %"_recloop_func0!loop.i.i", %"!merge_25.i.i"
-  %"_best0$i2714.sroa.5.1.i" = phi i32 [ %"_best0$i2714.sroa.5.3.i", %"!merge_25.i.i" ], [ %"_best0$i2714.sroa.5.0.ph49.i", %"_recloop_func0!loop.i.i" ], [ %"_best0$i2714.sroa.5.0.ph49.i", %"!else_1.i.i" ], [ %"_best0$i2714.sroa.5.0.ph49.i", %"!merge_2.i.i" ]
-  %"_best0$i2714.sroa.0.1.i" = phi float [ %"_best0$i2714.sroa.0.3.i", %"!merge_25.i.i" ], [ %"_best0$i2714.sroa.0.0.ph50.i", %"_recloop_func0!loop.i.i" ], [ %"_best0$i2714.sroa.0.0.ph50.i", %"!else_1.i.i" ], [ %"_best0$i2714.sroa.0.0.ph50.i", %"!merge_2.i.i" ]
+  %"_best0$i27.sroa.5.1.i" = phi i32 [ %"_best0$i27.sroa.5.3.i", %"!merge_25.i.i" ], [ %"_best0$i27.sroa.5.0.ph49.i", %"_recloop_func0!loop.i.i" ], [ %"_best0$i27.sroa.5.0.ph49.i", %"!else_1.i.i" ], [ %"_best0$i27.sroa.5.0.ph49.i", %"!merge_2.i.i" ]
+  %"_best0$i27.sroa.0.1.i" = phi float [ %"_best0$i27.sroa.0.3.i", %"!merge_25.i.i" ], [ %"_best0$i27.sroa.0.0.ph50.i", %"_recloop_func0!loop.i.i" ], [ %"_best0$i27.sroa.0.0.ph50.i", %"!else_1.i.i" ], [ %"_best0$i27.sroa.0.0.ph50.i", %"!merge_2.i.i" ]
   %.not.i.not.i = icmp eq i32 %"!count.i42.i", 0
   br i1 %.not.i.not.i, label %_recloop_func0.exit.i, label %"!visit.i.outer.backedge.i"
 
@@ -655,11 +655,11 @@ trace_all:
 _recloop_func0.exit.i:                            ; preds = %"!visit_pop.i.i"
   call void @llvm.lifetime.end.p0(ptr nonnull %_ret.i.i)
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack431.i.i")
-  %53 = fcmp une float %"_best0$i2714.sroa.0.1.i", +inf
+  %53 = fcmp une float %"_best0$i27.sroa.0.1.i", +inf
   br i1 %53, label %"!then_3.i", label %"!merge_4.i"
 
 "!then_3.i":                                      ; preds = %_recloop_func0.exit.i
-  %54 = sext i32 %"_best0$i2714.sroa.5.1.i" to i64
+  %54 = sext i32 %"_best0$i27.sroa.5.1.i" to i64
   %extract_ptr17.i = getelementptr inbounds [48 x i8], ptr %prims1, i64 %54
   %extract18.unpack.i = load <3 x float>, ptr %extract_ptr17.i, align 16
   %extract18.elt19.i = getelementptr inbounds nuw i8, ptr %extract_ptr17.i, i64 16

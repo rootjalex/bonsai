@@ -7,6 +7,9 @@
 #include "SSA/Defer.h"
 #include "SSA/BlockAccumulates.h"
 #include "SSA/DemoteAtomics.h"
+#include "SSA/HeapArrays.h"
+#include "SSA/HoistAllocations.h"
+#include "SSA/ReorderLoops.h"
 #include "SSA/Specialize.h"
 #include "SSA/Stage.h"
 #include "SSA/InvariantDivision.h"
@@ -1847,6 +1850,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Collapse &) { return "collapse"; },
                           [](const ir::Defer &) { return "defer"; },
                           [](const ir::Loopify &) { return "loopify"; },
+                          [](const ir::Reorder &) { return "reorder"; },
                           [](const ir::Split &) { return "split"; },
                           [](const ir::Sort &) { return "sort"; },
                           [](const ir::Specialize &) { return "specialize"; },
@@ -2172,6 +2176,29 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                      c.i.names.back() + suffix);
                         }
                     },
+                    [&](const ir::Reorder &r) {
+                        internal_assert(!r.inner.names.empty() &&
+                                        !r.outer.names.empty())
+                            << "reorder() requires loop names for: " << name;
+                        // Every variant's pair, as collapse: the loop to be
+                        // inner names the variants, the other is found beside
+                        // each.
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, r.inner.names.back(), "reorder")) {
+                            const std::string suffix =
+                                variant_suffix(r.inner.names.back(), at.index);
+                            const LoopSite other = resolve_loop(
+                                fmap, at.func, r.outer.names.back() + suffix,
+                                "reorder");
+                            internal_assert(other.func == at.func)
+                                << "reorder(" << r.inner.names.back() << ", "
+                                << r.outer.names.back() << ") on " << name
+                                << ": those loops are in different "
+                                << "functions (" << at.func << " and "
+                                << other.func << "), so they are not nested";
+                            reorder(fmap, at.func, at.index, other.index);
+                        }
+                    },
                     [&](const ir::Bind &b) {
                         if (b.lambda.defined()) {
                             // A function's bind to a hardware unit, applied
@@ -2295,6 +2322,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         simplify(*f);
     }
     phase("simplify after promotion");
+    // Storage made inside a loop that every iteration could share is made
+    // once, before the loop (SSA/HoistAllocations.h): a pass's queues before
+    // the loop over passes. After the binds, which decide which loops may be
+    // crossed, and after the promotion, which decides what is storage at
+    // all. Then what is a run-time-sized array at a function's top goes to
+    // the heap, freed at the function's returns (SSA/HeapArrays.h).
+    for (const auto &[name, f] : fmap) {
+        hoist_invariant_allocations(*f);
+        heap_arrays(*f);
+    }
+    phase("hoist allocations");
     // Every parfor body's arguments are its captures again, whatever the
     // rewrites above and the promotion left of that (see SSA/CloseBodies.h):
     // the code generators make a kernel of a bound loop's body from those

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/ReorderLoops.cpp:240
+
+--> !instr->type.is_reference()
+reorder(y, x) on rows: scratch is an array local of y's iteration that x reads. One slot per iteration of y would be an array of arrays, which this form has no handle for; declare it inside x, or as an array over y's range before the nest.

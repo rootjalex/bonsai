@@ -1,0 +1,18 @@
+//! flags: -p ssa
+
+// The inner loop's range may not depend on the outer index: a triangular
+// nest has no rectangle to interchange without new bounds, and reorder()
+// does not rewrite bounds.
+
+func lower(out : mut array[i32, 16]) -> void {
+    parfor y in 0:4 {
+        parfor x in 0:y {
+            out[y * 4 + x] = x;
+        }
+    }
+    return;
+}
+
+schedule {
+    lower.reorder(y, x);
+}

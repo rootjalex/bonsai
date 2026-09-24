@@ -3685,6 +3685,16 @@ struct Parser {
                     .ii = std::move(ii),
                     .i = std::move(i),
                 });
+            } else if (rewrite == "reorder") {
+                // `f.reorder(inner, outer)`: the two loops from the innermost
+                // out, as Halide writes it (see ir::Reorder).
+                ir::Location inner = loop_cursor();
+                expect(Token::Type::COMMA);
+                ir::Location outer = loop_cursor();
+                add(ir::Reorder{
+                    .inner = std::move(inner),
+                    .outer = std::move(outer),
+                });
             } else if (rewrite == "bind") {
                 ir::Location i = parse_location();
                 expect(Token::Type::COMMA);

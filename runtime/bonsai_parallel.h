@@ -6,10 +6,17 @@
 // The parallel loop a `bind(i, CPUThread)` schedule lowers to.
 //
 // Generated code makes exactly one call, to `bonsai_parallel_for(n, context,
-// body)`, meaning: run `body(context, i)` once for each i in [0, n), in any
-// order, and return when all of them are done. Choosing *how* is this header's
-// job rather than the compiler's -- a compiler that decided would make its own
-// output, and every golden of it, depend on which machine it ran on.
+// body)`, meaning: run every iteration i in [0, n), in any order, and return
+// when all of them are done, where `body(context, begin, end)` runs the
+// iterations [begin, end) one after another. The body takes a range rather
+// than one iteration so that a thread pays one call per range it is handed
+// and not one per iteration: the generated body reads its captures once and
+// loops, as a device kernel does over its grid stride. A wavefront's drains
+// run a body per queue entry per round per pass, a hundred million calls a
+// frame with sixty captures each, and the calls were most of the render.
+// Choosing *how* the ranges are handed out is this header's job rather than
+// the compiler's -- a compiler that decided would make its own output, and
+// every golden of it, depend on which machine it ran on.
 //
 // Which implementation is used is picked here, in this order:
 //
@@ -58,7 +65,7 @@
 // Defined by the program. Declared with the same linkage and shape so that the
 // object file the compiler produced finds it.
 extern "C" void bonsai_parallel_for(int64_t n, void *context,
-                                    void (*body)(void *, size_t));
+                                    void (*body)(void *, int64_t, int64_t));
 
 #else
 
@@ -68,18 +75,36 @@ extern "C" void bonsai_parallel_for(int64_t n, void *context,
 // compiler produced, which refers to it by name.
 #define BONSAI_PARALLEL_DEFN                                                   \
     extern "C" __attribute__((used)) inline void bonsai_parallel_for(          \
-        int64_t n, void *context, void (*body)(void *, size_t))
+        int64_t n, void *context, void (*body)(void *, int64_t, int64_t))
 
 #if defined(BONSAI_PARALLEL_GCD)
 
+#include <algorithm>
 #include <dispatch/dispatch.h>
 
+// libdispatch hands out one iteration number per call, so the loop is cut
+// into chunks first and each dispatched iteration runs a chunk's range: a few
+// hundred iterations, as the thread backend below chooses, so that a chunk
+// costs one call and a straggler costs a chunk.
 BONSAI_PARALLEL_DEFN {
     if (n <= 0) {
         return;
     }
-    dispatch_apply_f(static_cast<size_t>(n), dispatch_get_global_queue(0, 0),
-                     context, reinterpret_cast<void (*)(void *, size_t)>(body));
+    struct Chunked {
+        void *context;
+        void (*body)(void *, int64_t, int64_t);
+        int64_t n, chunk;
+    };
+    Chunked chunked{context, body, n, std::max<int64_t>(1, n / 256)};
+    const size_t chunks =
+        static_cast<size_t>((n + chunked.chunk - 1) / chunked.chunk);
+    dispatch_apply_f(chunks, dispatch_get_global_queue(0, 0), &chunked,
+                     [](void *c, size_t k) {
+                         const Chunked &ch = *static_cast<const Chunked *>(c);
+                         const int64_t begin = static_cast<int64_t>(k) * ch.chunk;
+                         ch.body(ch.context, begin,
+                                 std::min(begin + ch.chunk, ch.n));
+                     });
 }
 
 #elif defined(BONSAI_PARALLEL_TBB)
@@ -89,25 +114,24 @@ BONSAI_PARALLEL_DEFN {
 
 // The default partitioner splits the range further while threads are idle and
 // steals between them, which is what makes an uneven loop finish when its work
-// does rather than when its unluckiest thread does. A program built this way
-// has to link the library: `-ltbb`.
+// does rather than when its unluckiest thread does; each range it settles on
+// is one call of the body. A program built this way has to link the library:
+// `-ltbb`.
 BONSAI_PARALLEL_DEFN {
     if (n <= 0) {
         return;
     }
     tbb::parallel_for(tbb::blocked_range<int64_t>(0, n),
                       [context, body](const tbb::blocked_range<int64_t> &r) {
-                          for (int64_t i = r.begin(); i != r.end(); i++) {
-                              body(context, static_cast<size_t>(i));
-                          }
+                          body(context, r.begin(), r.end());
                       });
 }
 
 #elif defined(BONSAI_PARALLEL_SEQUENTIAL)
 
 BONSAI_PARALLEL_DEFN {
-    for (int64_t i = 0; i < n; i++) {
-        body(context, static_cast<size_t>(i));
+    if (n > 0) {
+        body(context, 0, n);
     }
 }
 
@@ -130,9 +154,7 @@ BONSAI_PARALLEL_DEFN {
     threads = std::min<unsigned int>(threads, static_cast<unsigned int>(n));
 
     if (threads == 1) {
-        for (int64_t i = 0; i < n; i++) {
-            body(context, static_cast<size_t>(i));
-        }
+        body(context, 0, n);
         return;
     }
 
@@ -157,10 +179,7 @@ BONSAI_PARALLEL_DEFN {
                 if (begin >= n) {
                     return;
                 }
-                const int64_t end = std::min(begin + chunk, n);
-                for (int64_t i = begin; i < end; i++) {
-                    body(context, static_cast<size_t>(i));
-                }
+                body(context, begin, std::min(begin + chunk, n));
             }
         });
     }

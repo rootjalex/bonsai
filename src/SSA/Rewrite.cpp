@@ -176,6 +176,14 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
             << " arguments but the loop passes it "
             << (parfor.body.args.size() + 1);
 
+        // The loops made here are new loops, and a bind names a loop: bind
+        // `outer` or `inner`, after splitting.
+        internal_assert(!parfor.binding.has_value())
+            << "split(" << idx << ") on " << func << ": " << idx
+            << " is bound to " << to_string(*parfor.binding)
+            << ", and the split makes two new loops of it. Bind " << outer
+            << " or " << inner << " after the split instead.";
+
         internal_assert(std::holds_alternative<Constant>(parfor.stride->data))
             << "TODO: handle non-Constant strides in split mining";
 

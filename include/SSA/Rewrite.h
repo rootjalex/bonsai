@@ -32,6 +32,19 @@ void split(FuncMap &funcs, std::string func, std::string idx, int factor,
 void bind(FuncMap &funcs, std::string func, std::string index,
           Resource resource);
 
+// May a loop bound to `inner` sit inside one bound to `outer`?
+//
+// The orderings a schedule has to respect. A GPUThread runs inside a GPUBlock,
+// never the other way round, and the two kinds of machine do not nest inside
+// each other at all. Anything not named here is allowed: the point is to catch
+// a schedule that asks for something no hardware does, not to enumerate every
+// pairing that happens to be sensible. What bind() checks when a loop is
+// bound, and reorder() again when two bound loops change places.
+bool may_nest(Resource outer, Resource inner);
+
+// reorder(), the interchange of two nested parfors, is declared in
+// SSA/ReorderLoops.h.
+
 // Fuses two nested parfor loops into one that walks the rectangle they cover,
 // recovering each index from the step number. `outer` must run `inner` and
 // nothing else. Where the ranges do not divide by their strides the rectangle

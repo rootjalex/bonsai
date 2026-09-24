@@ -1,0 +1,78 @@
+//! flags: -p ssa
+
+// reorder() as an SSA rewrite: two nested parfors change places, and what
+// the outer body did around its inner loop is distributed into loops of its
+// own (see SSA/ReorderLoops.h).
+//
+// `grid` is the shape of a renderer's pixel loop: the row's index arithmetic
+// (`row`), a store that starts the row's sum, the inner loop over the row's
+// columns accumulating into it. After `grid.reorder(y, x)`:
+//
+//   * `y!prologue` runs the store once per row, before the nest;
+//   * `x` is the outer loop and `y` the inner, with `row = y * 4` recomputed
+//     in the inner body -- pure arithmetic on the index, cheaper to redo
+//     than to keep;
+//   * nothing follows the inner loop in the row's body, so there is no
+//     epilogue loop.
+//
+// The accumulate into `sums[y]` is still made once per (x, y) in row order
+// for each row, since `x` is unbound and runs in order.
+//
+// `rows` has an epilogue: the row's total, read from what the inner loop
+// wrote, goes in a `y!epilogue` loop after the nest, which runs after every
+// column of every row. `scaled` reads `scale[y]` before its inner loop -- a
+// read of memory, which may not be moved past the nest's stores -- so the
+// value is scalar-expanded: computed in the prologue loop into
+// `k!expanded[y]` and read back in the inner body. `counted` declares a
+// `mut` local of the row, written before the nest and read inside and after
+// it: one slot per row, `n!expanded[y]`.
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        row = y * 4;
+        sums[y] = 0;
+        parfor x in 0:4 {
+            out[row + x] = y * 100 + x;
+            atomic sums[y] += x;
+        }
+    }
+    return;
+}
+
+func rows(out : mut array[i32, 12], total : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        parfor x in 0:4 {
+            out[y * 4 + x] = x + y;
+        }
+        total[y] = out[y * 4] + out[y * 4 + 3];
+    }
+    return;
+}
+
+func scaled(scale : array[i32, 3], out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        k = scale[y];
+        parfor x in 0:4 {
+            out[y * 4 + x] = k * x;
+        }
+    }
+    return;
+}
+
+func counted(out : mut array[i32, 12], seen : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        n : mut i32 = y * 2;
+        parfor x in 0:4 {
+            out[y * 4 + x] = n + x;
+        }
+        seen[y] = n;
+    }
+    return;
+}
+
+schedule {
+    grid.reorder(y, x);
+    rows.reorder(y, x);
+    scaled.reorder(y, x);
+    counted.reorder(y, x);
+}

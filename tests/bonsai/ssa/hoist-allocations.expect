@@ -1,0 +1,90 @@
+type Entry_sums = struct Entry_sums{ n : i32; acc : i32; _result : (i32*) }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _result : (i32*)[] }
+
+func run(n : i32, out : mut i32[n]) -> void {
+  alloc sums_result : mut i32[n]
+  alloc sums_n_0 : mut i32[n]
+  alloc sums_acc_0 : mut i32[n]
+  alloc sums__result_0 : mut (i32*)[n]
+  alloc sums_n_1 : mut i32[n]
+  alloc sums_acc_1 : mut i32[n]
+  alloc sums__result_1 : mut (i32*)[n]
+  sums_queue : mut Queue_sums[2]
+  parfor r in [0:2:1] {
+    sums!round : mut u32
+    let @4 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__result_0) in
+    sums_queue[0u] = @4
+    let @6 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__result_1) in
+    sums_queue[1u] = @6
+    parfor i in [0:n:1] {
+      tally(i, r, (&sums_queue[0u]), (&sums_result[i]))
+      continue
+    }
+    sums!round = 0u
+    while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+      let @11 = (*sums!round) & 1u in
+      let @13 = sums_queue[(*sums!round) & 1u].count in
+      let @15 = @11 ^ 1u in
+      sums_queue[@15].count = 0u
+      parfor sums in [0u:@13:1u] {
+        let @16 = (&sums_queue[@15]) in
+        let @20 = sums_queue[@11].n in
+        let @21 = @20[sums] in
+        let @23 = sums_queue[@11].acc in
+        let @24 = @23[sums] in
+        let @26 = sums_queue[@11]._result in
+        let @27 = @26[sums] in
+        tally(@21, @24, @16, @27)
+        continue
+      }
+      let @10 = (*sums!round) + 1u in
+      sums!round = @10
+    }
+    parfor sums_rest in [0:n:1] {
+      let @29 = sums_result[sums_rest] in
+      let @0 = @29 in
+      let i = sums_rest in
+      let v = @0 in
+      let @1 = out[i] in
+      let @2 = @1 + v in
+      out[i] = @2
+      continue
+    }
+    continue
+  }
+  free(sums_result)
+  free(sums_n_0)
+  free(sums_acc_0)
+  free(sums__result_0)
+  free(sums_n_1)
+  free(sums_acc_1)
+  free(sums__result_1)
+  return
+}
+
+func [[noinline]] tally(n : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*)) -> void {
+  let @0 = n <= 0 in
+  if (@0) {
+    _result_sums = acc
+    return
+  } else {
+    let @1 = n - 1 in
+    let @2 = acc + n in
+    let @4 = build<Entry_sums>(@1, @2, _result_sums) in
+    let @7 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @9 = (*_queue_sums).n in
+    @9[@7] = @1
+    let @12 = (*_queue_sums).acc in
+    @12[@7] = @2
+    let @15 = (*_queue_sums)._result in
+    @15[@7] = _result_sums
+    return
+  }
+}
+
+
+schedule host {
+    sums = run.queue(r);
+    tally.defer(tally, sums)
+
+}

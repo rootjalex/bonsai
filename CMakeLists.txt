@@ -221,13 +221,19 @@ target_sources(
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp
+    src/SSA/HeapArrays.cpp
+    src/SSA/HoistAllocations.cpp
     src/SSA/InsertPreheader.cpp
     src/SSA/InvariantDivision.cpp
     src/SSA/Linearize.cpp
+    src/SSA/LoopArithmetic.cpp
     src/SSA/MergeLatches.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
+    src/SSA/Reach.cpp
+    src/SSA/ReorderLoops.cpp
     src/SSA/Simplify.cpp
+    src/SSA/Storage.cpp
     src/SSA/SortRecursion.cpp
     src/SSA/Specialize.cpp
     src/SSA/SplitAggregates.cpp

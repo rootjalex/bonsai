@@ -371,7 +371,7 @@ bool is_recursive(const Function &func) {
     return false;
 }
 
-void for_each_value(Function &func,
+void for_each_value(Terminator &terminator,
                     const std::function<void(shared_ptr<Value> &)> &fn) {
     const auto each = [&](shared_ptr<Value> &v) {
         if (v != nullptr) {
@@ -383,51 +383,65 @@ void for_each_value(Function &func,
             each(arg);
         }
     };
-    for (const auto &block : func.blocks) {
-        for (const auto &instr : block->instrs) {
-            for (auto &operand : instr->operands) {
-                each(operand);
+    std::visit(overloads{
+                   [](std::monostate &) {},
+                   [&](Terminator::Jump &j) { each_jump(j); },
+                   [&](Terminator::Dispatch &d) {
+                       each(d.cond);
+                       for (auto &t : d.targets) {
+                           each_jump(t);
+                       }
+                   },
+                   [&](Terminator::Return &r) { each(r.value); },
+                   [&](Terminator::ParFor &p) {
+                       each(p.start);
+                       each(p.end);
+                       each(p.stride);
+                       each_jump(p.body);
+                       each_jump(p.cont);
+                   },
+                   [](Terminator::Yield &) {},
+                   [&](Terminator::Call &c) {
+                       each_jump(c.call);
+                       each_jump(c.cont);
+                   },
+                   [&](Terminator::MultiCall &c) {
+                       each_jump(c.call);
+                       each_jump(c.cont);
+                       for (auto &vs : c.varying) {
+                           for (auto &v : vs) {
+                               each(v);
+                           }
+                       }
+                       for (auto &k : c.keys) {
+                           each(k);
+                       }
+                   },
+               },
+               terminator.data);
+}
+
+void for_each_value(Block &block,
+                    const std::function<void(shared_ptr<Value> &)> &fn) {
+    for (const auto &instr : block.instrs) {
+        for (auto &operand : instr->operands) {
+            if (operand != nullptr) {
+                fn(operand);
             }
         }
-        std::visit(overloads{
-                       [](std::monostate &) {},
-                       [&](Terminator::Jump &j) { each_jump(j); },
-                       [&](Terminator::Dispatch &d) {
-                           each(d.cond);
-                           for (auto &t : d.targets) {
-                               each_jump(t);
-                           }
-                       },
-                       [&](Terminator::Return &r) { each(r.value); },
-                       [&](Terminator::ParFor &p) {
-                           each(p.start);
-                           each(p.end);
-                           each(p.stride);
-                           each_jump(p.body);
-                           each_jump(p.cont);
-                       },
-                       [](Terminator::Yield &) {},
-                       [&](Terminator::Call &c) {
-                           each_jump(c.call);
-                           each_jump(c.cont);
-                       },
-                       [&](Terminator::MultiCall &c) {
-                           each_jump(c.call);
-                           each_jump(c.cont);
-                           for (auto &vs : c.varying) {
-                               for (auto &v : vs) {
-                                   each(v);
-                               }
-                           }
-                           for (auto &k : c.keys) {
-                               each(k);
-                           }
-                       },
-                   },
-                   block->terminator.data);
-        for (auto &[_, value] : block->lookups) {
-            each(value);
+    }
+    for_each_value(block.terminator, fn);
+    for (auto &[_, value] : block.lookups) {
+        if (value != nullptr) {
+            fn(value);
         }
+    }
+}
+
+void for_each_value(Function &func,
+                    const std::function<void(shared_ptr<Value> &)> &fn) {
+    for (const auto &block : func.blocks) {
+        for_each_value(*block, fn);
     }
 }
 

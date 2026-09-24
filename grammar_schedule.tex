@@ -16,6 +16,7 @@ $Q$ : Queue \;::=\; $q$ (\code{[}$v$\code{]})$^*$ \hfill \algcomment{a queue, or
 $T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill \algcomment{recursion to a loop; a branching one on a stack of $n$} \\
 \phantom{$T$ : }\;|\; \code{split(}$l$, $l_o$, $l_i$, $n$, $b$\code{)} \hfill \algcomment{$l$ into $l_o$ striding by $n$ and $l_i$ over $[0, n)$; $b$: guard the tail} \\
 \phantom{$T$ : }\;|\; \code{collapse(}$l_o$, $l_i$, $l$\code{)} \hfill \algcomment{the inverse: two loops into one} \\
+\phantom{$T$ : }\;|\; \code{reorder(}$l_i$, $l_o$\code{)} \hfill \algcomment{$l_i$ inside $l_o$; what was between them, in loops of its own} \\
 \phantom{$T$ : }\;|\; \code{vectorize(}$l$\code{)} \hfill \algcomment{the iterations of $l$ are the lanes of one gang} \\
 \phantom{$T$ : }\;|\; \code{bind(}$l$, $R$\code{)} \hfill \algcomment{an iteration of $l$ is one unit of $R$} \\
 \phantom{$T$ : }\;|\; \code{bind(TextureUnit,} $\lambda$\code{)} \hfill \algcomment{the unit computes $f$ as $\lambda$ says} \\
@@ -43,7 +44,14 @@ loop inside a \code{GPUBlock} loop, a gang (\code{vectorize}) inside a
 \code{bind(TextureUnit, $\lambda$)} is the one bind of a function rather than a
 loop: the lambda takes
 $f$'s parameters and gives $f$'s value, and is what the unit computes in $f$'s
-place. \code{loopify} before \code{vectorize} gives each lane its own stack;
+place. \code{reorder} is loop distribution followed by loop interchange: the
+loops are named from the innermost out, as in Halide; what the outer body
+did before its inner loop runs in a loop of its own before the nest, what
+it did after in one after, pure arithmetic on the outer index is recomputed
+in the new inner body and every other value it read is expanded into an
+array of one entry per outer iteration; legal without analysis because a
+\code{parfor}'s iterations are independent (Allen and Kennedy; Wolf and
+Lam). \code{loopify} before \code{vectorize} gives each lane its own stack;
 \code{vectorize} before \code{loopify} gives the gang one stack of nodes and
 one of masks, a packet traversal. \code{defer} and \code{stage} are
 defunctionalized continuations: a queue holds the continuation's varying data by

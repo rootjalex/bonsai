@@ -3,6 +3,7 @@
 #include "IR/Equality.h"
 #include "SSA/Analysis.h"
 #include "SSA/Definitions.h"
+#include "SSA/Storage.h"
 
 #include "Error.h"
 
@@ -143,9 +144,8 @@ std::optional<bool> compare_constants(Instruction::Op op, const ValuePtr &a,
         x->data);
 }
 
-// Whether an instruction only computes a value, so that one nothing reads
-// can go. Storage, effects and the fetch-and-add are kept; so is `rand`,
-// which steps the generator's state whether or not its draw is read.
+} // namespace
+
 bool pure(const Instruction &in) {
     if (in.name.empty()) {
         return false;
@@ -198,6 +198,8 @@ bool pure(const Instruction &in) {
         return false;
     }
 }
+
+namespace {
 
 using Replacements = std::map<const Instruction *, ValuePtr>;
 
@@ -772,6 +774,21 @@ void simplify(Function &func) {
             for (auto &[name, value] : block->lookups) {
                 value = s.resolve(value);
             }
+        }
+        // And a name a type carries -- the size of an array made by a
+        // rewrite (see SSA/Storage.h) -- names what took its place too, or
+        // the type would name a value that no longer exists.
+        std::map<std::string, ir::Expr> renames;
+        for (const auto &[instr, v] : s.replaced) {
+            const ValuePtr resolved = s.resolve(v);
+            const Instruction *now = def_of(resolved);
+            if (now != nullptr && now->name == instr->name) {
+                continue; // the replacement took the name
+            }
+            renames.emplace(instr->name, as_expr(resolved));
+        }
+        if (!renames.empty()) {
+            rename_in_types(func, renames);
         }
         std::set<const Instruction *> gone;
         for (const auto &[instr, _] : s.replaced) {

@@ -11,7 +11,6 @@ type vec4f = f32x4
 
 func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   rays!round : mut u32
-  rays_rest_i : mut i32[8]
   rays_result : mut f32[8]
   rays_x : mut f32[8]
   rays_n : mut i32[8]
@@ -25,56 +24,54 @@ func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   hits_queue : mut Queue_hits
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @28 = i >> 31 in
-    let @29 = reinterpret_cast<u32>(@28) in
-    let @30 = @29 >> 30u in
-    let @31 = reinterpret_cast<i32>(@30) in
-    let @32 = i + @31 in
-    let @33 = @32 >> 2 in
-    let @34 = @33 * 4 in
-    let @1 = i - @34 in
-    rays_rest_i[i] = i
-    let @7 = build<Entry_rays>(@0, @1, (&rays_result[i])) in
-    let @36 = atomic_add((&(*rays_queue).count), 1u) in
-    let @38 = (*rays_queue).x in
-    @38[@36] = @0
-    let @41 = (*rays_queue).n in
-    @41[@36] = @1
-    let @44 = (*rays_queue)._result in
-    @44[@36] = (&rays_result[i])
+    let @25 = i >> 31 in
+    let @26 = reinterpret_cast<u32>(@25) in
+    let @27 = @26 >> 30u in
+    let @28 = reinterpret_cast<i32>(@27) in
+    let @29 = i + @28 in
+    let @30 = @29 >> 2 in
+    let @31 = @30 * 4 in
+    let @1 = i - @31 in
+    let @6 = build<Entry_rays>(@0, @1, (&rays_result[i])) in
+    let @33 = atomic_add((&(*rays_queue).count), 1u) in
+    let @35 = (*rays_queue).x in
+    @35[@33] = @0
+    let @38 = (*rays_queue).n in
+    @38[@33] = @1
+    let @41 = (*rays_queue)._result in
+    @41[@33] = (&rays_result[i])
     continue
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @11 = (*rays_queue).count in
+    let @10 = (*rays_queue).count in
     rays_queue.count = 0u
-    let @21 = build<Queue_hits>(0u, hits_@0, hits_n, hits__result_rays) in
-    hits_queue = @21
-    parfor rays in [0u:@11:1u] {
-      let @14 = rays_x[rays] in
-      let @15 = rays_n[rays] in
-      let @16 = rays__result[rays] in
-      step(@14, @15, k, rays_queue, @16, hits_queue)
+    let @18 = build<Queue_hits>(0u, hits_@0, hits_n, hits__result_rays) in
+    hits_queue = @18
+    parfor rays in [0u:@10:1u] {
+      let @13 = rays_x[rays] in
+      let @14 = rays_n[rays] in
+      let @15 = rays__result[rays] in
+      step(@13, @14, k, rays_queue, @15, hits_queue)
       continue
     }
-    let @22 = (*hits_queue) in
-    let @23 = @22.count in
-    parfor hits in [0u:@23:1u] {
-      let @24 = hits_@0[hits] in
-      let @25 = hits_n[hits] in
-      let @26 = hits__result_rays[hits] in
-      step!after(@24, @25, k, @26, rays_queue)
+    let @19 = (*hits_queue) in
+    let @20 = @19.count in
+    parfor hits in [0u:@20:1u] {
+      let @21 = hits_@0[hits] in
+      let @22 = hits_n[hits] in
+      let @23 = hits__result_rays[hits] in
+      step!after(@21, @22, k, @23, rays_queue)
       continue
     }
     hits_queue.count = 0u
-    let @9 = (*rays!round) + 1u in
-    rays!round = @9
+    let @8 = (*rays!round) + 1u in
+    rays!round = @8
   }
   parfor rays_rest in [0:8:1] {
-    let @18 = rays_result[rays_rest] in
-    let @20 = rays_rest_i[rays_rest] in
-    let @2 = @18 in
-    let i = @20 in
+    let @17 = rays_result[rays_rest] in
+    let @2 = @17 in
+    let i = rays_rest in
     out[i] = @2
     continue
   }

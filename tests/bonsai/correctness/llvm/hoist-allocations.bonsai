@@ -1,0 +1,37 @@
+//! flags: -p ssa -b llvm -e
+
+// The pass-owned queue of tests/bonsai/ssa/hoist-allocations.bonsai, run:
+// its storage hoisted out of the pass loop and onto the heap, freed at the
+// return. (`--no-heap` admits that storage too, but not `main`'s array
+// local, so the flag is exercised by the renderer rather than here.) Pass r
+// adds tally(i, r) = r + i(i+1)/2 to out[i]; two passes give 1 + i(i+1):
+// 1, 3, 7, 13, 21, 31, 43, 57.
+
+func tally(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return tally(n - 1, acc + n);
+}
+
+func run(n : i32, out : mut array[i32, n]) -> void {
+    parfor r in 0:2 {
+        parfor i in 0:n {
+            v = tally(i, r);
+            out[i] = out[i] + v;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(8, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(r);
+    tally.defer(tally, sums);
+}

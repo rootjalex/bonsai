@@ -101,45 +101,216 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1) #0 {
-"!par_body_0":
-  %2 = load ptr, ptr %0, align 8
-  %3 = lshr i64 %1, 1
-  %4 = and i64 %3, 2147483647
-  %out = getelementptr inbounds nuw [4 x i8], ptr %2, i64 %4
-  %5 = atomicrmw fadd ptr %out, float 1.000000e+00 monotonic, align 4
+; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #0 {
+entry:
+  %3 = load ptr, ptr %0, align 8
+  %4 = icmp slt i64 %1, %2
+  br i1 %4, label %"!par_body_0.preheader", label %done, !prof !5
+
+"!par_body_0.preheader":                          ; preds = %entry
+  %5 = sub i64 %2, %1
+  %xtraiter = and i64 %5, 3
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !6
+
+"!par_body_0.prol":                               ; preds = %"!par_body_0.preheader", %"!par_body_0.prol"
+  %n1.prol = phi i64 [ %9, %"!par_body_0.prol" ], [ %1, %"!par_body_0.preheader" ]
+  %prol.iter = phi i64 [ %prol.iter.next, %"!par_body_0.prol" ], [ 0, %"!par_body_0.preheader" ]
+  %6 = lshr i64 %n1.prol, 1
+  %7 = and i64 %6, 2147483647
+  %out.prol = getelementptr inbounds nuw [4 x i8], ptr %3, i64 %7
+  %8 = atomicrmw fadd ptr %out.prol, float 1.000000e+00 monotonic, align 4
+  %9 = add nsw i64 %n1.prol, 1
+  %prol.iter.next = add i64 %prol.iter, 1
+  %prol.iter.cmp.not = icmp eq i64 %prol.iter.next, %xtraiter
+  br i1 %prol.iter.cmp.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !7, !llvm.loop !8
+
+"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.preheader"
+  %n1.unr = phi i64 [ %1, %"!par_body_0.preheader" ], [ %9, %"!par_body_0.prol" ]
+  %10 = sub i64 %1, %2
+  %11 = icmp ugt i64 %10, -4
+  br i1 %11, label %done, label %"!par_body_0", !prof !9
+
+"!par_body_0":                                    ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0"
+  %n1 = phi i64 [ %27, %"!par_body_0" ], [ %n1.unr, %"!par_body_0.prol.loopexit" ]
+  %12 = lshr i64 %n1, 1
+  %13 = and i64 %12, 2147483647
+  %out = getelementptr inbounds nuw [4 x i8], ptr %3, i64 %13
+  %14 = atomicrmw fadd ptr %out, float 1.000000e+00 monotonic, align 4
+  %15 = add nsw i64 %n1, 1
+  %16 = lshr i64 %15, 1
+  %17 = and i64 %16, 2147483647
+  %out.1 = getelementptr inbounds nuw [4 x i8], ptr %3, i64 %17
+  %18 = atomicrmw fadd ptr %out.1, float 1.000000e+00 monotonic, align 4
+  %19 = add nsw i64 %n1, 2
+  %20 = lshr i64 %19, 1
+  %21 = and i64 %20, 2147483647
+  %out.2 = getelementptr inbounds nuw [4 x i8], ptr %3, i64 %21
+  %22 = atomicrmw fadd ptr %out.2, float 1.000000e+00 monotonic, align 4
+  %23 = add nsw i64 %n1, 3
+  %24 = lshr i64 %23, 1
+  %25 = and i64 %24, 2147483647
+  %out.3 = getelementptr inbounds nuw [4 x i8], ptr %3, i64 %25
+  %26 = atomicrmw fadd ptr %out.3, float 1.000000e+00 monotonic, align 4
+  %27 = add nsw i64 %n1, 4
+  %exitcond.not.3 = icmp eq i64 %27, %2
+  br i1 %exitcond.not.3, label %done, label %"!par_body_0", !prof !10
+
+done:                                             ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0", %entry
   ret void
 }
 
 declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1) #1 {
-"!par_body_0":
-  %2 = load ptr, ptr %0, align 8
-  %sext = shl i64 %1, 32
-  %3 = ashr exact i64 %sext, 30
-  %out = getelementptr inbounds i8, ptr %2, i64 %3
+; Function Attrs: nofree norecurse nosync nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
+entry:
+  %3 = load ptr, ptr %0, align 8
+  %4 = icmp slt i64 %1, %2
+  br i1 %4, label %"!par_body_0.preheader", label %done, !prof !5
+
+"!par_body_0.preheader":                          ; preds = %entry
+  %5 = sub i64 %2, %1
+  %min.iters.check = icmp ult i64 %5, 20
+  br i1 %min.iters.check, label %"!par_body_0.preheader4", label %vector.scevcheck, !prof !9
+
+vector.scevcheck:                                 ; preds = %"!par_body_0.preheader"
+  %6 = xor i64 %1, -1
+  %7 = add i64 %2, %6
+  %8 = trunc i64 %1 to i34
+  %9 = shl i34 %8, 2
+  %10 = trunc i64 %7 to i34
+  %11 = add i34 %8, %10
+  %12 = shl i34 %11, 2
+  %13 = icmp slt i34 %12, %9
+  %14 = icmp ugt i64 %7, 4294967295
+  %15 = or i1 %13, %14
+  br i1 %15, label %"!par_body_0.preheader4", label %vector.ph, !prof !9
+
+vector.ph:                                        ; preds = %vector.scevcheck
+  %n.vec = and i64 %5, -8
+  %16 = add i64 %1, %n.vec
+  br label %vector.body
+
+vector.body:                                      ; preds = %vector.body, %vector.ph
+  %index = phi i64 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %17 = add i64 %1, %index
+  %18 = shl i64 %17, 32
+  %19 = ashr exact i64 %18, 30
+  %20 = getelementptr inbounds i8, ptr %3, i64 %19
+  %21 = getelementptr inbounds nuw i8, ptr %20, i64 16
+  %wide.load = load <4 x float>, ptr %20, align 4
+  %wide.load3 = load <4 x float>, ptr %21, align 4
+  %22 = fadd <4 x float> %wide.load, splat (float 1.000000e+00)
+  %23 = fadd <4 x float> %wide.load3, splat (float 1.000000e+00)
+  store <4 x float> %22, ptr %20, align 4
+  store <4 x float> %23, ptr %21, align 4
+  %index.next = add nuw i64 %index, 8
+  %24 = icmp eq i64 %index.next, %n.vec
+  br i1 %24, label %middle.block, label %vector.body, !llvm.loop !11
+
+middle.block:                                     ; preds = %vector.body
+  %cmp.n = icmp eq i64 %5, %n.vec
+  br i1 %cmp.n, label %done, label %"!par_body_0.preheader4", !prof !14
+
+"!par_body_0.preheader4":                         ; preds = %vector.scevcheck, %"!par_body_0.preheader", %middle.block
+  %n1.ph = phi i64 [ %1, %vector.scevcheck ], [ %1, %"!par_body_0.preheader" ], [ %16, %middle.block ]
+  %25 = sub i64 %2, %n1.ph
+  %.neg = add i64 %n1.ph, 1
+  %xtraiter = and i64 %25, 1
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !6
+
+"!par_body_0.prol":                               ; preds = %"!par_body_0.preheader4"
+  %sext.prol = shl i64 %n1.ph, 32
+  %26 = ashr exact i64 %sext.prol, 30
+  %out.prol = getelementptr inbounds i8, ptr %3, i64 %26
+  %acc_base.prol = load float, ptr %out.prol, align 4
+  %27 = fadd float %acc_base.prol, 1.000000e+00
+  store float %27, ptr %out.prol, align 4
+  %28 = add nsw i64 %n1.ph, 1
+  br label %"!par_body_0.prol.loopexit"
+
+"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.preheader4"
+  %n1.unr = phi i64 [ %n1.ph, %"!par_body_0.preheader4" ], [ %28, %"!par_body_0.prol" ]
+  %29 = icmp eq i64 %2, %.neg
+  br i1 %29, label %done, label %"!par_body_0", !prof !9
+
+"!par_body_0":                                    ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0"
+  %n1 = phi i64 [ %35, %"!par_body_0" ], [ %n1.unr, %"!par_body_0.prol.loopexit" ]
+  %sext = shl i64 %n1, 32
+  %30 = ashr exact i64 %sext, 30
+  %out = getelementptr inbounds i8, ptr %3, i64 %30
   %acc_base = load float, ptr %out, align 4
-  %4 = fadd float %acc_base, 1.000000e+00
-  store float %4, ptr %out, align 4
+  %31 = fadd float %acc_base, 1.000000e+00
+  store float %31, ptr %out, align 4
+  %32 = shl i64 %n1, 32
+  %sext.1 = add i64 %32, 4294967296
+  %33 = ashr exact i64 %sext.1, 30
+  %out.1 = getelementptr inbounds i8, ptr %3, i64 %33
+  %acc_base.1 = load float, ptr %out.1, align 4
+  %34 = fadd float %acc_base.1, 1.000000e+00
+  store float %34, ptr %out.1, align 4
+  %35 = add nsw i64 %n1, 2
+  %exitcond.not.1 = icmp eq i64 %35, %2
+  br i1 %exitcond.not.1, label %done, label %"!par_body_0", !prof !10, !llvm.loop !15
+
+done:                                             ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0", %middle.block, %entry
   ret void
 }
 
-; Function Attrs: mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1) #0 {
-"!par_body_0":
-  %2 = load ptr, ptr %0, align 8
-  %3 = atomicrmw fadd ptr %2, float 1.000000e+00 monotonic, align 4
+; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #0 {
+entry:
+  %3 = load ptr, ptr %0, align 8
+  %4 = icmp slt i64 %1, %2
+  br i1 %4, label %"!par_body_0.preheader", label %done, !prof !5
+
+"!par_body_0.preheader":                          ; preds = %entry
+  %5 = sub i64 %2, %1
+  %xtraiter = and i64 %5, 7
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !6
+
+"!par_body_0.prol":                               ; preds = %"!par_body_0.preheader", %"!par_body_0.prol"
+  %n1.prol = phi i64 [ %7, %"!par_body_0.prol" ], [ %1, %"!par_body_0.preheader" ]
+  %prol.iter = phi i64 [ %prol.iter.next, %"!par_body_0.prol" ], [ 0, %"!par_body_0.preheader" ]
+  %6 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %7 = add nsw i64 %n1.prol, 1
+  %prol.iter.next = add i64 %prol.iter, 1
+  %prol.iter.cmp.not = icmp eq i64 %prol.iter.next, %xtraiter
+  br i1 %prol.iter.cmp.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !16, !llvm.loop !17
+
+"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.preheader"
+  %n1.unr = phi i64 [ %1, %"!par_body_0.preheader" ], [ %7, %"!par_body_0.prol" ]
+  %8 = sub i64 %1, %2
+  %9 = icmp ugt i64 %8, -8
+  br i1 %9, label %done, label %"!par_body_0", !prof !9
+
+"!par_body_0":                                    ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0"
+  %n1 = phi i64 [ %18, %"!par_body_0" ], [ %n1.unr, %"!par_body_0.prol.loopexit" ]
+  %10 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %11 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %12 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %13 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %14 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %15 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %16 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %17 = atomicrmw fadd ptr %3, float 1.000000e+00 monotonic, align 4
+  %18 = add nsw i64 %n1, 8
+  %exitcond.not.7 = icmp eq i64 %18, %2
+  br i1 %exitcond.not.7, label %done, label %"!par_body_0", !prof !10
+
+done:                                             ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0", %entry
   ret void
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
 declare void @llvm.assume(i1 noundef) #2
 
-attributes #0 = { mustprogress norecurse nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #0 = { norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #1 = { nofree norecurse nosync nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
 attributes #2 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
 !0 = !{!"branch_weights", i32 0, i32 1}
@@ -147,3 +318,16 @@ attributes #2 = { nocallback nofree nosync nounwind willreturn memory(inaccessib
 !2 = !{!"branch_weights", i32 306783378, i32 1840700270}
 !3 = distinct !{!3, !4}
 !4 = !{!"llvm.loop.unroll.disable"}
+!5 = !{!"branch_weights", i32 1, i32 0}
+!6 = !{!"branch_weights", i32 127, i32 1}
+!7 = !{!"branch_weights", i32 1, i32 1}
+!8 = distinct !{!8, !4}
+!9 = !{!"branch_weights", i32 1, i32 127}
+!10 = !{!"branch_weights", i32 0, i32 1073741824}
+!11 = distinct !{!11, !12, !13}
+!12 = !{!"llvm.loop.isvectorized", i32 1}
+!13 = !{!"llvm.loop.unroll.runtime.disable"}
+!14 = !{!"branch_weights", i32 1, i32 7}
+!15 = distinct !{!15, !12}
+!16 = !{!"branch_weights", i32 1, i32 3}
+!17 = distinct !{!17, !4}

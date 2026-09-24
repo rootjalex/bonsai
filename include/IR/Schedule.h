@@ -30,6 +30,31 @@ struct Collapse {
     Location i;
 };
 
+// Interchange two nested parfor loops: `f.reorder(li, lo)` names the loops
+// from the innermost out, as Halide's `reorder` does, and makes `li` the
+// inner loop and `lo` the outer. Written for a nest that has them the other
+// way round; a directive that names the order the loops already have says
+// nothing, and is refused.
+//
+// The two loops need not be perfectly nested. What the outer loop's body
+// does before its inner loop (the prologue) and after it (the epilogue) is
+// distributed into a loop of its own -- `p!prologue` and `p!epilogue`, both
+// variants of `p` so that `bind(p, ...)` covers them -- around the
+// interchanged nest, with pure arithmetic on the outer index recomputed
+// where it is used and every other value the inner loop reads from the
+// prologue expanded into an array of one entry per outer iteration. Loop
+// distribution followed by loop interchange, in the terms of the
+// literature; both are legal without analysis because a parfor states that
+// its iterations are independent. See SSA/ReorderLoops.h for the exact
+// rules and the citations; applied at the SSA level. On a specialized
+// function `f.reorder(p, s)` interchanges every variant's nest and
+// `f[VolPath].reorder(p, s)` one variant's, as every loop directive
+// resolves its loops (see resolve_loops in SSA/Convert.cpp).
+struct Reorder {
+    Location inner;
+    Location outer;
+};
+
 // A work queue, owned by one loop of one function:
 //
 //     paths = render.queue(p);          // one queue per iteration of `p`
@@ -191,8 +216,8 @@ struct Specialize {
     std::string param;
 };
 
-using Transform = std::variant<Bind, Collapse, Defer, Loopify, Split, Sort,
-                               Specialize, Stage, Vectorize>;
+using Transform = std::variant<Bind, Collapse, Defer, Loopify, Reorder, Split,
+                               Sort, Specialize, Stage, Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //

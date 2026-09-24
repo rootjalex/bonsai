@@ -13,18 +13,9 @@ namespace bonsai {
 namespace ir {
 namespace ssa {
 
-namespace {
-
 using std::set;
 using std::string;
 
-// May a loop bound to `inner` sit inside one bound to `outer`?
-//
-// The orderings a schedule has to respect. A GPUThread runs inside a GPUBlock,
-// never the other way round, and the two kinds of machine do not nest inside
-// each other at all. Anything not named here is allowed: the point is to catch
-// a schedule that asks for something no hardware does, not to enumerate every
-// pairing that happens to be sensible.
 bool may_nest(Resource outer, Resource inner) {
     switch (outer) {
     case Resource::GPUBlock:
@@ -42,6 +33,8 @@ bool may_nest(Resource outer, Resource inner) {
     }
     return false;
 }
+
+namespace {
 
 // The blocks a parfor's body can reach, which is where anything nested inside
 // it lives. A parfor body ends at a yield, so this stops at the loop.

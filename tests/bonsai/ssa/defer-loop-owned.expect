@@ -2,15 +2,15 @@ type Entry_paths = struct Entry_paths{ s : i32; depth : i32; acc : i32 }
 type Queue_paths = struct Queue_paths{ count : u32; s : i32[]; depth : i32[]; acc : i32[] }
 
 func render(out : mut i32[16]) -> void {
+  paths_s_0 : mut i32[4]
+  paths_depth_0 : mut i32[4]
+  paths_acc_0 : mut i32[4]
+  paths_s_1 : mut i32[4]
+  paths_depth_1 : mut i32[4]
+  paths_acc_1 : mut i32[4]
+  paths_queue : mut Queue_paths[2]
   parfor p in [0:4:1] {
     paths!round : mut u32
-    paths_s_0 : mut i32[4]
-    paths_depth_0 : mut i32[4]
-    paths_acc_0 : mut i32[4]
-    paths_s_1 : mut i32[4]
-    paths_depth_1 : mut i32[4]
-    paths_acc_1 : mut i32[4]
-    paths_queue : mut Queue_paths[2]
     let @0 = build<Queue_paths>(0u, paths_s_0, paths_depth_0, paths_acc_0) in
     paths_queue[0u] = @0
     let @2 = build<Queue_paths>(0u, paths_s_1, paths_depth_1, paths_acc_1) in

@@ -73,39 +73,49 @@ main:
 declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #0
 
 ; Function Attrs: nofree nounwind
-define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1) #1 {
-"!par_body_0":
-  %2 = trunc i64 %1 to i32
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
+entry:
   %3 = load ptr, ptr %0, align 8
-  %4 = mul i32 %2, 1040796640
-  %5 = add i32 %4, 1121052041
-  %6 = mul i32 %5, %2
-  %rng_seed = add i32 %6, 576942909
+  %4 = icmp slt i64 %1, %2
+  br i1 %4, label %"!par_body_0", label %done, !prof !0
+
+"!par_body_0":                                    ; preds = %entry, %"!par_body_0"
+  %n4 = phi i64 [ %28, %"!par_body_0" ], [ %1, %entry ]
+  %5 = trunc i64 %n4 to i32
+  %6 = mul i32 %5, 1040796640
+  %7 = add i32 %6, 1121052041
+  %8 = mul i32 %7, %5
+  %rng_seed = add i32 %8, 576942909
   %.splatinsert = insertelement <4 x i32> poison, i32 %rng_seed, i64 0
   %.splat = shufflevector <4 x i32> %.splatinsert, <4 x i32> poison, <4 x i32> zeroinitializer
   %_rng_state = add <4 x i32> %.splat, <i32 0, i32 1, i32 2, i32 3>
-  %7 = mul <4 x i32> %_rng_state, splat (i32 609248)
-  %8 = add <4 x i32> %7, splat (i32 5367177)
-  %9 = mul <4 x i32> %8, %_rng_state
-  %10 = add <4 x i32> %9, splat (i32 6517565)
-  %11 = and <4 x i32> %10, splat (i32 8388607)
-  %12 = or disjoint <4 x i32> %11, splat (i32 1065353216)
-  %13 = bitcast <4 x i32> %12 to <4 x float>
-  %14 = fadd <4 x float> %13, splat (float -1.000000e+00)
-  %15 = extractelement <4 x float> %14, i64 0
-  %16 = fpext float %15 to double
-  %17 = extractelement <4 x float> %14, i64 1
+  %9 = mul <4 x i32> %_rng_state, splat (i32 609248)
+  %10 = add <4 x i32> %9, splat (i32 5367177)
+  %11 = mul <4 x i32> %10, %_rng_state
+  %12 = add <4 x i32> %11, splat (i32 6517565)
+  %13 = and <4 x i32> %12, splat (i32 8388607)
+  %14 = or disjoint <4 x i32> %13, splat (i32 1065353216)
+  %15 = bitcast <4 x i32> %14 to <4 x float>
+  %16 = fadd <4 x float> %15, splat (float -1.000000e+00)
+  %17 = extractelement <4 x float> %16, i64 0
   %18 = fpext float %17 to double
-  %19 = extractelement <4 x float> %14, i64 2
+  %19 = extractelement <4 x float> %16, i64 1
   %20 = fpext float %19 to double
-  %21 = extractelement <4 x float> %14, i64 3
+  %21 = extractelement <4 x float> %16, i64 2
   %22 = fpext float %21 to double
-  %23 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %2, double %16, double %18, double %20, double %22)
-  %24 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %14)
-  %sext = shl i64 %1, 32
-  %25 = ashr exact i64 %sext, 30
-  %_alloc03 = getelementptr inbounds i8, ptr %3, i64 %25
-  store float %24, ptr %_alloc03, align 4, !tbaa !0
+  %23 = extractelement <4 x float> %16, i64 3
+  %24 = fpext float %23 to double
+  %25 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, i32 %5, double %18, double %20, double %22, double %24)
+  %26 = tail call float @llvm.vector.reduce.fadd.v4f32(float 0.000000e+00, <4 x float> %16)
+  %sext = shl i64 %n4, 32
+  %27 = ashr exact i64 %sext, 30
+  %_alloc03 = getelementptr inbounds i8, ptr %3, i64 %27
+  store float %26, ptr %_alloc03, align 4, !tbaa !1
+  %28 = add i64 %n4, 1
+  %exitcond.not = icmp eq i64 %28, %2
+  br i1 %exitcond.not, label %done, label %"!par_body_0", !prof !4
+
+done:                                             ; preds = %"!par_body_0", %entry
   ret void
 }
 
@@ -131,6 +141,8 @@ attributes #2 = { nofree nounwind }
 attributes #3 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #4 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
 
-!0 = !{!1, !1, i64 0}
-!1 = !{!"f32", !2, i64 0}
-!2 = !{!"bonsai"}
+!0 = !{!"branch_weights", i32 1, i32 0}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"f32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!"branch_weights", i32 0, i32 1073741824}

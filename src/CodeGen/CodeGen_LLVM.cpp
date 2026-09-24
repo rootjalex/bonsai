@@ -4577,6 +4577,17 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     }
 }
 
+void CodeGen_LLVM::visit(const Free *node) {
+    // Storage an Allocate made on the heap, given back before the function
+    // returns (SSA/HeapArrays.h). An array handle names its elements'
+    // storage directly (see the Allocate visitor), so the value is the
+    // pointer malloc returned.
+    llvm::Value *storage = codegen_expr(node->value);
+    internal_assert(storage->getType()->isPointerTy())
+        << "free of a value that is not storage: " << Stmt(node);
+    builder->CreateFree(storage);
+}
+
 void CodeGen_LLVM::visit(const Store *node) {
     llvm::Value *rhs = codegen_expr(node->value);
 
@@ -5646,11 +5657,13 @@ llvm::Value *CodeGen_LLVM::create_alloca_at_entry(llvm::Type *t,
     // stack every iteration.
     llvm::Instruction *defined_at =
         size ? llvm::dyn_cast<llvm::Instruction>(size) : nullptr;
-    if (defined_at != nullptr && defined_at->getParent() != entry &&
-        alloca_where_defined) {
-        return builder->CreateAlloca(t, size, name);
-    }
-    if (defined_at != nullptr) {
+    const bool in_place = defined_at != nullptr &&
+                          defined_at->getParent() != entry &&
+                          alloca_where_defined;
+    if (in_place) {
+        // Where the program placed it; the alignment below applies as to
+        // any other.
+    } else if (defined_at != nullptr) {
         internal_assert(defined_at->getParent() == entry)
             << "The stack allocation `" << name << "` is sized by a value "
             << "computed inside a loop of "
@@ -5716,8 +5729,10 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
     // what makes this the place to refuse one. See CompilerOptions::no_heap:
     // nothing frees these, so an allocation reached repeatedly is a leak, and
     // a program that wants the guarantee should be told at compile time rather
-    // than discovering it as a growing resident set.
-    if (no_heap) {
+    // than discovering it as a growing resident set. The exception is storage
+    // a function makes once per call and frees before it returns (SSA/
+    // HeapArrays.h; heap_freed_in_call), which is no leak.
+    if (no_heap && !heap_freed_in_call) {
         internal_error
             << "--no-heap: this program allocates on the heap"
             << (name.empty() ? std::string() : " for `" + name + "`")

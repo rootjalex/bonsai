@@ -418,7 +418,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Label *) override;
     virtual void visit(const ir::Append *) override;
     // TODO(cgyurgyik): support deallocation.
-    RESTRICT_VISITOR(ir::Free);
+    virtual void visit(const ir::Free *) override;
     RESTRICT_VISITOR(ir::RecLoop);
     RESTRICT_VISITOR(ir::YieldFrom);
     RESTRICT_VISITOR(ir::Match);
@@ -934,7 +934,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     // outside every loop of a function-level region, since only it knows
     // the loops (CodeGen_LLVM_SSA.cpp, SSALowering::once_blocks).
     bool alloca_where_defined = false;
-    // `--no-heap`: refuse to emit a heap allocation. See CompilerOptions.
+    // Whether the heap allocation being emitted is one the function frees
+    // before it returns (SSA/HeapArrays.h): storage a call owns and gives
+    // back, which is not the leak `--no-heap` exists to refuse. Set by the
+    // SSA lowering around such an allocation, as alloca_where_defined is.
+    bool heap_freed_in_call = false;
+    // `--no-heap`: refuse to emit a heap allocation nothing frees. See
+    // CompilerOptions and create_malloc.
     bool no_heap = false;
 };
 

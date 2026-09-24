@@ -23,6 +23,7 @@ add_bonsai_tests(
     divide-by-constant.bonsai
     divergence.bonsai
     forall.bonsai
+    hoist-allocations.bonsai
     invariant-division.bonsai
     known-limitation-two-parfors.bonsai
     linearize.bonsai
@@ -37,6 +38,7 @@ add_bonsai_tests(
     simple.bonsai
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
+    reorder.bonsai
     sort-nested.bonsai
     sort-recursion.bonsai
     specialize.bonsai

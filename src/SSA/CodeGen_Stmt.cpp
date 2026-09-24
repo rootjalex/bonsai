@@ -200,6 +200,7 @@ bool is_side_effecty(Instruction::Op op) {
     case Instruction::Op::Store:
     case Instruction::Op::Alloc:
     case Instruction::Op::Alloca:
+    case Instruction::Op::Free:
         return true;
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
@@ -449,6 +450,9 @@ Stmt codegen_instruction(const Instruction &instr) {
         }
         case Instruction::Op::Print:
             return Print::make(codegen_values(instr.operands));
+        case Instruction::Op::Free:
+            internal_assert(instr.operands.size() == 1) << instr.operands.size();
+            return Free::make(codegen_value(instr.operands[0]));
         case Instruction::Op::Append:
             internal_error << "TODO: Append codegen!\n";
         case Instruction::Op::Push:

@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/CollapseLoops.cpp:213
+[internal] Error: src/SSA/CollapseLoops.cpp:107
 
---> !varies_with(bound, outer, in_loop)
+--> !varies_with(bound, outer_index, in_loop)
 collapse(y, x) on fill: the range of x depends on y, so it has no one trip count to collapse against

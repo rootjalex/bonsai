@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/ReorderLoops.cpp:138
+reorder(x, y) on grid: x is already inside y, so the directive asks for the order the loops have. A schedule that changes nothing is a mistake somewhere; write the loops in the order wanted, innermost first, as Halide's reorder does.

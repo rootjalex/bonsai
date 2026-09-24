@@ -25,6 +25,8 @@ add_bonsai_tests(
     defer-stage-cycle.bonsai
     defer-stage-entry.bonsai
     defer-stage-mut-local.bonsai
+    hoist-allocations.bonsai
+    reorder.bonsai
     vector-math.bonsai
     vectorize-bounded-division.bonsai
     vectorize-division.bonsai
