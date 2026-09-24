@@ -2283,63 +2283,115 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
         r_l = event.r_l * event.t_maj / event.t_maj.x;
     }
 
+    // pbrt's wavefront routes what the trace found from its trace kernel
+    // (EnqueueWorkAfterIntersection): an escaped ray to the escaped queue,
+    // an emissive hit to the area-light queue -- and, the same hit, to its
+    // material's queue. The two radiance terms are spawned calls: their
+    // values go into `l` and nowhere else, so a schedule may queue them
+    // (HandleEscapedRays, HandleEmissiveIntersection), and the surface goes
+    // on to `vol_surface`, the material kernel.
     if !isect {
-        // pbrt: the infinite lights, weighed by both probabilities where the
-        // previous vertex could have sampled them. `r_l *= p_l` is pbrt's
-        // own statement, and it accumulates across the lights.
-        r_l_esc : mut vec4f = r_l;
-        for i in set.first_infinite:set.count {
-            emitted = light_le(lights[i], ray.d, lambda);
-            if nonzero(emitted) {
-                if (depth == 0) || specular_bounce {
-                    l += beta * emitted / average4(r_u);
-                } else {
-                    p_l = light_sampler_pmf(ls, prev_ctx, i) *
-                          light_pdf_li(lights[i], prev_ctx, ray.d, true);
-                    r_l_esc = r_l_esc * p_l;
-                    l += beta * emitted / average4(r_u + r_l_esc);
-                }
-            }
-        }
+        spawn l += escaped_contribution(ray.d, beta, r_u, r_l, depth,
+                                        specular_bounce, prev_ctx, ls, set,
+                                        lambda);
         return;
     }
     reached = *isect;
     via = reached[0];
     prim = reached[1];
     surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
-    wo = -ray.d;
-    wo_unit = unit_vector_(wo);
-
-    // pbrt: the surface's emission, weighed the same way. `r_l *= p_l` again
-    // -- and again it persists, into the roulette and the BSDF sample that
-    // follow, as it does in pbrt.
-    r_l_hit : mut vec4f = r_l;
     if prim.light >= 0 {
-        emitted = light_l(lights[max(prim.light, 0)], surf.n, wo, lambda);
+        spawn l += emissive_contribution(prim.light, surf.n, -ray.d, ray.d, beta,
+                                         r_u, r_l, depth, specular_bounce,
+                                         prev_ctx, ls, lambda);
+    }
+    vol_surface(ray, medium, ray_diff, camera, spp_scale, via, prim, surf, beta,
+                r_u, r_l, depth, specular_bounce, any_non_specular, eta_scale,
+                prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
+                regularize, want_visible, visible, l);
+    return;
+}
+
+// pbrt: HandleEscapedRays -- the infinite lights an escaped ray sees, each
+// weighed by both probabilities where the previous vertex could have sampled
+// it. The wavefront's form: each light's `r_l` is the path's `r_l` times that
+// light's probability (the CPU integrator's `r_l *= p_l` accumulates across
+// the lights instead; the two agree for one infinite light).
+func escaped_contribution(ray_d : vec3f, beta : vec4f, r_u : vec4f, r_l : vec4f,
+                          depth : i32, specular_bounce : bool,
+                          prev_ctx : ShapeSampleContext, ls : LightSampler,
+                          set : LightSet, lambda : SampledWavelengths) -> vec4f {
+    found : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+    for i in set.first_infinite:set.count {
+        emitted = light_le(lights[i], ray_d, lambda);
         if nonzero(emitted) {
             if (depth == 0) || specular_bounce {
-                l += beta * emitted / average4(r_u);
+                found += beta * emitted / average4(r_u);
             } else {
-                p_l = light_sampler_pmf(ls, prev_ctx, prim.light) *
-                      light_pdf_li(lights[max(prim.light, 0)], prev_ctx, ray.d,
-                                   true);
-                r_l_hit = r_l * p_l;
-                l += beta * emitted / average4(r_u + r_l_hit);
+                p_l = light_sampler_pmf(ls, prev_ctx, i) *
+                      light_pdf_li(lights[i], prev_ctx, ray_d, true);
+                found += beta * emitted / average4(r_u + r_l * p_l);
             }
         }
     }
+    return found;
+}
+
+// pbrt: HandleEmissiveIntersection -- the emission of the surface an indirect
+// ray hit, weighed the same way (`wi = -wo` is the ray's direction). The
+// wavefront's form: the material kernel is handed the path's `r_l` as it
+// was, where the CPU integrator's `r_l *= lightPDF` persists into an
+// interface skip; the two differ only for an emissive interface.
+func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
+                           beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
+                           specular_bounce : bool, prev_ctx : ShapeSampleContext,
+                           ls : LightSampler, lambda : SampledWavelengths) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    emitted = light_l(lights[max(light, 0)], n, wo, lambda);
+    if !nonzero(emitted) {
+        return zero;
+    }
+    if (depth == 0) || specular_bounce {
+        return beta * emitted / average4(r_u);
+    }
+    p_l = light_sampler_pmf(ls, prev_ctx, light) *
+          light_pdf_li(lights[max(light, 0)], prev_ctx, ray_d, true);
+    return beta * emitted / average4(r_u + r_l * p_l);
+}
+
+// pbrt: EvaluateMaterialsAndBSDFs, one hit of it -- the material kernel of
+// the wavefront, which a schedule queues per material type
+// (`hits.specialize(material)`): the BSDF, the visible surface at the first
+// vertex, direct lighting (the shadow ray spawned inside `vol_sample_ld`),
+// the BSDF sample, roulette, and the next ray, which `vol_path_step` traces.
+// `via` places the primitive `prim`, and `surf` is the hit's geometry in
+// render space (pbrt's MaterialEvalWorkItem holds the hit and the path).
+func vol_surface(ray : Ray, medium : i32, ray_diff : RayDifferential,
+                 camera : PerspectiveCamera, spp_scale : Float, via : Primitive,
+                 prim : Geometric, surf : SurfaceGeometry, beta : vec4f,
+                 r_u : vec4f, r_l : vec4f, depth : i32, specular_bounce : bool,
+                 any_non_specular : bool, eta_scale : Float,
+                 prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
+                 sampler : Sampler, state : mut SamplerState, ls : LightSampler,
+                 set : LightSet, seed : i32, max_depth : i32, regularize : bool,
+                 want_visible : bool, visible : mut VisibleSurface,
+                 l : reduce(+) vec4f) -> void {
+    wo = -ray.d;
+    wo_unit = unit_vector_(wo);
 
     // pbrt: `if (!bsdf) { isect.SkipIntersection(&ray, si->tHit); continue; }`
-    // -- through the boundary, into the medium on its far side. The hit's
-    // material has a name here so that a schedule can split the hits by it
-    // (`hits[Some].specialize(material)`, pbrt's queue per material type).
+    // -- through the boundary, into the medium on its far side, the path's
+    // state as it was (the wavefront's `PushIndirectRay` of the same ray).
+    // The hit's material has a name here so that a schedule can split the
+    // hits by it (`hits.specialize(material)`, pbrt's queue per material
+    // type).
     material = materials[prim.material];
     if material_is_interface(material) {
         skip_ray = spawn_ray(surf, ray.d);
         vol_path_step(
             skip_ray, get_medium(prim, surf.n, ray.d, medium),
             skip_differentials(ray_diff, distmin(ray, transform(via, prim))),
-            camera, spp_scale, beta, r_u, r_l_hit, depth, specular_bounce,
+            camera, spp_scale, beta, r_u, r_l, depth, specular_bounce,
             any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
             set, seed, max_depth, regularize, want_visible, visible, l);
         return;

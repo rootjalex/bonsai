@@ -1,18 +1,18 @@
-// pbrt's wavefront for volpath, on the CPU: a queue per stage of a bounce,
+// pbrt's wavefront for volpath, on the CPU: a queue per kernel of a bounce,
 // as pbrt's GPU renderer has them (apps/pbrt/PLAN.md, "pbrt's GPU
 // wavefront, written as a schedule of vol_path_step").
 //
-// Two queues per pixel. `rays` holds the paths between bounces: the
-// integrator's first call pushes the camera ray's step (li_vol_path's call
-// deferred, so nothing traces in the producer -- pbrt's GenerateCameraRays),
-// and each step's tail call pushes the next. `hits` holds the return of the
-// trace inside the step with the path's state (pbrt's MaterialEvalWorkItem):
-// the rays drain traces and pushes hits, the hits drain shades and pushes
-// the next round's rays, a round per bounce while any ray is left. No gang
-// here: the drains are the plain loops, so that this is the structure
-// checked against pbrt on its own before it is vectorized or put on the
-// device. Every scene runs volpath under this schedule as under pbrt --gpu;
-// a scene that names another integrator runs it un-deferred.
+// The program is written at pbrt's kernel boundaries -- vol_path_step is the
+// trace kernel and the routing after it, vol_surface the material kernel,
+// escaped_contribution and emissive_contribution the two radiance kernels,
+// shadow_contribution the shadow kernel -- and every queue here is a call of
+// one of them deferred where the program makes it. No `stage`: each boundary
+// is a call in tail position or a spawned one, so a queue entry is the
+// call's arguments and nothing else, and the drain runs the callee as
+// written. No gang here: the drains are the plain loops, so that this is the
+// structure checked against pbrt on its own before it is vectorized or put
+// on the device. Every scene runs volpath under this schedule as under
+// pbrt --gpu; a scene that names another integrator runs it un-deferred.
 schedule {
     walk_step.loopify();
     path_step.loopify();
@@ -27,31 +27,49 @@ schedule {
     // in their own copies, and the chain from render to vol_path_step is
     // one integrator's (pbrt --gpu is volpath and nothing else).
     render.specialize(integrator);
+
+    // pbrt's ray queue (RayQueue, one per depth: the current and the next).
+    // Its pushers are the camera ray (GenerateCameraRays: li_vol_path's call,
+    // so nothing traces in the producer), the ray turned at a medium
+    // scattering event (SampleMediumScattering: vol_path_step's call to
+    // itself), and the material kernel's next ray -- the bounce's and the
+    // interface skip's (EvaluateMaterialsAndBSDFs, PushIndirectRay: the two
+    // calls in vol_surface). Its drain is the trace kernel and what pbrt
+    // does with the intersection (TraceClosest, EnqueueWorkAfterIntersection),
+    // which pushes the three queues after it.
     rays = render[VolPath].queue(p);
-    hits = render[VolPath].queue(p);
     li_vol_path.defer(vol_path_step, rays);
     vol_path_step.defer(vol_path_step, rays);
-    vol_path_step.stage(trace, hits);
-    // pbrt's queues after the trace: the escaped rays (hits[None]) and, for
-    // the hits, one queue per material type -- the interface skips, the
-    // diffuse, the coated, ... -- each drained by a copy of the rest of the
-    // step for that material alone (pbrt's EvaluateMaterialAndBSDF<M>). The
-    // rays that start in a medium do their medium walk at the head of the
-    // hits drain they land in; pbrt sends those to a medium-sample queue
-    // first, which no scene measured against pbrt --gpu has.
-    hits.specialize(isect);
-    hits[Some].specialize(material);
+    vol_surface.defer(vol_path_step, rays);
+
+    // pbrt's queues after the trace, drained in pbrt's order each round.
+    // The escaped rays (escapedRayQueue, HandleEscapedRays) and the emissive
+    // hits (hitAreaLightQueue, HandleEmissiveIntersection): spawned calls,
+    // their values going into the path's radiance and nowhere else.
+    escaped = render[VolPath].queue(p);
+    vol_path_step.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p);
+    vol_path_step.defer(emissive_contribution, emissive);
+    // The hits, one queue per material type -- the interface skips, the
+    // diffuse, the coated, ... -- each drained by a copy of the material
+    // kernel for that material alone (pbrt's EvaluateMaterialAndBSDF<M>).
+    hits = render[VolPath].queue(p);
+    vol_path_step.defer(vol_surface, hits);
+    hits.specialize(material);
     // pbrt's shadow ray queue. The shadow ray is spawned in vol_sample_ld
-    // once the light is sampled -- `spawn l += shadow_contribution(...)`, its
-    // value going into the path's radiance and nowhere else -- so its trace
-    // is pushed by the material drains (and by the medium scatter in the
-    // rays drain) and run after the last of them each round, as pbrt's
-    // TraceShadowRays follows its material kernels. The film write, which
-    // reads the radiance, then waits for every round, as pbrt's UpdateFilm
-    // does: the compiler moves it onto a queue of its own, drained after
-    // the rounds.
+    // once the light is sampled -- `spawn l += shadow_contribution(...)` --
+    // so its trace is pushed by the material drains and by the medium
+    // scattering in the rays drain, and run after the last of them each
+    // round, as pbrt's TraceShadowRays follows its material kernels. The
+    // film write, which reads the radiance, then waits for every round, as
+    // pbrt's UpdateFilm does: the compiler moves it onto a queue of its
+    // own, drained after the rounds.
     shadow = render[VolPath].queue(p);
     vol_sample_ld.defer(shadow_contribution, shadow);
+    // Not yet pbrt's: the rays that start in a medium do their medium walk
+    // in the rays drain, where pbrt sends them to a medium-sample queue and
+    // its scatter to another (SampleMediumInteraction, SampleMediumScattering)
+    // and has both feed the material queues alongside the trace.
 
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|

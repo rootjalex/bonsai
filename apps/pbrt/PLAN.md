@@ -5520,20 +5520,134 @@ would sidestep that, but only until the inliner copies it back, and a
 compiler. Not needed for correctness -- the inline add is right -- and
 pbrt's reason for it (register pressure in the material kernels) is a
 device concern, so it is placed after device execution's first
-measurement.
+measurement. *Superseded the next day:* the program was written at pbrt's
+kernel boundaries instead (below), which puts each site in one function
+and needs none of that following.
+
+**Built (2026-09-24): the program at pbrt's kernel boundaries, and the
+schedule as pbrt's kernel list.** At the user's direction ("make sure we
+actually match PBRT's wavefront implementation, even if we're just on the
+CPU for now"), `vol_path_step` is now pbrt's trace kernel and the routing
+after it (`TraceClosest`, `EnqueueWorkAfterIntersection`): trace, the
+medium walk for a ray in a medium, then `if !isect { spawn l +=
+escaped_contribution(...); return; }`, `if prim.light >= 0 { spawn l +=
+emissive_contribution(...); }`, and a tail call of `vol_surface(...)`, the
+material kernel (`EvaluateMaterialsAndBSDFs`), which holds the interface
+skip (`PushIndirectRay`: a tail call of `vol_path_step` with the path's
+state as it was), the BSDF, `vol_sample_ld` (which spawns the shadow ray),
+the BSDF sample, the roulette and the bounce's tail call of
+`vol_path_step`. `escaped_contribution` is `HandleEscapedRays` -- the loop
+over the infinite lights with the wavefront's per-light `r_l * p_l` --
+and `emissive_contribution` is `HandleEmissiveIntersection`. So every
+kernel boundary is a tail call or a spawn, and the schedule
+(`wavefront-volpath.bonsai`) is pbrt's kernel list with no `stage`:
+`rays` pushed by `li_vol_path` (the camera ray), `vol_path_step` (the
+medium scattering's turned ray) and `vol_surface` (the bounce and the
+interface skip); `escaped` and `emissive` spawned from `vol_path_step`;
+`hits` = `vol_path_step.defer(vol_surface, hits); hits.specialize(
+material)`, one drain per material; `shadow` from `vol_sample_ld`. A round
+is rays, escaped, emissive, the eight material drains, shadow -- pbrt's
+`Render` loop in order -- and the film pass after the rounds. Checked
+(scratch `cmp-sf-*`): the scalar schedule renders camera-medium,
+homogeneous-medium and killeroo-simple bit for bit against the previous
+program on every image; the wavefront renders all three bit for bit on
+gbuffer and albedo against that scalar, radiance within 7e-6 on the media
+scenes and 2e-3 on 0.01% of killeroo's pixels (the summation order), at
+pbrt's figures (killeroo 33.2%). The whole compile is 47 s.
+
+Four compiler changes carried it. (a) The program is a mutual recursion,
+`vol_path_step` and `vol_surface` calling each other, and the language
+required a function to be declared before its use: the parser now indexes
+each file's functions first and parses a header on demand when a call
+names a function not yet seen (a function with a written return type; the
+type-inference order still needs one on a cycle), so functions may be
+written in any order (tests/bonsai/correctness/llvm/mutual-recursion).
+(b) Lower/Externs.cpp threaded the scene arrays into functions in a
+topological order that a cycle does not have, so the calls inside
+`vol_surface` were left passing 24 arguments to a 64-parameter function;
+it now works a strongly connected component of the call graph at a time
+(Tarjan; `func_scc_order` in Lower/TopologicalOrder.cpp), the component's
+externs the union of its members', every member taking them all and the
+calls among them passing them on (tests/bonsai/lower/
+mutual-recursion-extern, correctness/cpp/mutual_recursion_extern). (c)
+The deferral's chain check refused the recursion between the trace and
+the material kernel ("call each other on the way from render to
+vol_path_step"). The recursion is exactly what the deferral of both its
+ends breaks: `vol_surface.defer(vol_path_step, rays)` is an `also_from`
+pusher, and once its calls are pushes the chain has no cycle but the
+callee's own; the check now ignores the deferred edges when it looks for
+one (tests/bonsai/correctness/llvm/defer-mutual-producers, pbrt's two
+kernels in small). (d) The drains inside one round ran in the reverse of
+the order they were deferred -- each new drain was spliced directly after
+its producer loop, in front of the ones before it -- so the round was
+rays, materials, shadow, emissive, escaped. A drain now goes after the
+drains already placed after its producer loop (Function::OwnedQueue::
+entry, exit), so the drains that follow one producer run in the order the
+schedule deferred their queues, which the parser records across
+functions; and a drain may not push onto a queue drained before it on
+that path -- its pass is over, and the last round has no next round to
+run the entry -- which is refused with the order to write instead
+(tests/bonsai/ssa/defer-drain-order, correctness/llvm/defer-drain-order,
+error/defer-drained-before-pushed). The order is the schedule's to state,
+as it is pbrt's `Render` loop's.
+
+What this settles about the language: the case the user raised -- a
+cursor returned by `defer`, `c = f.defer(g, q); c.defer(h, q0)`, naming
+the continuation so a later directive can defer a call inside it -- was
+not needed for pbrt's structure, because pbrt's kernels are functions at
+the boundaries a schedule names, and writing the program at those
+boundaries is the honest form (the program says what a kernel is; the
+schedule says which are queued). A cursor would let a schedule cut a
+function the program did not cut, which is `stage`'s and
+`defer_continuation`'s job today; it remains the right way to *name* the
+functions those two derive (`f!after`, `f!g!k`) if a later directive
+needs to reach into one, and is noted under Known-open.
+
+**What pbrt has that the schedule does not yet: the medium queues.**
+pbrt's trace kernel sends a ray in a medium to `mediumSampleQueue`;
+`SampleMediumInteraction` walks the medium and routes the survivors to
+the escaped, emissive and material queues -- the same three the trace
+kernel feeds -- and the scattering events to `mediumScatterQueue`, whose
+kernel samples the light and the phase function and pushes the next ray.
+Here the walk runs at the head of the rays drain for a ray in a medium
+(the `if medium >= 0` block of `vol_path_step`) and the scattering's
+shadow ray and next ray are pushed from there. As a program it is two
+more functions at tail-call boundaries: `vol_medium_sample(isect, ...)`
+holding the walk and the routing, tail-called by `vol_path_step` for a
+ray in a medium, and `vol_medium_scatter(...)` holding the light sample
+and the phase sample, tail-called by it on a scattering event. As a
+schedule, `vol_path_step.defer(vol_medium_sample, medium_samples)` and
+`vol_medium_sample.defer(vol_medium_scatter, medium_scatters)`, with two
+things the deferral does not take yet: a spawned queue pushed from two
+functions (`escaped` from `vol_path_step` and from `vol_medium_sample`;
+Defer.cpp refuses "the calls are spawned, and another function's .defer
+names it as a pusher too") and a tail-deferred queue with two producer
+drains (`hits` from the rays drain and the medium-sample drain; "one
+producer call per queue"). The first is the smaller: a spawned call runs
+no continuation, so a second pusher function is a second set of sites
+with the same entry. The second is the join made universal: a producer's
+continuation after its call into the chain is what the drain has to run
+per producer today, and if every such continuation is queued the way a
+reducer-reading one already is (`_done`), a drain needs none, and any
+number of drains may feed one queue. Both are the next compiler work.
+The three scenes measured against `pbrt --gpu` have no medium, so this
+changes nothing for them; it is what makes the CPU wavefront pbrt's
+wavefront queue for queue on a medium scene.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
 `schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
 drains are threads, checked against pbrt as every schedule is; (4) queues
 keyed by an outcome -- done (above), the CPU wavefront now has pbrt's
-escaped queue and material queues; (5) the shadow ray deferred with its result consumed;
-(6) device queues and the multi-kernel launch, measured against `pbrt
---gpu` on killeroo, book and pavilion with the images checked. The escaped
-and emissive queues are not needed for correctness -- their work can stay
-inline where the trace's outcome is known -- and whether to split them off
-is the register-pressure question pbrt answered one way; it is a schedule
-choice here, measured.
+escaped queue and material queues; (5) the shadow ray deferred with its
+result consumed -- done, and with it the escaped and emissive queues and
+the program at pbrt's kernel boundaries (above); (5b) the medium queues
+(above: a spawned queue with several pusher functions, then the universal
+join for a tail-deferred queue with several producer drains); (6) device
+queues and the multi-kernel launch, measured against `pbrt --gpu` on
+killeroo, book and pavilion with the images checked; (7) the Path half of
+the compact wavefront and the compile-time follow-ups (the inliner, CSE,
+inlining a small specialized clone).
 
 ## Known-open, smaller
 
@@ -5562,6 +5676,15 @@ choice here, measured.
   subexpression rule), the variants `hits[false]` and `hits[true]`. None of
   the scenes measured against `pbrt --gpu` has a medium, so it changes
   nothing for them yet.
+- **To build: a cursor for a derived continuation function** (noted
+  2026-09-24, from the user's suggestion). `stage` and `defer_continuation`
+  derive functions the program did not write (`f!after`, `f!g!k`), and a
+  schedule cannot name them, so a call inside one cannot be deferred by a
+  later directive. `c = f.defer(g, q)` returning a cursor that stands for
+  the derived continuation, with `c.defer(h, q0)` deferring `h`'s call
+  inside it, is the language for that; pbrt's own structure did not need
+  it once the program was written at the kernel boundaries (above), so it
+  waits for a schedule that has to cut where the program did not.
 - **To fix: a specialized copy's dead block argument** (noted 2026-09-23).
   A copy's arm blocks receive the specialized value as a block argument,
   renamed with the value; once the copy's uses read the built struct
