@@ -86,12 +86,19 @@ void replace_uses(Function &func, const Instruction *of,
 // value a terminator reads or passes?
 bool has_uses(const Function &func, const Instruction *of);
 
-// The parameters of `func` nothing in it reads: no operand, nothing a
-// terminator reads (a dispatch's condition, a return's value, a loop's
-// bounds, a call's arguments), and no block argument that is read, followed
-// along the edges that pass the value on -- a thread through blocks that
-// ends nowhere is not a read. A caller may hand such a parameter anything.
-std::set<std::string> unread_parameters(const Function &func);
+// What `func` reads of each of its parameters, by name: the set of paths
+// into the value that are read, a path being the struct fields and vector
+// lanes taken on the way down (`load_field(p, 2)` then lane 0 is {2, 0}),
+// and the empty path the whole value. A parameter is read whole where an
+// instruction other than a field or lane read takes it, where a terminator
+// reads it (a dispatch's condition, a return's value, a loop's bounds, a
+// call's arguments) and where it is passed along an edge to a block
+// argument that is read whole; a field or lane read narrows the path, so
+// that a struct of which only `.d` is ever taken has {1} read and nothing
+// else. Followed along the edges that pass values on, to a fixed point: a
+// thread through blocks that ends nowhere is not a read. A parameter
+// absent from the map is never read, and a caller may hand it anything.
+std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function &func);
 
 // Every place `func` holds a value: the operands of its instructions, what
 // its terminators read or pass (a dispatch's condition, a return's value, a

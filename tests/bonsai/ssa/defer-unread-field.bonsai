@@ -1,0 +1,39 @@
+//! flags: -p ssa
+
+// The queue stores of a struct argument only the fields the callee reads.
+// `walk` takes a `Span{lo, hi, step}`, reads `hi` and `step` of it and
+// hands its recursion a new span with `lo` moved on, never reading `lo`:
+// what the callee reads of each parameter is found path by path
+// (read_paths, SSA/Analysis.h -- a field read narrows the path, a use of
+// the whole widens it, threads through blocks are followed), and the
+// unread leaf has no array in the queue and is handed back undefined
+// (QueueLayout::unread). What to read for: `Queue_sums` with `span_hi` and
+// `span_step` and no `span_lo`. (pbrt's material kernel reads the ray's
+// direction and never its origin; its queue does not carry the origin.)
+
+element Span {
+    lo : i32;
+    hi : i32;
+    step : i32;
+}
+
+func walk(n : i32, acc : i32, span : Span) -> i32 {
+    if (n >= span.hi) {
+        return acc;
+    }
+    next : Span = {n, span.hi, span.step};
+    return walk(n + span.step, acc + n, next);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        s : Span = {i, 10, i + 1};
+        out[i] = walk(i, 0, s);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

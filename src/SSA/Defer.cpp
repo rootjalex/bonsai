@@ -640,7 +640,7 @@ string component_name(uint32_t k, uint32_t lanes) {
 // padding field (`in_pad`): zero at every construction, read by nothing.
 void leaves_of(const string &name, const Type &type,
                const std::map<string, ir::Program::AdtStorage> *adts,
-               bool in_pad, vector<Leaf> &out) {
+               bool in_pad, const vector<unsigned> &path, vector<Leaf> &out) {
     if (const Struct_t *s = type.as<Struct_t>()) {
         string pad_field;
         if (adts != nullptr) {
@@ -649,16 +649,21 @@ void leaves_of(const string &name, const Type &type,
                 pad_field = it->second.pad_field;
             }
         }
-        for (const TypedVar &f : s->fields) {
+        for (unsigned k = 0; k < s->fields.size(); k++) {
+            const TypedVar &f = s->fields[k];
+            vector<unsigned> below = path;
+            below.push_back(k);
             leaves_of(name + "_" + f.name, f.type, adts,
-                      in_pad || (!pad_field.empty() && f.name == pad_field), out);
+                      in_pad || (!pad_field.empty() && f.name == pad_field), below, out);
         }
         return;
     }
     if (const Vector_t *v = type.as<Vector_t>()) {
         for (uint32_t k = 0; k < v->lanes; k++) {
+            vector<unsigned> below = path;
+            below.push_back(k);
             leaves_of(name + "_" + component_name(k, v->lanes), v->etype, adts,
-                      in_pad, out);
+                      in_pad, below, out);
         }
         return;
     }
@@ -669,7 +674,16 @@ void leaves_of(const string &name, const Type &type,
     leaf.name = name;
     leaf.type = type;
     leaf.kind = in_pad ? Leaf::Kind::Pad : Leaf::Kind::Stored;
+    leaf.path = path;
     out.push_back(std::move(leaf));
+}
+
+// Whether a read of `read` -- a path into a parameter, the empty path the
+// whole of it -- covers the leaf at `leaf`: the read is a prefix of the way
+// down to the leaf.
+bool covers(const vector<unsigned> &read, const vector<unsigned> &leaf) {
+    return read.size() <= leaf.size() &&
+           std::equal(read.begin(), read.end(), leaf.begin());
 }
 
 // Makes an instruction where the caller wants it, and hands back its value.
@@ -3094,7 +3108,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (const Field &f : fields) {
         const size_t first = leaves.size();
         if (f.in_entry) {
-            leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false, leaves);
+            leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false, {}, leaves);
         }
         field_leaves.emplace_back(first, leaves.size());
     }
@@ -3263,11 +3277,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // split's copies are one variant's program each (specialize_function,
     // simplified), and a copy that never reads a parameter -- the material
     // kernel for a diffuse surface reads no previous-hit context, no `r_l`,
-    // no primitive -- may be handed anything there, so its queue has no
-    // array for the parameter's leaves and the drain hands it nothing. An
-    // index field goes with the slots rebuilt from it: unread when every
-    // field it stands for is, and the callee is not handed it (a chain
-    // callee is). The reducer and the result slot are the drain's own.
+    // no primitive -- or reads only some of its fields -- of the ray, the
+    // direction and not the origin -- may be handed anything for the rest
+    // (read_paths, SSA/Analysis.h), so its queue has no array for those
+    // leaves and the drain hands it nothing there. An index field goes with
+    // the slots rebuilt from it: unread when every field it stands for is,
+    // and the callee is not handed it (a chain callee is). The reducer and
+    // the result slot are the drain's own.
     vector<vector<bool>> dead_field(subqueues.size(), vector<bool>(fields.size(), false));
     vector<vector<bool>> unread_leaves(subqueues.size(),
                                        vector<bool>(leaves.size(), false));
@@ -3281,13 +3297,22 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const shared_ptr<Function> as_run = clone_function(*funcs.at(subqueues[q].callee));
             promote_allocas(*as_run, as_run->blocks.front()->name);
             simplify(*as_run);
-            const set<string> unread = unread_parameters(*as_run);
+            const auto reads = read_paths(*as_run);
+            vector<bool> &unread = unread_leaves[q];
             for (size_t f = 0; f < fields.size(); f++) {
                 const Field &field = fields[f];
                 if (!field.param.has_value()) {
                     continue; // the reducer, the result slot, an index
                 }
-                dead_field[q][f] = unread.contains(centry.args[*field.param].name);
+                const auto it = reads.find(centry.args[*field.param].name);
+                for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
+                    unread[l] = it == reads.end() ||
+                                std::none_of(it->second.begin(), it->second.end(),
+                                             [&](const vector<unsigned> &read) {
+                                                 return covers(read, leaves[l].path);
+                                             });
+                }
+                dead_field[q][f] = it == reads.end();
             }
             // What a field is recomputed from is read when the field is.
             for (size_t f = 0; f < fields.size(); f++) {
@@ -3298,6 +3323,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 recipe_fields(*fields[f].recipe, from);
                 for (size_t h : from) {
                     dead_field[q][h] = false;
+                    for (size_t l = field_leaves[h].first; l < field_leaves[h].second; l++) {
+                        unread[l] = false;
+                    }
                 }
             }
             for (const SlotGroup &group : slot_groups) {
@@ -3307,14 +3335,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                         !dead_field[q][f]);
                 }
                 dead_field[q][group.field] = !needed;
-            }
-            for (size_t f = 0; f < fields.size(); f++) {
-                if (!dead_field[q][f]) {
-                    continue;
-                }
-                any = true;
-                for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
-                    unread_leaves[q][l] = true;
+                for (size_t l = field_leaves[group.field].first;
+                     l < field_leaves[group.field].second; l++) {
+                    unread[l] = !needed;
                 }
             }
             // A byte of bools is unread when every bit of it is.
@@ -3322,10 +3345,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 bool all = true;
                 for (size_t l = 0; l < entry_leaves; l++) {
                     if (leaves[l].kind == Leaf::Kind::Bit && leaves[l].word == w) {
-                        all = all && unread_leaves[q][l];
+                        all = all && unread[l];
                     }
                 }
-                unread_leaves[q][w] = all;
+                unread[w] = all;
+            }
+            for (size_t l = 0; l < leaves.size(); l++) {
+                any = any || unread[l];
             }
         }
         if (any) {
@@ -3335,8 +3361,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             for (size_t q = 0; q < subqueues.size(); q++) {
                 string left_out;
                 for (size_t f = 0; f < fields.size(); f++) {
-                    if (dead_field[q][f] && fields[f].in_entry) {
+                    if (!fields[f].in_entry) {
+                        continue;
+                    }
+                    if (dead_field[q][f]) {
                         left_out += (left_out.empty() ? "" : ", ") + fields[f].name;
+                        continue;
+                    }
+                    for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
+                        if (unread_leaves[q][l] && leaves[l].kind != Leaf::Kind::Pad) {
+                            left_out += (left_out.empty() ? "" : ", ") + leaves[l].name;
+                        }
                     }
                 }
                 if (!left_out.empty()) {
@@ -3663,7 +3698,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     vector<vector<shared_ptr<Value>>> stores(nqueues);
     for (size_t i = 0; i < nqueues; i++) {
         const string qname = double_buffered ? queue.name : subqueues[i].path;
-        const vector<bool> &dead = dead_field[double_buffered ? 0 : i];
+        const vector<bool> &unread = unread_leaves[double_buffered ? 0 : i];
         for (size_t f = 0; f < fields.size(); f++) {
             for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
                 const Leaf &leaf = leaves[l];
@@ -3671,7 +3706,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     continue;
                 }
                 internal_assert(leaf.array == stores[i].size()) << leaf.name;
-                if (dead[f]) {
+                if (unread[l]) {
                     // No storage: the queue's callee never reads it.
                     stores[i].push_back(undef_value(Array_t::make(leaf.type, Expr())));
                     continue;
@@ -4093,6 +4128,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         << what << ": " << fields[f].name << " has more scalars "
                         << "than the queue stores for it";
                     const Leaf &leaf = leaves[l++];
+                    if (unread_leaves[q][l - 1]) {
+                        return undef_value(t); // the callee never reads it
+                    }
                     switch (leaf.kind) {
                     case Leaf::Kind::Pad:
                         return zero_value(t, *O, body);

@@ -58,6 +58,9 @@ struct QueueLayout {
         size_t array = 0; // among the queue's arrays, for a stored leaf
         size_t word = 0;  // the byte leaf's index in `leaves`, for a bit
         unsigned bit = 0;
+        // The way down from the entry's field to this scalar: a struct
+        // field's index, a vector's lane, at each level.
+        std::vector<unsigned> path;
     };
     Type entry;
     Type queue;

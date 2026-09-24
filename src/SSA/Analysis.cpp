@@ -516,25 +516,64 @@ bool has_uses(const Function &func, const Instruction *of) {
     return false;
 }
 
-std::set<std::string> unread_parameters(const Function &func) {
-    std::set<std::string> unread;
+std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function &func) {
+    using Path = std::vector<unsigned>;
+    using Paths = std::set<Path>;
+    std::map<std::string, Paths> result;
     if (func.blocks.empty()) {
-        return unread;
+        return result;
     }
-    // A block's argument is read when an instruction or a terminator reads
-    // it -- an operand, a dispatch's condition, a return's value, a loop's
-    // bounds, an argument of a call -- or when it is passed along an edge
-    // to a block argument that is read: liveness over the block arguments,
-    // to a fixed point. What is passed along an edge and read nowhere
-    // downstream is a thread the simplifier has not pruned, not a read.
-    using Arg = pair<string, string>; // block, argument
-    std::set<Arg> live;
-    map<Arg, vector<Arg>> fed_by; // a block argument, and what edges pass it
-    std::vector<Arg> work;
+    // A value is a block's argument, named by the block and the name, or an
+    // instruction's, named by its name alone (unique in the function). What
+    // is read of a value is a set of paths, the empty path the whole; a
+    // read of a struct's field or a vector's lane at a constant index reads
+    // of the value what is read of the result, one step down; a value
+    // passed along an edge to a block argument is read as that argument is;
+    // anything else reads the value whole. Liveness over the values, to a
+    // fixed point: what is passed along edges and read nowhere is a thread
+    // the simplifier has not pruned, not a read.
+    using Key = pair<string, string>;
+    struct Edge {
+        Key source;
+        optional<unsigned> below; // a field or lane: prefix the path with it
+    };
+    map<Key, Paths> paths;
+    map<Key, vector<Edge>> edges_to; // a value, and what is read through it
+    vector<Key> work;
+    constexpr size_t deepest = 8; // a path longer than this is the whole
+    const auto add = [&](const Key &key, Path path) {
+        Paths &have = paths[key];
+        if (have.contains(Path{})) {
+            return;
+        }
+        if (path.size() > deepest) {
+            path.clear();
+        }
+        if (path.empty()) {
+            have = {Path{}};
+            work.push_back(key);
+            return;
+        }
+        if (have.insert(std::move(path)).second) {
+            work.push_back(key);
+        }
+    };
+    const auto key_of = [&](const string &block,
+                            const shared_ptr<Value> &v) -> optional<Key> {
+        if (v == nullptr) {
+            return std::nullopt;
+        }
+        if (const auto *a = std::get_if<Argument>(&v->data)) {
+            return Key{block, a->name};
+        }
+        if (const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data)) {
+            return Key{"", (*i)->name};
+        }
+        return std::nullopt;
+    };
     const auto read = [&](const string &block, const shared_ptr<Value> &v) {
-        const auto *a = v ? std::get_if<Argument>(&v->data) : nullptr;
-        if (a != nullptr && live.insert({block, a->name}).second) {
-            work.emplace_back(block, a->name);
+        if (const auto key = key_of(block, v)) {
+            add(*key, Path{});
         }
     };
     const BlockMap bmap = make_block_map(func);
@@ -548,16 +587,45 @@ std::set<std::string> unread_parameters(const Function &func) {
         }
         const vector<Argument> &params = target->second->args;
         for (size_t k = 0; k < jump.args.size() && k + offset < params.size(); k++) {
-            const auto *a = jump.args[k] ? std::get_if<Argument>(&jump.args[k]->data)
-                                         : nullptr;
-            if (a != nullptr) {
-                fed_by[{jump.name, params[k + offset].name}].emplace_back(block, a->name);
+            if (const auto source = key_of(block, jump.args[k])) {
+                edges_to[{jump.name, params[k + offset].name}].push_back(
+                    Edge{*source, std::nullopt});
             }
         }
+    };
+    // A field or lane taken at a constant index, of which the result is
+    // what is read.
+    const auto narrows = [](const Instruction &in) -> optional<unsigned> {
+        if (in.operands.size() != 2) {
+            return std::nullopt;
+        }
+        const bool field = in.op == Instruction::Op::LoadField;
+        const bool lane = in.op == Instruction::Op::ExtractIdx &&
+                          in.operands[0]->get_type().is_vector();
+        if (!field && !lane) {
+            return std::nullopt;
+        }
+        const auto *c = std::get_if<Constant>(&in.operands[1]->data);
+        if (c == nullptr) {
+            return std::nullopt;
+        }
+        if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+            return unsigned(*u);
+        }
+        if (const auto *i = std::get_if<int64_t>(&c->data); i != nullptr && *i >= 0) {
+            return unsigned(*i);
+        }
+        return std::nullopt;
     };
     for (const auto &block : func.blocks) {
         const string &b = block->name;
         for (const auto &instr : block->instrs) {
+            if (const auto k = narrows(*instr)) {
+                if (const auto source = key_of(b, instr->operands[0])) {
+                    edges_to[{"", instr->name}].push_back(Edge{*source, k});
+                }
+                continue; // the index is a constant, read of nothing
+            }
             for (const auto &operand : instr->operands) {
                 read(b, operand);
             }
@@ -604,26 +672,35 @@ std::set<std::string> unread_parameters(const Function &func) {
             },
             block->terminator.data);
     }
+    // What is read of a value is read of what it was taken from, one step
+    // down for a field or lane, as it is along an edge.
     while (!work.empty()) {
-        const Arg at = work.back();
+        const Key at = work.back();
         work.pop_back();
-        const auto it = fed_by.find(at);
-        if (it == fed_by.end()) {
+        const auto it = edges_to.find(at);
+        if (it == edges_to.end()) {
             continue;
         }
-        for (const Arg &source : it->second) {
-            if (live.insert(source).second) {
-                work.push_back(source);
+        const Paths here = paths[at]; // a copy: `add` may grow the map
+        for (const Edge &edge : it->second) {
+            for (const Path &path : here) {
+                Path below;
+                if (edge.below.has_value()) {
+                    below.push_back(*edge.below);
+                }
+                below.insert(below.end(), path.begin(), path.end());
+                add(edge.source, std::move(below));
             }
         }
     }
     const string &entry = func.blocks.front()->name;
     for (const Argument &param : func.blocks.front()->args) {
-        if (!live.contains({entry, param.name})) {
-            unread.insert(param.name);
+        if (const auto it = paths.find({entry, param.name});
+            it != paths.end() && !it->second.empty()) {
+            result[param.name] = it->second;
         }
     }
-    return unread;
+    return result;
 }
 
 vector<Terminator::Jump *> jumps_of(Block &block) {

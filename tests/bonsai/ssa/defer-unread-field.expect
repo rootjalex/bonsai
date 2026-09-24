@@ -1,0 +1,96 @@
+type Entry_sums = struct Entry_sums{ n : i32; acc : i32; span : struct Span{ lo : i32; hi : i32; step : i32 }; _slot : i32 }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; span_lo : i32[]; span_hi : i32[]; span_step : i32[]; _slot : i32[] }
+type Span = struct Span{ lo : i32; hi : i32; step : i32 }
+
+func run(out : mut i32[8]) -> void {
+  sums!round : mut u32
+  sums_result : mut i32[8]
+  sums_n_0 : mut i32[8]
+  sums_acc_0 : mut i32[8]
+  sums_span_hi_0 : mut i32[8]
+  sums_span_step_0 : mut i32[8]
+  sums__slot_0 : mut i32[8]
+  sums_n_1 : mut i32[8]
+  sums_acc_1 : mut i32[8]
+  sums_span_hi_1 : mut i32[8]
+  sums_span_step_1 : mut i32[8]
+  sums__slot_1 : mut i32[8]
+  sums_queue : mut Queue_sums[2]
+  let @5 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, undef, sums_span_hi_0, sums_span_step_0, sums__slot_0) in
+  sums_queue[0u] = @5
+  let @7 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, undef, sums_span_hi_1, sums_span_step_1, sums__slot_1) in
+  sums_queue[1u] = @7
+  parfor i in [0:8:1] {
+    let @0 = i + 1 in
+    let s = build<Span>(i, 10, @0) in
+    walk(i, 0, s, (&sums_queue[0u]), (&sums_result[i]), i)
+    continue
+  }
+  sums!round = 0u
+  while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+    let @11 = (*sums!round) & 1u in
+    let @13 = sums_queue[(*sums!round) & 1u].count in
+    let @15 = @11 ^ 1u in
+    sums_queue[@15].count = 0u
+    parfor sums in [0u:@13:1u] {
+      let @16 = (&sums_queue[@15]) in
+      let @20 = sums_queue[@11].n in
+      let @21 = @20[sums] in
+      let @23 = sums_queue[@11].acc in
+      let @24 = @23[sums] in
+      let @26 = sums_queue[@11].span_hi in
+      let @27 = @26[sums] in
+      let @29 = sums_queue[@11].span_step in
+      let @30 = @29[sums] in
+      let @31 = build<Span>(undef, @27, @30) in
+      let @33 = sums_queue[@11]._slot in
+      let @34 = @33[sums] in
+      walk(@21, @24, @31, @16, (&sums_result[@34]), @34)
+      continue
+    }
+    let @10 = (*sums!round) + 1u in
+    sums!round = @10
+  }
+  parfor sums_rest in [0:8:1] {
+    let @37 = sums_result[sums_rest] in
+    let @2 = @37 in
+    let i = sums_rest in
+    out[i] = @2
+    continue
+  }
+  return
+}
+
+func [[noinline]] walk(n : i32, acc : i32, span : Span, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+  let _t0 = span.hi in
+  let @1 = _t0 <= n in
+  if (@1) {
+    _result_sums = acc
+    return
+  } else {
+    let _t2 = span.step in
+    let next = build<Span>(n, _t0, _t2) in
+    let @4 = n + _t2 in
+    let @5 = acc + n in
+    let @7 = build<Entry_sums>(@4, @5, next, _slot_sums) in
+    let @10 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @12 = (*_queue_sums).n in
+    @12[@10] = @4
+    let @15 = (*_queue_sums).acc in
+    @15[@10] = @5
+    let @18 = (*_queue_sums).span_hi in
+    @18[@10] = _t0
+    let @21 = (*_queue_sums).span_step in
+    @21[@10] = _t2
+    let @24 = (*_queue_sums)._slot in
+    @24[@10] = _slot_sums
+    return
+  }
+}
+
+
+schedule host {
+    sums = run.queue(root);
+    walk.defer(walk, sums)
+
+}

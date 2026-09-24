@@ -55,6 +55,7 @@ add_bonsai_tests(
     defer-split-nested.bonsai
     defer-split-unread.bonsai
     defer-uniform-payload.bonsai
+    defer-unread-field.bonsai
     defer-sum.bonsai
     divide-by-constant.bonsai
     dynamic-array.bonsai
