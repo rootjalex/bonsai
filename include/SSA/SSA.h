@@ -461,6 +461,20 @@ struct Function {
         // one's; a queue drained in one pass outside any rounds names
         // nothing, its own exit being that place.
         std::string after;
+        // The drain's first and last blocks, `<queue>!drain` and
+        // `<queue>!exit`. A later deferral whose producer loop is the same
+        // as this one's -- another kernel of the same round -- puts its
+        // drain after this one rather than before it, so that the drains
+        // that follow one producer loop run in the order the schedule
+        // deferred their queues, as pbrt's Render loop lists its kernels
+        // (SSA/Defer.cpp, "Where the drain sits").
+        std::string entry, exit;
+        // The functions whose calls are this queue's pushes: the deferred
+        // function and the other pushers the schedule named. A later
+        // deferral placed after this drain in the same round may not reach
+        // one of them: an entry pushed after the pass is over waits for a
+        // round that the last round does not have.
+        std::set<std::string> pushers;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
     // The blocks at which this function runs the rest of a producer's

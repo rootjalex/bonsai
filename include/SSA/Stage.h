@@ -14,14 +14,26 @@
 // rays -- with each stage a loop of its own for a schedule to bind,
 // vectorize or, on the GPU, make a kernel of.
 //
-// Built from what defer() already has. The compiler factors `f` at the call,
-// as LLVM's coroutine splitting factors a function at a suspend point: the
-// blocks from the call's continuation on are copied into a function
+// Built from what defer() already has. The compiler factors `f` at the call:
+// the blocks from the call's continuation on are copied into a function
 // `f!after` whose parameters are the call's value and the names those
 // blocks use but do not define -- the values of `f` live after the call --
 // and the call site becomes `r = g(...); return f!after(r, live...)`, a
 // tail call. That tail call is then deferred onto `q` by defer(), which
 // knows how to size the queue, store the arguments and build the drain.
+//
+// In the literature the split is the CPS conversion of that one call site --
+// a selective CPS transformation (Nielsen, "A Selective CPS Transformation",
+// MFPS 2001; the general form in Appel, "Compiling with Continuations", 1992,
+// and Kennedy, "Compiling with Continuations, Continued", ICFP 2007), which
+// is natural in this SSA because a block with arguments already is a
+// continuation (Kelsey, "A Correspondence between Continuation Passing Style
+// and Static Single Assignment Form", 1995). Naming the continuation as a
+// function of its free variables is lambda lifting (Johnsson, "Lambda
+// Lifting: Transforming Programs to Recursive Equations", FPCA 1985), and
+// the queue entry it becomes is that closure defunctionalized (Reynolds
+// 1972; Danvy and Nielsen 2001; see SSA/Defer.h). LLVM's coroutine splitting
+// factors a function at a suspend point the same way.
 //
 // Only one call to `g` in `f`, not in tail position (a tail call is
 // defer()'s case). Applied after the deferral of `f` itself where there is

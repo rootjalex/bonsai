@@ -1,0 +1,47 @@
+//! flags: -p ssa
+// The drains after one producer loop run in the order their queues are
+// deferred, and a drain may not push onto a queue drained before it on that
+// path: the earlier queue's pass is over, and an entry pushed after it
+// waits for a round the last round does not have. Here `shadows` is
+// deferred first, so its drain comes first; `lights` is deferred second,
+// and its drain runs `light`, which pushes onto `shadows`. Refused, with
+// the order to write instead: pbrt's, the material kernel before the shadow
+// rays it pushes.
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func light(x : Float, total : reduce(+) Float) -> void {
+    spawn total += shade(x);
+    total += x;
+    return;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    light(x, total);
+    return;
+}
+
+func run(a : array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0:4 {
+        step(a[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[Float, 4] = {1.0, 2.0, 3.0, 4.0};
+    total : reduce(+) Float = 0.0;
+    run(a, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    shadows = run.queue(root);
+    light.defer(shade, shadows);
+    lights = run.queue(root);
+    step.defer(light, lights);
+}

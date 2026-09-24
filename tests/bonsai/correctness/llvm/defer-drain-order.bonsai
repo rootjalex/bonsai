@@ -1,0 +1,44 @@
+//! flags: -p ssa -b llvm -e
+
+// Two queues filled by one producer loop, drained one after the other in
+// the order the schedule deferred them (tests/bonsai/ssa/defer-drain-order
+// .bonsai is the same program's SSA): the second drain is spliced in after
+// the first's exit, so the values the loop's continuation needs have to
+// reach it through both. 2 * (1 + 2 + 3 + 4) + (1 + 2 + 3 + 4 + 4) = 34.
+import stdlib/numerics;
+
+func first(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func second(x : Float) -> Float {
+    return x + 1.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += first(x);
+    spawn total += second(x);
+    return;
+}
+
+func run(a : array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0:4 {
+        step(a[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[Float, 4] = {1.0, 2.0, 3.0, 4.0};
+    total : reduce(+) Float = 0.0;
+    run(a, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    firsts = run.queue(root);
+    step.defer(first, firsts);
+    seconds = run.queue(root);
+    step.defer(second, seconds);
+}

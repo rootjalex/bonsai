@@ -25,6 +25,7 @@ add_bonsai_tests(
     collapse-not-nested.bonsai
     defer-after-loopify.bonsai
     defer-branching.bonsai
+    defer-drained-before-pushed.bonsai
     defer-not-tail.bonsai
     extent-undeclared-element.bonsai
     extent-variant-fields.bonsai

@@ -1473,17 +1473,54 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
-    // The chain is a chain: the only recursion in it is the deferred call,
-    // and a function's own tail recursion, which passes the queue and the
-    // flag round like any other tail call.
-    for (const string &g : chain) {
-        for (const string &h : callees_of(*funcs.at(g))) {
-            if (!chain.contains(h) || h == g) {
+    // The chain is a chain: the only recursion in it is the one this
+    // deferral turns into pushes -- the deferred call, and the calls to the
+    // callee from the other pushers the schedule named (QueueSpec::also_from;
+    // the material kernel handing the next ray back to the trace kernel is a
+    // recursion between the two, and deferring both ends of it onto the ray
+    // queue is what breaks it) -- and a function's own tail recursion, which
+    // passes the queue and the flag round like any other tail call. Any other
+    // cycle among the chain's functions is state on the call stack that the
+    // entry does not carry.
+    const auto deferred_edge = [&](const string &g, const string &h) {
+        return h == callee_name &&
+               (g == func_name ||
+                std::find(queue.also_from.begin(), queue.also_from.end(), g) !=
+                    queue.also_from.end());
+    };
+    // Whether `from` reaches `to` along the calls that remain once the
+    // deferred ones are pushes.
+    const auto reaches_without_deferred = [&](const string &from,
+                                             const string &to) {
+        set<string> seen;
+        vector<string> work{from};
+        while (!work.empty()) {
+            const string name = work.back();
+            work.pop_back();
+            const auto it = funcs.find(name);
+            if (it == funcs.end()) {
                 continue;
             }
-            const bool deferred = g == func_name && h == callee_name;
-            internal_assert(deferred ||
-                            !reachable_functions(funcs, h).contains(g))
+            for (const string &callee : callees_of(*it->second)) {
+                if (deferred_edge(name, callee)) {
+                    continue;
+                }
+                if (callee == to) {
+                    return true;
+                }
+                if (seen.insert(callee).second) {
+                    work.push_back(callee);
+                }
+            }
+        }
+        return false;
+    };
+    for (const string &g : chain) {
+        for (const string &h : callees_of(*funcs.at(g))) {
+            if (!chain.contains(h) || h == g || deferred_edge(g, h)) {
+                continue;
+            }
+            internal_assert(!reaches_without_deferred(h, g))
                 << what << ": " << g << " and " << h
                 << " call each other on the way from " << queue.owner << " to "
                 << func_name << ", a recursion other than the one being "
@@ -2535,6 +2572,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     }
     O->queue_sizes[queue.name] =
         Function::OwnedQueue{size, alloc_point->name, after_rounds};
+    O->queue_sizes[queue.name].pushers.insert(site_function.begin(),
+                                              site_function.end());
 
     // A reducer local of the producer's iteration: a slot per iteration in
     // an array made where the queue's storage is, and the slot's address in
@@ -3332,20 +3371,65 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             O->queue_sizes[sq.path].after = exit->name;
         }
     }
+    // The drain's ends, for the deferrals that come after this one
+    // (Function::OwnedQueue::entry, exit).
+    O->queue_sizes[queue.name].entry = drain_entry->name;
+    O->queue_sizes[queue.name].exit = exit->name;
+    for (const SubQueue &sq : subqueues) {
+        O->queue_sizes[sq.path].entry = drain_entry->name;
+        O->queue_sizes[sq.path].exit = exit->name;
+    }
 
     // Where the drain sits: after the producer loop, in place of its
-    // continuation; or, for a lone call, where the iteration ends.
+    // continuation -- or, when the drains of earlier deferrals sit there
+    // already, after the last of them, so that the drains that follow one
+    // producer loop run in the order the schedule deferred their queues.
+    // The order is the schedule's to state, as pbrt's Render loop states
+    // its kernels' -- the escaped rays, the emissive hits, the materials,
+    // the shadow rays, each pushed by the trace before them -- and a drain
+    // put in front of the ones before it would run the sequence backwards.
+    // A queue drained on the way may not be pushed by what this drain runs:
+    // its pass is over, and an entry pushed after it waits for the next
+    // round, which the last round does not have.
+    // Or, for a lone call, where the iteration ends.
     vector<shared_ptr<Value>> exit_args;
     string exit_target;
     if (producer_loop_block) {
-        auto &p = std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
-        exit_target = p.cont.name;
-        exit_args = p.cont.args;
-        p.cont = Terminator::Jump{drain_entry->name};
-        drain_entry->preds = {producer_loop_block};
+        shared_ptr<Block> link_block = producer_loop_block;
+        Terminator::Jump *link =
+            &std::get<Terminator::ParFor>(producer_loop_block->terminator.data)
+                 .cont;
+        set<string> runs = reachable_functions(funcs, callee_name);
+        runs.insert(callee_name);
+        while (true) {
+            const auto placed = std::find_if(
+                O->queue_sizes.begin(), O->queue_sizes.end(),
+                [&](const auto &kv) { return kv.second.entry == link->name; });
+            if (placed == O->queue_sizes.end()) {
+                break;
+            }
+            for (const string &pusher : placed->second.pushers) {
+                internal_assert(!runs.contains(pusher))
+                    << what << ": " << placed->first << " is drained before "
+                    << queue.name << " would be, and the drain of " << queue.name
+                    << " pushes onto it (" << callee_name
+                    << (pusher == callee_name ? "" : " reaches " + pusher + ", which")
+                    << " makes the pushes). An entry pushed after a queue's pass "
+                    << "waits for the next round, which the last round does not "
+                    << "have. The drains after one producer run in the order "
+                    << "their queues are deferred: defer " << queue.name
+                    << " before " << placed->first << ".";
+            }
+            link_block = omap.at(placed->second.exit);
+            link = &std::get<Terminator::Jump>(link_block->terminator.data);
+        }
+        exit_target = link->name;
+        exit_args = link->args;
+        *link = Terminator::Jump{drain_entry->name};
+        drain_entry->preds = {link_block};
         const shared_ptr<Block> old_cont = omap.at(exit_target);
         std::erase_if(old_cont->preds, [&](const auto &w) {
-            return w.lock().get() == producer_loop_block.get();
+            return w.lock().get() == link_block.get();
         });
         old_cont->preds.push_back(exit);
     } else {

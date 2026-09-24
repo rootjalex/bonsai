@@ -1,0 +1,52 @@
+//! flags: -p ssa
+
+// Two queues filled by one producer loop are drained in the order the
+// schedule deferred them. A step spawns two calls, each deferred onto a
+// queue of its own; both drains go after the loop over i, and the first
+// deferred goes first -- not last, as putting each new drain directly after
+// the loop would have it. The order is the schedule's to state, as pbrt's
+// Render loop states its kernels' (the escaped rays before the emissive
+// hits before the materials before the shadow rays, each pushed by the
+// trace before them), and a drain that pushes onto a queue drained earlier
+// on the same path is refused (tests/bonsai/error/defer-drained-before-
+// pushed.bonsai).
+//
+// What to read for in the golden: after the parfor over i, the `firsts`
+// drain, then the `seconds` drain, then the return.
+import stdlib/numerics;
+
+func first(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func second(x : Float) -> Float {
+    return x + 1.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn total += first(x);
+    spawn total += second(x);
+    return;
+}
+
+func run(a : array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0:4 {
+        step(a[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[Float, 4] = {1.0, 2.0, 3.0, 4.0};
+    total : reduce(+) Float = 0.0;
+    run(a, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    firsts = run.queue(root);
+    step.defer(first, firsts);
+    seconds = run.queue(root);
+    step.defer(second, seconds);
+}

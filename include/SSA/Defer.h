@@ -35,9 +35,15 @@ struct QueueSpec {
     // pushes too: `f.defer(callee, q)` beside `callee.defer(callee, q)`, for
     // the function that makes the recursion's first call when that is not
     // the owner -- `li_vol_path.defer(vol_path_step, rays)`, where the owner
-    // `render` reaches the step through `li` and `li_vol_path`. A push there
-    // returns saved up the chain to the producer, which saves its frame and
-    // skips, as it does for a deferred self-call.
+    // `render` reaches the step through `li` and `li_vol_path` -- and for a
+    // function the callee calls that calls the callee back: pbrt's material
+    // kernel, handed the hit by the trace kernel and handing the next ray
+    // back to it (`vol_surface.defer(vol_path_step, rays)`). The two are a
+    // recursion between two functions, and deferring both of its ends is
+    // what breaks it: once the calls back are pushes, the chain from the
+    // owner to the callee has no recursion in it but the callee's own. A
+    // push there returns saved up the chain to the producer, which saves its
+    // frame and skips, as it does for a deferred self-call.
     std::vector<std::string> also_from;
     // Whether running an entry can push onto this queue: a deferred
     // self-recursion whose recursive calls the drain's callee still makes.

@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Defer.cpp:3412
+
+--> !runs.contains(pusher)
+step.defer(light, lights): shadows is drained before lights would be, and the drain of lights pushes onto it (light makes the pushes). An entry pushed after a queue's pass waits for the next round, which the last round does not have. The drains after one producer run in the order their queues are deferred: defer lights before shadows.

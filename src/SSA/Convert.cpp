@@ -1792,9 +1792,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // that reached it, which loopify then puts on one stack of nodes and one
     // of masks -- a packet traversal. Only the schedule can say which.
     //
-    // A schedule built without a source order -- none is today -- is applied
-    // function by function in name order, each function's directives in the
-    // order they were listed.
+    // The schedule's directives are applied in the order they were written
+    // (ir::TransformOrder, recorded by the parser): the order is part of what
+    // a schedule says -- the drains that follow one producer loop run in the
+    // order their queues were deferred (SSA/Defer.cpp, "Where the drain
+    // sits"). A schedule built without a source order is applied function by
+    // function in name order, each function's directives in the order they
+    // were listed.
     ir::TransformOrder ordered = order;
     if (ordered.empty()) {
         for (const auto &[name, ts] : transforms) {
