@@ -554,6 +554,22 @@ struct Rename : public ir::Mutator {
             ir::ForAll::make(node->index, std::move(slice), std::move(body)));
     }
 
+    ir::Stmt visit(const ir::ParFor *node) override {
+        // As ForAll: the body first, then the bounds, whose temporaries are
+        // bound before the loop. Without this case the default mutator
+        // renamed a bound to a temporary and rebuilt the loop without the
+        // statements that bind it, so the second of two loops over
+        // `width * height` read a `_tN` defined nowhere.
+        ir::Stmt body = mutate(node->body);
+        ir::ParFor::Slice slice = ir::ParFor::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
+        return make(ir::ParFor::make(node->index, std::move(slice),
+                                     std::move(body), node->binding));
+    }
+
     ir::Stmt visit(const ir::DoWhile *node) override {
         ir::Stmt body = mutate(node->body);
         ir::Expr cond = mutate(node->cond);

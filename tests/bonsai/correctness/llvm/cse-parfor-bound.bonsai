@@ -1,0 +1,33 @@
+//! flags: -p ssa -b llvm -e
+
+// Two parfors with the same computed bound. Common subexpression
+// elimination gives `width * height` a temporary, and the temporary's `let`
+// has to land before the loop that reads it: the renamer had no case for a
+// parfor, so the bound was renamed and its binding lost, and the SSA builder
+// found `_tN` defined nowhere. pbrt's render has this shape -- the sampling
+// nest over the pixels and, after it, the film's finalization over the
+// pixels again. Every element is (1 + 4 * 0.5) / 3 = 1.
+import stdlib/numerics;
+
+func run(width : u32, height : u32, out : mut array[f32]) -> void {
+    parfor p in 0u:(width * height) {
+        out[p] = 1.0;
+        parfor s in 0u:4u {
+            atomic out[p] += 0.5;
+        }
+    }
+    parfor p in 0u:(width * height) {
+        w = out[p];
+        if w != 0.0 {
+            out[p] = out[p] / w;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[f32, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(2u, 4u, out);
+    print(out);
+    return 0;
+}
