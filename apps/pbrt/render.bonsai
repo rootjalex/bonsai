@@ -2919,15 +2919,23 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // neighbour.
             atomic weight_out[p] += weight;
         }
+    }
 
-        // pbrt: GBufferFilm::GetImage. The normal is *normalized* and not
-        // averaged -- a direction has no magnitude to average, and a pixel
-        // straddling an edge would otherwise report the short vector two
-        // opposed normals sum to. The colours are divided by the whole weight.
-        //
-        // The two were the same thing while the jitter was off, since every
-        // sample of a pixel then found the same surface and the sum was one
-        // normal repeated. They are not the same thing now.
+    // pbrt: GBufferFilm::GetImage, a pass of its own once every sample of
+    // every pixel is in -- as pbrt's is, after the film is written. A loop
+    // of its own rather than the tail of the pixel's iteration above so that
+    // a schedule may run the paths of the whole frame together (a queue the
+    // frame owns, drained in rounds over every pixel's samples) and still
+    // finalize each pixel after the last of them: what follows the sampling
+    // nest waits for all of it. The normal is *normalized* and not averaged
+    // -- a direction has no magnitude to average, and a pixel straddling an
+    // edge would otherwise report the short vector two opposed normals sum
+    // to. The colours are divided by the whole weight.
+    //
+    // The two were the same thing while the jitter was off, since every
+    // sample of a pixel then found the same surface and the sum was one
+    // normal repeated. They are not the same thing now.
+    parfor p in 0u:(width * height) {
         if sqlen_(normal_out[p]) > 0.0 {
             normal_out[p] = unit_vector_(normal_out[p]);
         } else {

@@ -5795,6 +5795,119 @@ The three scenes measured against `pbrt --gpu` have no medium, so the
 medium queues change nothing for them; it is what makes the CPU
 wavefront pbrt's wavefront queue for queue on a medium scene.
 
+**Phase B, designed (2026-09-24): the whole-frame wavefront, then the
+device.** The queues so far are a pixel's: `render[VolPath].queue(p)` is
+one family per iteration of the pixel loop, sized by the samples, and the
+parallelism is `bind(p, CPUThread)` -- a pixel's paths advance together,
+pixels in parallel. pbrt's queues are the frame's (a band of scanlines,
+one sample per pixel per pass), its kernels are launched over every path
+in flight, and that is what the device wants: a queue per pixel would be
+sixty-four entries per block with nothing to launch. Three steps, the
+first two on the CPU and checked bit for bit against the scalar schedule
+as everything is.
+
+(1) *The program.* `render`'s pixel loop does three things: zeroes the
+pixel's sums, runs the samples (`parfor s`, whose iteration is the
+producer of a path), and finalizes the pixel after them (the normal
+normalized, the colours over the weight: pbrt's GetImage). For a queue the
+whole frame owns, the rest of the sample's iteration runs in the record's
+pass after every round of every pixel, and the pixel's finalization has
+to come after that too; so the finalization becomes a `parfor p` of its
+own after the sampling nest, as pbrt's GetImage is a pass after the film
+is written. Same operations in the same order for the scalar schedule.
+
+(2) *Nested producer loops.* `rays = render[VolPath].queue(root)` puts the
+producer's call inside two parfors, `p` and `s`, which the deferral
+refuses today ("the queue's size would be the product of their counts").
+The generalization: the producer loops are the chain of parfors around
+the call, the count their trip counts' product, the record index the
+linearization of their indices (pbrt's `pixelIndex`, a pixel per pass),
+the drain and the pass spliced after the outermost loop, and every loop
+but the innermost required to do nothing after its inner loop (which (1)
+arranges). The producer nest is then pbrt's GenerateCameraRays over the
+frame; the drains are whole-frame parfors named for their queues, which
+`bind(rays, CPUThread)`, `bind(hits, CPUThread)` (every material variant
+through resolve_loops) and the rest parallelize -- pbrt's structure
+exactly, the round loop sequential on the calling thread. Pushes from many
+threads into one queue are the atomic count that exists; entry order in a
+queue then varies between runs, but a path has at most one entry per queue
+per round and its adds into `L` happen in the drains' fixed order, so the
+image should still come out bit for bit against the scalar schedule.
+
+*Steps (1) and (2), built 2026-09-24, and what they found.* The
+finalization is its own `parfor p` (bit for bit on the scalar schedule --
+and it flushed out a statement-level CSE bug: the renamer had no case for
+a parfor, so the second of two loops bounded by `width * height` read a
+temporary defined nowhere; fixed, with tests/bonsai/correctness/llvm/
+cse-parfor-bound). The deferral takes a nest of producer loops (the count
+their product, the record index linearized, the drain and pass after the
+outermost, an outer loop's rest after its inner loop refused; tests/
+bonsai/ssa and correctness/llvm/defer-nested-producer), hoists a read of
+an owner local nothing in the loops writes (`spp`, stored into its result
+slot before the pixel loop) to size the queue before the nest, and the
+LLVM codegen places a run-time-sized stack allocation where the program
+put it when that block runs once per call though it is not the entry
+(after the dispatch that settled the sampler; `alloca_where_defined`,
+from the SSA lowering's loop forest). `schedules/wavefront-frame.bonsai`
+then compiles -- one family of queues and one record for the frame, the
+drains and `rays_rest` after the pixel loop -- and the render dies of a
+stack overflow: the frame's record and queues are pixels times samples
+per pixel entries, 7.7 million for camera-medium and gigabytes of stack.
+Which is the design fact step (2) missed. pbrt's queues are not the
+frame's samples: a pass is *one sample per pixel over a band of scanlines*
+(`maxQueueSize = width * scanlinesPerPass`, about a million pixel
+samples), the sample index is the outer, sequential loop, and the queues
+are allocated once for the process, before its timer. Two things follow,
+the next work of this phase, written up rather than rushed:
+
+(2a) *The loop order is a schedule's choice.* Our program is pixel-outer,
+sample-inner, as pbrt's CPU integrator is; pbrt's wavefront is
+sample-outer (passes), pixel-inner (the band). Both loops are parfors, so
+the order is legal either way, and Halide calls the directive `reorder`:
+`render.reorder(p, s)` makes `s` the outer loop, with the computations of
+the pixel's body before its inner loop (`i`, `j` from `p`) sinking into
+the new inner body, which the init loop's move already allows (nothing
+with a side effect sits between the two loops). Then `rays =
+render[VolPath].queue(s)`: a queue family per pass, owned by the sample
+loop's iteration, the pixel loop its producer, sized by the pixels -- a
+band is the pixel range the schedule gives the loop, or the frame -- and
+the per-pixel sample order pbrt's CPU integrator sums in is kept, since
+`s` runs in order. An SSA loop interchange of two perfectly nested
+parfors, with the outer body's pure computations sunk.
+
+(2b) *The storage is not the stack, and not a per-call heap either.* A
+pass's family is the pixels' count of entries, forty-eight megabytes for
+camera-medium and hundreds for a 1024x1024 frame, sized by a value known
+only at run time. The stack cannot hold it; a heap allocation per render
+call would be freed nowhere today (the reason `--no-heap` exists, which
+compare.sh sets) and, freed or not, would page-fault its way through the
+timed region where pbrt allocated once before its timer. pbrt's answer is
+the right one and the device-ready one: the arena outlives the call. For
+a queue family whose owner is a pass or the function, the compiler hoists
+the storage to the outermost block where its size is known (once per
+render call rather than per pass, the queues being emptied per pass
+anyway) and, under a schedule that says so or `--no-heap`, makes it the
+caller's: the exported function takes one `bonsai_buffer` per family,
+declared in the header with the size formula, which render_hook.cpp
+allocates before the timer as it does the tree's buffers -- on the device
+for a device schedule, which is exactly pbrt's `GenerateCameraRays`
+arenas. A heap allocation freed at the function's return is the default
+for programs no driver stages (the tests). Until (2a) and (2b) are built,
+`wavefront-frame.bonsai` stays uncommitted.
+
+(3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
+on the producer nest is the camera-ray kernel, `render.bind(rays,
+GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
+GPUThread)` the film pass. What that needs of the compiler: the queues'
+and the record's storage in device memory when the loops that touch them
+are device-bound (the owner's allocas become device allocations, as the
+tree's buffers are; MarkDeviceMemory has the shape); the round loop on
+the host launching each drain over its count -- read back one u32 per
+round, or launched over the capacity with `i < count` on the device, as
+pbrt's `ForAllQueued` does -- and the pushes' atomics as they are. Then
+the measurement: killeroo, book and pavilion against `pbrt --gpu`, best
+of three each side, images checked, the deliverable of the GPU plan.
+
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
 `schedules/gpu-wavefront.bonsai` on the CPU schedules first, where the
