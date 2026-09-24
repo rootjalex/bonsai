@@ -6008,6 +6008,33 @@ thread, drained in cache-sized batches -- which is a `queue` owned by a
 thread's chunk of the pixel loop rather than by a pass, a schedule to
 write when the CPU wavefront is the goal rather than the check.
 
+pbrt has the same schedule on the CPU: `pbrt --wavefront` runs
+WavefrontPathIntegrator with ParallelFor over each queue, one sample per
+pixel per pass over a band of `maxSamples / width` scanlines with
+`maxSamples` a million (wavefront/integrator.cpp:230-234, the whole frame
+for these scenes), SOA queues allocated once, a fetch-and-add per push,
+pixelSampleState indexed by pixelIndex -- what `wavefront-frame.bonsai`
+is. Single runs, a first look (pbrt's own timer, from the image):
+
+    camera-medium   pbrt path 0.51 s   pbrt wavefront 6.5 s   ours per-pixel 0.39 s   ours frame 15.4 s
+    killeroo-simple pbrt path 14.6 s   pbrt wavefront 98.5 s  ours per-pixel 11.5 s   ours frame 250 s
+
+So pbrt's CPU wavefront is 7-13x slower than its own path integrator, for
+the reason above, and ours is 2.5x slower than pbrt's. The difference that
+is measurable in the SSA is the entry: our `rays` queue is 71 fields to
+pbrt's RayWorkItem's ~45 (wavefront/workitems.h:119), because the program
+carries the ray differentials pbrt's CPU integrator carries (13 fields)
+where pbrt's wavefront recomputes approximate ones at each hit
+(ApproximatedpDxy) -- a different algorithm, which is why this program is
+checked against the CPU integrator and not against `--wavefront`; the
+material queues are 124 fields to MaterialEvalWorkItem's ~60. A
+memory-bound loop's time is its bytes. Two things the compiler could do,
+in order: carry less -- recompute what is cheap from what is carried, as
+the record pass now does for the pixel index, and pack the `bool`s -- and
+band the pass to the cache, which the schedule language can say today
+(`split(p, band, pin, n)`, two `reorder`s, `queue(band)`), pbrt's own knob
+sized for a CPU's L3 rather than a GPU's memory.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
