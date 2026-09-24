@@ -4,6 +4,7 @@
 #include "SSA/CloneFunction.h"
 #include "SSA/Definitions.h"
 #include "SSA/LoopArithmetic.h"
+#include "SSA/PromoteAllocas.h"
 #include "SSA/Reach.h"
 #include "SSA/SSA.h"
 #include "SSA/Simplify.h"
@@ -1471,7 +1472,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (const string &g : chain) {
         invariant[g].assign(funcs.at(g)->blocks.front()->args.size(), true);
         origin[g].resize(funcs.at(g)->blocks.front()->args.size());
-        defs.emplace(g, Definitions(*funcs.at(g)));
+        // Lenient: a chain function may be a split's copy from an earlier
+        // deferral, its locals promoted, and a promoted value is reached by
+        // name from the blocks below the one that defines it. Such a value
+        // is never a parameter, which is all that is asked of it here.
+        defs.emplace(g, Definitions(*funcs.at(g), /*lenient=*/true));
     }
     if (!callee_in_chain) {
         invariant[callee_name].assign(C->blocks.front()->args.size(), true);
@@ -2986,6 +2991,19 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     specialize_callees(funcs, funcs.at(sub_callee)->blocks,
                                        node->key + "!" + v.label, v,
                                        *queue.adt_storages);
+                    // And the copy is the code that will run from here on:
+                    // its `mut` locals promoted and the folds that follow
+                    // made -- the interface test the material kernel keeps
+                    // in a slot is a constant now, and the skip's arm goes
+                    // with everything only it read -- which the pipeline
+                    // would do to it later (the Convert pass) but every
+                    // directive after this one, and the storage decided
+                    // below, must see the same function the drain calls.
+                    {
+                        Function &copy = *funcs.at(sub_callee);
+                        promote_allocas(copy, copy.blocks.front()->name);
+                        simplify(copy);
+                    }
                     const auto child = node->under.find(v.label);
                     grow(child == node->under.end() ? nullptr : &child->second,
                          path + "!" + v.label, sub_callee);
@@ -3010,6 +3028,74 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // drain's name (Function::queue_sizes).
     for (const SubQueue &sq : subqueues) {
         O->queue_sizes[sq.path] = O->queue_sizes.at(queue.name);
+    }
+
+    // What each queue's callee never reads is not stored in that queue. A
+    // split's copies are one variant's program each (specialize_function,
+    // simplified), and a copy that never reads a parameter -- the material
+    // kernel for a diffuse surface reads no previous-hit context, no `r_l`,
+    // no primitive -- may be handed anything there, so its queue has no
+    // array for the parameter's leaves and the drain hands it nothing. An
+    // index field goes with the slots rebuilt from it: unread when every
+    // field it stands for is, and the callee is not handed it (a chain
+    // callee is). The reducer and the result slot are the drain's own.
+    vector<vector<bool>> dead_field(subqueues.size(), vector<bool>(fields.size(), false));
+    {
+        vector<vector<bool>> unread_leaves(subqueues.size(),
+                                           vector<bool>(leaves.size(), false));
+        bool any = false;
+        for (size_t q = 0; q < subqueues.size(); q++) {
+            // What the callee reads once it is the code that will run: a
+            // split's copies are (above); the callee itself, whose sites
+            // are still being rewritten, is looked at as a promoted and
+            // simplified copy that is then discarded.
+            const shared_ptr<Function> as_run = clone_function(*funcs.at(subqueues[q].callee));
+            promote_allocas(*as_run, as_run->blocks.front()->name);
+            simplify(*as_run);
+            const set<string> unread = unread_parameters(*as_run);
+            for (size_t f = 0; f < fields.size(); f++) {
+                const Field &field = fields[f];
+                if (!field.param.has_value()) {
+                    continue; // the reducer, the result slot, an index
+                }
+                dead_field[q][f] = unread.contains(centry.args[*field.param].name);
+            }
+            for (const SlotGroup &group : slot_groups) {
+                bool needed = callee_in_chain;
+                for (size_t f = 0; f < fields.size(); f++) {
+                    needed = needed || (fields[f].index_field == group.field &&
+                                        !dead_field[q][f]);
+                }
+                dead_field[q][group.field] = !needed;
+            }
+            for (size_t f = 0; f < fields.size(); f++) {
+                if (!dead_field[q][f]) {
+                    continue;
+                }
+                any = true;
+                for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
+                    unread_leaves[q][l] = true;
+                }
+            }
+        }
+        if (any) {
+            (*queue.layouts)["Queue_" + queue.name].unread = unread_leaves;
+        }
+        if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+            for (size_t q = 0; q < subqueues.size(); q++) {
+                string left_out;
+                for (size_t f = 0; f < fields.size(); f++) {
+                    if (dead_field[q][f] && fields[f].in_entry) {
+                        left_out += (left_out.empty() ? "" : ", ") + fields[f].name;
+                    }
+                }
+                if (!left_out.empty()) {
+                    std::cerr << ";   " << subqueues[q].path << " does not store "
+                              << left_out << ": " << subqueues[q].callee
+                              << " never reads them\n";
+                }
+            }
+        }
     }
 
     // What the callee is handed to push onto: the queue's address, or the
@@ -3327,15 +3413,24 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     vector<vector<shared_ptr<Value>>> stores(nqueues);
     for (size_t i = 0; i < nqueues; i++) {
         const string qname = double_buffered ? queue.name : subqueues[i].path;
-        for (const Leaf &leaf : leaves) {
-            if (leaf.kind != Leaf::Kind::Stored) {
-                continue;
+        const vector<bool> &dead = dead_field[double_buffered ? 0 : i];
+        for (size_t f = 0; f < fields.size(); f++) {
+            for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
+                const Leaf &leaf = leaves[l];
+                if (leaf.kind != Leaf::Kind::Stored) {
+                    continue;
+                }
+                internal_assert(leaf.array == stores[i].size()) << leaf.name;
+                if (dead[f]) {
+                    // No storage: the queue's callee never reads it.
+                    stores[i].push_back(undef_value(Array_t::make(leaf.type, Expr())));
+                    continue;
+                }
+                stores[i].push_back(scratch(make_alloca(
+                    *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
+                    qname + "_" + leaf.name +
+                        (double_buffered ? "_" + std::to_string(i) : ""))));
             }
-            internal_assert(leaf.array == stores[i].size()) << leaf.name;
-            stores[i].push_back(scratch(make_alloca(
-                *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
-                qname + "_" + leaf.name +
-                    (double_buffered ? "_" + std::to_string(i) : ""))));
         }
     }
     const shared_ptr<Value> queues = scratch(
@@ -3679,6 +3774,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         map<size_t, shared_ptr<Value>> field_values;
         std::function<shared_ptr<Value>(const shared_ptr<Block> &, size_t)> entry_field;
         entry_field = [&](const shared_ptr<Block> &block, size_t f) -> shared_ptr<Value> {
+            if (dead_field[q][f]) {
+                return undef_value(fields[f].type); // the callee never reads it
+            }
             auto it = field_values.find(f);
             if (it == field_values.end() && fields[f].index_field.has_value()) {
                 if (fields[f].slot_array == nullptr) {
@@ -4065,6 +4163,21 @@ void lower_pushes(Function &func, const QueueLayouts &layouts) {
                     << "push to " << queue_t << ", which does not store "
                     << leaf.name << " where its layout says";
             }
+            // Which queue of a split this pushes onto -- `gep(family, k)`,
+            // the k-th leaf of the split -- for the leaves that queue has no
+            // array for (QueueLayout::unread); the one queue otherwise.
+            size_t which = 0;
+            if (const auto *qi = std::get_if<shared_ptr<Instruction>>(&q->data);
+                qi != nullptr && (*qi)->op == Instruction::Op::GEP &&
+                (*qi)->operands.size() == 2) {
+                if (const auto k = constant_of((*qi)->operands[1])) {
+                    which = size_t(*k);
+                }
+            }
+            const auto unread = [&](size_t l) {
+                const auto &table = layout->second.unread;
+                return which < table.size() && l < table[which].size() && table[which][l];
+            };
 
             // A gang's push, told by its value: one slot per lane. The lanes
             // that push -- those the mask has on, or all of them -- compact
@@ -4152,7 +4265,8 @@ void lower_pushes(Function &func, const QueueLayouts &layouts) {
             // through the queue's address -- the handles the entry needs, not
             // the whole queue -- and names the storage itself.
             for (size_t l = 0; l < leaves.size(); l++) {
-                if (parts[l] == nullptr || leaves[l].kind != Leaf::Kind::Stored) {
+                if (parts[l] == nullptr || leaves[l].kind != Leaf::Kind::Stored ||
+                    unread(l)) {
                     continue;
                 }
                 const size_t k = 1 + leaves[l].array;

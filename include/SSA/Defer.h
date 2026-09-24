@@ -31,11 +31,16 @@ namespace ssa {
 // A leaf that is not stored is one the drain can supply without reading
 // it back: the padding an ADT's storage puts between its tag and its
 // payload, which is zero at every construction (Lower/ADTs.cpp) and read by
-// nothing. What is left out is decided here, where the entry is made, and
-// recorded by the queue type's name for lower_pushes(), which meets the
-// push after every directive has run. A layout for the queue that a
-// schedule asks for may replace this; nothing here is the layout
-// language's promise.
+// nothing. And a queue of a split (QueueSpec::split) whose callee copy
+// never reads a parameter -- the material kernel for a diffuse surface
+// reads no previous-hit context -- leaves that parameter's leaves out of
+// its own arrays (`unread`, by queue of the split then by leaf; the drain
+// hands the copy nothing there), while the queue type, shared by the
+// split, keeps the array's place. What is left out is decided here, where
+// the entry is made, and recorded by the queue type's name for
+// lower_pushes(), which meets the push after every directive has run. A
+// layout for the queue that a schedule asks for may replace this; nothing
+// here is the layout language's promise.
 struct QueueLayout {
     struct Leaf {
         std::string name;
@@ -49,6 +54,10 @@ struct QueueLayout {
     Type entry;
     Type queue;
     std::vector<Leaf> leaves;
+    // unread[q][l]: leaf l is not stored in queue q of the split (queue 0
+    // when there is no split), its callee never reading it. Empty when
+    // every leaf is read everywhere.
+    std::vector<std::vector<bool>> unread;
 };
 // The layouts of a program's queues, by the queue type's name.
 using QueueLayouts = std::map<std::string, QueueLayout>;

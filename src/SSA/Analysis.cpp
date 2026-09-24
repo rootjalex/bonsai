@@ -516,6 +516,116 @@ bool has_uses(const Function &func, const Instruction *of) {
     return false;
 }
 
+std::set<std::string> unread_parameters(const Function &func) {
+    std::set<std::string> unread;
+    if (func.blocks.empty()) {
+        return unread;
+    }
+    // A block's argument is read when an instruction or a terminator reads
+    // it -- an operand, a dispatch's condition, a return's value, a loop's
+    // bounds, an argument of a call -- or when it is passed along an edge
+    // to a block argument that is read: liveness over the block arguments,
+    // to a fixed point. What is passed along an edge and read nowhere
+    // downstream is a thread the simplifier has not pruned, not a read.
+    using Arg = pair<string, string>; // block, argument
+    std::set<Arg> live;
+    map<Arg, vector<Arg>> fed_by; // a block argument, and what edges pass it
+    std::vector<Arg> work;
+    const auto read = [&](const string &block, const shared_ptr<Value> &v) {
+        const auto *a = v ? std::get_if<Argument>(&v->data) : nullptr;
+        if (a != nullptr && live.insert({block, a->name}).second) {
+            work.emplace_back(block, a->name);
+        }
+    };
+    const BlockMap bmap = make_block_map(func);
+    // `jump` passes its arguments to `target`'s arguments from `offset` on
+    // (a loop's index, a call's value come first, defined by the edge).
+    const auto thread = [&](const string &block, const Terminator::Jump &jump,
+                            size_t offset) {
+        const auto target = bmap.find(jump.name);
+        if (target == bmap.end()) {
+            return;
+        }
+        const vector<Argument> &params = target->second->args;
+        for (size_t k = 0; k < jump.args.size() && k + offset < params.size(); k++) {
+            const auto *a = jump.args[k] ? std::get_if<Argument>(&jump.args[k]->data)
+                                         : nullptr;
+            if (a != nullptr) {
+                fed_by[{jump.name, params[k + offset].name}].emplace_back(block, a->name);
+            }
+        }
+    };
+    for (const auto &block : func.blocks) {
+        const string &b = block->name;
+        for (const auto &instr : block->instrs) {
+            for (const auto &operand : instr->operands) {
+                read(b, operand);
+            }
+        }
+        std::visit(
+            overloads{
+                [](const std::monostate &) {},
+                [&](const Terminator::Jump &j) { thread(b, j, 0); },
+                [&](const Terminator::Dispatch &d) {
+                    read(b, d.cond);
+                    for (const Terminator::Jump &t : d.targets) {
+                        thread(b, t, 0);
+                    }
+                },
+                [&](const Terminator::Return &r) { read(b, r.value); },
+                [&](const Terminator::ParFor &p) {
+                    read(b, p.start);
+                    read(b, p.end);
+                    read(b, p.stride);
+                    thread(b, p.body, 1);
+                    thread(b, p.cont, 0);
+                },
+                [](const Terminator::Yield &) {},
+                [&](const Terminator::Call &c) {
+                    for (const auto &arg : c.call.args) {
+                        read(b, arg); // handed to the callee: a read
+                    }
+                    thread(b, c.cont, c.drop ? 0 : 1);
+                },
+                [&](const Terminator::MultiCall &c) {
+                    for (const auto &arg : c.call.args) {
+                        read(b, arg);
+                    }
+                    for (const auto &vs : c.varying) {
+                        for (const auto &v : vs) {
+                            read(b, v);
+                        }
+                    }
+                    for (const auto &key : c.keys) {
+                        read(b, key);
+                    }
+                    thread(b, c.cont, 0);
+                },
+            },
+            block->terminator.data);
+    }
+    while (!work.empty()) {
+        const Arg at = work.back();
+        work.pop_back();
+        const auto it = fed_by.find(at);
+        if (it == fed_by.end()) {
+            continue;
+        }
+        for (const Arg &source : it->second) {
+            if (live.insert(source).second) {
+                work.push_back(source);
+            }
+        }
+    }
+    const string &entry = func.blocks.front()->name;
+    for (const Argument &param : func.blocks.front()->args) {
+        if (!live.contains({entry, param.name})) {
+            unread.insert(param.name);
+        }
+    }
+    return unread;
+}
+
 vector<Terminator::Jump *> jumps_of(Block &block) {
     vector<Terminator::Jump *> jumps;
     std::visit(overloads{

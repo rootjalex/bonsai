@@ -86,6 +86,13 @@ void replace_uses(Function &func, const Instruction *of,
 // value a terminator reads or passes?
 bool has_uses(const Function &func, const Instruction *of);
 
+// The parameters of `func` nothing in it reads: no operand, nothing a
+// terminator reads (a dispatch's condition, a return's value, a loop's
+// bounds, a call's arguments), and no block argument that is read, followed
+// along the edges that pass the value on -- a thread through blocks that
+// ends nowhere is not a read. A caller may hand such a parameter anything.
+std::set<std::string> unread_parameters(const Function &func);
+
 // Every place `func` holds a value: the operands of its instructions, what
 // its terminators read or pass (a dispatch's condition, a return's value, a
 // parfor's bounds, every jump's arguments, a run's per-call values and

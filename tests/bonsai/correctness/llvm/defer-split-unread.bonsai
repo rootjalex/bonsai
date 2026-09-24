@@ -1,0 +1,50 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue of a split stores nothing its callee never reads
+// (tests/bonsai/ssa/defer-split-unread.bonsai reads the layout): `extra`
+// -- the value at the mirrored index, different at every iteration -- is
+// read by the Large arm only, so `hits!Small` does not carry it and
+// `hits!Large` does. Small: x + 2; Large: x * 2 + values[7 - i].
+import stdlib/numerics;
+
+element Kind =
+    | Small(x : Float)
+    | Large(x : Float);
+
+func classify(x : Float) -> Kind {
+    if x < 10.0 {
+        return Small(x);
+    }
+    return Large(x);
+}
+
+func step(x : Float, k : Float, extra : Float) -> Float {
+    kind = classify(x);
+    match kind {
+        Small(v) => return v + k;
+        Large(v) => return v * k + extra;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k, values[7 - i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 20.0, 30.0, 4.0, 40.0, 5.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 2.0, out);
+    // {3, 4, 5, 20*2+30, 30*2+20, 6, 40*2+2, 7}
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(kind);
+}

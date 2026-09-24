@@ -18,6 +18,7 @@ add_bonsai_tests(
     defer-nested-producer.bonsai
     merge-variant-fold.bonsai
     defer-split.bonsai
+    defer-split-unread.bonsai
     defer-stage-cycle.bonsai
     defer-tail.bonsai
     defer-uniform-payload.bonsai

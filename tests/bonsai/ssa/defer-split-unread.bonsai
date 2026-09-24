@@ -1,0 +1,48 @@
+//! flags: -p ssa
+
+// A queue of a split stores nothing its callee never reads. `step!after`
+// takes `extra`, which only the Large arm uses; once `hits` is split on
+// `kind`, `step!after!Small` is the Small arm alone and never reads it, so
+// `hits!Small` has no `extra` array -- the push into it skips the store,
+// the drain hands the copy nothing there -- while `hits!Large` stores it
+// (QueueLayout::unread, SSA/Defer.h). The queue type is one for the split,
+// so `Queue_hits` still names the array; `hits!Small`'s queue is built with
+// nothing in its place. What to read for: `hits!Large_extra` and no
+// `hits!Small_extra`, and `step!after!Small` called with nothing read for
+// `extra`. (pbrt's material queues: the kernel for a diffuse surface never
+// reads the previous hit's context, and its queue does not carry it.)
+import stdlib/numerics;
+
+element Kind =
+    | Small(x : Float)
+    | Large(x : Float);
+
+func classify(x : Float) -> Kind {
+    if x < 10.0 {
+        return Small(x);
+    }
+    return Large(x);
+}
+
+func step(x : Float, k : Float, extra : Float) -> Float {
+    kind = classify(x);
+    match kind {
+        Small(v) => return v + k;
+        Large(v) => return v * k + extra;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        // `extra` differs per iteration, so it is the entry's to carry.
+        out[i] = step(values[i], k, values[7 - i]);
+    }
+    return;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(kind);
+}
