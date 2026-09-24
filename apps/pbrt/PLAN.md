@@ -5048,6 +5048,31 @@ the paper will just introduce this as a single primitive." So the language
 keeps `f.defer(g, q)` and `f.stage(g, q)` as two directives
 (grammar_schedule.tex has both), and the paper presents the one primitive.
 
+*Clarified 2026-09-23 (evening), on the user's question.* `defer(g, q)` is
+correct only when the complete continuation of the call waits for the
+drain: the rest of `f`, every caller's rest up to the queue's owner, and
+the owner's frame. The implementation captures exactly that -- the rest of
+`f` (the split stage makes), the owner's frame (the carried values, the
+frame write, the continuation the drain runs) -- and refuses a caller
+between the two that goes on after its call, so nothing partial is ever
+captured; the tail-call rule on the chain is the restriction that makes the
+rest of `f` the whole thing. The one case that defers a call alone is
+`spawn`, whose value only a reducer takes. And `defer` at a call that is
+not in tail position is *not* `stage`: `stage` runs `g` where it is and
+queues `g`'s value with the rest (pbrt's trace-to-material boundary, routed
+by the result); `defer` at such a call queues `g`'s *arguments* with the
+rest and the drain runs `g` and then the rest (pbrt's medium-sample queue,
+routed by the medium, a value known before the walk). The latter is built
+now (SSA/Stage.h, defer_continuation): the call and the rest become one
+function `f!g!k(args, live) { r = g(args); return f!after(r, live) }`, the
+site tail-calls it, and defer() queues that tail call; a recursion that
+goes on after its call is still refused (its continuation is a stack, and
+loopify(N)'s), as is a run of calls. With a program written at pbrt's
+kernel boundaries -- `vol_path_step` traces and routes; the walk, the
+scatter, the surface work and the shadow trace are functions -- every push
+is a tail call, a call deferred with its continuation, or a spawn, and
+`stage` is not needed; it stays as the sugar for the boundary after a call.
+
 **What the cycle then needs (found 2026-09-23, scratch `cycle.bonsai`: a
 recursive `step` whose first call `work` is staged, `step.defer(step, rays)`
 then `step.stage(work, hits)`).** The stage's deferral is refused: "run
