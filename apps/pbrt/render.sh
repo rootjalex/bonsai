@@ -138,7 +138,9 @@ fi
 # as compare.sh and the eval harness give them: pbrt's GPU build is nvcc's
 # --use_fast_math with -maxrregcount 128, its CPU build is exact (see
 # CompilerOptions::fast_math and gpu_max_registers).
-if grep -q "GPUBlock\|GPUThread" "$PREFIX/schedules/$SCHEDULE.bonsai"; then
+# The directives, not the comments: a CPU schedule may well talk about the
+# device schedule it stands in for.
+if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread"; then
   FLAGS+=(--fast-math --gpu-max-registers 128)
 fi
 "./$BONSAI_BUILD_DIR/compiler" -p ssa "${INPUTS[@]}" -o $PREFIX/render.bir

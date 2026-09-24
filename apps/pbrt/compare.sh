@@ -406,7 +406,9 @@ fi
 # the best of the sweep in PLAN.md as well). A CPU schedule is compared
 # against pbrt's CPU build, which has neither flag, and stays exact.
 GPU_FLAGS=()
-if grep -q "GPUBlock\|GPUThread" "$PREFIX/schedules/$SCHEDULE.bonsai"; then
+# The directives, not the comments: a CPU schedule may well talk about the
+# device schedule it stands in for.
+if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread"; then
   GPU_FLAGS=(--fast-math --gpu-max-registers 128)
   echo "a GPU schedule: compiled with --fast-math and a 128-register cap, as pbrt --gpu is built."
 fi

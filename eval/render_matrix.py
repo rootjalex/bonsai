@@ -189,8 +189,12 @@ def tbb_flags(compiler):
 
 
 def gpu_schedule(file):
-    """Whether the schedule binds a loop to the GPU."""
-    text = open(file).read()
+    """Whether the schedule binds a loop to the GPU: the directives say, not
+    the comments, since a CPU schedule may well talk about the device
+    schedule it stands in for."""
+    directives = [line for line in open(file).read().splitlines()
+                  if not line.lstrip().startswith("//")]
+    text = "\n".join(directives)
     return "GPUBlock" in text or "GPUThread" in text
 
 
