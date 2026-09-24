@@ -5659,7 +5659,8 @@ call, copied into the drain -- and with two producer drains there are two
 of them. The way out is not two continuations but none, which is what
 pbrt has.
 
-**The universal join, designed (2026-09-24): the per-path record.** pbrt
+**The universal join: the per-path record (designed and built
+2026-09-24).** pbrt
 keeps every path's per-sample state in one place, `pixelSampleState`,
 written by GenerateCameraRays and read by UpdateFilm, and every work item
 carries only `pixelIndex`; no kernel runs "the rest of the iteration",
@@ -5703,17 +5704,83 @@ ends in its first step; pbrt does not have it and it is what stands in
 the way, so it is replaced rather than kept beside. Every `defer-*` test's
 golden will move (analyzed one by one); their printed results must not.
 
-The order of that work: (1) the record and its index in defer(): fields,
-allocation at the queue's point, the index parameter threaded down the
-chain and stored in the entry, slots for reducers and mutable locals
-derived from it; (2) the continuation moved to the pass over the records
-and the flag plumbing removed, `join_continuations` becoming that pass;
-(3) a queue with several producer drains, now trivially allowed, and the
-medium queues in `wavefront-volpath.bonsai`, checked on the two media
-scenes bit for bit on gbuffer and albedo against scalar and at pbrt's
-figures. The three scenes measured against `pbrt --gpu` have no medium,
-so this changes nothing for them; it is what makes the CPU wavefront
-pbrt's wavefront queue for queue on a medium scene.
+*Built, the same day, in SSA/Defer.cpp.* The record is a set of arrays
+beside the queues, one per value, sized as the queues are and indexed by
+the producer iteration (`<queue>_<local>_slots` for a local given a slot,
+`<queue>_rest_<name>` for a value the rest needs, `<queue>_result` for
+the call's value): a reducer local and a mutable local the chain is
+handed have their allocas replaced by the slot's address, as reducer
+slots already were (Function::record_slots, formerly reducer_slots); the
+rest's values are stored before the call; the call's value is stored
+where the path ends, through a `_result_<queue>` pointer parameter every
+chain function takes beside `_queue_<queue>` and every entry carries. An
+entry stores the address of a slot rather than the record's index -- the
+same thing with a wider spelling; the index (pbrt's `pixelIndex`) is a
+compaction for later, since an entry carrying a `(SamplerState*)` is
+smaller than one carrying the state and larger than one carrying an
+`i32`. The pass is `<queue>_rest`, a parfor over the producer's count
+after the rounds (or after the one-pass drain), which jumps into the
+producer's continuation blocks -- moved, not copied -- with the slot
+addresses, the record's values and the result. Every chain function
+returns void; a tail call between chain functions drops its value; a
+deferred site pushes and returns; a drain runs its callee and yields; the
+`Saved_*` structs, the dispatch after the producer's call, the frame
+writes and the drains' continuation copies are gone (Defer.cpp is about
+a hundred lines shorter, the record's construction having taken half of
+what the flag's removal gave back). One consequence for the backends: an entry's
+slot address in a gang is one pointer per lane, and a store through it is
+a scatter, which the store lowering now accepts (ir::pointee_of; both the
+relooper's and the direct SSA path's location builders) -- the LLVM store
+already scattered through a vector of addresses. Every `defer-*` golden
+moved as predicted and was read (the entry's frame field becomes a
+`_result` address; the drain's dispatch becomes a call and `continue`;
+the rest appears as `<queue>_rest` after the rounds; `stage`'s drain
+writes the result through the slot and the pass does the store); every
+printed result is unchanged; the suite is 1040 green.
+
+With no drain running a continuation, several drains may feed one queue:
+the one-producer rule is now "several producers when each ends its
+iteration at its call", which a drain does and a spawned call's producer
+does by the program's word (tests/bonsai/correctness/llvm/
+defer-two-drains: a trace, a medium kernel and a material kernel fed by
+both). A parameter the two drains hand different slot addresses -- the
+sampler state, the visible surface, the reducer `l` -- is not one value
+but one kind of value: every route from the owner is followed to a record
+slot or an owner parameter (`handed_slots`, which the spawned reducer's
+check already did), and the entry stores the address.
+
+*The medium queues, in the schedule.* `medium_samples =
+render[VolPath].queue(p); vol_path_step.defer(vol_medium_sample,
+medium_samples); medium_scatters = render[VolPath].queue(p);
+vol_medium_sample.defer(vol_medium_scatter, medium_scatters);` between
+the ray queue and the escaped queue, so that a round is rays,
+medium_samples, medium_scatters, escaped, emissive, the eight material
+drains, shadow -- pbrt's Render loop, kernel for kernel -- and `rays_rest`
+(UpdateFilm) after the rounds; `escaped`, `emissive` and `hits` are each
+fed by the rays drain and the medium-sample drain. Checked (scratch
+`cmp-sf-*`): camera-medium and homogeneous-medium render bit for bit
+against scalar on gbuffer, albedo and radiance -- radiance too, now that
+the film write runs in the pass in the scalar's order, where the drains'
+per-entry continuations summed in another -- at pbrt's figures (2.3% and
+39.8% per-pixel agreement, as before); killeroo-simple, which has no
+medium, the same, bit for bit on all three images and 33.2% at pbrt. The
+whole compile is 47 s. The wavefront is pbrt's queue for queue on the
+CPU.
+
+What is left of the design: the record index in place of slot addresses
+(above); a single ray buffer when no drain pushes onto its own queue
+(`QueueSpec::drain_pushes_self` still follows the stage and
+defer_continuation boundaries only; with the medium scatter deferred,
+nothing in the rays drain pushes onto rays, so its double buffer is
+unneeded -- a reachability question over the directives yet to be
+applied, since when the ray deferral runs, the scatter's call is still
+a call); and the join for a spawned queue whose producer is a plain loop
+(`join_continuations`, `_done`), which is the same pass over a record
+with a pushed count and could become the record pass proper.
+
+The three scenes measured against `pbrt --gpu` have no medium, so the
+medium queues change nothing for them; it is what makes the CPU
+wavefront pbrt's wavefront queue for queue on a medium scene.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)
@@ -5723,8 +5790,7 @@ keyed by an outcome -- done (above), the CPU wavefront now has pbrt's
 escaped queue and material queues; (5) the shadow ray deferred with its
 result consumed -- done, and with it the escaped and emissive queues and
 the program at pbrt's kernel boundaries (above); (5b) the medium queues
-(above: a spawned queue with several pusher functions, then the universal
-join for a tail-deferred queue with several producer drains); (6) device
+-- done, on the per-path record (above); (6) device
 queues and the multi-kernel launch, measured against `pbrt --gpu` on
 killeroo, book and pavilion with the images checked; (7) the Path half of
 the compact wavefront and the compile-time follow-ups (the inliner, CSE,

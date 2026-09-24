@@ -44,6 +44,20 @@ schedule {
     vol_medium_scatter.defer(vol_path_step, rays);
     vol_surface.defer(vol_path_step, rays);
 
+    // pbrt's medium queues, drained after the trace and before the three
+    // the routing feeds. mediumSampleQueue (SampleMediumInteraction): the
+    // trace kernel pushes a ray in a medium, hit or miss, and the drain
+    // walks the medium. mediumScatterQueue (SampleMediumScattering): the
+    // medium kernel pushes a scattering event, and the drain samples the
+    // light and the phase function and pushes the turned ray onto rays.
+    // The medium kernel's survivors go where the trace's do (vol_route), so
+    // the three queues below are fed by the rays drain and the medium-
+    // sample drain alike, as pbrt's are.
+    medium_samples = render[VolPath].queue(p);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
     // pbrt's queues after the trace, drained in pbrt's order each round.
     // The escaped rays (escapedRayQueue, HandleEscapedRays) and the emissive
     // hits (hitAreaLightQueue, HandleEmissiveIntersection): spawned calls,
@@ -68,14 +82,6 @@ schedule {
     // own, drained after the rounds.
     shadow = render[VolPath].queue(p);
     vol_sample_ld.defer(shadow_contribution, shadow);
-    // Not yet pbrt's: the rays that start in a medium do their medium walk
-    // in the rays drain (vol_medium_sample, called from the trace kernel),
-    // where pbrt sends them to a medium-sample queue and its scattering
-    // events to another (SampleMediumInteraction, SampleMediumScattering)
-    // and has the medium kernel feed the material queues alongside the
-    // trace -- a queue with two producer drains, which the deferral does
-    // not take yet (apps/pbrt/PLAN.md, "the medium queues").
-
     trace.sort(primitives.Interior,
                |i : u8, r : Ray, axis : u8|
                select((1.0 / r.d)[axis] < 0.0,
