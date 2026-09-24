@@ -1580,8 +1580,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     };
 
     // A definition in function `g` (the owner, or one on the chain), as the
-    // owner can have it before the producer loop, or nothing.
+    // owner can have it before the producer loop, or nothing. `stuck` says
+    // why one did not move, for the explanation.
     map<std::pair<string, const Instruction *>, optional<Definition>> moved;
+    map<std::pair<string, const Instruction *>, string> stuck;
+    std::function<string(const string &, const Definition &)> why_stuck =
+        [&](const string &g, const Definition &d) -> string {
+        if (!d.value) {
+            return "an undefined value";
+        }
+        if (const auto *arg = std::get_if<Argument>(&d.value->data)) {
+            if (g == queue.owner) {
+                return arg->name + " is a value of the iteration";
+            }
+            return arg->name + ", a parameter of " + g +
+                   ", is not one value at every call";
+        }
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+        if (held == nullptr) {
+            return "a constant";
+        }
+        const auto it = stuck.find({g, held->get()});
+        return it == stuck.end() ? (*held)->name + " did not move" : it->second;
+    };
     std::function<optional<Definition>(const string &, const Definition &)>
         materialize = [&](const string &g,
                           const Definition &d) -> optional<Definition> {
@@ -1621,44 +1642,66 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             return it->second;
         }
         moved[key] = std::nullopt; // against a cycle, and the answer if not
-        if (!recomputable(*in)) {
+        const auto held_back = [&](string why) -> optional<Definition> {
+            stuck[key] = in->name + ": " + std::move(why);
             return std::nullopt;
+        };
+        // An operand that did not move holds this back.
+        const auto operand_stuck = [&](const Definition &od) {
+            return held_back(why_stuck(g, od));
+        };
+        if (!recomputable(*in)) {
+            std::ostringstream os;
+            in->dump(os);
+            return held_back("cannot be computed again elsewhere (" + os.str() + ")");
         }
         Definitions &gdefs = defs.at(g);
         if (in->op == Instruction::Op::Set) {
             // A name for a value, not a computation: the value is what moves.
-            return moved[key] = materialize(g, gdefs.of(d.block, in->operands[0]));
+            const Definition vd = gdefs.of(d.block, in->operands[0]);
+            const auto m = materialize(g, vd);
+            return moved[key] = m.has_value() ? m : operand_stuck(vd);
         }
-        if (in->op == Instruction::Op::Load ||
-            in->op == Instruction::Op::ExtractIdx) {
+        if (reads_memory(*in)) {
             const Definition bd = gdefs.of(d.block, in->operands[0]);
             // A read of the owner's own local that nothing inside the loops
             // writes: what it holds before the loop is what every iteration
             // reads, so the read moves there.
             if (const Instruction *slot = g == queue.owner ? as_local(bd) : nullptr) {
-                if (!available(bd) || written_inside(slot)) {
-                    return std::nullopt;
+                if (!available(bd)) {
+                    return held_back("reads " + slot->name +
+                                     ", a local made inside the iteration");
+                }
+                if (written_inside(slot)) {
+                    return held_back("reads " + slot->name + ", which something "
+                                     "inside the producer loop writes");
                 }
                 vector<shared_ptr<Value>> operands{reach(point, bd.value)};
                 for (size_t k = 1; k < in->operands.size(); k++) {
-                    const auto m = materialize(g, gdefs.of(d.block, in->operands[k]));
+                    const Definition od = gdefs.of(d.block, in->operands[k]);
+                    const auto m = materialize(g, od);
                     if (!m.has_value()) {
-                        return std::nullopt;
+                        return operand_stuck(od);
                     }
                     operands.push_back(reach(point, m->value));
                 }
                 return moved[key] = copy_into_point(*in, std::move(operands));
             }
             const auto base = materialize(g, bd);
-            if (!base.has_value() || !read_only_parameter(*base)) {
-                return std::nullopt;
+            if (!base.has_value()) {
+                return operand_stuck(bd);
+            }
+            if (!read_only_parameter(*base)) {
+                return held_back("reads memory that is not a parameter the "
+                                 "owner cannot write through");
             }
         }
         vector<shared_ptr<Value>> operands;
         for (const auto &operand : in->operands) {
-            const auto m = materialize(g, gdefs.of(d.block, operand));
+            const Definition od = gdefs.of(d.block, operand);
+            const auto m = materialize(g, od);
             if (!m.has_value()) {
-                return std::nullopt;
+                return operand_stuck(od);
             }
             operands.push_back(reach(point, m->value));
         }
@@ -2161,12 +2204,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             case Where::Stored:
                 if (fields[params[j].field].slot_address) {
                     std::cerr << "the address of a slot of the record";
+                } else if (invariant.at(callee_name)[j]) {
+                    std::cerr << "stored: one value down the chain, but computed "
+                                 "inside the producer's iteration";
+                    if (const Definition &org = fields[params[j].field].origin;
+                        org.value) {
+                        std::cerr << " (" << why_stuck(queue.owner, org) << ")";
+                    }
                 } else {
-                    std::cerr << "stored: "
-                              << (invariant.at(callee_name)[j]
-                                      ? "one value down the chain, but computed "
-                                        "inside the producer's iteration"
-                                      : "differs between calls");
+                    std::cerr << "stored: differs between calls";
+                    if (disagreement[callee_name].contains(j)) {
+                        std::cerr << " (" << disagreement[callee_name][j] << ")";
+                    }
                 }
                 break;
             }

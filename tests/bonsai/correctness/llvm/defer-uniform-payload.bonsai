@@ -1,0 +1,46 @@
+//! flags: -p ssa -b llvm -e
+
+// A depth limit unwrapped from an ADT's payload -- a lane of a vector
+// value, not a read of memory -- is one value at every call, so the entry
+// does not hold it and the drain computes it once before the loop
+// (tests/bonsai/ssa/defer-uniform-payload.bonsai reads the plan). Here the
+// sums come out right with the limit left out of the queue: tally(i, 0, 5)
+// is the sum of i..4, and 0 from 5 on.
+
+element Limits =
+    | Shallow(max_depth : i32)
+    | Deep(max_depth : i32);
+
+func tally(n : i32, acc : i32, max_depth : i32) -> i32 {
+    if (n >= max_depth) {
+        return acc;
+    }
+    return tally(n + 1, acc + n, max_depth);
+}
+
+func start(i : i32, limits : Limits) -> i32 {
+    match limits {
+        Shallow(max_depth) => return tally(i, 0, max_depth);
+        Deep(max_depth) => return 2 * max_depth;
+    }
+}
+
+func run(out : mut array[i32, 8], limits : Limits) -> void {
+    parfor i in 0:8 {
+        out[i] = start(i, limits);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out, Shallow(5));
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.specialize(limits);
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+}

@@ -20,6 +20,7 @@ add_bonsai_tests(
     defer-split.bonsai
     defer-stage-cycle.bonsai
     defer-tail.bonsai
+    defer-uniform-payload.bonsai
     divide-by-constant.bonsai
     divergence.bonsai
     forall.bonsai

@@ -50,6 +50,7 @@ add_bonsai_tests(
     mutual-recursion.bonsai
     defer-split.bonsai
     defer-split-nested.bonsai
+    defer-uniform-payload.bonsai
     defer-sum.bonsai
     divide-by-constant.bonsai
     dynamic-array.bonsai

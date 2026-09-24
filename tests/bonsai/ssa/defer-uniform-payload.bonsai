@@ -1,0 +1,47 @@
+//! flags: -p ssa
+
+// A value unwrapped from an ADT's payload -- a lane of a vector value, not
+// a read of memory -- is one value at every call when the ADT is, and the
+// entry does not hold it.
+//
+// `run.specialize(limits)` resolves the match in `start` for each variant,
+// so the loop's body takes the depth limit out of the parameter's payload
+// word and passes it down the deferred recursion. Every push of `sums`
+// passes the same limit, computed from the parameter alone, so the entry
+// holds `n` and `acc` and nothing else: the drain gets the limit from a
+// copy of that computation made before the loop. What to read for:
+// `Entry_sums` with two fields, and no `sums_max_depth` array. (apps/pbrt's
+// `render.specialize(integrator)` with `li_vol_path.defer(vol_path_step,
+// rays)` is this shape: the depth limit every kernel takes is a word of the
+// integrator's payload.)
+
+element Limits =
+    | Shallow(max_depth : i32)
+    | Deep(max_depth : i32);
+
+func tally(n : i32, acc : i32, max_depth : i32) -> i32 {
+    if (n >= max_depth) {
+        return acc;
+    }
+    return tally(n + 1, acc + n, max_depth);
+}
+
+func start(i : i32, limits : Limits) -> i32 {
+    match limits {
+        Shallow(max_depth) => return tally(i, 0, max_depth);
+        Deep(max_depth) => return 2 * max_depth;
+    }
+}
+
+func [[export]] run(out : mut array[i32, 8], limits : Limits) -> void {
+    parfor i in 0:8 {
+        out[i] = start(i, limits);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(limits);
+    sums = run.queue(root);
+    tally.defer(tally, sums);
+}
