@@ -5768,13 +5768,21 @@ whole compile is 47 s. The wavefront is pbrt's queue for queue on the
 CPU.
 
 What is left of the design: the record index in place of slot addresses
-(above); a single ray buffer when no drain pushes onto its own queue
-(`QueueSpec::drain_pushes_self` still follows the stage and
-defer_continuation boundaries only; with the medium scatter deferred,
-nothing in the rays drain pushes onto rays, so its double buffer is
-unneeded -- a reachability question over the directives yet to be
-applied, since when the ray deferral runs, the scatter's call is still
-a call). The join for a spawned queue whose producer is a plain loop
+(above). Two more pieces went the same day. The ray queue is one buffer
+when no drain pushes onto its own queue: `QueueSpec::drain_pushes_self`
+is now a reachability question -- whether the drain's callee reaches one
+of the queue's pushers along calls that stay calls once every directive
+is applied, a call another directive defers being a push onto another
+queue and the calls after a staged one moving to that queue's drain --
+asked in Convert over the directives yet to be applied, since when the
+ray deferral runs the scatter's call is still a call. With the medium
+scatter and the material kernel queues of their own, nothing in the rays
+drain pushes onto rays, and `rays_queue` is one `Queue_rays` whose count
+is read for the pass and reset before it, where pbrt keeps
+`rayQueues[2]` (tests/bonsai/ssa/defer-single-buffer; the stage cycle
+keeps its one buffer by the same rule, a pusher whose pushes lie after
+the stage's boundary pushing from the other drain). The join for a
+spawned queue whose producer is a plain loop
 (`join_continuations`, `_done`) *is* now the record pass: a spawned
 call's producer keeps the call's value itself -- the call ran; only the
 spawned calls inside it wait -- and its rest goes to `<queue>_rest` like

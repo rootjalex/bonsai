@@ -2012,31 +2012,82 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         spec.owner = q->second.owner;
                         attach_splits(spec, queue_splits, adt_storages);
                         spec.initial_push = directive_on(q->second.owner);
-                        // Whether running an entry can push onto this queue:
-                        // not when a stage on the callee, or a deferral of a
-                        // call with its continuation, moves every one of the
-                        // recursive calls into the rest, run by that queue's
-                        // drain -- then one buffer serves every round
-                        // (SSA/Defer.h).
-                        if (name == callee) {
-                            for (const ir::Transform &t : transforms.at(name)) {
-                                std::string boundary;
-                                if (const auto *st = std::get_if<ir::Stage>(&t);
-                                    st != nullptr && !st->callee.names.empty()) {
-                                    boundary = st->callee.names.back();
-                                } else if (const auto *other = std::get_if<ir::Defer>(&t);
-                                           other != nullptr &&
-                                           !other->callee.names.empty() &&
-                                           other->callee.names.back() != callee &&
-                                           has_nontail_call(fmap, name,
-                                                            other->callee.names.back())) {
-                                    boundary = other->callee.names.back();
+                        // Whether running an entry can push onto this queue,
+                        // which is what asks for a second buffer (SSA/
+                        // Defer.h): whether the callee reaches one of the
+                        // queue's pushers along calls that stay calls once
+                        // every directive is applied. A call another
+                        // directive defers is a push onto another queue, run
+                        // by that queue's drain after this one's pass; the
+                        // calls after a staged one, or after one deferred
+                        // with its continuation, move to that queue's drain
+                        // with the rest of their function. So the ray queue
+                        // is two buffers while the medium scattering runs
+                        // inside the trace's drain and hands the turned ray
+                        // straight back, and one once the scattering is a
+                        // queue of its own and the material kernel another:
+                        // every push onto it then comes after its pass.
+                        {
+                            const std::set<std::string> pusher_set(pushers.begin(),
+                                                                   pushers.end());
+                            std::set<std::string> seen;
+                            std::vector<std::string> work{callee};
+                            bool pushes_self = false;
+                            while (!work.empty() && !pushes_self) {
+                                const std::string g = work.back();
+                                work.pop_back();
+                                if (!seen.insert(g).second) {
+                                    continue;
                                 }
-                                if (!boundary.empty() &&
-                                    calls_after(*fmap.at(name), boundary, callee)) {
-                                    spec.drain_pushes_self = false;
+                                const auto gf = fmap.find(g);
+                                if (gf == fmap.end()) {
+                                    continue;
+                                }
+                                // The calls of g that other directives turn
+                                // into pushes, and the boundaries after which
+                                // g's calls move to another drain.
+                                std::set<std::string> deferred_edges;
+                                std::vector<std::string> boundaries;
+                                if (const auto ts = transforms.find(g);
+                                    ts != transforms.end()) {
+                                    for (const ir::Transform &t : ts->second) {
+                                        if (const auto *st = std::get_if<ir::Stage>(&t);
+                                            st != nullptr && !st->callee.names.empty()) {
+                                            boundaries.push_back(st->callee.names.back());
+                                        } else if (const auto *other =
+                                                       std::get_if<ir::Defer>(&t);
+                                                   other != nullptr &&
+                                                   !other->callee.names.empty()) {
+                                            const std::string &h = other->callee.names.back();
+                                            deferred_edges.insert(h);
+                                            if (has_nontail_call(fmap, g, h)) {
+                                                boundaries.push_back(h);
+                                            }
+                                        }
+                                    }
+                                }
+                                const auto moved = [&](const std::string &h) {
+                                    return std::any_of(
+                                        boundaries.begin(), boundaries.end(),
+                                        [&](const std::string &b) {
+                                            return calls_after(*gf->second, b, h);
+                                        });
+                                };
+                                // A pusher reached pushes from this drain,
+                                // unless its pushes lie after a boundary and
+                                // so are made from the other drain -- the
+                                // cycle rays to hits to rays.
+                                if (pusher_set.contains(g) && !moved(callee)) {
+                                    pushes_self = true;
+                                    break;
+                                }
+                                for (const std::string &h : callees_of(*gf->second)) {
+                                    if (!deferred_edges.contains(h) && !moved(h)) {
+                                        work.push_back(h);
+                                    }
                                 }
                             }
+                            spec.drain_pushes_self = pushes_self;
                         }
                         // The other pushers: every function with a directive
                         // on this queue and callee but the primary and the

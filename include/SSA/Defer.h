@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -43,14 +44,17 @@ struct QueueSpec {
     // what breaks it: once the calls back are pushes, the chain from the
     // owner to the callee has no recursion in it but the callee's own.
     std::vector<std::string> also_from;
-    // Whether running an entry can push onto this queue: a deferred
-    // self-recursion whose recursive calls the drain's callee still makes.
-    // False when a stage on the callee moves every one of them into the
-    // rest, which another queue's drain runs after this one's pass -- the
-    // cycle rays to hits to rays -- so that nothing writes this queue while
-    // it is read, and one buffer, its count read for the pass and reset
-    // before it, serves every round in place of the two a self-feeding
-    // queue has (see the Convert pass, which reads the stage directives).
+    // Whether running an entry can push onto this queue: whether the drain's
+    // callee reaches one of the queue's pushers along calls that stay calls
+    // once every directive is applied (see the Convert pass, which walks the
+    // call graph less the deferred edges). True for a self-recursion the
+    // drain still makes, and for a scattering that runs inside the trace's
+    // drain and hands the turned ray back. False when every push comes from
+    // another queue's drain, after this one's pass -- rays to hits to rays,
+    // the medium scatter a queue of its own -- so that nothing writes this
+    // queue while it is read, and one buffer, its count read for the pass
+    // and reset before it, serves every round in place of the two a
+    // self-feeding queue has.
     bool drain_pushes_self = true;
     // The queue split by a value into one queue per variant, and those
     // split further: `hits.specialize(isect); hits[Some].specialize(
@@ -236,6 +240,9 @@ struct QueueSpec {
 // declare.
 std::vector<Type> defer(FuncMap &funcs, const std::string &func,
                         const std::string &callee, const QueueSpec &queue);
+
+// The functions `f` calls, by name: the call graph's edges out of `f`.
+std::set<std::string> callees_of(const Function &f);
 
 // Replaces every Push with what it stands for: a fetch-and-add of the queue's
 // count, atomic when the push is, and a store of the entry into the slot that

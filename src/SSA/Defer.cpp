@@ -316,16 +316,6 @@ const Instruction *as_local(const Definition &d) {
 // The call graph
 //===--------------------------------------------------------------------===//
 
-set<string> callees_of(const Function &f) {
-    set<string> out;
-    for (const auto &block : f.blocks) {
-        if (const auto *call = block->terminator.callee()) {
-            out.insert(call->name);
-        }
-    }
-    return out;
-}
-
 // Every function reachable from `start` by calls, `start` excluded unless it
 // is reached again.
 set<string> reachable_functions(const FuncMap &funcs, const string &start) {
@@ -383,6 +373,16 @@ bool is_tail_call(const Terminator::Call &call, const BlockMap &bmap) {
 //===--------------------------------------------------------------------===//
 
 } // namespace
+
+set<string> callees_of(const Function &f) {
+    set<string> out;
+    for (const auto &block : f.blocks) {
+        if (const auto *call = block->terminator.callee()) {
+            out.insert(call->name);
+        }
+    }
+    return out;
+}
 
 // A copy of the blocks `region` of `func`, renamed with `suffix`, for placing
 // the rest of a producer's iteration inside the drain -- and, declared in

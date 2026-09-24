@@ -1,0 +1,97 @@
+type Entry_hits = struct Entry_hits{ x : i32; depth : i32 }
+type Entry_rays = struct Entry_rays{ x : i32; depth : i32 }
+type Float = f32
+type Half = f16
+type Queue_hits = struct Queue_hits{ count : u32; x : i32[]; depth : i32[] }
+type Queue_rays = struct Queue_rays{ count : u32; x : i32[]; depth : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[noinline]] run(a : i32[4], total : mut (i32*)) -> void {
+  rays!round : mut u32
+  rays_x : mut i32[4]
+  rays_depth : mut i32[4]
+  rays_queue : mut Queue_rays
+  let @1 = build<Queue_rays>(0u, rays_x, rays_depth) in
+  rays_queue = @1
+  hits_x : mut i32[4]
+  hits_depth : mut i32[4]
+  hits_queue : mut Queue_hits
+  parfor i in [0:4:1] {
+    let @0 = a[i] in
+    let @2 = build<Entry_rays>(@0, 3) in
+    let @18 = atomic_add((&(*rays_queue).count), 1u) in
+    let @20 = (*rays_queue).x in
+    @20[@18] = @0
+    let @23 = (*rays_queue).depth in
+    @23[@18] = 3
+    continue
+  }
+  rays!round = 0u
+  while (!((*rays_queue).count == 0u)) {
+    let @6 = (*rays_queue).count in
+    rays_queue.count = 0u
+    let @11 = build<Queue_hits>(0u, hits_x, hits_depth) in
+    hits_queue = @11
+    parfor rays in [0u:@6:1u] {
+      let @9 = rays_x[rays] in
+      let @10 = rays_depth[rays] in
+      trace_step(@9, @10, total, rays_queue, hits_queue)
+      continue
+    }
+    let @12 = (*hits_queue) in
+    let @13 = @12.count in
+    parfor hits in [0u:@13:1u] {
+      let @14 = hits_x[hits] in
+      let @15 = hits_depth[hits] in
+      shade_step(@14, @15, total, rays_queue)
+      continue
+    }
+    hits_queue.count = 0u
+    let @4 = (*rays!round) + 1u in
+    rays!round = @4
+  }
+  return
+}
+
+func [[noinline]] shade_step(x : i32, depth : i32, total : mut (i32*), _queue_rays : mut (Queue_rays*)) -> void {
+  let @0 = x << 1 in
+  total += @0
+  let @1 = x + 1 in
+  let @2 = depth - 1 in
+  let @3 = build<Entry_rays>(@1, @2) in
+  let @6 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @8 = (*_queue_rays).x in
+  @8[@6] = @1
+  let @11 = (*_queue_rays).depth in
+  @11[@6] = @2
+  return
+}
+
+func [[noinline]] trace_step(x : i32, depth : i32, total : mut (i32*), _queue_rays : mut (Queue_rays*), _queue_hits : mut (Queue_hits*)) -> void {
+  let @0 = depth == 0 in
+  if (@0) {
+    return
+  } else {
+    total += x
+    let @1 = build<Entry_hits>(x, depth) in
+    let @4 = atomic_add((&(*_queue_hits).count), 1u) in
+    let @6 = (*_queue_hits).x in
+    @6[@4] = x
+    let @9 = (*_queue_hits).depth in
+    @9[@4] = depth
+    return
+  }
+}
+
+
+schedule host {
+    hits = run.queue(root);
+    rays = run.queue(root);
+    run.defer(trace_step, rays)
+    shade_step.defer(trace_step, rays)
+    trace_step.defer(shade_step, hits)
+
+}
