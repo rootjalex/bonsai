@@ -13,6 +13,7 @@ add_bonsai_tests(
     coated-diffuse.bonsai
     collapse.bonsai
     compare-fold.bonsai
+    cse-parfor-bound.bonsai
     dce-effectful-argument.bonsai
     dce.bonsai
     defer-frame.bonsai
@@ -41,6 +42,7 @@ add_bonsai_tests(
     defer-continuation.bonsai
     defer-drain-order.bonsai
     defer-mutual-producers.bonsai
+    defer-nested-producer.bonsai
     defer-primary-pusher.bonsai
     defer-two-drains.bonsai
     mutual-recursion.bonsai

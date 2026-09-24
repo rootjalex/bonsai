@@ -1,0 +1,117 @@
+type Entry_paths = struct Entry_paths{ x : i32; depth : i32; total : (i32*) }
+type Float = f32
+type Half = f16
+type Queue_paths = struct Queue_paths{ count : u32; x : i32[]; depth : i32[]; total : (i32*)[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[noinline]] run(out : mut i32[4]) -> void {
+  paths!round : mut u32
+  let @8 = 4 * 4 in
+  paths_total_slots : mut i32[@8]
+  paths_rest_p : mut i32[@8]
+  paths_x_0 : mut i32[@8]
+  paths_depth_0 : mut i32[@8]
+  paths_total_0 : mut (i32*)[@8]
+  paths_x_1 : mut i32[@8]
+  paths_depth_1 : mut i32[@8]
+  paths_total_1 : mut (i32*)[@8]
+  paths_queue : mut Queue_paths[2]
+  let @12 = build<Queue_paths>(0u, paths_x_0, paths_depth_0, paths_total_0) in
+  paths_queue[0u] = @12
+  let @14 = build<Queue_paths>(0u, paths_x_1, paths_depth_1, paths_total_1) in
+  paths_queue[1u] = @14
+  parfor p in [0:4:1] {
+    out[p] = 0
+    parfor s in [0:4:1] {
+      let @9 = p * 4 in
+      let @10 = @9 + s in
+      paths_total_slots[@10] = 0
+      let @1 = p << 2 in
+      let @2 = @1 + s in
+      let @16 = p * 4 in
+      let @17 = @16 + s in
+      paths_rest_p[@17] = p
+      let @20 = build<Entry_paths>(@2, 3, (&paths_total_slots[@10])) in
+      let @50 = atomic_add((&paths_queue[0u].count), 1u) in
+      let @52 = paths_queue[0u].x in
+      @52[@50] = @2
+      let @55 = paths_queue[0u].depth in
+      @55[@50] = 3
+      let @58 = paths_queue[0u].total in
+      @58[@50] = (&paths_total_slots[@10])
+      continue
+    }
+    continue
+  }
+  paths!round = 0u
+  while (!(paths_queue[(*paths!round) & 1u].count == 0u)) {
+    let @24 = (*paths!round) & 1u in
+    let @26 = paths_queue[(*paths!round) & 1u].count in
+    let @28 = @24 ^ 1u in
+    paths_queue[@28].count = 0u
+    parfor paths in [0u:@26:1u] {
+      let @29 = (&paths_queue[@28]) in
+      let @33 = paths_queue[@24].x in
+      let @34 = @33[paths] in
+      let @36 = paths_queue[@24].depth in
+      let @37 = @36[paths] in
+      let @39 = paths_queue[@24].total in
+      let @40 = @39[paths] in
+      step(@34, @37, @40, @29)
+      continue
+    }
+    let @23 = (*paths!round) + 1u in
+    paths!round = @23
+  }
+  parfor paths_rest in [0:@8:1] {
+    let @43 = paths_rest_p[paths_rest] in
+    let total = (&paths_total_slots[paths_rest]) in
+    let p = @43 in
+    let @3 = (*total) in
+    out[p] += @3
+    continue
+  }
+  parfor p$1 in [0:4:1] {
+    let @5 = out[p$1] in
+    let @44 = @5 >> 31 in
+    let @45 = reinterpret_cast<u32>(@44) in
+    let @46 = @45 >> 30u in
+    let @47 = reinterpret_cast<i32>(@46) in
+    let @48 = @5 + @47 in
+    let @6 = @48 >> 2 in
+    out[p$1] = @6
+    continue
+  }
+  return
+}
+
+func [[noinline]] step(x : i32, depth : i32, total : mut (i32*), _queue_paths : mut (Queue_paths*)) -> void {
+  let @0 = depth == 0 in
+  if (@0) {
+    return
+  } else {
+    total += x
+    let @1 = x + 1 in
+    let @2 = depth - 1 in
+    let @3 = build<Entry_paths>(@1, @2, total) in
+    let @6 = atomic_add((&(*_queue_paths).count), 1u) in
+    let @8 = (*_queue_paths).x in
+    @8[@6] = @1
+    let @11 = (*_queue_paths).depth in
+    @11[@6] = @2
+    let @14 = (*_queue_paths).total in
+    @14[@6] = total
+    return
+  }
+}
+
+
+schedule host {
+    paths = run.queue(root);
+    run.defer(step, paths)
+    step.defer(step, paths)
+
+}

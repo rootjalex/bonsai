@@ -1357,12 +1357,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
-    // The producer loop: the one parfor of the region whose body holds the
-    // call, if any. Nested parfors would multiply the count; not yet. One
-    // per producer.
-    vector<shared_ptr<Block>> producer_loops;
+    // The producer loops: the parfors of the region around each producer's
+    // call, outermost first -- the frame's pixels and a pixel's samples,
+    // when the queue is the frame's. The outermost is where the drain goes
+    // and the queue holds the product of their trip counts, one entry per
+    // iteration of the innermost; a loop between the outermost and the call
+    // may do nothing after its inner loop, since the rest of an iteration
+    // runs in the record's pass after the drain, and that pass is one loop
+    // over the innermost iterations (pbrt's GetImage is a pass of its own
+    // after UpdateFilm). With several producers, each is in one loop.
+    vector<vector<shared_ptr<Block>>> producer_nests;
     for (const CallSite &pc : producers) {
-        shared_ptr<Block> loop;
+        vector<shared_ptr<Block>> nest;
         for (BlockId b : region.rpo) {
             const shared_ptr<Block> &block = region.block(b);
             const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
@@ -1370,20 +1376,51 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 continue;
             }
             const Cfg body(*O, p->body.name);
-            if (!body.contains(pc.block->name)) {
-                continue;
+            if (body.contains(pc.block->name)) {
+                nest.push_back(block);
             }
-            internal_assert(!loop)
-                << what << ": the call to " << pc.call()->call.name << " in "
-                << pc.block->name << " is inside two nested parfors of "
-                << queue.owner << " (" << loop->name << " and " << block->name
-                << "). The queue's size would be the product of their counts; "
-                << "only one producer loop is supported yet.";
-            loop = block;
         }
-        producer_loops.push_back(loop);
+        // Outermost first: a loop's block lies in the body of every loop
+        // around it, and the loops around one call are a chain.
+        std::sort(nest.begin(), nest.end(),
+                  [&](const shared_ptr<Block> &a, const shared_ptr<Block> &b) {
+                      const auto &pa = std::get<Terminator::ParFor>(a->terminator.data);
+                      return Cfg(*O, pa.body.name).contains(b->name);
+                  });
+        producer_nests.push_back(std::move(nest));
+    }
+    vector<shared_ptr<Block>> producer_loops; // each producer's outermost loop
+    for (const auto &nest : producer_nests) {
+        producer_loops.push_back(nest.empty() ? nullptr : nest.front());
     }
     shared_ptr<Block> producer_loop_block = producer_loops.front();
+    const vector<shared_ptr<Block>> &nest = producer_nests.front();
+    if (producers.size() > 1) {
+        for (size_t i = 0; i < producers.size(); i++) {
+            internal_assert(producer_nests[i].size() <= 1)
+                << what << ": the call to " << producers[i].call()->call.name
+                << " in " << producers[i].block->name << " is inside "
+                << producer_nests[i].size() << " nested parfors of "
+                << queue.owner << ", and the queue has " << producers.size()
+                << " producers; a nest of loops is one producer's shape.";
+        }
+    }
+    for (size_t k = 0; k + 1 < nest.size(); k++) {
+        const auto &outer = std::get<Terminator::ParFor>(nest[k]->terminator.data);
+        const auto &inner = std::get<Terminator::ParFor>(nest[k + 1]->terminator.data);
+        const shared_ptr<Block> after = omap.at(inner.cont.name);
+        const bool ends =
+            after->instrs.empty() && after->args.empty() &&
+            std::holds_alternative<Terminator::Yield>(after->terminator.data);
+        internal_assert(ends)
+            << what << ": the loop " << outer.index << " of " << queue.owner
+            << " goes on after its inner loop " << inner.index << " (in "
+            << after->name << "). The rest of an iteration runs in the pass "
+            << "over the record after the drain, and the pass is one loop over "
+            << "the innermost iterations; what a loop around them does after "
+            << "them has no place there. Write it as a loop of its own after "
+            << "the nest.";
+    }
 
     // Where the drain goes, and what has to dominate it: the block whose
     // parfor produces the entries, or the block that makes the one call.
@@ -1548,6 +1585,76 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         point->lookups[copy->name] = value;
         return Definition{value, point->name};
     };
+    // Whether anything inside the producer loops writes through the owner's
+    // local `slot`: a store or an accumulate whose address is rooted at it,
+    // or a call handed it or an address inside it, which may write through
+    // it. A local nothing inside the loops writes holds one value throughout
+    // them -- the sample count a call before the loop stored into its result
+    // slot -- and a read of it can move before the loop.
+    const auto written_inside = [&](const Instruction *slot) {
+        if (!producer_loop_block) {
+            return false;
+        }
+        Definitions &odefs_here = defs.at(queue.owner);
+        const auto rooted_at = [&](const string &block, const shared_ptr<Value> &v) {
+            Definition d = odefs_here.of(block, v);
+            for (;;) {
+                if (!d.value) {
+                    return false;
+                }
+                const auto *i = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+                if (i == nullptr) {
+                    return false;
+                }
+                if (i->get() == slot) {
+                    return true;
+                }
+                const Instruction &in = **i;
+                const bool through = in.op == Instruction::Op::GEP ||
+                                     in.op == Instruction::Op::FieldPtr ||
+                                     in.op == Instruction::Op::Set;
+                if (!through || in.operands.empty()) {
+                    return false;
+                }
+                d = odefs_here.of(d.block, in.operands[0]);
+            }
+        };
+        const auto &p = std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
+        const Cfg body(*O, p.body.name);
+        for (const auto &block : body.blocks()) {
+            for (const auto &in : block->instrs) {
+                const bool write = in->op == Instruction::Op::Store ||
+                                   in->op == Instruction::Op::AccAdd ||
+                                   in->op == Instruction::Op::AccMul ||
+                                   in->op == Instruction::Op::AccSub ||
+                                   in->op == Instruction::Op::AccMin ||
+                                   in->op == Instruction::Op::AccMax ||
+                                   in->op == Instruction::Op::AccArgmin ||
+                                   in->op == Instruction::Op::AccArgmax ||
+                                   in->op == Instruction::Op::AtomicAdd ||
+                                   in->op == Instruction::Op::Push;
+                if (write && !in->operands.empty() && rooted_at(block->name, in->operands[0])) {
+                    return true;
+                }
+            }
+            const auto handed = [&](const vector<shared_ptr<Value>> &args) {
+                return std::any_of(args.begin(), args.end(), [&](const shared_ptr<Value> &a) {
+                    return rooted_at(block->name, a);
+                });
+            };
+            if (const auto *call = std::get_if<Terminator::Call>(&block->terminator.data)) {
+                if (handed(call->call.args)) {
+                    return true;
+                }
+            } else if (const auto *multi = std::get_if<Terminator::MultiCall>(&block->terminator.data)) {
+                if (handed(multi->call.args)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
     // A definition in function `g` (the owner, or one on the chain), as the
     // owner can have it before the producer loop, or nothing.
     map<std::pair<string, const Instruction *>, optional<Definition>> moved;
@@ -1600,7 +1707,25 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         if (in->op == Instruction::Op::Load ||
             in->op == Instruction::Op::ExtractIdx) {
-            const auto base = materialize(g, gdefs.of(d.block, in->operands[0]));
+            const Definition bd = gdefs.of(d.block, in->operands[0]);
+            // A read of the owner's own local that nothing inside the loops
+            // writes: what it holds before the loop is what every iteration
+            // reads, so the read moves there.
+            if (const Instruction *slot = g == queue.owner ? as_local(bd) : nullptr) {
+                if (!available(bd) || written_inside(slot)) {
+                    return std::nullopt;
+                }
+                vector<shared_ptr<Value>> operands{reach(point, bd.value)};
+                for (size_t k = 1; k < in->operands.size(); k++) {
+                    const auto m = materialize(g, gdefs.of(d.block, in->operands[k]));
+                    if (!m.has_value()) {
+                        return std::nullopt;
+                    }
+                    operands.push_back(reach(point, m->value));
+                }
+                return moved[key] = copy_into_point(*in, std::move(operands));
+            }
+            const auto base = materialize(g, bd);
             if (!base.has_value() || !read_only_parameter(*base)) {
                 return std::nullopt;
             }
@@ -2190,7 +2315,94 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                           {sum, reach(where, p.stride)});
             };
             if (producers.size() == 1) {
+                // A nest of loops holds the product of their counts, so an
+                // inner loop's bounds have to be in reach before the
+                // outermost: the samples per pixel are, the pixels' count is.
+                const BlockId point_id_here = ocfg.id(point->name);
+                for (size_t k = 1; k < nest.size(); k++) {
+                    const auto &q = std::get<Terminator::ParFor>(nest[k]->terminator.data);
+                    for (const auto &bound : {q.start, q.end, q.stride}) {
+                        // Settled: a bound threaded into the loop's block as
+                        // an argument is defined where its value is.
+                        const Definition d = settle(odefs.of(nest[k]->name, bound));
+                        const bool in_reach =
+                            d.block.empty() ||
+                            (ocfg.find(d.block) != NO_BLOCK &&
+                             odom.dominates(ocfg.id(d.block), point_id_here));
+                        const auto shown = [](const shared_ptr<Value> &v) {
+                            std::ostringstream os;
+                            std::visit(overloads{
+                                           [&](const Constant &c) { c.dump(os); },
+                                           [&](const Argument &a) { os << a.name; },
+                                           [&](const shared_ptr<Instruction> &i) {
+                                               os << i->name << " = " << op_name(i->op);
+                                               for (const auto &o : i->operands) {
+                                                   os << " ";
+                                                   std::visit(overloads{
+                                                                  [&](const Constant &c) { c.dump(os); },
+                                                                  [&](const Argument &a) { os << a.name; },
+                                                                  [&](const shared_ptr<Instruction> &oi) { os << oi->name; },
+                                                              },
+                                                              o->data);
+                                               }
+                                           },
+                                       },
+                                       v->data);
+                            return os.str();
+                        };
+                        internal_assert(in_reach)
+                            << what << ": the loop " << q.index << " of "
+                            << queue.owner << ", inside the loop "
+                            << producer_loop->index << " that owns the pushes, "
+                            << "is bounded by a value computed inside that loop ("
+                            << shown(bound) << ", defined in " << d.block
+                            << "); the queue, sized by the product of their "
+                            << "counts, has to be made before it. Not supported.";
+                    }
+                }
                 count = trip_count(*producer_loop, point);
+                // An inner loop's trip count from its bounds as settled
+                // before the outermost loop -- the copy the hoist made of a
+                // bound computed inside it, checked in reach just above.
+                const auto settled_trip_count =
+                    [&](const Terminator::ParFor &q, const string &loop_block) {
+                        const Type itype = q.start->get_type();
+                        const auto at = [&](const shared_ptr<Value> &v) {
+                            return reach(point, settle(odefs.of(loop_block, v)).value);
+                        };
+                        const auto start = constant_of(q.start);
+                        const auto stride = constant_of(q.stride);
+                        if (start.has_value() && *start == 0 && stride.has_value() &&
+                            *stride == 1) {
+                            return at(q.end);
+                        }
+                        auto diff = insert_instruction(*O, point, point->instrs.size(), itype,
+                                                       Instruction::Op::Sub,
+                                                       {at(q.end), at(q.start)});
+                        if (stride.has_value() && *stride == 1) {
+                            return diff;
+                        }
+                        auto less = insert_instruction(
+                            *O, point, point->instrs.size(), itype, Instruction::Op::Sub,
+                            {at(q.stride), index_constant(itype, 1)});
+                        auto sum = insert_instruction(*O, point, point->instrs.size(), itype,
+                                                      Instruction::Op::Add, {diff, less});
+                        return insert_instruction(*O, point, point->instrs.size(), itype,
+                                                  Instruction::Op::Div, {sum, at(q.stride)});
+                    };
+                for (size_t k = 1; k < nest.size(); k++) {
+                    const auto &q = std::get<Terminator::ParFor>(nest[k]->terminator.data);
+                    shared_ptr<Value> inner = settled_trip_count(q, nest[k]->name);
+                    internal_assert(equals(inner->get_type(), count->get_type()))
+                        << what << ": the loops " << producer_loop->index << " and "
+                        << q.index << " of " << queue.owner << " have indices of "
+                        << "different types (" << count->get_type() << ", "
+                        << inner->get_type() << "); a nest that owns a queue "
+                        << "indexes it with one type.";
+                    count = insert_instruction(*O, point, point->instrs.size(),
+                                               count->get_type(), Instruction::Op::Mul,
+                                               {count, inner});
+                }
             } else {
                 // Every producer loop pushes: the queue holds the sum of
                 // their counts, made -- with the storage -- before the first
@@ -2264,12 +2476,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // it. The deferred call's value is written where the path ends. The
     // iteration's slot is its index in the producer loop, taken from the
     // loop's start and stride; a lone call has slot 0.
-    const auto slot_index_at = [&](const shared_ptr<Block> &block,
-                                   size_t &at) -> shared_ptr<Value> {
-        if (!producer_loop_block) {
-            return constant_u32(0);
-        }
-        const auto &p = std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
+    // A loop's index taken from its start and stride, as instructions at
+    // `at` in `block`.
+    const auto normalized_index = [&](const Terminator::ParFor &p,
+                                      const shared_ptr<Block> &block,
+                                      size_t &at) -> shared_ptr<Value> {
         const shared_ptr<Block> pbody = omap.at(p.body.name);
         internal_assert(!pbody->args.empty())
             << what << ": " << pbody->name << " has no index";
@@ -2285,6 +2496,53 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         if (!(stride.has_value() && *stride == 1)) {
             index = insert_instruction(*O, block, at++, itype, Instruction::Op::Div,
                                        {index, reach(block, p.stride)});
+        }
+        return index;
+    };
+    // The trip count of a loop, as instructions at `at` in `block`: `end`
+    // for `0:end:1`, ceil((end - start) / stride) otherwise.
+    const auto trip_count_at = [&](const Terminator::ParFor &p,
+                                   const shared_ptr<Block> &block,
+                                   size_t &at) -> shared_ptr<Value> {
+        const Type itype = p.start->get_type();
+        const auto start = constant_of(p.start);
+        const auto stride = constant_of(p.stride);
+        if (start.has_value() && *start == 0 && stride.has_value() && *stride == 1) {
+            return reach(block, p.end);
+        }
+        auto diff = insert_instruction(*O, block, at++, itype, Instruction::Op::Sub,
+                                       reach_all(block, {p.end, p.start}));
+        if (stride.has_value() && *stride == 1) {
+            return diff;
+        }
+        auto less = insert_instruction(*O, block, at++, itype, Instruction::Op::Sub,
+                                       {reach(block, p.stride), index_constant(itype, 1)});
+        auto sum = insert_instruction(*O, block, at++, itype, Instruction::Op::Add,
+                                      {diff, less});
+        return insert_instruction(*O, block, at++, itype, Instruction::Op::Div,
+                                  {sum, reach(block, p.stride)});
+    };
+    // The iteration's slot: its index in the producer loop, or in a nest of
+    // them the linearization of their indices, outermost first (pbrt's
+    // pixelIndex: the pixel's row times the width plus its column).
+    const auto slot_index_at = [&](const shared_ptr<Block> &block,
+                                   size_t &at) -> shared_ptr<Value> {
+        if (!producer_loop_block) {
+            return constant_u32(0);
+        }
+        shared_ptr<Value> index;
+        for (const shared_ptr<Block> &loop : nest) {
+            const auto &p = std::get<Terminator::ParFor>(loop->terminator.data);
+            shared_ptr<Value> own = normalized_index(p, block, at);
+            if (!index) {
+                index = own;
+                continue;
+            }
+            const Type itype = index->get_type();
+            auto scaled = insert_instruction(*O, block, at++, itype, Instruction::Op::Mul,
+                                             {index, trip_count_at(p, block, at)});
+            index = insert_instruction(*O, block, at++, itype, Instruction::Op::Add,
+                                       {scaled, own});
         }
         return index;
     };

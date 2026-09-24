@@ -15,6 +15,7 @@ add_bonsai_tests(
     defer-continuation.bonsai
     defer-drain-order.bonsai
     defer-single-buffer.bonsai
+    defer-nested-producer.bonsai
     merge-variant-fold.bonsai
     defer-split.bonsai
     defer-stage-cycle.bonsai

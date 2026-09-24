@@ -1,0 +1,53 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue the whole frame owns: the producer's call is inside two parfors,
+// the pixels and each pixel's samples, and `run.queue(root)` makes one
+// queue for all of them -- sized by the product of the two counts, its
+// record indexed by the pixel's index times the samples plus the sample's
+// (pbrt's pixelIndex), the drain and the film pass after the outer loop.
+// The pixel loop does nothing after its inner loop; the pixel's
+// finalization is a loop of its own after the nest, as pbrt's GetImage is
+// a pass after UpdateFilm. The paths of every pixel then advance together,
+// a round per bounce over the frame, and the sum per pixel is the same as
+// the plain recursion's: pixel p's samples are s = 0..3 with x = 4p + s,
+// each path adding x, x + 1 and x + 2 over its three steps, 3x + 3, so
+// pixel p sums to 48p + 30 over its four samples and prints 12p + 7 once
+// divided by four (an integer division): 7, 19, 31, 43.
+import stdlib/numerics;
+
+func step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    if depth == 0 {
+        return;
+    }
+    total += x;
+    step(x + 1, depth - 1, total);
+    return;
+}
+
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        out[p] = 0;
+        parfor s in 0:4 {
+            total : reduce(+) i32 = 0;
+            step(4 * p + s, 3, total);
+            atomic out[p] += total;
+        }
+    }
+    parfor p in 0:4 {
+        out[p] = out[p] / 4;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    paths = run.queue(root);
+    run.defer(step, paths);
+    step.defer(step, paths);
+}

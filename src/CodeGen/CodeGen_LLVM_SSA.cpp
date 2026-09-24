@@ -577,8 +577,15 @@ struct CodeGen_LLVM::SSALowering {
             const Allocate::Memory memory =
                 instr->op == Instruction::Op::Alloca ? Allocate::Stack
                                                      : Allocate::Heap;
+            // In a block that runs once per call, a run-time size computed
+            // there may size the allocation in place (see once_blocks).
+            const std::shared_ptr<Block> home = instr->owner.lock();
+            const bool once = home && once_blocks.contains(home->name);
+            const bool was = cg.alloca_where_defined;
+            cg.alloca_where_defined = once;
             cg.codegen_stmt(
                 Allocate::make(WriteLoc(instr->name, allocated), memory));
+            cg.alloca_where_defined = was;
             return;
         }
         if (instr->op == Instruction::Op::AccAdd ||
@@ -854,9 +861,21 @@ struct CodeGen_LLVM::SSALowering {
     // here. `yield_to` is where a Yield in the region branches, or null to
     // return -- see `yield_targets`. The block and phi maps are swapped for the
     // duration, since a region emitted into a kernel has its own LLVM blocks.
+    // The blocks of the regions emitted as functions of their own -- the
+    // function's top region, a bound loop's body -- that lie outside every
+    // loop of their region, and so run once per call of the function they
+    // are in. A stack allocation there with a run-time size may be made in
+    // place (CodeGen_LLVM::alloca_where_defined): the frame's queues and
+    // record, sized by the count of pixel samples once the sampler is known.
+    std::set<std::string> once_blocks;
+
+    // `own_function`: whether this region is emitted as a function of its
+    // own (the top of one, or a bound loop's body) rather than inline as the
+    // body of a counted loop, whose blocks run once per iteration.
     void emit_region(const std::string &entry_name,
                      const std::set<std::string> &region,
-                     llvm::BasicBlock *entry_bb, llvm::BasicBlock *yield_to) {
+                     llvm::BasicBlock *entry_bb, llvm::BasicBlock *yield_to,
+                     bool own_function) {
         auto saved_blocks = std::move(blocks);
         auto saved_phis = std::move(phis);
         blocks.clear();
@@ -924,9 +943,17 @@ struct CodeGen_LLVM::SSALowering {
                 }
             }
         }
-        const ir::ssa::DomTree dom = ir::ssa::compute_dominator_tree(
-            ir::ssa::Graph::from_successors(std::move(succs),
-                                            ids.at(entry_name)));
+        const ir::ssa::Graph graph =
+            ir::ssa::Graph::from_successors(std::move(succs), ids.at(entry_name));
+        const ir::ssa::DomTree dom = ir::ssa::compute_dominator_tree(graph);
+        if (own_function) {
+            const ir::ssa::LoopForest loops = ir::ssa::compute_loop_forest(graph, dom);
+            for (size_t i = 0; i < names.size(); i++) {
+                if (loops.innermost(ir::ssa::BlockId(i)) == nullptr) {
+                    once_blocks.insert(names[i]);
+                }
+            }
+        }
 
         yield_targets.push_back(yield_to);
         std::function<void(ir::ssa::BlockId)> emit =
@@ -999,7 +1026,8 @@ struct CodeGen_LLVM::SSALowering {
         cg.builder->CreateCondBr(test, body_bb, exit, cg.very_likely_branch);
 
         cg.builder->SetInsertPoint(body_bb);
-        emit_region(p.body.name, body_region, body_bb, latch);
+        emit_region(p.body.name, body_region, body_bb, latch,
+                    /*own_function=*/false);
 
         cg.builder->SetInsertPoint(latch);
         llvm::Value *next =
@@ -1029,7 +1057,8 @@ struct CodeGen_LLVM::SSALowering {
             },
             [this, p, body_region](llvm::BasicBlock *entry,
                                    llvm::BasicBlock *yield_to) {
-                emit_region(p.body.name, body_region, entry, yield_to);
+                emit_region(p.body.name, body_region, entry, yield_to,
+                            /*own_function=*/true);
             },
         };
     }
@@ -1308,7 +1337,8 @@ struct CodeGen_LLVM::SSALowering {
             cg.emit_rng_setup();
         }
 
-        emit_region(entry(), region_of(entry()), entry_bb, nullptr);
+        emit_region(entry(), region_of(entry()), entry_bb, nullptr,
+                    /*own_function=*/true);
 
         cg.frames.pop_frame();
     }

@@ -926,6 +926,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     uint64_t forall_loop_id = 0;
     // Memory type to perform Build<Array_t>s in.
     ir::Allocate::Memory allocate_memory = ir::Allocate::Memory::Heap;
+    // Whether the stack allocation being emitted sits in a block that runs
+    // once per call of its function though it is not the entry block, so
+    // that a run-time size computed there -- the frame's sample count, known
+    // only after the sampler's variant is settled -- may size it in place
+    // (see create_alloca_at_entry). Set by the SSA lowering for the blocks
+    // outside every loop of a function-level region, since only it knows
+    // the loops (CodeGen_LLVM_SSA.cpp, SSALowering::once_blocks).
+    bool alloca_where_defined = false;
     // `--no-heap`: refuse to emit a heap allocation. See CompilerOptions.
     bool no_heap = false;
 };

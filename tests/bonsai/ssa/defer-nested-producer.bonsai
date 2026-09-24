@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// A queue the whole frame owns (see correctness/llvm/defer-nested-producer
+// for the run): the producer's call sits inside `p` and `s`, and the queue
+// is one for all of them. What to read for: the queue and the record sized
+// by `4 * 4`, the product of the two counts; the initial push's slot
+// `p * 4 + s`, the linearization of the nest's indices, outermost first;
+// the drain `paths!round` and the pass `paths_rest` after the outer loop
+// over `p`, the pass a flat parfor over the sixteen records that runs the
+// sample's rest -- the atomic add into `out[p]` -- with the record's `p`
+// and the reducer's slot; and the finalization loop after them all.
+import stdlib/numerics;
+
+func step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    if depth == 0 {
+        return;
+    }
+    total += x;
+    step(x + 1, depth - 1, total);
+    return;
+}
+
+func run(out : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        out[p] = 0;
+        parfor s in 0:4 {
+            total : reduce(+) i32 = 0;
+            step(4 * p + s, 3, total);
+            atomic out[p] += total;
+        }
+    }
+    parfor p in 0:4 {
+        out[p] = out[p] / 4;
+    }
+    return;
+}
+
+schedule {
+    paths = run.queue(root);
+    run.defer(step, paths);
+    step.defer(step, paths);
+}
