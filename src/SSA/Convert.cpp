@@ -1711,6 +1711,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     const CompilerOptions &options,
                     ir::Program *keep_ssa = nullptr) {
     FuncMap fmap;
+    // How each queue a deferral makes stores its entries, for the pushes'
+    // lowering at the end (SSA/Defer.h).
+    QueueLayouts layouts;
 
     TypeMap func_type_map;
 
@@ -1907,6 +1910,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         QueueSpec spec;
                         spec.name = s.queue;
                         spec.owner = q->second.owner;
+                        spec.layouts = &layouts;
                         attach_splits(spec, queue_splits, adt_storages);
                         internal_assert(!q->second.loop.names.empty())
                             << s.queue << " names no loop";
@@ -2014,6 +2018,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         QueueSpec spec;
                         spec.name = d.queue;
                         spec.owner = q->second.owner;
+                        spec.layouts = &layouts;
                         attach_splits(spec, queue_splits, adt_storages);
                         spec.initial_push = directive_on(q->second.owner);
                         // Whether running an entry can push onto this queue,
@@ -2296,7 +2301,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // and the store it stands for (see SSA/Defer.h).
     phase("contraction, signatures and dumps");
     for (const auto &[name, f] : fmap) {
-        lower_pushes(*f);
+        lower_pushes(*f, layouts);
     }
     phase("pushes");
     // A `mut` local the builder put in memory that nothing but loads and

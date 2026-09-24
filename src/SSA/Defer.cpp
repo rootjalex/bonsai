@@ -554,20 +554,8 @@ struct Field {
     Definition origin;
 };
 
-// One scalar of an entry, which the queue keeps in an array of its own: a
-// queue's storage is a struct of arrays. An entry field that is an aggregate
-// is taken down to its scalars -- a struct to its fields, a short vector to
-// its components -- so that a gang of entries reads each scalar of its
-// continuations as one dense vector load, and the compacting push writes
-// each with one compress-store; and so that the queue reads as pbrt's
-// wavefront queues do, whose `SOA<Ray>` holds an `SOA<Point3f> o` that holds
-// `float *x, *y, *z` (pbrt's `soac`). Named after the entry's field and the
-// path down to the scalar. A layout for the queue that a schedule asks for
-// may replace this; nothing here is the layout language's promise.
-struct Leaf {
-    string name;
-    Type type;
-};
+// One scalar of an entry (see QueueLayout in SSA/Defer.h).
+using Leaf = QueueLayout::Leaf;
 
 // The name of component `k` of a short vector: the geometric letters for a
 // vector short enough to have them, the index otherwise.
@@ -576,24 +564,42 @@ string component_name(uint32_t k, uint32_t lanes) {
 }
 
 // The leaves of a value of `type` named `name`, appended to `out` in the
-// order take_apart() reads them and rebuild() puts them back.
-void leaves_of(const string &name, const Type &type, vector<Leaf> &out) {
+// order take_apart() reads them and rebuild() puts them back. A struct that
+// is an ADT's inline storage (Program::AdtStorage, by the struct's name) has
+// its padding field's leaves marked Pad, and so does everything under a
+// padding field (`in_pad`): zero at every construction, read by nothing.
+void leaves_of(const string &name, const Type &type,
+               const std::map<string, ir::Program::AdtStorage> *adts,
+               bool in_pad, vector<Leaf> &out) {
     if (const Struct_t *s = type.as<Struct_t>()) {
+        string pad_field;
+        if (adts != nullptr) {
+            if (const auto it = adts->find(s->name);
+                it != adts->end() && it->second.inline_storage) {
+                pad_field = it->second.pad_field;
+            }
+        }
         for (const TypedVar &f : s->fields) {
-            leaves_of(name + "_" + f.name, f.type, out);
+            leaves_of(name + "_" + f.name, f.type, adts,
+                      in_pad || (!pad_field.empty() && f.name == pad_field), out);
         }
         return;
     }
     if (const Vector_t *v = type.as<Vector_t>()) {
         for (uint32_t k = 0; k < v->lanes; k++) {
-            leaves_of(name + "_" + component_name(k, v->lanes), v->etype, out);
+            leaves_of(name + "_" + component_name(k, v->lanes), v->etype, adts,
+                      in_pad, out);
         }
         return;
     }
     internal_assert(!type.is<Array_t>() && !type.is<Tuple_t>())
         << "[unimplemented] a queue entry's field " << name << " is " << type
         << ", which a struct-of-arrays queue has no array for";
-    out.push_back(Leaf{name, type});
+    Leaf leaf;
+    leaf.name = name;
+    leaf.type = type;
+    leaf.kind = in_pad ? Leaf::Kind::Pad : Leaf::Kind::Stored;
+    out.push_back(std::move(leaf));
 }
 
 // Makes an instruction where the caller wants it, and hands back its value.
@@ -2637,20 +2643,34 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     vector<std::pair<size_t, size_t>> field_leaves; // each field's [first, last)
     for (const Field &f : fields) {
         const size_t first = leaves.size();
-        leaves_of(f.name, f.type, leaves);
+        leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false, leaves);
         field_leaves.emplace_back(first, leaves.size());
     }
+    // The queue's arrays: one per stored leaf, in leaf order.
     Struct_t::Map queue_fields = {TypedVar("count", u32())};
-    for (const Leaf &leaf : leaves) {
+    size_t narrays = 0;
+    for (Leaf &leaf : leaves) {
+        if (leaf.kind != Leaf::Kind::Stored) {
+            continue;
+        }
         for (const TypedVar &other : queue_fields) {
             internal_assert(other.name != leaf.name)
                 << what << ": two scalars of " << queue.name << "'s entry are "
                 << "both named " << leaf.name << " once their fields' names "
                 << "and their paths are joined";
         }
+        leaf.array = narrays++;
         queue_fields.emplace_back(leaf.name, Array_t::make(leaf.type, Expr()));
     }
     const Type queue_t = Struct_t::make("Queue_" + queue.name, queue_fields);
+    internal_assert(queue.layouts != nullptr) << what << ": no place for the layout";
+    {
+        QueueLayout layout;
+        layout.entry = entry_t;
+        layout.queue = queue_t;
+        layout.leaves = leaves;
+        (*queue.layouts)["Queue_" + queue.name] = std::move(layout);
+    }
 
     // The queues a split makes of this one (QueueSpec::split): a leaf of
     // the split's tree per path of variants, each with a copy of the callee
@@ -3020,11 +3040,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // leaf.
     const size_t nqueues = double_buffered ? 2 : subqueues.size();
     const bool many = nqueues > 1;
-    // stores[i][l]: queue i's array for leaf l, named after both.
+    // stores[i][a]: queue i's array number a (Leaf::array), named after the
+    // queue and the leaf it stores.
     vector<vector<shared_ptr<Value>>> stores(nqueues);
     for (size_t i = 0; i < nqueues; i++) {
         const string qname = double_buffered ? queue.name : subqueues[i].path;
         for (const Leaf &leaf : leaves) {
+            if (leaf.kind != Leaf::Kind::Stored) {
+                continue;
+            }
+            internal_assert(leaf.array == stores[i].size()) << leaf.name;
             stores[i].push_back(scratch(make_alloca(
                 *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
                 qname + "_" + leaf.name +
@@ -3058,22 +3083,26 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                        {reach(block, queues), which});
     };
     // The storage of queue `which`, as the queue records it: a function from
-    // a leaf to its array, so that a reader of several leaves finds the queue
-    // once.
+    // a stored leaf to its array, so that a reader of several leaves finds
+    // the queue once.
     const auto storage_of = [&](const shared_ptr<Block> &block,
                                 const shared_ptr<Value> &which)
         -> std::function<shared_ptr<Value>(size_t)> {
         if (!many) {
-            return [&, block](size_t l) { return reach(block, stores[0][l]); };
+            return [&, block](size_t l) {
+                internal_assert(leaves[l].kind == Leaf::Kind::Stored) << leaves[l].name;
+                return reach(block, stores[0][leaves[l].array]);
+            };
         }
         // Each handle read through the queue's address, so that an entry of
         // many scalars reads the handles it needs and not the whole queue.
         auto that = queue_at(block, which);
         return [&, block, that](size_t l) {
+            internal_assert(leaves[l].kind == Leaf::Kind::Stored) << leaves[l].name;
             const Type array_t = Array_t::make(leaves[l].type, Expr());
             auto handle = block->make_instruction(
                 Ptr_t::make(array_t), Instruction::Op::FieldPtr,
-                {that, constant_u32(1 + l)});
+                {that, constant_u32(1 + leaves[l].array)});
             return block->make_instruction(array_t, Instruction::Op::Load,
                                            {handle});
         };
@@ -3367,8 +3396,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     internal_assert(l < field_leaves[f].second)
                         << what << ": " << fields[f].name << " has more scalars "
                         << "than the queue stores for it";
+                    const Leaf &leaf = leaves[l++];
+                    switch (leaf.kind) {
+                    case Leaf::Kind::Pad:
+                        return zero_value(t, *O, body);
+                    case Leaf::Kind::Stored:
+                        break;
+                    }
                     return body->make_instruction(t, Instruction::Op::ExtractIdx,
-                                                  {run_storage(l++), index});
+                                                  {run_storage(l - 1), index});
                 });
                 internal_assert(l == field_leaves[f].second)
                     << what << ": " << fields[f].name << " has fewer scalars "
@@ -3673,7 +3709,7 @@ shared_ptr<Value> lane_rank(Function &func, const shared_ptr<Block> &block,
 
 } // namespace
 
-void lower_pushes(Function &func) {
+void lower_pushes(Function &func, const QueueLayouts &layouts) {
     for (const auto &block : func.blocks) {
         for (size_t i = 0; i < block->instrs.size(); i++) {
             const shared_ptr<Instruction> push = block->instrs[i];
@@ -3699,15 +3735,21 @@ void lower_pushes(Function &func) {
                             qs->fields[0].name == "count")
                 << "push to something that is not a queue: " << queue_t;
             const Type count_t = qs->fields[0].type;
-            // The queue's storage: an array per scalar of the entry (see
-            // Leaf), in the entry's order, behind the count.
-            vector<Leaf> leaves;
-            for (size_t k = 1; k < qs->fields.size(); k++) {
-                internal_assert(qs->fields[k].type.is<Array_t>())
-                    << "push to something that is not a queue: " << queue_t
-                    << " holds a " << qs->fields[k].type;
-                leaves.push_back(
-                    Leaf{qs->fields[k].name, qs->fields[k].type.element_of()});
+            // The queue's layout: the entry's scalars in order, and for each
+            // stored one its array behind the count (QueueLayout).
+            const auto layout = layouts.find(qs->name);
+            internal_assert(layout != layouts.end())
+                << "push to " << queue_t << ", whose layout no deferral recorded";
+            const vector<Leaf> &leaves = layout->second.leaves;
+            for (const Leaf &leaf : leaves) {
+                if (leaf.kind != Leaf::Kind::Stored) {
+                    continue;
+                }
+                internal_assert(1 + leaf.array < qs->fields.size() &&
+                                qs->fields[1 + leaf.array].name == leaf.name &&
+                                qs->fields[1 + leaf.array].type.is<Array_t>())
+                    << "push to " << queue_t << ", which does not store "
+                    << leaf.name << " where its layout says";
             }
 
             // A gang's push, told by its value: one slot per lane. The lanes
@@ -3792,18 +3834,19 @@ void lower_pushes(Function &func) {
                     << "an entry of " << parts.size() << " scalars pushed onto "
                     << queue_t << ", which stores " << leaves.size();
             }
-            // Each array's handle is read through the queue's address -- the
-            // handles the entry needs, not the whole queue -- and names the
-            // storage itself.
+            // Each stored scalar goes to its array, whose handle is read
+            // through the queue's address -- the handles the entry needs, not
+            // the whole queue -- and names the storage itself.
             for (size_t l = 0; l < leaves.size(); l++) {
-                if (parts[l] == nullptr) {
+                if (parts[l] == nullptr || leaves[l].kind != Leaf::Kind::Stored) {
                     continue;
                 }
+                const size_t k = 1 + leaves[l].array;
                 auto handle = insert_instruction(
-                    func, block, at++, Ptr_t::make(qs->fields[1 + l].type),
-                    Instruction::Op::FieldPtr, {q, constant_u32(1 + l)});
+                    func, block, at++, Ptr_t::make(qs->fields[k].type),
+                    Instruction::Op::FieldPtr, {q, constant_u32(k)});
                 auto array = insert_instruction(func, block, at++,
-                                                qs->fields[1 + l].type,
+                                                qs->fields[k].type,
                                                 Instruction::Op::Load, {handle});
                 auto place = insert_instruction(
                     func, block, at++,

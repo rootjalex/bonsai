@@ -15,6 +15,44 @@ namespace bonsai {
 namespace ir {
 namespace ssa {
 
+// How a queue stores its entries. The entry `Entry_<q>` is the continuation
+// as a value -- the deferred call's arguments -- and the queue `Queue_<q>`
+// keeps it as a struct of arrays behind a count, one array per scalar of
+// the entry that it stores. An entry field that is an aggregate is taken
+// down to its scalars, a struct to its fields and a short vector to its
+// components, so that a gang of entries reads each scalar of its
+// continuations as one dense vector load and the compacting push writes
+// each with one compress-store; and so that the queue reads as pbrt's
+// wavefront queues do, whose `SOA<Ray>` holds an `SOA<Point3f> o` that
+// holds `float *x, *y, *z` (pbrt's `soac`). Each scalar is a Leaf, named
+// after the entry's field and the path down to it, in the order the push
+// takes an entry apart and the drain puts one back together.
+//
+// A leaf that is not stored is one the drain can supply without reading
+// it back: the padding an ADT's storage puts between its tag and its
+// payload, which is zero at every construction (Lower/ADTs.cpp) and read by
+// nothing. What is left out is decided here, where the entry is made, and
+// recorded by the queue type's name for lower_pushes(), which meets the
+// push after every directive has run. A layout for the queue that a
+// schedule asks for may replace this; nothing here is the layout
+// language's promise.
+struct QueueLayout {
+    struct Leaf {
+        std::string name;
+        Type type;
+        enum class Kind {
+            Stored, // in the queue's array number `array`
+            Pad,    // an ADT's padding: zero, stored nowhere
+        } kind = Kind::Stored;
+        size_t array = 0; // among the queue's arrays, for a stored leaf
+    };
+    Type entry;
+    Type queue;
+    std::vector<Leaf> leaves;
+};
+// The layouts of a program's queues, by the queue type's name.
+using QueueLayouts = std::map<std::string, QueueLayout>;
+
 // A queue as the schedule declared it (ir::Queue), with its owner resolved:
 // `paths = render.queue(p)` is owner `render`, loop `p`; `.queue(root)` is
 // the function itself.
@@ -73,8 +111,11 @@ struct QueueSpec {
         std::map<std::string, Split> under;
     };
     std::optional<Split> split;
-    // How the program's variant types are stored, for the split's keys.
+    // How the program's variant types are stored, for the split's keys and
+    // for the padding the entry leaves out.
     const std::map<std::string, ir::Program::AdtStorage> *adt_storages = nullptr;
+    // Where the queue's layout is recorded once made, for lower_pushes().
+    QueueLayouts *layouts = nullptr;
 };
 
 // Turns the calls of `callee` inside `func` into entries on a queue, and gives
@@ -245,13 +286,14 @@ std::vector<Type> defer(FuncMap &funcs, const std::string &func,
 std::set<std::string> callees_of(const Function &f);
 
 // Replaces every Push with what it stands for: a fetch-and-add of the queue's
-// count, atomic when the push is, and a store of the entry into the slot that
-// claimed. A gang's push -- one whose value is a slot per lane -- adds the
-// number of lanes that push and scatters their entries to the slots at their
-// ranks. Run once the schedule is applied, right before code generation,
-// since until then a push has to stay one instruction for the vectorizer to
-// recognize (see Instruction::Op::Push).
-void lower_pushes(Function &func);
+// count, atomic when the push is, and a store of each stored scalar of the
+// entry (QueueLayout) into its array at the slot that claimed. A gang's push
+// -- one whose value is a slot per lane -- adds the number of lanes that
+// push and scatters their entries to the slots at their ranks. Run once the
+// schedule is applied, right before code generation, since until then a
+// push has to stay one instruction for the vectorizer to recognize (see
+// Instruction::Op::Push).
+void lower_pushes(Function &func, const QueueLayouts &layouts);
 
 } // namespace ssa
 } // namespace ir
